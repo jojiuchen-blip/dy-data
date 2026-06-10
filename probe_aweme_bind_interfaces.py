@@ -1,8 +1,11 @@
 import json
 import os
+import sys
 from pathlib import Path
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import douyin_app_id, douyin_app_secret, path_value
 

@@ -6,10 +6,13 @@ import os
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+import sys
 from pathlib import Path
 from typing import Dict, Iterable, List
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import (
     as_float,

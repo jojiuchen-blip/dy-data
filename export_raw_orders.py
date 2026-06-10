@@ -5,10 +5,13 @@ import os
 import time
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+import sys
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import as_int, douyin_account_id, douyin_app_id, douyin_app_secret, env_or_config, path_value, sku_type_map
 

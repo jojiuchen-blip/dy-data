@@ -3,6 +3,8 @@ import json
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 from src.dy_data.config import path_value
 
 path = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")

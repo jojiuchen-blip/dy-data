@@ -38,6 +38,12 @@ Copy-Item config.example.json config.local.json
 
 配置读取优先级：环境变量 > `DY_DATA_CONFIG` 指向的 JSON 文件 > `config.local.json` > 内置默认值。
 
+PowerShell entrypoints now resolve Python from `DY_DATA_PYTHON_EXE`, then
+`paths.python_exe` in local config, then `.venv\Scripts\python.exe`, then
+`python` on `PATH`. Root Python scripts also add the repository root before
+importing `src.dy_data`, which keeps embedded Python runtimes from failing with
+`ModuleNotFoundError: No module named 'src'`.
+
 ## 运行说明
 
 脚本依赖本地 Python 环境和抖音开放平台应用配置。运行前需要确保环境变量或脚本配置中有：

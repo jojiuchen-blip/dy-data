@@ -2,8 +2,11 @@ import csv
 import json
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import configured_today, path_value
 

@@ -8,6 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $ScriptDir "scripts\dy_data_runtime.ps1")
 $ExportScript = Join-Path $ScriptDir "douyin_verify_record_export.py"
 if (-not $SaveDir) {
     if ($env:DOUYIN_VERIFY_SAVE_DIR) {
@@ -17,30 +18,11 @@ if (-not $SaveDir) {
     }
 }
 if (-not $PythonExe) {
-    $BundledPython = $env:DY_DATA_PYTHON_EXE
-    if (-not $BundledPython) {
-        $BundledPython = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
-    }
-    if (Test-Path -LiteralPath $BundledPython) {
-        $PythonExe = $BundledPython
-    } else {
-        $PythonExe = "python"
-    }
+    $PythonExe = Initialize-DyDataRuntime -Root $ScriptDir
 }
 
 if (-not (Test-Path -LiteralPath $ExportScript)) {
     throw "Export script not found: $ExportScript"
-}
-
-$missing = @()
-foreach ($name in @("DOUYIN_APP_ID", "DOUYIN_APP_SECRET", "DOUYIN_ACCOUNT_ID")) {
-    if (-not [Environment]::GetEnvironmentVariable($name, "User")) {
-        $missing += $name
-    }
-}
-
-if ($missing.Count -gt 0) {
-    throw "Please set user environment variables first: $($missing -join ', ')"
 }
 
 [Environment]::SetEnvironmentVariable("DOUYIN_VERIFY_SAVE_DIR", $SaveDir, "User")

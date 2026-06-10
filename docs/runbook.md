@@ -25,6 +25,18 @@ $env:DY_DATA_CONFIG = "C:\path\to\config.local.json"
 python -m pip install -r requirements.txt
 ```
 
+PowerShell entrypoints read Python in this order:
+
+1. `DY_DATA_PYTHON_EXE`
+2. `paths.python_exe` in `DY_DATA_CONFIG`, `config.local.json`, or `config.json`
+3. `.venv\Scripts\python.exe`
+4. `python` on `PATH`
+
+The entrypoints also add the repository root to `PYTHONPATH`. Root-level Python
+scripts add the same root path before importing `src.dy_data`, so isolated
+embedded Python runtimes do not fail with `ModuleNotFoundError: No module named
+'src'`.
+
 ## 3. 常用命令
 
 生成销售看板：

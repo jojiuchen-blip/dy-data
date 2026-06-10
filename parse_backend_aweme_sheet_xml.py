@@ -2,7 +2,10 @@ import csv
 import json
 import re
 import xml.etree.ElementTree as ET
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import path_value
 

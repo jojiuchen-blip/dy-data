@@ -1,7 +1,10 @@
 import csv
 import json
+import sys
 from pathlib import Path
 from typing import Any
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import path_value
 

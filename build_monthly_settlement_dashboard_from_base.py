@@ -2,7 +2,10 @@ import csv
 import json
 from collections import defaultdict
 from datetime import datetime
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import path_value, product_types
 

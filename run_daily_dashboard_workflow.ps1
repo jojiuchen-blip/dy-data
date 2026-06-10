@@ -1,8 +1,8 @@
 ﻿$ErrorActionPreference = "Stop"
 
-if (-not $env:DOUYIN_APP_ID) { throw "Missing env var: DOUYIN_APP_ID" }
-if (-not $env:DOUYIN_APP_SECRET) { throw "Missing env var: DOUYIN_APP_SECRET" }
-if (-not $env:DOUYIN_ACCOUNT_ID) { throw "Missing env var: DOUYIN_ACCOUNT_ID" }
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+. (Join-Path $scriptDir "scripts\dy_data_runtime.ps1")
+$python = Initialize-DyDataRuntime -Root $scriptDir
 
 # 每天回扫90天，用于捕捉较早订单的核销、退款等状态变化。
 $env:DOUYIN_DAILY_LOOKBACK_DAYS = "90"
@@ -19,18 +19,6 @@ if ($env:DOUYIN_PUSH_WEBHOOK -and -not $env:DOUYIN_PUSH_WEBHOOK_TYPE) {
 # $env:TENCENT_COS_REGION = "ap-guangzhou"
 # $env:TENCENT_COS_BUCKET = "dy-productdata-1439925566"
 # $env:TENCENT_COS_KEY = "index.html"
-
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$python = $env:DY_DATA_PYTHON_EXE
-if (-not $python) {
-    $venvPython = Join-Path $scriptDir ".venv\Scripts\python.exe"
-    if (Test-Path -LiteralPath $venvPython) {
-        $python = $venvPython
-    } else {
-        $python = "python"
-    }
-}
-$env:DY_DATA_PYTHON_EXE = $python
 
 $logDir = $env:DY_DATA_DAILY_LOG_DIR
 if (-not $logDir) {

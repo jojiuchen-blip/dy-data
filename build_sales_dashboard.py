@@ -2,7 +2,10 @@ import csv
 import html as html_lib
 import json
 from datetime import date, datetime
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import config_value, path_value
 

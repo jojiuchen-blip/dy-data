@@ -8,8 +8,11 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
+import sys
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import (
     as_bool,

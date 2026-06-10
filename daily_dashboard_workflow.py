@@ -6,10 +6,13 @@ import shutil
 import subprocess
 import time
 from datetime import date, timedelta
+import sys
 from pathlib import Path
 from urllib.parse import quote
 
 import requests
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from src.dy_data.config import path_value, script_root, tencent_value
 
