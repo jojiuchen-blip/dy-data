@@ -35,7 +35,7 @@ function Get-DyDataConfig {
     }
 
     try {
-        return Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
+        return Get-Content -LiteralPath $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
     } catch {
         throw "Invalid config JSON: $configPath. $($_.Exception.Message)"
     }
