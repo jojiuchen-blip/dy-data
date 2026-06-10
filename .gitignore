@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+
+# Local runtime / generated exports
+diagnostics/
+exports/
+output_refund/
+
+# Local data and generated dashboards usually live under D:\app\抖音来客看板.
+# Keep this repository focused on source scripts and documentation.
+.env
+.venv/
+venv/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
