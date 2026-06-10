@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.dy_data.config import path_value
 
-VERIFY_DIR = Path(r"D:\app\抖音来客看板\settlement\verify_records_180d_days")
-OUT_PATH = Path(r"D:\app\抖音来客看板\settlement\核销券接口字段清单_最近10天.json")
+VERIFY_DIR = path_value("verify_records_dir", env_name="VERIFY_RECORDS_DIR")
+OUT_PATH = path_value("settlement_dir") / "核销券接口字段清单_最近10天.json"
 
 
 def walk(value: Any, prefix: str = ""):

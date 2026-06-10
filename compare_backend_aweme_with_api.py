@@ -4,16 +4,18 @@ import re
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
+
 try:
     import openpyxl
 except ImportError as exc:
     raise SystemExit("MISSING_OPENPYXL") from exc
 
 
-BACKEND_XLSX = Path(r"D:\浏览器下载\抖音号明细-2026-06-09.xlsx")
-BACKEND_PARSED_CSV = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析.csv")
-API_CSV = Path(r"D:\app\抖音来客看板\field_probe\职人绑定信息列表_测试.csv")
-OUT_DIR = Path(r"D:\app\抖音来客看板\field_probe")
+BACKEND_XLSX = path_value("backend_aweme_xlsx", env_name="BACKEND_AWEME_XLSX")
+BACKEND_PARSED_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+API_CSV = path_value("craftsman_table", env_name="CRAFTSMAN_TABLE")
+OUT_DIR = path_value("field_probe_dir", env_name="FIELD_PROBE_DIR")
 OUT_JSON = OUT_DIR / "来客后台抖音号明细_vs_接口职人绑定_差异报告.json"
 OUT_MISSING_CSV = OUT_DIR / "来客后台有_接口缺失_抖音号明细.csv"
 OUT_API_ONLY_CSV = OUT_DIR / "接口有_后台未匹配_抖音号明细.csv"

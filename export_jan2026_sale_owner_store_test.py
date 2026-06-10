@@ -11,8 +11,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import douyin_verify_record_export as verify
 import supplement_affected_months as orders_api
 
+from src.dy_data.config import path_value
 
-OUT_DIR = Path(r"D:\app\抖音来客看板\field_probe")
+OUT_DIR = path_value("field_probe_dir", env_name="FIELD_PROBE_DIR")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 ORDER_CACHE = OUT_DIR / "jan2026_target_orders_raw.json"
 VERIFY_CACHE = OUT_DIR / "jan2026_verify_records_raw.json"

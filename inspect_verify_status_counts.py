@@ -2,10 +2,13 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
+
+VERIFY_TEST_DIR = path_value("verify_by_selected_pois_test_dir")
 
 paths = [
-    Path(r"D:\app\抖音来客看板\settlement\verify_by_selected_pois_test\selected_poi_verify_records_20260601_20260610.json"),
-    Path(r"D:\app\抖音来客看板\settlement\verify_by_selected_pois_test\selected_poi_verify_records_20260530_20260601.json"),
+    VERIFY_TEST_DIR / "selected_poi_verify_records_20260601_20260610.json",
+    VERIFY_TEST_DIR / "selected_poi_verify_records_20260530_20260601.json",
 ]
 
 result = []

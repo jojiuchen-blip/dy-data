@@ -4,8 +4,9 @@ from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-ORDER_CSV = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
+ORDER_CSV = path_value("base_table", env_name="BASE_TABLE")
 
 
 def parse_time(text):

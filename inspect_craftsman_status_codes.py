@@ -3,8 +3,9 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-path = Path(r"D:\app\抖音来客看板\field_probe\职人绑定信息列表_测试.csv")
+path = path_value("craftsman_table", env_name="CRAFTSMAN_TABLE")
 with path.open("r", encoding="utf-8-sig", newline="") as f:
     rows = list(csv.DictReader(f))
 

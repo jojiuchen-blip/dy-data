@@ -4,14 +4,16 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from src.dy_data.config import path_value, product_types
 
-BASE = Path(r"D:\app\抖音来客看板")
+
+OUT_DIR = path_value("may_settlement_dashboard_dir")
 SOURCE_FILES = [
-    BASE / "settlement" / "may2026_settlement_dashboard" / "五月分账基础表.csv",
+    OUT_DIR / "五月分账基础表.csv",
 ]
-OUT_HTML = BASE / "settlement" / "may2026_settlement_dashboard" / "五月门店分账看板.html"
+OUT_HTML = OUT_DIR / "五月门店分账看板.html"
 
-PRODUCT_TYPES = ["268保养", "168保养", "漆面", "蒸发箱清洗", "外循环清洗"]
+PRODUCT_TYPES = product_types()
 
 
 def clean(value):

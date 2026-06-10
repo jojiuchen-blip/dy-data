@@ -3,9 +3,11 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-MATCHED_CSV = Path(r"D:\app\抖音来客看板\settlement\订单归属昵称匹配后台抖音号明细_最近10天_已匹配.csv")
-OUT_JSON = Path(r"D:\app\抖音来客看板\settlement\recent_matched_sales_pois.json")
+SETTLEMENT_DIR = path_value("settlement_dir")
+MATCHED_CSV = SETTLEMENT_DIR / "订单归属昵称匹配后台抖音号明细_最近10天_已匹配.csv"
+OUT_JSON = path_value("recent_matched_sales_pois")
 
 
 with MATCHED_CSV.open("r", encoding="utf-8-sig", newline="") as f:

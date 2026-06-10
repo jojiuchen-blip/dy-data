@@ -2,9 +2,10 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+from src.dy_data.config import path_value
 
-VERIFY_DIR = Path(r"D:\app\抖音来客看板\settlement\verify_records_180d_days")
-OUT = Path(r"D:\app\抖音来客看板\settlement\status2_verify_records.json")
+VERIFY_DIR = path_value("verify_records_dir", env_name="VERIFY_RECORDS_DIR")
+OUT = path_value("settlement_dir") / "status2_verify_records.json"
 
 
 def fmt_ts(value):

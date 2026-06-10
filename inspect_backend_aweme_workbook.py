@@ -3,8 +3,10 @@ from pathlib import Path
 
 import openpyxl
 
+from src.dy_data.config import path_value
 
-path = Path(r"D:\浏览器下载\抖音号明细-2026-06-09.xlsx")
+
+path = path_value("backend_aweme_xlsx", env_name="BACKEND_AWEME_XLSX")
 wb = openpyxl.load_workbook(path, read_only=True, data_only=True)
 
 result = []

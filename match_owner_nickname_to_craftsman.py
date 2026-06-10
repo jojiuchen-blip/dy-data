@@ -3,11 +3,13 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-SETTLEMENT_CSV = Path(r"D:\app\抖音来客看板\settlement\近10天商家已核销分账基础表_核销接口测试.csv")
-CRAFTSMAN_CSV = Path(r"D:\app\抖音来客看板\field_probe\职人绑定信息列表_测试.csv")
-OUT_JSON = Path(r"D:\app\抖音来客看板\settlement\订单归属昵称匹配抖音号明细_最近10天.json")
-OUT_CSV = Path(r"D:\app\抖音来客看板\settlement\订单归属昵称匹配抖音号明细_最近10天_未匹配样本.csv")
+SETTLEMENT_DIR = path_value("settlement_dir")
+SETTLEMENT_CSV = SETTLEMENT_DIR / "近10天商家已核销分账基础表_核销接口测试.csv"
+CRAFTSMAN_CSV = path_value("craftsman_table", env_name="CRAFTSMAN_TABLE")
+OUT_JSON = SETTLEMENT_DIR / "订单归属昵称匹配抖音号明细_最近10天.json"
+OUT_CSV = SETTLEMENT_DIR / "订单归属昵称匹配抖音号明细_最近10天_未匹配样本.csv"
 
 
 def read_csv(path: Path):

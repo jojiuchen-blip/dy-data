@@ -10,10 +10,11 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import douyin_verify_record_export as verify
+from src.dy_data.config import path_value
 
 
-BACKEND_AWEME_CSV = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析.csv")
-OUT_DIR = Path(r"D:\app\抖音来客看板\settlement\may2026_verify_by_poi")
+BACKEND_AWEME_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+OUT_DIR = path_value("may_verify_dir", env_name="MAY_VERIFY_OUT_DIR")
 PARTS_DIR = OUT_DIR / "parts"
 OUT_JSON = OUT_DIR / "may2026_verify_records_by_poi.json"
 OUT_CSV = OUT_DIR / "may2026_verify_records_by_poi.csv"

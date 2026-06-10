@@ -3,9 +3,10 @@ import json
 from pathlib import Path
 from typing import Any
 
+from src.dy_data.config import path_value
 
-BASE_TABLE = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
-OUT_PATH = Path(r"D:\app\抖音来客看板\settlement\订单接口字段清单_主表样本.json")
+BASE_TABLE = path_value("base_table", env_name="BASE_TABLE")
+OUT_PATH = path_value("settlement_dir") / "订单接口字段清单_主表样本.json"
 
 
 def parse_json(value: str):

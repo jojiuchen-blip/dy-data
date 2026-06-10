@@ -11,24 +11,30 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from src.dy_data.config import (
+    as_float,
+    as_int,
+    douyin_account_id,
+    douyin_app_id,
+    douyin_app_secret,
+    env_or_config,
+    path_value,
+    sku_type_map,
+)
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
-ACCOUNT_ID = os.getenv("DOUYIN_ACCOUNT_ID")
+
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
+ACCOUNT_ID = douyin_account_id()
 
 API_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/query/"
 ORDER_API_URL = "https://open.douyin.com/goodlife/v1/trade/order/query/"
 TOKEN_URL = "https://open.douyin.com/oauth/client_token/"
-SAVE_DIR = Path(
-    os.getenv(
-        "DOUYIN_REFUND_SAVE_DIR",
-        r"D:\抖音来客看板\output-finished",
-    )
-)
+SAVE_DIR = path_value("refund_save_dir", env_name="DOUYIN_REFUND_SAVE_DIR")
 
-PAGE_SIZE = min(max(int(os.getenv("DOUYIN_PAGE_SIZE", "100")), 1), 100)
-REQUEST_SLEEP_SECONDS = float(os.getenv("DOUYIN_REQUEST_SLEEP_SECONDS", "0.2"))
-CHUNK_DAYS = max(int(os.getenv("DOUYIN_REFUND_CHUNK_DAYS", "7")), 1)
+PAGE_SIZE = min(max(as_int(env_or_config("DOUYIN_PAGE_SIZE", "douyin", "page_size", default=100), 100), 1), 100)
+REQUEST_SLEEP_SECONDS = as_float(env_or_config("DOUYIN_REQUEST_SLEEP_SECONDS", "douyin", "request_sleep_seconds", default=0.2), 0.2)
+CHUNK_DAYS = max(as_int(env_or_config("DOUYIN_REFUND_CHUNK_DAYS", "douyin", "refund_chunk_days", default=7), 7), 1)
 TIME_FIELD = os.getenv("DOUYIN_REFUND_TIME_FIELD", "create").strip().lower()
 REQUEST_RETRY = max(int(os.getenv("DOUYIN_REQUEST_RETRY", "8")), 1)
 REFUND_STATUSES = [
@@ -40,19 +46,7 @@ MAX_PAGES = int(os.getenv("DOUYIN_REFUND_MAX_PAGES", "0"))
 MAX_ORDER_PAGES = int(os.getenv("DOUYIN_REFUND_MAX_ORDER_PAGES", "0"))
 FILTER_TARGET_SKUS = os.getenv("DOUYIN_REFUND_FILTER_TARGET_SKUS", "1").strip() not in ("0", "false", "False")
 
-SKU_TYPE_MAP = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+SKU_TYPE_MAP = sku_type_map()
 TARGET_SKU_IDS = set(SKU_TYPE_MAP)
 
 

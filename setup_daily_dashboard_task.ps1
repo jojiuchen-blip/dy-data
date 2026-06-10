@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = "Stop"
 
 $taskName = "抖音来客看板每日更新推送"
-$scriptPath = "C:\Users\86138\Documents\抖音来客看板\run_daily_dashboard_workflow.ps1"
+$scriptPath = Join-Path $PSScriptRoot "run_daily_dashboard_workflow.ps1"
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -Command `"& '$scriptPath'`""
 $trigger = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "10:00"
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 4)

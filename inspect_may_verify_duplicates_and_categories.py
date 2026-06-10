@@ -3,24 +3,13 @@ import json
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from src.dy_data.config import path_value, sku_type_map
 
-BASE = Path(r"D:\app\抖音来客看板")
-VERIFY_JSON = BASE / "settlement" / "may2026_verify_by_poi" / "may2026_verify_records_by_poi.json"
-ORDER_CSV = BASE / "data" / "看板基础表.csv"
 
-SKU_TO_PRODUCT_TYPE = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+VERIFY_JSON = path_value("may_verify_dir") / "may2026_verify_records_by_poi.json"
+ORDER_CSV = path_value("base_table", env_name="BASE_TABLE")
+
+SKU_TO_PRODUCT_TYPE = sku_type_map()
 
 
 def clean(value):

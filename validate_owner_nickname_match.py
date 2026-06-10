@@ -2,11 +2,13 @@ import csv
 import json
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-BASE_TABLE = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
-CRAFTSMAN_TABLE = Path(r"D:\app\抖音来客看板\field_probe\职人绑定信息列表_测试.csv")
-VERIFY_DIR = Path(r"D:\app\抖音来客看板\settlement\verify_records_180d_days")
-OUT_PATH = Path(r"D:\app\抖音来客看板\settlement\订单归属昵称匹配验证.json")
+
+BASE_TABLE = path_value("base_table", env_name="BASE_TABLE")
+CRAFTSMAN_TABLE = path_value("craftsman_table", env_name="CRAFTSMAN_TABLE")
+VERIFY_DIR = path_value("verify_records_dir", env_name="VERIFY_RECORDS_DIR")
+OUT_PATH = path_value("settlement_dir") / "订单归属昵称匹配验证.json"
 
 
 def parse_json(value, default):

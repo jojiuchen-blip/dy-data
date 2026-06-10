@@ -6,10 +6,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from build_settlement_base_from_current_data import BASE_TABLE, normalize_id, parse_json
+from src.dy_data.config import path_value
 
 
-VERIFY_DIR = Path(r"D:\app\抖音来客看板\settlement\verify_records_180d_days")
-OUT_DIR = Path(r"D:\app\抖音来客看板\settlement")
+VERIFY_DIR = path_value("verify_records_dir", env_name="VERIFY_RECORDS_DIR")
+OUT_DIR = path_value("settlement_dir")
 
 
 def load_revoked_records():

@@ -1,8 +1,9 @@
 import json
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-PATH = Path(r"D:\app\抖音来客看板\field_probe\craftsman_single_nickname_probe.json")
+PATH = path_value("field_probe_dir") / "craftsman_single_nickname_probe.json"
 
 
 def main() -> None:

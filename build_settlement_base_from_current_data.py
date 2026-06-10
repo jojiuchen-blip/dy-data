@@ -5,13 +5,15 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
+from src.dy_data.config import configured_today, path_value
 
-BASE_TABLE = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
-CRAFTSMAN_TABLE = Path(r"D:\app\抖音来客看板\field_probe\职人绑定信息列表_测试.csv")
-OUT_DIR = Path(r"D:\app\抖音来客看板\settlement")
+
+BASE_TABLE = path_value("base_table", env_name="BASE_TABLE")
+CRAFTSMAN_TABLE = path_value("craftsman_table", env_name="CRAFTSMAN_TABLE")
+OUT_DIR = path_value("settlement_dir", env_name="SETTLEMENT_OUT_DIR")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-TODAY = datetime(2026, 6, 9)
+TODAY = configured_today()
 START_DATE = TODAY - timedelta(days=180)
 
 

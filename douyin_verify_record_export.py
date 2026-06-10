@@ -11,43 +11,45 @@ from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from src.dy_data.config import (
+    as_bool,
+    as_float,
+    as_int,
+    douyin_account_id,
+    douyin_app_id,
+    douyin_app_secret,
+    douyin_poi_ids,
+    douyin_poi_name_map,
+    env_or_config,
+    path_value,
+    sku_type_map,
+)
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
-ACCOUNT_ID = os.getenv("DOUYIN_ACCOUNT_ID")
-POI_IDS = [x.strip() for x in os.getenv("DOUYIN_POI_IDS", "").split(",") if x.strip()]
-POI_NAME_MAP = json.loads(os.getenv("DOUYIN_POI_NAME_MAP", "{}") or "{}")
+
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
+ACCOUNT_ID = douyin_account_id()
+POI_IDS = douyin_poi_ids()
+POI_NAME_MAP = douyin_poi_name_map()
 
 API_URL = "https://open.douyin.com/goodlife/v1/fulfilment/certificate/verify_record/query/"
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 TOKEN_URL = "https://open.douyin.com/oauth/client_token/"
-SAVE_DIR = Path(os.getenv("DOUYIN_VERIFY_SAVE_DIR", r"D:\抖音来客看板\output-finished"))
+SAVE_DIR = path_value("verify_save_dir", env_name="DOUYIN_VERIFY_SAVE_DIR")
 PARTS_DIR = SAVE_DIR / "parts"
 
-PAGE_SIZE = min(max(int(os.getenv("DOUYIN_PAGE_SIZE", "20")), 1), 20)
-REQUEST_SLEEP_SECONDS = float(os.getenv("DOUYIN_REQUEST_SLEEP_SECONDS", "0.2"))
-CHUNK_DAYS = max(int(os.getenv("DOUYIN_VERIFY_CHUNK_DAYS", "7")), 1)
-QUERY_SHOP_POIS = os.getenv("DOUYIN_VERIFY_QUERY_SHOP_POIS", "0") == "1"
-POI_LIMIT = int(os.getenv("DOUYIN_VERIFY_POI_LIMIT", "0") or "0")
-SHOP_POI_RELATION_TYPES = [
-    int(x.strip())
-    for x in os.getenv("DOUYIN_SHOP_POI_RELATION_TYPES", "0").split(",")
-    if x.strip()
-]
+PAGE_SIZE = min(max(as_int(env_or_config("DOUYIN_PAGE_SIZE", "douyin", "page_size", default=20), 20), 1), 20)
+REQUEST_SLEEP_SECONDS = as_float(env_or_config("DOUYIN_REQUEST_SLEEP_SECONDS", "douyin", "request_sleep_seconds", default=0.2), 0.2)
+CHUNK_DAYS = max(as_int(env_or_config("DOUYIN_VERIFY_CHUNK_DAYS", "douyin", "verify_chunk_days", default=7), 7), 1)
+QUERY_SHOP_POIS = as_bool(env_or_config("DOUYIN_VERIFY_QUERY_SHOP_POIS", "douyin", "query_shop_pois", default=False))
+POI_LIMIT = as_int(env_or_config("DOUYIN_VERIFY_POI_LIMIT", "douyin", "poi_limit", default=0), 0)
+_relation_types = env_or_config("DOUYIN_SHOP_POI_RELATION_TYPES", "douyin", "shop_poi_relation_types", default="0")
+if isinstance(_relation_types, str):
+    SHOP_POI_RELATION_TYPES = [int(x.strip()) for x in _relation_types.split(",") if x.strip()]
+else:
+    SHOP_POI_RELATION_TYPES = [int(x) for x in _relation_types]
 
-SKU_TYPE_MAP = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+SKU_TYPE_MAP = sku_type_map()
 TARGET_SKU_IDS = set(SKU_TYPE_MAP)
 
 

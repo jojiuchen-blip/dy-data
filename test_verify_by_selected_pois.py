@@ -9,11 +9,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import douyin_verify_record_export as verify
+from src.dy_data.config import path_value
 
 
-POI_SOURCE = Path(r"D:\app\抖音来客看板\settlement\recent_matched_sales_pois.json")
-BACKEND_CSV = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析.csv")
-OUT_DIR = Path(r"D:\app\抖音来客看板\settlement\verify_by_selected_pois_test")
+POI_SOURCE = path_value("recent_matched_sales_pois")
+BACKEND_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+OUT_DIR = path_value("verify_by_selected_pois_test_dir")
 START_TEXT = os.getenv("VERIFY_SELECTED_START", "2026-06-01")
 END_TEXT = os.getenv("VERIFY_SELECTED_END", "2026-06-10")
 TAG = f"{START_TEXT.replace('-', '')}_{END_TEXT.replace('-', '')}"

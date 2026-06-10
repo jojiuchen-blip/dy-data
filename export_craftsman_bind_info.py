@@ -8,13 +8,15 @@ from typing import Any
 
 import requests
 
+from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret, path_value
 
-OUT_DIR = Path(r"D:\app\抖音来客看板\field_probe")
+
+OUT_DIR = path_value("field_probe_dir", env_name="FIELD_PROBE_DIR")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
-ACCOUNT_ID = os.getenv("DOUYIN_ACCOUNT_ID", "7372082031255128115")
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
+ACCOUNT_ID = douyin_account_id()
 
 API_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
 
@@ -30,6 +32,18 @@ PAYMENT_STATUS_MAP = {
     1: "未开通",
     2: "已开通",
 }
+
+
+def require_config() -> None:
+    missing = []
+    if not APP_ID:
+        missing.append("DOUYIN_APP_ID")
+    if not APP_SECRET:
+        missing.append("DOUYIN_APP_SECRET")
+    if not ACCOUNT_ID:
+        missing.append("DOUYIN_ACCOUNT_ID")
+    if missing:
+        raise RuntimeError("请先设置环境变量或 config.local.json：" + ", ".join(missing))
 
 
 def normalize_id(value: Any) -> str:
@@ -168,6 +182,7 @@ def write_csv(path: Path, rows: list[dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    require_config()
     items, pages = fetch_all()
     rows = [to_row(item) for item in items]
     csv_path = OUT_DIR / "职人绑定信息列表_测试.csv"

@@ -1,7 +1,12 @@
 $ErrorActionPreference = "Stop"
 
 $runId = Get-Date -Format "yyyyMMdd_HHmmss"
-$runDir = "D:\app\抖音来客看板\runs\$runId"
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$runRoot = $env:DY_DATA_RUN_ROOT
+if (-not $runRoot) {
+    $runRoot = Join-Path $scriptDir "runs"
+}
+$runDir = Join-Path $runRoot $runId
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
 
 if (-not $env:DOUYIN_APP_ID) { throw "Missing env var: DOUYIN_APP_ID" }
@@ -15,9 +20,17 @@ $env:DOUYIN_END_YEAR = "2026"
 $env:DOUYIN_END_MONTH = "5"
 $env:DOUYIN_PAGE_SIZE = "100"
 
-$python = "D:\app\抖音来客看板\runtime\python\python.exe"
-$rawScript = "D:\app\抖音来客看板\export_raw_orders.py"
-$backfillScript = "D:\app\抖音来客看板\backfill_coupon_status.py"
+$python = $env:DY_DATA_PYTHON_EXE
+if (-not $python) {
+    $venvPython = Join-Path $scriptDir ".venv\Scripts\python.exe"
+    if (Test-Path -LiteralPath $venvPython) {
+        $python = $venvPython
+    } else {
+        $python = "python"
+    }
+}
+$rawScript = Join-Path $scriptDir "export_raw_orders.py"
+$backfillScript = Join-Path $scriptDir "backfill_coupon_status.py"
 $logPath = Join-Path $runDir "workflow.log"
 
 Start-Transcript -Path $logPath -Force | Out-Null

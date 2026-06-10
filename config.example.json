@@ -1,0 +1,50 @@
+{
+  "paths": {
+    "workspace_root": "D:/app/抖音来客看板",
+    "script_root": ".",
+    "python_exe": "D:/app/抖音来客看板/runtime/python/python.exe",
+    "browser_downloads": "D:/浏览器下载"
+  },
+  "douyin": {
+    "app_id": "",
+    "app_secret": "",
+    "account_id": "",
+    "poi_ids": [],
+    "poi_name_map": {},
+    "page_size": 100,
+    "request_sleep_seconds": 0.5
+  },
+  "sku": {
+    "type_map": {
+      "1834808062911500": "268保养",
+      "1839843694054411": "268保养",
+      "1836174558502924": "268保养",
+      "1834807415534650": "168保养",
+      "1836174232747016": "168保养",
+      "1842945450213424": "漆面",
+      "1859247916957723": "漆面",
+      "1859251879725066": "漆面",
+      "1838947657772048": "漆面",
+      "1865042571753472": "蒸发箱清洗",
+      "1865042831665155": "外循环清洗"
+    }
+  },
+  "dashboard": {
+    "default_start_date": "2026-01-01"
+  },
+  "settlement": {
+    "commission_rate": 0.1,
+    "excluded_owner_names": [
+      "比亚迪汽车销售有限公司"
+    ],
+    "today": ""
+  },
+  "tencent_cos": {
+    "secret_id": "",
+    "secret_key": "",
+    "region": "ap-guangzhou",
+    "bucket": "",
+    "key": "index.html",
+    "cache_control": "no-cache, max-age=60"
+  }
+}

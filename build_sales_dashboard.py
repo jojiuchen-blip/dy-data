@@ -4,13 +4,16 @@ import json
 from datetime import date, datetime
 from pathlib import Path
 
+from src.dy_data.config import config_value, path_value
 
-BASE_CSV = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
-OUTPUT_DIR = Path(r"D:\app\抖音来客看板\dashboard")
+
+BASE_CSV = path_value("base_table", env_name="BASE_TABLE")
+OUTPUT_DIR = path_value("dashboard_dir")
 OUTPUT_HTML = OUTPUT_DIR / "精诚养车服务产品销售数据看板.html"
 INDEX_HTML = OUTPUT_DIR / "index.html"
 INDEX_HTML_HTML = OUTPUT_DIR / "index.html.html"
 LEGACY_DASHBOARD_HTML = OUTPUT_DIR / "商品销售核销看板.html"
+DEFAULT_START_DATE = str(config_value("dashboard", "default_start_date", default="2026-01-01"))
 
 
 def parse_amount(value: str) -> float:
@@ -145,7 +148,7 @@ def build_summary() -> dict:
     dates = [item["date"] for item in group_rows]
     return {
         "generatedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "defaultStartDate": "2026-01-01",
+        "defaultStartDate": DEFAULT_START_DATE,
         "defaultEndDate": date.today().isoformat(),
         "minDate": min(dates) if dates else "",
         "maxDate": max(dates) if dates else "",

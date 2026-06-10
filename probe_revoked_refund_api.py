@@ -8,9 +8,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import douyin_refund_export as refund_api
 from inspect_revoked_verify_refunds import load_revoked_records
+from src.dy_data.config import path_value
 
 
-OUT_DIR = Path(r"D:\app\抖音来客看板\settlement")
+OUT_DIR = path_value("settlement_dir")
 
 
 def main() -> None:

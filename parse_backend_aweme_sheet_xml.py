@@ -4,10 +4,12 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-SHEET_XML = Path(r"D:\app\抖音来客看板\tmp_xlsx_inspect\xl\worksheets\sheet1.xml")
-OUT_CSV = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析.csv")
-OUT_JSON = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析_summary.json")
+
+SHEET_XML = path_value("tmp_xlsx_sheet_xml", env_name="BACKEND_AWEME_SHEET_XML")
+OUT_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+OUT_JSON = path_value("field_probe_dir") / "来客后台抖音号明细_XML解析_summary.json"
 
 NS = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
 

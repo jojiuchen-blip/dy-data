@@ -10,10 +10,17 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ExportScript = Join-Path $ScriptDir "douyin_verify_record_export.py"
 if (-not $SaveDir) {
-    $SaveDir = "D:\抖音来客看板\output-finished"
+    if ($env:DOUYIN_VERIFY_SAVE_DIR) {
+        $SaveDir = $env:DOUYIN_VERIFY_SAVE_DIR
+    } else {
+        $SaveDir = Join-Path $ScriptDir "exports\verify"
+    }
 }
 if (-not $PythonExe) {
-    $BundledPython = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+    $BundledPython = $env:DY_DATA_PYTHON_EXE
+    if (-not $BundledPython) {
+        $BundledPython = Join-Path $env:USERPROFILE ".cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe"
+    }
     if (Test-Path -LiteralPath $BundledPython) {
         $PythonExe = $BundledPython
     } else {

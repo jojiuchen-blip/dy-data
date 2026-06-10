@@ -4,29 +4,18 @@ from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
 
+from src.dy_data.config import config_value, path_value, sku_type_map
 
-BASE = Path(r"D:\app\抖音来客看板")
-ORDER_CSV = BASE / "data" / "看板基础表.csv"
-BACKEND_CSV = BASE / "field_probe" / "来客后台抖音号明细_XML解析.csv"
-VERIFY_JSON = BASE / "settlement" / "may2026_verify_by_poi" / "may2026_verify_records_by_poi.json"
-OUT_CSV = BASE / "settlement" / "may2026_settlement_dashboard" / "核销券未进入分账原因明细.csv"
+
+ORDER_CSV = path_value("base_table", env_name="BASE_TABLE")
+BACKEND_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+VERIFY_JSON = path_value("may_verify_dir") / "may2026_verify_records_by_poi.json"
+OUT_CSV = path_value("may_settlement_dashboard_dir") / "核销券未进入分账原因明细.csv"
 
 MONTH_START = datetime(2026, 5, 1)
 MONTH_END = datetime(2026, 6, 1)
-EXCLUDED_OWNER_NAMES = {"比亚迪汽车销售有限公司"}
-SKU_TO_PRODUCT_TYPE = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+EXCLUDED_OWNER_NAMES = set(config_value("settlement", "excluded_owner_names", default=["比亚迪汽车销售有限公司"]))
+SKU_TO_PRODUCT_TYPE = sku_type_map()
 
 
 def clean(value):

@@ -3,12 +3,14 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-ORDERS_CSV = Path(r"D:\app\抖音来客看板\settlement\近10天商家已核销分账基础表_核销接口测试.csv")
-BACKEND_CSV = Path(r"D:\app\抖音来客看板\field_probe\来客后台抖音号明细_XML解析.csv")
-OUT_JSON = Path(r"D:\app\抖音来客看板\settlement\订单归属UID匹配后台所属账户id_最近10天.json")
-OUT_MATCHED_CSV = Path(r"D:\app\抖音来客看板\settlement\订单归属UID匹配后台所属账户id_最近10天_已匹配.csv")
-OUT_UNMATCHED_CSV = Path(r"D:\app\抖音来客看板\settlement\订单归属UID匹配后台所属账户id_最近10天_未匹配.csv")
+SETTLEMENT_DIR = path_value("settlement_dir")
+ORDERS_CSV = SETTLEMENT_DIR / "近10天商家已核销分账基础表_核销接口测试.csv"
+BACKEND_CSV = path_value("backend_aweme_csv", env_name="BACKEND_AWEME_CSV")
+OUT_JSON = SETTLEMENT_DIR / "订单归属UID匹配后台所属账户id_最近10天.json"
+OUT_MATCHED_CSV = SETTLEMENT_DIR / "订单归属UID匹配后台所属账户id_最近10天_已匹配.csv"
+OUT_UNMATCHED_CSV = SETTLEMENT_DIR / "订单归属UID匹配后台所属账户id_最近10天_未匹配.csv"
 
 
 def read_csv(path: Path):

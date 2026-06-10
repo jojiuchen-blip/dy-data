@@ -4,12 +4,14 @@ from pathlib import Path
 
 import requests
 
+from src.dy_data.config import douyin_app_id, douyin_app_secret, path_value
 
-OUT_DIR = Path(r"D:\app\抖音来客看板\field_probe")
+
+OUT_DIR = path_value("field_probe_dir", env_name="FIELD_PROBE_DIR")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
 
 
 def get_client_token() -> str:

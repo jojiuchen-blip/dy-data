@@ -10,14 +10,16 @@ from typing import Dict, List, Tuple
 
 import requests
 
+from src.dy_data.config import as_int, douyin_account_id, douyin_app_id, douyin_app_secret, env_or_config, path_value, sku_type_map
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
-ACCOUNT_ID = os.getenv("DOUYIN_ACCOUNT_ID", "7372082031255128115")
+
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
+ACCOUNT_ID = douyin_account_id()
 
 API_URL = "https://open.douyin.com/goodlife/v1/trade/order/query/"
-SAVE_DIR = Path(os.getenv("DOUYIN_SAVE_DIR", r"D:\app\抖音来客看板\output"))
-PAGE_SIZE = int(os.getenv("DOUYIN_PAGE_SIZE", "100"))
+SAVE_DIR = path_value("raw_order_save_dir", env_name="DOUYIN_SAVE_DIR")
+PAGE_SIZE = as_int(env_or_config("DOUYIN_PAGE_SIZE", "douyin", "page_size", default=100), 100)
 
 START_YEAR = int(os.getenv("DOUYIN_START_YEAR", "2025"))
 START_MONTH = int(os.getenv("DOUYIN_START_MONTH", "5"))
@@ -29,19 +31,7 @@ CONTACT_NAME_FIELD = "联系人"
 CONTACT_PHONE_FIELD = "手机号"
 PRODUCT_TYPE_FIELD = "商品类型"
 
-SKU_TYPE_MAP = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+SKU_TYPE_MAP = sku_type_map()
 TARGET_SKU_IDS = set(SKU_TYPE_MAP.keys())
 
 FIELD_MAP = {
@@ -117,6 +107,8 @@ def require_config() -> None:
         missing.append("DOUYIN_APP_ID")
     if not APP_SECRET:
         missing.append("DOUYIN_APP_SECRET")
+    if not ACCOUNT_ID:
+        missing.append("DOUYIN_ACCOUNT_ID")
     if missing:
         raise RuntimeError(f"请先设置环境变量: {', '.join(missing)}")
 

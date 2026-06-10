@@ -7,10 +7,14 @@ __pycache__/
 diagnostics/
 exports/
 output_refund/
+logs/
+runs/
 
 # Local data and generated dashboards usually live under D:\app\抖音来客看板.
 # Keep this repository focused on source scripts and documentation.
 .env
+config.local.json
+config.json
 .venv/
 venv/
 

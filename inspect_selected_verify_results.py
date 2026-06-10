@@ -2,8 +2,9 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from src.dy_data.config import path_value
 
-TARGET = Path(r"D:\app\抖音来客看板\settlement\verify_by_selected_pois_test\selected_poi_verify_records_20260601_20260610.json")
+TARGET = path_value("verify_by_selected_pois_test_dir") / "selected_poi_verify_records_20260601_20260610.json"
 
 
 def has_value(value):

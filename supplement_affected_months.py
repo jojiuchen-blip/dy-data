@@ -11,30 +11,31 @@ from typing import Dict, Iterable, List
 
 import requests
 
+from src.dy_data.config import (
+    as_float,
+    as_int,
+    douyin_account_id,
+    douyin_app_id,
+    douyin_app_secret,
+    env_or_config,
+    path_value,
+    sku_type_map,
+)
 
-APP_ID = os.getenv("DOUYIN_APP_ID")
-APP_SECRET = os.getenv("DOUYIN_APP_SECRET")
-ACCOUNT_ID = os.getenv("DOUYIN_ACCOUNT_ID", "7372082031255128115")
+
+APP_ID = douyin_app_id()
+APP_SECRET = douyin_app_secret()
+ACCOUNT_ID = douyin_account_id()
 
 API_URL = "https://open.douyin.com/goodlife/v1/trade/order/query/"
-PAGE_SIZE = int(os.getenv("DOUYIN_PAGE_SIZE", "100"))
-REQUEST_SLEEP_SECONDS = float(os.getenv("DOUYIN_REQUEST_SLEEP_SECONDS", "0.5"))
+PAGE_SIZE = as_int(env_or_config("DOUYIN_PAGE_SIZE", "douyin", "page_size", default=100), 100)
+REQUEST_SLEEP_SECONDS = as_float(env_or_config("DOUYIN_REQUEST_SLEEP_SECONDS", "douyin", "request_sleep_seconds", default=0.5), 0.5)
 FORCE_DAYS_FROM = os.getenv("SUPPLEMENT_FORCE_DAYS_FROM", "").strip()
 START_DATE = os.getenv("SUPPLEMENT_START_DATE", "").strip()
 END_DATE = os.getenv("SUPPLEMENT_END_DATE", "").strip()
-RUN_DIR = Path(os.getenv("SUPPLEMENT_RUN_DIR", r"D:\app\抖音来客看板\supplement"))
-BASE_TABLE = Path(
-    os.getenv(
-        "BASE_TABLE",
-        r"D:\app\抖音来客看板\data\看板基础表.csv",
-    )
-)
-SEED_TABLE = Path(
-    os.getenv(
-        "SEED_TABLE",
-        r"D:\app\抖音来客看板\runs\20260602_103004\抖音订单_2025年05月到2026年05月_总表_含券状态.csv",
-    )
-)
+RUN_DIR = path_value("supplement_run_dir", env_name="SUPPLEMENT_RUN_DIR")
+BASE_TABLE = path_value("base_table", env_name="BASE_TABLE")
+SEED_TABLE = path_value("supplement_seed_table", env_name="SEED_TABLE")
 
 AFFECTED_MONTHS = [
     (2025, 6),
@@ -66,19 +67,7 @@ def selected_months() -> List[tuple[int, int]]:
 class TokenExpiredError(RuntimeError):
     pass
 
-SKU_TYPE_MAP = {
-    "1834808062911500": "268保养",
-    "1839843694054411": "268保养",
-    "1836174558502924": "268保养",
-    "1834807415534650": "168保养",
-    "1836174232747016": "168保养",
-    "1842945450213424": "漆面",
-    "1859247916957723": "漆面",
-    "1859251879725066": "漆面",
-    "1838947657772048": "漆面",
-    "1865042571753472": "蒸发箱清洗",
-    "1865042831665155": "外循环清洗",
-}
+SKU_TYPE_MAP = sku_type_map()
 TARGET_SKU_IDS = set(SKU_TYPE_MAP)
 
 ORDER_STATUS_MAP = {
@@ -126,6 +115,8 @@ def require_config() -> None:
         missing.append("DOUYIN_APP_ID")
     if not APP_SECRET:
         missing.append("DOUYIN_APP_SECRET")
+    if not ACCOUNT_ID:
+        missing.append("DOUYIN_ACCOUNT_ID")
     if missing:
         raise RuntimeError(f"请先设置环境变量: {', '.join(missing)}")
 

@@ -11,16 +11,18 @@ from urllib.parse import quote
 
 import requests
 
+from src.dy_data.config import path_value, script_root, tencent_value
 
-ROOT = Path(r"C:\Users\86138\Documents\抖音来客看板")
-PYTHON = Path(r"D:\app\抖音来客看板\runtime\python\python.exe")
-BASE_TABLE = Path(r"D:\app\抖音来客看板\data\看板基础表.csv")
-RUN_ROOT = Path(r"D:\app\抖音来客看板\daily_runs")
-DASHBOARD_DIR = Path(r"D:\app\抖音来客看板\dashboard")
+
+ROOT = script_root()
+PYTHON = path_value("python_exe", env_name="DY_DATA_PYTHON_EXE")
+BASE_TABLE = path_value("base_table", env_name="BASE_TABLE")
+RUN_ROOT = path_value("run_root")
+DASHBOARD_DIR = path_value("dashboard_dir")
 DASHBOARD_HTML = DASHBOARD_DIR / "精诚养车服务产品销售数据看板.html"
 INDEX_DASHBOARD_HTML = DASHBOARD_DIR / "index.html"
 LEGACY_DASHBOARD_HTML = DASHBOARD_DIR / "商品销售核销看板.html"
-SCREENSHOT_DIR = Path(r"D:\app\抖音来客看板\screenshots")
+SCREENSHOT_DIR = path_value("screenshot_dir")
 
 
 def month_range(start: date, end: date) -> list[str]:
@@ -121,7 +123,15 @@ def main() -> None:
     run_checked([str(PYTHON), str(ROOT / "build_sales_dashboard.py")], env)
     shutil.copy2(INDEX_DASHBOARD_HTML, DASHBOARD_HTML)
     shutil.copy2(DASHBOARD_HTML, LEGACY_DASHBOARD_HTML)
-    if all(os.getenv(name, "").strip() for name in ("TENCENT_SECRET_ID", "TENCENT_SECRET_KEY", "TENCENT_COS_REGION", "TENCENT_COS_BUCKET")):
+    if all(
+        str(value or "").strip()
+        for value in (
+            tencent_value("TENCENT_SECRET_ID", "secret_id", default=""),
+            tencent_value("TENCENT_SECRET_KEY", "secret_key", default=""),
+            tencent_value("TENCENT_COS_REGION", "region", default=""),
+            tencent_value("TENCENT_COS_BUCKET", "bucket", default=""),
+        )
+    ):
         run_checked([str(PYTHON), str(ROOT / "upload_dashboard_to_tencent_cos.py")], env)
 
     screenshot_path = SCREENSHOT_DIR / f"精诚养车服务产品销售数据看板_{today:%Y%m%d}.png"

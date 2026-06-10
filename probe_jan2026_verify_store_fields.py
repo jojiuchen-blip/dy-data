@@ -9,8 +9,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import douyin_verify_record_export as verify
 
+from src.dy_data.config import path_value
 
-OUT_DIR = Path(r"D:\app\抖音来客看板\field_probe")
+
+OUT_DIR = path_value("field_probe_dir", env_name="FIELD_PROBE_DIR")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
