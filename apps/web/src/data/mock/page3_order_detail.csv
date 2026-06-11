@@ -1,0 +1,9 @@
+order_id,coupon_id,product_type,sale_store_id,sale_store_name,sale_month,is_verified,verify_store_id,verify_store_name,verify_month,is_commissionable,invoice_status,refund_status,paid_amount_cent,receivable_commission_cent,payable_commission_cent
+mock_order_001,mock_coupon_001,268保养,store_001,杭州城西店,2026-05,true,store_001,杭州城西店,2026-05,false,approved,none,26800,0,0
+mock_order_002,mock_coupon_002,168保养,store_001,杭州城西店,2026-05,true,store_002,杭州滨江店,2026-05,true,approved,none,16800,1680,0
+mock_order_003,mock_coupon_003,168保养,store_001,杭州城西店,2026-05,true,store_003,宁波鄞州店,2026-05,true,not_received,none,16800,1680,0
+mock_order_004,mock_coupon_004,268保养,store_002,杭州滨江店,2026-05,true,store_001,杭州城西店,2026-05,true,received,none,26800,0,2680
+mock_order_005,mock_coupon_005,漆面,store_003,宁波鄞州店,2026-05,true,store_001,杭州城西店,2026-05,true,approved,refunded,88000,0,8800
+mock_order_006,mock_coupon_006,蒸发箱清洗,store_001,杭州城西店,2026-05,false,,,,,not_received,none,9800,0,0
+mock_order_007,mock_coupon_007,外循环清洗,store_001,杭州城西店,2026-05,true,store_004,绍兴越城店,2026-05,true,rejected,refunding,8800,880,0
+mock_order_008,mock_coupon_008,268保养,store_005,嘉兴南湖店,2026-05,true,store_001,杭州城西店,2026-05,true,approved,none,26800,0,2680

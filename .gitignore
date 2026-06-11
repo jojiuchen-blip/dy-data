@@ -18,6 +18,11 @@ config.json
 .venv/
 venv/
 
+# Frontend dependencies / build output
+node_modules/
+dist/
+*.tsbuildinfo
+
 # OS/editor noise
 .DS_Store
 Thumbs.db
