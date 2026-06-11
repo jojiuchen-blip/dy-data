@@ -16,8 +16,13 @@ export function FilterField({ label, children }: FilterFieldProps) {
 
 interface FilterBarProps {
   children: ReactNode;
+  className?: string;
 }
 
-export function FilterBar({ children }: FilterBarProps) {
-  return <div className="filter-bar">{children}</div>;
+export function FilterBar({ children, className }: FilterBarProps) {
+  return (
+    <div className={["filter-bar", className].filter(Boolean).join(" ")}>
+      {children}
+    </div>
+  );
 }

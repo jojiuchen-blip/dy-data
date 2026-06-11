@@ -90,6 +90,20 @@ function activeChips(filters: DetailFilters): string[] {
   return chips;
 }
 
+function advancedFilterCount(filters: DetailFilters): number {
+  const advancedValues = [
+    filters.sale_month,
+    filters.is_verified,
+    filters.verify_store_id,
+    filters.exclude_verify_store_id,
+    filters.is_commissionable,
+    filters.invoice_status,
+    filters.refund_status,
+  ];
+
+  return advancedValues.filter(Boolean).length;
+}
+
 export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const searchKey = searchParams.toString();
   const [filters, setFilters] = useState<DetailFilters>(() =>
@@ -112,22 +126,53 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     }));
   };
 
+  const advancedCount = advancedFilterCount(filters);
+
   const columns: Column<OrderDetail>[] = [
-    { key: "order", title: "订单 ID", render: (row) => row.order_id },
-    { key: "coupon", title: "券 ID", render: (row) => row.coupon_id },
-    { key: "sku", title: "SKU ID", render: (row) => row.sku_id },
-    { key: "product", title: "商品类型", render: (row) => row.product_type },
+    {
+      key: "order",
+      title: "订单 ID",
+      sticky: true,
+      width: 150,
+      render: (row) => row.order_id,
+    },
+    {
+      key: "coupon",
+      title: "券 ID",
+      sticky: true,
+      width: 154,
+      render: (row) => row.coupon_id,
+    },
+    {
+      key: "sku",
+      title: "SKU ID",
+      minWidth: 138,
+      render: (row) => row.sku_id,
+    },
+    {
+      key: "product",
+      title: "商品类型",
+      minWidth: 110,
+      render: (row) => row.product_type,
+    },
     {
       key: "ownerAccount",
       title: "订单归属账号",
+      minWidth: 150,
       render: (row) => row.owner_account_name || row.owner_account_id || "-",
     },
     {
       key: "saleStore",
       title: "销售归属门店",
+      minWidth: 190,
       render: (row) => row.sale_store_name,
     },
-    { key: "saleTime", title: "销售时间", render: (row) => row.sale_time || "-" },
+    {
+      key: "saleTime",
+      title: "销售时间",
+      minWidth: 190,
+      render: (row) => row.sale_time || "-",
+    },
     {
       key: "verified",
       title: "是否核销",
@@ -137,16 +182,19 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "verifyStore",
       title: "实际核销门店",
+      minWidth: 190,
       render: (row) => row.verify_store_name || "-",
     },
     {
       key: "verifyTime",
       title: "核销时间",
+      minWidth: 190,
       render: (row) => row.verify_time || "-",
     },
     {
       key: "relation",
       title: "销售核销关系",
+      minWidth: 120,
       render: (row) => relationLabel(row.relation_type),
     },
     {
@@ -189,12 +237,14 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "receivable",
       title: "预计获得分佣参考额",
       align: "right",
+      minWidth: 150,
       render: (row) => formatCurrency(row.receivable_commission_cent),
     },
     {
       key: "payable",
       title: "预计分出分佣参考额",
       align: "right",
+      minWidth: 150,
       render: (row) => formatCurrency(row.payable_commission_cent),
     },
   ];
@@ -209,144 +259,177 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         <span className="source-pill">page3_order_detail.csv</span>
       </section>
 
-      <FilterBar>
-        <FilterField label="产品范围">
-          <select
-            value={filters.product_type ?? "all"}
-            onChange={(event) => updateFilter("product_type", event.target.value)}
+      <div className="detail-filter-stack">
+        <FilterBar className="detail-filter-bar">
+          <FilterField label="销售归属门店">
+            <select
+              value={filters.sale_store_id ?? ""}
+              onChange={(event) =>
+                updateFilter("sale_store_id", event.target.value)
+              }
+            >
+              <option value="">全部</option>
+              {getStoreOptions().map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="核销月份">
+            <select
+              value={filters.verify_month ?? ""}
+              onChange={(event) =>
+                updateFilter("verify_month", event.target.value)
+              }
+            >
+              <option value="">全部</option>
+              {getMonthOptions().map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="产品范围">
+            <select
+              value={filters.product_type ?? "all"}
+              onChange={(event) =>
+                updateFilter("product_type", event.target.value)
+              }
+            >
+              {getProductOptions().map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="销售核销关系">
+            <select
+              value={filters.relation_type ?? ""}
+              onChange={(event) =>
+                updateFilter("relation_type", event.target.value)
+              }
+            >
+              {relationOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="订单 / 券搜索">
+            <input
+              placeholder="订单 ID 或券 ID"
+              value={filters.q ?? ""}
+              onChange={(event) => updateFilter("q", event.target.value)}
+            />
+          </FilterField>
+          <button
+            className="ghost-button"
+            onClick={() => setFilters({})}
+            type="button"
           >
-            {getProductOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="销售归属门店">
-          <select
-            value={filters.sale_store_id ?? ""}
-            onChange={(event) => updateFilter("sale_store_id", event.target.value)}
-          >
-            <option value="">全部</option>
-            {getStoreOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="销售月份">
-          <select
-            value={filters.sale_month ?? ""}
-            onChange={(event) => updateFilter("sale_month", event.target.value)}
-          >
-            <option value="">全部</option>
-            {getMonthOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="是否核销">
-          <select
-            value={filters.is_verified ?? ""}
-            onChange={(event) => updateFilter("is_verified", event.target.value)}
-          >
-            {booleanOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="实际核销门店">
-          <select
-            value={filters.verify_store_id ?? ""}
-            onChange={(event) => updateFilter("verify_store_id", event.target.value)}
-          >
-            <option value="">全部</option>
-            {getStoreOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="核销月份">
-          <select
-            value={filters.verify_month ?? ""}
-            onChange={(event) => updateFilter("verify_month", event.target.value)}
-          >
-            <option value="">全部</option>
-            {getMonthOptions().map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="销售核销关系">
-          <select
-            value={filters.relation_type ?? ""}
-            onChange={(event) => updateFilter("relation_type", event.target.value)}
-          >
-            {relationOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="是否分佣">
-          <select
-            value={filters.is_commissionable ?? ""}
-            onChange={(event) =>
-              updateFilter("is_commissionable", event.target.value)
-            }
-          >
-            {booleanOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="到票状态">
-          <select
-            value={filters.invoice_status ?? ""}
-            onChange={(event) => updateFilter("invoice_status", event.target.value)}
-          >
-            {invoiceOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="退款状态">
-          <select
-            value={filters.refund_status ?? ""}
-            onChange={(event) => updateFilter("refund_status", event.target.value)}
-          >
-            {refundOptions.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="订单 / 券搜索">
-          <input
-            placeholder="订单 ID 或券 ID"
-            value={filters.q ?? ""}
-            onChange={(event) => updateFilter("q", event.target.value)}
-          />
-        </FilterField>
-        <button className="ghost-button" onClick={() => setFilters({})} type="button">
-          清空筛选
-        </button>
-      </FilterBar>
+            清空筛选
+          </button>
+        </FilterBar>
+
+        <details className="advanced-filters">
+          <summary>
+            <span>更多筛选</span>
+            <small>
+              {advancedCount > 0
+                ? `${advancedCount} 项已启用`
+                : "销售、核销与状态条件"}
+            </small>
+          </summary>
+          <FilterBar className="advanced-filter-bar">
+            <FilterField label="销售月份">
+              <select
+                value={filters.sale_month ?? ""}
+                onChange={(event) => updateFilter("sale_month", event.target.value)}
+              >
+                <option value="">全部</option>
+                {getMonthOptions().map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="是否核销">
+              <select
+                value={filters.is_verified ?? ""}
+                onChange={(event) => updateFilter("is_verified", event.target.value)}
+              >
+                {booleanOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="实际核销门店">
+              <select
+                value={filters.verify_store_id ?? ""}
+                onChange={(event) =>
+                  updateFilter("verify_store_id", event.target.value)
+                }
+              >
+                <option value="">全部</option>
+                {getStoreOptions().map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="是否分佣">
+              <select
+                value={filters.is_commissionable ?? ""}
+                onChange={(event) =>
+                  updateFilter("is_commissionable", event.target.value)
+                }
+              >
+                {booleanOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="到票状态">
+              <select
+                value={filters.invoice_status ?? ""}
+                onChange={(event) =>
+                  updateFilter("invoice_status", event.target.value)
+                }
+              >
+                {invoiceOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="退款状态">
+              <select
+                value={filters.refund_status ?? ""}
+                onChange={(event) =>
+                  updateFilter("refund_status", event.target.value)
+                }
+              >
+                {refundOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          </FilterBar>
+        </details>
+      </div>
 
       {activeChips(filters).length > 0 ? (
         <div className="active-filters" aria-label="当前筛选">
@@ -363,7 +446,11 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
             <p>{filteredRows.length} / {orderDetails.length} 条</p>
           </div>
         </div>
-        <DataTable columns={columns} rows={filteredRows} />
+        <DataTable
+          columns={columns}
+          rows={filteredRows}
+          tableClassName="data-table--details"
+        />
       </section>
     </div>
   );
