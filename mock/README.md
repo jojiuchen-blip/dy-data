@@ -2,14 +2,14 @@
 
 本目录提供前端并行开发使用的脱敏示例数据。mock 数据只表达字段结构和典型业务场景，不代表真实门店、真实订单、真实金额或最终数据口径。
 
-当前状态：待协作者确认。协作者需要基于本地真实拉取数据确认 `docs/data-model.md` 和 `docs/api-contract.md` 后，再决定 mock 字段是否需要调整。前端可以先用这些文件搭建页面和交互，但不能把 mock 数据视为后端最终返回。
+当前状态：第一轮数据侧已确认。mock 字段已按券/核销明细粒度同步到 `docs/data-model.md` 和 `docs/api-contract.md`；门店展示名可使用真实或近似真实门店名称以便前端展示，其余订单、券、核销、金额和状态数据仍然是脱敏示例，不代表真实交易或最终财务口径。
 
 当前文件：
 
 - `page1_store_ranking.json`：页面 1 全国门店销售情况榜单。
 - `page2_store_month_summary.json`：页面 2 顶部核心指标。
 - `page2_commission_tables.json`：页面 2 下方三块表格。
-- `page3_order_detail.csv`：页面 3 明细表和筛选示例。
+- `page3_order_detail.csv`：页面 3 按券粒度的明细表和筛选示例。
 
 mock 数据覆盖以下场景：
 
