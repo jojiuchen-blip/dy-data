@@ -7,7 +7,7 @@
       {
         "rank": 1,
         "store_id": "store_001",
-        "store_name": "杭州城西店",
+        "store_name": "比亚迪汽车海洋网枣庄国豪4S店",
         "sales_order_count": 862,
         "self_sold_self_verified_count": 421,
         "self_sold_other_verified_count": 96,
@@ -18,7 +18,7 @@
       {
         "rank": 2,
         "store_id": "store_002",
-        "store_name": "杭州滨江店",
+        "store_name": "天津鑫敏恒4S店",
         "sales_order_count": 744,
         "self_sold_self_verified_count": 388,
         "self_sold_other_verified_count": 81,
@@ -29,7 +29,7 @@
       {
         "rank": 3,
         "store_id": "store_003",
-        "store_name": "宁波鄞州店",
+        "store_name": "比亚迪精诚服务东阳亚通4S店",
         "sales_order_count": 693,
         "self_sold_self_verified_count": 352,
         "self_sold_other_verified_count": 68,
@@ -40,7 +40,7 @@
       {
         "rank": 4,
         "store_id": "store_004",
-        "store_name": "绍兴越城店",
+        "store_name": "比亚迪精诚服务丨焦作润海店",
         "sales_order_count": 615,
         "self_sold_self_verified_count": 301,
         "self_sold_other_verified_count": 57,
@@ -51,7 +51,7 @@
       {
         "rank": 5,
         "store_id": "store_005",
-        "store_name": "嘉兴南湖店",
+        "store_name": "比亚迪精诚服务(南充誉恒比亚迪)",
         "sales_order_count": 588,
         "self_sold_self_verified_count": 276,
         "self_sold_other_verified_count": 49,
