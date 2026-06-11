@@ -9,6 +9,9 @@ export const refundStatusLabels: Record<string, string> = {
   none: "未退款",
   refunding: "退款中",
   refunded: "已退款",
+  failed: "退款失败",
+  cancelled: "退款取消",
+  unknown: "状态未知",
 };
 
 export function formatCurrency(cent: number): string {

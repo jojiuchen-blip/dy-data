@@ -242,11 +242,11 @@ export function getSettlementView(
 function makeReceivableRow(productType: string): ReceivableCommissionRow {
   return {
     product_type: productType,
-    verified_order_count: 0,
+    verified_coupon_count: 0,
     paid_amount_cent: 0,
     commission_rate: 0,
     commissionable_total_cent: 0,
-    invoiced_order_count: 0,
+    invoiced_coupon_count: 0,
     current_receivable_commission_cent: 0,
     pending_invoice_commission_cent: 0,
   };
@@ -255,7 +255,7 @@ function makeReceivableRow(productType: string): ReceivableCommissionRow {
 function makePayableRow(productType: string): PayableCommissionRow {
   return {
     product_type: productType,
-    verified_order_count: 0,
+    verified_coupon_count: 0,
     paid_amount_cent: 0,
     commission_rate: 0,
     payable_commission_cent: 0,
@@ -265,7 +265,7 @@ function makePayableRow(productType: string): PayableCommissionRow {
 function makeNonCommissionRow(productType: string): NonCommissionOrderRow {
   return {
     product_type: productType,
-    verified_order_count: 0,
+    verified_coupon_count: 0,
     paid_amount_cent: 0,
   };
 }
@@ -301,8 +301,7 @@ function deriveSettlementFromDetails(
     }
 
     const isVerifyMonth = detail.verify_month === month;
-    const isCrossStore =
-      detail.sale_store_id !== detail.verify_store_id && detail.verify_store_id;
+    const isCrossStore = detail.relation_type === "cross_store";
 
     if (
       isVerifyMonth &&
@@ -311,10 +310,10 @@ function deriveSettlementFromDetails(
       detail.is_commissionable
     ) {
       const row = getReceivable(detail.product_type);
-      row.verified_order_count += 1;
+      row.verified_coupon_count += 1;
       row.paid_amount_cent += detail.paid_amount_cent;
       row.commissionable_total_cent += detail.receivable_commission_cent;
-      row.invoiced_order_count +=
+      row.invoiced_coupon_count +=
         detail.invoice_status === "not_received" ? 0 : 1;
       row.current_receivable_commission_cent +=
         detail.invoice_status === "approved"
@@ -329,19 +328,20 @@ function deriveSettlementFromDetails(
       detail.is_commissionable
     ) {
       const row = getPayable(detail.product_type);
-      row.verified_order_count += 1;
+      row.verified_coupon_count += 1;
       row.paid_amount_cent += detail.paid_amount_cent;
       row.payable_commission_cent += detail.payable_commission_cent;
     }
 
     if (
       isVerifyMonth &&
+      detail.relation_type === "same_store" &&
       detail.sale_store_id === storeId &&
       detail.verify_store_id === storeId &&
       detail.is_commissionable === false
     ) {
       const row = getNonCommission(detail.product_type);
-      row.verified_order_count += 1;
+      row.verified_coupon_count += 1;
       row.paid_amount_cent += detail.paid_amount_cent;
     }
   });
@@ -430,6 +430,9 @@ export function filterOrderDetails(
     if (!isBlank(filters.verify_month) && row.verify_month !== filters.verify_month) {
       return false;
     }
+    if (!isBlank(filters.relation_type) && row.relation_type !== filters.relation_type) {
+      return false;
+    }
     if (
       !isBlank(filters.is_commissionable) &&
       String(row.is_commissionable) !== filters.is_commissionable
@@ -445,7 +448,8 @@ export function filterOrderDetails(
     if (
       query &&
       !row.order_id.toLowerCase().includes(query) &&
-      !row.coupon_id.toLowerCase().includes(query)
+      !row.coupon_id.toLowerCase().includes(query) &&
+      !row.verify_id.toLowerCase().includes(query)
     ) {
       return false;
     }
@@ -476,6 +480,7 @@ export function detailFiltersFromSearch(
     "verify_store_id",
     "exclude_verify_store_id",
     "verify_month",
+    "relation_type",
     "is_commissionable",
     "invoice_status",
     "refund_status",

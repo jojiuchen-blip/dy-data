@@ -41,10 +41,26 @@ const refundOptions = [
   { value: "none", label: refundStatusLabels.none },
   { value: "refunding", label: refundStatusLabels.refunding },
   { value: "refunded", label: refundStatusLabels.refunded },
+  { value: "failed", label: refundStatusLabels.failed },
+  { value: "cancelled", label: refundStatusLabels.cancelled },
+  { value: "unknown", label: refundStatusLabels.unknown },
+];
+
+const relationOptions = [
+  { value: "", label: "全部" },
+  { value: "same_store", label: "同店销售核销" },
+  { value: "cross_store", label: "跨店核销" },
+  { value: "unverified", label: "未核销" },
+  { value: "unknown", label: "关系待确认" },
 ];
 
 function statusLabel(map: Record<string, string>, value: string) {
   return map[value] ?? value;
+}
+
+function relationLabel(value: OrderDetail["relation_type"] | string): string {
+  const option = relationOptions.find((item) => item.value === value);
+  return option?.label ?? value;
 }
 
 function activeChips(filters: DetailFilters): string[] {
@@ -63,6 +79,7 @@ function activeChips(filters: DetailFilters): string[] {
   if (filters.exclude_verify_store_id)
     chips.push(`排除实际核销门店 ${getStoreName(filters.exclude_verify_store_id)}`);
   if (filters.verify_month) chips.push(`核销月份 ${filters.verify_month}`);
+  if (filters.relation_type) chips.push(`销售核销关系 ${relationLabel(filters.relation_type)}`);
   if (filters.is_commissionable)
     chips.push(`是否分佣 ${filters.is_commissionable === "true" ? "是" : "否"}`);
   if (filters.invoice_status)
@@ -96,8 +113,10 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   };
 
   const columns: Column<OrderDetail>[] = [
+    { key: "detail", title: "明细 ID", render: (row) => row.detail_id },
     { key: "order", title: "订单 ID", render: (row) => row.order_id },
     { key: "coupon", title: "券 ID", render: (row) => row.coupon_id },
+    { key: "verifyId", title: "核销 ID", render: (row) => row.verify_id || "-" },
     { key: "product", title: "商品类型", render: (row) => row.product_type },
     {
       key: "saleStore",
@@ -105,6 +124,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       render: (row) => row.sale_store_name,
     },
     { key: "saleMonth", title: "销售月份", render: (row) => row.sale_month },
+    { key: "saleTime", title: "销售时间", render: (row) => row.sale_time || "-" },
     {
       key: "verified",
       title: "是否核销",
@@ -120,6 +140,16 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "verifyMonth",
       title: "核销月份",
       render: (row) => row.verify_month || "-",
+    },
+    {
+      key: "verifyTime",
+      title: "核销时间",
+      render: (row) => row.verify_time || "-",
+    },
+    {
+      key: "relation",
+      title: "销售核销关系",
+      render: (row) => relationLabel(row.relation_type),
     },
     {
       key: "commissionable",
@@ -140,10 +170,22 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       render: (row) => statusLabel(refundStatusLabels, row.refund_status),
     },
     {
+      key: "refundAmount",
+      title: "退款金额",
+      align: "right",
+      render: (row) => formatCurrency(row.refund_amount_cent),
+    },
+    {
       key: "paid",
       title: "订单实收金额",
       align: "right",
       render: (row) => formatCurrency(row.paid_amount_cent),
+    },
+    {
+      key: "commissionRate",
+      title: "分佣比例",
+      align: "right",
+      render: (row) => `${(row.commission_rate * 100).toFixed(0)}%`,
     },
     {
       key: "receivable",
@@ -240,6 +282,18 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           >
             <option value="">全部</option>
             {getMonthOptions().map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="销售核销关系">
+          <select
+            value={filters.relation_type ?? ""}
+            onChange={(event) => updateFilter("relation_type", event.target.value)}
+          >
+            {relationOptions.map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

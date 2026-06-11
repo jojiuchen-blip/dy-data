@@ -57,18 +57,18 @@ export interface MonthlySummaryData {
 
 export interface ReceivableCommissionRow {
   product_type: string;
-  verified_order_count: number;
+  verified_coupon_count: number;
   paid_amount_cent: number;
   commission_rate: number;
   commissionable_total_cent: number;
-  invoiced_order_count: number;
+  invoiced_coupon_count: number;
   current_receivable_commission_cent: number;
   pending_invoice_commission_cent: number;
 }
 
 export interface PayableCommissionRow {
   product_type: string;
-  verified_order_count: number;
+  verified_coupon_count: number;
   paid_amount_cent: number;
   commission_rate: number;
   payable_commission_cent: number;
@@ -76,7 +76,7 @@ export interface PayableCommissionRow {
 
 export interface NonCommissionOrderRow {
   product_type: string;
-  verified_order_count: number;
+  verified_coupon_count: number;
   paid_amount_cent: number;
 }
 
@@ -92,20 +92,27 @@ export interface CommissionTablesData {
 }
 
 export interface OrderDetail {
+  detail_id: string;
   order_id: string;
   coupon_id: string;
+  verify_id: string;
   product_type: string;
   sale_store_id: string;
   sale_store_name: string;
   sale_month: string;
+  sale_time: string;
   is_verified: boolean;
   verify_store_id: string;
   verify_store_name: string;
   verify_month: string;
+  verify_time: string;
+  relation_type: "same_store" | "cross_store" | "unverified" | "unknown" | "";
   is_commissionable: boolean | null;
   invoice_status: string;
   refund_status: string;
+  refund_amount_cent: number;
   paid_amount_cent: number;
+  commission_rate: number;
   receivable_commission_cent: number;
   payable_commission_cent: number;
 }
@@ -119,6 +126,7 @@ export interface DetailFilters {
   verify_store_id?: string;
   exclude_verify_store_id?: string;
   verify_month?: string;
+  relation_type?: string;
   is_commissionable?: string;
   invoice_status?: string;
   refund_status?: string;

@@ -55,7 +55,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const commissionableHref = detailsHref({
     product_type: baseProduct,
     sale_store_id: storeId,
-    exclude_verify_store_id: storeId,
+    relation_type: "cross_store",
     is_verified: "true",
     verify_month: month,
     month_basis: "verify_month",
@@ -63,7 +63,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const payableHref = detailsHref({
     product_type: baseProduct,
     verify_store_id: storeId,
-    exclude_sale_store_id: storeId,
+    relation_type: "cross_store",
     is_verified: "true",
     verify_month: month,
     month_basis: "verify_month",
@@ -75,7 +75,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       key: "count",
       title: "核销单数",
       align: "right",
-      render: (row) => formatInteger(row.verified_order_count),
+      render: (row) => formatInteger(row.verified_coupon_count),
     },
     {
       key: "paid",
@@ -99,7 +99,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       key: "invoiced",
       title: "已到票单数",
       align: "right",
-      render: (row) => formatInteger(row.invoiced_order_count),
+      render: (row) => formatInteger(row.invoiced_coupon_count),
     },
     {
       key: "current",
@@ -121,7 +121,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       key: "count",
       title: "单数",
       align: "right",
-      render: (row) => formatInteger(row.verified_order_count),
+      render: (row) => formatInteger(row.verified_coupon_count),
     },
     {
       key: "paid",
@@ -149,7 +149,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       key: "count",
       title: "单数",
       align: "right",
-      render: (row) => formatInteger(row.verified_order_count),
+      render: (row) => formatInteger(row.verified_coupon_count),
     },
     {
       key: "paid",
@@ -244,7 +244,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             detailsHref({
               product_type: row.product_type,
               sale_store_id: storeId,
-              exclude_verify_store_id: storeId,
+              relation_type: "cross_store",
               is_verified: "true",
               verify_month: month,
               month_basis: "verify_month",
@@ -267,7 +267,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             detailsHref({
               product_type: row.product_type,
               verify_store_id: storeId,
-              exclude_sale_store_id: storeId,
+              relation_type: "cross_store",
               is_verified: "true",
               verify_month: month,
               month_basis: "verify_month",
@@ -292,6 +292,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               sale_store_id: storeId,
               verify_store_id: storeId,
               is_verified: "true",
+              relation_type: "same_store",
               is_commissionable: "false",
               verify_month: month,
               month_basis: "verify_month",

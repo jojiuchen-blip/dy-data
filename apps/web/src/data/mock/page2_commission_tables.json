@@ -2,7 +2,7 @@
   "data": {
     "store": {
       "store_id": "store_001",
-      "store_name": "杭州城西店"
+      "store_name": "比亚迪汽车海洋网枣庄国豪4S店"
     },
     "month": "2026-05",
     "product_type": "all",
@@ -10,51 +10,51 @@
       "receivable_commissions": [
         {
           "product_type": "268保养",
-          "verified_order_count": 78,
+          "verified_coupon_count": 78,
           "paid_amount_cent": 1922550,
           "commission_rate": 0.1,
           "commissionable_total_cent": 192255,
-          "invoiced_order_count": 63,
+          "invoiced_coupon_count": 63,
           "current_receivable_commission_cent": 155430,
           "pending_invoice_commission_cent": 36825
         },
         {
           "product_type": "168保养",
-          "verified_order_count": 472,
+          "verified_coupon_count": 472,
           "paid_amount_cent": 6726540,
           "commission_rate": 0.1,
           "commissionable_total_cent": 672654,
-          "invoiced_order_count": 401,
+          "invoiced_coupon_count": 401,
           "current_receivable_commission_cent": 571020,
           "pending_invoice_commission_cent": 101634
         },
         {
           "product_type": "漆面",
-          "verified_order_count": 23,
+          "verified_coupon_count": 23,
           "paid_amount_cent": 733700,
           "commission_rate": 0.1,
           "commissionable_total_cent": 73370,
-          "invoiced_order_count": 19,
+          "invoiced_coupon_count": 19,
           "current_receivable_commission_cent": 60580,
           "pending_invoice_commission_cent": 12790
         },
         {
           "product_type": "蒸发箱清洗",
-          "verified_order_count": 0,
+          "verified_coupon_count": 0,
           "paid_amount_cent": 0,
           "commission_rate": 0.1,
           "commissionable_total_cent": 0,
-          "invoiced_order_count": 0,
+          "invoiced_coupon_count": 0,
           "current_receivable_commission_cent": 0,
           "pending_invoice_commission_cent": 0
         },
         {
           "product_type": "外循环清洗",
-          "verified_order_count": 2,
+          "verified_coupon_count": 2,
           "paid_amount_cent": 17600,
           "commission_rate": 0.1,
           "commissionable_total_cent": 1760,
-          "invoiced_order_count": 1,
+          "invoiced_coupon_count": 1,
           "current_receivable_commission_cent": 1380,
           "pending_invoice_commission_cent": 380
         }
@@ -62,21 +62,21 @@
       "payable_commissions": [
         {
           "product_type": "268保养",
-          "verified_order_count": 61,
+          "verified_coupon_count": 61,
           "paid_amount_cent": 1503650,
           "commission_rate": 0.1,
           "payable_commission_cent": 150365
         },
         {
           "product_type": "168保养",
-          "verified_order_count": 324,
+          "verified_coupon_count": 324,
           "paid_amount_cent": 4618200,
           "commission_rate": 0.1,
           "payable_commission_cent": 461820
         },
         {
           "product_type": "漆面",
-          "verified_order_count": 1,
+          "verified_coupon_count": 1,
           "paid_amount_cent": 10750,
           "commission_rate": 0.1,
           "payable_commission_cent": 1075
@@ -85,17 +85,17 @@
       "non_commission_orders": [
         {
           "product_type": "268保养",
-          "verified_order_count": 93,
+          "verified_coupon_count": 93,
           "paid_amount_cent": 2297100
         },
         {
           "product_type": "168保养",
-          "verified_order_count": 315,
+          "verified_coupon_count": 315,
           "paid_amount_cent": 4485600
         },
         {
           "product_type": "漆面",
-          "verified_order_count": 13,
+          "verified_coupon_count": 13,
           "paid_amount_cent": 414700
         }
       ]
