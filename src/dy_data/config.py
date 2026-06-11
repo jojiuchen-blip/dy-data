@@ -33,19 +33,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "request_sleep_seconds": 0.5,
     },
     "sku": {"type_map": DEFAULT_SKU_TYPE_MAP},
-    "dashboard": {"default_start_date": "2026-01-01"},
     "settlement": {
         "commission_rate": 0.1,
         "excluded_owner_names": ["比亚迪汽车销售有限公司"],
         "today": "",
-    },
-    "tencent_cos": {
-        "secret_id": "",
-        "secret_key": "",
-        "region": "ap-guangzhou",
-        "bucket": "",
-        "key": "index.html",
-        "cache_control": "no-cache, max-age=60",
     },
 }
 
@@ -149,7 +140,6 @@ def path_value(name: str, env_name: str | None = None, default: Any = None) -> P
     base = workspace_root()
     field_probe = base / "field_probe"
     settlement = base / "settlement"
-    dashboard = base / "dashboard"
     derived: dict[str, Path] = {
         "python_exe": base / "runtime" / "python" / "python.exe",
         "base_table": base / "data" / "看板基础表.csv",
@@ -157,9 +147,6 @@ def path_value(name: str, env_name: str | None = None, default: Any = None) -> P
         "verify_save_dir": base / "exports" / "verify",
         "refund_save_dir": base / "exports" / "refund",
         "refund_order_save_dir": script_root() / "output_refund",
-        "run_root": base / "daily_runs",
-        "dashboard_dir": dashboard,
-        "screenshot_dir": base / "screenshots",
         "supplement_run_dir": base / "supplement",
         "supplement_seed_table": base / "runs" / "20260602_103004" / "抖音订单_2025年05月到2026年05月_总表_含券状态.csv",
         "field_probe_dir": field_probe,
@@ -173,7 +160,6 @@ def path_value(name: str, env_name: str | None = None, default: Any = None) -> P
         "may_verify_dir": settlement / "may2026_verify_by_poi",
         "may_settlement_dashboard_dir": settlement / "may2026_settlement_dashboard",
         "tmp_xlsx_sheet_xml": base / "tmp_xlsx_inspect" / "xl" / "worksheets" / "sheet1.xml",
-        "tencent_dashboard_html": dashboard / "index.html",
     }
     value = derived.get(name, default)
     if value in (None, ""):
@@ -230,6 +216,3 @@ def configured_today(default: datetime | None = None) -> datetime:
         return datetime.strptime(str(value)[:10], "%Y-%m-%d")
     return default or datetime.now()
 
-
-def tencent_value(env_name: str, key: str, default: Any = None) -> Any:
-    return env_or_config(env_name, "tencent_cos", key, default=default)

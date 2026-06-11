@@ -29,22 +29,11 @@
       "1865042831665155": "外循环清洗"
     }
   },
-  "dashboard": {
-    "default_start_date": "2026-01-01"
-  },
   "settlement": {
     "commission_rate": 0.1,
     "excluded_owner_names": [
       "比亚迪汽车销售有限公司"
     ],
     "today": ""
-  },
-  "tencent_cos": {
-    "secret_id": "",
-    "secret_key": "",
-    "region": "ap-guangzhou",
-    "bucket": "",
-    "key": "index.html",
-    "cache_control": "no-cache, max-age=60"
   }
 }

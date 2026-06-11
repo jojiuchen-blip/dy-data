@@ -8,7 +8,7 @@
 Copy-Item config.example.json config.local.json
 ```
 
-填写本机路径、抖音开放平台配置和可选 COS 配置。`config.local.json` 已加入 `.gitignore`，不要提交真实密钥。
+填写本机路径和抖音开放平台配置。`config.local.json` 已加入 `.gitignore`，不要提交真实密钥。
 
 也可以用环境变量覆盖配置文件：
 
@@ -32,18 +32,9 @@ PowerShell entrypoints read Python in this order:
 3. `.venv\Scripts\python.exe`
 4. `python` on `PATH`
 
-The entrypoints also add the repository root to `PYTHONPATH`. Root-level Python
-scripts add the same root path before importing `src.dy_data`, so isolated
-embedded Python runtimes do not fail with `ModuleNotFoundError: No module named
-'src'`.
+Root-level Python scripts add the repository root before importing `src.dy_data`, so isolated embedded Python runtimes do not fail with `ModuleNotFoundError: No module named 'src'`.
 
 ## 3. 常用命令
-
-生成销售看板：
-
-```powershell
-python build_sales_dashboard.py
-```
 
 导出核销记录：
 
@@ -57,17 +48,29 @@ python douyin_verify_record_export.py
 python douyin_refund_export.py
 ```
 
-运行每日工作流：
+生成五月分账基础表和看板：
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\run_daily_dashboard_workflow.ps1
+python build_may_settlement_dashboard.py
+```
+
+从分账基础表生成多月份看板：
+
+```powershell
+python build_monthly_settlement_dashboard_from_base.py
+```
+
+诊断核销券未进入分账的原因：
+
+```powershell
+python diagnose_unmatched_verify_cert_reasons.py
 ```
 
 ## 4. 协作者验收
 
 协作者环境确认重点：
 
-- `config.local.json` 指向的基础表、输出目录、Python 路径正确。
-- `python build_sales_dashboard.py` 能生成 HTML。
+- `config.local.json` 指向的数据目录、输出目录、Python 路径正确。
 - `python douyin_verify_record_export.py` 能写入核销 CSV/JSON。
-- 每日 PowerShell 脚本不再依赖个人 Documents 路径。
+- `python douyin_refund_export.py` 能写入退款 CSV/JSON。
+- `python build_may_settlement_dashboard.py` 能生成分账基础表、异常名单和 HTML 看板。
