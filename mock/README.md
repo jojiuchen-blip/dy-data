@@ -10,6 +10,7 @@
 - `page2_store_month_summary.json`：页面 2 顶部核心指标。
 - `page2_commission_tables.json`：页面 2 下方三块表格。
 - `page3_order_detail.csv`：页面 3 按券粒度的明细表和筛选示例。
+- `sku_product_commission_rules.json`：SKU ID、商品类型和商品类型分佣比例的示例映射。
 
 mock 数据覆盖以下场景：
 

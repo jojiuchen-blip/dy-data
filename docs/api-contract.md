@@ -9,7 +9,7 @@
 - API 前缀：`/api/v1`
 - 时间格式：日期时间使用 ISO 8601 字符串，月份使用 `YYYY-MM`。
 - 金额格式：金额字段统一返回人民币分为单位的整数，字段名以 `_cent` 结尾。
-- 明细粒度：页面 3 默认一行一券；已核销记录带 `verify_id`，未核销记录 `verify_id` 为空。
+- 明细粒度：页面 3 默认一行一券；核销 ID 作为后端追溯字段保留，不作为页面 3 默认明细展示字段。
 - 商品筛选：`product_type=all` 表示全部产品，其他值为具体商品类型。
 - 月份口径：页面 1 默认使用销售月 `sale_month`；页面 2 默认使用核销月 `verify_month`；到票/审核确认金额使用 `invoice_approved_at` 或 `invoice_received_at` 派生月份。
 - 口径说明：页面需要展示的指标口径由 API 返回 `definitions`，前端用于 tooltip 和页面底部说明。
@@ -140,7 +140,7 @@
 | is_commissionable | 否 | `true` 或 `false`。 |
 | invoice_status | 否 | `not_received`、`received`、`approved`、`rejected`。 |
 | refund_status | 否 | `none`、`refunding`、`refunded`、`failed`、`cancelled`、`unknown`。 |
-| q | 否 | 订单 ID、券 ID 或核销 ID 搜索。 |
+| q | 否 | 订单 ID 或券 ID 搜索。 |
 | page | 否 | 页码，默认 1。 |
 | page_size | 否 | 每页条数，默认 50。 |
 
@@ -148,19 +148,18 @@
 
 | 字段 | 支持状态 | 说明 |
 | --- | --- | --- |
-| detail_id | computed | 明细 ID。 |
 | order_id | confirmed | 订单 ID。 |
 | coupon_id | confirmed | 券 ID。 |
-| verify_id | confirmed | 核销 ID，未核销为空。 |
-| product_type | computed | 商品类型。 |
+| sku_id | confirmed | SKU ID。 |
+| owner_account_id | confirmed | 订单归属账号 ID。 |
+| owner_account_name | confirmed | 订单归属账号展示名。 |
+| product_type | computed | 商品类型，来自 SKU 到商品类型映射表。 |
 | sale_store_id | computed | 销售归属门店 ID。 |
 | sale_store_name | computed | 销售归属门店名称。 |
-| sale_month | computed | 销售月份。 |
 | sale_time | confirmed | 销售时间。 |
 | is_verified | computed | 是否核销。 |
 | verify_store_id | computed | 实际核销门店 ID。 |
 | verify_store_name | confirmed | 实际核销门店名称。 |
-| verify_month | computed | 核销月份。 |
 | verify_time | confirmed | 核销时间。 |
 | relation_type | computed | 销售和核销关系。 |
 | is_commissionable | computed | 是否分佣；未核销数据为空。 |
@@ -168,7 +167,7 @@
 | refund_status | computed | 退款状态。 |
 | refund_amount_cent | confirmed | 退款金额；券粒度可能来自推断。 |
 | paid_amount_cent | confirmed | 实收金额。 |
-| commission_rate | manual | 分佣比例。 |
+| commission_rate | manual | 分佣比例，来自 SKU 商品类型映射/规则表。 |
 | receivable_commission_cent | computed | 销售门店预计获得的分佣参考额。 |
 | payable_commission_cent | computed | 核销门店预计分出的分佣参考额。 |
 

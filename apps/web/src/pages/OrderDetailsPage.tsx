@@ -113,17 +113,20 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   };
 
   const columns: Column<OrderDetail>[] = [
-    { key: "detail", title: "明细 ID", render: (row) => row.detail_id },
     { key: "order", title: "订单 ID", render: (row) => row.order_id },
     { key: "coupon", title: "券 ID", render: (row) => row.coupon_id },
-    { key: "verifyId", title: "核销 ID", render: (row) => row.verify_id || "-" },
+    { key: "sku", title: "SKU ID", render: (row) => row.sku_id },
     { key: "product", title: "商品类型", render: (row) => row.product_type },
+    {
+      key: "ownerAccount",
+      title: "订单归属账号",
+      render: (row) => row.owner_account_name || row.owner_account_id || "-",
+    },
     {
       key: "saleStore",
       title: "销售归属门店",
       render: (row) => row.sale_store_name,
     },
-    { key: "saleMonth", title: "销售月份", render: (row) => row.sale_month },
     { key: "saleTime", title: "销售时间", render: (row) => row.sale_time || "-" },
     {
       key: "verified",
@@ -135,11 +138,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "verifyStore",
       title: "实际核销门店",
       render: (row) => row.verify_store_name || "-",
-    },
-    {
-      key: "verifyMonth",
-      title: "核销月份",
-      render: (row) => row.verify_month || "-",
     },
     {
       key: "verifyTime",

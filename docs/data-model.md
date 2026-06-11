@@ -37,9 +37,8 @@ raw_aweme_bindings
         v
 dim_stores
 dim_store_poi_mappings
-dim_products
+dim_sku_product_rules
 dim_aweme_accounts
-dim_commission_rules
 finance_invoice_status
         |
         v
@@ -149,13 +148,16 @@ job_runs
 | mapping_source | text | computed | `craftsman_binding`、`poi_query`、`manual` 等。 |
 | is_primary | boolean | manual | 多 POI 场景下的主 POI 需人工确认。 |
 
-### dim_products
+### dim_sku_product_rules
+
+SKU ID、商品类型和分佣比例使用独立映射表维护；订单明细保留 `sku_id`，页面展示的商品类型和分佣比例由该表派生。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
 | sku_id | text | confirmed | 订单和核销接口均稳定返回。 |
 | product_type | text | manual | 由配置中的 SKU 到产品类型映射维护。 |
 | product_name | text | confirmed | 订单 `sku_name` 或核销 `sku.title`。 |
+| commission_rate | numeric(6,4) | manual | 该商品类型对应的分佣比例，需财务确认。 |
 | is_service_product | boolean | computed | 是否进入看板由 SKU 映射是否存在计算。 |
 
 ### dim_aweme_accounts
@@ -168,16 +170,6 @@ job_runs
 | binding_status | text | confirmed | 职人绑定接口 `bind_status`。 |
 | valid_from | date | confirmed | 职人绑定 `bind_start_time`。 |
 | valid_to | date | confirmed | 职人绑定 `bind_end_time`，可空。 |
-
-### dim_commission_rules
-
-| 字段 | 类型建议 | 状态 | 来源/说明 |
-| --- | --- | --- | --- |
-| rule_id | text | computed | 可由产品类型、比例和有效期生成。 |
-| product_type | text | manual | 产品类型。 |
-| commission_rate | numeric(6,4) | manual | 当前脚本按配置默认比例计算，需财务确认。 |
-| valid_from | date | manual | 生效日期。 |
-| valid_to | date | manual | 失效日期，可空。 |
 
 ### finance_invoice_status
 
@@ -197,23 +189,22 @@ job_runs
 
 ### settlement_order_details
 
-该表是页面 3 的主要数据来源，也是页面 1 和页面 2 汇总计算的证据来源。第一阶段建议一行一券；如果同一券出现多条有效/撤销核销记录，按 `coupon_id + verify_id` 保留核销事实，并在汇总层只统计有效记录。
+该表是页面 3 的主要数据来源，也是页面 1 和页面 2 汇总计算的证据来源。第一阶段建议一行一券；月份类字段由销售时间或核销时间派生，不作为底表独立字段。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| detail_id | text | computed | 建议 `order_id + coupon_id`，存在多核销记录时追加 `verify_id`。 |
 | order_id | text | confirmed | 来自订单表。 |
 | coupon_id | text | confirmed | 来自订单券表或核销记录。 |
-| verify_id | text | confirmed | 已核销记录来自核销表；未核销为空。 |
-| product_type | text | computed | 由 SKU 映射得到。 |
+| sku_id | text | confirmed | 来自订单或核销接口，用于关联 SKU 商品类型映射表。 |
+| owner_account_id | text | confirmed | 订单归属账号 ID，优先使用订单归属字段。 |
+| owner_account_name | text | confirmed | 订单归属账号展示名。 |
+| product_type | text | computed | 由 SKU 商品类型映射表得到，不作为明细底表原始字段。 |
 | sale_store_id | text | computed | 订单归属人/职人绑定门店映射到内部门店。 |
 | sale_store_name | text | computed | 由销售归属门店映射得到。 |
-| sale_month | char(7) | computed | 由销售时间计算。 |
 | sale_time | timestamptz | confirmed | 订单 `pay_time` 或 `create_order_time`。 |
 | is_verified | boolean | computed | 是否存在有效核销记录。 |
 | verify_store_id | text | computed | 核销 POI 映射到内部 `store_id`。 |
 | verify_store_name | text | confirmed | 核销 POI 名称或映射后的门店名。 |
-| verify_month | char(7) | computed | 由 `verify_time` 计算。 |
 | verify_time | timestamptz | confirmed | 核销接口 `verify_time`。 |
 | relation_type | text | computed | `same_store`、`cross_store`、`unverified`、`unknown`。 |
 | is_commissionable | boolean | computed | 已核销且销售门店、核销门店均可识别且不同店。 |
@@ -223,7 +214,7 @@ job_runs
 | refund_status | text | computed | 订单/券退款状态归一化。 |
 | refund_amount_cent | integer | confirmed | 订单券或退款接口金额；到券粒度时存在分摊风险。 |
 | paid_amount_cent | integer | confirmed | 订单或核销金额，建议优先订单实收。 |
-| commission_rate | numeric(6,4) | manual | 来自分佣规则。 |
+| commission_rate | numeric(6,4) | manual | 来自 SKU 商品类型映射/规则表。 |
 | receivable_commission_cent | integer | computed | 跨店核销时销售门店应收参考额。 |
 | payable_commission_cent | integer | computed | 跨店核销时核销门店应付参考额。 |
 | source_run_id | text | computed | 生成该明细的任务 ID。 |

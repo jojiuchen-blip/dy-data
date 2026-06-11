@@ -448,8 +448,7 @@ export function filterOrderDetails(
     if (
       query &&
       !row.order_id.toLowerCase().includes(query) &&
-      !row.coupon_id.toLowerCase().includes(query) &&
-      !row.verify_id.toLowerCase().includes(query)
+      !row.coupon_id.toLowerCase().includes(query)
     ) {
       return false;
     }

@@ -92,10 +92,11 @@ export interface CommissionTablesData {
 }
 
 export interface OrderDetail {
-  detail_id: string;
   order_id: string;
   coupon_id: string;
-  verify_id: string;
+  sku_id: string;
+  owner_account_id: string;
+  owner_account_name: string;
   product_type: string;
   sale_store_id: string;
   sale_store_name: string;
@@ -133,6 +134,12 @@ export interface DetailFilters {
   q?: string;
   month?: string;
   month_basis?: string;
+}
+
+export interface SkuProductCommissionRule {
+  sku_id: string;
+  product_type: string;
+  commission_rate: number;
 }
 
 export interface SettlementViewData {

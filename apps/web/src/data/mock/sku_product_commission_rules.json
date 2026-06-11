@@ -1,0 +1,35 @@
+{
+  "data": {
+    "rows": [
+      {
+        "sku_id": "sku_168_basic",
+        "product_type": "168保养",
+        "commission_rate": 0.1
+      },
+      {
+        "sku_id": "sku_268_basic",
+        "product_type": "268保养",
+        "commission_rate": 0.1
+      },
+      {
+        "sku_id": "sku_evap_clean",
+        "product_type": "蒸发箱清洗",
+        "commission_rate": 0.1
+      },
+      {
+        "sku_id": "sku_outer_clean",
+        "product_type": "外循环清洗",
+        "commission_rate": 0.1
+      },
+      {
+        "sku_id": "sku_paint_care",
+        "product_type": "漆面",
+        "commission_rate": 0.1
+      }
+    ]
+  },
+  "meta": {
+    "generated_at": "2026-06-11T10:00:00+08:00",
+    "source": "mock"
+  }
+}
