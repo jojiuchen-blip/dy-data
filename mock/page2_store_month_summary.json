@@ -1,0 +1,36 @@
+{
+  "data": {
+    "store": {
+      "store_id": "store_001",
+      "store_name": "杭州城西店"
+    },
+    "month": "2026-05",
+    "product_type": "all",
+    "metrics": {
+      "current_receivable_commission_cent": 932410,
+      "commissionable_total_cent": 1286500,
+      "estimated_payable_commission_cent": 613260
+    }
+  },
+  "definitions": [
+    {
+      "key": "current_receivable_commission_cent",
+      "label": "当期应收分佣",
+      "description": "本店销售、他店核销后，由销售店发票到票并审核通过确定，按到票或审核通过时间计入当期。"
+    },
+    {
+      "key": "commissionable_total_cent",
+      "label": "可分佣总金额",
+      "description": "本店销售、他店核销后，按核销时间归属月份形成的可分佣基础金额。"
+    },
+    {
+      "key": "estimated_payable_commission_cent",
+      "label": "本店预计分出分佣参考额",
+      "description": "他店销售、本店核销后，本店按核销时间归属月份预计需要分出的分佣参考金额。"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-06-11T10:00:00+08:00",
+    "source": "mock"
+  }
+}

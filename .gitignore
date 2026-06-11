@@ -4,11 +4,11 @@ __pycache__/
 *.tmp
 
 # Local runtime / generated exports
-diagnostics/
-exports/
-output_refund/
-logs/
-runs/
+/diagnostics/
+/exports/
+/output_refund/
+/logs/
+/runs/
 
 # Local data and generated dashboards usually live under D:\app\抖音来客看板.
 # Keep this repository focused on source scripts and documentation.

@@ -1,0 +1,100 @@
+{
+  "data": {
+    "month": "2026-05",
+    "product_type": "all",
+    "limit": 20,
+    "rows": [
+      {
+        "rank": 1,
+        "store_id": "store_001",
+        "store_name": "杭州城西店",
+        "sales_order_count": 862,
+        "self_sold_self_verified_count": 421,
+        "self_sold_other_verified_count": 96,
+        "other_sold_self_verified_count": 73,
+        "self_verify_income_cent": 18642000,
+        "effective_commission_income_cent": 284500
+      },
+      {
+        "rank": 2,
+        "store_id": "store_002",
+        "store_name": "杭州滨江店",
+        "sales_order_count": 744,
+        "self_sold_self_verified_count": 388,
+        "self_sold_other_verified_count": 81,
+        "other_sold_self_verified_count": 102,
+        "self_verify_income_cent": 17108000,
+        "effective_commission_income_cent": 219600
+      },
+      {
+        "rank": 3,
+        "store_id": "store_003",
+        "store_name": "宁波鄞州店",
+        "sales_order_count": 693,
+        "self_sold_self_verified_count": 352,
+        "self_sold_other_verified_count": 68,
+        "other_sold_self_verified_count": 54,
+        "self_verify_income_cent": 14633000,
+        "effective_commission_income_cent": 201700
+      },
+      {
+        "rank": 4,
+        "store_id": "store_004",
+        "store_name": "绍兴越城店",
+        "sales_order_count": 615,
+        "self_sold_self_verified_count": 301,
+        "self_sold_other_verified_count": 57,
+        "other_sold_self_verified_count": 61,
+        "self_verify_income_cent": 12888000,
+        "effective_commission_income_cent": 159200
+      },
+      {
+        "rank": 5,
+        "store_id": "store_005",
+        "store_name": "嘉兴南湖店",
+        "sales_order_count": 588,
+        "self_sold_self_verified_count": 276,
+        "self_sold_other_verified_count": 49,
+        "other_sold_self_verified_count": 45,
+        "self_verify_income_cent": 10956000,
+        "effective_commission_income_cent": 132300
+      }
+    ]
+  },
+  "definitions": [
+    {
+      "key": "sales_order_count",
+      "label": "销售订单数量",
+      "description": "按销售归属门店统计订单数，不要求订单已核销。"
+    },
+    {
+      "key": "self_sold_self_verified_count",
+      "label": "本店卖出、本店核销数",
+      "description": "销售归属门店和实际核销门店一致的已核销订单数。"
+    },
+    {
+      "key": "self_sold_other_verified_count",
+      "label": "本店卖出、他店核销数",
+      "description": "销售归属门店为本店，实际核销门店为其他门店的已核销订单数。"
+    },
+    {
+      "key": "other_sold_self_verified_count",
+      "label": "他店销售、在本店核销数",
+      "description": "销售归属门店为其他门店，实际核销门店为本店的已核销订单数。"
+    },
+    {
+      "key": "self_verify_income_cent",
+      "label": "本店核销收入",
+      "description": "在本店核销所产生的所有收入，包含本店卖本店核销收入和他店卖本店核销扣除分佣后的收入。"
+    },
+    {
+      "key": "effective_commission_income_cent",
+      "label": "有效分佣收入",
+      "description": "本店销售、他店核销所产生的分佣参考金额。"
+    }
+  ],
+  "meta": {
+    "generated_at": "2026-06-11T10:00:00+08:00",
+    "source": "mock"
+  }
+}

@@ -10,6 +10,14 @@ C:\Users\86138\Documents\抖音服务产品数据拉取归档
 
 产品定位和业务边界以 `docs/项目产品介绍书.md` 为准；本 README 只说明仓库结构、配置方式和常用运行入口。
 
+协作开发时优先阅读：
+
+- `docs/项目产品介绍书.md`：产品定义和业务边界。
+- `docs/技术架构与部署规划.md`：技术栈、服务拆分、部署方向和协作边界。
+- `docs/data-model.md`：数据表草案，需基于真实拉取数据持续校对。
+- `docs/api-contract.md`：页面 1、页面 2、页面 3 的 API 返回结构草案。
+- `mock/`：前端并行开发使用的脱敏示例数据。
+
 ## 主要能力
 
 - 导出抖音来客订单、券核销、退款数据。
@@ -20,14 +28,14 @@ C:\Users\86138\Documents\抖音服务产品数据拉取归档
 
 ## 常用脚本
 
-- `export_raw_orders.py`：导出订单明细，并按 SKU 映射商品类型。
-- `douyin_verify_record_export.py`：导出核销记录。
-- `douyin_refund_export.py`：导出退款单。
-- `export_may_verify_by_backend_pois.py`：按后台 POI 拉取 2026 年 5 月门店验券记录。
-- `build_may_settlement_dashboard.py`：生成五月门店分账基础表和看板。
-- `build_monthly_settlement_dashboard_from_base.py`：从分账基础表生成支持月份筛选的分账看板。
-- `diagnose_unmatched_verify_cert_reasons.py`：诊断核销券未进入分账的原因。
-- `validate_settlement_data_availability.py`：检查分账所需字段的数据可用性。
+- `scripts/exports/export_raw_orders.py`：导出订单明细，并按 SKU 映射商品类型。
+- `scripts/exports/douyin_verify_record_export.py`：导出核销记录。
+- `scripts/exports/douyin_refund_export.py`：导出退款单。
+- `scripts/exports/export_may_verify_by_backend_pois.py`：按后台 POI 拉取 2026 年 5 月门店验券记录。
+- `scripts/settlement/build_may_settlement_dashboard.py`：生成五月门店分账基础表和看板。
+- `scripts/settlement/build_monthly_settlement_dashboard_from_base.py`：从分账基础表生成支持月份筛选的分账看板。
+- `scripts/diagnostics/diagnose_unmatched_verify_cert_reasons.py`：诊断核销券未进入分账的原因。
+- `scripts/diagnostics/validate_settlement_data_availability.py`：检查分账所需字段的数据可用性。
 
 ## 本地配置
 
@@ -64,20 +72,28 @@ python -m pip install -r requirements.txt
 常用入口：
 
 ```powershell
-python douyin_verify_record_export.py
-python douyin_refund_export.py
-python build_may_settlement_dashboard.py
-python build_monthly_settlement_dashboard_from_base.py
+python scripts/exports/douyin_verify_record_export.py
+python scripts/exports/douyin_refund_export.py
+python scripts/settlement/build_may_settlement_dashboard.py
+python scripts/settlement/build_monthly_settlement_dashboard_from_base.py
 ```
+
+脚本已按用途移动到 `scripts/` 下，仍可从仓库根目录直接运行。Python 脚本会自动把仓库根目录加入模块搜索路径，以便继续导入 `src.dy_data`。
 
 ## 代码结构
 
 ```text
+docs/                         产品、架构、运行和协作说明
+mock/                         前端开发使用的脱敏示例数据
+scripts/exports/              订单、核销、退款等数据导出入口
+scripts/settlement/           分账基础表和看板生成入口
+scripts/diagnostics/          数据可用性、异常原因和字段检查入口
+scripts/exploration/          接口、字段、匹配关系的一次性探查脚本
+scripts/tasks/                PowerShell 任务入口
+scripts/utilities/            辅助工具脚本
 src/dy_data/config.py         统一配置读取
 src/dy_data/sku.py            SKU 和商品类型映射
 src/dy_data/paths.py          路径读取辅助
 src/dy_data/csv_io.py         CSV 读写辅助
 src/dy_data/douyin_client.py  抖音接口常量和请求头辅助
 ```
-
-根目录仍保留部分一次性诊断、匹配和探查脚本，后续可再按 `scripts/exports`、`scripts/settlement`、`scripts/diagnostics` 分批整理。

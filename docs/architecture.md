@@ -25,18 +25,29 @@ C:\Users\86138\Documents\抖音服务产品数据拉取归档
 2. 数据层：分账基础表作为当前可复核交付物，后续可沉淀到云数据库或多维表格。
 3. 服务层：分账看板先保留静态 HTML，后续再拆分为后端 API 和前端页面。
 
+技术栈、生产数据链路和云服务器部署方向见 `docs/技术架构与部署规划.md`。生产数据采集不能依赖开发者个人电脑或 Codex 定时执行，应迁移为服务器上的稳定任务。
+
 ## 后续目录目标
 
 ```text
+apps/
+  web/
+  api/
+  worker/
 scripts/
   exports/
   settlement/
   diagnostics/
+  exploration/
+  utilities/
   tasks/
 src/
   dy_data/
+deploy/
 docs/
 tests/
 ```
 
-迁移根目录脚本前，应先确认协作者环境可以用 `config.local.json` 跑通主要导出流程和分账看板生成流程。
+当前已先完成脚本层整理：根目录历史脚本按用途迁入 `scripts/`，并保留 `src/dy_data` 作为共享 Python 业务包。`apps/web`、`apps/api`、`apps/worker` 和 `deploy` 暂不为了目录完整而空建，等前端、后端 API、worker 和部署文件真正开始实现时再创建。
+
+迁移脚本后，协作者仍应从仓库根目录运行命令，例如 `python scripts/exports/douyin_verify_record_export.py`。脚本会自动把仓库根目录加入模块搜索路径，避免迁移到子目录后无法导入 `src.dy_data`。
