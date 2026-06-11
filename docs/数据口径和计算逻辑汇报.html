@@ -1,0 +1,398 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>抖音分账看板数据口径与计算逻辑</title>
+  <style>
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: #1f2933;
+      font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+      line-height: 1.7;
+    }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 36px 40px 60px;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 32px;
+      line-height: 1.3;
+    }
+
+    .subtitle {
+      margin: 0 0 24px;
+      color: #5f6b7a;
+      font-size: 16px;
+    }
+
+    .key {
+      margin: 20px 0 34px;
+      padding: 14px 16px;
+      border-left: 4px solid #1f5f99;
+      background: #f3f7fb;
+      font-weight: 700;
+    }
+
+    section {
+      margin-bottom: 34px;
+    }
+
+    h2 {
+      margin: 0 0 14px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #d7dde5;
+      font-size: 22px;
+    }
+
+    .logic-chart {
+      width: 100%;
+      overflow-x: auto;
+      padding: 8px 0;
+    }
+
+    .logic-chart svg {
+      width: 100%;
+      min-width: 1120px;
+      display: block;
+    }
+
+    .node {
+      fill: #ffffff;
+      stroke: #9aa7b5;
+      stroke-width: 1.4;
+    }
+
+    .node-accent {
+      fill: #f3f7fb;
+      stroke: #1f5f99;
+      stroke-width: 1.6;
+    }
+
+    .node-title {
+      font-size: 16px;
+      font-weight: 800;
+      fill: #1f2933;
+    }
+
+    .node-desc {
+      font-size: 13px;
+      fill: #5f6b7a;
+    }
+
+    .arrow-line {
+      stroke: #667085;
+      stroke-width: 1.5;
+      fill: none;
+      marker-end: url(#arrow);
+    }
+
+    .branch-label {
+      font-size: 13px;
+      font-weight: 800;
+      fill: #1f5f99;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 15px;
+    }
+
+    th,
+    td {
+      border: 1px solid #d7dde5;
+      padding: 11px 13px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f3f5f8;
+      font-weight: 800;
+    }
+
+    td {
+      color: #344054;
+    }
+
+    .formula {
+      margin: 0;
+      padding-left: 20px;
+    }
+
+    .formula li {
+      margin-bottom: 8px;
+    }
+
+    strong {
+      color: #1f2933;
+    }
+
+    @media print {
+      main {
+        max-width: none;
+        padding: 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>抖音分账看板数据口径与计算逻辑</h1>
+    <p class="subtitle">
+      以“核销券”为最小颗粒度，通过券ID关联订单销售归属与门店核销记录，识别 A 店卖出、B 店核销的跨店服务场景，并按订单实收金额计算门店之间的应收、应扣和净分佣。
+    </p>
+
+    <div class="key">
+      核心口径：分账按“核销月份”计算，不按“下单月份”计算；因为分账发生在门店实际提供服务并完成核销之后。
+    </div>
+
+    <section>
+      <h2>一、分账逻辑图</h2>
+      <div class="logic-chart">
+        <svg viewBox="0 0 1260 620" role="img" aria-label="分账逻辑图">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#667085"></path>
+            </marker>
+          </defs>
+
+          <rect class="node" x="60" y="70" width="230" height="82" rx="12"></rect>
+          <text class="node-title" x="175" y="104" text-anchor="middle">订单数据</text>
+          <text class="node-desc" x="175" y="130" text-anchor="middle">谁卖出 / 商品 / 金额 / 券ID</text>
+
+          <rect class="node" x="60" y="250" width="230" height="82" rx="12"></rect>
+          <text class="node-title" x="175" y="284" text-anchor="middle">核销数据</text>
+          <text class="node-desc" x="175" y="310" text-anchor="middle">核销门店 / 核销时间 / 券ID</text>
+
+          <rect class="node" x="60" y="430" width="230" height="90" rx="12"></rect>
+          <text class="node-title" x="175" y="464" text-anchor="middle">抖音号明细</text>
+          <text class="node-desc" x="175" y="490" text-anchor="middle">后台导出 / 定时读取最新版</text>
+
+          <rect class="node-accent" x="390" y="160" width="220" height="82" rx="12"></rect>
+          <text class="node-title" x="500" y="194" text-anchor="middle">券ID关联</text>
+          <text class="node-desc" x="500" y="220" text-anchor="middle">订单与核销记录合并</text>
+
+          <rect class="node" x="705" y="250" width="250" height="90" rx="12"></rect>
+          <text class="node-title" x="830" y="284" text-anchor="middle">门店标准化</text>
+          <text class="node-desc" x="830" y="310" text-anchor="middle">销售账号 / 核销POI 映射为标准门店</text>
+
+          <polygon class="node-accent" points="830,390 960,462 830,534 700,462"></polygon>
+          <text class="node-title" x="830" y="456" text-anchor="middle">销售门店ID</text>
+          <text class="node-title" x="830" y="480" text-anchor="middle">= 核销门店ID？</text>
+
+          <rect class="node" x="420" y="420" width="220" height="84" rx="12"></rect>
+          <text class="node-title" x="530" y="454" text-anchor="middle">本店自销自核</text>
+          <text class="node-desc" x="530" y="480" text-anchor="middle">不产生分账</text>
+
+          <rect class="node" x="1010" y="420" width="150" height="84" rx="12"></rect>
+          <text class="node-title" x="1085" y="454" text-anchor="middle">跨店核销</text>
+          <text class="node-desc" x="1085" y="480" text-anchor="middle">进入分账</text>
+
+          <rect class="node" x="930" y="545" width="300" height="52" rx="10"></rect>
+          <text class="node-title" x="1080" y="577" text-anchor="middle">销售门店应收 / 核销门店应扣</text>
+
+          <path class="arrow-line" d="M 290 111 C 335 111, 340 185, 390 196"></path>
+          <path class="arrow-line" d="M 290 291 C 335 291, 340 218, 390 207"></path>
+          <path class="arrow-line" d="M 610 201 C 660 201, 670 270, 705 286"></path>
+          <path class="arrow-line" d="M 290 475 C 470 475, 570 330, 705 310"></path>
+          <path class="arrow-line" d="M 830 340 L 830 390"></path>
+          <path class="arrow-line" d="M 700 462 L 640 462"></path>
+          <path class="arrow-line" d="M 960 462 L 1010 462"></path>
+          <path class="arrow-line" d="M 1085 504 L 1085 545"></path>
+
+          <text class="branch-label" x="665" y="447" text-anchor="middle">是</text>
+          <text class="branch-label" x="985" y="447" text-anchor="middle">否</text>
+        </svg>
+      </div>
+    </section>
+
+    <section>
+      <h2>二、分账规则</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>场景</th>
+            <th>判断条件</th>
+            <th>结果</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>本店自销自核</td>
+            <td>销售门店ID = 核销门店ID</td>
+            <td>不分账</td>
+          </tr>
+          <tr>
+            <td>本店卖，他店核销</td>
+            <td>销售门店ID ≠ 核销门店ID，且销售门店是本店</td>
+            <td>本店应收分佣</td>
+          </tr>
+          <tr>
+            <td>他店卖，本店核销</td>
+            <td>销售门店ID ≠ 核销门店ID，且核销门店是本店</td>
+            <td>本店应扣分佣</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>三、底表与字段口径</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>底表名称</th>
+            <th>来源 / API接口</th>
+            <th>所需字段</th>
+            <th>获取方式</th>
+            <th>更新频率</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>订单基础表</td>
+            <td>抖音来客订单接口</td>
+            <td>订单ID、券ID、下单时间、订单状态、SKU_ID、SKU名称、订单实收金额、带货角色、订单归属人昵称</td>
+            <td>通过抖音开放平台订单 OpenAPI 自动拉取；订单和券通过订单返回的 certificate 字段拆分。</td>
+            <td>每日自动更新；分账月度计算时按核销月向前回看180天订单池。</td>
+          </tr>
+          <tr>
+            <td>门店验券表</td>
+            <td>门店验券记录接口<br>按 POI 查询核销记录</td>
+            <td>券ID、核销ID、核销时间、核销状态、核销门店ID、核销门店名称、核销类型、撤销时间</td>
+            <td>通过抖音开放平台门店验券 OpenAPI 自动拉取；按门店 POI_ID 和时间范围分页获取。</td>
+            <td>每日自动更新当月累计；月末拉取整月数据并归档。</td>
+          </tr>
+          <tr>
+            <td>抖音号明细表</td>
+            <td>来客后台导出<br>抖音号管理 / 商家号管理</td>
+            <td>抖音昵称、抖音ID、账号类型、所属账户名称、所属账户ID、所属账户关联POI_ID、认证主体、抖音号绑定状态</td>
+            <td>由于接口不支持商家号直接获取异主体子机构经营号数据，需从来客后台导出文件；脚本自动读取本地最新版文件并解析。</td>
+            <td>每周一检查并更新最新版；每月结束后归档一版，作为当月分账复核依据。</td>
+          </tr>
+          <tr>
+            <td>商品类型配置表</td>
+            <td>人工维护配置</td>
+            <td>SKU_ID、SKU名称、商品类型、分佣比例</td>
+            <td>当前在脚本中维护 SKU_ID 与商品类型映射；后续可改成独立 Excel/CSV 配置表。</td>
+            <td>商品规则变化时更新；默认分佣比例暂按10%。</td>
+          </tr>
+          <tr>
+            <td>分账基础表</td>
+            <td>由订单基础表、门店验券表、抖音号明细表加工生成</td>
+            <td>订单ID、券ID、下单时间、核销时间、商品类型、订单实收金额、销售门店ID、销售门店、核销门店ID、核销门店、分佣比例、分佣金额、销售核销关系</td>
+            <td>用券ID关联订单与核销记录，再用抖音号明细标准化销售门店和核销门店，最后判断是否跨店核销。</td>
+            <td>每日随订单/核销数据更新；月末冻结一版用于结算。</td>
+          </tr>
+          <tr>
+            <td>异常名单表</td>
+            <td>由分账加工过程自动生成</td>
+            <td>异常类型、订单ID、券ID、订单归属人昵称、核销门店ID、商品类型、说明</td>
+            <td>加工分账基础表时自动输出，用于排查未进入分账的数据。</td>
+            <td>每次生成分账基础表时同步更新。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>四、抖音号明细更新机制</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>更新动作</th>
+            <th>说明</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>数据来源</td>
+            <td>抖音开放平台暂不支持商家号直接获取异主体子机构经营号数据，因此销售账号与门店映射采用来客后台导出的抖音号明细作为主数据来源。</td>
+          </tr>
+          <tr>
+            <td>每周一更新</td>
+            <td>定时任务自动检查本地下载目录中的最新版抖音号明细，解析后更新门店映射表。</td>
+          </tr>
+          <tr>
+            <td>月末归档</td>
+            <td>每月结束后再读取并归档一版抖音号明细，作为当月分账复核依据。</td>
+          </tr>
+          <tr>
+            <td>前提条件</td>
+            <td>需要先从来客后台导出抖音号明细到本地；若没有新文件，任务只提示未发现新版本，不会自动登录后台下载。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>五、时间口径</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>看板月份</th>
+            <th>统计逻辑</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>当月累计</td>
+            <td>核销时间在当月1日至当前日期。</td>
+          </tr>
+          <tr>
+            <td>历史月份</td>
+            <td>核销时间在该自然月内。</td>
+          </tr>
+          <tr>
+            <td>订单匹配范围</td>
+            <td>按核销月向前回看180天订单池，用于匹配历史下单、当月核销的订单。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>六、有效数据筛选口径</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>筛选项</th>
+            <th>规则</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>核销状态</td><td>只保留有效核销，排除撤销/无效核销。</td></tr>
+          <tr><td>订单状态</td><td>排除支付取消。</td></tr>
+          <tr><td>退款</td><td>排除已退款券。</td></tr>
+          <tr><td>带货角色</td><td>只保留商家。</td></tr>
+          <tr><td>官方总账号</td><td>排除“比亚迪汽车销售有限公司”。</td></tr>
+          <tr><td>销售账号</td><td>必须能匹配到抖音号明细。</td></tr>
+          <tr><td>门店ID</td><td>销售门店ID、核销门店ID都必须能识别。</td></tr>
+          <tr><td>商品类型</td><td>只统计当前配置商品类型。</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section>
+      <h2>七、指标计算口径</h2>
+      <ul class="formula">
+        <li><strong>有效销售单数：</strong>符合口径的订单，按订单ID去重。</li>
+        <li><strong>订单实收金额：</strong>使用订单实收金额；一单多券时按有效券数量均摊。</li>
+        <li><strong>本店卖他店核销单数：</strong>销售门店是本店、核销门店不是本店，按订单ID去重。</li>
+        <li><strong>他店卖本店核销单数：</strong>核销门店是本店、销售门店不是本店，按订单ID去重。</li>
+        <li><strong>应收分佣：</strong>本店卖他店核销金额 × 分佣比例。</li>
+        <li><strong>应扣分佣：</strong>他店卖本店核销金额 × 分佣比例。</li>
+        <li><strong>净分佣：</strong>应收分佣 - 应扣分佣。</li>
+        <li><strong>分佣比例：</strong>当前暂按10%；后续可按商品类型配置不同分佣比例。</li>
+      </ul>
+    </section>
+  </main>
+</body>
+</html>
