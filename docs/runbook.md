@@ -94,6 +94,53 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm migrate
 - 将未匹配销售归属、POI、SKU、异常退款/撤销核销等问题写入 `data_quality_issues`。
 - 将每次任务状态写入 `job_runs`。
 
+采集是后端服务行为，不在前端看板展示触发按钮。生产默认 worker 命令是：
+
+```bash
+python -m apps.worker.scheduler
+```
+
+默认 `WORKER_MODE=collect_and_settle`，每次运行会按 `DOUYIN_COLLECT_OVERLAP_DAYS` 重叠窗口拉取抖音开放平台数据，写入 raw/dimension 表，再刷新结算明细和汇总表。应急排障时可以临时设置 `WORKER_MODE=settlement_only`，只基于数据库现有 raw 数据重算看板。
+
+首次全量回填可以单独运行一次：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm worker \
+  python -m apps.worker.collect_once --start 2026-01-01 --end 2026-06-12 --skip-browser-export
+```
+
+日常重叠窗口刷新可以使用：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm worker \
+  python -m apps.worker.collect_once --overlap-days 7 --skip-browser-export
+```
+
+生产至少需要配置以下采集变量：
+
+- `DOUYIN_APP_ID`
+- `DOUYIN_APP_SECRET`
+- `DOUYIN_ACCOUNT_ID`
+- `WORKER_MODE`
+- `DOUYIN_COLLECT_START`
+- `DOUYIN_COLLECT_OVERLAP_DAYS`
+- `DOUYIN_VERIFY_CHUNK_DAYS`
+- `BROWSER_CDP_URL`
+- `BROWSER_EXPORT_COMMAND`
+- `BACKEND_AWEME_EXPORT_URL`
+
+检查任务状态：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec postgres \
+  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+  -c "select job_id, job_name, status, started_at, finished_at, success_count, failed_count, error_message from job_runs order by started_at desc limit 20;"
+```
+
+采集完成后，访问看板页面 1、页面 2、页面 3，确认 API 数据可读；页面 2 点击核心数字和表格行跳到页面 3 后，URL 参数和明细结果应一致。页面看板仍为公开只读，任务状态、采集入口和 `/browser/` 仍属于后台受保护区域。
+
+轮换抖音开放平台凭据时，只更新服务器环境变量或未跟踪 `.env`，然后重启 worker/API 容器；不要改前端代码，不要把新凭据写入仓库。轮换 noVNC/抖音后台登录态时，通过受保护 `/browser/` 入口重新登录，浏览器 profile 保存在 Docker volume 中。
+
 生产浏览器采集应通过适配器启动：
 
 ```bash

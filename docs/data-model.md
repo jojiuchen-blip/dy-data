@@ -249,7 +249,7 @@ data_quality_issues
 | success_count | integer | computed | 成功行数。 |
 | failed_count | integer | computed | 失败行数。 |
 | error_message | text | computed | 脱敏错误信息。 |
-| metadata_json | jsonb | computed | 脱敏任务元信息。 |
+| metadata_json | jsonb | computed | 脱敏任务元信息；采集任务包含 `source_window` 和各阶段 `phases` 统计。 |
 
 ### data_quality_issues
 
