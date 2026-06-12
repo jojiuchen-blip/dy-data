@@ -29,7 +29,7 @@ services:
       migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
       DY_ADMIN_USERNAME: ${DY_ADMIN_USERNAME:-CHANGE_ME_ADMIN_USERNAME}
       DY_ADMIN_PASSWORD_HASH: ${DY_ADMIN_PASSWORD_HASH:-CHANGE_ME_ADMIN_PASSWORD_HASH}
       DY_SESSION_SECRET: ${DY_SESSION_SECRET:-CHANGE_ME_SESSION_SECRET}
@@ -50,7 +50,7 @@ services:
         condition: service_healthy
     command: ["alembic", "upgrade", "head"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
       TZ: Asia/Shanghai
     networks:
       - app
@@ -68,7 +68,7 @@ services:
         condition: service_started
     command: ["sh", "-c", "${WORKER_COMMAND:-python -m apps.worker.scheduler}"]
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
       DOUYIN_APP_ID: ${DOUYIN_APP_ID:-CHANGE_ME_DOUYIN_APP_ID}
       DOUYIN_APP_SECRET: ${DOUYIN_APP_SECRET:-CHANGE_ME_DOUYIN_APP_SECRET}
       DOUYIN_ACCOUNT_ID: ${DOUYIN_ACCOUNT_ID:-CHANGE_ME_DOUYIN_ACCOUNT_ID}
