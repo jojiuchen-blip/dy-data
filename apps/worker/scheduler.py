@@ -4,8 +4,10 @@ import os
 import signal
 import time
 from datetime import datetime, timezone
+from collections.abc import Mapping
 
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.worker.pipeline import run_collect_and_settle
 from apps.worker.settlement import run_settlement_job
 
 
@@ -22,18 +24,30 @@ def _handle_stop(signum: int, frame: object) -> None:
     _STOP = True
 
 
-def _job_id() -> str:
+def _job_id(prefix: str = "settlement") -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-    return f"settlement_{stamp}"
+    return f"{prefix}_{stamp}"
+
+
+def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
+    source = os.environ if env is None else env
+    value = source.get("WORKER_MODE", "collect_and_settle").strip().lower()
+    if value not in {"collect_and_settle", "settlement_only"}:
+        raise ValueError("WORKER_MODE must be collect_and_settle or settlement_only.")
+    return value
 
 
 def run_once() -> None:
     source_run_id = os.getenv("WORKER_SOURCE_RUN_ID", "scheduled")
+    mode = resolve_worker_mode()
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
     with session_scope(factory) as session:
-        run_settlement_job(session, job_id=_job_id(), source_run_id=source_run_id)
+        if mode == "settlement_only":
+            run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
+            return
+        run_collect_and_settle(session, job_id=_job_id("collect"))
 
 
 def main() -> None:
