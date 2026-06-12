@@ -2,18 +2,32 @@ FROM debian:bookworm-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-        ca-certificates \
-        chromium \
-        dumb-init \
-        fluxbox \
-        fonts-noto-cjk \
-        novnc \
-        websockify \
-        x11vnc \
-        xvfb \
-    && rm -rf /var/lib/apt/lists/*
+RUN sed -i \
+    -e 's|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
+    -e 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' \
+    /etc/apt/sources.list.d/debian.sources
+
+RUN set -eux; \
+    for attempt in 1 2 3 4 5; do \
+        apt-get update \
+        && apt-get install -y --no-install-recommends \
+            -o Acquire::Retries=5 \
+            ca-certificates \
+            chromium \
+            dumb-init \
+            fluxbox \
+            fonts-noto-cjk \
+            novnc \
+            websockify \
+            x11vnc \
+            xvfb \
+        && break; \
+        if [ "$attempt" = "5" ]; then exit 1; fi; \
+        apt-get clean; \
+        rm -rf /var/lib/apt/lists/*; \
+        sleep $((attempt * 5)); \
+    done; \
+    rm -rf /var/lib/apt/lists/*
 
 RUN useradd -ms /bin/bash browser \
     && mkdir -p /home/browser/Downloads /home/browser/.config/chromium /home/browser/.vnc \
