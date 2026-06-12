@@ -81,7 +81,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm migrate
 
 `DY_ADMIN_PASSWORD_HASH` 支持 PBKDF2 或 bcrypt。开发测试可以启用 `DY_API_TEST_MODE=true`，生产不得启用测试模式。
 
-所有看板 API、导出接口和 `/browser/` noVNC 入口都通过同一个管理员 session cookie 保护。
+页面看板和明细导出是只读访问，不要求管理员登录。管理员 session cookie 仅用于后台管理类接口和 `/browser/` noVNC 入口，避免把数据采集行为暴露成前端看板功能。
 
 ## 5. 数据任务
 

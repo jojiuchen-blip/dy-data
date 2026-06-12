@@ -32,23 +32,11 @@ export interface SelectOption {
   label: string;
 }
 
-export interface LatestJob {
-  job_id: string;
-  job_name: string;
-  status: "running" | "success" | "failed" | string;
-  started_at: string;
-  finished_at?: string | null;
-  success_count?: number | null;
-  failed_count?: number | null;
-  error_message?: string | null;
-}
-
 export interface FilterMetaData {
   stores: StoreOption[];
   product_types: string[];
   sale_months: string[];
   verify_months: string[];
-  latest_job?: LatestJob | null;
 }
 
 export interface StoreRankingRow {

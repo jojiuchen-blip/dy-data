@@ -157,13 +157,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
     app = create_app()
     app.dependency_overrides[get_data_store] = lambda: FakeStore()
-    client = TestClient(app)
-    response = client.post(
-        "/api/v1/auth/login",
-        json={"username": "admin", "password": "test-password"},
-    )
-    assert response.status_code == 200
-    return client
+    return TestClient(app)
 
 
 def test_filter_metadata_contract(client: TestClient):
@@ -173,7 +167,7 @@ def test_filter_metadata_contract(client: TestClient):
     data = response.json()["data"]
     assert data["stores"] == [{"store_id": "store_001", "store_name": "Store One"}]
     assert data["product_types"] == ["all", "basic_service"]
-    assert data["latest_job"]["job_id"] == "job_001"
+    assert "latest_job" not in data
 
 
 def test_dashboard_contract_responses_do_not_expose_deferred_fields(
@@ -222,6 +216,12 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
 
 
 def test_recent_jobs_contract(client: TestClient):
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "test-password"},
+    )
+    assert login.status_code == 200
+
     response = client.get("/api/v1/jobs/recent?limit=5")
 
     assert response.status_code == 200

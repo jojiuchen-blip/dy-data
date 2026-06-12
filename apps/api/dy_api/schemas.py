@@ -53,7 +53,6 @@ class FilterMetadata(BaseModel):
     product_types: list[str]
     sale_months: list[str]
     verify_months: list[str]
-    latest_job: JobRun | None = None
 
 
 class StoreRankingRow(BaseModel):

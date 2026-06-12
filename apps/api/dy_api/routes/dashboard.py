@@ -5,7 +5,6 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import Response
 
-from dy_api.auth import get_current_admin
 from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
     MonthlySettlementData,
@@ -88,7 +87,6 @@ def store_ranking(
     month: str,
     product_type: str = "all",
     limit: int = Query(default=20, ge=1, le=500),
-    _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     data = StoreRankingData(
@@ -109,7 +107,6 @@ def monthly_settlement(
     store_id: str,
     month: str,
     product_type: str = "all",
-    _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     data = MonthlySettlementData(
@@ -139,7 +136,6 @@ def order_details(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
-    _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
@@ -179,7 +175,6 @@ def order_details_export(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
-    _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(

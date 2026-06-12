@@ -79,11 +79,6 @@ def test_password_hash_env_is_supported_without_test_fallback(
     [
         ("get", "/api/v1/auth/me"),
         ("post", "/api/v1/auth/logout"),
-        ("get", "/api/v1/meta/filters"),
-        ("get", "/api/v1/dashboard/store-ranking?month=2026-05"),
-        ("get", "/api/v1/stores/store_001/monthly-settlement?month=2026-05"),
-        ("get", "/api/v1/order-details"),
-        ("get", "/api/v1/order-details/export"),
         ("get", "/api/v1/jobs/recent"),
     ],
 )

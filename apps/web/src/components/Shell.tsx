@@ -9,11 +9,9 @@ const navItems = [
 interface ShellProps {
   currentPath: string;
   children: ReactNode;
-  onLogout: () => void;
-  username: string;
 }
 
-export function Shell({ currentPath, children, onLogout, username }: ShellProps) {
+export function Shell({ currentPath, children }: ShellProps) {
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -40,12 +38,6 @@ export function Shell({ currentPath, children, onLogout, username }: ShellProps)
             </a>
           ))}
         </nav>
-        <div className="topbar-user">
-          <span>{username}</span>
-          <button onClick={onLogout} type="button">
-            退出
-          </button>
-        </div>
       </header>
       <main className="page-frame">{children}</main>
     </div>

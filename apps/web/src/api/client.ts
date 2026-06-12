@@ -46,10 +46,6 @@ interface DetailQuery {
   pageSize: number;
 }
 
-export interface CurrentUser {
-  username: string;
-}
-
 export class ApiRequestError extends Error {
   status: number;
 
@@ -103,27 +99,6 @@ async function requestJson<T>(
   return response.json() as Promise<ApiResponse<T>>;
 }
 
-async function postJson<T>(
-  path: string,
-  body: Record<string, unknown> = {},
-): Promise<T> {
-  const response = await fetch(apiUrl(path), {
-    method: "POST",
-    credentials: "include",
-    headers: {
-      Accept: "application/json",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
-
-  if (!response.ok) {
-    throw new ApiRequestError(response.status);
-  }
-
-  return response.json() as Promise<T>;
-}
-
 async function withMockFallback<T>(
   request: () => Promise<ApiResponse<T>>,
   fallback: () => ApiResponse<T>,
@@ -165,7 +140,6 @@ function mockMetaResponse(): ApiResponse<FilterMetaData> {
       product_types: optionValues(getProductOptions()),
       sale_months: months,
       verify_months: months,
-      latest_job: null,
     },
     meta: {
       generated_at: generatedAt(),
@@ -306,29 +280,6 @@ export function fetchOrderDetails(
       }),
     () => mockOrderDetailsResponse(query),
   );
-}
-
-export async function fetchCurrentUser(): Promise<CurrentUser> {
-  if (USE_MOCKS) {
-    return { username: "mock-admin" };
-  }
-  const response = await requestJson<CurrentUser>("/auth/me");
-  return response.data;
-}
-
-export async function login(username: string, password: string): Promise<CurrentUser> {
-  const response = await postJson<ApiResponse<CurrentUser>>("/auth/login", {
-    username,
-    password,
-  });
-  return response.data;
-}
-
-export async function logout(): Promise<void> {
-  if (USE_MOCKS) {
-    return;
-  }
-  await postJson<ApiResponse<Record<string, never>>>("/auth/logout");
 }
 
 export { defaultMonth, defaultStore, DEFAULT_DETAIL_PAGE_SIZE };
