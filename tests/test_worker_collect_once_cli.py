@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from apps.worker.collect_once import parse_args, resolve_window_from_args
+from apps.worker.collect_once import parse_args, resolve_window_from_args, should_include_browser_export
 
 
 def test_collect_once_args_map_to_collection_window():
@@ -23,3 +23,10 @@ def test_collect_once_args_map_to_collection_window():
     assert window.end.isoformat() == "2026-01-03T12:00:00+08:00"
     assert args.settlement_only is True
     assert args.skip_browser_export is True
+    assert should_include_browser_export(args) is False
+
+
+def test_collect_once_includes_browser_export_by_default():
+    args = parse_args(["--start", "2026-01-01", "--end", "2026-01-02"])
+
+    assert should_include_browser_export(args) is True

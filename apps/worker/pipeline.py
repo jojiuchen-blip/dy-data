@@ -20,6 +20,7 @@ from src.dy_data.douyin_client import DouyinCredentials, DouyinOpenApiClient
 
 
 Collector = Callable[[Session, Any, CollectionWindow, str], PhaseStats]
+BrowserExportRunner = Callable[[Session, str], PhaseStats | Any]
 SettlementRunner = Callable[[Session, str], PhaseStats | Any]
 SENSITIVE_ERROR_RE = re.compile(r"(?i)(cookie|token|secret|password|passwd|authorization|credential)")
 
@@ -70,7 +71,9 @@ def run_collect_and_settle(
     client: Any | None = None,
     window: CollectionWindow | None = None,
     job_id: str | None = None,
+    include_browser_export: bool | None = None,
     collectors: Sequence[Collector] | None = None,
+    browser_export_runner: BrowserExportRunner | None = None,
     settlement_runner: SettlementRunner | None = None,
 ) -> CollectionStats:
     return _run_job(
@@ -79,6 +82,8 @@ def run_collect_and_settle(
         window=window,
         job_id=job_id,
         collectors=collectors,
+        browser_export_runner=browser_export_runner,
+        include_browser_export=include_browser_export,
         settlement_runner=settlement_runner or _run_settlement_phase,
         job_name="collect_and_settle",
     )
@@ -144,6 +149,8 @@ def _run_job(
     window: CollectionWindow | None,
     job_id: str | None,
     collectors: Sequence[Collector] | None,
+    browser_export_runner: BrowserExportRunner | None = None,
+    include_browser_export: bool | None = None,
     settlement_runner: SettlementRunner | None,
     job_name: str,
 ) -> CollectionStats:
@@ -160,6 +167,9 @@ def _run_job(
         active_client = client or build_douyin_client_from_env()
         for collector in collectors or default_collectors():
             stats.add_phase(collector(session, active_client, source_window, source_run_id))
+        if _include_browser_export(include_browser_export):
+            runner = browser_export_runner or _run_browser_export_phase
+            stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
         if settlement_runner is not None:
             stats.add_phase(_coerce_settlement_phase(settlement_runner(session, source_run_id)))
 
@@ -190,10 +200,38 @@ def _run_settlement_phase(session: Session, source_run_id: str) -> PhaseStats:
     return PhaseStats(name="settlement", fetched=0, upserted=result.detail_count)
 
 
+def _run_browser_export_phase(session: Session, source_run_id: str) -> PhaseStats:
+    from apps.worker.browser_exports.backend_aweme import run_backend_aweme_export
+
+    return run_backend_aweme_export(session, source_run_id=source_run_id)
+
+
+def _coerce_browser_export_phase(result: PhaseStats | Any) -> PhaseStats:
+    if isinstance(result, PhaseStats):
+        return result
+    return PhaseStats(
+        name="backend_aweme_export",
+        fetched=int(getattr(result, "fetched", 0) or 0),
+        upserted=int(getattr(result, "upserted", 0) or 0),
+        skipped=int(getattr(result, "skipped", 0) or 0),
+        failed=int(getattr(result, "failed", 0) or 0),
+    )
+
+
 def _coerce_settlement_phase(result: PhaseStats | Any) -> PhaseStats:
     if isinstance(result, PhaseStats):
         return result
     return PhaseStats(name="settlement", fetched=0, upserted=int(getattr(result, "detail_count", 0) or 0))
+
+
+def _include_browser_export(value: bool | None) -> bool:
+    if value is not None:
+        return value
+    if _truthy(os.getenv("DY_WORKER_FAKE_DOUYIN")):
+        return False
+    if _truthy(os.getenv("WORKER_SKIP_BROWSER_EXPORT")):
+        return False
+    return True
 
 
 def _set_job_metadata(session: Session, job_id: str, metadata: dict[str, Any]) -> None:

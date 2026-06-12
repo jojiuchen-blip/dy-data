@@ -20,7 +20,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--skip-browser-export",
         action="store_true",
-        help="Reserved for browser-export phase; Open API collection still runs.",
+        help="Skip browser-backed backend aweme export; Open API collection still runs.",
     )
     return parser.parse_args(argv)
 
@@ -35,6 +35,10 @@ def resolve_window_from_args(args: argparse.Namespace, *, now: datetime | None =
     )
 
 
+def should_include_browser_export(args: argparse.Namespace) -> bool:
+    return not args.skip_browser_export
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     factory = get_session_factory()
@@ -46,7 +50,12 @@ def main(argv: list[str] | None = None) -> int:
             job_id = args.job_id or _job_id("settlement")
             run_settlement_job(session, job_id=job_id, source_run_id=job_id)
         else:
-            run_collect_and_settle(session, window=resolve_window_from_args(args), job_id=args.job_id)
+            run_collect_and_settle(
+                session,
+                window=resolve_window_from_args(args),
+                job_id=args.job_id,
+                include_browser_export=should_include_browser_export(args),
+            )
     return 0
 
 
@@ -56,4 +65,3 @@ def _job_id(prefix: str) -> str:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

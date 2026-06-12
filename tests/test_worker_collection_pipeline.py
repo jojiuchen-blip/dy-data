@@ -40,6 +40,7 @@ def test_run_collect_and_settle_records_success_job_and_phase_order(db_session: 
         client=object(),
         window=window(),
         job_id="collect-1",
+        include_browser_export=False,
         collectors=[
             collector("shop_pois", calls),
             collector("aweme_bindings", calls),
@@ -78,6 +79,7 @@ def test_run_collect_and_settle_marks_failed_and_skips_settlement(db_session: Se
             client=object(),
             window=window(),
             job_id="collect-fail",
+            include_browser_export=False,
             collectors=[failing_collector],
             settlement_runner=settlement_runner,
         )
@@ -105,3 +107,31 @@ def test_fake_douyin_client_allows_offline_worker_smoke(monkeypatch):
     assert client.query_shop_pois()["data"]["pois"] == []
     assert client.query_verify_records(window().start, window().end)["data"]["verify_records"] == []
     assert client.query_craftsman_bind_info()["data"]["openapi_merchat_craftsman_info"] == []
+
+
+def test_run_collect_and_settle_runs_browser_export_before_settlement(db_session: Session):
+    calls: list[str] = []
+
+    def browser_export_runner(session: Session, source_run_id: str) -> PhaseStats:
+        calls.append("browser_export")
+        return PhaseStats(name="backend_aweme_export", fetched=1, upserted=2)
+
+    def settlement_runner(session: Session, source_run_id: str) -> PhaseStats:
+        calls.append("settlement")
+        return PhaseStats(name="settlement", fetched=0, upserted=3)
+
+    stats = run_collect_and_settle(
+        db_session,
+        client=object(),
+        window=window(),
+        job_id="collect-browser",
+        collectors=[collector("orders", calls)],
+        browser_export_runner=browser_export_runner,
+        settlement_runner=settlement_runner,
+    )
+
+    assert calls == ["orders", "browser_export", "settlement"]
+    assert stats.success_count == 6
+    job = db_session.get(JobRun, "collect-browser")
+    assert job is not None
+    assert job.metadata_json["phases"]["backend_aweme_export"]["upserted"] == 2
