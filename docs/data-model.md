@@ -128,6 +128,31 @@ job_runs
 | raw_payload | jsonb | confirmed | 原始退款记录。 |
 | source_run_id | text | computed | 采集任务 ID。 |
 
+### raw_aweme_bindings
+
+该表来自抖音来客后台“抖音号明细 / 子机构经营号”导出文件。当前没有稳定开放 API，生产环境通过服务器 Edge 自动导出后入库；Excel/CSV 只作为任务临时文件，不作为长期主数据源。
+
+| 字段 | 类型建议 | 状态 | 来源/说明 |
+| --- | --- | --- | --- |
+| binding_key | text | computed | 入库主键，由 `抖音id + 所属账户id + 所属账户关联poi_id + 抖音昵称` 生成。 |
+| row_hash | text | computed | 原始行 JSON 的 SHA-256，用于识别内容变化。 |
+| douyin_nickname | text | confirmed | 后台导出列 `抖音昵称`。 |
+| douyin_id | text | confirmed | 后台导出列 `抖音id`。 |
+| account_type | text | confirmed | 后台导出列 `账号类型`。 |
+| account_name | text | confirmed | 后台导出列 `所属账户名称`。 |
+| account_id | text | confirmed | 后台导出列 `所属账户id`。 |
+| poi_id | text | confirmed | 后台导出列 `所属账户关联poi_id`。 |
+| auth_type | text | confirmed | 后台导出列 `认证类别`。 |
+| auth_info | text | confirmed | 后台导出列 `认证信息`。 |
+| auth_subject | text | confirmed | 后台导出列 `认证主体`。 |
+| binding_status | text | confirmed | 后台导出列 `抖音号绑定状态`。 |
+| raw_payload_json | text/jsonb | confirmed | 后台导出原始整行数据。PostgreSQL 生产库后续可迁为 `jsonb`。 |
+| source_run_id | text | computed | 自动导出任务 ID。 |
+| source_page_url | text | computed | 本次导出的后台页面 URL。 |
+| source_file_name | text | computed | 本次临时下载文件名。 |
+| created_at | timestamptz | computed | 入库时间。 |
+| updated_at | timestamptz | computed | 最近更新入库时间。 |
+
 ## 四、维表和人工维护表
 
 ### dim_stores
