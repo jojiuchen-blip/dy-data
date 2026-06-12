@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+from datetime import timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -60,46 +62,62 @@ def collect_verify_records(
     source_run_id: str,
     poi_ids: list[str] | None = None,
     page_size: int = 20,
+    chunk_days: int | None = None,
 ) -> PhaseStats:
     stats = PhaseStats(name="verify_records")
     targets = poi_ids or [None]
-    for poi_id in targets:
-        cursor: str | None = None
-        seen_cursors: set[str | None] = set()
-        while cursor not in seen_cursors:
-            seen_cursors.add(cursor)
-            payload = client.query_verify_records(
-                window.start,
-                window.end,
-                poi_id=poi_id,
-                page_size=page_size,
-                cursor=cursor,
-            )
-            records = data_items(payload, "verify_records", "records", "list")
-            for record in records:
-                stats.fetched += 1
-                verify_id = text(first(record, "verify_id", "id"))
-                if not verify_id:
-                    stats.skipped += 1
-                    continue
-                upsert_verify_record(
-                    session,
-                    verify_id,
-                    coupon_id=text(first(record, "coupon_id", "certificate_id", "code")),
-                    verify_status=text(first(record, "verify_status", "status", "certificate_status")),
-                    verify_time=source_datetime(first(record, "verify_time")),
-                    poi_id=text(first(record, "poi_id", "verify_poi_id")),
-                    verify_store_name_raw=text(first(record, "verify_store_name", "verify_poi_name")),
-                    sku_id=text(first(record, "sku_id", "sku.sku_id")),
-                    product_name=text(first(record, "product_name", "sku.title", "sku_name")),
-                    paid_amount_cent=amount_cent(first(record, "paid_amount", "amount.pay_amount")),
-                    cancel_time=source_datetime(first(record, "cancel_time")),
-                    raw_payload=record,
-                    source_run_id=source_run_id,
+    for chunk_start, chunk_end in _split_window(window, chunk_days):
+        for poi_id in targets:
+            cursor: str | None = None
+            seen_cursors: set[str | None] = set()
+            while cursor not in seen_cursors:
+                seen_cursors.add(cursor)
+                payload = client.query_verify_records(
+                    chunk_start,
+                    chunk_end,
+                    poi_id=poi_id,
+                    page_size=page_size,
+                    cursor=cursor,
                 )
-                stats.upserted += 1
-            cursor = next_cursor(payload)
-            if not cursor:
-                break
+                records = data_items(payload, "verify_records", "records", "list")
+                for record in records:
+                    stats.fetched += 1
+                    verify_id = text(first(record, "verify_id", "id"))
+                    if not verify_id:
+                        stats.skipped += 1
+                        continue
+                    upsert_verify_record(
+                        session,
+                        verify_id,
+                        coupon_id=text(first(record, "coupon_id", "certificate_id", "code")),
+                        verify_status=text(first(record, "verify_status", "status", "certificate_status")),
+                        verify_time=source_datetime(first(record, "verify_time")),
+                        poi_id=text(first(record, "poi_id", "verify_poi_id")),
+                        verify_store_name_raw=text(first(record, "verify_store_name", "verify_poi_name")),
+                        sku_id=text(first(record, "sku_id", "sku.sku_id")),
+                        product_name=text(first(record, "product_name", "sku.title", "sku_name")),
+                        paid_amount_cent=amount_cent(first(record, "paid_amount", "amount.pay_amount")),
+                        cancel_time=source_datetime(first(record, "cancel_time")),
+                        raw_payload=record,
+                        source_run_id=source_run_id,
+                    )
+                    stats.upserted += 1
+                cursor = next_cursor(payload)
+                if not cursor:
+                    break
     return stats
 
+
+def _split_window(window: CollectionWindow, chunk_days: int | None):
+    days = chunk_days
+    if days is None:
+        days = int(os.getenv("DOUYIN_VERIFY_CHUNK_DAYS", "7"))
+    if days <= 0:
+        yield window.start, window.end
+        return
+
+    chunk_start = window.start
+    while chunk_start < window.end:
+        chunk_end = min(chunk_start + timedelta(days=days), window.end)
+        yield chunk_start, chunk_end
+        chunk_start = chunk_end

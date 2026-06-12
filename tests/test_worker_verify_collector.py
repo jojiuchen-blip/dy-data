@@ -111,3 +111,36 @@ def test_collect_verify_records_upserts_cancel_state_and_raw_payload(db_session:
     assert cancelled is not None
     assert cancelled.verify_status == "cancelled"
     assert cancelled.cancel_time is not None
+
+
+def test_collect_verify_records_splits_large_windows_by_chunk_days(db_session: Session):
+    class EmptyVerifyClient:
+        def __init__(self):
+            self.calls: list[tuple[str, str]] = []
+
+        def query_verify_records(
+            self,
+            start: datetime,
+            end: datetime,
+            *,
+            poi_id=None,
+            page_size: int = 20,
+            cursor=None,
+        ):
+            self.calls.append((start.isoformat(), end.isoformat()))
+            return {"data": {"verify_records": [], "has_more": False}}
+
+    client = EmptyVerifyClient()
+    large_window = CollectionWindow(
+        start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-01-16T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+
+    collect_verify_records(db_session, client, large_window, source_run_id="run-verify", chunk_days=7)
+
+    assert client.calls == [
+        ("2026-01-01T00:00:00+08:00", "2026-01-08T00:00:00+08:00"),
+        ("2026-01-08T00:00:00+08:00", "2026-01-15T00:00:00+08:00"),
+        ("2026-01-15T00:00:00+08:00", "2026-01-16T00:00:00+08:00"),
+    ]
