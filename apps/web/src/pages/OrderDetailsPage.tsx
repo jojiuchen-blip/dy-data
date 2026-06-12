@@ -37,20 +37,7 @@ const booleanOptions = [
   { value: "false", label: "否" },
 ];
 
-const relationOptions = [
-  { value: "", label: "全部" },
-  { value: "same_store", label: "同店销售核销" },
-  { value: "cross_store", label: "跨店核销" },
-  { value: "unverified", label: "未核销" },
-  { value: "unknown", label: "关系待确认" },
-];
-
 const pageSizeOptions = [25, 50, 100, 200, 500];
-
-function relationLabel(value: OrderDetail["relation_type"] | string): string {
-  const option = relationOptions.find((item) => item.value === value);
-  return option?.label ?? value;
-}
 
 function storeName(meta: FilterMetaData | undefined, storeId: string): string {
   return (
@@ -84,9 +71,6 @@ function activeChips(
     chips.push(`排除实际核销门店 ${storeName(meta, filters.exclude_verify_store_id)}`);
   }
   if (filters.verify_month) chips.push(`核销月份 ${filters.verify_month}`);
-  if (filters.relation_type) {
-    chips.push(`销售核销关系 ${relationLabel(filters.relation_type)}`);
-  }
   if (filters.is_commissionable) {
     chips.push(`是否分佣 ${filters.is_commissionable === "true" ? "是" : "否"}`);
   }
@@ -109,6 +93,43 @@ function advancedFilterCount(filters: DetailFilters): number {
 function positiveInteger(value: string | null, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function detailsSearchString(
+  filters: DetailFilters,
+  page: number,
+  pageSize: number,
+): string {
+  const search = new URLSearchParams();
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value !== undefined && value !== "" && value !== "all") {
+      search.set(key, value);
+    }
+  });
+  if (page > 1) {
+    search.set("page", String(page));
+  }
+  if (pageSize !== DEFAULT_DETAIL_PAGE_SIZE) {
+    search.set("page_size", String(pageSize));
+  }
+
+  const query = search.toString();
+  return query ? `?${query}` : "";
+}
+
+function replaceDetailsUrl(
+  filters: DetailFilters,
+  page: number,
+  pageSize: number,
+) {
+  const nextUrl = `/details${detailsSearchString(filters, page, pageSize)}`;
+  const currentUrl = `${window.location.pathname}${window.location.search}`;
+  if (currentUrl === nextUrl) {
+    return;
+  }
+
+  window.history.replaceState(null, "", nextUrl);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
 function selectedStoreOption(
@@ -223,6 +244,10 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     }
   }, [page, pagination]);
 
+  useEffect(() => {
+    replaceDetailsUrl(filters, page, pageSize);
+  }, [filters, page, pageSize]);
+
   const updateFilter = (key: keyof DetailFilters, value: string) => {
     setFilters((current) => ({
       ...current,
@@ -300,12 +325,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       title: "核销时间",
       minWidth: 190,
       render: (row) => row.verify_time || "-",
-    },
-    {
-      key: "relation",
-      title: "销售核销关系",
-      minWidth: 120,
-      render: (row) => relationLabel(row.relation_type),
     },
     {
       key: "commissionable",
@@ -405,20 +424,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               }
             >
               {productOptions(meta, filters.product_type ?? "all").map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField label="销售核销关系">
-            <select
-              value={filters.relation_type ?? ""}
-              onChange={(event) =>
-                updateFilter("relation_type", event.target.value)
-              }
-            >
-              {relationOptions.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
