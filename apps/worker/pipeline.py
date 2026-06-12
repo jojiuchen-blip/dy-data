@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from typing import Any
@@ -24,6 +25,9 @@ SENSITIVE_ERROR_RE = re.compile(r"(?i)(cookie|token|secret|password|passwd|autho
 
 
 def build_douyin_client_from_env() -> DouyinOpenApiClient:
+    if _truthy(os.getenv("DY_WORKER_FAKE_DOUYIN")):
+        return EmptyDouyinClient()  # type: ignore[return-value]
+
     app_id = douyin_app_id()
     app_secret = douyin_app_secret()
     account_id = douyin_account_id()
@@ -105,6 +109,34 @@ def sanitize_error_message(message: str | None) -> str | None:
     return message[:1800]
 
 
+class EmptyDouyinClient:
+    """Offline fake client for Docker smoke tests; production must not enable it."""
+
+    def iter_orders(self, start: Any, end: Any, *, page_size: int = 100):
+        return iter(())
+
+    def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None) -> dict[str, Any]:
+        return {"data": {"pois": [], "has_more": False}}
+
+    def query_verify_records(
+        self,
+        start: Any,
+        end: Any,
+        *,
+        poi_id: str | None = None,
+        page_size: int = 20,
+        cursor: str | int | None = None,
+    ) -> dict[str, Any]:
+        return {"data": {"verify_records": [], "has_more": False}}
+
+    def query_craftsman_bind_info(self, *, cursor: str | int | None = None, size: int = 50) -> dict[str, Any]:
+        return {"data": {"openapi_merchat_craftsman_info": [], "has_more": False}}
+
+
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _run_job(
     session: Session,
     *,
@@ -176,4 +208,3 @@ def _set_job_metadata(session: Session, job_id: str, metadata: dict[str, Any]) -
 def _job_id(prefix: str) -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     return f"{prefix}_{stamp}"
-

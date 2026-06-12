@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import JobRun
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
-from apps.worker.pipeline import run_collect_and_settle
+from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker.scheduler import resolve_worker_mode
 
 
@@ -94,3 +94,14 @@ def test_run_collect_and_settle_marks_failed_and_skips_settlement(db_session: Se
 def test_scheduler_worker_mode_defaults_to_collect_and_settle():
     assert resolve_worker_mode({}) == "collect_and_settle"
     assert resolve_worker_mode({"WORKER_MODE": "settlement_only"}) == "settlement_only"
+
+
+def test_fake_douyin_client_allows_offline_worker_smoke(monkeypatch):
+    monkeypatch.setenv("DY_WORKER_FAKE_DOUYIN", "true")
+
+    client = build_douyin_client_from_env()
+
+    assert list(client.iter_orders(window().start, window().end)) == []
+    assert client.query_shop_pois()["data"]["pois"] == []
+    assert client.query_verify_records(window().start, window().end)["data"]["verify_records"] == []
+    assert client.query_craftsman_bind_info()["data"]["openapi_merchat_craftsman_info"] == []
