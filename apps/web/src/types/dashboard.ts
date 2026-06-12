@@ -15,6 +15,13 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
+export interface Pagination {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+}
+
 export interface StoreOption {
   store_id: string;
   store_name: string;
@@ -23,6 +30,25 @@ export interface StoreOption {
 export interface SelectOption {
   value: string;
   label: string;
+}
+
+export interface LatestJob {
+  job_id: string;
+  job_name: string;
+  status: "running" | "success" | "failed" | string;
+  started_at: string;
+  finished_at?: string | null;
+  success_count?: number | null;
+  failed_count?: number | null;
+  error_message?: string | null;
+}
+
+export interface FilterMetaData {
+  stores: StoreOption[];
+  product_types: string[];
+  sale_months: string[];
+  verify_months: string[];
+  latest_job?: LatestJob | null;
 }
 
 export interface StoreRankingRow {
@@ -49,7 +75,7 @@ export interface MonthlySummaryData {
   month: string;
   product_type: string;
   metrics: {
-    current_receivable_commission_cent: number;
+    estimated_receivable_commission_cent: number;
     commissionable_total_cent: number;
     estimated_payable_commission_cent: number;
   };
@@ -61,9 +87,7 @@ export interface ReceivableCommissionRow {
   paid_amount_cent: number;
   commission_rate: number;
   commissionable_total_cent: number;
-  invoiced_coupon_count: number;
-  current_receivable_commission_cent: number;
-  pending_invoice_commission_cent: number;
+  estimated_receivable_commission_cent: number;
 }
 
 export interface PayableCommissionRow {
@@ -91,6 +115,11 @@ export interface CommissionTablesData {
   };
 }
 
+export interface MonthlySettlementData extends MonthlySummaryData {
+  tables: CommissionTablesData["tables"];
+  source?: "contract-mock" | "detail-derived";
+}
+
 export interface OrderDetail {
   order_id: string;
   coupon_id: string;
@@ -109,9 +138,6 @@ export interface OrderDetail {
   verify_time: string;
   relation_type: "same_store" | "cross_store" | "unverified" | "unknown" | "";
   is_commissionable: boolean | null;
-  invoice_status: string;
-  refund_status: string;
-  refund_amount_cent: number;
   paid_amount_cent: number;
   commission_rate: number;
   receivable_commission_cent: number;
@@ -129,11 +155,7 @@ export interface DetailFilters {
   verify_month?: string;
   relation_type?: string;
   is_commissionable?: string;
-  invoice_status?: string;
-  refund_status?: string;
   q?: string;
-  month?: string;
-  month_basis?: string;
 }
 
 export interface SkuProductCommissionRule {
@@ -142,11 +164,11 @@ export interface SkuProductCommissionRule {
   commission_rate: number;
 }
 
-export interface SettlementViewData {
-  store: StoreOption;
-  month: string;
-  product_type: string;
-  metrics: MonthlySummaryData["metrics"];
-  tables: CommissionTablesData["tables"];
+export interface SettlementViewData extends MonthlySettlementData {
   source: "contract-mock" | "detail-derived";
+}
+
+export interface OrderDetailsData {
+  rows: OrderDetail[];
+  pagination: Pagination;
 }

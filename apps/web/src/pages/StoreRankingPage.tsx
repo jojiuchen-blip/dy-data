@@ -1,24 +1,26 @@
 import { useMemo, useState } from "react";
+import {
+  defaultMonth,
+  fetchFilterMeta,
+  fetchStoreRanking,
+} from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { DefinitionList } from "../components/DefinitionList";
 import { FilterBar, FilterField } from "../components/Filters";
 import { MetricCard } from "../components/MetricCard";
+import {
+  ResourceNotice,
+  ResourcePanel,
+  resourceSourceLabel,
+} from "../components/ResourceState";
 import { TooltipLabel } from "../components/TooltipLabel";
-import { defaultMonth, page1Definitions } from "../data/mockData";
+import { useApiResource } from "../hooks/useApiResource";
 import type { StoreRankingRow } from "../types/dashboard";
 import { compactCurrency, formatCurrency, formatInteger } from "../utils/format";
-import {
-  getMonthOptions,
-  getProductOptions,
-  getRankingRows,
-} from "../utils/settlement";
+import { productOptions, saleMonthOptions } from "../utils/options";
 
 interface StoreRankingPageProps {
   searchParams: URLSearchParams;
-}
-
-function definitionFor(key: string): string | undefined {
-  return page1Definitions.find((definition) => definition.key === key)?.description;
 }
 
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
@@ -27,10 +29,18 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
     searchParams.get("product_type") ?? "all",
   );
 
-  const rows = useMemo(
-    () => getRankingRows(month, productType),
+  const metaResource = useApiResource(fetchFilterMeta, []);
+  const rankingResource = useApiResource(
+    () => fetchStoreRanking({ month, productType, limit: 20 }),
     [month, productType],
   );
+
+  const meta = metaResource.data?.data;
+  const ranking = rankingResource.data?.data;
+  const definitions = rankingResource.data?.definitions ?? [];
+  const rows = ranking?.rows ?? [];
+  const definitionFor = (key: string): string | undefined =>
+    definitions.find((definition) => definition.key === key)?.description;
 
   const totals = useMemo(
     () => ({
@@ -142,13 +152,23 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
           <p className="eyebrow">页面 1</p>
           <h1>全国门店销售情况榜单</h1>
         </div>
-        <span className="source-pill">mock / API contract</span>
+        <span className="source-pill">
+          {resourceSourceLabel(rankingResource.data, rankingResource.loading)}
+        </span>
       </section>
+
+      <ResourceNotice
+        fallbackReason={
+          rankingResource.data?.fallbackReason ?? metaResource.data?.fallbackReason
+        }
+        loading={rankingResource.loading || metaResource.loading}
+        error={rankingResource.error ?? metaResource.error}
+      />
 
       <FilterBar>
         <FilterField label="月份">
           <select value={month} onChange={(event) => setMonth(event.target.value)}>
-            {getMonthOptions().map((option) => (
+            {saleMonthOptions(meta, month).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -160,7 +180,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             value={productType}
             onChange={(event) => setProductType(event.target.value)}
           >
-            {getProductOptions().map((option) => (
+            {productOptions(meta, productType).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -169,49 +189,57 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         </FilterField>
       </FilterBar>
 
-      <section className="metric-grid metric-grid--three">
-        <MetricCard
-          description={definitionFor("sales_order_count")}
-          label="销售订单数量"
-          meta="当前榜单合计"
-          value={formatInteger(totals.sales_order_count)}
-        />
-        <MetricCard
-          description={definitionFor("self_verify_income_cent")}
-          label="本店核销收入"
-          meta="按核销门店归属"
-          tone="blue"
-          value={compactCurrency(totals.self_verify_income_cent)}
-        />
-        <MetricCard
-          description={definitionFor("effective_commission_income_cent")}
-          label="有效分佣收入"
-          meta="销售店预计获得"
-          tone="amber"
-          value={compactCurrency(totals.effective_commission_income_cent)}
-        />
-      </section>
+      {!ranking && rankingResource.loading ? (
+        <ResourcePanel>正在加载榜单数据...</ResourcePanel>
+      ) : !ranking ? (
+        <ResourcePanel tone="error">榜单数据暂不可用。</ResourcePanel>
+      ) : (
+        <>
+          <section className="metric-grid metric-grid--three">
+            <MetricCard
+              description={definitionFor("sales_order_count")}
+              label="销售订单数量"
+              meta="当前榜单合计"
+              value={formatInteger(totals.sales_order_count)}
+            />
+            <MetricCard
+              description={definitionFor("self_verify_income_cent")}
+              label="本店核销收入"
+              meta="按核销门店归属"
+              tone="blue"
+              value={compactCurrency(totals.self_verify_income_cent)}
+            />
+            <MetricCard
+              description={definitionFor("effective_commission_income_cent")}
+              label="有效分佣收入"
+              meta="销售店预计获得"
+              tone="amber"
+              value={compactCurrency(totals.effective_commission_income_cent)}
+            />
+          </section>
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>前 20 门店榜单</h2>
-            <p>{month} · {productType === "all" ? "全部产品" : productType}</p>
-          </div>
-        </div>
-        <DataTable
-          columns={columns}
-          rows={rows}
-          rowHref={(row) =>
-            `/settlement?store_id=${row.store_id}&month=${month}&product_type=${encodeURIComponent(
-              productType,
-            )}`
-          }
-        />
-      </section>
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>前 20 门店榜单</h2>
+                <p>{month} · {productType === "all" ? "全部产品" : productType}</p>
+              </div>
+            </div>
+            <DataTable
+              columns={columns}
+              rows={rows}
+              rowHref={(row) =>
+                `/settlement?store_id=${row.store_id}&month=${month}&product_type=${encodeURIComponent(
+                  productType,
+                )}`
+              }
+            />
+          </section>
+        </>
+      )}
 
       <DefinitionList
-        definitions={page1Definitions}
+        definitions={definitions}
         extra={[
           {
             key: "month_filter",

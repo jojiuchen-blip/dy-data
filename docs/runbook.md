@@ -1,25 +1,32 @@
-# 运行手册
+# 生产运行手册（MVP）
 
-## 1. 准备配置
+本文档面向 Linux Docker Compose 部署。v1 上线范围只包含 PostgreSQL、FastAPI、worker、前端静态站点、受管理员保护的 noVNC Chromium 采集容器，以及每日刷新任务。
 
-复制示例配置：
+## 1. 配置原则
+
+- 生产配置只允许来自环境变量、Docker secret 或服务器上的未跟踪配置文件。
+- 不提交真实业务数据、抖音账号、cookie、密钥、本地路径或导出文件。
+- `config.local.json`、采集输出、浏览器 profile 和下载目录必须保持未跟踪状态。
+- v1 不接退款接口，不上线发票/到票/OCR/财务审核流程；退款只通过订单/券状态参与内部分账排除和异常诊断。
+
+## 2. 本地开发
+
+复制示例配置后填入本机配置：
 
 ```powershell
 Copy-Item config.example.json config.local.json
 ```
 
-填写本机路径和抖音开放平台配置。`config.local.json` 已加入 `.gitignore`，不要提交真实密钥。
-
-也可以用环境变量覆盖配置文件：
+也可以用环境变量覆盖配置：
 
 ```powershell
-$env:DOUYIN_APP_ID = "..."
-$env:DOUYIN_APP_SECRET = "..."
-$env:DOUYIN_ACCOUNT_ID = "..."
-$env:DY_DATA_CONFIG = "C:\path\to\config.local.json"
+$env:DOUYIN_APP_ID = "CHANGE_ME_APP_ID"
+$env:DOUYIN_APP_SECRET = "CHANGE_ME_APP_SECRET"
+$env:DOUYIN_ACCOUNT_ID = "CHANGE_ME_ACCOUNT_ID"
+$env:DY_DATA_CONFIG = ".\config.local.json"
 ```
 
-## 2. 安装依赖
+安装 Python 依赖：
 
 ```powershell
 python -m pip install -r requirements.txt
@@ -34,43 +41,80 @@ PowerShell entrypoints read Python in this order:
 
 Python scripts under `scripts/` add the repository root before importing `src.dy_data`, so isolated embedded Python runtimes do not fail with `ModuleNotFoundError: No module named 'src'`.
 
-## 3. 常用命令
+## 3. 生产部署
 
-导出核销记录：
+部署文件位于 `deploy/`。
 
-```powershell
-python scripts/exports/douyin_verify_record_export.py
+1. 复制环境变量模板，并在服务器上替换所有 `CHANGE_ME_*`：
+
+```bash
+cp deploy/.env.example deploy/.env
 ```
 
-导出退款单：
+2. 校验 Compose 插值：
 
-```powershell
-python scripts/exports/douyin_refund_export.py
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml config
 ```
 
-生成五月分账基础表和看板：
+3. 启动服务：
 
-```powershell
-python scripts/settlement/build_may_settlement_dashboard.py
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
 ```
 
-从分账基础表生成多月份看板：
+Compose 会先运行一次 `migrate` 服务执行 `alembic upgrade head`，API 和 worker 会等迁移成功后启动。排障时可以单独运行：
 
-```powershell
-python scripts/settlement/build_monthly_settlement_dashboard_from_base.py
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm migrate
 ```
 
-诊断核销券未进入分账的原因：
+只有 `proxy` 服务发布宿主机端口。`postgres`、`api`、`worker`、`web`、noVNC 和 Chromium CDP 只暴露在 Docker 网络中。公网部署时，在 proxy 或上游负载均衡终止 TLS，并确保容器原始端口不对宿主机开放。
 
-```powershell
-python scripts/diagnostics/diagnose_unmatched_verify_cert_reasons.py
+## 4. 管理员登录
+
+生产必须配置：
+
+- `DY_ADMIN_USERNAME`
+- `DY_ADMIN_PASSWORD_HASH`
+- `DY_SESSION_SECRET`
+
+`DY_ADMIN_PASSWORD_HASH` 支持 PBKDF2 或 bcrypt。开发测试可以启用 `DY_API_TEST_MODE=true`，生产不得启用测试模式。
+
+所有看板 API、导出接口和 `/browser/` noVNC 入口都通过同一个管理员 session cookie 保护。
+
+## 5. 数据任务
+
+后端 worker 负责：
+
+- 从 `2026-01-01 00:00:00 Asia/Shanghai` 起补数。
+- 每日按重叠窗口刷新订单、券、核销、职人/抖音号、POI 和 SKU 规则。
+- 物化一行一券的 `settlement_order_details`。
+- 刷新门店销售排名和门店月度分账汇总。
+- 将未匹配销售归属、POI、SKU、异常退款/撤销核销等问题写入 `data_quality_issues`。
+- 将每次任务状态写入 `job_runs`。
+
+生产浏览器采集应通过适配器启动：
+
+```bash
+python scripts/exports/auto_export_backend_aweme_chromium.py \
+  --job-name backend_aweme_chromium_export \
+  --cdp-url "$BROWSER_CDP_URL" \
+  --download-dir "$BROWSER_EXPORT_DOWNLOAD_DIR" \
+  --artifact-dir "$BROWSER_EXPORT_ARTIFACT_DIR" \
+  --command 'python -m apps.worker.browser_exports.backend_aweme'
 ```
 
-## 4. 协作者验收
+适配器会写入 `running` 状态，校验 Chromium CDP 可达，执行具体采集命令；失败时记录 `failed`，成功后清理单次临时下载目录。具体采集命令会收到 `JOB_RUN_ID`、`BROWSER_CDP_URL`、`BROWSER_EXPORT_RUN_DIR`、`BROWSER_EXPORT_DOWNLOAD_DIR` 和 `BROWSER_EXPORT_ARTIFACT_DIR`。
 
-协作者环境确认重点：
+## 6. noVNC 浏览器
 
-- `config.local.json` 指向的数据目录、输出目录、Python 路径正确。
-- `python scripts/exports/douyin_verify_record_export.py` 能写入核销 CSV/JSON。
-- `python scripts/exports/douyin_refund_export.py` 能写入退款 CSV/JSON。
-- `python scripts/settlement/build_may_settlement_dashboard.py` 能生成分账基础表、异常名单和 HTML 看板。
+通过看板同域名访问 `/browser/`。Nginx 使用 `auth_request` 调用 `/api/v1/auth/me`，因此 noVNC 入口必须先完成后台管理员登录。
+
+浏览器容器使用 Docker volume 保存 Chromium profile 和下载目录。这些 volume 可能包含抖音登录态和导出文件，禁止复制进仓库或通过静态文件服务暴露。
+
+## 7. v2 / 诊断脚本
+
+旧退款导出脚本和发票/财务确认流程不属于 v1 上线门禁。只有在产品明确需要 v2 售后明细或财务确认时，才重新评估退款接口、发票字段、OCR 和正式应收确认规则。
+
+诊断脚本可以在本地人工执行，但输出文件必须保持未跟踪，不得提交真实 CSV/JSON。

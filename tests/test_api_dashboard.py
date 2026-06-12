@@ -1,0 +1,276 @@
+from __future__ import annotations
+
+import sys
+import csv
+import io
+from datetime import datetime, timezone
+from decimal import Decimal
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "apps" / "api"))
+
+from dy_api.main import create_app  # noqa: E402
+from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
+from apps.api.dy_api.models import SettlementOrderDetail  # noqa: E402
+
+
+def deferred_field(*parts: str) -> str:
+    return "_".join(parts)
+
+
+class FakeStore:
+    def list_stores(self):
+        return [{"store_id": "store_001", "store_name": "Store One"}]
+
+    def list_product_types(self):
+        return ["all", "basic_service"]
+
+    def list_sale_months(self):
+        return ["2026-05"]
+
+    def list_verify_months(self):
+        return ["2026-05"]
+
+    def latest_job(self):
+        return {
+            "job_id": "job_001",
+            "job_name": "settlement",
+            "status": "success",
+            "started_at": datetime(2026, 5, 2, tzinfo=timezone.utc),
+            "finished_at": datetime(2026, 5, 2, 1, tzinfo=timezone.utc),
+            "success_count": 8,
+            "failed_count": 0,
+            "error_message": None,
+        }
+
+    def recent_jobs(self, limit: int):
+        return [self.latest_job()][:limit]
+
+    def store_ranking(self, *, month: str, product_type: str, limit: int):
+        return [
+            {
+                "rank": 1,
+                "store_id": "store_001",
+                "store_name": "Store One",
+                "sales_order_count": 3,
+                "self_sold_self_verified_count": 1,
+                "self_sold_other_verified_count": 2,
+                "other_sold_self_verified_count": 0,
+                "self_verify_income_cent": 10000,
+                "effective_commission_income_cent": 1680,
+            }
+        ][:limit]
+
+    def monthly_settlement(self, *, store_id: str, month: str, product_type: str):
+        return {
+            "store": {"store_id": store_id, "store_name": "Store One"},
+            "month": month,
+            "product_type": product_type,
+            "metrics": {
+                "estimated_receivable_commission_cent": 1680,
+                "commissionable_total_cent": 16800,
+                "estimated_payable_commission_cent": 2680,
+            },
+            "tables": {
+                "receivable_commissions": [
+                    {
+                        "product_type": "basic_service",
+                        "verified_coupon_count": 1,
+                        "paid_amount_cent": 16800,
+                        "commission_rate": 0.1,
+                        "commissionable_total_cent": 16800,
+                        "estimated_receivable_commission_cent": 1680,
+                    }
+                ],
+                "payable_commissions": [
+                    {
+                        "product_type": "basic_service",
+                        "verified_coupon_count": 1,
+                        "paid_amount_cent": 26800,
+                        "commission_rate": 0.1,
+                        "payable_commission_cent": 2680,
+                    }
+                ],
+                "non_commission_orders": [],
+            },
+        }
+
+    def order_details(self, filters: dict):
+        return {
+            "rows": [
+                {
+                    "order_id": "order_001",
+                    "coupon_id": "coupon_001",
+                    "sku_id": "sku_001",
+                    "owner_account_id": "acct_001",
+                    "owner_account_name": "Owner",
+                    "product_type": "basic_service",
+                    "sale_store_id": "store_001",
+                    "sale_store_name": "Store One",
+                    "sale_time": datetime(2026, 5, 1, 8, tzinfo=timezone.utc),
+                    "is_verified": True,
+                    "verify_store_id": "store_002",
+                    "verify_store_name": "Store Two",
+                    "verify_time": datetime(2026, 5, 4, 8, tzinfo=timezone.utc),
+                    "relation_type": "cross_store",
+                    "is_commissionable": True,
+                    "paid_amount_cent": 16800,
+                    "commission_rate": 0.1,
+                    "receivable_commission_cent": 1680,
+                    "payable_commission_cent": 0,
+                }
+            ],
+            "pagination": {
+                "page": filters["page"],
+                "page_size": filters["page_size"],
+                "total": 1,
+                "total_pages": 1,
+            },
+        }
+
+    def order_details_export_csv(self, filters: dict):
+        return (
+            "order_id,coupon_id,sku_id,owner_account_id,owner_account_name,"
+            "product_type,sale_store_id,sale_store_name,sale_time,is_verified,"
+            "verify_store_id,verify_store_name,verify_time,relation_type,"
+            "is_commissionable,paid_amount_cent,commission_rate,"
+            "receivable_commission_cent,payable_commission_cent\r\n"
+            "order_001,coupon_001,sku_001,acct_001,Owner,basic_service,"
+            "store_001,Store One,2026-05-01T08:00:00+00:00,True,store_002,"
+            "Store Two,2026-05-04T08:00:00+00:00,cross_store,True,16800,"
+            "0.1,1680,0\r\n"
+        )
+
+    def export_filter_header(self, filters: dict):
+        return '{"sale_store_id":"store_001"}'
+
+
+@pytest.fixture()
+def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+    app = create_app()
+    app.dependency_overrides[get_data_store] = lambda: FakeStore()
+    client = TestClient(app)
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "admin", "password": "test-password"},
+    )
+    assert response.status_code == 200
+    return client
+
+
+def test_filter_metadata_contract(client: TestClient):
+    response = client.get("/api/v1/meta/filters")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["stores"] == [{"store_id": "store_001", "store_name": "Store One"}]
+    assert data["product_types"] == ["all", "basic_service"]
+    assert data["latest_job"]["job_id"] == "job_001"
+
+
+def test_dashboard_contract_responses_do_not_expose_deferred_fields(
+    client: TestClient,
+):
+    ranking = client.get("/api/v1/dashboard/store-ranking?month=2026-05")
+    settlement = client.get(
+        "/api/v1/stores/store_001/monthly-settlement?month=2026-05"
+    )
+    details = client.get("/api/v1/order-details?page=1&page_size=50")
+
+    assert ranking.status_code == 200
+    assert ranking.json()["data"]["rows"][0]["sales_order_count"] == 3
+
+    assert settlement.status_code == 200
+    settlement_payload = settlement.json()
+    assert (
+        settlement_payload["data"]["metrics"][
+            "estimated_receivable_commission_cent"
+        ]
+        == 1680
+    )
+    settlement_text = settlement.text
+    assert deferred_field("current", "receivable", "commission", "cent") not in settlement_text
+    assert deferred_field("invoiced", "coupon", "count") not in settlement_text
+    assert deferred_field("pending", "invoice", "commission", "cent") not in settlement_text
+
+    assert details.status_code == 200
+    detail_row = details.json()["data"]["rows"][0]
+    assert detail_row["coupon_id"] == "coupon_001"
+    assert deferred_field("invoice", "status") not in detail_row
+    assert deferred_field("refund", "status") not in detail_row
+    assert deferred_field("refund", "amount", "cent") not in detail_row
+
+
+def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClient):
+    response = client.get("/api/v1/order-details/export?sale_store_id=store_001")
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert response.headers["x-export-filters"] == '{"sale_store_id":"store_001"}'
+    assert "attachment;" in response.headers["content-disposition"]
+    assert "order_id,coupon_id" in response.text
+    assert deferred_field("invoice", "status") not in response.text
+    assert deferred_field("refund", "amount", "cent") not in response.text
+
+
+def test_recent_jobs_contract(client: TestClient):
+    response = client.get("/api/v1/jobs/recent?limit=5")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["rows"][0]["status"] == "success"
+
+
+def test_error_message_sanitizer_redacts_sensitive_values_and_paths():
+    assert sanitize_error_message("cookie=abc123") == "[redacted sensitive error]"
+    assert (
+        sanitize_error_message("failed reading C:\\Users\\admin\\Downloads\\data.csv")
+        == "failed reading [path redacted]"
+    )
+
+
+def test_order_details_export_includes_all_matching_rows(db_session: Session):
+    timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    for index in range(501):
+        db_session.add(
+            SettlementOrderDetail(
+                coupon_id=f"coupon_{index:03d}",
+                order_id=f"order_{index:03d}",
+                sku_id="sku_001",
+                owner_account_id="acct_001",
+                owner_account_name="Owner",
+                product_type="basic_service",
+                sale_store_id="store_001",
+                sale_store_name="Store One",
+                sale_time=timestamp,
+                is_verified=True,
+                verify_store_id="store_002",
+                verify_store_name="Store Two",
+                verify_time=timestamp,
+                relation_type="cross_store",
+                is_commissionable=True,
+                is_refund_excluded=False,
+                paid_amount_cent=10000,
+                commission_rate=Decimal("0.1000"),
+                receivable_commission_cent=1000,
+                payable_commission_cent=1000,
+                source_run_id="test-run",
+                updated_at=timestamp,
+            )
+        )
+    db_session.commit()
+
+    store = DashboardDataStore(db_session)
+    first_page = store.order_details({"page": 1, "page_size": 500})
+    export_rows = list(csv.DictReader(io.StringIO(store.order_details_export_csv({}))))
+
+    assert first_page["pagination"]["total"] == 501
+    assert len(first_page["rows"]) == 500
+    assert len(export_rows) == 501

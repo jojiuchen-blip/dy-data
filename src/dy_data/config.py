@@ -11,16 +11,16 @@ from .sku import DEFAULT_SKU_TYPE_MAP
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_WORKSPACE_ROOT = Path(r"D:\app\抖音来客看板")
+DEFAULT_WORKSPACE_ROOT = REPO_ROOT
 DEFAULT_SCRIPT_ROOT = REPO_ROOT
-DEFAULT_BROWSER_DOWNLOADS = Path(r"D:\浏览器下载")
+DEFAULT_BROWSER_DOWNLOADS = REPO_ROOT / "runs" / "browser_downloads"
 
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "paths": {
         "workspace_root": str(DEFAULT_WORKSPACE_ROOT),
         "script_root": str(DEFAULT_SCRIPT_ROOT),
-        "python_exe": str(DEFAULT_WORKSPACE_ROOT / "runtime" / "python" / "python.exe"),
+        "python_exe": "python",
         "browser_downloads": str(DEFAULT_BROWSER_DOWNLOADS),
     },
     "douyin": {

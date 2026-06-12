@@ -7,16 +7,16 @@
     "month": "2026-05",
     "product_type": "all",
     "metrics": {
-      "current_receivable_commission_cent": 932410,
+      "estimated_receivable_commission_cent": 932410,
       "commissionable_total_cent": 1286500,
       "estimated_payable_commission_cent": 613260
     }
   },
   "definitions": [
     {
-      "key": "current_receivable_commission_cent",
-      "label": "当期应收分佣",
-      "description": "本店销售、他店核销后，由销售店发票到票并审核通过确定，按到票或审核通过时间计入当期。"
+      "key": "estimated_receivable_commission_cent",
+      "label": "预计应收分佣",
+      "description": "本店销售、他店核销后，按分佣比例测算的预计应收分佣。"
     },
     {
       "key": "commissionable_total_cent",

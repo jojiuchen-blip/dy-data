@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from apps.api.dy_api.models import Base
+
+
+def test_production_mvp_tables_are_declared() -> None:
+    expected_tables = {
+        "raw_douyin_orders",
+        "raw_douyin_order_coupons",
+        "raw_douyin_verify_records",
+        "raw_aweme_bindings",
+        "dim_stores",
+        "dim_store_poi_mappings",
+        "dim_sku_product_rules",
+        "dim_aweme_accounts",
+        "settlement_order_details",
+        "agg_store_ranking",
+        "agg_store_monthly_settlement",
+        "job_runs",
+        "data_quality_issues",
+    }
+
+    assert expected_tables.issubset(set(Base.metadata.tables))
+
+
+def test_schema_has_natural_keys_for_idempotent_loads() -> None:
+    tables = Base.metadata.tables
+
+    assert [column.name for column in tables["raw_douyin_orders"].primary_key] == ["order_id"]
+    assert [column.name for column in tables["raw_douyin_order_coupons"].primary_key] == ["coupon_id"]
+    assert [column.name for column in tables["raw_douyin_verify_records"].primary_key] == ["verify_id"]
+    assert [column.name for column in tables["settlement_order_details"].primary_key] == ["coupon_id"]
+    assert [column.name for column in tables["job_runs"].primary_key] == ["job_id"]
+    assert [column.name for column in tables["data_quality_issues"].primary_key] == ["issue_id"]
+
+    ranking_pk = [column.name for column in tables["agg_store_ranking"].primary_key]
+    monthly_pk = [column.name for column in tables["agg_store_monthly_settlement"].primary_key]
+    assert ranking_pk == ["month", "product_type", "store_id"]
+    assert monthly_pk == ["month", "store_id", "product_type"]

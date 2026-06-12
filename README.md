@@ -2,11 +2,7 @@
 
 本仓库当前主线是面向经销商的抖音来客订单分账数据看板，重点维护订单、核销、退款、抖音号明细匹配、门店销售归属和门店核销归属之间的分账口径。
 
-此前的“抖音服务产品销售数据看板 / 每日发布 / 腾讯云 COS 上传”内容已从当前主线迁出，归档到：
-
-```text
-C:\Users\86138\Documents\抖音服务产品数据拉取归档
-```
+此前的“抖音服务产品销售数据看板 / 每日发布 / 腾讯云 COS 上传”内容已从当前主线迁出；本仓库不记录个人电脑上的归档路径。
 
 产品定位和业务边界以 `docs/项目产品介绍书.md` 为准；本 README 只说明仓库结构、配置方式和常用运行入口。
 
@@ -47,7 +43,7 @@ Copy-Item config.example.json config.local.json
 
 `config.local.json` 不会提交到 Git。常用配置包括：
 
-- `paths.workspace_root`：本机数据根目录。
+- `paths.workspace_root`：数据根目录，生产环境建议通过环境变量或服务器配置指定。
 - `paths.script_root`：脚本所在目录，默认可用当前仓库。
 - `paths.python_exe`：本机 Python 解释器。
 - `douyin.app_id`、`douyin.app_secret`、`douyin.account_id`：抖音开放平台配置。
@@ -97,3 +93,24 @@ src/dy_data/paths.py          路径读取辅助
 src/dy_data/csv_io.py         CSV 读写辅助
 src/dy_data/douyin_client.py  抖音接口常量和请求头辅助
 ```
+
+## Production Docker Compose
+
+The Linux production skeleton lives in `deploy/` and is intended for a single-server MVP:
+
+- `postgres`: PostgreSQL primary store.
+- `api`: FastAPI image supplied by the backend slice.
+- `worker`: scheduled jobs and browser export jobs.
+- `web`: static React/Vite build served by Nginx.
+- `browser`: Chromium + noVNC for Douyin backend login/export flows.
+- `proxy`: the only published entrypoint.
+
+Create a local env file from placeholders and replace every `CHANGE_ME_*` value on the server:
+
+```bash
+cp deploy/.env.example deploy/.env
+docker compose --env-file deploy/.env -f deploy/compose.yaml config
+docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+```
+
+Do not commit `deploy/.env`, browser profiles, cookies, downloads, exported files, or real server paths. Raw service ports are not published; noVNC is only available through the proxy at `/browser/`, where Nginx checks the same admin session through `/api/v1/auth/me` before proxying to the browser container.

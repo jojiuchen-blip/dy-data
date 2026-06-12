@@ -1,19 +1,3 @@
-export const invoiceStatusLabels: Record<string, string> = {
-  not_received: "未到票",
-  received: "已到票",
-  approved: "审核通过",
-  rejected: "审核未通过",
-};
-
-export const refundStatusLabels: Record<string, string> = {
-  none: "未退款",
-  refunding: "退款中",
-  refunded: "已退款",
-  failed: "退款失败",
-  cancelled: "退款取消",
-  unknown: "状态未知",
-};
-
 export function formatCurrency(cent: number): string {
   return new Intl.NumberFormat("zh-CN", {
     style: "currency",

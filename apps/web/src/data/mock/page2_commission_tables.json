@@ -14,9 +14,7 @@
           "paid_amount_cent": 1922550,
           "commission_rate": 0.1,
           "commissionable_total_cent": 192255,
-          "invoiced_coupon_count": 63,
-          "current_receivable_commission_cent": 155430,
-          "pending_invoice_commission_cent": 36825
+          "estimated_receivable_commission_cent": 155430
         },
         {
           "product_type": "168保养",
@@ -24,9 +22,7 @@
           "paid_amount_cent": 6726540,
           "commission_rate": 0.1,
           "commissionable_total_cent": 672654,
-          "invoiced_coupon_count": 401,
-          "current_receivable_commission_cent": 571020,
-          "pending_invoice_commission_cent": 101634
+          "estimated_receivable_commission_cent": 571020
         },
         {
           "product_type": "漆面",
@@ -34,9 +30,7 @@
           "paid_amount_cent": 733700,
           "commission_rate": 0.1,
           "commissionable_total_cent": 73370,
-          "invoiced_coupon_count": 19,
-          "current_receivable_commission_cent": 60580,
-          "pending_invoice_commission_cent": 12790
+          "estimated_receivable_commission_cent": 60580
         },
         {
           "product_type": "蒸发箱清洗",
@@ -44,9 +38,7 @@
           "paid_amount_cent": 0,
           "commission_rate": 0.1,
           "commissionable_total_cent": 0,
-          "invoiced_coupon_count": 0,
-          "current_receivable_commission_cent": 0,
-          "pending_invoice_commission_cent": 0
+          "estimated_receivable_commission_cent": 0
         },
         {
           "product_type": "外循环清洗",
@@ -54,9 +46,7 @@
           "paid_amount_cent": 17600,
           "commission_rate": 0.1,
           "commissionable_total_cent": 1760,
-          "invoiced_coupon_count": 1,
-          "current_receivable_commission_cent": 1380,
-          "pending_invoice_commission_cent": 380
+          "estimated_receivable_commission_cent": 1380
         }
       ],
       "payable_commissions": [

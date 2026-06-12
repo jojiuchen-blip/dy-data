@@ -212,9 +212,9 @@ export function getSettlementView(
       productType === ALL_PRODUCTS
         ? monthlySummaryResponse.data.metrics
         : {
-            current_receivable_commission_cent: sum(
+            estimated_receivable_commission_cent: sum(
               tables.receivable_commissions,
-              (row) => row.current_receivable_commission_cent,
+              (row) => row.estimated_receivable_commission_cent,
             ),
             commissionable_total_cent: sum(
               tables.receivable_commissions,
@@ -246,9 +246,7 @@ function makeReceivableRow(productType: string): ReceivableCommissionRow {
     paid_amount_cent: 0,
     commission_rate: 0,
     commissionable_total_cent: 0,
-    invoiced_coupon_count: 0,
-    current_receivable_commission_cent: 0,
-    pending_invoice_commission_cent: 0,
+    estimated_receivable_commission_cent: 0,
   };
 }
 
@@ -313,12 +311,7 @@ function deriveSettlementFromDetails(
       row.verified_coupon_count += 1;
       row.paid_amount_cent += detail.paid_amount_cent;
       row.commissionable_total_cent += detail.receivable_commission_cent;
-      row.invoiced_coupon_count +=
-        detail.invoice_status === "not_received" ? 0 : 1;
-      row.current_receivable_commission_cent +=
-        detail.invoice_status === "approved"
-          ? detail.receivable_commission_cent
-          : 0;
+      row.estimated_receivable_commission_cent += detail.receivable_commission_cent;
     }
 
     if (
@@ -352,8 +345,6 @@ function deriveSettlementFromDetails(
       row.paid_amount_cent > 0
         ? row.commissionable_total_cent / row.paid_amount_cent
         : 0,
-    pending_invoice_commission_cent:
-      row.commissionable_total_cent - row.current_receivable_commission_cent,
   }));
   const payableRows = [...payable.values()].map((row) => ({
     ...row,
@@ -371,9 +362,9 @@ function deriveSettlementFromDetails(
     month,
     product_type: productType,
     metrics: {
-      current_receivable_commission_cent: sum(
+      estimated_receivable_commission_cent: sum(
         receivableRows,
-        (row) => row.current_receivable_commission_cent,
+        (row) => row.estimated_receivable_commission_cent,
       ),
       commissionable_total_cent: sum(
         receivableRows,
@@ -439,12 +430,6 @@ export function filterOrderDetails(
     ) {
       return false;
     }
-    if (!isBlank(filters.invoice_status) && row.invoice_status !== filters.invoice_status) {
-      return false;
-    }
-    if (!isBlank(filters.refund_status) && row.refund_status !== filters.refund_status) {
-      return false;
-    }
     if (
       query &&
       !row.order_id.toLowerCase().includes(query) &&
@@ -481,11 +466,7 @@ export function detailFiltersFromSearch(
     "verify_month",
     "relation_type",
     "is_commissionable",
-    "invoice_status",
-    "refund_status",
     "q",
-    "month",
-    "month_basis",
   ].forEach((key) => {
     const value = searchParams.get(key);
     if (value) {

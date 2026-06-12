@@ -1,9 +1,9 @@
 {
   "paths": {
-    "workspace_root": "D:/app/抖音来客看板",
+    "workspace_root": ".",
     "script_root": ".",
-    "python_exe": "D:/app/抖音来客看板/runtime/python/python.exe",
-    "browser_downloads": "D:/浏览器下载"
+    "python_exe": "python",
+    "browser_downloads": "runs/browser_downloads"
   },
   "douyin": {
     "app_id": "",

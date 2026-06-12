@@ -1,39 +1,35 @@
-# 数据模型第一轮确认
+﻿# 数据模型 v1（生产 MVP）
 
-本文档用于约定抖音订单分账数据看板第一阶段的数据表方向。第一轮确认基于本地已拉取的订单、券核销、退款、职人绑定和 POI 映射数据，只确认字段来源、唯一键和第一版接口可支持性；不提交任何真实业务数据、密钥、账号配置或本地路径。
+本文档约定抖音订单分账数据看板生产 MVP 的数据库表方向。v1 只支持订单、券、核销、抖音号/职人绑定、门店/POI 映射、SKU 分佣规则、结算明细、汇总和任务状态；不提交任何真实业务数据、密钥、账号配置或本地路径。
 
-## 确认状态
+当前状态：v1 数据模型已按“发票不上线、退款不展示、预计应收分佣”口径调整，可进入 PostgreSQL 迁移和 FastAPI 查询实现。
 
-当前状态：第一轮数据侧已确认，可进入 FastAPI 查询接口设计。
-
-字段状态说明：
+## 一、字段状态
 
 | 状态 | 含义 |
 | --- | --- |
 | confirmed | 真实数据或现有脚本输出中稳定存在。 |
-| computed | 需要由清洗或汇总脚本计算得到。 |
-| manual | 需要人工维护、配置或财务导入。 |
+| computed | 需要由清洗、映射、汇总或任务计算得到。 |
+| manual | 需要人工维护、配置或运营导入。 |
 | missing | 当前真实数据中没有，或来源不明确。 |
 
-## 一、关键结论
+## 二、关键结论
 
-- 明细粒度应按券/核销明细建模，不应只按订单建模。订单数据中存在一单多券，订单表的 `certificate` 数组最多至少出现到第 3 张券；`coupon_id` 应来自 `certificate[].certificate_id`。
-- `order_id` 可作为订单原始表业务唯一键；订单采集脚本已按 `order_id` 去重。
-- `coupon_id` 在订单 `certificate[]` 和核销记录 `certificate_id` 中稳定存在，是订单券明细与核销记录的主要关联键。
-- `verify_id` 在核销记录接口中稳定存在，可作为核销记录唯一键；核销记录接口当前不返回 `order_id`，必须通过 `coupon_id` 反查订单。
-- 订单接口已经返回订单状态、券状态、券退款金额和券退款时间。若产品侧只需要判断是否退款、退款中、已退款，并按券/订单从分账中排除，第一阶段可以不接入退款接口，直接使用订单接口状态判断。
-- `refund_id` 对应退款接口 `after_sale_id`，可作为退款单唯一键；退款接口稳定返回 `order_id`，但当前没有稳定券 ID。退款接口只有在产品需要售后单号、退款审核状态、退款原因、退款完成时间、真实退款金额拆分等售后明细时才需要接入。
-- `store_id` 是系统内部 ID，需要由门店/账号映射维护；`poi_id` 在订单意向门店、职人绑定门店和核销 POI 中可获得，但不是所有业务视角都天然一对一。
-- 订单归属人可按 `order_sale_info.transfer_uid` 或 `order_sale_info.transfer_nickName` 匹配职人绑定表。当前诊断中，同时匹配到 UID 和昵称的订单门店结果一致；未匹配订单应单独输出为本地清单，交由业务补充映射。
-- 到票状态、分佣规则和内部区域等字段不来自抖音接口，第一阶段按人工维护或导入处理。
+- 明细粒度按券建模，一行一券；订单数据中存在一单多券，不能只按订单建模。
+- `order_id` 是订单原始表业务唯一键。
+- `coupon_id` 来自订单 `certificate[].certificate_id` 和核销 `certificate_id`，是订单券与核销记录的主要关联键。
+- `verify_id` 是核销记录唯一键；核销接口当前不返回 `order_id`，必须通过 `coupon_id` 关联订单券。
+- `store_id` 是系统内部 ID；`poi_id` 来自订单意向门店、职人绑定、后台抖音号明细和核销查询，二者不能混用。
+- 订单归属匹配按 ID 优先、昵称兜底；未匹配或冲突必须写入异常表，不能默认归店。
+- v1 不展示发票/到票字段，不实现财务审核和正式应收确认。
+- v1 不接退款接口，也不在页面展示退款字段；订单/券状态仅用于后台排除退款券和异常诊断。
 
-## 二、核心表分层
+## 三、核心表分层
 
 ```text
 raw_douyin_orders
 raw_douyin_order_coupons
 raw_douyin_verify_records
-raw_douyin_refunds
 raw_aweme_bindings
         |
         v
@@ -41,7 +37,6 @@ dim_stores
 dim_store_poi_mappings
 dim_sku_product_rules
 dim_aweme_accounts
-finance_invoice_status
         |
         v
 settlement_order_details
@@ -50,28 +45,28 @@ settlement_order_details
 agg_store_monthly_settlement
 agg_store_ranking
 job_runs
+data_quality_issues
 ```
 
-## 三、原始数据表
+## 四、原始数据表
 
 ### raw_douyin_orders
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| order_id | text | confirmed | 抖音订单 `order_id`，订单表业务唯一键。 |
-| order_status | text | confirmed | 订单接口 `order_status` / `status` / `trade_status` 原值或映射值。 |
-| sku_id | text | confirmed | 订单接口 `sku_id` 或 `products[].sku_id`。 |
-| product_name | text | confirmed | 订单接口 `sku_name` 或 `products[].product_name`。 |
-| pay_time | timestamptz | confirmed | 订单接口 `pay_time`；销售月优先使用该字段。 |
-| create_order_time | timestamptz | confirmed | 订单接口 `create_order_time`，无支付时间时可作兜底。 |
-| sale_month | char(7) | computed | 由 `pay_time` 优先、`create_order_time` 兜底计算 `YYYY-MM`。 |
-| paid_amount_cent | integer | confirmed | 优先取 `sub_order_amount_infos[].receipt_amount` 汇总；兜底 `receipt_amount` / `pay_amount`。 |
-| owner_account_id | text | confirmed | 订单 `order_sale_info.transfer_uid`，部分订单为空。 |
-| owner_douyin_uid | text | confirmed | 订单 `order_sale_info.transfer_douyin_uid`，覆盖率低于 `transfer_uid`。 |
-| owner_nickname | text | confirmed | 订单 `order_sale_info.transfer_nickName`。 |
-| sale_role | text | confirmed | 订单 `order_sale_info.sale_role`，用于筛选商家订单。 |
-| sale_channel | text | confirmed | 订单 `order_sale_info.sale_channel`。 |
-| intention_poi_id | text | confirmed | 订单接口 `intention_poi_id` 或 `poi_id`，表示订单意向门店，不等同销售归属门店。 |
+| order_id | text | confirmed | 抖音订单 ID，业务唯一键。 |
+| order_status | text | confirmed | 订单接口原始状态或映射值。 |
+| sku_id | text | confirmed | 订单接口 SKU ID。 |
+| product_name | text | confirmed | 订单 SKU 或商品名称。 |
+| pay_time | timestamptz | confirmed | 支付时间；销售月优先使用。 |
+| create_order_time | timestamptz | confirmed | 下单时间；无支付时间时兜底。 |
+| paid_amount_cent | integer | confirmed | 订单实收金额，优先使用子订单实收汇总。 |
+| owner_account_id | text | confirmed | 订单归属账号 ID，优先 `transfer_uid`。 |
+| owner_douyin_uid | text | confirmed | 订单归属抖音 UID，覆盖率较低。 |
+| owner_account_name | text | confirmed | 订单归属账号展示名。 |
+| sale_role | text | confirmed | 订单销售角色，用于识别商家订单。 |
+| sale_channel | text | confirmed | 订单销售渠道。 |
+| intention_poi_id | text | confirmed | 订单意向 POI，不等于销售归属门店。 |
 | raw_payload | jsonb | confirmed | 原始订单响应。 |
 | source_run_id | text | computed | 采集任务 ID。 |
 | created_at | timestamptz | computed | 入库时间。 |
@@ -79,203 +74,211 @@ job_runs
 
 ### raw_douyin_order_coupons
 
-订单和券需要拆分。该表从订单 `certificate[]` 数组展开，一行一券。
+订单 `certificate[]` 数组展开，一行一券。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
+| coupon_id | text | confirmed | `certificate[].certificate_id`，业务唯一键。 |
 | order_id | text | confirmed | 所属订单 ID。 |
-| coupon_id | text | confirmed | `certificate[].certificate_id`，券业务主键。 |
-| order_item_id | text | confirmed | `certificate[].order_item_id`，可辅助关联子订单金额。 |
-| coupon_status | text | confirmed | `certificate[].item_status`，原始枚举值或映射值。 |
-| coupon_updated_at | timestamptz | confirmed | `certificate[].item_update_time`。 |
-| coupon_refund_amount_cent | integer | confirmed | `certificate[].refund_amount`。 |
-| coupon_refund_time | timestamptz | confirmed | `certificate[].refund_time`。 |
+| order_item_id | text | confirmed | 子订单或订单项 ID。 |
+| coupon_status | text | confirmed | `certificate[].item_status` 原始值或映射值。 |
+| coupon_updated_at | timestamptz | confirmed | 券状态更新时间。 |
+| coupon_refunded_cent | integer | confirmed | 券退款金额，仅用于内部排除/诊断。 |
+| coupon_refund_time | timestamptz | confirmed | 券退款时间，仅用于内部排除/诊断。 |
 | raw_payload | jsonb | confirmed | 单张券原始 JSON。 |
+| source_run_id | text | computed | 采集任务 ID。 |
 
 ### raw_douyin_verify_records
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| verify_id | text | confirmed | 核销接口 `verify_id`，核销记录业务唯一键。 |
+| verify_id | text | confirmed | 核销接口 ID，业务唯一键。 |
 | coupon_id | text | confirmed | 核销接口 `certificate_id`。 |
-| order_id | text | missing | 核销接口当前未返回订单 ID，需要由 `coupon_id` 关联订单券表。 |
-| verify_status | text | confirmed | 核销接口 `status`，已观察到有效和撤销状态。 |
-| verify_time | timestamptz | confirmed | 核销接口 `verify_time`。 |
-| verify_month | char(7) | computed | 由 `verify_time` 计算。 |
-| poi_id | text | confirmed | 按 POI 拉取时由查询 POI 回填 `verify_poi_id`，或来自接口/门店查询结果。 |
-| verify_store_name_raw | text | confirmed | `verify_poi_name` 或核销操作人名称；部分接口字段覆盖有限。 |
-| sku_id | text | confirmed | 核销接口 `sku.sku_id`。 |
-| product_name | text | confirmed | 核销接口 `sku.title`。 |
-| paid_amount_cent | integer | confirmed | 核销接口 `amount.pay_amount` / `amount.coupon_pay_amount`。 |
-| cancel_time | timestamptz | confirmed | 撤销记录存在时返回。 |
+| verify_status | text | confirmed | 核销状态原始值或映射值。 |
+| verify_time | timestamptz | confirmed | 核销时间。 |
+| poi_id | text | confirmed | 核销 POI，或按 POI 拉取时回填。 |
+| verify_store_name_raw | text | confirmed | 核销门店名称原始值。 |
+| sku_id | text | confirmed | 核销接口 SKU ID。 |
+| product_name | text | confirmed | 核销接口商品名称。 |
+| paid_amount_cent | integer | confirmed | 核销金额或券支付金额。 |
+| cancel_time | timestamptz | confirmed | 撤销核销时间。 |
 | raw_payload | jsonb | confirmed | 原始核销记录。 |
 | source_run_id | text | computed | 采集任务 ID。 |
 
-### raw_douyin_refunds
+### raw_aweme_bindings
 
-第一阶段该表是可选表。只有当业务产品需要售后单维度信息时才必须采集；若仅用于分账排除退款订单/券，可优先使用订单接口里的订单状态、券状态、券退款金额和券退款时间。
+来自抖音号/职人绑定接口或后台抖音号明细导出。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| refund_id | text | confirmed | 退款接口 `after_sale_id`。 |
-| order_id | text | confirmed | 退款接口 `order_id`。 |
-| coupon_id | text | missing | 退款接口当前没有稳定券 ID；只能尝试由订单券退款金额/时间推断，存在风险。 |
-| refund_status | text | confirmed | 退款接口 `refund_status`，脚本已映射初始化、审核中、退款成功等状态。 |
-| refund_amount_cent | integer | confirmed | 优先 `real_refund_amount`，可保留 `refund_amount`、`total_refund_amount` 等原值。 |
-| refund_created_at | timestamptz | confirmed | 退款接口 `create_time`。 |
-| refund_finished_at | timestamptz | confirmed | 退款接口 `complete_time`。 |
-| raw_payload | jsonb | confirmed | 原始退款记录。 |
+| binding_key | text | computed | 由抖音 ID、账户 ID、POI ID、昵称生成，业务去重键。 |
+| douyin_id | text | confirmed | 抖音号 ID。 |
+| douyin_nickname | text | confirmed | 抖音号昵称。 |
+| account_id | text | confirmed | 所属账号 ID 或职人 UID。 |
+| account_name | text | confirmed | 所属账号名称。 |
+| poi_id | text | confirmed | 所属账号关联 POI。 |
+| binding_status | text | confirmed | 绑定状态。 |
+| raw_payload | jsonb | confirmed | 原始记录。 |
 | source_run_id | text | computed | 采集任务 ID。 |
+| created_at | timestamptz | computed | 入库时间。 |
+| updated_at | timestamptz | computed | 更新时间。 |
 
-## 四、维表和人工维护表
+## 五、维表
 
 ### dim_stores
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| store_id | text | manual | 系统内部门店 ID，建议由后台维护。 |
-| store_name | text | confirmed | 职人绑定门店名称、POI 名称或人工标准名。 |
-| certified_subject_id | text | manual | 抖音接口当前可获得主体名称，稳定主体 ID 来源未确认。 |
-| certified_subject_name | text | confirmed | 职人绑定 `account_name` / 商家主体。 |
-| region | text | manual | 区域/城市需人工维护或从门店主数据导入。 |
-| is_active | boolean | manual | 是否启用需人工维护。 |
+| store_id | text | manual | 系统内部门店 ID，业务唯一键。 |
+| store_name | text | manual/confirmed | 标准门店名。 |
+| certified_subject_name | text | confirmed | 职人绑定或商家主体名称。 |
+| region | text | manual | 区域/城市。 |
+| is_active | boolean | manual | 是否启用。 |
 
 ### dim_store_poi_mappings
-
-一店可能对应多个 POI，POI 与内部 `store_id` 建议拆成映射表。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
 | store_id | text | manual | 内部门店 ID。 |
-| poi_id | text | confirmed | 职人绑定 `poi_id`、核销查询 POI、门店 POI 查询结果。 |
+| poi_id | text | confirmed | POI ID。 |
 | poi_name | text | confirmed | POI 名称或绑定门店名称。 |
-| mapping_source | text | computed | `craftsman_binding`、`poi_query`、`manual` 等。 |
-| is_primary | boolean | manual | 多 POI 场景下的主 POI 需人工确认。 |
+| mapping_source | text | computed/manual | `aweme_binding`、`poi_query`、`manual` 等。 |
+| is_primary | boolean | manual | 多 POI 场景下主 POI。 |
 
 ### dim_sku_product_rules
 
-SKU ID、商品类型和分佣比例使用独立映射表维护；订单明细保留 `sku_id`，页面展示的商品类型和分佣比例由该表派生。
-
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| sku_id | text | confirmed | 订单和核销接口均稳定返回。 |
-| product_type | text | manual | 由配置中的 SKU 到产品类型映射维护。 |
-| product_name | text | confirmed | 订单 `sku_name` 或核销 `sku.title`。 |
-| commission_rate | numeric(6,4) | manual | 该商品类型对应的分佣比例，需财务确认。 |
-| is_service_product | boolean | computed | 是否进入看板由 SKU 映射是否存在计算。 |
+| sku_id | text | confirmed | 订单和核销接口稳定返回。 |
+| product_type | text | manual | 商品类型。 |
+| product_name | text | confirmed | 商品名称。 |
+| commission_rate | numeric(6,4) | manual | 分佣比例。 |
+| is_service_product | boolean | computed/manual | 是否进入看板。 |
 
 ### dim_aweme_accounts
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| account_id | text | confirmed | 职人绑定 `craftsman_uid` 或商家账号 ID；订单归属优先使用 `transfer_uid`。 |
-| nickname | text | confirmed | 职人绑定昵称、订单归属人昵称。 |
-| store_id | text | computed | 由绑定 POI/门店映射到内部 `store_id`。 |
-| binding_status | text | confirmed | 职人绑定接口 `bind_status`。 |
-| valid_from | date | confirmed | 职人绑定 `bind_start_time`。 |
-| valid_to | date | confirmed | 职人绑定 `bind_end_time`，可空。 |
+| account_id | text | confirmed | 职人 UID、商家账号 ID 或订单归属 ID。 |
+| nickname | text | confirmed | 抖音号昵称或订单归属昵称。 |
+| store_id | text | computed/manual | 通过绑定 POI 映射到内部店。 |
+| binding_status | text | confirmed | 绑定状态。 |
+| valid_from | date | confirmed | 绑定开始日期。 |
+| valid_to | date | confirmed | 绑定结束日期，可空。 |
 
 归属人匹配策略：
 
-| 优先级 | 匹配方式 | 当前结论 |
+| 优先级 | 匹配方式 | 结论 |
 | --- | --- | --- |
-| 1 | `order_sale_info.transfer_uid = 职人UID` | ID 语义最稳定，命中时优先采用。 |
-| 2 | `order_sale_info.transfer_nickName = 抖音号昵称` | 可作为 UID 未命中时的补充；当前样本里与 UID 同时命中的记录门店结果一致。 |
-| 3 | 人工映射 | UID 和昵称均未命中的订单应输出单独文件，由业务补齐归属人到门店的映射。 |
+| 1 | `raw_douyin_orders.owner_account_id = dim_aweme_accounts.account_id` | ID 语义最稳定，命中时优先采用。 |
+| 2 | `raw_douyin_orders.owner_account_name = dim_aweme_accounts.nickname` | UID 未命中时兜底。 |
+| 3 | 人工补充 | 两者均未命中的订单写入异常表，交由业务补齐。 |
 
-### finance_invoice_status
-
-第一阶段不实现发票上传、发票存储和 OCR，只预留财务维护或导入的到票状态。
-
-| 字段 | 类型建议 | 状态 | 来源/说明 |
-| --- | --- | --- | --- |
-| invoice_status_id | text | computed | 可由 `order_id + coupon_id` 或导入记录 ID 生成。 |
-| order_id | text | manual | 财务导入或后台维护。 |
-| coupon_id | text | manual | 建议按券维护；如果只按订单维护，需拆分到券时标记风险。 |
-| invoice_status | text | manual | `not_received`、`received`、`approved`、`rejected`。 |
-| invoice_received_at | timestamptz | manual | 到票时间。 |
-| invoice_approved_at | timestamptz | manual | 审核通过时间。 |
-| remark | text | manual | 财务备注。 |
-
-## 五、核心明细表
+## 六、核心明细表
 
 ### settlement_order_details
 
-该表是页面 3 的主要数据来源，也是页面 1 和页面 2 汇总计算的证据来源。第一阶段建议一行一券；月份类字段由销售时间或核销时间派生，不作为底表独立字段。
+该表是页面 3 的主要数据来源，也是页面 1 和页面 2 汇总计算的证据来源。v1 一行一券；月份类字段由销售时间或核销时间派生，不作为底表独立字段。
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
 | order_id | text | confirmed | 来自订单表。 |
-| coupon_id | text | confirmed | 来自订单券表或核销记录。 |
-| sku_id | text | confirmed | 来自订单或核销接口，用于关联 SKU 商品类型映射表。 |
-| owner_account_id | text | confirmed | 订单归属账号 ID，优先使用订单归属字段。 |
+| coupon_id | text | confirmed | 来自订单券表。 |
+| sku_id | text | confirmed | 订单或核销 SKU。 |
+| owner_account_id | text | confirmed | 订单归属账号 ID。 |
 | owner_account_name | text | confirmed | 订单归属账号展示名。 |
-| product_type | text | computed | 由 SKU 商品类型映射表得到，不作为明细底表原始字段。 |
-| sale_store_id | text | computed | 订单归属人/职人绑定门店映射到内部门店。 |
-| sale_store_name | text | computed | 由销售归属门店映射得到。 |
-| sale_time | timestamptz | confirmed | 订单 `pay_time` 或 `create_order_time`。 |
+| product_type | text | computed | 由 SKU 商品类型规则得到。 |
+| sale_store_id | text | computed | 订单归属人映射到内部店。 |
+| sale_store_name | text | computed | 销售归属门店名称。 |
+| sale_time | timestamptz | confirmed | 订单支付时间或下单时间。 |
 | is_verified | boolean | computed | 是否存在有效核销记录。 |
-| verify_store_id | text | computed | 核销 POI 映射到内部 `store_id`。 |
-| verify_store_name | text | confirmed | 核销 POI 名称或映射后的门店名。 |
-| verify_time | timestamptz | confirmed | 核销接口 `verify_time`。 |
+| verify_store_id | text | computed | 核销 POI 映射到内部店，未核销为空。 |
+| verify_store_name | text | computed | 核销门店名称，未核销为空。 |
+| verify_time | timestamptz | confirmed | 核销时间，未核销为空。 |
 | relation_type | text | computed | `same_store`、`cross_store`、`unverified`、`unknown`。 |
 | is_commissionable | boolean | computed | 已核销且销售门店、核销门店均可识别且不同店。 |
-| invoice_status | text | manual | 财务维护，未维护默认 `not_received`。 |
-| invoice_received_at | timestamptz | manual | 财务维护。 |
-| invoice_approved_at | timestamptz | manual | 财务维护。 |
-| refund_status | text | computed | 订单/券退款状态归一化。 |
-| refund_amount_cent | integer | confirmed | 订单券或退款接口金额；到券粒度时存在分摊风险。 |
-| paid_amount_cent | integer | confirmed | 订单或核销金额，建议优先订单实收。 |
-| commission_rate | numeric(6,4) | manual | 来自 SKU 商品类型映射/规则表。 |
-| receivable_commission_cent | integer | computed | 跨店核销时销售门店应收参考额。 |
-| payable_commission_cent | integer | computed | 跨店核销时核销门店应付参考额。 |
+| is_refund_excluded | boolean | computed | 是否因订单/券状态被排除出分账；内部字段，不进入 v1 API。 |
+| paid_amount_cent | integer | confirmed | 券或订单实收金额。 |
+| commission_rate | numeric(6,4) | manual | SKU 分佣规则。 |
+| receivable_commission_cent | integer | computed | 跨店核销时销售门店预计应收分佣。 |
+| payable_commission_cent | integer | computed | 跨店核销时核销门店预计应付分佣。 |
 | source_run_id | text | computed | 生成该明细的任务 ID。 |
+| updated_at | timestamptz | computed | 更新时间。 |
 
-## 六、汇总表
+## 七、汇总表
 
 ### agg_store_ranking
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| month | char(7) | computed | 页面 1 建议明确为销售月 `sale_month`。 |
-| product_type | text | computed | `all` 或具体产品类型。 |
+| month | char(7) | computed | 销售月。 |
+| product_type | text | computed | `all` 或具体商品类型。 |
 | store_id | text | computed | 销售归属或核销归属内部店 ID。 |
 | store_name | text | computed | 门店名称。 |
-| sales_order_count | integer | computed | 按销售归属门店统计，建议按券明细去重订单或按券口径需显式说明。 |
-| self_sold_self_verified_count | integer | computed | `relation_type=same_store`。 |
-| self_sold_other_verified_count | integer | computed | 本店销售、他店核销。 |
-| other_sold_self_verified_count | integer | computed | 他店销售、本店核销。 |
+| sales_order_count | integer | computed | 按销售归属门店去重订单统计。 |
+| self_sold_self_verified_count | integer | computed | 本店销售、本店核销券数。 |
+| self_sold_other_verified_count | integer | computed | 本店销售、他店核销券数。 |
+| other_sold_self_verified_count | integer | computed | 他店销售、本店核销券数。 |
 | self_verify_income_cent | integer | computed | 本店核销收入参考额。 |
-| effective_commission_income_cent | integer | computed | 本店销售、他店核销的应收分佣参考额。 |
+| effective_commission_income_cent | integer | computed | 本店销售、他店核销的预计应收分佣。 |
+| updated_at | timestamptz | computed | 更新时间。 |
 
 ### agg_store_monthly_settlement
 
 | 字段 | 类型建议 | 状态 | 来源/说明 |
 | --- | --- | --- | --- |
-| month | char(7) | computed | 页面 2 建议明确为核销月 `verify_month`；应收确认另用到票/审核月。 |
+| month | char(7) | computed | 核销月。 |
 | store_id | text | computed | 当前门店 ID。 |
 | product_type | text | computed | `all` 或具体产品类型。 |
-| current_receivable_commission_cent | integer | computed/manual | 依赖财务到票或审核状态；没有到票数据时只能返回 0 或待确认。 |
-| commissionable_total_cent | integer | computed | 本店销售、他店核销的可分佣基础金额，按核销月。 |
-| estimated_payable_commission_cent | integer | computed | 他店销售、本店核销的预计分出金额，按核销月。 |
-| updated_at | timestamptz | computed | 汇总更新时间。 |
+| estimated_receivable_commission_cent | integer | computed | 本店销售、他店核销的预计应收分佣。 |
+| commissionable_total_cent | integer | computed | 本店销售、他店核销的可分佣基础金额。 |
+| estimated_payable_commission_cent | integer | computed | 他店销售、本店核销的预计应付分佣。 |
+| updated_at | timestamptz | computed | 更新时间。 |
 
-## 七、状态枚举
+## 八、任务和异常表
+
+### job_runs
+
+| 字段 | 类型建议 | 状态 | 来源/说明 |
+| --- | --- | --- | --- |
+| job_id | text | computed | 任务唯一 ID。 |
+| job_name | text | computed | 任务名称。 |
+| status | text | computed | `running`、`success`、`failed`。 |
+| started_at | timestamptz | computed | 开始时间。 |
+| finished_at | timestamptz | computed | 结束时间。 |
+| success_count | integer | computed | 成功行数。 |
+| failed_count | integer | computed | 失败行数。 |
+| error_message | text | computed | 脱敏错误信息。 |
+| metadata_json | jsonb | computed | 脱敏任务元信息。 |
+
+### data_quality_issues
+
+| 字段 | 类型建议 | 状态 | 来源/说明 |
+| --- | --- | --- | --- |
+| issue_id | text | computed | 异常唯一 ID。 |
+| issue_type | text | computed | `missing_coupon_id`、`unmatched_owner`、`unmatched_poi`、`unmatched_sku`、`conflicting_owner_match` 等。 |
+| order_id | text | computed | 关联订单，可空。 |
+| coupon_id | text | computed | 关联券，可空。 |
+| severity | text | computed | `warning`、`error`。 |
+| message | text | computed | 脱敏说明。 |
+| raw_context_json | jsonb | computed | 脱敏上下文。 |
+| source_run_id | text | computed | 任务 ID。 |
+| created_at | timestamptz | computed | 创建时间。 |
+
+## 九、状态枚举
 
 | 字段 | 枚举 | 状态 | 说明 |
 | --- | --- | --- | --- |
-| verify_status | `valid`、`cancelled`、`unknown` | computed | 抖音核销 `status=1` 归一为 `valid`，`status=2` 归一为 `cancelled`。 |
-| coupon_status | `pending`、`refunding`、`refunded`、`fulfilled`、`unknown` | computed | 由订单券状态 `100/300/301/401` 等归一化。 |
-| invoice_status | `not_received`、`received`、`approved`、`rejected` | manual | 财务维护。 |
-| refund_status | `none`、`refunding`、`refunded`、`failed`、`cancelled`、`unknown` | computed | 抖音退款状态归一化；`50` 归一为 `refunded`。 |
+| verify_status | `valid`、`cancelled`、`unknown` | computed | 抖音核销状态归一化。 |
+| coupon_status | `pending`、`refunding`、`refunded`、`fulfilled`、`unknown` | computed | 订单券状态归一化；v1 不展示。 |
 | relation_type | `same_store`、`cross_store`、`unverified`、`unknown` | computed | 由销售门店和核销门店比较得到。 |
-| product_type | `all` 或商品类型名称 | manual/computed | `all` 只用于查询和汇总，不进入明细真实商品类型。 |
+| product_type | `all` 或商品类型名称 | manual/computed | `all` 只用于查询和汇总。 |
+| job_status | `running`、`success`、`failed` | computed | 任务状态。 |
 
-## 八、仍需确认的风险
+## 十、Deferred / Risk
 
-- 退款接口不是第一阶段必选项。订单接口已能通过订单状态和券状态判断退款/退款中/已退款；如业务产品不展示售后单号、退款原因、退款审核过程和退款完成时间等售后明细，可先不拉取退款接口，避免引入订单级退款无法稳定落到券级的风险。
-- 如果后续接入退款接口，退款只能稳定关联到订单，不能稳定关联到券；一单多券且部分退款时，需要补充券粒度退款匹配规则。
-- 订单归属人 UID 与职人绑定 UID 的直接匹配覆盖有限；当前诊断中 UID 与昵称同时匹配的记录门店结果一致，但大量订单两种方式均未匹配，需要输出未匹配清单并由业务补齐映射。
-- 核销接口不返回订单 ID，必须保留订单券展开表，否则无法可靠回溯订单。
-- 核销 POI 与内部店的映射需要支持一店多 POI，不能把 `poi_id` 直接当作内部 `store_id`。
-- 到票数据和分佣规则仍需财务或运营侧维护，未接入前无法确认“当期应收分佣”的最终财务口径。
+- `raw_douyin_refunds`、`refund_id`、`refund_status`、`refund_amount_cent` 是 v2 售后明细候选，不进入 v1 页面和 API。v1 只用订单/券状态做内部排除。
+- `finance_invoice_status`、`invoice_status`、`invoice_received_at`、`invoice_approved_at`、`invoiced_coupon_count`、`pending_invoice_commission_cent`、`current_receivable_commission_cent` 是 v2 财务确认候选，不进入 v1 页面和 API。
+- 若后续接入退款接口，退款只能稳定关联到订单，不能稳定关联到券；一单多券且部分退款时，需要新增券粒度归因规则。
+- 核销 POI 与内部店的映射需支持一店多 POI，不能把 `poi_id` 直接当作内部 `store_id`。
+- 订单归属 UID 与昵称双重匹配结果不一致时，必须进入异常表并人工确认。

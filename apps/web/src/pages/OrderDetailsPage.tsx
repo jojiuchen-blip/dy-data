@@ -1,22 +1,31 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  DEFAULT_DETAIL_PAGE_SIZE,
+  fetchFilterMeta,
+  fetchOrderDetails,
+} from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
-import { orderDetails } from "../data/mockData";
-import type { DetailFilters, OrderDetail } from "../types/dashboard";
 import {
-  formatCurrency,
-  invoiceStatusLabels,
-  labelForBoolean,
-  refundStatusLabels,
-} from "../utils/format";
+  ResourceNotice,
+  ResourcePanel,
+  resourceSourceLabel,
+} from "../components/ResourceState";
+import { useApiResource } from "../hooks/useApiResource";
+import type {
+  DetailFilters,
+  FilterMetaData,
+  OrderDetail,
+  Pagination,
+} from "../types/dashboard";
+import { formatCurrency, labelForBoolean } from "../utils/format";
 import {
-  detailFiltersFromSearch,
-  filterOrderDetails,
-  getMonthOptions,
-  getProductOptions,
-  getStoreName,
-  getStoreOptions,
-} from "../utils/settlement";
+  productOptions,
+  saleMonthOptions,
+  storeOptions,
+  verifyMonthOptions,
+} from "../utils/options";
+import { detailFiltersFromSearch } from "../utils/settlement";
 
 interface OrderDetailsPageProps {
   searchParams: URLSearchParams;
@@ -28,24 +37,6 @@ const booleanOptions = [
   { value: "false", label: "否" },
 ];
 
-const invoiceOptions = [
-  { value: "", label: "全部" },
-  { value: "not_received", label: invoiceStatusLabels.not_received },
-  { value: "received", label: invoiceStatusLabels.received },
-  { value: "approved", label: invoiceStatusLabels.approved },
-  { value: "rejected", label: invoiceStatusLabels.rejected },
-];
-
-const refundOptions = [
-  { value: "", label: "全部" },
-  { value: "none", label: refundStatusLabels.none },
-  { value: "refunding", label: refundStatusLabels.refunding },
-  { value: "refunded", label: refundStatusLabels.refunded },
-  { value: "failed", label: refundStatusLabels.failed },
-  { value: "cancelled", label: refundStatusLabels.cancelled },
-  { value: "unknown", label: refundStatusLabels.unknown },
-];
-
 const relationOptions = [
   { value: "", label: "全部" },
   { value: "same_store", label: "同店销售核销" },
@@ -54,38 +45,51 @@ const relationOptions = [
   { value: "unknown", label: "关系待确认" },
 ];
 
-function statusLabel(map: Record<string, string>, value: string) {
-  return map[value] ?? value;
-}
+const pageSizeOptions = [25, 50, 100, 200, 500];
 
 function relationLabel(value: OrderDetail["relation_type"] | string): string {
   const option = relationOptions.find((item) => item.value === value);
   return option?.label ?? value;
 }
 
-function activeChips(filters: DetailFilters): string[] {
+function storeName(meta: FilterMetaData | undefined, storeId: string): string {
+  return (
+    meta?.stores.find((store) => store.store_id === storeId)?.store_name ??
+    storeId
+  );
+}
+
+function activeChips(
+  filters: DetailFilters,
+  meta: FilterMetaData | undefined,
+): string[] {
   const chips: string[] = [];
-  if (filters.month) chips.push(`跳转月份 ${filters.month}`);
-  if (filters.product_type && filters.product_type !== "all")
+  if (filters.product_type && filters.product_type !== "all") {
     chips.push(`产品 ${filters.product_type}`);
-  if (filters.sale_store_id)
-    chips.push(`销售归属门店 ${getStoreName(filters.sale_store_id)}`);
-  if (filters.exclude_sale_store_id)
-    chips.push(`排除销售归属门店 ${getStoreName(filters.exclude_sale_store_id)}`);
+  }
+  if (filters.sale_store_id) {
+    chips.push(`销售归属门店 ${storeName(meta, filters.sale_store_id)}`);
+  }
+  if (filters.exclude_sale_store_id) {
+    chips.push(`排除销售归属门店 ${storeName(meta, filters.exclude_sale_store_id)}`);
+  }
   if (filters.sale_month) chips.push(`销售月份 ${filters.sale_month}`);
-  if (filters.is_verified) chips.push(`是否核销 ${filters.is_verified === "true" ? "是" : "否"}`);
-  if (filters.verify_store_id)
-    chips.push(`实际核销门店 ${getStoreName(filters.verify_store_id)}`);
-  if (filters.exclude_verify_store_id)
-    chips.push(`排除实际核销门店 ${getStoreName(filters.exclude_verify_store_id)}`);
+  if (filters.is_verified) {
+    chips.push(`是否核销 ${filters.is_verified === "true" ? "是" : "否"}`);
+  }
+  if (filters.verify_store_id) {
+    chips.push(`实际核销门店 ${storeName(meta, filters.verify_store_id)}`);
+  }
+  if (filters.exclude_verify_store_id) {
+    chips.push(`排除实际核销门店 ${storeName(meta, filters.exclude_verify_store_id)}`);
+  }
   if (filters.verify_month) chips.push(`核销月份 ${filters.verify_month}`);
-  if (filters.relation_type) chips.push(`销售核销关系 ${relationLabel(filters.relation_type)}`);
-  if (filters.is_commissionable)
+  if (filters.relation_type) {
+    chips.push(`销售核销关系 ${relationLabel(filters.relation_type)}`);
+  }
+  if (filters.is_commissionable) {
     chips.push(`是否分佣 ${filters.is_commissionable === "true" ? "是" : "否"}`);
-  if (filters.invoice_status)
-    chips.push(`到票状态 ${statusLabel(invoiceStatusLabels, filters.invoice_status)}`);
-  if (filters.refund_status)
-    chips.push(`退款状态 ${statusLabel(refundStatusLabels, filters.refund_status)}`);
+  }
   if (filters.q) chips.push(`搜索 ${filters.q}`);
   return chips;
 }
@@ -97,11 +101,87 @@ function advancedFilterCount(filters: DetailFilters): number {
     filters.verify_store_id,
     filters.exclude_verify_store_id,
     filters.is_commissionable,
-    filters.invoice_status,
-    filters.refund_status,
   ];
 
   return advancedValues.filter(Boolean).length;
+}
+
+function positiveInteger(value: string | null, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function selectedStoreOption(
+  meta: FilterMetaData | undefined,
+  storeId: string | undefined,
+) {
+  if (!storeId) {
+    return undefined;
+  }
+  return {
+    store_id: storeId,
+    store_name: storeName(meta, storeId),
+  };
+}
+
+function PaginationControls({
+  loading,
+  onPageChange,
+  onPageSizeChange,
+  pageSize,
+  pagination,
+}: {
+  loading: boolean;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
+  pageSize: number;
+  pagination: Pagination | undefined;
+}) {
+  if (!pagination) {
+    return null;
+  }
+
+  const totalPages = Math.max(1, pagination.total_pages);
+  const currentPage = Math.min(Math.max(1, pagination.page), totalPages);
+
+  return (
+    <div className="pagination-controls">
+      <div className="pagination-controls__summary">
+        第 {currentPage} / {totalPages} 页，共 {pagination.total} 条
+      </div>
+      <div className="pagination-controls__actions">
+        <button
+          className="ghost-button"
+          disabled={loading || currentPage <= 1}
+          onClick={() => onPageChange(currentPage - 1)}
+          type="button"
+        >
+          上一页
+        </button>
+        <button
+          className="ghost-button"
+          disabled={loading || currentPage >= totalPages}
+          onClick={() => onPageChange(currentPage + 1)}
+          type="button"
+        >
+          下一页
+        </button>
+        <label className="pagination-controls__size">
+          <span>每页</span>
+          <select
+            value={pageSize}
+            onChange={(event) => onPageSizeChange(Number(event.target.value))}
+          >
+            {pageSizeOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    </div>
+  );
 }
 
 export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
@@ -109,21 +189,51 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const [filters, setFilters] = useState<DetailFilters>(() =>
     detailFiltersFromSearch(searchParams),
   );
+  const [page, setPage] = useState(() =>
+    positiveInteger(searchParams.get("page"), 1),
+  );
+  const [pageSize, setPageSize] = useState(() =>
+    positiveInteger(searchParams.get("page_size"), DEFAULT_DETAIL_PAGE_SIZE),
+  );
 
   useEffect(() => {
-    setFilters(detailFiltersFromSearch(new URLSearchParams(searchKey)));
+    const nextSearchParams = new URLSearchParams(searchKey);
+    setFilters(detailFiltersFromSearch(nextSearchParams));
+    setPage(positiveInteger(nextSearchParams.get("page"), 1));
+    setPageSize(
+      positiveInteger(nextSearchParams.get("page_size"), DEFAULT_DETAIL_PAGE_SIZE),
+    );
   }, [searchKey]);
 
-  const filteredRows = useMemo(
-    () => filterOrderDetails(orderDetails, filters),
-    [filters],
+  const metaResource = useApiResource(fetchFilterMeta, []);
+  const detailsResource = useApiResource(
+    () => fetchOrderDetails({ filters, page, pageSize }),
+    [filters, page, pageSize],
   );
+
+  const meta = metaResource.data?.data;
+  const details = detailsResource.data?.data;
+  const rows = details?.rows ?? [];
+  const pagination = details?.pagination;
+  const chips = useMemo(() => activeChips(filters, meta), [filters, meta]);
+
+  useEffect(() => {
+    if (pagination && pagination.page !== page) {
+      setPage(pagination.page);
+    }
+  }, [page, pagination]);
 
   const updateFilter = (key: keyof DetailFilters, value: string) => {
     setFilters((current) => ({
       ...current,
       [key]: value || undefined,
     }));
+    setPage(1);
+  };
+
+  const clearFilters = () => {
+    setFilters({});
+    setPage(1);
   };
 
   const advancedCount = advancedFilterCount(filters);
@@ -206,22 +316,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       ),
     },
     {
-      key: "invoice",
-      title: "到票状态",
-      render: (row) => statusLabel(invoiceStatusLabels, row.invoice_status),
-    },
-    {
-      key: "refund",
-      title: "退款状态",
-      render: (row) => statusLabel(refundStatusLabels, row.refund_status),
-    },
-    {
-      key: "refundAmount",
-      title: "退款金额",
-      align: "right",
-      render: (row) => formatCurrency(row.refund_amount_cent),
-    },
-    {
       key: "paid",
       title: "订单实收金额",
       align: "right",
@@ -256,8 +350,18 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           <p className="eyebrow">页面 3</p>
           <h1>门店月度数据明细表</h1>
         </div>
-        <span className="source-pill">page3_order_detail.csv</span>
+        <span className="source-pill">
+          {resourceSourceLabel(detailsResource.data, detailsResource.loading)}
+        </span>
       </section>
+
+      <ResourceNotice
+        fallbackReason={
+          detailsResource.data?.fallbackReason ?? metaResource.data?.fallbackReason
+        }
+        loading={detailsResource.loading || metaResource.loading}
+        error={detailsResource.error ?? metaResource.error}
+      />
 
       <div className="detail-filter-stack">
         <FilterBar className="detail-filter-bar">
@@ -269,11 +373,13 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               }
             >
               <option value="">全部</option>
-              {getStoreOptions().map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
+              {storeOptions(meta, selectedStoreOption(meta, filters.sale_store_id)).map(
+                (option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ),
+              )}
             </select>
           </FilterField>
           <FilterField label="核销月份">
@@ -284,7 +390,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               }
             >
               <option value="">全部</option>
-              {getMonthOptions().map((option) => (
+              {verifyMonthOptions(meta, filters.verify_month).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -298,7 +404,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
                 updateFilter("product_type", event.target.value)
               }
             >
-              {getProductOptions().map((option) => (
+              {productOptions(meta, filters.product_type ?? "all").map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -326,11 +432,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               onChange={(event) => updateFilter("q", event.target.value)}
             />
           </FilterField>
-          <button
-            className="ghost-button"
-            onClick={() => setFilters({})}
-            type="button"
-          >
+          <button className="ghost-button" onClick={clearFilters} type="button">
             清空筛选
           </button>
         </FilterBar>
@@ -351,7 +453,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
                 onChange={(event) => updateFilter("sale_month", event.target.value)}
               >
                 <option value="">全部</option>
-                {getMonthOptions().map((option) => (
+                {saleMonthOptions(meta, filters.sale_month).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -378,7 +480,10 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
                 }
               >
                 <option value="">全部</option>
-                {getStoreOptions().map((option) => (
+                {storeOptions(
+                  meta,
+                  selectedStoreOption(meta, filters.verify_store_id),
+                ).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -399,41 +504,13 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
                 ))}
               </select>
             </FilterField>
-            <FilterField label="到票状态">
-              <select
-                value={filters.invoice_status ?? ""}
-                onChange={(event) =>
-                  updateFilter("invoice_status", event.target.value)
-                }
-              >
-                {invoiceOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-            <FilterField label="退款状态">
-              <select
-                value={filters.refund_status ?? ""}
-                onChange={(event) =>
-                  updateFilter("refund_status", event.target.value)
-                }
-              >
-                {refundOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
           </FilterBar>
         </details>
       </div>
 
-      {activeChips(filters).length > 0 ? (
+      {chips.length > 0 ? (
         <div className="active-filters" aria-label="当前筛选">
-          {activeChips(filters).map((chip) => (
+          {chips.map((chip) => (
             <span key={chip}>{chip}</span>
           ))}
         </div>
@@ -443,14 +520,37 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         <div className="section-title">
           <div>
             <h2>明细记录</h2>
-            <p>{filteredRows.length} / {orderDetails.length} 条</p>
+            <p>
+              {pagination
+                ? `${pagination.total} 条，当前页 ${rows.length} 条`
+                : "正在读取记录"}
+            </p>
           </div>
         </div>
-        <DataTable
-          columns={columns}
-          rows={filteredRows}
-          tableClassName="data-table--details"
-        />
+
+        {!details && detailsResource.loading ? (
+          <ResourcePanel>正在加载明细数据...</ResourcePanel>
+        ) : !details ? (
+          <ResourcePanel tone="error">明细数据暂不可用。</ResourcePanel>
+        ) : (
+          <>
+            <DataTable
+              columns={columns}
+              rows={rows}
+              tableClassName="data-table--details"
+            />
+            <PaginationControls
+              loading={detailsResource.loading}
+              onPageChange={setPage}
+              onPageSizeChange={(nextPageSize) => {
+                setPageSize(nextPageSize);
+                setPage(1);
+              }}
+              pageSize={pageSize}
+              pagination={pagination}
+            />
+          </>
+        )}
       </section>
     </div>
   );

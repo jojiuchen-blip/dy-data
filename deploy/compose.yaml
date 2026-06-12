@@ -1,0 +1,143 @@
+name: ${COMPOSE_PROJECT_NAME:-dy-dashboard}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-dy_dashboard}
+      POSTGRES_USER: ${POSTGRES_USER:-dy_dashboard}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_POSTGRES_PASSWORD}
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - app
+
+  api:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: ${API_IMAGE:-dy-dashboard-api:local}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      DY_ADMIN_USERNAME: ${DY_ADMIN_USERNAME:-CHANGE_ME_ADMIN_USERNAME}
+      DY_ADMIN_PASSWORD_HASH: ${DY_ADMIN_PASSWORD_HASH:-CHANGE_ME_ADMIN_PASSWORD_HASH}
+      DY_SESSION_SECRET: ${DY_SESSION_SECRET:-CHANGE_ME_SESSION_SECRET}
+      TZ: Asia/Shanghai
+    expose:
+      - "8000"
+    networks:
+      - app
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: ${API_IMAGE:-dy-dashboard-api:local}
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      TZ: Asia/Shanghai
+    networks:
+      - app
+
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    image: ${WORKER_IMAGE:-dy-dashboard-worker:local}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      browser:
+        condition: service_started
+    command: ["sh", "-c", "${WORKER_COMMAND:-python -m apps.worker.scheduler}"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
+      DOUYIN_APP_ID: ${DOUYIN_APP_ID:-CHANGE_ME_DOUYIN_APP_ID}
+      DOUYIN_APP_SECRET: ${DOUYIN_APP_SECRET:-CHANGE_ME_DOUYIN_APP_SECRET}
+      DOUYIN_ACCOUNT_ID: ${DOUYIN_ACCOUNT_ID:-CHANGE_ME_DOUYIN_ACCOUNT_ID}
+      BROWSER_CDP_URL: ${BROWSER_CDP_URL:-http://browser:9222}
+      BROWSER_EXPORT_DOWNLOAD_DIR: ${BROWSER_EXPORT_DOWNLOAD_DIR:-/home/browser/Downloads/job-runs}
+      BROWSER_EXPORT_ARTIFACT_DIR: ${BROWSER_EXPORT_ARTIFACT_DIR:-/data/browser-exports}
+      TZ: Asia/Shanghai
+    volumes:
+      - browser-downloads:/home/browser/Downloads
+      - exports-data:/data
+    networks:
+      - app
+
+  web:
+    build:
+      context: ../apps/web
+      dockerfile: Dockerfile
+    image: ${WEB_IMAGE:-dy-dashboard-web:local}
+    restart: unless-stopped
+    expose:
+      - "80"
+    networks:
+      - app
+
+  browser:
+    build:
+      context: ./browser
+      dockerfile: Dockerfile
+    image: ${BROWSER_IMAGE:-dy-dashboard-browser:local}
+    restart: unless-stopped
+    shm_size: "2gb"
+    environment:
+      VNC_PASSWORD: ${BROWSER_VNC_PASSWORD:-CHANGE_ME_BROWSER_VNC_PASSWORD}
+      CHROMIUM_START_URL: ${CHROMIUM_START_URL:-https://life.douyin.com/}
+      SCREEN_WIDTH: ${BROWSER_SCREEN_WIDTH:-1440}
+      SCREEN_HEIGHT: ${BROWSER_SCREEN_HEIGHT:-1000}
+      TZ: Asia/Shanghai
+    volumes:
+      - browser-profile:/home/browser/.config/chromium
+      - browser-downloads:/home/browser/Downloads
+    expose:
+      - "6080"
+      - "9222"
+    networks:
+      - app
+
+  proxy:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+      web:
+        condition: service_started
+      browser:
+        condition: service_started
+    ports:
+      - "${HTTP_BIND:-127.0.0.1}:${HTTP_PORT:-8080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  browser-profile:
+  browser-downloads:
+  exports-data:
