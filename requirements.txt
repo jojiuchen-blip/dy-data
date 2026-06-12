@@ -1,5 +1,6 @@
 requests>=2.31
 openpyxl>=3.1
+playwright>=1.45
 SQLAlchemy>=2.0
 alembic>=1.13
 psycopg[binary]>=3.1
