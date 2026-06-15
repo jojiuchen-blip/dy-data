@@ -60,6 +60,8 @@ Required `worker` variables:
 
 Set `WORKER_SKIP_BROWSER_EXPORT=true` until the browser-backed backend export service is available in Railway. Open API collection still runs with this flag enabled.
 
+For one-time historical backfills, temporarily set `WORKER_MODE=backfill`, `WORKER_RUN_ONCE=true`, `DOUYIN_COLLECT_START`, `DOUYIN_COLLECT_END`, and `WORKER_BACKFILL_CHUNK_DAYS`. Backfill mode commits each chunk independently, then the service should be restored to `WORKER_MODE=collect_and_settle` for daily incremental collection.
+
 The existing production web URL is:
 
 ```text

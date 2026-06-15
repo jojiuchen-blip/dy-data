@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from collections.abc import Mapping
 
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.worker.backfill import run_backfill
 from apps.worker.pipeline import run_collect_and_settle
 from apps.worker.settlement import run_settlement_job
 
@@ -32,8 +33,8 @@ def _job_id(prefix: str = "settlement") -> str:
 def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
     source = os.environ if env is None else env
     value = source.get("WORKER_MODE", "collect_and_settle").strip().lower()
-    if value not in {"collect_and_settle", "settlement_only"}:
-        raise ValueError("WORKER_MODE must be collect_and_settle or settlement_only.")
+    if value not in {"collect_and_settle", "settlement_only", "backfill"}:
+        raise ValueError("WORKER_MODE must be collect_and_settle, settlement_only, or backfill.")
     return value
 
 
@@ -43,6 +44,9 @@ def run_once() -> None:
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
+    if mode == "backfill":
+        run_backfill(factory=factory)
+        return
     with session_scope(factory) as session:
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
