@@ -233,13 +233,13 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             key: "month_filter",
             label: "时间筛选口径",
             description:
-              "页面按所选月份展示榜单；销售订单数按销售月份归属，核销与收入类指标按核销月份归属。",
+              "选择的月份会用于本页所有数字：销售订单数量看订单的销售时间；核销、收入和分佣相关数字看券的核销时间。",
           },
           {
             key: "product_filter",
             label: "产品筛选口径",
             description:
-              "product_type=all 表示全部产品，具体服务产品按商品类型字段筛选。",
+              "选择“全部产品”时包含所有商品类型；选择具体产品时，只统计该商品类型的订单和核销。",
           },
         ]}
         title="本页计算口径"

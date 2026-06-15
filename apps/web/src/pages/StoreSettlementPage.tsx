@@ -328,31 +328,31 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             key: "receivable_table",
             label: "预计应收分佣表",
             description:
-              "本店销售、其他门店核销的已核销订单，按商品类型汇总订单实收、分佣比例、可分佣金额和预计应收分佣。",
+              "这里列出本店卖出、其他门店核销的订单。系统按商品类型汇总这些订单的实收金额，并按分佣规则测算本店预计可以收到的分佣。",
           },
           {
             key: "payable_table",
             label: "应付分佣表",
             description:
-              "其他门店销售、本店核销的已核销订单，按商品类型汇总订单实收、分佣比例和本店预计分出分佣参考额。",
+              "这里列出其他门店卖出、本店核销的订单。系统按商品类型汇总这些订单的实收金额，并按分佣规则测算本店预计需要分出的分佣。",
           },
           {
             key: "non_commission_table",
             label: "不参与分佣表",
             description:
-              "销售归属门店和实际核销门店一致的已核销订单，不进入跨店分佣计算。",
+              "这里列出本店卖出、也在本店核销的订单。这类订单没有跨店关系，所以不进入分佣计算。",
           },
           {
             key: "month_filter",
             label: "月份筛选口径",
             description:
-              "可分佣总金额、预计应收分佣和应付分佣均按核销月份归属。",
+              "页面按核销月份统计：只要券是在这个月核销，就计入本月，不按销售月份计算。",
           },
           {
             key: "product_filter",
             label: "产品筛选口径",
             description:
-              "product_type=all 表示全部产品，具体服务产品按商品类型字段筛选。",
+              "选择“全部产品”时包含所有商品类型；选择具体产品时，只统计该商品类型的订单和核销。",
           },
         ]}
         title="本页计算口径"

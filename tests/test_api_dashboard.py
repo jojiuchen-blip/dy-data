@@ -193,9 +193,26 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     ranking_payload = ranking.json()
     assert ranking_payload["data"]["rows"][0]["sales_order_count"] == 3
     assert ranking_payload["data"]["totals"]["sales_order_count"] == 30
+    ranking_definitions = {
+        definition["key"]: definition for definition in ranking_payload["definitions"]
+    }
+    assert ranking_definitions["sales_order_count"]["label"] == "销售订单数量"
+    assert "顶部数字" in ranking_definitions["sales_order_count"]["description"]
+    assert ranking_definitions["self_verify_income_cent"]["label"] == "核销收入"
 
     assert settlement.status_code == 200
     settlement_payload = settlement.json()
+    settlement_definitions = {
+        definition["key"]: definition for definition in settlement_payload["definitions"]
+    }
+    assert (
+        settlement_definitions["estimated_receivable_commission_cent"]["label"]
+        == "预计应收分佣"
+    )
+    assert (
+        "按当前规则测算的参考额"
+        in settlement_definitions["estimated_payable_commission_cent"]["description"]
+    )
     assert (
         settlement_payload["data"]["metrics"][
             "estimated_receivable_commission_cent"

@@ -70,32 +70,32 @@
     {
       "key": "sales_order_count",
       "label": "销售订单数量",
-      "description": "按销售归属门店统计订单数，不要求订单已核销。"
+      "description": "按订单归属的销售门店统计。顶部数字是当前筛选条件下全国门店的订单合计；表格每行是该门店的订单数，订单是否已核销不影响这个数字。"
     },
     {
       "key": "self_sold_self_verified_count",
-      "label": "本店卖出、本店核销数",
-      "description": "销售归属门店和实际核销门店一致的已核销订单数。"
+      "label": "本店卖本店核销",
+      "description": "券由该门店卖出，也在该门店核销。这个数字用来看本店销售后回到本店消费的数量。"
     },
     {
       "key": "self_sold_other_verified_count",
-      "label": "本店卖出、他店核销数",
-      "description": "销售归属门店为本店，实际核销门店为其他门店的已核销订单数。"
+      "label": "本店卖他店核销",
+      "description": "券由该门店卖出，但顾客到其他门店核销。通常这类核销会产生该门店预计可收到的分佣。"
     },
     {
       "key": "other_sold_self_verified_count",
-      "label": "他店销售、在本店核销数",
-      "description": "销售归属门店为其他门店，实际核销门店为本店的已核销订单数。"
+      "label": "他店卖本店核销",
+      "description": "券由其他门店卖出，但顾客到该门店核销。通常这类核销会产生该门店预计需要分出的分佣。"
     },
     {
       "key": "self_verify_income_cent",
       "label": "核销收入",
-      "description": "在本店核销所产生的所有收入，包含本店卖本店核销收入和他店卖本店核销扣除分佣后的收入。"
+      "description": "按实际核销门店统计。顶部数字是当前筛选条件下全国门店的核销收入合计；表格每行是该门店作为核销门店确认的收入。"
     },
     {
       "key": "effective_commission_income_cent",
       "label": "有效分佣收入",
-      "description": "本店销售、他店核销所产生的分佣参考金额。"
+      "description": "销售门店卖出的券在其他门店核销时，销售门店按分佣规则预计可以收到的金额。顶部数字是当前筛选条件下全国门店合计；表格每行是该门店预计可收到的金额。"
     }
   ],
   "meta": {

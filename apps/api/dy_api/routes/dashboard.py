@@ -20,31 +20,51 @@ router = APIRouter()
 STORE_RANKING_DEFINITIONS = [
     {
         "key": "sales_order_count",
-        "label": "Sales orders",
-        "description": "Distinct order count by sale ownership store.",
+        "label": "销售订单数量",
+        "description": "按订单归属的销售门店统计。顶部数字是当前筛选条件下全国门店的订单合计；表格每行是该门店的订单数，订单是否已核销不影响这个数字。",
+    },
+    {
+        "key": "self_sold_self_verified_count",
+        "label": "本店卖本店核销",
+        "description": "券由该门店卖出，也在该门店核销。这个数字用来看本店销售后回到本店消费的数量。",
+    },
+    {
+        "key": "self_sold_other_verified_count",
+        "label": "本店卖他店核销",
+        "description": "券由该门店卖出，但顾客到其他门店核销。通常这类核销会产生该门店预计可收到的分佣。",
+    },
+    {
+        "key": "other_sold_self_verified_count",
+        "label": "他店卖本店核销",
+        "description": "券由其他门店卖出，但顾客到该门店核销。通常这类核销会产生该门店预计需要分出的分佣。",
+    },
+    {
+        "key": "self_verify_income_cent",
+        "label": "核销收入",
+        "description": "按实际核销门店统计。顶部数字是当前筛选条件下全国门店的核销收入合计；表格每行是该门店作为核销门店确认的收入。",
     },
     {
         "key": "effective_commission_income_cent",
-        "label": "Estimated receivable commission",
-        "description": "Estimated commission for this store's sales verified by other stores.",
+        "label": "有效分佣收入",
+        "description": "销售门店卖出的券在其他门店核销时，销售门店按分佣规则预计可以收到的金额。顶部数字是当前筛选条件下全国门店合计；表格每行是该门店预计可收到的金额。",
     },
 ]
 
 MONTHLY_SETTLEMENT_DEFINITIONS = [
     {
         "key": "estimated_receivable_commission_cent",
-        "label": "Estimated receivable commission",
-        "description": "Estimated commission from this store's sales verified by other stores.",
+        "label": "预计应收分佣",
+        "description": "本店卖出的券在其他门店核销时，本店按分佣规则预计可以收到的金额。这是按当前规则测算的参考额。",
     },
     {
         "key": "commissionable_total_cent",
-        "label": "Commissionable total",
-        "description": "Eligible paid amount for cross-store commission in the verify month.",
+        "label": "可分佣总金额",
+        "description": "本店卖出、其他门店核销，并且符合分佣规则的订单实收金额合计。这个金额是计算预计应收分佣的基础。",
     },
     {
         "key": "estimated_payable_commission_cent",
-        "label": "Estimated payable commission",
-        "description": "Estimated commission payable for other stores' sales verified here.",
+        "label": "本店预计分出分佣参考额",
+        "description": "其他门店卖出的券在本店核销时，本店按分佣规则预计需要分给销售门店的金额。这是按当前规则测算的参考额。",
     },
 ]
 
