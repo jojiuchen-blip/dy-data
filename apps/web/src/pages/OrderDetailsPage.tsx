@@ -11,6 +11,7 @@ import {
   ResourcePanel,
   resourceSourceLabel,
 } from "../components/ResourceState";
+import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   DetailFilters,
@@ -390,21 +391,12 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       <div className="detail-filter-stack">
         <FilterBar className="detail-filter-bar">
           <FilterField label="销售归属门店">
-            <select
+            <SearchableStoreSelect
+              allowEmpty
+              options={storeOptions(meta, selectedStoreOption(meta, filters.sale_store_id))}
               value={filters.sale_store_id ?? ""}
-              onChange={(event) =>
-                updateFilter("sale_store_id", event.target.value)
-              }
-            >
-              <option value="">全部</option>
-              {storeOptions(meta, selectedStoreOption(meta, filters.sale_store_id)).map(
-                (option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ),
-              )}
-            </select>
+              onChange={(value) => updateFilter("sale_store_id", value)}
+            />
           </FilterField>
           <FilterField label="核销月份">
             <select
@@ -483,22 +475,15 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               </select>
             </FilterField>
             <FilterField label="实际核销门店">
-              <select
-                value={filters.verify_store_id ?? ""}
-                onChange={(event) =>
-                  updateFilter("verify_store_id", event.target.value)
-                }
-              >
-                <option value="">全部</option>
-                {storeOptions(
+              <SearchableStoreSelect
+                allowEmpty
+                options={storeOptions(
                   meta,
                   selectedStoreOption(meta, filters.verify_store_id),
-                ).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
+                )}
+                value={filters.verify_store_id ?? ""}
+                onChange={(value) => updateFilter("verify_store_id", value)}
+              />
             </FilterField>
             <FilterField label="是否分佣">
               <select

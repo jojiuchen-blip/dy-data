@@ -14,6 +14,7 @@ import {
   ResourcePanel,
   resourceSourceLabel,
 } from "../components/ResourceState";
+import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { TooltipLabel } from "../components/TooltipLabel";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -194,13 +195,11 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
           </select>
         </FilterField>
         <FilterField label="门店">
-          <select value={activeStoreId} onChange={(event) => setStoreId(event.target.value)}>
-            {storeOptions(meta, selectedStore).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+          <SearchableStoreSelect
+            options={storeOptions(meta, selectedStore)}
+            value={activeStoreId}
+            onChange={setStoreId}
+          />
         </FilterField>
         <FilterField label="产品范围">
           <select
