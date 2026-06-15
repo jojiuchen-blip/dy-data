@@ -239,12 +239,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const chips = useMemo(() => activeChips(filters, meta), [filters, meta]);
 
   useEffect(() => {
-    if (pagination && pagination.page !== page) {
-      setPage(pagination.page);
-    }
-  }, [page, pagination]);
-
-  useEffect(() => {
     replaceDetailsUrl(filters, page, pageSize);
   }, [filters, page, pageSize]);
 
