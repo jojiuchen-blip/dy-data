@@ -21,6 +21,8 @@ HEADER_ALIASES: dict[str, tuple[str, ...]] = {
 def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
     workbook = load_workbook(path, read_only=True, data_only=True)
     sheet = workbook.active
+    if sheet.max_row == 1 and sheet.max_column == 1 and hasattr(sheet, "reset_dimensions"):
+        sheet.reset_dimensions()
     rows = list(sheet.iter_rows(values_only=True))
     if not rows:
         return []
@@ -59,4 +61,3 @@ def _alias_value(raw_payload: dict[str, str], field: str) -> str | None:
 
 def _cell_text(value: Any) -> str:
     return text(value) or ""
-

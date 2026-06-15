@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import zipfile
 
 import pytest
 from openpyxl import Workbook
@@ -10,9 +11,12 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import DimAwemeAccount, RawAwemeBinding
 from apps.worker.browser_exports.backend_aweme import (
     BrowserExportError,
+    extract_completed_download_info,
     is_login_required,
+    normalize_download_file_url,
     normalize_cdp_websocket_url,
     run_backend_aweme_export,
+    workbook_filename,
 )
 
 
@@ -22,6 +26,17 @@ def write_workbook(path: Path) -> None:
     sheet.append(["抖音昵称", "抖音id", "所属账户id", "所属账户名称", "所属账户关联poi_id", "抖音号绑定状态"])
     sheet.append(["Owner One", "dy-1", "owner-1", "Store One Account", "poi-1", "认证成功"])
     workbook.save(path)
+
+
+def force_workbook_dimension_a1(path: Path) -> None:
+    temp_path = path.with_suffix(".tmp.xlsx")
+    with zipfile.ZipFile(path, "r") as source, zipfile.ZipFile(temp_path, "w") as target:
+        for item in source.infolist():
+            content = source.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                content = content.replace(b'<dimension ref="A1:F2"/>', b'<dimension ref="A1"/>')
+            target.writestr(item, content)
+    temp_path.replace(path)
 
 
 def count(session: Session, model: type) -> int:
@@ -52,6 +67,31 @@ def test_backend_aweme_export_rewrites_loopback_cdp_websocket_url():
     )
 
 
+def test_backend_aweme_export_extracts_completed_download_file_url():
+    payload = {
+        "data": {
+            "download_infos": [
+                {"download_id": "one", "status": 1},
+                {
+                    "download_id": "two",
+                    "status": 2,
+                    "file_name": "backend_aweme.xlsx",
+                    "file_url": "sf26-sign.douyinstatic.com/download_record/backend_aweme.xlsx",
+                },
+            ]
+        }
+    }
+
+    assert extract_completed_download_info(payload) == {
+        "file_name": "backend_aweme.xlsx",
+        "file_url": "sf26-sign.douyinstatic.com/download_record/backend_aweme.xlsx",
+    }
+    assert normalize_download_file_url("sf26-sign.douyinstatic.com/download_record/backend_aweme.xlsx").startswith(
+        "https://"
+    )
+    assert workbook_filename("", "https://example.test/files/backend_aweme.xlsx?token=redacted") == "backend_aweme.xlsx"
+
+
 def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, tmp_path: Path):
     workbook_path = tmp_path / "backend_aweme.xlsx"
     write_workbook(workbook_path)
@@ -71,3 +111,14 @@ def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, 
     account = db_session.get(DimAwemeAccount, "owner-1")
     assert account is not None
     assert account.nickname == "Owner One"
+
+
+def test_backend_aweme_export_reads_workbook_with_incorrect_dimension(db_session: Session, tmp_path: Path):
+    workbook_path = tmp_path / "backend_aweme_bad_dimension.xlsx"
+    write_workbook(workbook_path)
+    force_workbook_dimension_a1(workbook_path)
+
+    stats = run_backend_aweme_export(db_session, source_run_id="browser-run", workbook_path=workbook_path)
+
+    assert stats.fetched == 1
+    assert stats.upserted == 2

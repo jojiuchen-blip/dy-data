@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import time
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -18,6 +19,8 @@ from apps.worker.repositories import upsert_aweme_account, upsert_aweme_binding
 
 
 DEFAULT_EXPORT_URL = "https://life.douyin.com/"
+DEFAULT_EXPORT_SELECTOR = "div.lifep-container-header button.byted-btn"
+WORKBOOK_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 
 
 class BrowserExportError(RuntimeError):
@@ -102,7 +105,7 @@ def export_workbook_via_browser(
     target_dir = Path(run_dir or os.getenv("BROWSER_EXPORT_RUN_DIR", ".")).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_url = export_url or os.getenv("BACKEND_AWEME_EXPORT_URL", DEFAULT_EXPORT_URL)
-    export_selector = os.getenv("BACKEND_AWEME_EXPORT_SELECTOR", "")
+    export_selector = os.getenv("BACKEND_AWEME_EXPORT_SELECTOR", DEFAULT_EXPORT_SELECTOR)
     export_text = os.getenv("BACKEND_AWEME_EXPORT_TEXT", "导出")
     timeout_ms = int(os.getenv("BACKEND_AWEME_EXPORT_TIMEOUT_MS", "120000"))
 
@@ -111,22 +114,143 @@ def export_workbook_via_browser(
             browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
             context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
             page = context.pages[0] if context.pages else context.new_page()
+            completed_download: dict[str, str] = {}
+
+            def capture_completed_download(response: Any) -> None:
+                if "/life/gate/v3/download/mget" not in response.url:
+                    return
+                try:
+                    payload = response.json()
+                except Exception:
+                    return
+                info = extract_completed_download_info(payload)
+                if info:
+                    completed_download.update(info)
+
+            page.on("response", capture_completed_download)
             page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
             page_content = page.content()
             if is_login_required(page.url, page_content):
                 raise BrowserExportError("Douyin backend login required. Log in through the protected noVNC browser first.")
 
-            with page.expect_download(timeout=timeout_ms) as download_info:
-                if export_selector:
-                    page.locator(export_selector).click(timeout=timeout_ms)
-                else:
-                    page.get_by_text(export_text, exact=False).click(timeout=timeout_ms)
-            download = download_info.value
-            target_path = target_dir / (download.suggested_filename or "backend_aweme_export.xlsx")
-            download.save_as(target_path)
-            return target_path
+            download = None
+            try:
+                with page.expect_download(timeout=timeout_ms) as download_info:
+                    click_backend_export(
+                        page,
+                        export_selector=export_selector,
+                        export_text=export_text,
+                        timeout_ms=timeout_ms,
+                    )
+                download = download_info.value
+            except PlaywrightTimeoutError:
+                if not completed_download.get("file_url"):
+                    raise
+            if download is not None:
+                downloaded_path = save_playwright_download_if_workbook(download, target_dir=target_dir)
+                if downloaded_path is not None:
+                    return downloaded_path
+
+            info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
+            return save_workbook_from_file_url(
+                context,
+                file_url=info["file_url"],
+                file_name=info.get("file_name") or "",
+                target_dir=target_dir,
+                timeout_ms=timeout_ms,
+            )
     except PlaywrightTimeoutError as exc:
         raise BrowserExportError("Timed out waiting for backend aweme workbook download.") from exc
+
+
+def click_backend_export(page: Any, *, export_selector: str, export_text: str, timeout_ms: int) -> None:
+    if export_selector:
+        page.locator(export_selector).click(timeout=timeout_ms)
+    else:
+        page.get_by_text(export_text, exact=False).click(timeout=timeout_ms)
+
+
+def save_playwright_download_if_workbook(download: Any, *, target_dir: Path) -> Path | None:
+    suggested_filename = download.suggested_filename or "backend_aweme_export"
+    target_path = target_dir / Path(suggested_filename).name
+    download.save_as(target_path)
+    if target_path.suffix.lower() in WORKBOOK_EXTENSIONS and target_path.stat().st_size > 0:
+        return target_path
+    target_path.unlink(missing_ok=True)
+    return None
+
+
+def wait_for_completed_download(page: Any, completed_download: dict[str, str], *, timeout_ms: int) -> dict[str, str]:
+    deadline = time.monotonic() + (timeout_ms / 1000)
+    while time.monotonic() < deadline:
+        if completed_download.get("file_url"):
+            return completed_download
+        page.wait_for_timeout(500)
+    raise BrowserExportError("Timed out waiting for backend aweme workbook file URL.")
+
+
+def save_workbook_from_file_url(
+    context: Any,
+    *,
+    file_url: str,
+    file_name: str,
+    target_dir: Path,
+    timeout_ms: int,
+) -> Path:
+    resolved_url = normalize_download_file_url(file_url)
+    response = context.request.get(resolved_url, timeout=timeout_ms)
+    if not response.ok:
+        raise BrowserExportError(f"Backend aweme workbook download failed with HTTP {response.status}.")
+    body = response.body()
+    if not body:
+        raise BrowserExportError("Backend aweme workbook download returned an empty file.")
+
+    target_path = target_dir / workbook_filename(file_name, resolved_url)
+    target_path.write_bytes(body)
+    return target_path
+
+
+def extract_completed_download_info(payload: dict[str, Any]) -> dict[str, str] | None:
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return None
+    infos = data.get("download_infos")
+    if not isinstance(infos, list):
+        return None
+
+    for raw_info in infos:
+        if not isinstance(raw_info, dict):
+            continue
+        file_url = raw_info.get("file_url")
+        if not file_url:
+            continue
+        status = raw_info.get("status")
+        if status not in {2, "2"}:
+            continue
+        return {
+            "file_url": str(file_url),
+            "file_name": str(raw_info.get("file_name") or ""),
+        }
+    return None
+
+
+def normalize_download_file_url(file_url: str) -> str:
+    stripped = file_url.strip()
+    if stripped.startswith("//"):
+        return f"https:{stripped}"
+    if not urlparse(stripped).scheme:
+        return f"https://{stripped.lstrip('/')}"
+    return stripped
+
+
+def workbook_filename(file_name: str, file_url: str) -> str:
+    parsed_name = Path(file_name).name if file_name else ""
+    if parsed_name:
+        return parsed_name
+    url_name = Path(urlparse(file_url).path).name
+    if url_name:
+        return url_name
+    return "backend_aweme_export.xlsx"
 
 
 def resolve_playwright_cdp_url(cdp_url: str) -> str:
