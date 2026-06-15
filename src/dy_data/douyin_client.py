@@ -12,6 +12,7 @@ import requests
 TOKEN_URL = "https://open.douyin.com/oauth/client_token/"
 ORDER_QUERY_URL = "https://open.douyin.com/goodlife/v1/trade/order/query/"
 VERIFY_RECORD_QUERY_URL = "https://open.douyin.com/goodlife/v1/fulfilment/certificate/verify_record/query/"
+CERTIFICATE_QUERY_URL = "https://open.douyin.com/goodlife/v1/fulfilment/certificate/query/"
 REFUND_QUERY_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/query/"
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
@@ -117,12 +118,19 @@ class DouyinOpenApiClient:
             "account_id": self.credentials.account_id,
             "size": page_size,
             "cursor": str(cursor or "0"),
-            "verify_start_time": int(start.timestamp()),
-            "verify_end_time": int(end.timestamp()),
+            "start_time": int(start.timestamp()),
+            "end_time": int(end.timestamp()),
         }
         if poi_id:
-            params["poi_id"] = poi_id
+            params["poi_ids"] = poi_id
         return self._get_json(VERIFY_RECORD_QUERY_URL, params)
+
+    def query_certificates(self, *, order_id: str) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "account_id": self.credentials.account_id,
+            "order_id": order_id,
+        }
+        return self._get_json(CERTIFICATE_QUERY_URL, params)
 
     def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None) -> dict[str, Any]:
         params: dict[str, Any] = {

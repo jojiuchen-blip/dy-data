@@ -124,7 +124,40 @@ def test_verify_and_shop_poi_queries_return_raw_payloads():
     assert poi_payload["data"]["pois"][0]["poi_id"] == "p1"
     assert http.calls[1]["params"]["size"] == 20
     assert http.calls[1]["params"]["cursor"] == "0"
+    assert "start_time" in http.calls[1]["params"]
+    assert "end_time" in http.calls[1]["params"]
+    assert http.calls[1]["params"]["poi_ids"] == "p1"
+    assert "verify_start_time" not in http.calls[1]["params"]
+    assert "verify_end_time" not in http.calls[1]["params"]
+    assert "poi_id" not in http.calls[1]["params"]
     assert "page_size" not in http.calls[1]["params"]
+
+
+def test_certificate_query_uses_order_id_and_returns_raw_payload():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse(
+                {
+                    "data": {
+                        "certificates": [
+                            {
+                                "certificate_id": "coupon-1",
+                                "verify_records": [{"verify_id": "verify-1", "poi_id": "poi-1"}],
+                            }
+                        ]
+                    }
+                }
+            ),
+        ]
+    )
+    client = client_with(http)
+
+    payload = client.query_certificates(order_id="order-1")
+
+    assert payload["data"]["certificates"][0]["certificate_id"] == "coupon-1"
+    assert http.calls[1]["params"]["account_id"] == "acct-1"
+    assert http.calls[1]["params"]["order_id"] == "order-1"
 
 
 def test_api_error_sanitizes_secret_values():

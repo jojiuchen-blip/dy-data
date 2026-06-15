@@ -9,6 +9,7 @@ from apps.api.dy_api.models import DimStorePoiMapping, RawDouyinVerifyRecord
 from apps.worker.collectors.normalizers import next_cursor, source_datetime
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.verify_records import collect_shop_pois, collect_verify_records
+from apps.worker.repositories import upsert_order_coupon, upsert_raw_order
 
 
 class FakeVerifyClient:
@@ -57,6 +58,49 @@ class FakeVerifyClient:
                     },
                 ],
                 "has_more": False,
+            }
+        }
+
+
+class FakeCertificateEnrichmentClient:
+    def __init__(self):
+        self.certificate_queries: list[str] = []
+
+    def query_verify_records(self, start: datetime, end: datetime, *, poi_id=None, page_size: int = 20, cursor=None):
+        return {
+            "data": {
+                "records": [
+                    {
+                        "verify_id": "verify-1",
+                        "certificate_id": "coupon-1",
+                        "status": "1",
+                        "verify_time": 1767225600,
+                        "sku": {"sku_id": "sku-1", "title": "Service Product"},
+                        "amount": {"pay_amount": 12345},
+                    }
+                ],
+                "has_more": False,
+            }
+        }
+
+    def query_certificates(self, *, order_id: str):
+        self.certificate_queries.append(order_id)
+        return {
+            "data": {
+                "certificates": [
+                    {
+                        "certificate_id": "coupon-1",
+                        "verify_records": [
+                            {
+                                "verify_id": "verify-1",
+                                "certificate_id": "coupon-1",
+                                "poi_id": "poi-1",
+                                "verify_time": 1767225600,
+                                "verify_type": 1,
+                            }
+                        ],
+                    }
+                ]
             }
         }
 
@@ -118,6 +162,22 @@ def test_collect_verify_records_upserts_cancel_state_and_raw_payload(db_session:
     assert cancelled is not None
     assert cancelled.verify_status == "cancelled"
     assert cancelled.cancel_time is not None
+
+
+def test_collect_verify_records_enriches_missing_poi_from_certificate_query(db_session: Session):
+    upsert_raw_order(db_session, "order-1", raw_payload={})
+    upsert_order_coupon(db_session, "coupon-1", "order-1", raw_payload={})
+    client = FakeCertificateEnrichmentClient()
+
+    stats = collect_verify_records(db_session, client, window(), source_run_id="run-verify")
+
+    assert stats.fetched == 1
+    assert stats.upserted == 1
+    assert client.certificate_queries == ["order-1"]
+    record = db_session.get(RawDouyinVerifyRecord, "verify-1")
+    assert record is not None
+    assert record.poi_id == "poi-1"
+    assert record.raw_payload["_certificate_query"]["poi_id"] == "poi-1"
 
 
 def test_collect_verify_records_splits_large_windows_by_chunk_days(db_session: Session):
