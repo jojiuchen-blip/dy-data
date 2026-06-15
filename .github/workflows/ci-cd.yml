@@ -73,7 +73,7 @@ jobs:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
 
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT }}
       RAILWAY_API_SERVICE_ID: ${{ vars.RAILWAY_API_SERVICE_ID }}
@@ -82,15 +82,15 @@ jobs:
 
     steps:
       - name: Skip Railway deployment when token is absent
-        if: ${{ env.RAILWAY_TOKEN == '' }}
+        if: ${{ env.RAILWAY_API_TOKEN == '' }}
         run: |
-          echo "::warning::RAILWAY_TOKEN is not configured; verification passed but Railway deployment is skipped."
+          echo "::warning::RAILWAY_TOKEN secret is not configured; verification passed but Railway deployment is skipped."
 
       - name: Check required Railway settings
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         run: |
           required=(
-            RAILWAY_TOKEN
+            RAILWAY_API_TOKEN
             RAILWAY_PROJECT_ID
             RAILWAY_ENVIRONMENT
             RAILWAY_API_SERVICE_ID
@@ -104,21 +104,21 @@ jobs:
           done
 
       - name: Check out repository
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         uses: actions/checkout@v4
 
       - name: Set up Node for Railway CLI
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install Railway CLI
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         run: npm install -g @railway/cli
 
       - name: Deploy API
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         id: deploy_api
         run: |
           set +e
@@ -144,7 +144,7 @@ jobs:
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for API deployment
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         run: |
           wait_for_deployment() {
             service="$1"
@@ -178,7 +178,7 @@ jobs:
           wait_for_deployment "$RAILWAY_API_SERVICE_ID" "${{ steps.deploy_api.outputs.deployment_id }}"
 
       - name: Deploy Web
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         id: deploy_web
         run: |
           set +e
@@ -205,7 +205,7 @@ jobs:
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
       - name: Wait for Web deployment
-        if: ${{ env.RAILWAY_TOKEN != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' }}
         run: |
           wait_for_deployment() {
             service="$1"
@@ -239,7 +239,7 @@ jobs:
           wait_for_deployment "$RAILWAY_WEB_SERVICE_ID" "${{ steps.deploy_web.outputs.deployment_id }}"
 
       - name: Smoke test deployed site
-        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_WEB_URL != '' }}
+        if: ${{ env.RAILWAY_API_TOKEN != '' && env.RAILWAY_WEB_URL != '' }}
         run: |
           curl --fail --silent --show-error "$RAILWAY_WEB_URL/" >/dev/null
           curl --fail --silent --show-error "$RAILWAY_WEB_URL/api/v1/meta/filters" >/dev/null
