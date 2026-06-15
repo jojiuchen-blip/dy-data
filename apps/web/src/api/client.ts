@@ -22,6 +22,7 @@ import {
   getMonthOptions,
   getProductOptions,
   getRankingRows,
+  getRankingTotals,
   getSettlementView,
   getStoreOptions,
 } from "../utils/settlement";
@@ -159,6 +160,7 @@ function mockStoreRankingResponse(
       month,
       product_type: productType,
       limit,
+      totals: getRankingTotals(month, productType),
       rows,
     },
     definitions: page1Definitions,

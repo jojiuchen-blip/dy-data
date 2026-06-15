@@ -273,6 +273,27 @@ class DashboardDataStore:
         )
         return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
 
+    def store_ranking_totals(self, *, month: str, product_type: str) -> dict[str, Any]:
+        rows = self._execute(
+            """
+            SELECT COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(self_verify_income_cent), 0) AS self_verify_income_cent,
+                   COALESCE(SUM(effective_commission_income_cent), 0)
+                       AS effective_commission_income_cent
+            FROM agg_store_ranking
+            WHERE month = :month AND product_type = :product_type
+            """,
+            {"month": month, "product_type": product_type},
+        )
+        row = rows[0] if rows else {}
+        return {
+            "sales_order_count": _to_int(row.get("sales_order_count")),
+            "self_verify_income_cent": _to_int(row.get("self_verify_income_cent")),
+            "effective_commission_income_cent": _to_int(
+                row.get("effective_commission_income_cent")
+            ),
+        }
+
     def get_store(self, store_id: str) -> dict[str, Any]:
         rows = self._execute(
             """

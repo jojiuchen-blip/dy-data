@@ -109,6 +109,10 @@
 | month | computed | 当前销售月份。 |
 | product_type | computed | 当前产品筛选。 |
 | limit | computed | 返回条数上限。 |
+| totals | computed | 当前筛选条件下全国门店汇总，不受 `limit` 影响。 |
+| totals.sales_order_count | computed | 全国门店销售订单数量合计。 |
+| totals.self_verify_income_cent | computed | 全国门店核销收入合计。 |
+| totals.effective_commission_income_cent | computed | 全国门店有效分佣收入合计。 |
 | rows | computed | 门店排名列表。 |
 | rows[].rank | computed | 排名。 |
 | rows[].store_id | computed | 内部门店 ID。 |

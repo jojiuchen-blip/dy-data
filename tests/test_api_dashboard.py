@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
-from apps.api.dy_api.models import DimStore, SettlementOrderDetail  # noqa: E402
+from apps.api.dy_api.models import AggStoreRanking, DimStore, SettlementOrderDetail  # noqa: E402
 
 
 def deferred_field(*parts: str) -> str:
@@ -65,6 +65,13 @@ class FakeStore:
                 "effective_commission_income_cent": 1680,
             }
         ][:limit]
+
+    def store_ranking_totals(self, *, month: str, product_type: str):
+        return {
+            "sales_order_count": 30,
+            "self_verify_income_cent": 25000,
+            "effective_commission_income_cent": 4200,
+        }
 
     def monthly_settlement(self, *, store_id: str, month: str, product_type: str):
         return {
@@ -183,7 +190,9 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     details = client.get("/api/v1/order-details?page=1&page_size=50")
 
     assert ranking.status_code == 200
-    assert ranking.json()["data"]["rows"][0]["sales_order_count"] == 3
+    ranking_payload = ranking.json()
+    assert ranking_payload["data"]["rows"][0]["sales_order_count"] == 3
+    assert ranking_payload["data"]["totals"]["sales_order_count"] == 30
 
     assert settlement.status_code == 200
     settlement_payload = settlement.json()
@@ -231,6 +240,57 @@ def test_recent_jobs_contract(client: TestClient):
 
     assert response.status_code == 200
     assert response.json()["data"]["rows"][0]["status"] == "success"
+
+
+def test_store_ranking_totals_include_all_matching_rows(db_session: Session):
+    timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            AggStoreRanking(
+                month="2026-05",
+                product_type="all",
+                store_id="store_001",
+                store_name="Store One",
+                sales_order_count=10,
+                self_verify_income_cent=10000,
+                effective_commission_income_cent=1000,
+                updated_at=timestamp,
+            ),
+            AggStoreRanking(
+                month="2026-05",
+                product_type="all",
+                store_id="store_002",
+                store_name="Store Two",
+                sales_order_count=7,
+                self_verify_income_cent=20000,
+                effective_commission_income_cent=2000,
+                updated_at=timestamp,
+            ),
+            AggStoreRanking(
+                month="2026-05",
+                product_type="service",
+                store_id="store_003",
+                store_name="Store Three",
+                sales_order_count=99,
+                self_verify_income_cent=99000,
+                effective_commission_income_cent=9900,
+                updated_at=timestamp,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    store = DashboardDataStore(db_session)
+    rows = store.store_ranking(month="2026-05", product_type="all", limit=1)
+    totals = store.store_ranking_totals(month="2026-05", product_type="all")
+
+    assert len(rows) == 1
+    assert rows[0]["store_id"] == "store_001"
+    assert totals == {
+        "sales_order_count": 17,
+        "self_verify_income_cent": 30000,
+        "effective_commission_income_cent": 3000,
+    }
 
 
 def test_error_message_sanitizer_redacts_sensitive_values_and_paths():

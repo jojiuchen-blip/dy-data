@@ -51,10 +51,17 @@ export interface StoreRankingRow {
   effective_commission_income_cent: number;
 }
 
+export interface StoreRankingTotals {
+  sales_order_count: number;
+  self_verify_income_cent: number;
+  effective_commission_income_cent: number;
+}
+
 export interface StoreRankingData {
   month: string;
   product_type: string;
   limit: number;
+  totals: StoreRankingTotals;
   rows: StoreRankingRow[];
 }
 

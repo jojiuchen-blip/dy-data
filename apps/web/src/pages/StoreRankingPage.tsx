@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   defaultMonth,
   fetchFilterMeta,
@@ -43,23 +43,11 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const definitionFor = (key: string): string | undefined =>
     definitions.find((definition) => definition.key === key)?.description;
 
-  const totals = useMemo(
-    () => ({
-      sales_order_count: rows.reduce(
-        (total, row) => total + row.sales_order_count,
-        0,
-      ),
-      self_verify_income_cent: rows.reduce(
-        (total, row) => total + row.self_verify_income_cent,
-        0,
-      ),
-      effective_commission_income_cent: rows.reduce(
-        (total, row) => total + row.effective_commission_income_cent,
-        0,
-      ),
-    }),
-    [rows],
-  );
+  const totals = ranking?.totals ?? {
+    sales_order_count: 0,
+    self_verify_income_cent: 0,
+    effective_commission_income_cent: 0,
+  };
 
   const columns: Column<StoreRankingRow>[] = [
     {
@@ -199,7 +187,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             <MetricCard
               description={definitionFor("sales_order_count")}
               label="销售订单数量"
-              meta="当前榜单合计"
+              meta="筛选范围合计"
               value={formatInteger(totals.sales_order_count)}
             />
             <MetricCard

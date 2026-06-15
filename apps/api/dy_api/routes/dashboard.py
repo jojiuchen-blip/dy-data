@@ -93,6 +93,7 @@ def store_ranking(
         month=month,
         product_type=product_type,
         limit=limit,
+        totals=store.store_ranking_totals(month=month, product_type=product_type),
         rows=store.store_ranking(month=month, product_type=product_type, limit=limit),
     )
     return {

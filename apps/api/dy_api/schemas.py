@@ -67,10 +67,17 @@ class StoreRankingRow(BaseModel):
     effective_commission_income_cent: int = 0
 
 
+class StoreRankingTotals(BaseModel):
+    sales_order_count: int = 0
+    self_verify_income_cent: int = 0
+    effective_commission_income_cent: int = 0
+
+
 class StoreRankingData(BaseModel):
     month: str
     product_type: str
     limit: int
+    totals: StoreRankingTotals
     rows: list[StoreRankingRow]
 
 

@@ -3,6 +3,11 @@
     "month": "2026-05",
     "product_type": "all",
     "limit": 20,
+    "totals": {
+      "sales_order_count": 3502,
+      "self_verify_income_cent": 74227000,
+      "effective_commission_income_cent": 997300
+    },
     "rows": [
       {
         "rank": 1,

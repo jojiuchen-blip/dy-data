@@ -16,6 +16,7 @@ import type {
   SettlementViewData,
   StoreOption,
   StoreRankingRow,
+  StoreRankingTotals,
 } from "../types/dashboard";
 
 const ALL_PRODUCTS = "all";
@@ -106,6 +107,37 @@ export function getRankingRows(
       .map((row) => ({ ...row }));
   }
 
+  return buildRankingRows(month, productType)
+    .slice(0, 20)
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+export function getRankingTotals(
+  month: string,
+  productType: string,
+): StoreRankingTotals {
+  if (
+    month === storeRankingResponse.data.month &&
+    productType === storeRankingResponse.data.product_type
+  ) {
+    return { ...storeRankingResponse.data.totals };
+  }
+
+  const rows = buildRankingRows(month, productType);
+  return {
+    sales_order_count: sum(rows, (row) => row.sales_order_count),
+    self_verify_income_cent: sum(rows, (row) => row.self_verify_income_cent),
+    effective_commission_income_cent: sum(
+      rows,
+      (row) => row.effective_commission_income_cent,
+    ),
+  };
+}
+
+function buildRankingRows(
+  month: string,
+  productType: string,
+): StoreRankingRow[] {
   const rowsByStore = new Map<string, StoreRankingRow>();
 
   const ensure = (storeId: string, storeName: string): StoreRankingRow => {
@@ -166,7 +198,6 @@ export function getRankingRows(
         b.sales_order_count - a.sales_order_count ||
         b.self_verify_income_cent - a.self_verify_income_cent,
     )
-    .slice(0, 20)
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
 
