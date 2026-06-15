@@ -26,7 +26,7 @@ Repository secrets used by the workflow:
 
 - `RAILWAY_TOKEN`
 
-Create this token in Railway as an account or workspace API token with deploy access to project `62f9e7d8-cecf-40ea-87fa-1002c6465b13`, then add it in GitHub repository settings. The workflow maps this GitHub secret to Railway CLI's `RAILWAY_API_TOKEN` environment variable.
+Create this token in Railway as a project token with deploy access to project `62f9e7d8-cecf-40ea-87fa-1002c6465b13`, then add it in GitHub repository settings. The workflow passes this GitHub secret to Railway CLI as `RAILWAY_TOKEN`.
 
 If `RAILWAY_TOKEN` is not configured, pushes to `main` still run verification but skip the Railway deploy job with a warning.
 
