@@ -126,7 +126,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
       key: "verifyIncome",
       title: (
         <TooltipLabel
-          label="本店核销收入"
+          label="核销收入"
           description={definitionFor("self_verify_income_cent")}
         />
       ),
@@ -205,7 +205,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             />
             <MetricCard
               description={definitionFor("self_verify_income_cent")}
-              label="本店核销收入"
+              label="核销收入"
               meta="按核销门店归属"
               tone="blue"
               value={compactCurrency(totals.self_verify_income_cent)}

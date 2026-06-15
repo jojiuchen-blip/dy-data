@@ -84,7 +84,7 @@
     },
     {
       "key": "self_verify_income_cent",
-      "label": "本店核销收入",
+      "label": "核销收入",
       "description": "在本店核销所产生的所有收入，包含本店卖本店核销收入和他店卖本店核销扣除分佣后的收入。"
     },
     {
