@@ -150,7 +150,6 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
     <div className="page-stack">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">页面 1</p>
           <h1>全国门店销售情况榜单</h1>
         </div>
         <span className="source-pill">

@@ -372,7 +372,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     <div className="page-stack">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">页面 3</p>
           <h1>门店月度数据明细表</h1>
         </div>
         <span className="source-pill">

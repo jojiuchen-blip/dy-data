@@ -164,7 +164,6 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     <div className="page-stack">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">页面 2</p>
           <h1>单店月度分账看板</h1>
         </div>
         <span className="source-pill">
