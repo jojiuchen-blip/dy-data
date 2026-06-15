@@ -50,6 +50,26 @@ def load_fixture(session: Session) -> None:
     upsert_store_poi_mapping(session, "store-s2", "poi-s2", poi_name="POI S2", mapping_source="fixture")
     upsert_aweme_account(session, "owner-s1", nickname="Owner S1", store_id="store-s1", binding_status="active")
     upsert_aweme_account(session, "owner-s2", nickname="Fallback S2", store_id="store-s2", binding_status="active")
+    upsert_aweme_binding(
+        session,
+        "owner-s1:dy-owner-s1:poi-s1",
+        douyin_id="dy-owner-s1",
+        douyin_nickname="Owner S1",
+        account_id="store-s1",
+        account_name="Store S1",
+        poi_id="poi-s1",
+        binding_status="active",
+    )
+    upsert_aweme_binding(
+        session,
+        "owner-s2:dy-owner-s2:poi-s2",
+        douyin_id="dy-owner-s2",
+        douyin_nickname="Fallback S2",
+        account_id="store-s2",
+        account_name="Store S2",
+        poi_id="poi-s2",
+        binding_status="active",
+    )
     upsert_sku_product_rule(
         session,
         "sku-service",
@@ -206,6 +226,16 @@ def test_numeric_verify_statuses_are_classified_before_settlement(db_session: Se
     upsert_store(db_session, "store-s2", "Store S2")
     upsert_store_poi_mapping(db_session, "store-s2", "poi-s2", poi_name="POI S2", mapping_source="fixture")
     upsert_aweme_account(db_session, "owner-s1", nickname="Owner S1", store_id="store-s1", binding_status="active")
+    upsert_aweme_binding(
+        db_session,
+        "owner-s1:dy-owner-s1:poi-s1",
+        douyin_id="dy-owner-s1",
+        douyin_nickname="Owner S1",
+        account_id="store-s1",
+        account_name="Store S1",
+        poi_id="poi-s1",
+        binding_status="active",
+    )
     upsert_sku_product_rule(
         db_session,
         "sku-service",
@@ -307,3 +337,62 @@ def test_owner_nickname_matches_raw_aweme_binding_when_dimension_nickname_is_ove
     assert detail is not None
     assert detail.sale_store_id == "store-from-binding"
     assert detail.sale_store_name == "Store From Raw Binding"
+
+
+def test_inactive_raw_aweme_binding_does_not_fall_back_to_dimension_nickname(
+    db_session: Session,
+) -> None:
+    upsert_store(db_session, "store-stale", "Stale Store")
+    upsert_store(db_session, "store-verify", "Verify Store")
+    upsert_store_poi_mapping(db_session, "store-verify", "poi-verify", mapping_source="fixture")
+    upsert_aweme_account(
+        db_session,
+        "store-stale",
+        nickname="Inactive Binding Nickname",
+        store_id="store-stale",
+        binding_status="认证成功",
+    )
+    upsert_aweme_binding(
+        db_session,
+        "store-stale:dy-inactive:poi-sale",
+        douyin_id="dy-inactive",
+        douyin_nickname="Inactive Binding Nickname",
+        account_id="store-stale",
+        account_name="Stale Store",
+        poi_id="poi-sale",
+        binding_status="已解绑",
+    )
+    upsert_sku_product_rule(
+        db_session,
+        "sku-service",
+        "service",
+        product_name="Service SKU",
+        commission_rate=Decimal("0.1000"),
+        is_service_product=True,
+    )
+    upsert_raw_order(
+        db_session,
+        "order-inactive-binding",
+        sku_id="sku-service",
+        pay_time=dt(1),
+        owner_account_name="Inactive Binding Nickname",
+        paid_amount_cent=10000,
+    )
+    upsert_order_coupon(db_session, "coupon-inactive-binding", "order-inactive-binding", coupon_status="fulfilled")
+    upsert_verify_record(
+        db_session,
+        "verify-inactive-binding",
+        coupon_id="coupon-inactive-binding",
+        verify_status="valid",
+        verify_time=dt(1),
+        poi_id="poi-verify",
+        sku_id="sku-service",
+        paid_amount_cent=10000,
+    )
+
+    run_settlement_job(db_session, job_id="job-inactive-binding-owner", source_run_id=SETTLEMENT_RUN_ID)
+
+    detail = db_session.get(SettlementOrderDetail, "coupon-inactive-binding")
+    assert detail is not None
+    assert detail.sale_store_id is None
+    assert detail.sale_store_name is None

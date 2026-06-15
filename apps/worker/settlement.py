@@ -65,7 +65,7 @@ class OwnerAccountMatch:
     account_id: str
     store_id: str | None
     binding_status: str | None = None
-    match_source: str = "dim_aweme_accounts"
+    match_source: str = "raw_aweme_bindings"
 
 
 def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> SettlementStats:
@@ -259,30 +259,16 @@ def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccou
     if not nickname:
         return []
     matches: dict[tuple[str, str | None], OwnerAccountMatch] = {}
-    dim_accounts = list(
-        session.scalars(select(DimAwemeAccount).where(DimAwemeAccount.nickname == nickname))
-    )
-    for account in dim_accounts:
-        if _is_active_binding_status(account.binding_status):
-            matches[(account.account_id, account.store_id)] = OwnerAccountMatch(
-                account_id=account.account_id,
-                store_id=account.store_id,
-                binding_status=account.binding_status,
-            )
-
     raw_bindings = list(
         session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
     )
     for binding in raw_bindings:
         if not binding.account_id or not _is_active_binding_status(binding.binding_status):
             continue
-        dim_account = session.get(DimAwemeAccount, binding.account_id)
-        store_id = dim_account.store_id if dim_account and dim_account.store_id else binding.account_id
-        matches[(binding.account_id, store_id)] = OwnerAccountMatch(
+        matches[(binding.account_id, binding.account_id)] = OwnerAccountMatch(
             account_id=binding.account_id,
-            store_id=store_id,
+            store_id=binding.account_id,
             binding_status=binding.binding_status,
-            match_source="raw_aweme_bindings",
         )
     return list(matches.values())
 
