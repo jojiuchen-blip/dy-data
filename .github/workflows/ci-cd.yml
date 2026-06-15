@@ -121,14 +121,21 @@ jobs:
         if: ${{ env.RAILWAY_TOKEN != '' }}
         id: deploy_api
         run: |
+          set +e
           output="$(railway up \
             --project "$RAILWAY_PROJECT_ID" \
             --environment "$RAILWAY_ENVIRONMENT" \
             --service "$RAILWAY_API_SERVICE_ID" \
             --detach \
             --json \
-            --message "api ${GITHUB_SHA}")"
+            --message "api ${GITHUB_SHA}" 2>&1)"
+          status=$?
+          set -e
           echo "$output"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Railway API deployment command failed"
+            exit "$status"
+          fi
           deployment_id="$(echo "$output" | jq -r '.deploymentId')"
           if [ -z "$deployment_id" ] || [ "$deployment_id" = "null" ]; then
             echo "::error::Railway did not return an API deployment id"
@@ -144,7 +151,6 @@ jobs:
             deployment_id="$2"
             for attempt in $(seq 1 60); do
               status="$(railway deployment list \
-                --project "$RAILWAY_PROJECT_ID" \
                 --environment "$RAILWAY_ENVIRONMENT" \
                 --service "$service" \
                 --limit 20 \
@@ -175,6 +181,7 @@ jobs:
         if: ${{ env.RAILWAY_TOKEN != '' }}
         id: deploy_web
         run: |
+          set +e
           output="$(railway up ./apps/web \
             --path-as-root \
             --project "$RAILWAY_PROJECT_ID" \
@@ -182,8 +189,14 @@ jobs:
             --service "$RAILWAY_WEB_SERVICE_ID" \
             --detach \
             --json \
-            --message "web ${GITHUB_SHA}")"
+            --message "web ${GITHUB_SHA}" 2>&1)"
+          status=$?
+          set -e
           echo "$output"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Railway Web deployment command failed"
+            exit "$status"
+          fi
           deployment_id="$(echo "$output" | jq -r '.deploymentId')"
           if [ -z "$deployment_id" ] || [ "$deployment_id" = "null" ]; then
             echo "::error::Railway did not return a Web deployment id"
@@ -199,7 +212,6 @@ jobs:
             deployment_id="$2"
             for attempt in $(seq 1 60); do
               status="$(railway deployment list \
-                --project "$RAILWAY_PROJECT_ID" \
                 --environment "$RAILWAY_ENVIRONMENT" \
                 --service "$service" \
                 --limit 20 \
