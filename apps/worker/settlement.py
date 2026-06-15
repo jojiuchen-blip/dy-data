@@ -63,7 +63,7 @@ def rebuild_settlement(session: Session, *, source_run_id: str) -> SettlementSta
     session.execute(delete(SettlementOrderDetail))
     session.execute(delete(AggStoreRanking))
     session.execute(delete(AggStoreMonthlySettlement))
-    session.execute(delete(DataQualityIssue).where(DataQualityIssue.source_run_id == source_run_id))
+    session.execute(delete(DataQualityIssue))
     session.flush()
 
     coupons = session.scalars(select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)).all()

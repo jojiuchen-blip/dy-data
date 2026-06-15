@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import DimStorePoiMapping, RawDouyinVerifyRecord
+from apps.worker.collectors.normalizers import next_cursor, source_datetime
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.verify_records import collect_shop_pois, collect_verify_records
 
@@ -16,10 +17,16 @@ class FakeVerifyClient:
             "data": {
                 "pois": [
                     {
-                        "poi_id": "poi-1",
-                        "poi_name": "Store One POI",
-                        "store_id": "store-1",
-                        "store_name": "Store One",
+                        "poi": {
+                            "poi_id": "poi-1",
+                            "poi_name": "Store One POI",
+                        },
+                        "account": {
+                            "poi_account": {
+                                "account_id": "store-1",
+                                "account_name": "Store One",
+                            },
+                        },
                     }
                 ],
                 "has_more": False,
@@ -144,3 +151,25 @@ def test_collect_verify_records_splits_large_windows_by_chunk_days(db_session: S
         ("2026-01-08T00:00:00+08:00", "2026-01-15T00:00:00+08:00"),
         ("2026-01-15T00:00:00+08:00", "2026-01-16T00:00:00+08:00"),
     ]
+
+
+def test_next_cursor_uses_last_record_cursor():
+    assert (
+        next_cursor(
+            {
+                "data": {
+                    "records": [
+                        {"verify_id": "verify-1", "cursor": "cursor-1"},
+                        {"verify_id": "verify-2", "cursor": "cursor-2"},
+                    ],
+                    "total": 2,
+                }
+            }
+        )
+        == "cursor-2"
+    )
+
+
+def test_source_datetime_treats_zero_as_missing():
+    assert source_datetime(0) is None
+    assert source_datetime("0") is None

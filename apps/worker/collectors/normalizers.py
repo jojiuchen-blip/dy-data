@@ -32,7 +32,7 @@ def text(value: Any) -> str | None:
 
 
 def source_datetime(value: Any) -> datetime | None:
-    if value in (None, ""):
+    if value in (None, "", 0, "0"):
         return None
     if isinstance(value, datetime):
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -78,9 +78,15 @@ def next_cursor(payload: dict[str, Any]) -> str | None:
     if not isinstance(data, dict):
         return None
     cursor = text(first(data, "next_cursor", "cursor"))
+    if not cursor:
+        for key in ("records", "verify_records", "records_v2", "list"):
+            rows = data.get(key)
+            if isinstance(rows, list) and rows and isinstance(rows[-1], dict):
+                cursor = text(rows[-1].get("cursor"))
+                if cursor:
+                    break
     if cursor in {"0", "-1"}:
         return None
     if data.get("has_more") is False:
         return None
     return cursor
-

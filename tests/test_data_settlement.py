@@ -131,6 +131,28 @@ def test_fixture_upsert_and_settlement_rebuild_are_idempotent(db_session: Sessio
     assert count(db_session, JobRun) == 1
 
 
+def test_settlement_rebuild_clears_stale_quality_issues(db_session: Session) -> None:
+    load_fixture(db_session)
+    db_session.add(
+        DataQualityIssue(
+            issue_id="stale-issue",
+            issue_type="stale",
+            order_id="old-order",
+            coupon_id="old-coupon",
+            severity="warning",
+            message="Stale issue from a previous full rebuild.",
+            raw_context_json={},
+            source_run_id="old-run",
+        )
+    )
+    db_session.commit()
+
+    run_settlement_job(db_session, job_id="job-settlement-fixture", source_run_id=SETTLEMENT_RUN_ID)
+
+    assert db_session.get(DataQualityIssue, "stale-issue") is None
+    assert "old-run" not in set(db_session.scalars(select(DataQualityIssue.source_run_id)))
+
+
 def test_settlement_owner_matching_issues_refund_exclusion_and_aggregates(db_session: Session) -> None:
     load_fixture(db_session)
     run_settlement_job(db_session, job_id="job-settlement-fixture", source_run_id=SETTLEMENT_RUN_ID)

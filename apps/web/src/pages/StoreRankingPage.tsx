@@ -24,18 +24,19 @@ interface StoreRankingPageProps {
 }
 
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
-  const [month, setMonth] = useState(searchParams.get("month") ?? defaultMonth);
+  const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "all",
   );
 
   const metaResource = useApiResource(fetchFilterMeta, []);
+  const meta = metaResource.data?.data;
+  const activeMonth = month || meta?.sale_months[0] || defaultMonth;
   const rankingResource = useApiResource(
-    () => fetchStoreRanking({ month, productType, limit: 20 }),
-    [month, productType],
+    () => fetchStoreRanking({ month: activeMonth, productType, limit: 20 }),
+    [activeMonth, productType],
   );
 
-  const meta = metaResource.data?.data;
   const ranking = rankingResource.data?.data;
   const definitions = rankingResource.data?.definitions ?? [];
   const rows = ranking?.rows ?? [];
@@ -167,8 +168,8 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
 
       <FilterBar>
         <FilterField label="月份">
-          <select value={month} onChange={(event) => setMonth(event.target.value)}>
-            {saleMonthOptions(meta, month).map((option) => (
+          <select value={activeMonth} onChange={(event) => setMonth(event.target.value)}>
+            {saleMonthOptions(meta, activeMonth).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -222,14 +223,14 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             <div className="section-title">
               <div>
                 <h2>前 20 门店榜单</h2>
-                <p>{month} · {productType === "all" ? "全部产品" : productType}</p>
+                <p>{activeMonth} · {productType === "all" ? "全部产品" : productType}</p>
               </div>
             </div>
             <DataTable
               columns={columns}
               rows={rows}
               rowHref={(row) =>
-                `/settlement?store_id=${row.store_id}&month=${month}&product_type=${encodeURIComponent(
+                `/settlement?store_id=${row.store_id}&month=${activeMonth}&product_type=${encodeURIComponent(
                   productType,
                 )}`
               }

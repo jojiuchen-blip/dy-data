@@ -8,14 +8,16 @@ from openpyxl import Workbook
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from apps.api.dy_api.models import DimAwemeAccount, RawAwemeBinding
+from apps.api.dy_api.models import DimAwemeAccount, DimStore, DimStorePoiMapping, RawAwemeBinding
 from apps.worker.browser_exports.backend_aweme import (
     BrowserExportError,
     extract_completed_download_info,
+    is_valid_poi_id,
     is_login_required,
     normalize_download_file_url,
     normalize_cdp_websocket_url,
     run_backend_aweme_export,
+    upsert_backend_aweme_records,
     workbook_filename,
 )
 
@@ -90,6 +92,8 @@ def test_backend_aweme_export_extracts_completed_download_file_url():
         "https://"
     )
     assert workbook_filename("", "https://example.test/files/backend_aweme.xlsx?token=redacted") == "backend_aweme.xlsx"
+    assert is_valid_poi_id("poi-1") is True
+    assert is_valid_poi_id("0") is False
 
 
 def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, tmp_path: Path):
@@ -99,9 +103,11 @@ def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, 
     stats = run_backend_aweme_export(db_session, source_run_id="browser-run", workbook_path=workbook_path)
 
     assert stats.fetched == 1
-    assert stats.upserted == 2
+    assert stats.upserted == 4
     assert count(db_session, RawAwemeBinding) == 1
     assert count(db_session, DimAwemeAccount) == 1
+    assert count(db_session, DimStore) == 1
+    assert count(db_session, DimStorePoiMapping) == 1
 
     binding = db_session.get(RawAwemeBinding, "owner-1:dy-1:poi-1")
     assert binding is not None
@@ -111,6 +117,15 @@ def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, 
     account = db_session.get(DimAwemeAccount, "owner-1")
     assert account is not None
     assert account.nickname == "Owner One"
+    assert account.store_id == "owner-1"
+
+    store = db_session.get(DimStore, "owner-1")
+    assert store is not None
+    assert store.store_name == "Store One Account"
+
+    mapping = db_session.get(DimStorePoiMapping, ("owner-1", "poi-1"))
+    assert mapping is not None
+    assert mapping.mapping_source == "backend_aweme_export"
 
 
 def test_backend_aweme_export_reads_workbook_with_incorrect_dimension(db_session: Session, tmp_path: Path):
@@ -121,4 +136,47 @@ def test_backend_aweme_export_reads_workbook_with_incorrect_dimension(db_session
     stats = run_backend_aweme_export(db_session, source_run_id="browser-run", workbook_path=workbook_path)
 
     assert stats.fetched == 1
-    assert stats.upserted == 2
+    assert stats.upserted == 4
+
+
+def test_backend_aweme_export_skips_placeholder_poi_and_updates_existing_mapping(db_session: Session):
+    first = upsert_backend_aweme_records(
+        db_session,
+        [
+            {
+                "douyin_id": "dy-1",
+                "douyin_nickname": "Owner One",
+                "account_id": "owner-1",
+                "account_name": "Store One",
+                "poi_id": "poi-1",
+            },
+            {
+                "douyin_id": "dy-2",
+                "douyin_nickname": "Owner Two",
+                "account_id": "owner-2",
+                "account_name": "Store Two",
+                "poi_id": "0",
+            },
+        ],
+        source_run_id="browser-run",
+    )
+    second = upsert_backend_aweme_records(
+        db_session,
+        [
+            {
+                "douyin_id": "dy-3",
+                "douyin_nickname": "Owner Three",
+                "account_id": "owner-3",
+                "account_name": "Store Three",
+                "poi_id": "poi-1",
+            }
+        ],
+        source_run_id="browser-run",
+    )
+
+    assert first.fetched == 2
+    assert second.fetched == 1
+    assert count(db_session, DimStorePoiMapping) == 1
+    mapping = db_session.scalar(select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == "poi-1"))
+    assert mapping is not None
+    assert mapping.store_id == "owner-3"

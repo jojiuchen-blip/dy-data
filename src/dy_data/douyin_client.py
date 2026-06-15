@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
+import time
 from typing import Any
 
 import requests
@@ -41,10 +43,14 @@ class DouyinOpenApiClient:
         *,
         http: Any | None = None,
         timeout_seconds: int = 30,
+        retry_attempts: int = 3,
+        retry_sleep_seconds: float = 1.0,
     ) -> None:
         self.credentials = credentials
         self.http = http or requests.Session()
         self.timeout_seconds = timeout_seconds
+        self.retry_attempts = retry_attempts
+        self.retry_sleep_seconds = retry_sleep_seconds
         self._token: str | None = None
 
     def get_client_token(self) -> str:
@@ -68,10 +74,9 @@ class DouyinOpenApiClient:
         page_size: int = 100,
         cursor: str | int | None = None,
     ) -> dict[str, Any]:
-        page_num = int(cursor or 1)
         params = {
             "account_id": self.credentials.account_id,
-            "page_num": page_num,
+            "cursor": _cursor_param(cursor),
             "page_size": page_size,
             "create_order_start_time": int(start.timestamp()),
             "create_order_end_time": int(end.timestamp()),
@@ -79,10 +84,12 @@ class DouyinOpenApiClient:
         return self._get_json(ORDER_QUERY_URL, params)
 
     def iter_orders(self, start: datetime, end: datetime, *, page_size: int = 100):
-        page = 1
+        cursor: str | None = "0"
         seen: set[str] = set()
-        while True:
-            payload = self.query_orders(start, end, page_size=page_size, cursor=page)
+        seen_cursors: set[str] = set()
+        while cursor and cursor not in seen_cursors:
+            seen_cursors.add(cursor)
+            payload = self.query_orders(start, end, page_size=page_size, cursor=cursor)
             data = payload.get("data", {})
             orders = data.get("orders") or data.get("list") or []
             for order in orders:
@@ -93,13 +100,9 @@ class DouyinOpenApiClient:
                     seen.add(order_id)
                 yield order
 
-            page_info = data.get("page") or {}
-            total = _safe_int(page_info.get("total"))
-            if total is not None and page * page_size >= total:
-                break
             if len(orders) < page_size:
                 break
-            page += 1
+            cursor = _order_next_cursor(data)
 
     def query_verify_records(
         self,
@@ -112,12 +115,11 @@ class DouyinOpenApiClient:
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "account_id": self.credentials.account_id,
-            "page_size": page_size,
+            "size": page_size,
+            "cursor": str(cursor or "0"),
             "verify_start_time": int(start.timestamp()),
             "verify_end_time": int(end.timestamp()),
         }
-        if cursor not in (None, ""):
-            params["cursor"] = cursor
         if poi_id:
             params["poi_id"] = poi_id
         return self._get_json(VERIFY_RECORD_QUERY_URL, params)
@@ -144,12 +146,50 @@ class DouyinOpenApiClient:
         return douyin_headers(token, self.credentials.account_id)
 
     def _post_json(self, url: str, payload: dict[str, Any], *, headers: dict[str, str]) -> dict[str, Any]:
-        response = self.http.post(url, json=payload, headers=headers, timeout=self.timeout_seconds)
-        return self._handle_response(response)
+        return self._json_request_with_retries(
+            "post",
+            url,
+            json=payload,
+            headers=headers,
+            timeout=self.timeout_seconds,
+        )
 
     def _get_json(self, url: str, params: dict[str, Any]) -> dict[str, Any]:
-        response = self.http.get(url, headers=self._token_headers(), params=params, timeout=self.timeout_seconds)
-        return self._handle_response(response)
+        return self._json_request_with_retries(
+            "get",
+            url,
+            headers=self._token_headers(),
+            params=params,
+            timeout=self.timeout_seconds,
+        )
+
+    def _json_request_with_retries(self, method: str, url: str, **kwargs: Any) -> dict[str, Any]:
+        attempts = max(1, self.retry_attempts)
+        last_error: DouyinApiError | None = None
+        for attempt in range(1, attempts + 1):
+            response = self._request_with_retries(method, url, **kwargs)
+            try:
+                return self._handle_response(response)
+            except DouyinApiError as exc:
+                last_error = exc
+                if not _is_transient_api_error(str(exc)) or attempt >= attempts:
+                    raise
+                time.sleep(self.retry_sleep_seconds * attempt)
+        raise last_error or DouyinApiError("Douyin API request failed.")
+
+    def _request_with_retries(self, method: str, url: str, **kwargs: Any) -> Any:
+        attempts = max(1, self.retry_attempts)
+        last_error: requests.RequestException | None = None
+        for attempt in range(1, attempts + 1):
+            try:
+                request = getattr(self.http, method)
+                return request(url, **kwargs)
+            except requests.RequestException as exc:
+                last_error = exc
+                if attempt >= attempts:
+                    break
+                time.sleep(self.retry_sleep_seconds * attempt)
+        raise DouyinApiError(self._sanitize(f"Douyin API transport error: {last_error}")) from last_error
 
     def _handle_response(self, response: Any) -> dict[str, Any]:
         try:
@@ -158,7 +198,7 @@ class DouyinOpenApiClient:
             raise DouyinApiError(self._sanitize(f"Douyin API returned non-JSON response: {response.text}")) from exc
 
         if getattr(response, "status_code", 200) >= 400 or _has_api_error(payload):
-            raise DouyinApiError(self._sanitize(f"Douyin API error: {payload}"))
+            raise DouyinApiError(self._sanitize(f"Douyin API error: {_api_error_summary(payload)}"))
         return payload
 
     def _sanitize(self, message: str) -> str:
@@ -170,12 +210,45 @@ class DouyinOpenApiClient:
 
 
 def _has_api_error(payload: dict[str, Any]) -> bool:
+    code = _api_error_code(payload)
+    return code not in (None, 0, "0")
+
+
+def _api_error_code(payload: dict[str, Any]) -> Any:
     code = payload.get("error_code", payload.get("err_no", payload.get("code")))
     if code in (None, 0, "0"):
         data = payload.get("data")
         if isinstance(data, dict):
             code = data.get("error_code")
-    return code not in (None, 0, "0")
+    return code
+
+
+def _api_error_summary(payload: dict[str, Any]) -> dict[str, Any]:
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    extra = payload.get("extra") if isinstance(payload.get("extra"), dict) else {}
+    return {
+        "error_code": _api_error_code(payload),
+        "description": _first_text(
+            data.get("description"),
+            payload.get("description"),
+            payload.get("message"),
+            extra.get("description"),
+        ),
+        "sub_error_code": extra.get("sub_error_code"),
+        "sub_description": extra.get("sub_description"),
+        "logid": extra.get("logid") or extra.get("log_id"),
+        "data_keys": sorted(data.keys()) if isinstance(data, dict) else [],
+        "list_lengths": {key: len(value) for key, value in data.items() if isinstance(value, list)}
+        if isinstance(data, dict)
+        else {},
+    }
+
+
+def _first_text(*values: Any) -> str | None:
+    for value in values:
+        if value not in (None, ""):
+            return str(value)
+    return None
 
 
 def _safe_int(value: Any) -> int | None:
@@ -185,3 +258,25 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
+
+
+def _is_transient_api_error(message: str) -> bool:
+    return "5000001" in message
+
+
+def _cursor_param(cursor: Any) -> str:
+    if cursor in (None, ""):
+        return "0"
+    if isinstance(cursor, (list, dict)):
+        return json.dumps(cursor, separators=(",", ":"), ensure_ascii=False)
+    return str(cursor)
+
+
+def _order_next_cursor(data: dict[str, Any]) -> str | None:
+    search_after = data.get("search_after")
+    if not isinstance(search_after, dict):
+        return None
+    cursor_value = search_after.get("CursorValue")
+    if not cursor_value:
+        return None
+    return _cursor_param(cursor_value)

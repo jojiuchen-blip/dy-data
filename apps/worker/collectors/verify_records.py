@@ -28,16 +28,36 @@ def collect_shop_pois(
             pois = data_items(payload, "pois", "poi_list", "shop_pois", "list")
             for poi in pois:
                 stats.fetched += 1
-                poi_id = text(first(poi, "poi_id", "id"))
+                poi_id = text(first(poi, "poi_id", "id", "poi.poi_id"))
                 if not poi_id:
                     stats.skipped += 1
                     continue
-                store_id = text(first(poi, "store_id", "store.store_id"))
+                store_id = text(
+                    first(
+                        poi,
+                        "store_id",
+                        "store.store_id",
+                        "account.poi_account.account_id",
+                        "root_account.account_id",
+                    )
+                )
                 if not store_id:
                     stats.skipped += 1
                     continue
-                poi_name = text(first(poi, "poi_name", "name"))
-                store_name = text(first(poi, "store_name", "store.store_name", "account_name")) or store_id
+                poi_name = text(first(poi, "poi_name", "name", "poi.poi_name"))
+                store_name = (
+                    text(
+                        first(
+                            poi,
+                            "store_name",
+                            "store.store_name",
+                            "account_name",
+                            "account.poi_account.account_name",
+                            "root_account.account_name",
+                        )
+                    )
+                    or store_id
+                )
                 upsert_store(session, store_id, store_name)
                 upsert_store_poi_mapping(
                     session,

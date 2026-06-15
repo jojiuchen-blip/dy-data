@@ -34,52 +34,52 @@ interface StoreSettlementPageProps {
 }
 
 export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) {
-  const [month, setMonth] = useState(searchParams.get("month") ?? defaultMonth);
-  const [storeId, setStoreId] = useState(
-    searchParams.get("store_id") ?? defaultStore.store_id,
-  );
+  const [month, setMonth] = useState(searchParams.get("month") ?? "");
+  const [storeId, setStoreId] = useState(searchParams.get("store_id") ?? "");
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "all",
   );
 
   const metaResource = useApiResource(fetchFilterMeta, []);
+  const meta = metaResource.data?.data;
+  const activeMonth = month || meta?.verify_months[0] || defaultMonth;
+  const activeStoreId = storeId || meta?.stores[0]?.store_id || defaultStore.store_id;
   const settlementResource = useApiResource(
-    () => fetchMonthlySettlement({ storeId, month, productType }),
-    [storeId, month, productType],
+    () => fetchMonthlySettlement({ storeId: activeStoreId, month: activeMonth, productType }),
+    [activeStoreId, activeMonth, productType],
   );
 
-  const meta = metaResource.data?.data;
   const view = settlementResource.data?.data;
   const definitions = settlementResource.data?.definitions ?? [];
   const definitionFor = (key: string): string | undefined =>
     definitions.find((definition) => definition.key === key)?.description;
+  const metaStore = meta?.stores.find((store) => store.store_id === activeStoreId);
   const selectedStore =
     view?.store ??
-    (storeId === defaultStore.store_id
-      ? defaultStore
-      : { store_id: storeId, store_name: storeId });
+    metaStore ??
+    (activeStoreId ? { store_id: activeStoreId, store_name: activeStoreId } : defaultStore);
   const baseProduct = productType === "all" ? "all" : productType;
 
   const receivableHref = detailsHref({
     product_type: baseProduct,
-    sale_store_id: storeId,
+    sale_store_id: activeStoreId,
     relation_type: "cross_store",
     is_verified: "true",
-    verify_month: month,
+    verify_month: activeMonth,
   });
   const commissionableHref = detailsHref({
     product_type: baseProduct,
-    sale_store_id: storeId,
+    sale_store_id: activeStoreId,
     relation_type: "cross_store",
     is_verified: "true",
-    verify_month: month,
+    verify_month: activeMonth,
   });
   const payableHref = detailsHref({
     product_type: baseProduct,
-    verify_store_id: storeId,
+    verify_store_id: activeStoreId,
     relation_type: "cross_store",
     is_verified: "true",
-    verify_month: month,
+    verify_month: activeMonth,
   });
 
   const receivableColumns: Column<ReceivableCommissionRow>[] = [
@@ -186,8 +186,8 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
 
       <FilterBar>
         <FilterField label="月份">
-          <select value={month} onChange={(event) => setMonth(event.target.value)}>
-            {verifyMonthOptions(meta, month).map((option) => (
+          <select value={activeMonth} onChange={(event) => setMonth(event.target.value)}>
+            {verifyMonthOptions(meta, activeMonth).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -195,7 +195,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
           </select>
         </FilterField>
         <FilterField label="门店">
-          <select value={storeId} onChange={(event) => setStoreId(event.target.value)}>
+          <select value={activeStoreId} onChange={(event) => setStoreId(event.target.value)}>
             {storeOptions(meta, selectedStore).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
@@ -257,7 +257,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             <div className="section-title">
               <div>
                 <h2>预计应收分佣：本店卖出，他店核销</h2>
-                <p>{view.store.store_name} · {month}</p>
+                <p>{view.store.store_name} · {activeMonth}</p>
               </div>
             </div>
             <DataTable
@@ -266,10 +266,10 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rowHref={(row) =>
                 detailsHref({
                   product_type: row.product_type,
-                  sale_store_id: storeId,
+                  sale_store_id: activeStoreId,
                   relation_type: "cross_store",
                   is_verified: "true",
-                  verify_month: month,
+                  verify_month: activeMonth,
                 })
               }
             />
@@ -279,7 +279,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             <div className="section-title">
               <div>
                 <h2>应付分佣：他店卖出，本店核销</h2>
-                <p>{view.store.store_name} · {month}</p>
+                <p>{view.store.store_name} · {activeMonth}</p>
               </div>
             </div>
             <DataTable
@@ -288,10 +288,10 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rowHref={(row) =>
                 detailsHref({
                   product_type: row.product_type,
-                  verify_store_id: storeId,
+                  verify_store_id: activeStoreId,
                   relation_type: "cross_store",
                   is_verified: "true",
-                  verify_month: month,
+                  verify_month: activeMonth,
                 })
               }
             />
@@ -301,7 +301,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             <div className="section-title">
               <div>
                 <h2>不参与分佣：本店卖出，本店核销</h2>
-                <p>{view.store.store_name} · {month}</p>
+                <p>{view.store.store_name} · {activeMonth}</p>
               </div>
             </div>
             <DataTable
@@ -310,12 +310,12 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rowHref={(row) =>
                 detailsHref({
                   product_type: row.product_type,
-                  sale_store_id: storeId,
-                  verify_store_id: storeId,
+                  sale_store_id: activeStoreId,
+                  verify_store_id: activeStoreId,
                   is_verified: "true",
                   relation_type: "same_store",
                   is_commissionable: "false",
-                  verify_month: month,
+                  verify_month: activeMonth,
                 })
               }
             />

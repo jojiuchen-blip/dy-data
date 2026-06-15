@@ -10,12 +10,19 @@ from urllib.error import URLError
 from urllib.parse import urlparse, urlunparse
 from urllib.request import urlopen
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.api.dy_api.models import DimStorePoiMapping
 from apps.worker.browser_exports.backend_aweme_parser import parse_backend_aweme_workbook
 from apps.worker.collectors.types import PhaseStats
-from apps.worker.repositories import upsert_aweme_account, upsert_aweme_binding
+from apps.worker.repositories import (
+    upsert_aweme_account,
+    upsert_aweme_binding,
+    upsert_store,
+    upsert_store_poi_mapping,
+)
 
 
 DEFAULT_EXPORT_URL = "https://life.douyin.com/"
@@ -76,10 +83,22 @@ def upsert_backend_aweme_records(
         stats.upserted += 1
 
         if account_id:
+            store_name = record.get("account_name") or record.get("douyin_nickname") or account_id
+            upsert_store(session, account_id, store_name)
+            stats.upserted += 1
+            if is_valid_poi_id(poi_id):
+                upsert_backend_store_poi_mapping(
+                    session,
+                    store_id=account_id,
+                    poi_id=poi_id,
+                    poi_name=record.get("account_name"),
+                )
+                stats.upserted += 1
             upsert_aweme_account(
                 session,
                 account_id,
                 nickname=record.get("douyin_nickname"),
+                store_id=account_id,
                 binding_status=record.get("binding_status"),
             )
             stats.upserted += 1
@@ -326,6 +345,35 @@ def main(argv: list[str] | None = None) -> int:
 
 def _binding_key(account_id: str | None, douyin_id: str | None, poi_id: str | None) -> str:
     return ":".join(part or "-" for part in (account_id, douyin_id, poi_id))
+
+
+def is_valid_poi_id(poi_id: str | None) -> bool:
+    return bool(poi_id and str(poi_id).strip() not in {"0", "-1"})
+
+
+def upsert_backend_store_poi_mapping(
+    session: Session,
+    *,
+    store_id: str,
+    poi_id: str,
+    poi_name: str | None,
+) -> DimStorePoiMapping:
+    existing = session.scalar(select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == poi_id).limit(1))
+    if existing is not None:
+        existing.store_id = store_id
+        existing.poi_name = poi_name or existing.poi_name
+        existing.mapping_source = "backend_aweme_export"
+        existing.is_primary = True
+        session.flush()
+        return existing
+    return upsert_store_poi_mapping(
+        session,
+        store_id,
+        poi_id,
+        poi_name=poi_name,
+        mapping_source="backend_aweme_export",
+        is_primary=True,
+    )
 
 
 if __name__ == "__main__":

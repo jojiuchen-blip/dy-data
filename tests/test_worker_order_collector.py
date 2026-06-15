@@ -24,20 +24,20 @@ class FakeOrderClient:
             "pay_time": 1767225600,
             "create_order_time": 1767222000,
             "pay_amount": 12345,
-            "sale_info": {
+            "order_sale_info": {
                 "transfer_uid": "owner-1",
                 "transfer_douyin_uid": "dy-1",
                 "transfer_nickName": "Owner One",
-                "role": "sales",
-                "channel": "short_video",
+                "sale_role": "sales",
+                "sale_channel": "short_video",
             },
             "intention_poi_id": "poi-1",
-            "certificates": [
+            "certificate": [
                 {
                     "certificate_id": "coupon-1",
                     "order_item_id": "item-1",
-                    "certificate_status": "fulfilled",
-                    "update_time": 1767230000,
+                    "item_status": "fulfilled",
+                    "item_update_time": 1767230000,
                     "refund_amount": 0,
                 }
             ],
@@ -77,7 +77,7 @@ def test_collect_orders_upserts_orders_and_coupons_idempotently(db_session: Sess
     assert order.owner_douyin_uid == "dy-1"
     assert order.owner_account_name == "Owner One"
     assert order.paid_amount_cent == 12345
-    assert order.raw_payload["sale_info"]["transfer_uid"] == "owner-1"
+    assert order.raw_payload["order_sale_info"]["transfer_uid"] == "owner-1"
     assert order.source_run_id == "run-1"
 
     coupon = db_session.get(RawDouyinOrderCoupon, "coupon-1")
