@@ -16,7 +16,7 @@ import {
 import { TooltipLabel } from "../components/TooltipLabel";
 import { useApiResource } from "../hooks/useApiResource";
 import type { StoreRankingRow } from "../types/dashboard";
-import { compactCurrency, formatCurrency, formatInteger } from "../utils/format";
+import { formatCurrency, formatInteger } from "../utils/format";
 import { productOptions, saleMonthOptions } from "../utils/options";
 
 interface StoreRankingPageProps {
@@ -195,14 +195,14 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
               label="核销收入"
               meta="按核销门店归属"
               tone="blue"
-              value={compactCurrency(totals.self_verify_income_cent)}
+              value={formatCurrency(totals.self_verify_income_cent)}
             />
             <MetricCard
               description={definitionFor("effective_commission_income_cent")}
               label="有效分佣收入"
               meta="销售店预计获得"
               tone="amber"
-              value={compactCurrency(totals.effective_commission_income_cent)}
+              value={formatCurrency(totals.effective_commission_income_cent)}
             />
           </section>
 

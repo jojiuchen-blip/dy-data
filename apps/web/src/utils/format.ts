@@ -42,13 +42,3 @@ export function labelForBoolean(value: boolean | null): string {
   }
   return value ? "是" : "否";
 }
-
-export function compactCurrency(cent: number): string {
-  const amount = cent / 100;
-  if (Math.abs(amount) >= 10000) {
-    return `${new Intl.NumberFormat("zh-CN", {
-      maximumFractionDigits: 1,
-    }).format(amount / 10000)} 万`;
-  }
-  return formatCurrency(cent);
-}
