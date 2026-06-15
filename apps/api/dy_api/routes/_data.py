@@ -348,11 +348,15 @@ class DashboardDataStore:
             f"""
             SELECT order_id, coupon_id, sku_id, owner_account_id,
                    owner_account_name, product_type, sale_store_id,
-                   sale_store_name, sale_time, is_verified, verify_store_id,
-                   verify_store_name, verify_time, relation_type,
+                   sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
+                   sale_time, is_verified, verify_store_id,
+                   verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
+                   verify_time, relation_type,
                    is_commissionable, paid_amount_cent, commission_rate,
                    receivable_commission_cent, payable_commission_cent
             FROM settlement_order_details
+            LEFT JOIN dim_stores sale_store ON sale_store.store_id = settlement_order_details.sale_store_id
+            LEFT JOIN dim_stores verify_store ON verify_store.store_id = settlement_order_details.verify_store_id
             {where_sql}
             ORDER BY sale_time DESC, order_id, coupon_id
             LIMIT :limit OFFSET :offset
@@ -375,11 +379,15 @@ class DashboardDataStore:
             f"""
             SELECT order_id, coupon_id, sku_id, owner_account_id,
                    owner_account_name, product_type, sale_store_id,
-                   sale_store_name, sale_time, is_verified, verify_store_id,
-                   verify_store_name, verify_time, relation_type,
+                   sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
+                   sale_time, is_verified, verify_store_id,
+                   verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
+                   verify_time, relation_type,
                    is_commissionable, paid_amount_cent, commission_rate,
                    receivable_commission_cent, payable_commission_cent
             FROM settlement_order_details
+            LEFT JOIN dim_stores sale_store ON sale_store.store_id = settlement_order_details.sale_store_id
+            LEFT JOIN dim_stores verify_store ON verify_store.store_id = settlement_order_details.verify_store_id
             {where_sql}
             ORDER BY sale_time DESC, order_id, coupon_id
             """,
@@ -397,10 +405,12 @@ class DashboardDataStore:
                 "product_type",
                 "sale_store_id",
                 "sale_store_name",
+                "sale_store_subject_name",
                 "sale_time",
                 "is_verified",
                 "verify_store_id",
                 "verify_store_name",
+                "verify_store_subject_name",
                 "verify_time",
                 "relation_type",
                 "is_commissionable",
@@ -647,10 +657,12 @@ class DashboardDataStore:
             "product_type": _to_str(row.get("product_type")),
             "sale_store_id": _to_str(row.get("sale_store_id")),
             "sale_store_name": _to_str(row.get("sale_store_name")),
+            "sale_store_subject_name": _to_str(row.get("sale_store_subject_name")),
             "sale_time": row.get("sale_time"),
             "is_verified": _to_bool(row.get("is_verified")),
             "verify_store_id": _to_str(row.get("verify_store_id")),
             "verify_store_name": _to_str(row.get("verify_store_name")),
+            "verify_store_subject_name": _to_str(row.get("verify_store_subject_name")),
             "verify_time": row.get("verify_time"),
             "relation_type": _to_str(row.get("relation_type")),
             "is_commissionable": _optional_bool(row.get("is_commissionable")),

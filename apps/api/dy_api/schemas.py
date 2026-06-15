@@ -126,10 +126,12 @@ class OrderDetailRow(BaseModel):
     product_type: str
     sale_store_id: str
     sale_store_name: str
+    sale_store_subject_name: str = ""
     sale_time: datetime | None = None
     is_verified: bool
     verify_store_id: str = ""
     verify_store_name: str = ""
+    verify_store_subject_name: str = ""
     verify_time: datetime | None = None
     relation_type: Literal["same_store", "cross_store", "unverified", "unknown", ""]
     is_commissionable: bool | None = None

@@ -9,12 +9,36 @@ from apps.worker.collectors.normalizers import text
 
 
 HEADER_ALIASES: dict[str, tuple[str, ...]] = {
-    "douyin_nickname": ("抖音昵称", "抖音号昵称", "nickname", "douyin_nickname"),
-    "douyin_id": ("抖音id", "抖音ID", "抖音号", "aweme_id", "aweme_short_id", "douyin_id"),
-    "account_id": ("所属账户id", "所属账户ID", "账户id", "职人UID", "account_id", "craftsman_uid"),
-    "account_name": ("所属账户名称", "所属账户", "认证主体", "商家主体", "account_name"),
-    "poi_id": ("所属账户关联poi_id", "所属账户关联POI_ID", "关联poi_id", "绑定门店ID", "poi_id"),
-    "binding_status": ("抖音号绑定状态", "绑定状态", "bind_status", "binding_status"),
+    "douyin_nickname": ("\u6296\u97f3\u6635\u79f0", "\u6296\u97f3\u53f7\u6635\u79f0", "nickname", "douyin_nickname"),
+    "douyin_id": ("\u6296\u97f3id", "\u6296\u97f3ID", "\u6296\u97f3\u53f7", "aweme_id", "aweme_short_id", "douyin_id"),
+    "account_id": (
+        "\u6240\u5c5e\u8d26\u6237id",
+        "\u6240\u5c5e\u8d26\u6237ID",
+        "\u8d26\u6237id",
+        "\u804c\u4ebaUID",
+        "account_id",
+        "craftsman_uid",
+    ),
+    "account_name": (
+        "\u6240\u5c5e\u8d26\u6237\u540d\u79f0",
+        "\u6240\u5c5e\u8d26\u6237",
+        "\u5546\u5bb6\u4e3b\u4f53",
+        "account_name",
+    ),
+    "poi_id": (
+        "\u6240\u5c5e\u8d26\u6237\u5173\u8054poi_id",
+        "\u6240\u5c5e\u8d26\u6237\u5173\u8054POI_ID",
+        "\u5173\u8054poi_id",
+        "\u7ed1\u5b9a\u95e8\u5e97ID",
+        "poi_id",
+    ),
+    "certified_subject_name": (
+        "\u8ba4\u8bc1\u4e3b\u4f53",
+        "certified_subject_name",
+        "certified_subject",
+        "subject_name",
+    ),
+    "binding_status": ("\u6296\u97f3\u53f7\u7ed1\u5b9a\u72b6\u6001", "\u7ed1\u5b9a\u72b6\u6001", "bind_status", "binding_status"),
 }
 
 
@@ -43,6 +67,7 @@ def parse_backend_aweme_workbook(path: str | Path) -> list[dict[str, Any]]:
             "account_id": _alias_value(raw_payload, "account_id"),
             "account_name": _alias_value(raw_payload, "account_name"),
             "poi_id": _alias_value(raw_payload, "poi_id"),
+            "certified_subject_name": _alias_value(raw_payload, "certified_subject_name"),
             "binding_status": _alias_value(raw_payload, "binding_status"),
             "raw_payload": raw_payload,
         }

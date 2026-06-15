@@ -148,6 +148,7 @@ def test_backend_aweme_export_skips_placeholder_poi_and_updates_existing_mapping
                 "douyin_nickname": "Owner One",
                 "account_id": "owner-1",
                 "account_name": "Store One",
+                "certified_subject_name": "Subject One",
                 "poi_id": "poi-1",
             },
             {
@@ -180,3 +181,7 @@ def test_backend_aweme_export_skips_placeholder_poi_and_updates_existing_mapping
     mapping = db_session.scalar(select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == "poi-1"))
     assert mapping is not None
     assert mapping.store_id == "owner-3"
+
+    store = db_session.get(DimStore, "owner-1")
+    assert store is not None
+    assert store.certified_subject_name == "Subject One"

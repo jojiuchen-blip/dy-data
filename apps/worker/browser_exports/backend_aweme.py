@@ -84,7 +84,12 @@ def upsert_backend_aweme_records(
 
         if account_id:
             store_name = record.get("account_name") or record.get("douyin_nickname") or account_id
-            upsert_store(session, account_id, store_name)
+            upsert_store(
+                session,
+                account_id,
+                store_name,
+                certified_subject_name=record.get("certified_subject_name"),
+            )
             stats.upserted += 1
             if is_valid_poi_id(poi_id):
                 upsert_backend_store_poi_mapping(

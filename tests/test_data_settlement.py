@@ -177,19 +177,66 @@ def test_settlement_owner_matching_issues_refund_exclusion_and_aggregates(db_ses
     assert refunded.is_commissionable is False
     assert refunded.receivable_commission_cent == 0
 
+    conflict = db_session.get(SettlementOrderDetail, "coupon-conflict")
+    assert conflict is not None
+    assert conflict.sale_store_id == "store-s2"
+    assert conflict.relation_type == "same_store"
+
     issue_types = set(db_session.scalars(select(DataQualityIssue.issue_type)))
-    assert {"unmatched_owner", "unmatched_sku", "unmatched_poi", "conflicting_owner_match"}.issubset(issue_types)
+    assert {"unmatched_owner", "unmatched_sku", "unmatched_poi"}.issubset(issue_types)
 
     monthly_s1 = db_session.get(AggStoreMonthlySettlement, ("2026-01", "store-s1", "all"))
     monthly_s2 = db_session.get(AggStoreMonthlySettlement, ("2026-01", "store-s2", "all"))
     assert monthly_s1 is not None
     assert monthly_s2 is not None
-    assert monthly_s1.estimated_receivable_commission_cent == 1100
-    assert monthly_s1.commissionable_total_cent == 11000
-    assert monthly_s2.estimated_payable_commission_cent == 1100
+    assert monthly_s1.estimated_receivable_commission_cent == 1000
+    assert monthly_s1.commissionable_total_cent == 10000
+    assert monthly_s2.estimated_payable_commission_cent == 1000
 
     ranking_s1 = db_session.get(AggStoreRanking, ("2026-01", "all", "store-s1"))
     assert ranking_s1 is not None
-    assert ranking_s1.sales_order_count == 4
-    assert ranking_s1.self_sold_other_verified_count == 3
-    assert ranking_s1.effective_commission_income_cent == 1100
+    assert ranking_s1.sales_order_count == 3
+    assert ranking_s1.self_sold_other_verified_count == 2
+    assert ranking_s1.effective_commission_income_cent == 1000
+
+
+def test_numeric_verify_statuses_are_classified_before_settlement(db_session: Session) -> None:
+    upsert_store(db_session, "store-s1", "Store S1")
+    upsert_store(db_session, "store-s2", "Store S2")
+    upsert_store_poi_mapping(db_session, "store-s2", "poi-s2", poi_name="POI S2", mapping_source="fixture")
+    upsert_aweme_account(db_session, "owner-s1", nickname="Owner S1", store_id="store-s1", binding_status="active")
+    upsert_sku_product_rule(
+        db_session,
+        "sku-service",
+        "service",
+        product_name="Service SKU",
+        commission_rate=Decimal("0.1000"),
+        is_service_product=True,
+    )
+    for suffix, status in (("valid", "1"), ("cancelled", "2")):
+        order_id = f"order-{suffix}"
+        coupon_id = f"coupon-{suffix}"
+        upsert_raw_order(
+            db_session,
+            order_id,
+            sku_id="sku-service",
+            pay_time=dt(1),
+            owner_account_name="Owner S1",
+            paid_amount_cent=10000,
+        )
+        upsert_order_coupon(db_session, coupon_id, order_id, coupon_status="fulfilled")
+        upsert_verify_record(
+            db_session,
+            f"verify-{suffix}",
+            coupon_id=coupon_id,
+            verify_status=status,
+            verify_time=dt(1),
+            poi_id="poi-s2",
+            sku_id="sku-service",
+            paid_amount_cent=10000,
+        )
+
+    run_settlement_job(db_session, job_id="job-numeric-status", source_run_id=SETTLEMENT_RUN_ID)
+
+    assert db_session.get(SettlementOrderDetail, "coupon-valid").is_verified is True
+    assert db_session.get(SettlementOrderDetail, "coupon-cancelled").is_verified is False

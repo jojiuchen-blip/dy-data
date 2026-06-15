@@ -18,7 +18,7 @@ import type {
   OrderDetail,
   Pagination,
 } from "../types/dashboard";
-import { formatCurrency, labelForBoolean } from "../utils/format";
+import { formatCurrency, formatDateTime, labelForBoolean } from "../utils/format";
 import {
   productOptions,
   saleMonthOptions,
@@ -303,10 +303,16 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       render: (row) => row.sale_store_name,
     },
     {
+      key: "saleStoreSubject",
+      title: "销售店认证主体",
+      minWidth: 210,
+      render: (row) => row.sale_store_subject_name || "-",
+    },
+    {
       key: "saleTime",
       title: "销售时间",
       minWidth: 190,
-      render: (row) => row.sale_time || "-",
+      render: (row) => formatDateTime(row.sale_time),
     },
     {
       key: "verified",
@@ -321,10 +327,16 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       render: (row) => row.verify_store_name || "-",
     },
     {
+      key: "verifyStoreSubject",
+      title: "核销店认证主体",
+      minWidth: 210,
+      render: (row) => row.verify_store_subject_name || "-",
+    },
+    {
       key: "verifyTime",
       title: "核销时间",
       minWidth: 190,
-      render: (row) => row.verify_time || "-",
+      render: (row) => formatDateTime(row.verify_time),
     },
     {
       key: "commissionable",

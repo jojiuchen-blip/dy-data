@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
-from apps.api.dy_api.models import SettlementOrderDetail  # noqa: E402
+from apps.api.dy_api.models import DimStore, SettlementOrderDetail  # noqa: E402
 
 
 def deferred_field(*parts: str) -> str:
@@ -112,10 +112,12 @@ class FakeStore:
                     "product_type": "basic_service",
                     "sale_store_id": "store_001",
                     "sale_store_name": "Store One",
+                    "sale_store_subject_name": "Subject One",
                     "sale_time": datetime(2026, 5, 1, 8, tzinfo=timezone.utc),
                     "is_verified": True,
                     "verify_store_id": "store_002",
                     "verify_store_name": "Store Two",
+                    "verify_store_subject_name": "Subject Two",
                     "verify_time": datetime(2026, 5, 4, 8, tzinfo=timezone.utc),
                     "relation_type": "cross_store",
                     "is_commissionable": True,
@@ -136,13 +138,14 @@ class FakeStore:
     def order_details_export_csv(self, filters: dict):
         return (
             "order_id,coupon_id,sku_id,owner_account_id,owner_account_name,"
-            "product_type,sale_store_id,sale_store_name,sale_time,is_verified,"
-            "verify_store_id,verify_store_name,verify_time,relation_type,"
+            "product_type,sale_store_id,sale_store_name,sale_store_subject_name,"
+            "sale_time,is_verified,verify_store_id,verify_store_name,"
+            "verify_store_subject_name,verify_time,relation_type,"
             "is_commissionable,paid_amount_cent,commission_rate,"
             "receivable_commission_cent,payable_commission_cent\r\n"
             "order_001,coupon_001,sku_001,acct_001,Owner,basic_service,"
-            "store_001,Store One,2026-05-01T08:00:00+00:00,True,store_002,"
-            "Store Two,2026-05-04T08:00:00+00:00,cross_store,True,16800,"
+            "store_001,Store One,Subject One,2026-05-01T08:00:00+00:00,True,store_002,"
+            "Store Two,Subject Two,2026-05-04T08:00:00+00:00,cross_store,True,16800,"
             "0.1,1680,0\r\n"
         )
 
@@ -198,6 +201,8 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert details.status_code == 200
     detail_row = details.json()["data"]["rows"][0]
     assert detail_row["coupon_id"] == "coupon_001"
+    assert detail_row["sale_store_subject_name"] == "Subject One"
+    assert detail_row["verify_store_subject_name"] == "Subject Two"
     assert deferred_field("invoice", "status") not in detail_row
     assert deferred_field("refund", "status") not in detail_row
     assert deferred_field("refund", "amount", "cent") not in detail_row
@@ -238,6 +243,12 @@ def test_error_message_sanitizer_redacts_sensitive_values_and_paths():
 
 def test_order_details_export_includes_all_matching_rows(db_session: Session):
     timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            DimStore(store_id="store_001", store_name="Store One", certified_subject_name="Subject One"),
+            DimStore(store_id="store_002", store_name="Store Two", certified_subject_name="Subject Two"),
+        ]
+    )
     for index in range(501):
         db_session.add(
             SettlementOrderDetail(
@@ -273,4 +284,8 @@ def test_order_details_export_includes_all_matching_rows(db_session: Session):
 
     assert first_page["pagination"]["total"] == 501
     assert len(first_page["rows"]) == 500
+    assert first_page["rows"][0]["sale_store_subject_name"] == "Subject One"
+    assert first_page["rows"][0]["verify_store_subject_name"] == "Subject Two"
     assert len(export_rows) == 501
+    assert export_rows[0]["sale_store_subject_name"] == "Subject One"
+    assert export_rows[0]["verify_store_subject_name"] == "Subject Two"

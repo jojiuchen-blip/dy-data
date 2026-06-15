@@ -27,8 +27,8 @@ from apps.api.dy_api.models import (
 from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_quality_issue
 
 
-VALID_VERIFY_STATUSES = {"valid", "verified", "success", "fulfilled", "used"}
-CANCELLED_VERIFY_STATUSES = {"cancelled", "canceled", "revoked", "reversed", "refunded"}
+VALID_VERIFY_STATUSES = {"1", "valid", "verified", "success", "fulfilled", "used"}
+CANCELLED_VERIFY_STATUSES = {"2", "cancelled", "canceled", "revoked", "reversed", "refunded"}
 REFUND_EXCLUDED_STATUSES = {
     "cancelled",
     "canceled",
@@ -197,33 +197,13 @@ def _match_owner(
     id_match = session.get(DimAwemeAccount, order.owner_account_id) if order.owner_account_id else None
     nickname_matches = _nickname_matches(session, order.owner_account_name)
 
-    if id_match is not None:
-        conflicting_matches = [
-            account
-            for account in nickname_matches
-            if account.account_id != id_match.account_id and account.store_id != id_match.store_id
-        ]
-        if conflicting_matches:
-            _record_issue(
-                session,
-                issue_type="conflicting_owner_match",
-                message="Owner ID matched one store, but nickname matched a different store.",
-                order_id=order.order_id,
-                coupon_id=coupon.coupon_id,
-                source_run_id=source_run_id,
-                raw_context={
-                    "owner_account_id": order.owner_account_id,
-                    "owner_account_name": order.owner_account_name,
-                    "id_store_id": id_match.store_id,
-                    "nickname_store_ids": sorted({account.store_id for account in conflicting_matches if account.store_id}),
-                },
-            )
-        return id_match
+    nickname_store_ids = sorted({account.store_id for account in nickname_matches if account.store_id})
+    if len(nickname_store_ids) == 1:
+        for account in nickname_matches:
+            if account.store_id == nickname_store_ids[0]:
+                return account
 
-    if len(nickname_matches) == 1:
-        return nickname_matches[0]
-
-    if len(nickname_matches) > 1:
+    if len(nickname_store_ids) > 1:
         _record_issue(
             session,
             issue_type="conflicting_owner_match",
@@ -234,19 +214,21 @@ def _match_owner(
             raw_context={
                 "owner_account_name": order.owner_account_name,
                 "account_ids": [account.account_id for account in nickname_matches],
+                "store_ids": nickname_store_ids,
             },
         )
     else:
         _record_issue(
             session,
             issue_type="unmatched_owner",
-            message="No owner account matched by owner ID or nickname.",
+            message="No owner account matched by owner nickname.",
             order_id=order.order_id,
             coupon_id=coupon.coupon_id,
             source_run_id=source_run_id,
             raw_context={
                 "owner_account_id": order.owner_account_id,
                 "owner_account_name": order.owner_account_name,
+                "id_store_id": id_match.store_id if id_match else None,
             },
         )
     return None

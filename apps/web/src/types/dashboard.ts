@@ -117,11 +117,13 @@ export interface OrderDetail {
   product_type: string;
   sale_store_id: string;
   sale_store_name: string;
+  sale_store_subject_name: string;
   sale_month: string;
   sale_time: string;
   is_verified: boolean;
   verify_store_id: string;
   verify_store_name: string;
+  verify_store_subject_name: string;
   verify_month: string;
   verify_time: string;
   relation_type: "same_store" | "cross_store" | "unverified" | "unknown" | "";

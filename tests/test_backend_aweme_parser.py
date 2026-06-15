@@ -10,8 +10,18 @@ from apps.worker.browser_exports.backend_aweme_parser import parse_backend_aweme
 def write_workbook(path: Path) -> None:
     workbook = Workbook()
     sheet = workbook.active
-    sheet.append(["抖音昵称", "抖音id", "所属账户id", "所属账户名称", "所属账户关联poi_id", "抖音号绑定状态"])
-    sheet.append(["Owner One", "dy-1", "owner-1", "Store One Account", "poi-1", "认证成功"])
+    sheet.append(
+        [
+            "douyin_nickname",
+            "douyin_id",
+            "account_id",
+            "account_name",
+            "poi_id",
+            "certified_subject_name",
+            "binding_status",
+        ]
+    )
+    sheet.append(["Owner One", "dy-1", "owner-1", "Store One Account", "poi-1", "Subject One", "active"])
     workbook.save(path)
 
 
@@ -28,14 +38,16 @@ def test_parse_backend_aweme_workbook_normalizes_expected_fields(tmp_path: Path)
             "account_id": "owner-1",
             "account_name": "Store One Account",
             "poi_id": "poi-1",
-            "binding_status": "认证成功",
+            "certified_subject_name": "Subject One",
+            "binding_status": "active",
             "raw_payload": {
-                "抖音昵称": "Owner One",
-                "抖音id": "dy-1",
-                "所属账户id": "owner-1",
-                "所属账户名称": "Store One Account",
-                "所属账户关联poi_id": "poi-1",
-                "抖音号绑定状态": "认证成功",
+                "douyin_nickname": "Owner One",
+                "douyin_id": "dy-1",
+                "account_id": "owner-1",
+                "account_name": "Store One Account",
+                "poi_id": "poi-1",
+                "certified_subject_name": "Subject One",
+                "binding_status": "active",
             },
         }
     ]
