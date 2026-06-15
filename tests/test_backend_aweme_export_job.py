@@ -109,9 +109,10 @@ def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, 
     assert count(db_session, DimStore) == 1
     assert count(db_session, DimStorePoiMapping) == 1
 
-    binding = db_session.get(RawAwemeBinding, "owner-1:dy-1:poi-1")
+    binding = db_session.scalar(select(RawAwemeBinding).where(RawAwemeBinding.douyin_id == "dy-1"))
     assert binding is not None
     assert binding.douyin_nickname == "Owner One"
+    assert binding.binding_key.startswith("owner-1:dy-1:poi-1:")
     assert binding.binding_status == "认证成功"
 
     account = db_session.get(DimAwemeAccount, "owner-1")
@@ -185,3 +186,45 @@ def test_backend_aweme_export_skips_placeholder_poi_and_updates_existing_mapping
     store = db_session.get(DimStore, "owner-1")
     assert store is not None
     assert store.certified_subject_name == "Subject One"
+
+
+def test_backend_aweme_export_preserves_distinct_binding_status_rows(db_session: Session):
+    stats = upsert_backend_aweme_records(
+        db_session,
+        [
+            {
+                "douyin_id": "dy-1",
+                "douyin_nickname": "Owner One",
+                "account_id": "owner-1",
+                "account_name": "Store One",
+                "poi_id": "poi-1",
+                "binding_status": "active",
+                "certified_subject_name": "Active Subject",
+                "raw_payload": {"account_type": "child"},
+            },
+            {
+                "douyin_id": "dy-1",
+                "douyin_nickname": "Owner One",
+                "account_id": "owner-1",
+                "account_name": "Store One",
+                "poi_id": "poi-1",
+                "binding_status": "inactive",
+                "certified_subject_name": "Inactive Subject",
+                "raw_payload": {"account_type": "personal"},
+            },
+        ],
+        source_run_id="browser-run",
+    )
+
+    assert stats.fetched == 2
+    assert count(db_session, RawAwemeBinding) == 2
+    statuses = set(db_session.scalars(select(RawAwemeBinding.binding_status)))
+    assert statuses == {"active", "inactive"}
+
+    store = db_session.get(DimStore, "owner-1")
+    assert store is not None
+    assert store.certified_subject_name == "Active Subject"
+
+    account = db_session.get(DimAwemeAccount, "owner-1")
+    assert account is not None
+    assert account.binding_status == "active"

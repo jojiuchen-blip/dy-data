@@ -28,6 +28,17 @@ from apps.worker.repositories import (
 DEFAULT_EXPORT_URL = "https://life.douyin.com/"
 DEFAULT_EXPORT_SELECTOR = "div.lifep-container-header button.byted-btn"
 WORKBOOK_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
+INACTIVE_BINDING_STATUSES = {
+    "inactive",
+    "unbound",
+    "unbind",
+    "failed",
+    "rejected",
+    "\u5df2\u89e3\u7ed1",
+    "\u7ed1\u5b9a\u5931\u6548",
+    "\u5ba1\u6838\u5931\u8d25",
+    "\u7ed1\u5b9a\u5df2\u62d2\u7edd",
+}
 
 
 class BrowserExportError(RuntimeError):
@@ -67,7 +78,10 @@ def upsert_backend_aweme_records(
             stats.skipped += 1
             continue
 
-        binding_key = _binding_key(account_id, douyin_id, poi_id)
+        raw_payload = record.get("raw_payload") or record
+        binding_status = record.get("binding_status")
+        account_type = raw_payload.get("\u8d26\u53f7\u7c7b\u578b") or raw_payload.get("account_type")
+        binding_key = _binding_key(account_id, douyin_id, poi_id, binding_status, account_type)
         upsert_aweme_binding(
             session,
             binding_key,
@@ -76,13 +90,13 @@ def upsert_backend_aweme_records(
             account_id=account_id,
             account_name=record.get("account_name"),
             poi_id=poi_id,
-            binding_status=record.get("binding_status"),
-            raw_payload=record.get("raw_payload") or record,
+            binding_status=binding_status,
+            raw_payload=raw_payload,
             source_run_id=source_run_id,
         )
         stats.upserted += 1
 
-        if account_id:
+        if account_id and is_active_binding_status(binding_status):
             store_name = record.get("account_name") or record.get("douyin_nickname") or account_id
             upsert_store(
                 session,
@@ -348,8 +362,18 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _binding_key(account_id: str | None, douyin_id: str | None, poi_id: str | None) -> str:
-    return ":".join(part or "-" for part in (account_id, douyin_id, poi_id))
+def _binding_key(
+    account_id: str | None,
+    douyin_id: str | None,
+    poi_id: str | None,
+    binding_status: str | None,
+    account_type: str | None,
+) -> str:
+    return ":".join(part or "-" for part in (account_id, douyin_id, poi_id, binding_status, account_type))
+
+
+def is_active_binding_status(status: str | None) -> bool:
+    return (status or "").strip().lower() not in INACTIVE_BINDING_STATUSES
 
 
 def is_valid_poi_id(poi_id: str | None) -> bool:
