@@ -11,6 +11,7 @@ from apps.api.dy_api.models import DimAwemeAccount, RawAwemeBinding
 from apps.worker.browser_exports.backend_aweme import (
     BrowserExportError,
     is_login_required,
+    normalize_cdp_websocket_url,
     run_backend_aweme_export,
 )
 
@@ -40,6 +41,15 @@ def test_backend_aweme_export_detects_login_state():
     assert is_login_required("https://life.douyin.com/login", "") is True
     assert is_login_required("https://life.douyin.com/workbench", "请登录后继续") is True
     assert is_login_required("https://life.douyin.com/workbench", "抖音号明细") is False
+
+
+def test_backend_aweme_export_rewrites_loopback_cdp_websocket_url():
+    websocket_url = "ws://127.0.0.1:9223/devtools/browser/browser-id"
+
+    assert (
+        normalize_cdp_websocket_url("http://browser:9222", websocket_url)
+        == "ws://browser:9222/devtools/browser/browser-id"
+    )
 
 
 def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, tmp_path: Path):

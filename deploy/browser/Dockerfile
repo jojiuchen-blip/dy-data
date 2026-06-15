@@ -3,8 +3,8 @@ FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 RUN sed -i \
-    -e 's|http://deb.debian.org/debian-security|http://mirrors.aliyun.com/debian-security|g' \
-    -e 's|http://deb.debian.org/debian|http://mirrors.aliyun.com/debian|g' \
+    -e 's|http://deb.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' \
+    -e 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g' \
     /etc/apt/sources.list.d/debian.sources
 
 RUN set -eux; \
@@ -14,6 +14,7 @@ RUN set -eux; \
             -o Acquire::Retries=5 \
             ca-certificates \
             chromium \
+            chromium-sandbox \
             dumb-init \
             fluxbox \
             fonts-noto-cjk \
@@ -35,7 +36,8 @@ RUN useradd -ms /bin/bash browser \
 
 COPY entrypoint.sh /usr/local/bin/browser-entrypoint.sh
 
-RUN chmod +x /usr/local/bin/browser-entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/browser-entrypoint.sh \
+    && chmod +x /usr/local/bin/browser-entrypoint.sh
 
 USER browser
 WORKDIR /home/browser
@@ -43,6 +45,7 @@ WORKDIR /home/browser
 ENV DISPLAY=:99
 ENV NOVNC_PORT=6080
 ENV CHROMIUM_REMOTE_DEBUGGING_PORT=9222
+ENV CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT=9223
 ENV CHROMIUM_START_URL=https://life.douyin.com/
 ENV SCREEN_WIDTH=1440
 ENV SCREEN_HEIGHT=1000

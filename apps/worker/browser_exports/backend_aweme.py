@@ -5,6 +5,9 @@ import json
 import os
 from pathlib import Path
 from typing import Any
+from urllib.error import URLError
+from urllib.parse import urlparse, urlunparse
+from urllib.request import urlopen
 
 from sqlalchemy.orm import Session
 
@@ -105,7 +108,7 @@ def export_workbook_via_browser(
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.connect_over_cdp(resolved_cdp_url)
+            browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
             context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
             page = context.pages[0] if context.pages else context.new_page()
             page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
@@ -124,6 +127,40 @@ def export_workbook_via_browser(
             return target_path
     except PlaywrightTimeoutError as exc:
         raise BrowserExportError("Timed out waiting for backend aweme workbook download.") from exc
+
+
+def resolve_playwright_cdp_url(cdp_url: str) -> str:
+    parsed = urlparse(cdp_url)
+    if parsed.scheme in {"ws", "wss"}:
+        return cdp_url
+
+    try:
+        with urlopen(f"{cdp_url.rstrip('/')}/json/version", timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, URLError, json.JSONDecodeError) as exc:
+        raise BrowserExportError(f"Unable to inspect browser CDP endpoint at {cdp_url}.") from exc
+
+    websocket_url = str(payload.get("webSocketDebuggerUrl") or "")
+    if not websocket_url:
+        raise BrowserExportError(f"Browser CDP endpoint at {cdp_url} did not return a websocket URL.")
+    return normalize_cdp_websocket_url(cdp_url, websocket_url)
+
+
+def normalize_cdp_websocket_url(cdp_url: str, websocket_url: str) -> str:
+    cdp_parts = urlparse(cdp_url)
+    websocket_parts = urlparse(websocket_url)
+    if websocket_parts.hostname not in {"127.0.0.1", "localhost", "::1"}:
+        return websocket_url
+    if cdp_parts.hostname in {"127.0.0.1", "localhost", "::1"}:
+        return websocket_url
+
+    scheme = "wss" if cdp_parts.scheme == "https" else "ws"
+    return urlunparse(
+        websocket_parts._replace(
+            scheme=scheme,
+            netloc=cdp_parts.netloc,
+        )
+    )
 
 
 def is_login_required(url: str, page_text: str) -> bool:
@@ -169,4 +206,3 @@ def _binding_key(account_id: str | None, douyin_id: str | None, poi_id: str | No
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
