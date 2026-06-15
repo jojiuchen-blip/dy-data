@@ -99,3 +99,21 @@ def test_api_error_sanitizes_secret_values():
 
     assert "secret-1" not in str(exc_info.value)
     assert "[redacted]" in str(exc_info.value)
+
+
+def test_api_error_detects_nested_data_error_code():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"error_code": 2119005, "description": "应用未获商家授权"}}),
+        ]
+    )
+    client = client_with(http)
+
+    with pytest.raises(DouyinApiError) as exc_info:
+        client.query_orders(
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+            datetime(2026, 1, 2, tzinfo=timezone.utc),
+        )
+
+    assert "应用未获商家授权" in str(exc_info.value)

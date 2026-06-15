@@ -171,6 +171,10 @@ class DouyinOpenApiClient:
 
 def _has_api_error(payload: dict[str, Any]) -> bool:
     code = payload.get("error_code", payload.get("err_no", payload.get("code")))
+    if code in (None, 0, "0"):
+        data = payload.get("data")
+        if isinstance(data, dict):
+            code = data.get("error_code")
     return code not in (None, 0, "0")
 
 
