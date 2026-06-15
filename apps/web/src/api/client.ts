@@ -9,12 +9,16 @@ import {
 } from "../data/mockData";
 import type {
   ApiResponse,
+  AdminUser,
   DetailFilters,
   FilterMetaData,
   MonthlySettlementData,
   OrderDetailsData,
   SelectOption,
   SettlementViewData,
+  SkuProductCommissionRule,
+  SkuRuleListData,
+  SkuRuleUpdateResult,
   StoreRankingData,
 } from "../types/dashboard";
 import {
@@ -91,6 +95,35 @@ async function requestJson<T>(
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new ApiRequestError(response.status);
+  }
+
+  return response.json() as Promise<ApiResponse<T>>;
+}
+
+async function sendJson<T>(
+  path: string,
+  {
+    body,
+    method = "POST",
+    params,
+  }: {
+    body?: unknown;
+    method?: "POST" | "PUT";
+    params?: QueryParams;
+  } = {},
+): Promise<ApiResponse<T>> {
+  const response = await fetch(apiUrl(path, params), {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method,
   });
 
   if (!response.ok) {
@@ -282,6 +315,57 @@ export function fetchOrderDetails(
       }),
     () => mockOrderDetailsResponse(query),
   );
+}
+
+export async function loginAdmin(password: string): Promise<ApiLoadResult<AdminUser>> {
+  return {
+    ...(await sendJson<AdminUser>("/auth/login", {
+      body: { username: "admin", password },
+    })),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
+  return { ...(await requestJson<AdminUser>("/auth/me")), usingMock: false };
+}
+
+export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
+  return {
+    ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
+    usingMock: false,
+  };
+}
+
+export async function fetchSkuRules({
+  page,
+  pageSize,
+  q,
+}: {
+  page: number;
+  pageSize: number;
+  q?: string;
+}): Promise<ApiLoadResult<SkuRuleListData>> {
+  return {
+    ...(await requestJson<SkuRuleListData>("/admin/sku-rules", {
+      page,
+      page_size: pageSize,
+      q,
+    })),
+    usingMock: false,
+  };
+}
+
+export async function saveSkuRules(
+  rules: SkuProductCommissionRule[],
+): Promise<ApiLoadResult<SkuRuleUpdateResult>> {
+  return {
+    ...(await sendJson<SkuRuleUpdateResult>("/admin/sku-rules", {
+      body: { rules },
+      method: "PUT",
+    })),
+    usingMock: false,
+  };
 }
 
 export { defaultMonth, defaultStore, DEFAULT_DETAIL_PAGE_SIZE };

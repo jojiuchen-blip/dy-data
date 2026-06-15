@@ -15,6 +15,10 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
+export interface AdminUser {
+  username: string;
+}
+
 export interface Pagination {
   page: number;
   page_size: number;
@@ -157,8 +161,24 @@ export interface DetailFilters {
 
 export interface SkuProductCommissionRule {
   sku_id: string;
+  product_name?: string;
   product_type: string;
   commission_rate: number;
+  is_service_product?: boolean;
+  order_count?: number;
+  verified_coupon_count?: number;
+}
+
+export interface SkuRuleListData {
+  rows: SkuProductCommissionRule[];
+  pagination: Pagination;
+}
+
+export interface SkuRuleUpdateResult {
+  updated_count: number;
+  settlement_detail_count: number;
+  settlement_monthly_count: number;
+  job_id: string;
 }
 
 export interface SettlementViewData extends MonthlySettlementData {

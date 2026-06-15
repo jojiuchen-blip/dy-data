@@ -32,6 +32,39 @@ class AdminUser(BaseModel):
     username: str
 
 
+class SkuRuleRow(BaseModel):
+    sku_id: str
+    product_name: str = ""
+    product_type: str = ""
+    commission_rate: float = 0
+    is_service_product: bool = True
+    order_count: int = 0
+    verified_coupon_count: int = 0
+
+
+class SkuRuleListData(BaseModel):
+    rows: list[SkuRuleRow]
+    pagination: "Pagination"
+
+
+class SkuRuleInput(BaseModel):
+    sku_id: str
+    product_type: str
+    commission_rate: float = Field(ge=0, le=1)
+    is_service_product: bool = True
+
+
+class SkuRuleBulkUpdateRequest(BaseModel):
+    rules: list[SkuRuleInput]
+
+
+class SkuRuleBulkUpdateResult(BaseModel):
+    updated_count: int
+    settlement_detail_count: int
+    settlement_monthly_count: int
+    job_id: str
+
+
 class StoreOption(BaseModel):
     store_id: str
     store_name: str

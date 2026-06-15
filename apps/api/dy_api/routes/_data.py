@@ -8,6 +8,7 @@ import os
 import re
 from collections.abc import Generator, Iterable
 from datetime import datetime
+from decimal import Decimal
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -17,6 +18,11 @@ try:
     from sqlalchemy import text
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     text = None
+
+try:
+    from apps.api.dy_api.models import DimSkuProductRule
+except ImportError:  # pragma: no cover - covered only in stripped runtime images.
+    DimSkuProductRule = None  # type: ignore[assignment]
 
 
 SENSITIVE_ERROR_RE = re.compile(
@@ -233,6 +239,135 @@ class DashboardDataStore:
             """
         )
         return [_to_str(row.get("month")) for row in rows if row.get("month")]
+
+    def list_sku_rules(
+        self, *, page: int, page_size: int, q: str | None = None
+    ) -> dict[str, Any]:
+        page = max(1, page)
+        page_size = max(1, min(page_size, 1000))
+        offset = (page - 1) * page_size
+        params: dict[str, Any] = {"limit": page_size, "offset": offset}
+        count_where_sql = ""
+        row_where_sql = ""
+        query = _to_str(q).strip().lower()
+        if query:
+            count_where_sql = "WHERE lower(sku_id) LIKE :q OR lower(product_name) LIKE :q"
+            row_where_sql = (
+                "WHERE lower(sku_rows.sku_id) LIKE :q "
+                "OR lower(sku_rows.product_name) LIKE :q"
+            )
+            params["q"] = f"%{query}%"
+
+        source_cte = """
+            WITH sku_source AS (
+                SELECT sku_id,
+                       product_name,
+                       order_id,
+                       NULL AS coupon_id
+                FROM raw_douyin_orders
+                WHERE sku_id IS NOT NULL AND sku_id != ''
+                UNION ALL
+                SELECT sku_id,
+                       product_name,
+                       NULL AS order_id,
+                       coupon_id
+                FROM raw_douyin_verify_records
+                WHERE sku_id IS NOT NULL AND sku_id != ''
+                UNION ALL
+                SELECT sku_id,
+                       product_name,
+                       NULL AS order_id,
+                       NULL AS coupon_id
+                FROM dim_sku_product_rules
+                WHERE sku_id IS NOT NULL AND sku_id != ''
+            ),
+            sku_rows AS (
+                SELECT sku_id,
+                       COALESCE(MAX(NULLIF(product_name, '')), '') AS product_name,
+                       COUNT(DISTINCT order_id) AS order_count,
+                       COUNT(DISTINCT coupon_id) AS verified_coupon_count
+                FROM sku_source
+                GROUP BY sku_id
+            )
+        """
+        total_rows = self._execute(
+            f"""
+            {source_cte}
+            SELECT COUNT(*) AS total
+            FROM sku_rows
+            {count_where_sql}
+            """,
+            params,
+        )
+        rows = self._execute(
+            f"""
+            {source_cte}
+            SELECT sku_rows.sku_id,
+                   COALESCE(NULLIF(rules.product_name, ''), sku_rows.product_name, '') AS product_name,
+                   COALESCE(rules.product_type, '') AS product_type,
+                   COALESCE(rules.commission_rate, 0) AS commission_rate,
+                   COALESCE(rules.is_service_product, true) AS is_service_product,
+                   sku_rows.order_count,
+                   sku_rows.verified_coupon_count
+            FROM sku_rows
+            LEFT JOIN dim_sku_product_rules rules ON rules.sku_id = sku_rows.sku_id
+            {row_where_sql}
+            ORDER BY sku_rows.sku_id
+            LIMIT :limit OFFSET :offset
+            """,
+            params,
+        )
+        total = _to_int(total_rows[0].get("total"), 0) if total_rows else 0
+        return {
+            "rows": [self._clean_sku_rule_row(row) for row in rows],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": _total_pages(total, page_size),
+            },
+        }
+
+    def upsert_sku_rules(self, rules: list[dict[str, Any]]) -> int:
+        if self.session is None or DimSkuProductRule is None:
+            return 0
+        updated = 0
+        for rule in rules:
+            sku_id = _to_str(rule.get("sku_id")).strip()
+            product_type = _to_str(rule.get("product_type")).strip()
+            if not sku_id or not product_type:
+                continue
+            existing_name = self._sku_product_name(sku_id)
+            self.session.merge(
+                DimSkuProductRule(
+                    sku_id=sku_id,
+                    product_type=product_type,
+                    product_name=existing_name,
+                    commission_rate=Decimal(str(rule.get("commission_rate") or 0)),
+                    is_service_product=_to_bool(rule.get("is_service_product")),
+                )
+            )
+            updated += 1
+        self.session.flush()
+        return updated
+
+    def _sku_product_name(self, sku_id: str) -> str | None:
+        rows = self._execute(
+            """
+            SELECT product_name
+            FROM (
+                SELECT product_name FROM raw_douyin_orders WHERE sku_id = :sku_id
+                UNION ALL
+                SELECT product_name FROM raw_douyin_verify_records WHERE sku_id = :sku_id
+                UNION ALL
+                SELECT product_name FROM dim_sku_product_rules WHERE sku_id = :sku_id
+            ) names
+            WHERE product_name IS NOT NULL AND product_name != ''
+            LIMIT 1
+            """,
+            {"sku_id": sku_id},
+        )
+        return _to_str(rows[0].get("product_name")) if rows else None
 
     def latest_job(self) -> dict[str, Any] | None:
         rows = self.recent_jobs(1)
@@ -602,6 +737,17 @@ class DashboardDataStore:
             "success_count": _to_int(row.get("success_count")),
             "failed_count": _to_int(row.get("failed_count")),
             "error_message": sanitize_error_message(row.get("error_message")),
+        }
+
+    def _clean_sku_rule_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "sku_id": _to_str(row.get("sku_id")),
+            "product_name": _to_str(row.get("product_name")),
+            "product_type": _to_str(row.get("product_type")),
+            "commission_rate": _to_float(row.get("commission_rate")),
+            "is_service_product": _to_bool(row.get("is_service_product")),
+            "order_count": _to_int(row.get("order_count")),
+            "verified_coupon_count": _to_int(row.get("verified_coupon_count")),
         }
 
     def _clean_ranking_row(self, rank: int, row: dict[str, Any]) -> dict[str, Any]:

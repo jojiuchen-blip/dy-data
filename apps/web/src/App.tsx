@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Shell } from "./components/Shell";
+import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
 import { StoreSettlementPage } from "./pages/StoreSettlementPage";
@@ -51,6 +52,10 @@ export function App() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+
+  if (location.pathname === "/rule-admin") {
+    return <AdminSkuRulesPage />;
+  }
 
   const page =
     location.pathname === "/settlement" ? (
