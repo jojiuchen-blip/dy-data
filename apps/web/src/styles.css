@@ -70,15 +70,11 @@ a {
 }
 
 .brand__mark {
-  display: grid;
-  width: 38px;
-  height: 38px;
-  place-items: center;
-  border: 1px solid var(--line-strong);
-  background: var(--ink);
-  color: #fffdf8;
-  font-size: 13px;
-  font-weight: 800;
+  display: block;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .brand strong,

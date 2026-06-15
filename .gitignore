@@ -9,6 +9,7 @@ __pycache__/
 /output_refund/
 /logs/
 /runs/
+/local_exports/
 
 # Keep this repository focused on source scripts and documentation.
 .env

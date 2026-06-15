@@ -1,0 +1,190 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Business loop operations hub icon</title>
+  <desc id="desc">Three operation inputs flow into a verified completion node, representing a closed-loop business operations hub.</desc>
+  <defs>
+    <linearGradient id="bgBase" x1="148" y1="104" x2="856" y2="934" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#263646"/>
+      <stop offset="0.3" stop-color="#172532"/>
+      <stop offset="0.66" stop-color="#0B1723"/>
+      <stop offset="1" stop-color="#07111B"/>
+    </linearGradient>
+    <radialGradient id="bgTopGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(260 130) rotate(51) scale(705 572)">
+      <stop offset="0" stop-color="#52667A" stop-opacity="0.4"/>
+      <stop offset="0.36" stop-color="#223445" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#0A1420" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="bgBottomShade" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(737 773) rotate(-128) scale(707 535)">
+      <stop offset="0" stop-color="#02080E" stop-opacity="0.64"/>
+      <stop offset="0.54" stop-color="#07111B" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#07111B" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="appEdge" x1="166" y1="90" x2="861" y2="934" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#40546A" stop-opacity="0.8"/>
+      <stop offset="0.46" stop-color="#243343" stop-opacity="0.34"/>
+      <stop offset="1" stop-color="#030A11" stop-opacity="0.6"/>
+    </linearGradient>
+
+    <linearGradient id="topFlow" x1="237" y1="220" x2="641" y2="397" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#49BFFF"/>
+      <stop offset="0.25" stop-color="#38D1F4"/>
+      <stop offset="0.58" stop-color="#30D8D6"/>
+      <stop offset="1" stop-color="#64EEC5"/>
+    </linearGradient>
+    <linearGradient id="midFlow" x1="241" y1="512" x2="644" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#70EFD0"/>
+      <stop offset="0.37" stop-color="#35DCCC"/>
+      <stop offset="0.7" stop-color="#2DD3DF"/>
+      <stop offset="1" stop-color="#4EE6C6"/>
+    </linearGradient>
+    <linearGradient id="bottomFlow" x1="239" y1="786" x2="644" y2="628" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF5C65"/>
+      <stop offset="0.16" stop-color="#F58476"/>
+      <stop offset="0.34" stop-color="#78BFCB"/>
+      <stop offset="0.56" stop-color="#35D0E4"/>
+      <stop offset="1" stop-color="#62EBC7"/>
+    </linearGradient>
+    <linearGradient id="flowTopHighlight" x1="252" y1="210" x2="622" y2="372" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.32"/>
+      <stop offset="0.58" stop-color="#FFFFFF" stop-opacity="0.13"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+
+    <radialGradient id="blueNode" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(215 211) rotate(48) scale(116)">
+      <stop offset="0" stop-color="#83F1FF"/>
+      <stop offset="0.43" stop-color="#43C8FF"/>
+      <stop offset="1" stop-color="#1A80FA"/>
+    </radialGradient>
+    <radialGradient id="mintNode" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(214 466) rotate(45) scale(116)">
+      <stop offset="0" stop-color="#A6FFDC"/>
+      <stop offset="0.48" stop-color="#61E4C9"/>
+      <stop offset="1" stop-color="#22BFB0"/>
+    </radialGradient>
+    <radialGradient id="coralNode" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(214 721) rotate(45) scale(116)">
+      <stop offset="0" stop-color="#FFAA8A"/>
+      <stop offset="0.42" stop-color="#FF6D6A"/>
+      <stop offset="1" stop-color="#FF3D5E"/>
+    </radialGradient>
+    <radialGradient id="nodeGloss" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(213 211) rotate(45) scale(69)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.46"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="holeFill" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(235 236) rotate(56) scale(58)">
+      <stop offset="0" stop-color="#1B2C3B"/>
+      <stop offset="1" stop-color="#07111B"/>
+    </radialGradient>
+
+    <linearGradient id="verifyOuter" x1="574" y1="383" x2="829" y2="647" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9DFFE0"/>
+      <stop offset="0.34" stop-color="#57E9CF"/>
+      <stop offset="0.68" stop-color="#27CEC8"/>
+      <stop offset="1" stop-color="#2A9DD5"/>
+    </linearGradient>
+    <radialGradient id="verifyGloss" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(641 410) rotate(49) scale(196)">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.42"/>
+      <stop offset="0.42" stop-color="#FFFFFF" stop-opacity="0.12"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="verifyInner" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(676 446) rotate(53) scale(181)">
+      <stop offset="0" stop-color="#2B3D4D"/>
+      <stop offset="0.56" stop-color="#142331"/>
+      <stop offset="1" stop-color="#07111B"/>
+    </radialGradient>
+    <linearGradient id="checkFill" x1="649" y1="476" x2="761" y2="557" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E9F1F8"/>
+    </linearGradient>
+
+    <filter id="appShadow" x="34" y="43" width="956" height="969" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="20" stdDeviation="30" flood-color="#03080E" flood-opacity="0.28"/>
+      <feDropShadow dx="0" dy="2" stdDeviation="1" flood-color="#000000" flood-opacity="0.25"/>
+    </filter>
+    <filter id="flowShadow" x="145" y="173" width="585" height="678" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="10" stdDeviation="9" flood-color="#02080E" flood-opacity="0.4"/>
+      <feDropShadow dx="0" dy="-2" stdDeviation="1" flood-color="#FFFFFF" flood-opacity="0.08"/>
+    </filter>
+    <filter id="nodeShadow" x="141" y="150" width="211" height="703" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="13" stdDeviation="11" flood-color="#020A12" flood-opacity="0.46"/>
+    </filter>
+    <filter id="verifyShadow" x="504" y="329" width="392" height="392" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="16" stdDeviation="16" flood-color="#020A12" flood-opacity="0.52"/>
+    </filter>
+    <filter id="checkShadow" x="596" y="420" width="228" height="195" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feDropShadow dx="0" dy="7" stdDeviation="5" flood-color="#02080E" flood-opacity="0.42"/>
+    </filter>
+    <filter id="blurGlow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feGaussianBlur stdDeviation="20"/>
+    </filter>
+
+    <clipPath id="appClip">
+      <rect x="72" y="72" width="880" height="880" rx="184"/>
+    </clipPath>
+  </defs>
+
+  <g filter="url(#appShadow)">
+    <rect x="72" y="72" width="880" height="880" rx="184" fill="url(#bgBase)"/>
+    <rect x="72" y="72" width="880" height="880" rx="184" fill="url(#bgTopGlow)"/>
+    <rect x="72" y="72" width="880" height="880" rx="184" fill="url(#bgBottomShade)"/>
+    <rect x="73.5" y="73.5" width="877" height="877" rx="182.5" stroke="url(#appEdge)" stroke-width="3"/>
+  </g>
+
+  <g clip-path="url(#appClip)">
+    <ellipse cx="700" cy="604" rx="176" ry="128" fill="#02070D" opacity="0.24" filter="url(#blurGlow)"/>
+    <ellipse cx="300" cy="786" rx="180" ry="86" fill="#02070D" opacity="0.22" filter="url(#blurGlow)"/>
+
+    <g filter="url(#flowShadow)" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M246 257H305C366 257 377 361 455 384C481 392 505 392 533 392H626" stroke="#07131D" stroke-width="76" opacity="0.36"/>
+      <path d="M246 512H632" stroke="#07131D" stroke-width="76" opacity="0.34"/>
+      <path d="M246 767H305C366 767 377 663 455 640C481 632 505 632 533 632H626" stroke="#07131D" stroke-width="76" opacity="0.36"/>
+
+      <path d="M246 257H305C366 257 377 361 455 384C481 392 505 392 533 392H626" stroke="url(#topFlow)" stroke-width="59"/>
+      <path d="M246 512H632" stroke="url(#midFlow)" stroke-width="59"/>
+      <path d="M246 767H305C366 767 377 663 455 640C481 632 505 632 533 632H626" stroke="url(#bottomFlow)" stroke-width="59"/>
+
+      <path d="M253 231H305C376 231 395 340 462 358C487 365 508 365 533 365H615" stroke="url(#flowTopHighlight)" stroke-width="13" opacity="0.44"/>
+      <path d="M253 487H617" stroke="#FFFFFF" stroke-width="12" opacity="0.14"/>
+      <path d="M253 740H304C362 740 371 642 451 613C482 602 509 602 533 602H614" stroke="#FFFFFF" stroke-width="12" opacity="0.13"/>
+    </g>
+
+    <g filter="url(#nodeShadow)">
+      <g>
+        <circle cx="244" cy="257" r="70" fill="url(#blueNode)"/>
+        <circle cx="244" cy="257" r="70" fill="url(#nodeGloss)"/>
+        <circle cx="244" cy="257" r="69" stroke="#B7F7FF" stroke-opacity="0.24" stroke-width="2"/>
+        <circle cx="244" cy="257" r="29" fill="url(#holeFill)"/>
+        <circle cx="244" cy="257" r="30.5" stroke="#06111B" stroke-opacity="0.45" stroke-width="5"/>
+        <circle cx="233" cy="244" r="19" fill="#FFFFFF" opacity="0.06"/>
+      </g>
+      <g>
+        <circle cx="244" cy="512" r="70" fill="url(#mintNode)"/>
+        <circle cx="244" cy="512" r="70" fill="url(#nodeGloss)"/>
+        <circle cx="244" cy="512" r="69" stroke="#C9FFE9" stroke-opacity="0.24" stroke-width="2"/>
+        <circle cx="244" cy="512" r="29" fill="url(#holeFill)"/>
+        <circle cx="244" cy="512" r="30.5" stroke="#06111B" stroke-opacity="0.45" stroke-width="5"/>
+        <circle cx="233" cy="499" r="19" fill="#FFFFFF" opacity="0.06"/>
+      </g>
+      <g>
+        <circle cx="244" cy="767" r="70" fill="url(#coralNode)"/>
+        <circle cx="244" cy="767" r="70" fill="url(#nodeGloss)"/>
+        <circle cx="244" cy="767" r="69" stroke="#FFD3C8" stroke-opacity="0.24" stroke-width="2"/>
+        <circle cx="244" cy="767" r="29" fill="url(#holeFill)"/>
+        <circle cx="244" cy="767" r="30.5" stroke="#06111B" stroke-opacity="0.45" stroke-width="5"/>
+        <circle cx="233" cy="754" r="19" fill="#FFFFFF" opacity="0.06"/>
+      </g>
+    </g>
+
+    <g filter="url(#verifyShadow)">
+      <circle cx="704" cy="512" r="149" fill="#07111B" opacity="0.55"/>
+      <circle cx="704" cy="512" r="143" fill="url(#verifyOuter)"/>
+      <circle cx="704" cy="512" r="143" fill="url(#verifyGloss)"/>
+      <circle cx="704" cy="512" r="140.5" stroke="#C9FFF0" stroke-opacity="0.32" stroke-width="5"/>
+      <circle cx="704" cy="512" r="104" fill="url(#verifyInner)"/>
+      <circle cx="704" cy="512" r="105" stroke="#06111B" stroke-opacity="0.62" stroke-width="5"/>
+      <path d="M608 428A128 128 0 0 1 770 410" stroke="#FFFFFF" stroke-opacity="0.24" stroke-width="11" stroke-linecap="round"/>
+      <path d="M806 548A111 111 0 0 1 690 619" stroke="#06111B" stroke-opacity="0.28" stroke-width="10" stroke-linecap="round"/>
+      <path d="M650 510L690 550L771 461" stroke="#06111B" stroke-opacity="0.45" stroke-width="52" stroke-linecap="round" stroke-linejoin="round" filter="url(#checkShadow)"/>
+      <path d="M650 510L690 550L771 461" stroke="url(#checkFill)" stroke-width="45" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M650 493L690 533L771 444" stroke="#FFFFFF" stroke-opacity="0.35" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+  </g>
+</svg>

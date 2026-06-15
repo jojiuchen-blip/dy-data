@@ -16,10 +16,15 @@ export function Shell({ currentPath, children }: ShellProps) {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand">
-          <span className="brand__mark">DY</span>
+          <img
+            aria-hidden="true"
+            className="brand__mark"
+            src="/business-loop-icon.svg"
+            alt=""
+          />
           <div>
-            <strong>抖音订单分账数据看板</strong>
-            <span>经销商集团经营复核</span>
+            <strong>抖音经营中枢</strong>
+            <span>销售洞察 · 分账核验</span>
           </div>
         </div>
         <nav className="topnav" aria-label="主导航">
