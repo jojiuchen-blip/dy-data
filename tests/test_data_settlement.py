@@ -18,6 +18,7 @@ from apps.api.dy_api.models import (
 )
 from apps.worker.repositories import (
     upsert_aweme_account,
+    upsert_aweme_binding,
     upsert_order_coupon,
     upsert_raw_order,
     upsert_sku_product_rule,
@@ -240,3 +241,69 @@ def test_numeric_verify_statuses_are_classified_before_settlement(db_session: Se
 
     assert db_session.get(SettlementOrderDetail, "coupon-valid").is_verified is True
     assert db_session.get(SettlementOrderDetail, "coupon-cancelled").is_verified is False
+
+
+def test_owner_nickname_matches_raw_aweme_binding_when_dimension_nickname_is_overwritten(
+    db_session: Session,
+) -> None:
+    upsert_store(
+        db_session,
+        "store-from-binding",
+        "Store From Raw Binding",
+        certified_subject_name="Subject From Raw Binding",
+    )
+    upsert_store(db_session, "store-verify", "Verify Store")
+    upsert_store_poi_mapping(db_session, "store-verify", "poi-verify", mapping_source="fixture")
+    upsert_aweme_account(
+        db_session,
+        "store-from-binding",
+        nickname="Another Douyin Nickname",
+        store_id="store-from-binding",
+        binding_status="认证成功",
+    )
+    upsert_aweme_binding(
+        db_session,
+        "store-from-binding:dy-raw:poi-sale",
+        douyin_id="dy-raw",
+        douyin_nickname="Raw Binding Nickname",
+        account_id="store-from-binding",
+        account_name="Store From Raw Binding",
+        poi_id="poi-sale",
+        binding_status="认证成功",
+        raw_payload={"认证主体": "Subject From Raw Binding"},
+    )
+    upsert_sku_product_rule(
+        db_session,
+        "sku-service",
+        "service",
+        product_name="Service SKU",
+        commission_rate=Decimal("0.1000"),
+        is_service_product=True,
+    )
+    upsert_raw_order(
+        db_session,
+        "order-raw-binding",
+        sku_id="sku-service",
+        pay_time=dt(1),
+        owner_account_id="transfer-uid-not-in-binding",
+        owner_account_name="Raw Binding Nickname",
+        paid_amount_cent=10000,
+    )
+    upsert_order_coupon(db_session, "coupon-raw-binding", "order-raw-binding", coupon_status="fulfilled")
+    upsert_verify_record(
+        db_session,
+        "verify-raw-binding",
+        coupon_id="coupon-raw-binding",
+        verify_status="valid",
+        verify_time=dt(1),
+        poi_id="poi-verify",
+        sku_id="sku-service",
+        paid_amount_cent=10000,
+    )
+
+    run_settlement_job(db_session, job_id="job-raw-binding-owner", source_run_id=SETTLEMENT_RUN_ID)
+
+    detail = db_session.get(SettlementOrderDetail, "coupon-raw-binding")
+    assert detail is not None
+    assert detail.sale_store_id == "store-from-binding"
+    assert detail.sale_store_name == "Store From Raw Binding"

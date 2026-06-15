@@ -8,7 +8,7 @@ from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
-from sqlalchemy import delete, func, or_, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -19,6 +19,7 @@ from apps.api.dy_api.models import (
     DimSkuProductRule,
     DimStore,
     DimStorePoiMapping,
+    RawAwemeBinding,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
@@ -29,6 +30,17 @@ from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_
 
 VALID_VERIFY_STATUSES = {"1", "valid", "verified", "success", "fulfilled", "used"}
 CANCELLED_VERIFY_STATUSES = {"2", "cancelled", "canceled", "revoked", "reversed", "refunded"}
+INACTIVE_BINDING_STATUSES = {
+    "inactive",
+    "unbound",
+    "unbind",
+    "failed",
+    "rejected",
+    "已解绑",
+    "绑定失效",
+    "审核失败",
+    "绑定已拒绝",
+}
 REFUND_EXCLUDED_STATUSES = {
     "cancelled",
     "canceled",
@@ -46,6 +58,14 @@ class SettlementStats:
     issue_count: int
     ranking_count: int
     monthly_count: int
+
+
+@dataclass(frozen=True)
+class OwnerAccountMatch:
+    account_id: str
+    store_id: str | None
+    binding_status: str | None = None
+    match_source: str = "dim_aweme_accounts"
 
 
 def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> SettlementStats:
@@ -193,7 +213,7 @@ def _match_owner(
     coupon: RawDouyinOrderCoupon,
     *,
     source_run_id: str,
-) -> DimAwemeAccount | None:
+) -> OwnerAccountMatch | None:
     id_match = session.get(DimAwemeAccount, order.owner_account_id) if order.owner_account_id else None
     nickname_matches = _nickname_matches(session, order.owner_account_name)
 
@@ -215,6 +235,7 @@ def _match_owner(
                 "owner_account_name": order.owner_account_name,
                 "account_ids": [account.account_id for account in nickname_matches],
                 "store_ids": nickname_store_ids,
+                "match_sources": sorted({account.match_source for account in nickname_matches}),
             },
         )
     else:
@@ -234,17 +255,40 @@ def _match_owner(
     return None
 
 
-def _nickname_matches(session: Session, nickname: str | None) -> list[DimAwemeAccount]:
+def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccountMatch]:
     if not nickname:
         return []
-    return list(
-        session.scalars(
-            select(DimAwemeAccount).where(
-                DimAwemeAccount.nickname == nickname,
-                or_(DimAwemeAccount.binding_status.is_(None), DimAwemeAccount.binding_status != "inactive"),
-            )
-        )
+    matches: dict[tuple[str, str | None], OwnerAccountMatch] = {}
+    dim_accounts = list(
+        session.scalars(select(DimAwemeAccount).where(DimAwemeAccount.nickname == nickname))
     )
+    for account in dim_accounts:
+        if _is_active_binding_status(account.binding_status):
+            matches[(account.account_id, account.store_id)] = OwnerAccountMatch(
+                account_id=account.account_id,
+                store_id=account.store_id,
+                binding_status=account.binding_status,
+            )
+
+    raw_bindings = list(
+        session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
+    )
+    for binding in raw_bindings:
+        if not binding.account_id or not _is_active_binding_status(binding.binding_status):
+            continue
+        dim_account = session.get(DimAwemeAccount, binding.account_id)
+        store_id = dim_account.store_id if dim_account and dim_account.store_id else binding.account_id
+        matches[(binding.account_id, store_id)] = OwnerAccountMatch(
+            account_id=binding.account_id,
+            store_id=store_id,
+            binding_status=binding.binding_status,
+            match_source="raw_aweme_bindings",
+        )
+    return list(matches.values())
+
+
+def _is_active_binding_status(status: str | None) -> bool:
+    return _normalized(status) not in INACTIVE_BINDING_STATUSES
 
 
 def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVerifyRecord | None:
