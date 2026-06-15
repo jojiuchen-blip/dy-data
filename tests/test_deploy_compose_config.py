@@ -31,4 +31,5 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "location /browser/" in nginx
     assert "auth_request" not in nginx
     assert "return 302 /browser/vnc.html;" in nginx
+    assert "location /websockify" in nginx
     assert "absolute_redirect off;" in nginx
