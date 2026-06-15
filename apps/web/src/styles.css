@@ -238,68 +238,10 @@ h2 {
     minmax(190px, 1fr) auto;
 }
 
-.advanced-filters {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: rgb(255 253 248 / 70%);
-}
-
-.advanced-filters summary {
-  display: flex;
-  min-height: 42px;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  padding: 9px 14px;
-  color: var(--ink);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 800;
-  list-style: none;
-  outline: none;
-}
-
-.advanced-filters summary::-webkit-details-marker {
-  display: none;
-}
-
-.advanced-filters summary::before {
-  width: 18px;
-  height: 18px;
-  flex: 0 0 auto;
-  border: 1px solid var(--line-strong);
-  border-radius: 50%;
-  color: var(--green);
-  content: "+";
-  font-size: 14px;
-  line-height: 16px;
-  text-align: center;
-}
-
-.advanced-filters[open] summary::before {
-  content: "-";
-}
-
-.advanced-filters summary small {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 3px 8px;
-  background: var(--surface);
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.advanced-filters summary:focus-visible {
-  box-shadow: 0 0 0 3px rgb(23 107 91 / 18%);
-}
-
-.advanced-filter-bar {
-  border: 0;
-  border-top: 1px solid var(--line);
-  border-radius: 0 0 8px 8px;
-  background: transparent;
-  box-shadow: none;
+.detail-filter-bar--secondary {
+  grid-template-columns:
+    minmax(180px, 0.8fr) minmax(180px, 0.8fr)
+    minmax(250px, 1.25fr) minmax(180px, 0.8fr);
 }
 
 .filter-field {

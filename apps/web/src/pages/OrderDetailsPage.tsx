@@ -79,18 +79,6 @@ function activeChips(
   return chips;
 }
 
-function advancedFilterCount(filters: DetailFilters): number {
-  const advancedValues = [
-    filters.sale_month,
-    filters.is_verified,
-    filters.verify_store_id,
-    filters.exclude_verify_store_id,
-    filters.is_commissionable,
-  ];
-
-  return advancedValues.filter(Boolean).length;
-}
-
 function positiveInteger(value: string | null, fallback: number): number {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
@@ -255,8 +243,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     setFilters({});
     setPage(1);
   };
-
-  const advancedCount = advancedFilterCount(filters);
 
   const columns: Column<OrderDetail>[] = [
     {
@@ -439,68 +425,58 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           </button>
         </FilterBar>
 
-        <details className="advanced-filters">
-          <summary>
-            <span>更多筛选</span>
-            <small>
-              {advancedCount > 0
-                ? `${advancedCount} 项已启用`
-                : "销售、核销与状态条件"}
-            </small>
-          </summary>
-          <FilterBar className="advanced-filter-bar">
-            <FilterField label="销售月份">
-              <select
-                value={filters.sale_month ?? ""}
-                onChange={(event) => updateFilter("sale_month", event.target.value)}
-              >
-                <option value="">全部</option>
-                {saleMonthOptions(meta, filters.sale_month).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-            <FilterField label="是否核销">
-              <select
-                value={filters.is_verified ?? ""}
-                onChange={(event) => updateFilter("is_verified", event.target.value)}
-              >
-                {booleanOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-            <FilterField label="实际核销门店">
-              <SearchableStoreSelect
-                allowEmpty
-                options={storeOptions(
-                  meta,
-                  selectedStoreOption(meta, filters.verify_store_id),
-                )}
-                value={filters.verify_store_id ?? ""}
-                onChange={(value) => updateFilter("verify_store_id", value)}
-              />
-            </FilterField>
-            <FilterField label="是否分佣">
-              <select
-                value={filters.is_commissionable ?? ""}
-                onChange={(event) =>
-                  updateFilter("is_commissionable", event.target.value)
-                }
-              >
-                {booleanOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-          </FilterBar>
-        </details>
+        <FilterBar className="detail-filter-bar detail-filter-bar--secondary">
+          <FilterField label="销售月份">
+            <select
+              value={filters.sale_month ?? ""}
+              onChange={(event) => updateFilter("sale_month", event.target.value)}
+            >
+              <option value="">全部</option>
+              {saleMonthOptions(meta, filters.sale_month).map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="是否核销">
+            <select
+              value={filters.is_verified ?? ""}
+              onChange={(event) => updateFilter("is_verified", event.target.value)}
+            >
+              {booleanOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+          <FilterField label="实际核销门店">
+            <SearchableStoreSelect
+              allowEmpty
+              options={storeOptions(
+                meta,
+                selectedStoreOption(meta, filters.verify_store_id),
+              )}
+              value={filters.verify_store_id ?? ""}
+              onChange={(value) => updateFilter("verify_store_id", value)}
+            />
+          </FilterField>
+          <FilterField label="是否分佣">
+            <select
+              value={filters.is_commissionable ?? ""}
+              onChange={(event) =>
+                updateFilter("is_commissionable", event.target.value)
+              }
+            >
+              {booleanOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </FilterField>
+        </FilterBar>
       </div>
 
       {chips.length > 0 ? (
