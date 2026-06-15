@@ -209,6 +209,7 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
         settlement_definitions["estimated_receivable_commission_cent"]["label"]
         == "预计应收分佣"
     )
+    assert "commissionable_total_cent" not in settlement_definitions
     assert (
         "按当前规则测算的参考额"
         in settlement_definitions["estimated_payable_commission_cent"]["description"]

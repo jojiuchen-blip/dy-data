@@ -19,11 +19,6 @@
       "description": "本店卖出的券在其他门店核销时，本店按分佣规则预计可以收到的金额。这是按当前规则测算的参考额。"
     },
     {
-      "key": "commissionable_total_cent",
-      "label": "可分佣总金额",
-      "description": "本店卖出、其他门店核销，并且符合分佣规则的订单实收金额合计。这个金额是计算预计应收分佣的基础。"
-    },
-    {
       "key": "estimated_payable_commission_cent",
       "label": "本店预计分出分佣参考额",
       "description": "其他门店卖出的券在本店核销时，本店按分佣规则预计需要分给销售门店的金额。这是按当前规则测算的参考额。"

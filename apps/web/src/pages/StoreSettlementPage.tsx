@@ -68,13 +68,6 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     is_verified: "true",
     verify_month: activeMonth,
   });
-  const commissionableHref = detailsHref({
-    product_type: baseProduct,
-    sale_store_id: activeStoreId,
-    relation_type: "cross_store",
-    is_verified: "true",
-    verify_month: activeMonth,
-  });
   const payableHref = detailsHref({
     product_type: baseProduct,
     verify_store_id: activeStoreId,
@@ -102,12 +95,6 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       title: "分佣比例",
       align: "right",
       render: (row) => formatPercent(row.commission_rate),
-    },
-    {
-      key: "total",
-      title: "可分佣总金额",
-      align: "right",
-      render: (row) => formatCurrency(row.commissionable_total_cent),
     },
     {
       key: "estimated",
@@ -221,7 +208,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
         <ResourcePanel tone="error">分账数据暂不可用。</ResourcePanel>
       ) : (
         <>
-          <section className="metric-grid metric-grid--three">
+          <section className="metric-grid metric-grid--two">
             <MetricCard
               description={definitionFor("estimated_receivable_commission_cent")}
               href={receivableHref}
@@ -230,14 +217,6 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               value={formatCurrency(
                 view.metrics.estimated_receivable_commission_cent,
               )}
-            />
-            <MetricCard
-              description={definitionFor("commissionable_total_cent")}
-              href={commissionableHref}
-              label="可分佣总金额"
-              meta="点击查看明细"
-              tone="blue"
-              value={formatCurrency(view.metrics.commissionable_total_cent)}
             />
             <MetricCard
               description={definitionFor("estimated_payable_commission_cent")}
