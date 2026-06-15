@@ -30,3 +30,4 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "ports:" not in compose.split("  browser:", 1)[1].split("  proxy:", 1)[0]
     assert "location /browser/" in nginx
     assert "auth_request /__auth;" in nginx
+    assert "absolute_redirect off;" in nginx
