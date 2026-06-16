@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class ApiMeta(BaseModel):
@@ -202,7 +202,15 @@ class ClueReassignRuleData(BaseModel):
 
 
 class ClueReassignRuleUpdate(BaseModel):
-    reassign_sla_hours: int | None = Field(default=None, ge=1, le=168)
+    reassign_sla_hours: int | None = None
+
+    @field_validator("reassign_sla_hours")
+    def validate_reassign_sla_hours(cls, value: int | None) -> int | None:
+        if value is None:
+            return None
+        if value < 1 or value > 168:
+            raise ValueError("reassign_sla_hours must be between 1 and 168")
+        return value
 
 
 class ClueRebuildResult(BaseModel):
