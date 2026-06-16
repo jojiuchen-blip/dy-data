@@ -32,6 +32,9 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
     assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
     assert 'BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"' in entrypoint
+    assert "--disable-crash-reporter" in entrypoint
+    assert "--disable-breakpad" in entrypoint
+    assert "--crash-dumps-dir=/tmp/chromium-crashes" in entrypoint
     assert "ports:" not in compose.split("  browser:", 1)[1].split("  proxy:", 1)[0]
     assert "location /browser/" in nginx
     assert "auth_request" not in nginx

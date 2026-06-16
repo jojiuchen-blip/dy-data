@@ -7,7 +7,7 @@ if [ -z "${VNC_PASSWORD:-}" ]; then
 fi
 
 NOVNC_PORT="${PORT:-${NOVNC_PORT:-6080}}"
-mkdir -p "$HOME/Downloads" "$HOME/.config/chromium" "$HOME/.vnc"
+mkdir -p "$HOME/Downloads" "$HOME/.config/chromium" "$HOME/.vnc" /tmp/chromium-crashes
 x11vnc -storepasswd "$VNC_PASSWORD" "$HOME/.vnc/passwd" >/dev/null 2>&1
 
 python3 - "$CHROMIUM_REMOTE_DEBUGGING_PORT" "$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" <<'PY' >/tmp/cdp-proxy.log 2>&1 &
@@ -99,8 +99,11 @@ done
 chromium \
   --no-first-run \
   --no-default-browser-check \
+  --disable-breakpad \
+  --disable-crash-reporter \
   --disable-dev-shm-usage \
   --no-sandbox \
+  --crash-dumps-dir=/tmp/chromium-crashes \
   --user-data-dir="$HOME/.config/chromium" \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" \
