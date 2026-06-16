@@ -19,6 +19,8 @@ RUN set -eux; \
             fluxbox \
             fonts-noto-cjk \
             novnc \
+            python3 \
+            python3-pip \
             websockify \
             x11vnc \
             xvfb \
@@ -34,7 +36,17 @@ RUN useradd -ms /bin/bash browser \
     && mkdir -p /home/browser/Downloads /home/browser/.config/chromium /home/browser/.vnc \
     && chown -R browser:browser /home/browser
 
-COPY entrypoint.sh /usr/local/bin/browser-entrypoint.sh
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt
+
+COPY src ./src
+COPY scripts ./scripts
+COPY apps/api ./apps/api
+COPY apps/worker ./apps/worker
+
+COPY deploy/browser/entrypoint.sh /usr/local/bin/browser-entrypoint.sh
 
 RUN sed -i 's/\r$//' /usr/local/bin/browser-entrypoint.sh \
     && chmod +x /usr/local/bin/browser-entrypoint.sh
@@ -42,6 +54,7 @@ RUN sed -i 's/\r$//' /usr/local/bin/browser-entrypoint.sh \
 USER browser
 WORKDIR /home/browser
 
+ENV PYTHONPATH=/app:/app/apps/api
 ENV DISPLAY=:99
 ENV PORT=6080
 ENV NOVNC_PORT=6080

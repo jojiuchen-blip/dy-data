@@ -27,6 +27,9 @@ def test_browser_profile_and_downloads_are_private_volumes():
 
     assert "browser-profile:/home/browser/.config/chromium" in compose
     assert "browser-downloads:/home/browser/Downloads" in compose
+    assert "dockerfile: deploy/browser/Dockerfile" in compose
+    assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
+    assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
     assert "ports:" not in compose.split("  browser:", 1)[1].split("  proxy:", 1)[0]
     assert "location /browser/" in nginx
     assert "auth_request" not in nginx

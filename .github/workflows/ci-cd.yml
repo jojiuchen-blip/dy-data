@@ -66,6 +66,9 @@ jobs:
       - name: Build Worker Docker image
         run: docker build -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
 
+      - name: Build Browser Docker image
+        run: docker build -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
+
       - name: Build Web Docker image
         run: docker build -f apps/web/Dockerfile -t dy-dashboard-web:ci apps/web
 
@@ -81,7 +84,7 @@ jobs:
       RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT }}
       RAILWAY_API_SERVICE_ID: ${{ vars.RAILWAY_API_SERVICE_ID }}
       RAILWAY_WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
-      RAILWAY_BROWSER_SYNC_SERVICE_ID: ${{ vars.RAILWAY_BROWSER_SYNC_SERVICE_ID }}
+      RAILWAY_BROWSER_SERVICE_ID: ${{ vars.RAILWAY_BROWSER_SERVICE_ID }}
       RAILWAY_WEB_SERVICE_ID: ${{ vars.RAILWAY_WEB_SERVICE_ID }}
       RAILWAY_WEB_URL: ${{ vars.RAILWAY_WEB_URL }}
 
@@ -243,34 +246,34 @@ jobs:
           }
           wait_for_deployment "$RAILWAY_WORKER_SERVICE_ID" "${{ steps.deploy_worker.outputs.deployment_id }}"
 
-      - name: Deploy Browser Sync
-        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SYNC_SERVICE_ID != '' }}
-        id: deploy_browser_sync
+      - name: Deploy Browser
+        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SERVICE_ID != '' }}
+        id: deploy_browser
         run: |
           set +e
           output="$(railway up \
             --project "$RAILWAY_PROJECT_ID" \
             --environment "$RAILWAY_ENVIRONMENT" \
-            --service "$RAILWAY_BROWSER_SYNC_SERVICE_ID" \
+            --service "$RAILWAY_BROWSER_SERVICE_ID" \
             --detach \
             --json \
-            --message "browser-sync ${GITHUB_SHA}" 2>&1)"
+            --message "browser ${GITHUB_SHA}" 2>&1)"
           status=$?
           set -e
           echo "$output"
           if [ "$status" -ne 0 ]; then
-            echo "::error::Railway Browser Sync deployment command failed"
+            echo "::error::Railway Browser deployment command failed"
             exit "$status"
           fi
           deployment_id="$(echo "$output" | jq -r '.deploymentId')"
           if [ -z "$deployment_id" ] || [ "$deployment_id" = "null" ]; then
-            echo "::error::Railway did not return a Browser Sync deployment id"
+            echo "::error::Railway did not return a Browser deployment id"
             exit 1
           fi
           echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
 
-      - name: Wait for Browser Sync deployment
-        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SYNC_SERVICE_ID != '' }}
+      - name: Wait for Browser deployment
+        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SERVICE_ID != '' }}
         run: |
           wait_for_deployment() {
             service="$1"
@@ -301,7 +304,7 @@ jobs:
             echo "::error::Timed out waiting for Railway deployment $deployment_id"
             return 1
           }
-          wait_for_deployment "$RAILWAY_BROWSER_SYNC_SERVICE_ID" "${{ steps.deploy_browser_sync.outputs.deployment_id }}"
+          wait_for_deployment "$RAILWAY_BROWSER_SERVICE_ID" "${{ steps.deploy_browser.outputs.deployment_id }}"
 
       - name: Deploy Web
         if: ${{ env.RAILWAY_TOKEN != '' }}
