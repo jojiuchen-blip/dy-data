@@ -24,12 +24,14 @@ def test_compose_wires_worker_collection_defaults():
 def test_browser_profile_and_downloads_are_private_volumes():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy" / "nginx.conf").read_text(encoding="utf-8")
+    entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(encoding="utf-8")
 
     assert "browser-profile:/home/browser/.config/chromium" in compose
     assert "browser-downloads:/home/browser/Downloads" in compose
     assert "dockerfile: deploy/browser/Dockerfile" in compose
     assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
     assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
+    assert 'BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"' in entrypoint
     assert "ports:" not in compose.split("  browser:", 1)[1].split("  proxy:", 1)[0]
     assert "location /browser/" in nginx
     assert "auth_request" not in nginx

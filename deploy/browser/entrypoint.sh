@@ -109,7 +109,7 @@ if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
       sleep "$delay"
       while true; do
         echo "run_start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        if BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_PORT}" \
+        if BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}" \
           WORKER_MODE=browser_export_only \
           WORKER_RUN_ONCE=true \
           WORKER_RUN_ON_START=true \
