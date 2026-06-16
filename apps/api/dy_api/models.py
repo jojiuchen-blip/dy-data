@@ -103,6 +103,34 @@ class RawAwemeBinding(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class RawDouyinClue(Base):
+    __tablename__ = "raw_douyin_clues"
+
+    clue_row_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    clue_id: Mapped[str | None] = mapped_column(Text, index=True)
+    source_window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    source_window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fetched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    create_time_detail: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    modify_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    name: Mapped[str | None] = mapped_column(Text)
+    telephone: Mapped[str | None] = mapped_column(Text)
+    enc_telephone: Mapped[str | None] = mapped_column(Text)
+    product_id: Mapped[str | None] = mapped_column(Text, index=True)
+    product_name: Mapped[str | None] = mapped_column(Text)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    order_status: Mapped[str | None] = mapped_column(Text, index=True)
+    follow_life_account_id: Mapped[str | None] = mapped_column(Text, index=True)
+    follow_life_account_name: Mapped[str | None] = mapped_column(Text)
+    auto_city_name: Mapped[str | None] = mapped_column(Text, index=True)
+    auto_province_name: Mapped[str | None] = mapped_column(Text)
+    author_nickname: Mapped[str | None] = mapped_column(Text)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    source_file: Mapped[str | None] = mapped_column(Text)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class DimStore(Base):
     __tablename__ = "dim_stores"
 
@@ -254,3 +282,77 @@ class DataQualityIssue(Base):
     raw_context_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueCenterOrder(Base):
+    __tablename__ = "clue_center_orders"
+
+    order_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_clue_ids: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    source_clue_count: Mapped[int] = mapped_column(Integer, default=0)
+    canonical_clue_id: Mapped[str | None] = mapped_column(Text, index=True)
+    lead_status: Mapped[str] = mapped_column(String(32), index=True)
+    current_assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    current_round_no: Mapped[int] = mapped_column(Integer, default=1)
+    current_round_status: Mapped[str] = mapped_column(String(32), index=True)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    assigned_at_source: Mapped[str] = mapped_column(Text, default="clue_create_time_detail")
+    assigned_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    assigned_store_name: Mapped[str | None] = mapped_column(Text)
+    assigned_city: Mapped[str | None] = mapped_column(Text, index=True)
+    assigned_province: Mapped[str | None] = mapped_column(Text)
+    phone_masked: Mapped[str | None] = mapped_column(Text)
+    phone_source: Mapped[str | None] = mapped_column(Text)
+    product_id: Mapped[str | None] = mapped_column(Text, index=True)
+    product_name: Mapped[str | None] = mapped_column(Text)
+    product_type: Mapped[str | None] = mapped_column(Text, index=True)
+    author_nickname: Mapped[str | None] = mapped_column(Text)
+    follow_result: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
+    verified_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    verified_store_name: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    is_self_store_verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    reassign_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueAssignmentRound(Base):
+    __tablename__ = "clue_assignment_rounds"
+    __table_args__ = (
+        UniqueConstraint("order_id", "round_no", name="uq_clue_assignment_rounds_order_round"),
+    )
+
+    assignment_round_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    order_id: Mapped[str] = mapped_column(Text, index=True)
+    round_no: Mapped[int] = mapped_column(Integer, default=1)
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    assigned_at_source: Mapped[str] = mapped_column(Text, default="clue_create_time_detail")
+    assigned_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    assigned_store_name: Mapped[str | None] = mapped_column(Text)
+    followed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    follow_result: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
+    round_status: Mapped[str] = mapped_column(String(32), index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    reassign_reason: Mapped[str | None] = mapped_column(Text)
+    reassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verified_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    verified_store_name: Mapped[str | None] = mapped_column(Text)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    is_self_store_verified: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueReassignRuleSetting(Base):
+    __tablename__ = "clue_reassign_rule_settings"
+
+    setting_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    reassign_sla_hours: Mapped[int | None] = mapped_column(Integer)
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)

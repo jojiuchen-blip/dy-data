@@ -8,12 +8,16 @@ def test_production_mvp_tables_are_declared() -> None:
         "raw_douyin_orders",
         "raw_douyin_order_coupons",
         "raw_douyin_verify_records",
+        "raw_douyin_clues",
         "raw_aweme_bindings",
         "dim_stores",
         "dim_store_poi_mappings",
         "dim_sku_product_rules",
         "dim_aweme_accounts",
         "settlement_order_details",
+        "clue_center_orders",
+        "clue_assignment_rounds",
+        "clue_reassign_rule_settings",
         "agg_store_ranking",
         "agg_store_monthly_settlement",
         "job_runs",
@@ -29,7 +33,11 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in tables["raw_douyin_orders"].primary_key] == ["order_id"]
     assert [column.name for column in tables["raw_douyin_order_coupons"].primary_key] == ["coupon_id"]
     assert [column.name for column in tables["raw_douyin_verify_records"].primary_key] == ["verify_id"]
+    assert [column.name for column in tables["raw_douyin_clues"].primary_key] == ["clue_row_key"]
     assert [column.name for column in tables["settlement_order_details"].primary_key] == ["coupon_id"]
+    assert [column.name for column in tables["clue_center_orders"].primary_key] == ["order_id"]
+    assert [column.name for column in tables["clue_assignment_rounds"].primary_key] == ["assignment_round_id"]
+    assert [column.name for column in tables["clue_reassign_rule_settings"].primary_key] == ["setting_key"]
     assert [column.name for column in tables["job_runs"].primary_key] == ["job_id"]
     assert [column.name for column in tables["data_quality_issues"].primary_key] == ["issue_id"]
 
