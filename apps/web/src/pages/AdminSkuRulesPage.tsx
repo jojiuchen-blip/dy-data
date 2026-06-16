@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ApiRequestError,
   fetchAdminSession,
+  fetchSyncAdmin,
   fetchSkuRules,
   loginAdmin,
   logoutAdmin,
@@ -71,6 +72,7 @@ export function AdminSkuRulesPage() {
   const [statusText, setStatusText] = useState("");
   const [bulkProductType, setBulkProductType] = useState("");
   const [bulkRate, setBulkRate] = useState("10");
+  const [rebuildJobId, setRebuildJobId] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -133,6 +135,54 @@ export function AdminSkuRulesPage() {
       cancelled = true;
     };
   }, [authenticated, page, query]);
+
+  useEffect(() => {
+    if (!authenticated || !rebuildJobId) {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = () => {
+      fetchSyncAdmin()
+        .then((response) => {
+          if (cancelled) {
+            return;
+          }
+          const job = response.data.jobs.find((item) => item.job_id === rebuildJobId);
+          if (!job || job.status === "queued" || job.status === "running") {
+            setStatusText(`规则已保存，结算结果正在后台重建。任务编号：${rebuildJobId}`);
+            return;
+          }
+          if (job.status === "success") {
+            setStatusText(
+              `结算结果已按新规则重建完成，共重建 ${formatInteger(job.success_count)} 条明细。`,
+            );
+            setRebuildJobId("");
+            return;
+          }
+          setStatusText(
+            `结算重建失败，请到“数据同步管理”查看任务日志。任务编号：${rebuildJobId}`,
+          );
+          setRebuildJobId("");
+        })
+        .catch((error) => {
+          if (cancelled) {
+            return;
+          }
+          if (error instanceof ApiRequestError && error.status === 401) {
+            setAuthenticated(false);
+            setStatusText("登录已过期，请重新输入管理密码。");
+          }
+        });
+    };
+
+    poll();
+    const timer = window.setInterval(poll, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [authenticated, rebuildJobId]);
 
   const productTypeOptions = useMemo(
     () =>
@@ -201,7 +251,7 @@ export function AdminSkuRulesPage() {
       return next;
     });
     setStatusText(
-      `已批量应用到 ${formatInteger(targetIds.size)} 个 SKU，保存后生效。`,
+      `已批量填入 ${formatInteger(targetIds.size)} 个 SKU，当前只是草稿，点击“保存规则并后台重建”后生效。`,
     );
   };
 
@@ -231,7 +281,7 @@ export function AdminSkuRulesPage() {
       return;
     }
     setSaving(true);
-    setStatusText("正在保存规则并重建结算...");
+    setStatusText("正在保存规则，并准备后台重建结算结果...");
     try {
       const response = await saveSkuRules(
         dirtyRows.map((row) => ({
@@ -242,12 +292,11 @@ export function AdminSkuRulesPage() {
         })),
       );
       setDirtyIds(new Set());
+      setRebuildJobId(response.data.job_id);
       setStatusText(
         `已保存 ${formatInteger(
           response.data.updated_count,
-        )} 条规则，并重建 ${formatInteger(
-          response.data.settlement_detail_count,
-        )} 条结算明细。`,
+        )} 条规则，结算重建已在后台开始。任务编号：${response.data.job_id}`,
       );
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) {
@@ -304,7 +353,7 @@ export function AdminSkuRulesPage() {
           <p className="source-pill">独立管理入口</p>
           <h1>商品分账规则管理</h1>
           <p className="admin-muted">
-            SKU 规则保存后会立即重建结算结果，三个看板会按新规则展示。
+            SKU 规则保存后会写入规则表，并在后台重建结算结果；重建完成后三个看板会按新规则展示。
           </p>
         </div>
         <div className="admin-header-actions">
@@ -347,7 +396,7 @@ export function AdminSkuRulesPage() {
           />
         </label>
         <button className="ghost-button" onClick={applyBulk} type="button">
-          应用到选中
+          填入选中（未保存）
         </button>
         <button
           className="primary-button"
@@ -355,7 +404,7 @@ export function AdminSkuRulesPage() {
           onClick={handleSave}
           type="button"
         >
-          保存并生效
+          保存规则并后台重建
         </button>
       </section>
 

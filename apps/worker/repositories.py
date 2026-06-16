@@ -102,6 +102,31 @@ def start_job_run(
     )
 
 
+def queue_job_run(
+    session: Session,
+    job_id: str,
+    job_name: str,
+    *,
+    metadata_json: dict[str, Any] | None = None,
+    started_at: datetime | None = None,
+) -> JobRun:
+    return _merge(
+        session,
+        JobRun,
+        {"job_id": job_id},
+        {
+            "job_name": job_name,
+            "status": "queued",
+            "started_at": started_at or utcnow(),
+            "finished_at": None,
+            "success_count": 0,
+            "failed_count": 0,
+            "error_message": None,
+            "metadata_json": metadata_json or {},
+        },
+    )
+
+
 def finish_job_run(
     session: Session,
     job_id: str,

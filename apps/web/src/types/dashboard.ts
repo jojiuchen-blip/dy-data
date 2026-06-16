@@ -253,9 +253,10 @@ export interface SkuRuleListData {
 
 export interface SkuRuleUpdateResult {
   updated_count: number;
-  settlement_detail_count: number;
-  settlement_monthly_count: number;
   job_id: string;
+  rebuild_status: "queued" | "running" | "success" | "failed";
+  settlement_detail_count?: number | null;
+  settlement_monthly_count?: number | null;
 }
 
 export interface SettlementViewData extends MonthlySettlementData {

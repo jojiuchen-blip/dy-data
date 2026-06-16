@@ -7,10 +7,12 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import text
 
+from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.manual_sync import run_manual_sync_job
+from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
 from dy_api.auth import get_current_admin
@@ -64,6 +66,7 @@ def list_sku_rules(
 @router.put("/sku-rules")
 def update_sku_rules(
     payload: SkuRuleBulkUpdateRequest,
+    background_tasks: BackgroundTasks,
     _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
@@ -71,12 +74,24 @@ def update_sku_rules(
     rules = [dump_model(rule) for rule in payload.rules]
     updated_count = store.upsert_sku_rules(rules)
     job_id = f"admin-sku-rules-{uuid4().hex[:12]}"
-    stats = run_settlement_job(store.session, job_id=job_id, source_run_id=job_id)
+    queue_job_run(
+        store.session,
+        job_id,
+        "settlement_rebuild",
+        metadata_json={
+            "source_run_id": job_id,
+            "trigger": "admin_sku_rules",
+            "updated_rule_count": updated_count,
+        },
+    )
+    # Make the rules visible to the background rebuild before the request
+    # dependency closes this session.
+    store.session.commit()
+    background_tasks.add_task(run_admin_sku_rule_rebuild_job, job_id=job_id)
     data = SkuRuleBulkUpdateResult(
         updated_count=updated_count,
-        settlement_detail_count=stats.detail_count,
-        settlement_monthly_count=stats.monthly_count,
         job_id=job_id,
+        rebuild_status="queued",
     )
     return {
         "data": dump_model(data),
@@ -155,6 +170,27 @@ def _sync_admin_data(store) -> SyncAdminData:
         progress=_sync_progress(store.session, config.as_dict()),
         jobs=store.recent_jobs(20),
     )
+
+
+def run_admin_sku_rule_rebuild_job(*, job_id: str) -> None:
+    factory = get_session_factory()
+    if factory is None:
+        return
+    with session_scope(factory) as session:
+        try:
+            run_settlement_job(session, job_id=job_id, source_run_id=job_id)
+        except Exception as exc:
+            try:
+                finish_job_run(
+                    session,
+                    job_id,
+                    status="failed",
+                    failed_count=1,
+                    error_message=str(exc),
+                )
+            except ValueError:
+                pass
+            raise
 
 
 def _sync_progress(session, config: dict) -> SyncProgressData:

@@ -60,9 +60,10 @@ class SkuRuleBulkUpdateRequest(BaseModel):
 
 class SkuRuleBulkUpdateResult(BaseModel):
     updated_count: int
-    settlement_detail_count: int
-    settlement_monthly_count: int
     job_id: str
+    rebuild_status: Literal["queued", "running", "success", "failed"] = "queued"
+    settlement_detail_count: int | None = None
+    settlement_monthly_count: int | None = None
 
 
 class StoreOption(BaseModel):

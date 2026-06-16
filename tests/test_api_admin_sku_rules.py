@@ -7,15 +7,17 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
-from apps.api.dy_api.models import AggStoreMonthlySettlement, DimSkuProductRule  # noqa: E402
+from apps.api.dy_api.models import AggStoreMonthlySettlement, DimSkuProductRule, JobRun  # noqa: E402
+from dy_api.routes import admin as admin_routes  # noqa: E402
 from apps.worker.repositories import (  # noqa: E402
+    queue_job_run,
     upsert_aweme_binding,
     upsert_order_coupon,
     upsert_raw_order,
@@ -125,8 +127,8 @@ def test_admin_can_list_sku_rules_from_raw_data(
     ]
 
 
-def test_admin_bulk_save_rules_rebuilds_settlement_immediately(
-    client: TestClient, db_session: Session
+def test_admin_sku_rule_background_rebuild_materializes_settlement(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _load_unconfigured_cross_store_sku(db_session)
     run_settlement_job(
@@ -135,6 +137,61 @@ def test_admin_bulk_save_rules_rebuilds_settlement_immediately(
         source_run_id="before-admin-rule",
     )
     assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+
+    job_id = "admin-sku-rules-background-test"
+    db_session.merge(
+        DimSkuProductRule(
+            sku_id="sku-admin",
+            product_type="养车服务",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
+        )
+    )
+    queue_job_run(
+        db_session,
+        job_id,
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_sku_rules"},
+    )
+    db_session.commit()
+
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
+    monkeypatch.setattr(admin_routes, "get_session_factory", lambda: factory)
+
+    admin_routes.run_admin_sku_rule_rebuild_job(job_id=job_id)
+
+    db_session.expire_all()
+    monthly = db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all"))
+    assert monthly is not None
+    assert monthly.estimated_receivable_commission_cent == 1000
+    job = db_session.get(JobRun, job_id)
+    assert job is not None
+    assert job.status == "success"
+
+
+def test_admin_bulk_save_rules_queues_settlement_rebuild(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _load_unconfigured_cross_store_sku(db_session)
+    run_settlement_job(
+        db_session,
+        job_id="before-admin-queued-rule",
+        source_run_id="before-admin-queued-rule",
+    )
+    assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+    queued_jobs: list[str] = []
+
+    def fake_rebuild_job(*, job_id: str) -> None:
+        queued_jobs.append(job_id)
+
+    monkeypatch.setattr(
+        admin_routes,
+        "run_admin_sku_rule_rebuild_job",
+        fake_rebuild_job,
+        raising=False,
+    )
 
     _login(client)
     response = client.put(
@@ -152,12 +209,19 @@ def test_admin_bulk_save_rules_rebuilds_settlement_immediately(
     )
 
     assert response.status_code == 200
-    assert response.json()["data"]["updated_count"] == 1
+    payload = response.json()["data"]
+    assert payload["updated_count"] == 1
+    assert payload["rebuild_status"] == "queued"
+    assert payload["job_id"].startswith("admin-sku-rules-")
+    assert queued_jobs == [payload["job_id"]]
+
     rule = db_session.get(DimSkuProductRule, "sku-admin")
     assert rule is not None
     assert rule.product_type == "养车服务"
-    assert rule.commission_rate == Decimal("0.1000")
 
-    monthly = db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all"))
-    assert monthly is not None
-    assert monthly.estimated_receivable_commission_cent == 1000
+    job = db_session.get(JobRun, payload["job_id"])
+    assert job is not None
+    assert job.status == "queued"
+    assert job.job_name == "settlement_rebuild"
+    assert job.metadata_json["trigger"] == "admin_sku_rules"
+    assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None

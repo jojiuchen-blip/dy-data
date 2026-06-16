@@ -9,7 +9,7 @@ const adminModules = [
   {
     href: "/admin/rules",
     title: "商品分账规则",
-    description: "按 SKU 配置商品类型和分账比例，保存后立即重建看板结果。",
+    description: "按 SKU 配置商品类型和分账比例，保存后后台重建看板结果。",
     meta: "对应旧入口 /rule-admin",
   },
   {
