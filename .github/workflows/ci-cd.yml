@@ -81,6 +81,7 @@ jobs:
       RAILWAY_ENVIRONMENT: ${{ vars.RAILWAY_ENVIRONMENT }}
       RAILWAY_API_SERVICE_ID: ${{ vars.RAILWAY_API_SERVICE_ID }}
       RAILWAY_WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
+      RAILWAY_BROWSER_SYNC_SERVICE_ID: ${{ vars.RAILWAY_BROWSER_SYNC_SERVICE_ID }}
       RAILWAY_WEB_SERVICE_ID: ${{ vars.RAILWAY_WEB_SERVICE_ID }}
       RAILWAY_WEB_URL: ${{ vars.RAILWAY_WEB_URL }}
 
@@ -241,6 +242,66 @@ jobs:
             return 1
           }
           wait_for_deployment "$RAILWAY_WORKER_SERVICE_ID" "${{ steps.deploy_worker.outputs.deployment_id }}"
+
+      - name: Deploy Browser Sync
+        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SYNC_SERVICE_ID != '' }}
+        id: deploy_browser_sync
+        run: |
+          set +e
+          output="$(railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_ENVIRONMENT" \
+            --service "$RAILWAY_BROWSER_SYNC_SERVICE_ID" \
+            --detach \
+            --json \
+            --message "browser-sync ${GITHUB_SHA}" 2>&1)"
+          status=$?
+          set -e
+          echo "$output"
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Railway Browser Sync deployment command failed"
+            exit "$status"
+          fi
+          deployment_id="$(echo "$output" | jq -r '.deploymentId')"
+          if [ -z "$deployment_id" ] || [ "$deployment_id" = "null" ]; then
+            echo "::error::Railway did not return a Browser Sync deployment id"
+            exit 1
+          fi
+          echo "deployment_id=$deployment_id" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for Browser Sync deployment
+        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_BROWSER_SYNC_SERVICE_ID != '' }}
+        run: |
+          wait_for_deployment() {
+            service="$1"
+            deployment_id="$2"
+            for attempt in $(seq 1 60); do
+              status="$(railway deployment list \
+                --environment "$RAILWAY_ENVIRONMENT" \
+                --service "$service" \
+                --limit 20 \
+                --json | jq -r --arg id "$deployment_id" '.[] | select(.id == $id) | .status' | head -n 1)"
+              echo "attempt=$attempt service=$service deployment=$deployment_id status=${status:-not_found}"
+              case "$status" in
+                SUCCESS)
+                  return 0
+                  ;;
+                FAILED|CRASHED|REMOVED)
+                  railway logs "$deployment_id" \
+                    --project "$RAILWAY_PROJECT_ID" \
+                    --environment "$RAILWAY_ENVIRONMENT" \
+                    --service "$service" \
+                    --deployment \
+                    --lines 100 || true
+                  return 1
+                  ;;
+              esac
+              sleep 10
+            done
+            echo "::error::Timed out waiting for Railway deployment $deployment_id"
+            return 1
+          }
+          wait_for_deployment "$RAILWAY_BROWSER_SYNC_SERVICE_ID" "${{ steps.deploy_browser_sync.outputs.deployment_id }}"
 
       - name: Deploy Web
         if: ${{ env.RAILWAY_TOKEN != '' }}

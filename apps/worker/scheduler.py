@@ -5,15 +5,22 @@ import signal
 import time
 from datetime import datetime, timezone
 from collections.abc import Mapping
+from collections.abc import Callable
 
+from sqlalchemy.orm import Session
+
+from apps.api.dy_api.models import JobRun
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import run_backfill
-from apps.worker.pipeline import run_collect_and_settle
+from apps.worker.collectors.types import PhaseStats
+from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
+from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 
 
 DEFAULT_INTERVAL_SECONDS = 60 * 60 * 24
 _STOP = False
+BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
 
 def _truthy(value: str | None) -> bool:
@@ -33,8 +40,8 @@ def _job_id(prefix: str = "settlement") -> str:
 def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
     source = os.environ if env is None else env
     value = source.get("WORKER_MODE", "collect_and_settle").strip().lower()
-    if value not in {"collect_and_settle", "settlement_only", "backfill"}:
-        raise ValueError("WORKER_MODE must be collect_and_settle, settlement_only, or backfill.")
+    if value not in {"collect_and_settle", "settlement_only", "backfill", "browser_export_only"}:
+        raise ValueError("WORKER_MODE must be collect_and_settle, settlement_only, backfill, or browser_export_only.")
     return value
 
 
@@ -48,10 +55,58 @@ def run_once() -> None:
         run_backfill(factory=factory)
         return
     with session_scope(factory) as session:
+        if mode == "browser_export_only":
+            run_browser_export_job(session)
+            return
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
         run_collect_and_settle(session, job_id=_job_id("collect"))
+
+
+def run_browser_export_job(
+    session: Session,
+    *,
+    job_id: str | None = None,
+    runner: BrowserExportRunner | None = None,
+) -> PhaseStats:
+    source_run_id = job_id or _job_id("backend_aweme_export")
+    start_job_run(
+        session,
+        source_run_id,
+        "backend_aweme_export",
+        metadata_json={"phases": {}},
+    )
+    try:
+        active_runner = runner or _run_backend_aweme_export
+        stats = active_runner(session, source_run_id)
+        job = session.get(JobRun, source_run_id)
+        if job is not None:
+            job.metadata_json = {"phases": {stats.name: stats.as_metadata()}}
+            session.flush()
+        finish_job_run(
+            session,
+            source_run_id,
+            status="success",
+            success_count=stats.success_count,
+            failed_count=stats.failed_count,
+        )
+        return stats
+    except Exception as exc:
+        finish_job_run(
+            session,
+            source_run_id,
+            status="failed",
+            failed_count=1,
+            error_message=sanitize_error_message(str(exc)),
+        )
+        raise
+
+
+def _run_backend_aweme_export(session: Session, source_run_id: str) -> PhaseStats:
+    from apps.worker.browser_exports.backend_aweme import run_backend_aweme_export
+
+    return run_backend_aweme_export(session, source_run_id=source_run_id)
 
 
 def main() -> None:

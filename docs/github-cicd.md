@@ -18,6 +18,7 @@ Repository variables used by the workflow:
 - `RAILWAY_ENVIRONMENT`
 - `RAILWAY_API_SERVICE_ID`
 - `RAILWAY_WORKER_SERVICE_ID`
+- `RAILWAY_BROWSER_SYNC_SERVICE_ID` (optional)
 - `RAILWAY_WEB_SERVICE_ID`
 - `RAILWAY_WEB_URL`
 
@@ -58,7 +59,22 @@ Required `worker` variables:
 - `DOUYIN_COLLECT_OVERLAP_DAYS=7`
 - `DOUYIN_VERIFY_CHUNK_DAYS=7`
 
-Set `WORKER_SKIP_BROWSER_EXPORT=true` until the browser-backed backend export service is available in Railway. Open API collection still runs with this flag enabled.
+Set `WORKER_SKIP_BROWSER_EXPORT=true` on historical backfill workers. Open API collection still runs with this flag enabled, and browser exports should not run once per backfill chunk.
+
+Optional `browser-sync` variables:
+
+- `DATABASE_URL`
+- `RAILWAY_DOCKERFILE_PATH=apps/worker/Dockerfile`
+- `WORKER_MODE=browser_export_only`
+- `WORKER_INTERVAL_SECONDS=86400`
+- `WORKER_RUN_ON_START=true`
+- `BROWSER_CDP_URL=http://${{browser.RAILWAY_PRIVATE_DOMAIN}}:9222`
+- `BROWSER_EXPORT_DOWNLOAD_DIR=/tmp/browser-downloads/job-runs`
+- `BROWSER_EXPORT_ARTIFACT_DIR=/tmp/browser-exports`
+- `BROWSER_EXPORT_COMMAND=python -m apps.worker.browser_exports.backend_aweme`
+- `BACKEND_AWEME_EXPORT_URL`
+
+Use `browser-sync` for the low-frequency backend aweme/sub-organization export. Configure `RAILWAY_BROWSER_SYNC_SERVICE_ID` only after the Railway service exists; otherwise the workflow skips this optional deploy.
 
 For one-time historical backfills, temporarily set `WORKER_MODE=backfill`, `WORKER_RUN_ONCE=true`, `DOUYIN_COLLECT_START`, `DOUYIN_COLLECT_END`, and `WORKER_BACKFILL_CHUNK_DAYS`. Backfill mode commits each chunk independently, then the service should be restored to `WORKER_MODE=collect_and_settle` for daily incremental collection.
 

@@ -9,7 +9,7 @@ from apps.api.dy_api.models import JobRun
 from apps.worker.backfill import iter_backfill_windows
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
-from apps.worker.scheduler import resolve_worker_mode
+from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job
 
 
 def window() -> CollectionWindow:
@@ -98,6 +98,28 @@ def test_scheduler_worker_mode_defaults_to_collect_and_settle():
     assert resolve_worker_mode({}) == "collect_and_settle"
     assert resolve_worker_mode({"WORKER_MODE": "settlement_only"}) == "settlement_only"
     assert resolve_worker_mode({"WORKER_MODE": "backfill"}) == "backfill"
+    assert resolve_worker_mode({"WORKER_MODE": "browser_export_only"}) == "browser_export_only"
+
+
+def test_browser_export_only_records_success_job(db_session: Session):
+    calls: list[str] = []
+
+    def runner(session: Session, source_run_id: str) -> PhaseStats:
+        assert session.get(JobRun, source_run_id).status == "running"
+        calls.append(source_run_id)
+        return PhaseStats(name="backend_aweme_export", fetched=2, upserted=3)
+
+    stats = run_browser_export_job(db_session, job_id="browser-export-1", runner=runner)
+
+    assert calls == ["browser-export-1"]
+    assert stats.success_count == 3
+    job = db_session.get(JobRun, "browser-export-1")
+    assert job is not None
+    assert job.job_name == "backend_aweme_export"
+    assert job.status == "success"
+    assert job.success_count == 3
+    assert job.failed_count == 0
+    assert job.metadata_json["phases"]["backend_aweme_export"]["fetched"] == 2
 
 
 def test_backfill_splits_windows_by_chunk_days():
