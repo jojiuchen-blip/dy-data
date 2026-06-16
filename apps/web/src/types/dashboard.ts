@@ -19,6 +19,83 @@ export interface AdminUser {
   username: string;
 }
 
+export interface JobRun {
+  job_id: string;
+  job_name: string;
+  status: "running" | "success" | "failed" | "queued";
+  started_at: string | null;
+  finished_at: string | null;
+  success_count: number;
+  failed_count: number;
+  error_message: string | null;
+  metadata_json?: {
+    source_window?: SyncWindow;
+    phases?: Record<
+      string,
+      {
+        name: string;
+        fetched?: number;
+        upserted?: number;
+        skipped?: number;
+        failed?: number;
+      }
+    >;
+  };
+}
+
+export interface SyncWindow {
+  start: string;
+  end: string;
+  timezone: string;
+}
+
+export interface SyncConfigData {
+  history_start: string;
+  history_end: string;
+  history_chunk_days: number;
+  rolling_days: number;
+  interval_seconds: number;
+  backfill_skip_completed: boolean;
+}
+
+export interface SyncProgressData {
+  total_windows: number;
+  completed_windows: number;
+  running_jobs: number;
+  failed_jobs: number;
+  latest_completed_window: SyncWindow | null;
+}
+
+export interface SyncAdminData {
+  config: SyncConfigData;
+  progress: SyncProgressData;
+  jobs: JobRun[];
+}
+
+export interface SyncConfigUpdate {
+  history_start?: string;
+  history_end?: string;
+  history_chunk_days?: number;
+  rolling_days?: number;
+  interval_seconds?: number;
+  backfill_skip_completed?: boolean;
+}
+
+export type ManualSyncTarget =
+  | "all"
+  | "orders"
+  | "verify_records"
+  | "shop_pois"
+  | "aweme_bindings"
+  | "backend_aweme_export"
+  | "settlement";
+
+export interface ManualSyncResult {
+  job_id: string;
+  target: ManualSyncTarget;
+  window: SyncWindow;
+}
+
 export interface Pagination {
   page: number;
   page_size: number;

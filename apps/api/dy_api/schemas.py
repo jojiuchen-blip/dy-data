@@ -73,12 +73,72 @@ class StoreOption(BaseModel):
 class JobRun(BaseModel):
     job_id: str
     job_name: str
-    status: Literal["running", "success", "failed"]
+    status: Literal["running", "success", "failed", "queued"]
     started_at: datetime | None = None
     finished_at: datetime | None = None
     success_count: int = 0
     failed_count: int = 0
     error_message: str | None = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict)
+
+
+class SyncConfigData(BaseModel):
+    history_start: str
+    history_end: str = ""
+    history_chunk_days: int = Field(ge=1, le=31)
+    rolling_days: int = Field(ge=1, le=180)
+    interval_seconds: int = Field(ge=300, le=604800)
+    backfill_skip_completed: bool = True
+
+
+class SyncConfigUpdate(BaseModel):
+    history_start: str | None = None
+    history_end: str | None = None
+    history_chunk_days: int | None = Field(default=None, ge=1, le=31)
+    rolling_days: int | None = Field(default=None, ge=1, le=180)
+    interval_seconds: int | None = Field(default=None, ge=300, le=604800)
+    backfill_skip_completed: bool | None = None
+
+
+class SyncWindowData(BaseModel):
+    start: str
+    end: str
+    timezone: str
+
+
+class SyncProgressData(BaseModel):
+    total_windows: int = 0
+    completed_windows: int = 0
+    running_jobs: int = 0
+    failed_jobs: int = 0
+    latest_completed_window: SyncWindowData | None = None
+
+
+class SyncAdminData(BaseModel):
+    config: SyncConfigData
+    progress: SyncProgressData
+    jobs: list[JobRun] = Field(default_factory=list)
+
+
+class ManualSyncRequest(BaseModel):
+    target: Literal[
+        "all",
+        "orders",
+        "verify_records",
+        "shop_pois",
+        "aweme_bindings",
+        "backend_aweme_export",
+        "settlement",
+    ]
+    days: int | None = Field(default=None, ge=1, le=180)
+    start: datetime | None = None
+    end: datetime | None = None
+
+
+class ManualSyncResult(BaseModel):
+    job_id: str
+    target: str
+    window: SyncWindowData
 
 
 class FilterMetadata(BaseModel):

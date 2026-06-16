@@ -1,0 +1,131 @@
+import { useEffect, useState } from "react";
+import {
+  fetchAdminSession,
+  loginAdmin,
+  logoutAdmin,
+} from "../api/client";
+
+const adminModules = [
+  {
+    href: "/admin/rules",
+    title: "商品分账规则",
+    description: "按 SKU 配置商品类型和分账比例，保存后立即重建看板结果。",
+    meta: "对应旧入口 /rule-admin",
+  },
+  {
+    href: "/admin/sync",
+    title: "数据同步管理",
+    description: "配置同步时间跨度、同步间隔，查看任务日志和手动补拉数据。",
+    meta: "对应旧入口 /sync-admin",
+  },
+];
+
+export function AdminHomePage() {
+  const [checkingSession, setCheckingSession] = useState(true);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdminSession()
+      .then(() => {
+        if (!cancelled) {
+          setAuthenticated(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAuthenticated(false);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setCheckingSession(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginError("");
+    try {
+      await loginAdmin(password);
+      setPassword("");
+      setAuthenticated(true);
+    } catch {
+      setLoginError("密码不正确，或后端未配置管理密码。");
+    }
+  };
+
+  const handleLogout = async () => {
+    await logoutAdmin().catch(() => undefined);
+    setAuthenticated(false);
+  };
+
+  if (checkingSession) {
+    return (
+      <main className="admin-page">
+        <section className="admin-login-panel">正在检查管理权限...</section>
+      </main>
+    );
+  }
+
+  if (!authenticated) {
+    return (
+      <main className="admin-page admin-page--centered">
+        <form className="admin-login-panel" onSubmit={handleLogin}>
+          <div>
+            <p className="source-pill">管理后台</p>
+            <h1>抖音经营中枢后台</h1>
+            <p className="admin-muted">输入管理密码后进入配置页面。</p>
+          </div>
+          <label className="filter-field">
+            <span>管理密码</span>
+            <input
+              autoFocus
+              onChange={(event) => setPassword(event.target.value)}
+              placeholder="请输入管理密码"
+              type="password"
+              value={password}
+            />
+          </label>
+          {loginError ? <p className="admin-error">{loginError}</p> : null}
+          <button className="primary-button" type="submit">
+            进入后台
+          </button>
+        </form>
+      </main>
+    );
+  }
+
+  return (
+    <main className="admin-page">
+      <section className="admin-header">
+        <div>
+          <p className="source-pill">管理后台</p>
+          <h1>抖音经营中枢后台</h1>
+          <p className="admin-muted">选择需要管理的配置模块。</p>
+        </div>
+        <button className="ghost-button" onClick={handleLogout} type="button">
+          退出
+        </button>
+      </section>
+
+      <section className="admin-module-grid">
+        {adminModules.map((item) => (
+          <a className="admin-module-card" href={item.href} key={item.href}>
+            <div>
+              <h2>{item.title}</h2>
+              <p>{item.description}</p>
+            </div>
+            <span>{item.meta}</span>
+          </a>
+        ))}
+      </section>
+    </main>
+  );
+}

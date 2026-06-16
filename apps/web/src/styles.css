@@ -709,6 +709,21 @@ a.metric-card:hover,
   padding: 18px;
 }
 
+.admin-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.admin-link-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 12px;
+}
+
 .admin-login-panel {
   padding: 22px;
 }
@@ -735,6 +750,79 @@ a.metric-card:hover,
 
 .admin-rule-table {
   min-width: 1320px;
+}
+
+.admin-sync-table {
+  min-width: 1280px;
+}
+
+.admin-module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.admin-module-card {
+  display: grid;
+  min-height: 180px;
+  align-content: space-between;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 18px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease,
+    box-shadow 160ms ease;
+}
+
+.admin-module-card:hover {
+  border-color: var(--green);
+  box-shadow: 0 20px 58px rgb(23 107 91 / 14%);
+  transform: translateY(-2px);
+}
+
+.admin-module-card h2 {
+  margin-bottom: 8px;
+  font-size: 22px;
+}
+
+.admin-module-card p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.admin-module-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.sync-config-grid,
+.manual-sync-grid {
+  display: grid;
+  align-items: end;
+  gap: 12px;
+}
+
+.sync-config-grid {
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+}
+
+.manual-sync-grid {
+  grid-template-columns: minmax(240px, 1fr) minmax(140px, 0.45fr) auto auto;
+}
+
+.checkbox-field {
+  align-content: end;
+}
+
+.checkbox-field input {
+  width: auto;
+  min-height: 24px;
+  justify-self: start;
 }
 
 .tooltip-label {
@@ -911,6 +999,10 @@ a.metric-card:hover,
   .admin-tools {
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
+
+  .manual-sync-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -994,5 +1086,9 @@ a.metric-card:hover,
 
   .admin-header {
     grid-template-columns: 1fr;
+  }
+
+  .admin-header-actions {
+    justify-content: flex-start;
   }
 }

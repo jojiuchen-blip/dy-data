@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { AdminHomePage } from "./pages/AdminHomePage";
 import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
+import { AdminSyncPage } from "./pages/AdminSyncPage";
 import { HomePage } from "./pages/HomePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
@@ -54,8 +56,16 @@ export function App() {
     [location.search],
   );
 
-  if (location.pathname === "/rule-admin") {
+  if (location.pathname === "/admin") {
+    return <AdminHomePage />;
+  }
+
+  if (location.pathname === "/rule-admin" || location.pathname === "/admin/rules") {
     return <AdminSkuRulesPage />;
+  }
+
+  if (location.pathname === "/sync-admin" || location.pathname === "/admin/sync") {
+    return <AdminSyncPage />;
   }
 
   if (location.pathname === "/") {

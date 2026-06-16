@@ -17,10 +17,9 @@ from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
+from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DAYS, load_sync_config
 
 
-DEFAULT_INTERVAL_SECONDS = 60 * 60 * 24
-DEFAULT_ROLLING_DAYS = 30
 _STOP = False
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
@@ -71,7 +70,15 @@ def run_once() -> None:
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
     if mode == "backfill":
-        run_backfill(factory=factory)
+        with session_scope(factory) as session:
+            config = load_sync_config(session)
+        run_backfill(
+            factory=factory,
+            start=config.history_start,
+            end=config.history_end or None,
+            chunk_days=config.history_chunk_days,
+            skip_completed=config.backfill_skip_completed,
+        )
         return
     if mode == "browser_export_only":
         run_browser_export_once(factory)
@@ -80,10 +87,13 @@ def run_once() -> None:
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
+        config = load_sync_config(session)
         run_collect_and_settle(
             session,
             job_id=_job_id("collect"),
-            window=resolve_incremental_collection_window(),
+            window=resolve_incremental_collection_window(
+                env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
+            ),
             include_browser_export=False,
         )
 
@@ -150,7 +160,7 @@ def main() -> None:
 
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
-    interval_seconds = int(os.getenv("WORKER_INTERVAL_SECONDS", str(DEFAULT_INTERVAL_SECONDS)))
+    factory = get_session_factory()
 
     if run_on_start or run_once_only:
         run_once()
@@ -158,11 +168,19 @@ def main() -> None:
         return
 
     while not _STOP:
+        interval_seconds = _configured_interval_seconds(factory)
         sleep_until = time.monotonic() + interval_seconds
         while not _STOP and time.monotonic() < sleep_until:
             time.sleep(min(5, max(0, sleep_until - time.monotonic())))
         if not _STOP:
             run_once()
+
+
+def _configured_interval_seconds(factory) -> int:
+    if factory is None:
+        return int(os.getenv("WORKER_INTERVAL_SECONDS", str(DEFAULT_INTERVAL_SECONDS)))
+    with session_scope(factory) as session:
+        return load_sync_config(session).interval_seconds
 
 
 if __name__ == "__main__":

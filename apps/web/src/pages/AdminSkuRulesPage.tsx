@@ -307,9 +307,14 @@ export function AdminSkuRulesPage() {
             SKU 规则保存后会立即重建结算结果，三个看板会按新规则展示。
           </p>
         </div>
-        <button className="ghost-button" onClick={handleLogout} type="button">
-          退出
-        </button>
+        <div className="admin-header-actions">
+          <a className="ghost-button admin-link-button" href="/admin">
+            返回后台首页
+          </a>
+          <button className="ghost-button" onClick={handleLogout} type="button">
+            退出
+          </button>
+        </div>
       </section>
 
       <section className="content-section admin-tools">

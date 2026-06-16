@@ -230,6 +230,14 @@ class JobRun(Base):
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
 
 
+class SyncSetting(Base):
+    __tablename__ = "sync_settings"
+
+    setting_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    setting_value: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class DataQualityIssue(Base):
     __tablename__ = "data_quality_issues"
     __table_args__ = (

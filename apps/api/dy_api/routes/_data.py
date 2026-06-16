@@ -377,7 +377,7 @@ class DashboardDataStore:
         rows = self._execute(
             """
             SELECT job_id, job_name, status, started_at, finished_at,
-                   success_count, failed_count, error_message
+                   success_count, failed_count, error_message, metadata_json
             FROM job_runs
             ORDER BY started_at DESC, job_id DESC
             LIMIT :limit
@@ -728,6 +728,12 @@ class DashboardDataStore:
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
 
     def _clean_job(self, row: dict[str, Any]) -> dict[str, Any]:
+        metadata = row.get("metadata_json") or {}
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except json.JSONDecodeError:
+                metadata = {}
         return {
             "job_id": _to_str(row.get("job_id")),
             "job_name": _to_str(row.get("job_name")),
@@ -737,6 +743,7 @@ class DashboardDataStore:
             "success_count": _to_int(row.get("success_count")),
             "failed_count": _to_int(row.get("failed_count")),
             "error_message": sanitize_error_message(row.get("error_message")),
+            "metadata_json": metadata if isinstance(metadata, dict) else {},
         }
 
     def _clean_sku_rule_row(self, row: dict[str, Any]) -> dict[str, Any]:

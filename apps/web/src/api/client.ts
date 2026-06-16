@@ -16,9 +16,13 @@ import type {
   OrderDetailsData,
   SelectOption,
   SettlementViewData,
+  ManualSyncResult,
+  ManualSyncTarget,
   SkuProductCommissionRule,
   SkuRuleListData,
   SkuRuleUpdateResult,
+  SyncAdminData,
+  SyncConfigUpdate,
   StoreRankingData,
 } from "../types/dashboard";
 import {
@@ -363,6 +367,41 @@ export async function saveSkuRules(
     ...(await sendJson<SkuRuleUpdateResult>("/admin/sku-rules", {
       body: { rules },
       method: "PUT",
+    })),
+    usingMock: false,
+  };
+}
+
+export async function fetchSyncAdmin(): Promise<ApiLoadResult<SyncAdminData>> {
+  return {
+    ...(await requestJson<SyncAdminData>("/admin/sync")),
+    usingMock: false,
+  };
+}
+
+export async function saveSyncConfig(
+  config: SyncConfigUpdate,
+): Promise<ApiLoadResult<SyncAdminData>> {
+  return {
+    ...(await sendJson<SyncAdminData>("/admin/sync/config", {
+      body: config,
+      method: "PUT",
+    })),
+    usingMock: false,
+  };
+}
+
+export async function runManualSync({
+  target,
+  days,
+}: {
+  target: ManualSyncTarget;
+  days?: number;
+}): Promise<ApiLoadResult<ManualSyncResult>> {
+  return {
+    ...(await sendJson<ManualSyncResult>("/admin/sync/run", {
+      body: { target, days },
+      method: "POST",
     })),
     usingMock: false,
   };
