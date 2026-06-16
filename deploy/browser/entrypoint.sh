@@ -132,6 +132,10 @@ if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
         else
           status="$?"
           echo "run_failed status=${status} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "--- chromium.log tail ---"
+          tail -n 160 /tmp/chromium.log || true
+          echo "--- cdp-proxy.log tail ---"
+          tail -n 160 /tmp/cdp-proxy.log || true
         fi
         sleep "$interval"
       done
