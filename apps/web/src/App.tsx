@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminHomePage } from "./pages/AdminHomePage";
+import { AdminClueRulePage } from "./pages/AdminClueRulePage";
 import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
 import { AdminSyncPage } from "./pages/AdminSyncPage";
+import { ClueCenterPage } from "./pages/ClueCenterPage";
 import { HomePage } from "./pages/HomePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
@@ -68,6 +70,10 @@ export function App() {
     return <AdminSyncPage />;
   }
 
+  if (location.pathname === "/admin/clues/rules") {
+    return <AdminClueRulePage />;
+  }
+
   if (location.pathname === "/") {
     return <HomePage />;
   }
@@ -75,6 +81,8 @@ export function App() {
   const page =
     location.pathname === "/settlement" ? (
       <StoreSettlementPage searchParams={searchParams} />
+    ) : location.pathname === "/clues" ? (
+      <ClueCenterPage searchParams={searchParams} />
     ) : location.pathname === "/details" ? (
       <OrderDetailsPage searchParams={searchParams} />
     ) : (

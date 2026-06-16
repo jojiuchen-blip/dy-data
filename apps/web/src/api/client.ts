@@ -1,6 +1,7 @@
 import {
   defaultMonth,
   defaultStore,
+  clueCenterResponses,
   monthlySummaryResponse,
   orderDetails,
   page1Definitions,
@@ -10,6 +11,13 @@ import {
 import type {
   ApiResponse,
   AdminUser,
+  ClueAssignmentRoundData,
+  ClueFilterMetadata,
+  ClueOverviewFilters,
+  ClueOverviewMetrics,
+  ClueReassignRuleData,
+  ClueReassignRuleUpdate,
+  ClueRebuildResult,
   DetailFilters,
   FilterMetaData,
   MonthlySettlementData,
@@ -51,6 +59,12 @@ export interface ApiLoadResult<T> extends ApiResponse<T> {
 
 interface DetailQuery {
   filters: DetailFilters;
+  page: number;
+  pageSize: number;
+}
+
+interface ClueRoundQuery {
+  filters: ClueOverviewFilters;
   page: number;
   pageSize: number;
 }
@@ -258,6 +272,80 @@ function mockOrderDetailsResponse({
   };
 }
 
+function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {
+  return {
+    ...clueCenterResponses.filters,
+    meta: {
+      ...clueCenterResponses.filters.meta,
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
+function mockClueOverviewResponse(): ApiResponse<ClueOverviewMetrics> {
+  return {
+    ...clueCenterResponses.overview,
+    meta: {
+      ...clueCenterResponses.overview.meta,
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
+function mockClueAssignmentRoundsResponse({
+  page,
+  pageSize,
+}: ClueRoundQuery): ApiResponse<ClueAssignmentRoundData> {
+  const rows = clueCenterResponses.assignment_rounds.data.rows;
+  const safePageSize =
+    Number.isFinite(pageSize) && pageSize > 0
+      ? Math.min(Math.floor(pageSize), 100)
+      : 20;
+  const totalPages = Math.max(1, Math.ceil(rows.length / safePageSize));
+  const safePage =
+    Number.isFinite(page) && page > 0
+      ? Math.min(Math.floor(page), totalPages)
+      : 1;
+  const startIndex = (safePage - 1) * safePageSize;
+
+  return {
+    data: {
+      rows: rows.slice(startIndex, startIndex + safePageSize),
+      pagination: {
+        page: safePage,
+        page_size: safePageSize,
+        total: rows.length,
+        total_pages: totalPages,
+      },
+    },
+    meta: {
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
+function mockClueRuleResponse(
+  override?: ClueReassignRuleUpdate,
+): ApiResponse<ClueReassignRuleData> {
+  return {
+    data: {
+      ...clueCenterResponses.rule.data,
+      reassign_sla_hours:
+        override?.reassign_sla_hours ??
+        clueCenterResponses.rule.data.reassign_sla_hours,
+      updated_at: generatedAt(),
+    },
+    meta: {
+      ...clueCenterResponses.rule.meta,
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
 export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
   return withMockFallback(
     () => requestJson<FilterMetaData>("/meta/filters"),
@@ -318,6 +406,36 @@ export function fetchOrderDetails(
         page_size: query.pageSize,
       }),
     () => mockOrderDetailsResponse(query),
+  );
+}
+
+export function fetchClueFilters(): Promise<ApiLoadResult<ClueFilterMetadata>> {
+  return withMockFallback(
+    () => requestJson<ClueFilterMetadata>("/clues/filters"),
+    mockClueFiltersResponse,
+  );
+}
+
+export function fetchClueOverview(
+  filters: ClueOverviewFilters,
+): Promise<ApiLoadResult<ClueOverviewMetrics>> {
+  return withMockFallback(
+    () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
+    mockClueOverviewResponse,
+  );
+}
+
+export function fetchClueAssignmentRounds(
+  query: ClueRoundQuery,
+): Promise<ApiLoadResult<ClueAssignmentRoundData>> {
+  return withMockFallback(
+    () =>
+      requestJson<ClueAssignmentRoundData>("/clues/assignment-rounds", {
+        ...query.filters,
+        page: query.page,
+        page_size: query.pageSize,
+      }),
+    () => mockClueAssignmentRoundsResponse(query),
   );
 }
 
@@ -405,6 +523,40 @@ export async function runManualSync({
     })),
     usingMock: false,
   };
+}
+
+export function fetchClueReassignRule(): Promise<ApiLoadResult<ClueReassignRuleData>> {
+  return withMockFallback(
+    () => requestJson<ClueReassignRuleData>("/admin/clue-reassign-rule"),
+    () => mockClueRuleResponse(),
+  );
+}
+
+export function saveClueReassignRule(
+  payload: ClueReassignRuleUpdate,
+): Promise<ApiLoadResult<ClueReassignRuleData>> {
+  return withMockFallback(
+    () =>
+      sendJson<ClueReassignRuleData>("/admin/clue-reassign-rule", {
+        body: payload,
+        method: "PUT",
+      }),
+    () => mockClueRuleResponse(payload),
+  );
+}
+
+export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
+  return withMockFallback(
+    () => sendJson<ClueRebuildResult>("/admin/clues/rebuild", { method: "POST" }),
+    () => ({
+      ...clueCenterResponses.rebuild,
+      meta: {
+        ...clueCenterResponses.rebuild.meta,
+        generated_at: generatedAt(),
+        source: "mock",
+      },
+    }),
+  );
 }
 
 export { defaultMonth, defaultStore, DEFAULT_DETAIL_PAGE_SIZE };

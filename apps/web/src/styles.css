@@ -395,6 +395,14 @@ h2 {
     minmax(250px, 1.25fr) minmax(180px, 0.8fr);
 }
 
+.clue-filter-bar {
+  grid-template-columns:
+    minmax(220px, 1.2fr) minmax(150px, 0.7fr)
+    minmax(150px, 0.7fr) minmax(150px, 0.8fr)
+    minmax(160px, 0.9fr) minmax(150px, 0.8fr)
+    minmax(130px, 0.7fr) auto;
+}
+
 .filter-field {
   display: grid;
   gap: 6px;
@@ -464,6 +472,10 @@ h2 {
 
 .metric-grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clue-metric-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
 }
 
 .metric-card {
@@ -557,6 +569,10 @@ a.metric-card:hover,
 
 .data-table--details {
   min-width: 1760px;
+}
+
+.data-table--clues {
+  min-width: 1780px;
 }
 
 .data-table th,
@@ -754,6 +770,38 @@ a.metric-card:hover,
 
 .admin-sync-table {
   min-width: 1280px;
+}
+
+.clue-rule-panel {
+  max-width: 980px;
+}
+
+.clue-rule-grid {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.65fr) minmax(260px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+}
+
+.clue-rule-current {
+  display: grid;
+  min-height: 62px;
+  align-content: center;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+  background: var(--surface-muted);
+}
+
+.clue-rule-current span,
+.clue-rule-current small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.clue-rule-current strong {
+  font-size: 18px;
 }
 
 .admin-module-grid {
@@ -996,11 +1044,20 @@ a.metric-card:hover,
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
 
+  .clue-filter-bar,
+  .clue-metric-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
   .admin-tools {
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
 
   .manual-sync-grid {
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  }
+
+  .clue-rule-grid {
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
 }
@@ -1059,6 +1116,11 @@ a.metric-card:hover,
   }
 
   .detail-filter-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .clue-filter-bar,
+  .clue-rule-grid {
     grid-template-columns: 1fr;
   }
 

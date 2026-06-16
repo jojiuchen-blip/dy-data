@@ -1,0 +1,496 @@
+import { useMemo, useState } from "react";
+import {
+  fetchClueAssignmentRounds,
+  fetchClueFilters,
+  fetchClueOverview,
+} from "../api/client";
+import { DataTable, type Column } from "../components/DataTable";
+import { FilterBar, FilterField } from "../components/Filters";
+import { MetricCard } from "../components/MetricCard";
+import {
+  ResourceNotice,
+  ResourcePanel,
+  resourceSourceLabel,
+} from "../components/ResourceState";
+import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { useApiResource } from "../hooks/useApiResource";
+import type {
+  ClueAssignmentRound,
+  ClueOverviewFilters,
+  SelectOption,
+} from "../types/dashboard";
+import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
+
+interface ClueCenterPageProps {
+  searchParams: URLSearchParams;
+}
+
+const PAGE_SIZE = 20;
+
+const leadStatusLabels: Record<string, string> = {
+  active: "有效线索",
+  pending_reassign: "待再分配",
+  converted: "已转化",
+  closed: "已关闭",
+};
+
+const roundStatusLabels: Record<string, string> = {
+  active_unfollowed: "未跟进",
+  active_followed: "已跟进",
+  failed_pending_reassign: "跟进失败待再分配",
+  expired_pending_reassign: "超时待再分配",
+  reassigned: "已再分配",
+};
+
+const followResultLabels: Record<string, string> = {
+  pending: "未跟进",
+  success: "成功跟进",
+  failed: "跟进失败",
+  unreachable: "未接通",
+  continue_following: "继续跟进",
+};
+
+function labelFor(value: string | null | undefined, labels: Record<string, string>) {
+  if (!value) {
+    return "-";
+  }
+  return labels[value] ?? value;
+}
+
+function formatRemainingSeconds(value: number | null): string {
+  if (value === null) {
+    return "";
+  }
+  if (value <= 0) {
+    return "0分钟";
+  }
+  const hours = Math.floor(value / 3600);
+  const minutes = Math.ceil((value % 3600) / 60);
+  if (hours <= 0) {
+    return `${minutes}分钟`;
+  }
+  return `${hours}小时${minutes > 0 ? `${minutes}分钟` : ""}`;
+}
+
+function optionList(values: string[] | undefined, labels?: Record<string, string>) {
+  return (values ?? []).map((value) => ({
+    value,
+    label: labels?.[value] ?? value,
+  }));
+}
+
+export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
+  const [assignedStoreId, setAssignedStoreId] = useState(
+    searchParams.get("assigned_store_id") ?? "",
+  );
+  const [assignedDateStart, setAssignedDateStart] = useState(
+    searchParams.get("assigned_date_start") ?? "",
+  );
+  const [assignedDateEnd, setAssignedDateEnd] = useState(
+    searchParams.get("assigned_date_end") ?? "",
+  );
+  const [leadStatus, setLeadStatus] = useState(searchParams.get("lead_status") ?? "");
+  const [roundStatus, setRoundStatus] = useState(
+    searchParams.get("round_status") ?? "",
+  );
+  const [productType, setProductType] = useState(
+    searchParams.get("product_type") ?? "",
+  );
+  const [city, setCity] = useState(searchParams.get("city") ?? "");
+  const [page, setPage] = useState(1);
+
+  const filterResource = useApiResource(fetchClueFilters, []);
+  const meta = filterResource.data?.data;
+
+  const filters: ClueOverviewFilters = useMemo(
+    () => ({
+      assigned_store_id: assignedStoreId,
+      assigned_date_start: assignedDateStart,
+      assigned_date_end: assignedDateEnd,
+      lead_status: leadStatus,
+      round_status: roundStatus,
+      product_type: productType,
+      city,
+    }),
+    [
+      assignedStoreId,
+      assignedDateEnd,
+      assignedDateStart,
+      city,
+      leadStatus,
+      productType,
+      roundStatus,
+    ],
+  );
+
+  const overviewResource = useApiResource(
+    () => fetchClueOverview(filters),
+    [
+      assignedStoreId,
+      assignedDateEnd,
+      assignedDateStart,
+      city,
+      leadStatus,
+      productType,
+      roundStatus,
+    ],
+  );
+  const roundsResource = useApiResource(
+    () => fetchClueAssignmentRounds({ filters, page, pageSize: PAGE_SIZE }),
+    [
+      assignedStoreId,
+      assignedDateEnd,
+      assignedDateStart,
+      city,
+      leadStatus,
+      page,
+      productType,
+      roundStatus,
+    ],
+  );
+
+  const storeOptions: SelectOption[] = useMemo(
+    () =>
+      (meta?.assigned_stores ?? []).map((store) => ({
+        value: store.store_id,
+        label: store.store_name,
+      })),
+    [meta?.assigned_stores],
+  );
+  const overview = overviewResource.data?.data;
+  const rows = roundsResource.data?.data.rows ?? [];
+  const pagination = roundsResource.data?.data.pagination;
+  const loading =
+    filterResource.loading || overviewResource.loading || roundsResource.loading;
+
+  const resetFilters = () => {
+    setAssignedStoreId("");
+    setAssignedDateStart("");
+    setAssignedDateEnd("");
+    setLeadStatus("");
+    setRoundStatus("");
+    setProductType("");
+    setCity("");
+    setPage(1);
+  };
+
+  const columns: Column<ClueAssignmentRound>[] = [
+    {
+      key: "round_id",
+      title: "分配轮次ID",
+      minWidth: 180,
+      sticky: true,
+      render: (row) => <span className="mono-cell">{row.assignment_round_id}</span>,
+    },
+    {
+      key: "lead_status",
+      title: "线索状态",
+      minWidth: 110,
+      render: (row) => (
+        <span className="status-chip">{labelFor(row.lead_status, leadStatusLabels)}</span>
+      ),
+    },
+    {
+      key: "round_status",
+      title: "轮次状态",
+      minWidth: 150,
+      render: (row) => (
+        <span className="status-chip">
+          {labelFor(row.round_status, roundStatusLabels)}
+        </span>
+      ),
+    },
+    {
+      key: "assigned_at",
+      title: "分配时间",
+      minWidth: 150,
+      render: (row) => formatDateTime(row.assigned_at),
+    },
+    {
+      key: "remaining",
+      title: "距离再分配剩余时间",
+      minWidth: 150,
+      render: (row) => formatRemainingSeconds(row.remaining_reassign_seconds),
+    },
+    {
+      key: "store",
+      title: "分配门店",
+      minWidth: 170,
+      render: (row) => row.assigned_store_name || "-",
+    },
+    {
+      key: "store_id",
+      title: "门店ID",
+      minWidth: 110,
+      render: (row) => row.assigned_store_id || "-",
+    },
+    {
+      key: "phone",
+      title: "手机号",
+      minWidth: 120,
+      render: (row) => row.phone_masked || "",
+    },
+    {
+      key: "product_type",
+      title: "商品类型",
+      minWidth: 120,
+      render: (row) => row.product_type || "-",
+    },
+    {
+      key: "author",
+      title: "达人/作者",
+      minWidth: 130,
+      render: (row) => row.author_nickname || "-",
+    },
+    {
+      key: "followed_at",
+      title: "跟进时间",
+      minWidth: 150,
+      render: (row) => formatDateTime(row.followed_at),
+    },
+    {
+      key: "follow_result",
+      title: "跟进结果",
+      minWidth: 120,
+      render: (row) => labelFor(row.follow_result, followResultLabels),
+    },
+    {
+      key: "reassigned_at",
+      title: "再分配时间",
+      minWidth: 150,
+      render: (row) => formatDateTime(row.reassigned_at),
+    },
+    {
+      key: "verified",
+      title: "自店核销",
+      align: "center",
+      minWidth: 100,
+      render: (row) => (row.is_self_store_verified ? "是" : "否"),
+    },
+  ];
+
+  return (
+    <div className="page-stack">
+      <section className="page-heading">
+        <div>
+          <p className="eyebrow">Clue allocation center</p>
+          <h1>线索跟进分配中心</h1>
+        </div>
+        <span className="source-pill">
+          {resourceSourceLabel(roundsResource.data, roundsResource.loading)}
+        </span>
+      </section>
+
+      <ResourceNotice
+        error={
+          filterResource.error ?? overviewResource.error ?? roundsResource.error
+        }
+        fallbackReason={
+          filterResource.data?.fallbackReason ??
+          overviewResource.data?.fallbackReason ??
+          roundsResource.data?.fallbackReason
+        }
+        loading={loading}
+      />
+
+      <FilterBar className="clue-filter-bar">
+        <FilterField label="分配门店">
+          <SearchableStoreSelect
+            allowEmpty
+            emptyLabel="全部门店"
+            onChange={(value) => {
+              setPage(1);
+              setAssignedStoreId(value);
+            }}
+            options={storeOptions}
+            value={assignedStoreId}
+          />
+        </FilterField>
+        <FilterField label="分配日期起">
+          <input
+            onChange={(event) => {
+              setPage(1);
+              setAssignedDateStart(event.target.value);
+            }}
+            type="date"
+            value={assignedDateStart}
+          />
+        </FilterField>
+        <FilterField label="分配日期止">
+          <input
+            onChange={(event) => {
+              setPage(1);
+              setAssignedDateEnd(event.target.value);
+            }}
+            type="date"
+            value={assignedDateEnd}
+          />
+        </FilterField>
+        <FilterField label="线索状态">
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setLeadStatus(event.target.value);
+            }}
+            value={leadStatus}
+          >
+            <option value="">全部</option>
+            {optionList(meta?.lead_statuses, leadStatusLabels).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="轮次状态">
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setRoundStatus(event.target.value);
+            }}
+            value={roundStatus}
+          >
+            <option value="">全部</option>
+            {optionList(meta?.round_statuses, roundStatusLabels).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="商品类型">
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setProductType(event.target.value);
+            }}
+            value={productType}
+          >
+            <option value="">全部</option>
+            {optionList(meta?.product_types).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <FilterField label="城市">
+          <select
+            onChange={(event) => {
+              setPage(1);
+              setCity(event.target.value);
+            }}
+            value={city}
+          >
+            <option value="">全部</option>
+            {optionList(meta?.assigned_cities).map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+        <button className="ghost-button" onClick={resetFilters} type="button">
+          清空筛选
+        </button>
+      </FilterBar>
+
+      {!overview && overviewResource.loading ? (
+        <ResourcePanel>正在加载线索指标...</ResourcePanel>
+      ) : !overview ? (
+        <ResourcePanel tone="error">线索指标暂不可用。</ResourcePanel>
+      ) : (
+        <section className="metric-grid clue-metric-grid">
+          <MetricCard
+            label="线索总数"
+            meta="筛选范围内订单粒度"
+            value={formatInteger(overview.total_clues)}
+          />
+          <MetricCard
+            label="有效线索总数"
+            meta="当前仍需门店处理"
+            tone="blue"
+            value={formatInteger(overview.active_clues)}
+          />
+          <MetricCard
+            label="跟进比例"
+            meta="已产生跟进行为"
+            value={formatPercent(overview.follow_rate)}
+          />
+          <MetricCard
+            label="跟进成功率"
+            meta="成功跟进 / 全部线索"
+            tone="amber"
+            value={formatPercent(overview.follow_success_rate)}
+          />
+          <MetricCard
+            label="自店核销比例"
+            meta="成功且本店核销"
+            tone="blue"
+            value={formatPercent(overview.self_store_verify_rate)}
+          />
+          <MetricCard
+            label="待再分配"
+            meta="失败或超时待处理"
+            tone="amber"
+            value={formatInteger(overview.pending_reassign_count)}
+          />
+        </section>
+      )}
+
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <h2>分配轮次明细</h2>
+            <p>订单粒度轮次记录，手机号脱敏展示。</p>
+          </div>
+          {pagination ? (
+            <span className="source-pill">
+              共 {formatInteger(pagination.total)} 条
+            </span>
+          ) : null}
+        </div>
+
+        {!rows.length && roundsResource.loading ? (
+          <ResourcePanel>正在加载线索明细...</ResourcePanel>
+        ) : (
+          <DataTable
+            columns={columns}
+            emptyText="暂无线索分配记录"
+            rows={rows}
+            tableClassName="data-table--clues"
+          />
+        )}
+
+        <div className="pagination-controls">
+          <span className="pagination-controls__summary">
+            第 {formatInteger(pagination?.page ?? page)} /{" "}
+            {formatInteger(pagination?.total_pages ?? 1)} 页
+          </span>
+          <div className="pagination-controls__actions">
+            <button
+              className="ghost-button"
+              disabled={page <= 1}
+              onClick={() => setPage((current) => Math.max(1, current - 1))}
+              type="button"
+            >
+              上一页
+            </button>
+            <button
+              className="ghost-button"
+              disabled={pagination ? page >= pagination.total_pages : true}
+              onClick={() =>
+                setPage((current) =>
+                  Math.min(pagination?.total_pages ?? current, current + 1),
+                )
+              }
+              type="button"
+            >
+              下一页
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

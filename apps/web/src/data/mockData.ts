@@ -3,8 +3,14 @@ import page2SummaryRaw from "./mock/page2_store_month_summary.json";
 import page2TablesRaw from "./mock/page2_commission_tables.json";
 import orderDetailCsv from "./mock/page3_order_detail.csv?raw";
 import skuProductRulesRaw from "./mock/sku_product_commission_rules.json";
+import clueCenterRaw from "./mock/clue_center.json";
 import type {
   ApiResponse,
+  ClueAssignmentRoundData,
+  ClueFilterMetadata,
+  ClueOverviewMetrics,
+  ClueReassignRuleData,
+  ClueRebuildResult,
   CommissionTablesData,
   MonthlySummaryData,
   OrderDetail,
@@ -22,6 +28,13 @@ export const commissionTablesResponse =
 export const skuProductRulesResponse = skuProductRulesRaw as ApiResponse<{
   rows: SkuProductCommissionRule[];
 }>;
+export const clueCenterResponses = clueCenterRaw as {
+  filters: ApiResponse<ClueFilterMetadata>;
+  overview: ApiResponse<ClueOverviewMetrics>;
+  assignment_rounds: ApiResponse<ClueAssignmentRoundData>;
+  rule: ApiResponse<ClueReassignRuleData>;
+  rebuild: ApiResponse<ClueRebuildResult>;
+};
 
 const skuProductRuleMap = new Map(
   skuProductRulesResponse.data.rows.map((rule) => [rule.sku_id, rule]),

@@ -7,6 +7,12 @@ import {
 
 const adminModules = [
   {
+    href: "/admin/clues/rules",
+    title: "线索再分配规则",
+    description: "配置线索中心全局 SLA，支持留空关闭自动超时待再分配，并触发线索中心重建。",
+    meta: "线索中心 MVP",
+  },
+  {
     href: "/admin/rules",
     title: "商品分账规则",
     description: "按 SKU 配置商品类型和分账比例，保存后后台重建看板结果。",

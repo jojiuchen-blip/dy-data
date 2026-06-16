@@ -267,3 +267,76 @@ export interface OrderDetailsData {
   rows: OrderDetail[];
   pagination: Pagination;
 }
+
+export interface ClueOverviewFilters {
+  assigned_store_id?: string;
+  assigned_date_start?: string;
+  assigned_date_end?: string;
+  lead_status?: string;
+  round_status?: string;
+  product_type?: string;
+  city?: string;
+}
+
+export interface ClueFilterMetadata {
+  assigned_stores: StoreOption[];
+  assigned_cities: string[];
+  product_types: string[];
+  lead_statuses: string[];
+  round_statuses: string[];
+}
+
+export interface ClueOverviewMetrics {
+  total_clues: number;
+  active_clues: number;
+  follow_rate: number;
+  follow_success_rate: number;
+  self_store_verify_rate: number;
+  pending_reassign_count: number;
+}
+
+export interface ClueAssignmentRound {
+  assignment_round_id: string;
+  order_id: string;
+  round_no: number;
+  lead_status: string;
+  round_status: string;
+  assigned_at: string | null;
+  expires_at: string | null;
+  remaining_reassign_seconds: number | null;
+  assigned_store_id: string | null;
+  assigned_store_name: string | null;
+  phone_masked: string;
+  product_type: string | null;
+  author_nickname: string | null;
+  followed_at: string | null;
+  follow_result: string;
+  reassign_reason: string | null;
+  reassigned_at: string | null;
+  verified_store_id: string | null;
+  verified_store_name: string | null;
+  verified_at: string | null;
+  is_self_store_verified: boolean;
+}
+
+export interface ClueAssignmentRoundData {
+  rows: ClueAssignmentRound[];
+  pagination: Pagination;
+}
+
+export interface ClueReassignRuleData {
+  reassign_sla_hours: number | null;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface ClueReassignRuleUpdate {
+  reassign_sla_hours: number | null;
+}
+
+export interface ClueRebuildResult {
+  job_id?: string | null;
+  status?: "queued" | "running" | "success" | "failed";
+  rebuilt_order_count?: number | null;
+  rebuilt_round_count?: number | null;
+}
