@@ -20,9 +20,16 @@ def get_database_url(required: bool = True) -> str | None:
     return url
 
 
+def normalize_database_url(database_url: str) -> str:
+    if database_url.startswith("postgresql://"):
+        return "postgresql+psycopg://" + database_url.removeprefix("postgresql://")
+    return database_url
+
+
 def make_engine(database_url: str | None = None, *, echo: bool = False) -> Engine:
     url = database_url or get_database_url(required=True)
     assert url is not None
+    url = normalize_database_url(url)
     return create_engine(url, echo=echo, future=True)
 
 
