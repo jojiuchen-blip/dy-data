@@ -17,6 +17,7 @@ RUN set -eux; \
             chromium-sandbox \
             dumb-init \
             fluxbox \
+            gosu \
             fonts-noto-cjk \
             novnc \
             python3 \
@@ -51,7 +52,7 @@ COPY deploy/browser/entrypoint.sh /usr/local/bin/browser-entrypoint.sh
 RUN sed -i 's/\r$//' /usr/local/bin/browser-entrypoint.sh \
     && chmod +x /usr/local/bin/browser-entrypoint.sh
 
-USER browser
+USER root
 WORKDIR /home/browser
 
 ENV PYTHONPATH=/app:/app/apps/api

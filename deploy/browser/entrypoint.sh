@@ -1,6 +1,24 @@
 #!/usr/bin/env bash
 set -eu
 
+if [ "$(id -u)" = "0" ] && [ "${BROWSER_ENTRYPOINT_AS_BROWSER:-}" != "1" ]; then
+  export HOME=/home/browser
+  mkdir -p \
+    "$HOME/Downloads" \
+    "$HOME/.config/chromium" \
+    "$HOME/.cache" \
+    "$HOME/.vnc" \
+    /tmp/chromium-crashes
+  chown -R browser:browser \
+    "$HOME/Downloads" \
+    "$HOME/.config" \
+    "$HOME/.cache" \
+    "$HOME/.vnc" \
+    /tmp/chromium-crashes
+  export BROWSER_ENTRYPOINT_AS_BROWSER=1
+  exec gosu browser "$0" "$@"
+fi
+
 if [ -z "${VNC_PASSWORD:-}" ]; then
   echo "VNC_PASSWORD must be set" >&2
   exit 2

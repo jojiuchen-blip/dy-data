@@ -23,6 +23,7 @@ def test_compose_wires_worker_collection_defaults():
 
 def test_browser_profile_and_downloads_are_private_volumes():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    dockerfile = (ROOT / "deploy" / "browser" / "Dockerfile").read_text(encoding="utf-8")
     nginx = (ROOT / "deploy" / "nginx.conf").read_text(encoding="utf-8")
     entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(encoding="utf-8")
 
@@ -31,6 +32,10 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "dockerfile: deploy/browser/Dockerfile" in compose
     assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
     assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
+    assert "gosu" in dockerfile
+    assert "USER root" in dockerfile
+    assert 'exec gosu browser "$0" "$@"' in entrypoint
+    assert "chown -R browser:browser" in entrypoint
     assert 'BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"' in entrypoint
     assert 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"' in entrypoint
     assert 'export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"' in entrypoint
