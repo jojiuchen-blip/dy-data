@@ -11,6 +11,7 @@ from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
+from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.manual_sync import run_manual_sync_job
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
@@ -20,6 +21,9 @@ from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
     ManualSyncRequest,
     ManualSyncResult,
+    ClueReassignRuleData,
+    ClueReassignRuleUpdate,
+    ClueRebuildResult,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -92,6 +96,57 @@ def update_sku_rules(
         updated_count=updated_count,
         job_id=job_id,
         rebuild_status="queued",
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-reassign-rule")
+def get_clue_reassign_rule(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = ClueReassignRuleData(**store.get_clue_reassign_rule())
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/clue-reassign-rule")
+def update_clue_reassign_rule(
+    payload: ClueReassignRuleUpdate,
+    username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = ClueReassignRuleData(
+        **store.save_clue_reassign_rule(
+            reassign_sla_hours=payload.reassign_sla_hours,
+            updated_by=username,
+        )
+    )
+    store.session.commit()
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clues/rebuild")
+def rebuild_clues(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    stats = rebuild_clue_center(store.session)
+    store.session.commit()
+    data = ClueRebuildResult(
+        rebuilt_order_count=stats.get("eligible_orders", 0),
+        rebuilt_round_count=stats.get("assignment_rounds", 0),
     )
     return {
         "data": dump_model(data),

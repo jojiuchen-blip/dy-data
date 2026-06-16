@@ -149,6 +149,67 @@ class FilterMetadata(BaseModel):
     verify_months: list[str]
 
 
+class ClueFilterMetadata(BaseModel):
+    assigned_stores: list[StoreOption]
+    assigned_cities: list[str]
+    product_types: list[str]
+    lead_statuses: list[str]
+    round_statuses: list[str]
+
+
+class ClueOverviewMetrics(BaseModel):
+    total_clues: int = 0
+    active_clues: int = 0
+    follow_rate: float = 0
+    follow_success_rate: float = 0
+    self_store_verify_rate: float = 0
+    pending_reassign_count: int = 0
+
+
+class ClueAssignmentRoundRow(BaseModel):
+    assignment_round_id: str
+    order_id: str
+    round_no: int = 1
+    lead_status: str
+    round_status: str
+    assigned_at: datetime | None = None
+    expires_at: datetime | None = None
+    remaining_reassign_seconds: int | None = None
+    assigned_store_id: str | None = None
+    assigned_store_name: str | None = None
+    phone_masked: str = ""
+    product_type: str | None = None
+    author_nickname: str | None = None
+    followed_at: datetime | None = None
+    follow_result: str
+    reassign_reason: str | None = None
+    reassigned_at: datetime | None = None
+    verified_store_id: str | None = None
+    verified_store_name: str | None = None
+    verified_at: datetime | None = None
+    is_self_store_verified: bool = False
+
+
+class ClueAssignmentRoundData(BaseModel):
+    rows: list[ClueAssignmentRoundRow]
+    pagination: "Pagination"
+
+
+class ClueReassignRuleData(BaseModel):
+    reassign_sla_hours: int | None = None
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class ClueReassignRuleUpdate(BaseModel):
+    reassign_sla_hours: int | None = Field(default=None, ge=1, le=168)
+
+
+class ClueRebuildResult(BaseModel):
+    rebuilt_order_count: int = 0
+    rebuilt_round_count: int = 0
+
+
 class StoreRankingRow(BaseModel):
     rank: int
     store_id: str

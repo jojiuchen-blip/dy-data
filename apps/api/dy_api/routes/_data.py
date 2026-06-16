@@ -20,8 +20,9 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
     text = None
 
 try:
-    from apps.api.dy_api.models import DimSkuProductRule
+    from apps.api.dy_api.models import ClueReassignRuleSetting, DimSkuProductRule
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
+    ClueReassignRuleSetting = None  # type: ignore[assignment]
     DimSkuProductRule = None  # type: ignore[assignment]
 
 
@@ -154,6 +155,35 @@ def _total_pages(total: int, page_size: int) -> int:
     if total <= 0:
         return 0
     return math.ceil(total / page_size)
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator <= 0:
+        return 0
+    return round(numerator / denominator, 4)
+
+
+def _parse_filter_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value.astimezone(SHANGHAI_TZ) if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
+    raw = _to_str(value).strip()
+    if not raw:
+        return None
+    try:
+        if len(raw) == 10:
+            parsed = datetime.fromisoformat(raw)
+        else:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed.astimezone(SHANGHAI_TZ) if parsed.tzinfo else parsed.replace(tzinfo=SHANGHAI_TZ)
+
+
+def _remaining_reassign_seconds(expires_at: Any) -> int | None:
+    expires = _parse_filter_datetime(expires_at)
+    if expires is None:
+        return None
+    return max(0, int((expires - generated_at()).total_seconds()))
 
 
 class DashboardDataStore:
@@ -529,6 +559,210 @@ class DashboardDataStore:
             },
         }
 
+    def clue_filters(self) -> dict[str, Any]:
+        assigned_stores = [
+            {
+                "store_id": _to_str(row.get("store_id")),
+                "store_name": _to_str(row.get("store_name")),
+            }
+            for row in self._execute(
+                """
+                SELECT DISTINCT assigned_store_id AS store_id,
+                                assigned_store_name AS store_name
+                FROM clue_center_orders
+                WHERE assigned_store_id IS NOT NULL
+                  AND assigned_store_id != ''
+                ORDER BY assigned_store_name, assigned_store_id
+                """
+            )
+        ]
+        assigned_cities = [
+            _to_str(row.get("assigned_city"))
+            for row in self._execute(
+                """
+                SELECT DISTINCT assigned_city
+                FROM clue_center_orders
+                WHERE assigned_city IS NOT NULL AND assigned_city != ''
+                ORDER BY assigned_city
+                """
+            )
+        ]
+        product_types = [
+            _to_str(row.get("product_type"))
+            for row in self._execute(
+                """
+                SELECT DISTINCT product_type
+                FROM clue_center_orders
+                WHERE product_type IS NOT NULL AND product_type != ''
+                ORDER BY product_type
+                """
+            )
+        ]
+        lead_statuses = [
+            _to_str(row.get("lead_status"))
+            for row in self._execute(
+                """
+                SELECT DISTINCT lead_status
+                FROM clue_center_orders
+                WHERE lead_status IS NOT NULL AND lead_status != ''
+                ORDER BY lead_status
+                """
+            )
+        ]
+        round_statuses = [
+            _to_str(row.get("round_status"))
+            for row in self._execute(
+                """
+                SELECT DISTINCT round_status
+                FROM clue_assignment_rounds
+                WHERE round_status IS NOT NULL AND round_status != ''
+                ORDER BY round_status
+                """
+            )
+        ]
+        return {
+            "assigned_stores": assigned_stores,
+            "assigned_cities": assigned_cities,
+            "product_types": product_types,
+            "lead_statuses": lead_statuses,
+            "round_statuses": round_statuses,
+        }
+
+    def clue_overview(self, filters: dict[str, Any]) -> dict[str, Any]:
+        where_sql, params = self._clue_where(filters, include_round=False)
+        rows = self._execute(
+            f"""
+            SELECT COUNT(*) AS total_clues,
+                   COALESCE(SUM(CASE
+                       WHEN current_round_status IN ('active_unfollowed', 'active_followed')
+                       THEN 1 ELSE 0 END), 0) AS active_clues,
+                   COALESCE(SUM(CASE WHEN is_followed = true THEN 1 ELSE 0 END), 0)
+                       AS followed_clues,
+                   COALESCE(SUM(CASE WHEN is_follow_success = true THEN 1 ELSE 0 END), 0)
+                       AS successful_follow_clues,
+                   COALESCE(SUM(CASE
+                       WHEN is_follow_success = true AND is_self_store_verified = true
+                       THEN 1 ELSE 0 END), 0) AS self_store_verified_clues,
+                   COALESCE(SUM(CASE
+                       WHEN lead_status = 'pending_reassign'
+                         OR current_round_status IN (
+                            'failed_pending_reassign',
+                            'expired_pending_reassign'
+                         )
+                       THEN 1 ELSE 0 END), 0) AS pending_reassign_count
+            FROM clue_center_orders c
+            {where_sql}
+            """,
+            params,
+        )
+        row = rows[0] if rows else {}
+        total = _to_int(row.get("total_clues"))
+        followed = _to_int(row.get("followed_clues"))
+        successful = _to_int(row.get("successful_follow_clues"))
+        self_verified = _to_int(row.get("self_store_verified_clues"))
+        return {
+            "total_clues": total,
+            "active_clues": _to_int(row.get("active_clues")),
+            "follow_rate": _ratio(followed, total),
+            "follow_success_rate": _ratio(successful, total),
+            "self_store_verify_rate": _ratio(self_verified, total),
+            "pending_reassign_count": _to_int(row.get("pending_reassign_count")),
+        }
+
+    def clue_assignment_rounds(self, filters: dict[str, Any]) -> dict[str, Any]:
+        page = max(1, _to_int(filters.get("page"), 1))
+        page_size = max(1, min(_to_int(filters.get("page_size"), 20), 100))
+        offset = (page - 1) * page_size
+        where_sql, params = self._clue_where(filters, include_round=True)
+        total_rows = self._execute(
+            f"""
+            SELECT COUNT(*) AS total
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            {where_sql}
+            """,
+            params,
+        )
+        total = _to_int(total_rows[0].get("total"), 0) if total_rows else 0
+        rows = self._execute(
+            f"""
+            SELECT r.assignment_round_id,
+                   r.order_id,
+                   r.round_no,
+                   c.lead_status,
+                   r.round_status,
+                   r.assigned_at,
+                   r.expires_at,
+                   r.assigned_store_id,
+                   r.assigned_store_name,
+                   COALESCE(c.phone_masked, '') AS phone_masked,
+                   c.product_type,
+                   c.author_nickname,
+                   r.followed_at,
+                   r.follow_result,
+                   r.reassign_reason,
+                   r.reassigned_at,
+                   r.verified_store_id,
+                   r.verified_store_name,
+                   r.verified_at,
+                   r.is_self_store_verified
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            {where_sql}
+            ORDER BY r.assigned_at DESC, r.assignment_round_id DESC
+            LIMIT :limit OFFSET :offset
+            """,
+            {**params, "limit": page_size, "offset": offset},
+        )
+        return {
+            "rows": [self._clean_clue_round_row(row) for row in rows],
+            "pagination": {
+                "page": page,
+                "page_size": page_size,
+                "total": total,
+                "total_pages": _total_pages(total, page_size),
+            },
+        }
+
+    def get_clue_reassign_rule(self) -> dict[str, Any]:
+        if self.session is None or ClueReassignRuleSetting is None:
+            return {
+                "reassign_sla_hours": None,
+                "updated_at": None,
+                "updated_by": None,
+            }
+        setting = self.session.get(ClueReassignRuleSetting, "global")
+        if setting is None:
+            return {
+                "reassign_sla_hours": None,
+                "updated_at": None,
+                "updated_by": None,
+            }
+        return {
+            "reassign_sla_hours": setting.reassign_sla_hours,
+            "updated_at": setting.updated_at,
+            "updated_by": setting.updated_by,
+        }
+
+    def save_clue_reassign_rule(
+        self, *, reassign_sla_hours: int | None, updated_by: str
+    ) -> dict[str, Any]:
+        if self.session is None or ClueReassignRuleSetting is None:
+            return {
+                "reassign_sla_hours": None,
+                "updated_at": None,
+                "updated_by": None,
+            }
+        setting = self.session.get(ClueReassignRuleSetting, "global")
+        if setting is None:
+            setting = ClueReassignRuleSetting(setting_key="global")
+        setting.reassign_sla_hours = reassign_sla_hours
+        setting.updated_by = updated_by
+        setting.updated_at = generated_at()
+        self.session.merge(setting)
+        self.session.flush()
+        return self.get_clue_reassign_rule()
+
     def order_details_export_csv(self, filters: dict[str, Any]) -> str:
         where_sql, params = self._detail_where(filters)
         rows = self._execute(
@@ -726,6 +960,77 @@ class DashboardDataStore:
         if not clauses:
             return "", params
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
+
+    def _clue_where(
+        self, filters: dict[str, Any], *, include_round: bool
+    ) -> tuple[str, dict[str, Any]]:
+        clauses: list[str] = []
+        params: dict[str, Any] = {}
+
+        exact_filters = {
+            "assigned_store_id": "c.assigned_store_id",
+            "lead_status": "c.lead_status",
+            "product_type": "c.product_type",
+            "city": "c.assigned_city",
+        }
+        for key, column in exact_filters.items():
+            value = _to_str(filters.get(key)).strip()
+            if value and value != "all":
+                clauses.append(f"{column} = :{key}")
+                params[key] = value
+
+        round_status = _to_str(filters.get("round_status")).strip()
+        if round_status and round_status != "all":
+            column = "r.round_status" if include_round else "c.current_round_status"
+            clauses.append(f"{column} = :round_status")
+            params["round_status"] = round_status
+
+        assigned_start = _parse_filter_datetime(filters.get("assigned_date_start"))
+        if assigned_start is not None:
+            clauses.append("c.assigned_at >= :assigned_date_start")
+            params["assigned_date_start"] = assigned_start
+
+        assigned_end = _parse_filter_datetime(filters.get("assigned_date_end"))
+        if assigned_end is not None:
+            clauses.append("c.assigned_at < :assigned_date_end")
+            params["assigned_date_end"] = assigned_end
+
+        query = _to_str(filters.get("q")).strip().lower()
+        if query:
+            clauses.append(
+                "(lower(c.order_id) LIKE :q OR lower(c.assigned_store_name) LIKE :q)"
+            )
+            params["q"] = f"%{query}%"
+
+        if not clauses:
+            return "", params
+        return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
+
+    def _clean_clue_round_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        expires_at = row.get("expires_at")
+        return {
+            "assignment_round_id": _to_str(row.get("assignment_round_id")),
+            "order_id": _to_str(row.get("order_id")),
+            "round_no": _to_int(row.get("round_no"), 1),
+            "lead_status": _to_str(row.get("lead_status")),
+            "round_status": _to_str(row.get("round_status")),
+            "assigned_at": row.get("assigned_at"),
+            "expires_at": expires_at,
+            "remaining_reassign_seconds": _remaining_reassign_seconds(expires_at),
+            "assigned_store_id": row.get("assigned_store_id"),
+            "assigned_store_name": row.get("assigned_store_name"),
+            "phone_masked": _to_str(row.get("phone_masked")),
+            "product_type": row.get("product_type"),
+            "author_nickname": row.get("author_nickname"),
+            "followed_at": row.get("followed_at"),
+            "follow_result": _to_str(row.get("follow_result"), "pending"),
+            "reassign_reason": row.get("reassign_reason"),
+            "reassigned_at": row.get("reassigned_at"),
+            "verified_store_id": row.get("verified_store_id"),
+            "verified_store_name": row.get("verified_store_name"),
+            "verified_at": row.get("verified_at"),
+            "is_self_store_verified": _to_bool(row.get("is_self_store_verified")),
+        }
 
     def _clean_job(self, row: dict[str, Any]) -> dict[str, Any]:
         metadata = row.get("metadata_json") or {}
