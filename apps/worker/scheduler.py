@@ -54,14 +54,25 @@ def run_once() -> None:
     if mode == "backfill":
         run_backfill(factory=factory)
         return
+    if mode == "browser_export_only":
+        run_browser_export_once(factory)
+        return
     with session_scope(factory) as session:
-        if mode == "browser_export_only":
-            run_browser_export_job(session)
-            return
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
         run_collect_and_settle(session, job_id=_job_id("collect"))
+
+
+def run_browser_export_once(factory) -> None:
+    error: Exception | None = None
+    with session_scope(factory) as session:
+        try:
+            run_browser_export_job(session)
+        except Exception as exc:
+            error = exc
+    if error is not None:
+        raise error
 
 
 def run_browser_export_job(

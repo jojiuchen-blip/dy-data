@@ -3,13 +3,17 @@ from __future__ import annotations
 from datetime import datetime
 
 import pytest
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from apps.api.dy_api.models import Base
 from apps.api.dy_api.models import JobRun
 from apps.worker.backfill import iter_backfill_windows
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
-from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job
+from apps.worker import scheduler
+from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
 
 
 def window() -> CollectionWindow:
@@ -120,6 +124,35 @@ def test_browser_export_only_records_success_job(db_session: Session):
     assert job.success_count == 3
     assert job.failed_count == 0
     assert job.metadata_json["phases"]["backend_aweme_export"]["fetched"] == 2
+
+
+def test_browser_export_only_failure_persists_when_run_once_rethrows(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+
+    def failing_runner(session: Session, source_run_id: str) -> PhaseStats:
+        assert session.get(JobRun, source_run_id).status == "running"
+        raise RuntimeError("CDP endpoint unavailable")
+
+    monkeypatch.setenv("WORKER_MODE", "browser_export_only")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "_run_backend_aweme_export", failing_runner)
+
+    with pytest.raises(RuntimeError, match="CDP endpoint unavailable"):
+        run_once()
+
+    with factory() as session:
+        job = session.scalar(select(JobRun).where(JobRun.job_name == "backend_aweme_export"))
+        assert job is not None
+        assert job.status == "failed"
+        assert job.failed_count == 1
+        assert job.error_message == "CDP endpoint unavailable"
 
 
 def test_backfill_splits_windows_by_chunk_days():

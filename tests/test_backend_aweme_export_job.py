@@ -16,10 +16,12 @@ from apps.worker.browser_exports.backend_aweme import (
     is_login_required,
     normalize_download_file_url,
     normalize_cdp_websocket_url,
+    resolve_playwright_cdp_url,
     run_backend_aweme_export,
     upsert_backend_aweme_records,
     workbook_filename,
 )
+from apps.worker.browser_exports import backend_aweme
 
 
 def write_workbook(path: Path) -> None:
@@ -67,6 +69,36 @@ def test_backend_aweme_export_rewrites_loopback_cdp_websocket_url():
         normalize_cdp_websocket_url("http://browser:9222", websocket_url)
         == "ws://browser:9222/devtools/browser/browser-id"
     )
+
+
+def test_backend_aweme_export_waits_for_cdp_endpoint(monkeypatch):
+    calls = []
+
+    class Response:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def read(self):
+            return b'{"webSocketDebuggerUrl":"ws://127.0.0.1:9223/devtools/browser/browser-id"}'
+
+    def fake_urlopen(url: str, timeout: int):
+        calls.append((url, timeout))
+        if len(calls) == 1:
+            raise OSError("not ready")
+        return Response()
+
+    monkeypatch.setenv("BROWSER_CDP_READY_TIMEOUT_SECONDS", "5")
+    monkeypatch.setattr(backend_aweme, "urlopen", fake_urlopen)
+    monkeypatch.setattr(backend_aweme.time, "sleep", lambda seconds: None)
+
+    assert (
+        resolve_playwright_cdp_url("http://browser:9222")
+        == "ws://browser:9222/devtools/browser/browser-id"
+    )
+    assert len(calls) == 2
 
 
 def test_backend_aweme_export_extracts_completed_download_file_url():

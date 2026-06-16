@@ -296,16 +296,25 @@ def resolve_playwright_cdp_url(cdp_url: str) -> str:
     if parsed.scheme in {"ws", "wss"}:
         return cdp_url
 
-    try:
-        with urlopen(f"{cdp_url.rstrip('/')}/json/version", timeout=10) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (OSError, URLError, json.JSONDecodeError) as exc:
-        raise BrowserExportError(f"Unable to inspect browser CDP endpoint at {cdp_url}.") from exc
+    timeout_seconds = float(os.getenv("BROWSER_CDP_READY_TIMEOUT_SECONDS", "120"))
+    deadline = time.monotonic() + max(timeout_seconds, 0)
+    last_error: Exception | None = None
+    version_url = f"{cdp_url.rstrip('/')}/json/version"
 
-    websocket_url = str(payload.get("webSocketDebuggerUrl") or "")
-    if not websocket_url:
-        raise BrowserExportError(f"Browser CDP endpoint at {cdp_url} did not return a websocket URL.")
-    return normalize_cdp_websocket_url(cdp_url, websocket_url)
+    while True:
+        try:
+            with urlopen(version_url, timeout=10) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+            websocket_url = str(payload.get("webSocketDebuggerUrl") or "")
+            if websocket_url:
+                return normalize_cdp_websocket_url(cdp_url, websocket_url)
+            last_error = BrowserExportError(f"Browser CDP endpoint at {cdp_url} did not return a websocket URL.")
+        except (OSError, URLError, json.JSONDecodeError) as exc:
+            last_error = exc
+
+        if time.monotonic() >= deadline:
+            raise BrowserExportError(f"Unable to inspect browser CDP endpoint at {cdp_url}.") from last_error
+        time.sleep(1)
 
 
 def normalize_cdp_websocket_url(cdp_url: str, websocket_url: str) -> str:
