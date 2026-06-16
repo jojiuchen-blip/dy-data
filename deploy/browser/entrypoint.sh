@@ -6,6 +6,7 @@ if [ -z "${VNC_PASSWORD:-}" ]; then
   exit 2
 fi
 
+NOVNC_PORT="${PORT:-${NOVNC_PORT:-6080}}"
 mkdir -p "$HOME/Downloads" "$HOME/.config/chromium" "$HOME/.vnc"
 x11vnc -storepasswd "$VNC_PASSWORD" "$HOME/.vnc/passwd" >/dev/null 2>&1
 
@@ -97,4 +98,4 @@ chromium \
   --remote-debugging-port="$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" \
   "$CHROMIUM_START_URL" >/tmp/chromium.log 2>&1 &
 
-exec websockify --web=/usr/share/novnc/ "$NOVNC_PORT" localhost:5900
+exec websockify --web=/usr/share/novnc/ "0.0.0.0:${NOVNC_PORT}" localhost:5900
