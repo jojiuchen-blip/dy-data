@@ -7,7 +7,16 @@ if [ -z "${VNC_PASSWORD:-}" ]; then
 fi
 
 NOVNC_PORT="${PORT:-${NOVNC_PORT:-6080}}"
-mkdir -p "$HOME/Downloads" "$HOME/.config/chromium" "$HOME/.vnc" /tmp/chromium-crashes
+export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
+mkdir -p \
+  "$HOME/Downloads" \
+  "$HOME/.vnc" \
+  "$XDG_CONFIG_HOME/chromium" \
+  "$XDG_CONFIG_HOME/chromium/Crash Reports" \
+  "$XDG_CONFIG_HOME/chromium/Crashpad" \
+  "$XDG_CACHE_HOME/chromium" \
+  /tmp/chromium-crashes
 x11vnc -storepasswd "$VNC_PASSWORD" "$HOME/.vnc/passwd" >/dev/null 2>&1
 
 python3 - "$CHROMIUM_REMOTE_DEBUGGING_PORT" "$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" <<'PY' >/tmp/cdp-proxy.log 2>&1 &
@@ -80,9 +89,9 @@ PY
 
 rm -f /tmp/.X99-lock
 rm -f \
-  "$HOME/.config/chromium/SingletonCookie" \
-  "$HOME/.config/chromium/SingletonLock" \
-  "$HOME/.config/chromium/SingletonSocket"
+  "$XDG_CONFIG_HOME/chromium/SingletonCookie" \
+  "$XDG_CONFIG_HOME/chromium/SingletonLock" \
+  "$XDG_CONFIG_HOME/chromium/SingletonSocket"
 
 Xvfb "$DISPLAY" -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
 fluxbox >/tmp/fluxbox.log 2>&1 &
@@ -104,7 +113,7 @@ chromium \
   --disable-dev-shm-usage \
   --no-sandbox \
   --crash-dumps-dir=/tmp/chromium-crashes \
-  --user-data-dir="$HOME/.config/chromium" \
+  --user-data-dir="$XDG_CONFIG_HOME/chromium" \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" \
   "$CHROMIUM_START_URL" >/tmp/chromium.log 2>&1 &
