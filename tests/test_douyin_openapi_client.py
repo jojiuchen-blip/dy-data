@@ -133,6 +133,34 @@ def test_verify_and_shop_poi_queries_return_raw_payloads():
     assert "page_size" not in http.calls[1]["params"]
 
 
+def test_clue_query_sends_expected_url_and_query_params():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"clue_data": [{"clue_id": "clue-1"}]}}),
+        ]
+    )
+    client = client_with(http)
+
+    payload = client.query_clues(
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 6, 2, tzinfo=timezone.utc),
+        page=3,
+        page_size=80,
+    )
+
+    assert payload["data"]["clue_data"] == [{"clue_id": "clue-1"}]
+    assert http.calls[1]["url"] == "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
+    assert http.calls[1]["headers"]["Rpc-Transit-Life-Account"] == "acct-1"
+    assert http.calls[1]["params"] == {
+        "account_id": "acct-1",
+        "page": 3,
+        "page_size": 80,
+        "start_time": int(datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp()),
+        "end_time": int(datetime(2026, 6, 2, tzinfo=timezone.utc).timestamp()),
+    }
+
+
 def test_certificate_query_uses_order_id_and_returns_raw_payload():
     http = FakeHttp(
         [

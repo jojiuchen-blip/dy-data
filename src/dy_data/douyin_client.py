@@ -16,6 +16,7 @@ CERTIFICATE_QUERY_URL = "https://open.douyin.com/goodlife/v1/fulfilment/certific
 REFUND_QUERY_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/query/"
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
+CLUE_QUERY_URL = "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
 
 
 def douyin_headers(token: str, account_id: str) -> dict[str, str]:
@@ -148,6 +149,23 @@ class DouyinOpenApiClient:
             "size": size,
         }
         return self._get_json(CRAFTSMAN_BIND_INFO_URL, params)
+
+    def query_clues(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> dict[str, Any]:
+        params: dict[str, Any] = {
+            "account_id": self.credentials.account_id,
+            "page": page,
+            "page_size": page_size,
+            "start_time": int(start.timestamp()),
+            "end_time": int(end.timestamp()),
+        }
+        return self._get_json(CLUE_QUERY_URL, params)
 
     def _token_headers(self) -> dict[str, str]:
         token = self._token or self.get_client_token()
