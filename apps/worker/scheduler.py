@@ -12,13 +12,15 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import JobRun
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import run_backfill
-from apps.worker.collectors.types import PhaseStats
+from apps.worker.collectors.types import CollectionWindow, PhaseStats
+from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 
 
 DEFAULT_INTERVAL_SECONDS = 60 * 60 * 24
+DEFAULT_ROLLING_DAYS = 30
 _STOP = False
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
@@ -45,6 +47,23 @@ def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
     return value
 
 
+def resolve_incremental_collection_window(
+    *,
+    now: datetime | None = None,
+    env: Mapping[str, str] | None = None,
+) -> CollectionWindow:
+    source = os.environ if env is None else env
+    days = int(source.get("WORKER_ROLLING_DAYS", str(DEFAULT_ROLLING_DAYS)))
+    if days <= 0:
+        raise ValueError("WORKER_ROLLING_DAYS must be greater than 0.")
+    return resolve_collection_window(
+        now=now,
+        overlap_days=days,
+        timezone_name=source.get("DOUYIN_COLLECT_TIMEZONE"),
+        env={},
+    )
+
+
 def run_once() -> None:
     source_run_id = os.getenv("WORKER_SOURCE_RUN_ID", "scheduled")
     mode = resolve_worker_mode()
@@ -61,7 +80,12 @@ def run_once() -> None:
         if mode == "settlement_only":
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
-        run_collect_and_settle(session, job_id=_job_id("collect"))
+        run_collect_and_settle(
+            session,
+            job_id=_job_id("collect"),
+            window=resolve_incremental_collection_window(),
+            include_browser_export=False,
+        )
 
 
 def run_browser_export_once(factory) -> None:

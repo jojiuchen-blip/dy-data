@@ -9,11 +9,12 @@ from sqlalchemy.pool import StaticPool
 
 from apps.api.dy_api.models import Base
 from apps.api.dy_api.models import JobRun
-from apps.worker.backfill import iter_backfill_windows
-from apps.worker.collectors.types import CollectionWindow, PhaseStats
+from apps.worker.backfill import iter_backfill_windows, run_backfill
+from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker import scheduler
 from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
+from apps.worker.repositories import finish_job_run, start_job_run
 
 
 def window() -> CollectionWindow:
@@ -174,6 +175,56 @@ def test_backfill_splits_windows_by_chunk_days():
         "2026-01-03T00:00:00+08:00",
         "2026-01-03T12:00:00+08:00",
     ]
+
+
+def test_backfill_skips_successful_completed_windows(db_session: Session):
+    completed = CollectionWindow(
+        start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-01-02T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    start_job_run(
+        db_session,
+        "previous-backfill",
+        "collect_and_settle",
+        metadata_json={
+            "source_window": completed.as_metadata(),
+            "phases": {"orders": {"name": "orders", "fetched": 1, "upserted": 1, "skipped": 0, "failed": 0}},
+        },
+    )
+    finish_job_run(db_session, "previous-backfill", status="success", success_count=1)
+    db_session.commit()
+
+    calls: list[str] = []
+
+    def runner(session: Session, *, window: CollectionWindow, job_id: str, include_browser_export: bool | None):
+        calls.append(window.start.isoformat())
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    run_backfill(
+        factory=sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True),
+        start="2026-01-01",
+        end="2026-01-03",
+        chunk_days=1,
+        runner=runner,
+    )
+
+    assert calls == ["2026-01-02T00:00:00+08:00"]
+
+
+def test_incremental_collection_window_defaults_to_recent_30_days():
+    window = scheduler.resolve_incremental_collection_window(
+        now=datetime.fromisoformat("2026-06-16T15:30:00+08:00"),
+        env={
+            "DOUYIN_COLLECT_START": "2026-01-26",
+            "DOUYIN_COLLECT_END": "2026-06-15",
+        },
+    )
+
+    assert window.start.isoformat() == "2026-05-17T00:00:00+08:00"
+    assert window.end.isoformat() == "2026-06-16T15:30:00+08:00"
 
 
 def test_fake_douyin_client_allows_offline_worker_smoke(monkeypatch):
