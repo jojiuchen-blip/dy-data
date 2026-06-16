@@ -14,10 +14,12 @@ from apps.worker.browser_exports.backend_aweme import (
     export_workbook_search_dirs,
     extract_completed_download_info,
     find_recent_workbook,
+    is_relevant_export_response,
     is_valid_poi_id,
     is_login_required,
     normalize_download_file_url,
     normalize_cdp_websocket_url,
+    redact_url,
     resolve_playwright_cdp_url,
     run_backend_aweme_export,
     upsert_backend_aweme_records,
@@ -161,6 +163,15 @@ def test_backend_aweme_export_search_dirs_include_download_env(monkeypatch, tmp_
     assert tmp_path.resolve() in search_dirs
     assert download_dir.resolve() in search_dirs
     assert artifact_dir.resolve() in search_dirs
+
+
+def test_backend_aweme_export_redacts_relevant_response_urls():
+    assert is_relevant_export_response("https://life.douyin.com/life/gate/v3/download/mget") is True
+    assert is_relevant_export_response("https://example.test/health") is False
+    assert redact_url("https://example.test/export?token=secret&file=one.xlsx") == (
+        "https://example.test/export?<redacted>"
+    )
+    assert redact_url("https://example.test/export") == "https://example.test/export"
 
 
 def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, tmp_path: Path):

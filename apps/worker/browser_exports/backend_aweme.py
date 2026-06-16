@@ -158,9 +158,22 @@ def export_workbook_via_browser(
             context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
             page = context.pages[0] if context.pages else context.new_page()
             completed_download: dict[str, str] = {}
+            observed_responses: list[dict[str, Any]] = []
 
-            def capture_completed_download(response: Any) -> None:
-                if "/life/gate/v3/download/mget" not in response.url:
+            def capture_export_response(response: Any) -> None:
+                response_url = str(response.url)
+                if is_relevant_export_response(response_url):
+                    item = {"url": redact_url(response_url), "status": getattr(response, "status", None)}
+                    try:
+                        payload = response.json()
+                    except Exception:
+                        payload = None
+                    if payload is not None:
+                        item["json"] = json.dumps(payload, ensure_ascii=False)[:1200]
+                    observed_responses.append(item)
+                    del observed_responses[:-30]
+
+                if "/life/gate/v3/download/mget" not in response_url:
                     return
                 try:
                     payload = response.json()
@@ -170,7 +183,7 @@ def export_workbook_via_browser(
                 if info:
                     completed_download.update(info)
 
-            page.on("response", capture_completed_download)
+            page.on("response", capture_export_response)
             page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
             page_content = page.content()
             if is_login_required(page.url, page_content):
@@ -196,7 +209,11 @@ def export_workbook_via_browser(
                 if downloaded_path is not None:
                     return downloaded_path
                 if not completed_download.get("file_url"):
-                    log_export_page_diagnostics(page, search_dirs=export_workbook_search_dirs(target_dir))
+                    log_export_page_diagnostics(
+                        page,
+                        search_dirs=export_workbook_search_dirs(target_dir),
+                        observed_responses=observed_responses,
+                    )
                     raise
             if download is not None:
                 downloaded_path = save_playwright_download_if_workbook(download, target_dir=target_dir)
@@ -284,7 +301,36 @@ def find_recent_workbook(search_dirs: list[Path], *, since_epoch: float) -> Path
     return newest_path
 
 
-def log_export_page_diagnostics(page: Any, *, search_dirs: list[Path]) -> None:
+def is_relevant_export_response(url: str) -> bool:
+    lowered = url.lower()
+    return any(
+        keyword in lowered
+        for keyword in (
+            "download",
+            "export",
+            "excel",
+            "xlsx",
+            "bc_manage",
+            "aweme",
+            "douyin",
+            "account",
+        )
+    )
+
+
+def redact_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.query:
+        return url
+    return urlunparse(parsed._replace(query="<redacted>"))
+
+
+def log_export_page_diagnostics(
+    page: Any,
+    *,
+    search_dirs: list[Path],
+    observed_responses: list[dict[str, Any]] | None = None,
+) -> None:
     try:
         page_state = page.evaluate(
             """
@@ -327,7 +373,14 @@ def log_export_page_diagnostics(page: Any, *, search_dirs: list[Path]) -> None:
             files.append({"path": str(path), "size": stat.st_size, "mtime": stat.st_mtime})
     print(
         "[backend-aweme-export] diagnostic "
-        + json.dumps({"page": page_state, "download_files": files[:30]}, ensure_ascii=False),
+        + json.dumps(
+            {
+                "page": page_state,
+                "download_files": files[:30],
+                "observed_responses": observed_responses or [],
+            },
+            ensure_ascii=False,
+        ),
         flush=True,
     )
 
