@@ -140,7 +140,12 @@ def export_workbook_via_browser(
     except ImportError as exc:
         raise BrowserExportError("Install playwright before running browser exports.") from exc
 
-    target_dir = Path(run_dir or os.getenv("BROWSER_EXPORT_RUN_DIR", ".")).resolve()
+    target_dir = Path(
+        run_dir
+        or os.getenv("BROWSER_EXPORT_RUN_DIR")
+        or os.getenv("BROWSER_EXPORT_ARTIFACT_DIR")
+        or "."
+    ).resolve()
     target_dir.mkdir(parents=True, exist_ok=True)
     target_url = export_url or os.getenv("BACKEND_AWEME_EXPORT_URL", DEFAULT_EXPORT_URL)
     export_selector = os.getenv("BACKEND_AWEME_EXPORT_SELECTOR", DEFAULT_EXPORT_SELECTOR)
@@ -172,8 +177,10 @@ def export_workbook_via_browser(
                 raise BrowserExportError("Douyin backend login required. Log in through the protected noVNC browser first.")
 
             download = None
+            click_started_at = time.time() - 5
             try:
                 with page.expect_download(timeout=timeout_ms) as download_info:
+                    click_started_at = time.time() - 5
                     click_backend_export(
                         page,
                         export_selector=export_selector,
@@ -182,7 +189,14 @@ def export_workbook_via_browser(
                     )
                 download = download_info.value
             except PlaywrightTimeoutError:
+                downloaded_path = find_recent_workbook(
+                    export_workbook_search_dirs(target_dir),
+                    since_epoch=click_started_at,
+                )
+                if downloaded_path is not None:
+                    return downloaded_path
                 if not completed_download.get("file_url"):
+                    log_export_page_diagnostics(page, search_dirs=export_workbook_search_dirs(target_dir))
                     raise
             if download is not None:
                 downloaded_path = save_playwright_download_if_workbook(download, target_dir=target_dir)
@@ -225,6 +239,97 @@ def wait_for_completed_download(page: Any, completed_download: dict[str, str], *
             return completed_download
         page.wait_for_timeout(500)
     raise BrowserExportError("Timed out waiting for backend aweme workbook file URL.")
+
+
+def export_workbook_search_dirs(target_dir: Path) -> list[Path]:
+    candidates: list[str | Path | None] = [
+        target_dir,
+        os.getenv("BROWSER_EXPORT_RUN_DIR"),
+        os.getenv("BROWSER_EXPORT_DOWNLOAD_DIR"),
+        os.getenv("BROWSER_EXPORT_ARTIFACT_DIR"),
+        Path.home() / "Downloads",
+    ]
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        if candidate is None or not str(candidate).strip():
+            continue
+        resolved = Path(candidate).expanduser().resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def find_recent_workbook(search_dirs: list[Path], *, since_epoch: float) -> Path | None:
+    newest_path: Path | None = None
+    newest_mtime = since_epoch
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        paths = [search_dir] if search_dir.is_file() else search_dir.rglob("*")
+        for path in paths:
+            if not path.is_file() or path.suffix.lower() not in WORKBOOK_EXTENSIONS:
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            if stat.st_size <= 0 or stat.st_mtime < since_epoch:
+                continue
+            if stat.st_mtime >= newest_mtime:
+                newest_mtime = stat.st_mtime
+                newest_path = path
+    return newest_path
+
+
+def log_export_page_diagnostics(page: Any, *, search_dirs: list[Path]) -> None:
+    try:
+        page_state = page.evaluate(
+            """
+            () => ({
+              url: location.href,
+              title: document.title,
+              clickableTexts: Array.from(document.querySelectorAll('button,a,[role="button"]'))
+                .map((node) => (node.innerText || node.textContent || '').trim())
+                .filter(Boolean)
+                .slice(0, 40),
+              dialogTexts: Array.from(document.querySelectorAll('[role="dialog"], .byted-modal, .semi-modal, .arco-modal'))
+                .map((node) => (node.innerText || node.textContent || '').trim().slice(0, 300))
+                .filter(Boolean)
+                .slice(0, 5),
+            })
+            """
+        )
+    except Exception as exc:
+        page_state = {"diagnostic_error": str(exc)}
+
+    files: list[dict[str, Any]] = []
+    for search_dir in search_dirs:
+        if not search_dir.exists():
+            continue
+        try:
+            paths = [search_dir] if search_dir.is_file() else sorted(
+                search_dir.rglob("*"),
+                key=lambda path: path.stat().st_mtime if path.exists() else 0,
+                reverse=True,
+            )[:20]
+        except OSError:
+            continue
+        for path in paths:
+            if not path.is_file():
+                continue
+            try:
+                stat = path.stat()
+            except OSError:
+                continue
+            files.append({"path": str(path), "size": stat.st_size, "mtime": stat.st_mtime})
+    print(
+        "[backend-aweme-export] diagnostic "
+        + json.dumps({"page": page_state, "download_files": files[:30]}, ensure_ascii=False),
+        flush=True,
+    )
 
 
 def save_workbook_from_file_url(

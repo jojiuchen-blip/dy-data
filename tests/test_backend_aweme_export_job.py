@@ -11,7 +11,9 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import DimAwemeAccount, DimStore, DimStorePoiMapping, RawAwemeBinding
 from apps.worker.browser_exports.backend_aweme import (
     BrowserExportError,
+    export_workbook_search_dirs,
     extract_completed_download_info,
+    find_recent_workbook,
     is_valid_poi_id,
     is_login_required,
     normalize_download_file_url,
@@ -126,6 +128,39 @@ def test_backend_aweme_export_extracts_completed_download_file_url():
     assert workbook_filename("", "https://example.test/files/backend_aweme.xlsx?token=redacted") == "backend_aweme.xlsx"
     assert is_valid_poi_id("poi-1") is True
     assert is_valid_poi_id("0") is False
+
+
+def test_backend_aweme_export_finds_recent_workbook(tmp_path: Path):
+    old_workbook = tmp_path / "old.xlsx"
+    old_workbook.write_bytes(b"old")
+    old_mtime = 1_700_000_000
+    new_dir = tmp_path / "Downloads"
+    new_dir.mkdir()
+    new_workbook = new_dir / "new.xlsx"
+    new_workbook.write_bytes(b"new")
+    new_mtime = old_mtime + 100
+    old_workbook.touch()
+    new_workbook.touch()
+    import os
+
+    os.utime(old_workbook, (old_mtime, old_mtime))
+    os.utime(new_workbook, (new_mtime, new_mtime))
+
+    assert find_recent_workbook([tmp_path], since_epoch=old_mtime + 1) == new_workbook
+    assert find_recent_workbook([tmp_path], since_epoch=new_mtime + 1) is None
+
+
+def test_backend_aweme_export_search_dirs_include_download_env(monkeypatch, tmp_path: Path):
+    download_dir = tmp_path / "downloads"
+    artifact_dir = tmp_path / "artifacts"
+    monkeypatch.setenv("BROWSER_EXPORT_DOWNLOAD_DIR", str(download_dir))
+    monkeypatch.setenv("BROWSER_EXPORT_ARTIFACT_DIR", str(artifact_dir))
+
+    search_dirs = export_workbook_search_dirs(tmp_path)
+
+    assert tmp_path.resolve() in search_dirs
+    assert download_dir.resolve() in search_dirs
+    assert artifact_dir.resolve() in search_dirs
 
 
 def test_backend_aweme_export_upserts_parsed_workbook_rows(db_session: Session, tmp_path: Path):
