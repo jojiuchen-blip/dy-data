@@ -1,9 +1,10 @@
 import type { ReactNode } from "react";
 
 const navItems = [
-  { href: "/ranking", label: "全国门店榜单" },
-  { href: "/settlement", label: "单店分账看板" },
-  { href: "/details", label: "月度数据明细" },
+  { href: "/", label: "模块首页" },
+  { href: "/ranking", label: "门店榜单" },
+  { href: "/settlement", label: "单店分账" },
+  { href: "/details", label: "数据明细" },
 ];
 
 interface ShellProps {
@@ -15,7 +16,7 @@ export function Shell({ currentPath, children }: ShellProps) {
   return (
     <div className="app-shell">
       <header className="topbar">
-        <div className="brand">
+        <a className="brand" href="/">
           <img
             aria-hidden="true"
             className="brand__mark"
@@ -23,19 +24,14 @@ export function Shell({ currentPath, children }: ShellProps) {
             alt=""
           />
           <div>
-            <strong>抖音经营中枢</strong>
-            <span>销售洞察 · 分账核验</span>
+            <strong>抖音经营数据引擎</strong>
+            <span>订单结算中心</span>
           </div>
-        </div>
+        </a>
         <nav className="topnav" aria-label="主导航">
           {navItems.map((item) => (
             <a
-              aria-current={
-                currentPath === item.href ||
-                (currentPath === "/" && item.href === "/ranking")
-                  ? "page"
-                  : undefined
-              }
+              aria-current={currentPath === item.href ? "page" : undefined}
               href={item.href}
               key={item.href}
             >

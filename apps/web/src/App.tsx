@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
+import { HomePage } from "./pages/HomePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
 import { StoreSettlementPage } from "./pages/StoreSettlementPage";
 
 function readLocation() {
   return {
-    pathname: window.location.pathname === "/" ? "/ranking" : window.location.pathname,
+    pathname: window.location.pathname,
     search: window.location.search,
   };
 }
@@ -55,6 +56,10 @@ export function App() {
 
   if (location.pathname === "/rule-admin") {
     return <AdminSkuRulesPage />;
+  }
+
+  if (location.pathname === "/") {
+    return <HomePage />;
   }
 
   const page =

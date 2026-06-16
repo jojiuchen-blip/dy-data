@@ -67,6 +67,8 @@ a {
   align-items: center;
   gap: 12px;
   min-width: 260px;
+  border-radius: 8px;
+  outline: none;
 }
 
 .brand__mark {
@@ -108,6 +110,17 @@ a {
   color: var(--muted);
   font-size: 14px;
   line-height: 18px;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 160ms ease;
+}
+
+.topnav a:hover {
+  border-color: var(--line);
+  background: #fffefa;
+  color: var(--ink);
 }
 
 .topnav a[aria-current="page"] {
@@ -121,6 +134,148 @@ a {
   width: min(1380px, 100%);
   margin: 0 auto;
   padding: 28px;
+}
+
+.home-shell {
+  display: grid;
+  width: min(1180px, 100%);
+  min-height: 100vh;
+  align-content: center;
+  gap: 28px;
+  margin: 0 auto;
+  padding: 48px 28px;
+}
+
+.home-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.home-brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.home-brand .brand__mark {
+  width: 58px;
+  height: 58px;
+}
+
+.home-brand .eyebrow {
+  margin-bottom: 8px;
+  color: var(--amber);
+  font-size: 12px;
+}
+
+.home-brand h1 {
+  font-size: 44px;
+  line-height: 1.1;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.module-card {
+  position: relative;
+  display: grid;
+  min-height: 260px;
+  align-content: space-between;
+  gap: 24px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  outline: none;
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+
+.module-card::before {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  content: "";
+}
+
+.module-card--active::before {
+  background:
+    radial-gradient(circle at 85% 18%, rgb(23 107 91 / 14%), transparent 34%),
+    linear-gradient(135deg, transparent 0%, rgb(23 107 91 / 8%) 100%);
+}
+
+.module-card--planned {
+  background: #f1f0ea;
+  color: var(--muted);
+}
+
+.module-card--planned::before {
+  background:
+    radial-gradient(circle at 85% 18%, rgb(147 98 37 / 13%), transparent 36%),
+    linear-gradient(135deg, transparent 0%, rgb(147 98 37 / 8%) 100%);
+}
+
+.module-card--active:hover {
+  border-color: var(--green);
+  box-shadow: 0 22px 64px rgb(23 107 91 / 16%);
+  transform: translateY(-2px);
+}
+
+.brand:focus-visible,
+.topnav a:focus-visible,
+.module-card:focus-visible {
+  box-shadow: 0 0 0 3px rgb(23 107 91 / 18%);
+}
+
+.module-card h2,
+.module-card p,
+.module-card span {
+  position: relative;
+}
+
+.module-card h2 {
+  margin-bottom: 10px;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+.module-card p {
+  max-width: 28rem;
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.75;
+}
+
+.module-card__status,
+.module-card__meta {
+  width: fit-content;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 6px 9px;
+  background: rgb(255 253 248 / 76%);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.module-card--active .module-card__status {
+  border-color: rgb(23 107 91 / 22%);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.module-card--planned .module-card__status {
+  border-color: rgb(147 98 37 / 24%);
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .page-stack {
@@ -736,6 +891,15 @@ a.metric-card:hover,
     justify-content: flex-start;
   }
 
+  .home-shell {
+    align-content: start;
+    min-height: auto;
+  }
+
+  .module-grid {
+    grid-template-columns: 1fr;
+  }
+
   .metric-grid--three {
     grid-template-columns: 1fr;
   }
@@ -760,6 +924,32 @@ a.metric-card:hover,
 
   .page-frame {
     padding: 18px 14px;
+  }
+
+  .home-shell {
+    padding: 30px 14px;
+  }
+
+  .home-brand {
+    align-items: flex-start;
+  }
+
+  .home-brand .brand__mark {
+    width: 48px;
+    height: 48px;
+  }
+
+  .home-brand h1 {
+    font-size: 30px;
+  }
+
+  .module-card {
+    min-height: 220px;
+    padding: 18px;
+  }
+
+  .module-card h2 {
+    font-size: 22px;
   }
 
   .page-heading,
