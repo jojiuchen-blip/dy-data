@@ -162,8 +162,8 @@ class DouyinOpenApiClient:
             "account_id": self.credentials.account_id,
             "page": page,
             "page_size": page_size,
-            "start_time": int(start.timestamp()),
-            "end_time": int(end.timestamp()),
+            "start_time": _datetime_param(start),
+            "end_time": _datetime_param(end),
         }
         return self._get_json(CLUE_QUERY_URL, params)
 
@@ -198,6 +198,12 @@ class DouyinOpenApiClient:
                 return self._handle_response(response)
             except DouyinApiError as exc:
                 last_error = exc
+                if _is_token_expired_api_error(str(exc)) and attempt < attempts:
+                    self._token = None
+                    headers = kwargs.get("headers")
+                    if isinstance(headers, dict) and "access-token" in headers:
+                        kwargs["headers"] = self._token_headers()
+                    continue
                 if not _is_transient_api_error(str(exc)) or attempt >= attempts:
                     raise
                 time.sleep(self.retry_sleep_seconds * attempt)
@@ -287,7 +293,11 @@ def _safe_int(value: Any) -> int | None:
 
 
 def _is_transient_api_error(message: str) -> bool:
-    return "5000001" in message
+    return "5000001" in message or "2100004" in message or "系统繁忙" in message
+
+
+def _is_token_expired_api_error(message: str) -> bool:
+    return "2190008" in message or "access_token过期" in message
 
 
 def _cursor_param(cursor: Any) -> str:
@@ -296,6 +306,10 @@ def _cursor_param(cursor: Any) -> str:
     if isinstance(cursor, (list, dict)):
         return json.dumps(cursor, separators=(",", ":"), ensure_ascii=False)
     return str(cursor)
+
+
+def _datetime_param(value: datetime) -> str:
+    return value.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _order_next_cursor(data: dict[str, Any]) -> str | None:

@@ -156,8 +156,8 @@ def test_clue_query_sends_expected_url_and_query_params():
         "account_id": "acct-1",
         "page": 3,
         "page_size": 80,
-        "start_time": int(datetime(2026, 6, 1, tzinfo=timezone.utc).timestamp()),
-        "end_time": int(datetime(2026, 6, 2, tzinfo=timezone.utc).timestamp()),
+        "start_time": "2026-06-01 00:00:00",
+        "end_time": "2026-06-02 00:00:00",
     }
 
 
@@ -295,3 +295,52 @@ def test_get_request_retries_transient_api_error():
 
     assert payload["data"]["orders"] == [{"order_id": "o1"}]
     assert [call["method"] for call in http.calls] == ["POST", "GET", "GET"]
+
+
+def test_get_request_retries_system_busy_api_error():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"error_code": 2100004, "description": "系统繁忙，此时请开发者稍候再试"}}),
+            FakeResponse({"data": {"clue_data": [{"clue_id": "c1"}]}}),
+        ]
+    )
+    client = DouyinOpenApiClient(
+        DouyinCredentials(app_id="app-1", app_secret="secret-1", account_id="acct-1"),
+        http=http,
+        retry_sleep_seconds=0,
+    )
+
+    payload = client.query_clues(
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 6, 2, tzinfo=timezone.utc),
+    )
+
+    assert payload["data"]["clue_data"] == [{"clue_id": "c1"}]
+    assert [call["method"] for call in http.calls] == ["POST", "GET", "GET"]
+
+
+def test_get_request_refreshes_token_when_access_token_expires():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"error_code": 2190008, "description": "access_token过期,请刷新或重新授权"}}),
+            FakeResponse({"data": {"access_token": "token-2"}}),
+            FakeResponse({"data": {"clue_data": [{"clue_id": "c1"}]}}),
+        ]
+    )
+    client = DouyinOpenApiClient(
+        DouyinCredentials(app_id="app-1", app_secret="secret-1", account_id="acct-1"),
+        http=http,
+        retry_sleep_seconds=0,
+    )
+
+    payload = client.query_clues(
+        datetime(2026, 6, 1, tzinfo=timezone.utc),
+        datetime(2026, 6, 2, tzinfo=timezone.utc),
+    )
+
+    assert payload["data"]["clue_data"] == [{"clue_id": "c1"}]
+    assert [call["method"] for call in http.calls] == ["POST", "GET", "POST", "GET"]
+    assert http.calls[1]["headers"]["access-token"] == "token-1"
+    assert http.calls[3]["headers"]["access-token"] == "token-2"
