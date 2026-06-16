@@ -88,6 +88,14 @@ Xvfb "$DISPLAY" -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp >/
 fluxbox >/tmp/fluxbox.log 2>&1 &
 x11vnc -display "$DISPLAY" -forever -shared -rfbauth "$HOME/.vnc/passwd" -rfbport 5900 -localhost >/tmp/x11vnc.log 2>&1 &
 
+display_number="${DISPLAY#:}"
+for attempt in $(seq 1 30); do
+  if [ -S "/tmp/.X11-unix/X${display_number}" ]; then
+    break
+  fi
+  sleep 1
+done
+
 chromium \
   --no-first-run \
   --no-default-browser-check \
@@ -97,6 +105,8 @@ chromium \
   --remote-debugging-address=127.0.0.1 \
   --remote-debugging-port="$CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT" \
   "$CHROMIUM_START_URL" >/tmp/chromium.log 2>&1 &
+chromium_pid="$!"
+echo "chromium_pid=${chromium_pid} cdp_port=${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"
 
 if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
   if [ -z "${DATABASE_URL:-${DY_DATABASE_URL:-}}" ]; then
@@ -109,6 +119,10 @@ if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
       sleep "$delay"
       while true; do
         echo "run_start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        if ! kill -0 "$chromium_pid" 2>/dev/null; then
+          echo "chromium_not_running status_unknown"
+          tail -n 120 /tmp/chromium.log || true
+        fi
         if BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}" \
           WORKER_MODE=browser_export_only \
           WORKER_RUN_ONCE=true \
