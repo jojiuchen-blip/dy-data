@@ -803,15 +803,16 @@ a.metric-card:hover,
 
 .admin-page {
   display: grid;
-  width: min(1480px, 100%);
-  min-height: 100vh;
+  width: 100%;
+  min-height: auto;
   margin: 0 auto;
-  padding: 28px;
+  padding: 0;
   gap: 18px;
 }
 
 .admin-page--centered {
   width: min(520px, 100%);
+  min-height: calc(100vh - 150px);
   align-content: center;
 }
 
@@ -1408,7 +1409,7 @@ a.metric-card:hover,
   }
 
   .admin-page {
-    padding: 18px 14px;
+    padding: 0;
   }
 
   .admin-header {

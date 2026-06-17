@@ -58,20 +58,19 @@ export function App() {
     [location.search],
   );
 
-  if (location.pathname === "/admin") {
-    return <AdminHomePage />;
-  }
+  const adminPage =
+    location.pathname === "/admin" ? (
+      <AdminHomePage />
+    ) : location.pathname === "/rule-admin" || location.pathname === "/admin/rules" ? (
+      <AdminSkuRulesPage />
+    ) : location.pathname === "/sync-admin" || location.pathname === "/admin/sync" ? (
+      <AdminSyncPage />
+    ) : location.pathname === "/admin/clues/rules" ? (
+      <AdminClueRulePage />
+    ) : null;
 
-  if (location.pathname === "/rule-admin" || location.pathname === "/admin/rules") {
-    return <AdminSkuRulesPage />;
-  }
-
-  if (location.pathname === "/sync-admin" || location.pathname === "/admin/sync") {
-    return <AdminSyncPage />;
-  }
-
-  if (location.pathname === "/admin/clues/rules") {
-    return <AdminClueRulePage />;
+  if (adminPage) {
+    return <Shell currentPath={location.pathname}>{adminPage}</Shell>;
   }
 
   if (location.pathname === "/") {

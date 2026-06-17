@@ -74,18 +74,18 @@ export function AdminHomePage() {
 
   if (checkingSession) {
     return (
-      <main className="admin-page">
+      <div className="admin-page">
         <section className="admin-login-panel">正在检查管理权限...</section>
-      </main>
+      </div>
     );
   }
 
   if (!authenticated) {
     return (
-      <main className="admin-page admin-page--centered">
+      <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">管理后台</p>
+            <p className="source-pill">系统管理后台</p>
             <h1>抖音经营中枢后台</h1>
             <p className="admin-muted">输入管理密码后进入配置页面。</p>
           </div>
@@ -104,21 +104,26 @@ export function AdminHomePage() {
             进入后台
           </button>
         </form>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="admin-page">
+    <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">管理后台</p>
+          <p className="source-pill">系统管理后台</p>
           <h1>抖音经营中枢后台</h1>
           <p className="admin-muted">选择需要管理的配置模块。</p>
         </div>
-        <button className="ghost-button" onClick={handleLogout} type="button">
-          退出
-        </button>
+        <div className="admin-header-actions">
+          <a className="ghost-button admin-link-button" href="/">
+            返回看板主页
+          </a>
+          <button className="ghost-button" onClick={handleLogout} type="button">
+            退出
+          </button>
+        </div>
       </section>
 
       <section className="admin-module-grid">
@@ -132,6 +137,6 @@ export function AdminHomePage() {
           </a>
         ))}
       </section>
-    </main>
+    </div>
   );
 }

@@ -565,18 +565,18 @@ export function AdminSkuRulesPage() {
 
   if (checkingSession) {
     return (
-      <main className="admin-page">
+      <div className="admin-page">
         <section className="admin-login-panel">正在检查管理权限...</section>
-      </main>
+      </div>
     );
   }
 
   if (!authenticated) {
     return (
-      <main className="admin-page admin-page--centered">
+      <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">独立管理入口</p>
+            <p className="source-pill">系统管理后台</p>
             <h1>商品分账规则管理</h1>
             <p className="admin-muted">输入管理密码后进入。</p>
           </div>
@@ -595,21 +595,24 @@ export function AdminSkuRulesPage() {
             进入管理页
           </button>
         </form>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="admin-page">
+    <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">独立管理入口</p>
+          <p className="source-pill">系统管理后台</p>
           <h1>商品分账规则管理</h1>
           <p className="admin-muted">
             先查询并预选 SKU，再对预选范围批量修改；保存后会写入规则表并后台重建结算结果。
           </p>
         </div>
         <div className="admin-header-actions">
+          <a className="ghost-button admin-link-button" href="/">
+            返回看板主页
+          </a>
           <a className="ghost-button admin-link-button" href="/admin">
             返回后台首页
           </a>
@@ -1011,6 +1014,6 @@ export function AdminSkuRulesPage() {
           </div>
         </aside>
       </div>
-    </main>
+    </div>
   );
 }
