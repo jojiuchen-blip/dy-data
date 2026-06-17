@@ -103,6 +103,15 @@ def test_admin_sku_rules_require_login(client: TestClient) -> None:
     assert response.status_code == 401
 
 
+def test_admin_sku_rule_lookup_requires_login(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/admin/sku-rules/lookup",
+        json={"sku_ids": ["sku-admin"]},
+    )
+
+    assert response.status_code == 401
+
+
 def test_admin_can_list_sku_rules_from_raw_data(
     client: TestClient, db_session: Session
 ) -> None:
@@ -125,6 +134,67 @@ def test_admin_can_list_sku_rules_from_raw_data(
             "verified_coupon_count": 1,
         }
     ]
+
+
+def test_admin_can_lookup_exact_sku_rules_in_input_order(
+    client: TestClient, db_session: Session
+) -> None:
+    _load_unconfigured_cross_store_sku(db_session)
+    db_session.merge(
+        DimSkuProductRule(
+            sku_id="sku-config-only",
+            product_name="Configured Product",
+            product_type="Configured Type",
+            commission_rate=Decimal("0.2500"),
+            is_service_product=False,
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    response = client.post(
+        "/api/v1/admin/sku-rules/lookup",
+        json={
+            "sku_ids": [
+                "sku-config-only",
+                " sku-admin ",
+                "missing-sku",
+                "sku-admin",
+                "SKU-ADMIN",
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert [row["sku_id"] for row in payload["rows"]] == [
+        "sku-config-only",
+        "sku-admin",
+    ]
+    assert payload["rows"][0] == {
+        "sku_id": "sku-config-only",
+        "product_name": "Configured Product",
+        "product_type": "Configured Type",
+        "commission_rate": 0.25,
+        "is_service_product": False,
+        "order_count": 0,
+        "verified_coupon_count": 0,
+    }
+    assert payload["missing_sku_ids"] == ["missing-sku", "SKU-ADMIN"]
+    assert payload["duplicate_sku_ids"] == ["sku-admin"]
+
+
+def test_admin_sku_rule_lookup_rejects_more_than_500_sku_ids(
+    client: TestClient,
+) -> None:
+    _login(client)
+
+    response = client.post(
+        "/api/v1/admin/sku-rules/lookup",
+        json={"sku_ids": [f"sku-{index}" for index in range(501)]},
+    )
+
+    assert response.status_code == 422
 
 
 def test_admin_sku_rule_background_rebuild_materializes_settlement(

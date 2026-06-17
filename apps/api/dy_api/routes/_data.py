@@ -270,25 +270,8 @@ class DashboardDataStore:
         )
         return [_to_str(row.get("month")) for row in rows if row.get("month")]
 
-    def list_sku_rules(
-        self, *, page: int, page_size: int, q: str | None = None
-    ) -> dict[str, Any]:
-        page = max(1, page)
-        page_size = max(1, min(page_size, 1000))
-        offset = (page - 1) * page_size
-        params: dict[str, Any] = {"limit": page_size, "offset": offset}
-        count_where_sql = ""
-        row_where_sql = ""
-        query = _to_str(q).strip().lower()
-        if query:
-            count_where_sql = "WHERE lower(sku_id) LIKE :q OR lower(product_name) LIKE :q"
-            row_where_sql = (
-                "WHERE lower(sku_rows.sku_id) LIKE :q "
-                "OR lower(sku_rows.product_name) LIKE :q"
-            )
-            params["q"] = f"%{query}%"
-
-        source_cte = """
+    def _sku_rule_source_cte(self) -> str:
+        return """
             WITH sku_source AS (
                 SELECT sku_id,
                        product_name,
@@ -320,6 +303,26 @@ class DashboardDataStore:
                 GROUP BY sku_id
             )
         """
+
+    def list_sku_rules(
+        self, *, page: int, page_size: int, q: str | None = None
+    ) -> dict[str, Any]:
+        page = max(1, page)
+        page_size = max(1, min(page_size, 1000))
+        offset = (page - 1) * page_size
+        params: dict[str, Any] = {"limit": page_size, "offset": offset}
+        count_where_sql = ""
+        row_where_sql = ""
+        query = _to_str(q).strip().lower()
+        if query:
+            count_where_sql = "WHERE lower(sku_id) LIKE :q OR lower(product_name) LIKE :q"
+            row_where_sql = (
+                "WHERE lower(sku_rows.sku_id) LIKE :q "
+                "OR lower(sku_rows.product_name) LIKE :q"
+            )
+            params["q"] = f"%{query}%"
+
+        source_cte = self._sku_rule_source_cte()
         total_rows = self._execute(
             f"""
             {source_cte}
@@ -356,6 +359,54 @@ class DashboardDataStore:
                 "total": total,
                 "total_pages": _total_pages(total, page_size),
             },
+        }
+
+    def lookup_sku_rules(self, sku_ids: list[str]) -> dict[str, Any]:
+        requested: list[str] = []
+        seen: set[str] = set()
+        duplicate_seen: set[str] = set()
+        duplicate_sku_ids: list[str] = []
+        for value in sku_ids:
+            sku_id = _to_str(value).strip()
+            if not sku_id:
+                continue
+            if sku_id in seen:
+                if sku_id not in duplicate_seen:
+                    duplicate_sku_ids.append(sku_id)
+                    duplicate_seen.add(sku_id)
+                continue
+            requested.append(sku_id)
+            seen.add(sku_id)
+
+        if not requested:
+            return {"rows": [], "missing_sku_ids": [], "duplicate_sku_ids": duplicate_sku_ids}
+
+        params = {f"sku_{index}": sku_id for index, sku_id in enumerate(requested)}
+        placeholders = ", ".join(f":sku_{index}" for index in range(len(requested)))
+        rows = self._execute(
+            f"""
+            {self._sku_rule_source_cte()}
+            SELECT sku_rows.sku_id,
+                   COALESCE(NULLIF(rules.product_name, ''), sku_rows.product_name, '') AS product_name,
+                   COALESCE(rules.product_type, '') AS product_type,
+                   COALESCE(rules.commission_rate, 0) AS commission_rate,
+                   COALESCE(rules.is_service_product, true) AS is_service_product,
+                   sku_rows.order_count,
+                   sku_rows.verified_coupon_count
+            FROM sku_rows
+            LEFT JOIN dim_sku_product_rules rules ON rules.sku_id = sku_rows.sku_id
+            WHERE sku_rows.sku_id IN ({placeholders})
+            """,
+            params,
+        )
+        rows_by_sku = {
+            cleaned["sku_id"]: cleaned
+            for cleaned in (self._clean_sku_rule_row(row) for row in rows)
+        }
+        return {
+            "rows": [rows_by_sku[sku_id] for sku_id in requested if sku_id in rows_by_sku],
+            "missing_sku_ids": [sku_id for sku_id in requested if sku_id not in rows_by_sku],
+            "duplicate_sku_ids": duplicate_sku_ids,
         }
 
     def upsert_sku_rules(self, rules: list[dict[str, Any]]) -> int:

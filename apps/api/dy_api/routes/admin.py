@@ -27,6 +27,8 @@ from dy_api.schemas import (
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
+    SkuRuleLookupData,
+    SkuRuleLookupRequest,
     SyncAdminData,
     SyncConfigData,
     SyncConfigUpdate,
@@ -61,6 +63,20 @@ def list_sku_rules(
     data = SkuRuleListData(
         **store.list_sku_rules(page=page, page_size=page_size, q=q)
     )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/sku-rules/lookup")
+def lookup_sku_rules(
+    payload: SkuRuleLookupRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = SkuRuleLookupData(**store.lookup_sku_rules(payload.sku_ids))
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

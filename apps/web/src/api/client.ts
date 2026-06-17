@@ -28,6 +28,7 @@ import type {
   ManualSyncTarget,
   SkuProductCommissionRule,
   SkuRuleListData,
+  SkuRuleLookupData,
   SkuRuleUpdateResult,
   SyncAdminData,
   SyncConfigUpdate,
@@ -473,6 +474,18 @@ export async function fetchSkuRules({
       page,
       page_size: pageSize,
       q,
+    })),
+    usingMock: false,
+  };
+}
+
+export async function lookupSkuRules(
+  skuIds: string[],
+): Promise<ApiLoadResult<SkuRuleLookupData>> {
+  return {
+    ...(await sendJson<SkuRuleLookupData>("/admin/sku-rules/lookup", {
+      body: { sku_ids: skuIds },
+      method: "POST",
     })),
     usingMock: false,
   };

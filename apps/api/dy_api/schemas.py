@@ -47,6 +47,20 @@ class SkuRuleListData(BaseModel):
     pagination: "Pagination"
 
 
+class SkuRuleLookupRequest(BaseModel):
+    sku_ids: list[str] = Field(max_length=500)
+
+    @field_validator("sku_ids")
+    def normalize_sku_ids(cls, values: list[str]) -> list[str]:
+        return [value.strip() for value in values if value.strip()]
+
+
+class SkuRuleLookupData(BaseModel):
+    rows: list[SkuRuleRow]
+    missing_sku_ids: list[str] = Field(default_factory=list)
+    duplicate_sku_ids: list[str] = Field(default_factory=list)
+
+
 class SkuRuleInput(BaseModel):
     sku_id: str
     product_type: str

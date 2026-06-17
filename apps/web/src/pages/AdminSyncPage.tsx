@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiRequestError,
   fetchAdminSession,
@@ -37,6 +37,10 @@ function configToDraft(config: SyncConfigData) {
   };
 }
 
+function draftSignature(draft: ReturnType<typeof configToDraft>): string {
+  return JSON.stringify(draft);
+}
+
 function statusLabel(status: JobRun["status"]): string {
   if (status === "success") return "成功";
   if (status === "failed") return "失败";
@@ -73,19 +77,37 @@ export function AdminSyncPage() {
   const [draft, setDraft] = useState<ReturnType<typeof configToDraft> | null>(
     null,
   );
+  const [draftDirty, setDraftDirty] = useState(false);
+  const [remoteConfigChanged, setRemoteConfigChanged] = useState(false);
   const [target, setTarget] = useState<ManualSyncTarget>("orders");
   const [manualDays, setManualDays] = useState("30");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runningManual, setRunningManual] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const draftDirtyRef = useRef(false);
+  const configBaselineRef = useRef("");
 
   const loadData = () => {
     setLoading(true);
     fetchSyncAdmin()
       .then((response) => {
+        const nextDraft = configToDraft(response.data.config);
+        const nextSignature = draftSignature(nextDraft);
         setData(response.data);
-        setDraft(configToDraft(response.data.config));
+        if (!draftDirtyRef.current) {
+          setDraft(nextDraft);
+          setDraftDirty(false);
+          configBaselineRef.current = nextSignature;
+          setRemoteConfigChanged(false);
+          return;
+        }
+        if (
+          configBaselineRef.current &&
+          configBaselineRef.current !== nextSignature
+        ) {
+          setRemoteConfigChanged(true);
+        }
       })
       .catch((error) => {
         if (error instanceof ApiRequestError && error.status === 401) {
@@ -128,6 +150,23 @@ export function AdminSyncPage() {
     return () => window.clearInterval(timer);
   }, [authenticated]);
 
+  const updateDraft = (patch: Partial<ReturnType<typeof configToDraft>>) => {
+    setDraft((current) => (current ? { ...current, ...patch } : current));
+    setDraftDirty(true);
+    draftDirtyRef.current = true;
+  };
+
+  const discardDraftAndRefresh = () => {
+    if (!data) return;
+    const nextDraft = configToDraft(data.config);
+    setDraft(nextDraft);
+    setDraftDirty(false);
+    draftDirtyRef.current = false;
+    configBaselineRef.current = draftSignature(nextDraft);
+    setRemoteConfigChanged(false);
+    setStatusText("已放弃本地草稿，并刷新为服务器最新配置。");
+  };
+
   const progressPercent = useMemo(() => {
     if (!data?.progress.total_windows) return 0;
     return Math.round(
@@ -152,6 +191,11 @@ export function AdminSyncPage() {
     await logoutAdmin().catch(() => undefined);
     setAuthenticated(false);
     setData(null);
+    setDraft(null);
+    setDraftDirty(false);
+    draftDirtyRef.current = false;
+    configBaselineRef.current = "";
+    setRemoteConfigChanged(false);
   };
 
   const handleSave = async () => {
@@ -167,8 +211,13 @@ export function AdminSyncPage() {
         interval_seconds: Number(draft.interval_seconds),
         backfill_skip_completed: draft.backfill_skip_completed,
       });
+      const nextDraft = configToDraft(response.data.config);
       setData(response.data);
-      setDraft(configToDraft(response.data.config));
+      setDraft(nextDraft);
+      setDraftDirty(false);
+      draftDirtyRef.current = false;
+      configBaselineRef.current = draftSignature(nextDraft);
+      setRemoteConfigChanged(false);
       setStatusText("同步配置已保存，worker 下一轮会读取新配置。");
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) {
@@ -261,6 +310,14 @@ export function AdminSyncPage() {
       </section>
 
       {statusText ? <div className="resource-notice">{statusText}</div> : null}
+      {remoteConfigChanged ? (
+        <div className="resource-notice resource-notice--warning">
+          <span>服务器配置已更新，本地草稿暂未覆盖。</span>
+          <button className="ghost-button" onClick={discardDraftAndRefresh} type="button">
+            放弃草稿并刷新
+          </button>
+        </div>
+      ) : null}
 
       <section className="metric-grid metric-grid--three">
         <div className="metric-card">
@@ -295,7 +352,11 @@ export function AdminSyncPage() {
             <h2>同步配置</h2>
             <p>历史回填用于补齐旧数据；日常同步用于滚动刷新最近可能变化的数据。</p>
           </div>
-          {loading ? <span className="source-pill">刷新中</span> : null}
+          {draftDirty ? (
+            <span className="source-pill">有未保存草稿</span>
+          ) : loading ? (
+            <span className="source-pill">刷新中</span>
+          ) : null}
         </div>
 
         {draft ? (
@@ -304,7 +365,7 @@ export function AdminSyncPage() {
               <span>历史回填开始日期</span>
               <input
                 onChange={(event) =>
-                  setDraft({ ...draft, history_start: event.target.value })
+                  updateDraft({ history_start: event.target.value })
                 }
                 type="date"
                 value={draft.history_start}
@@ -314,7 +375,7 @@ export function AdminSyncPage() {
               <span>历史回填结束日期</span>
               <input
                 onChange={(event) =>
-                  setDraft({ ...draft, history_end: event.target.value })
+                  updateDraft({ history_end: event.target.value })
                 }
                 type="date"
                 value={draft.history_end}
@@ -326,7 +387,7 @@ export function AdminSyncPage() {
                 min="1"
                 max="31"
                 onChange={(event) =>
-                  setDraft({ ...draft, history_chunk_days: event.target.value })
+                  updateDraft({ history_chunk_days: event.target.value })
                 }
                 type="number"
                 value={draft.history_chunk_days}
@@ -338,7 +399,7 @@ export function AdminSyncPage() {
                 min="1"
                 max="180"
                 onChange={(event) =>
-                  setDraft({ ...draft, rolling_days: event.target.value })
+                  updateDraft({ rolling_days: event.target.value })
                 }
                 type="number"
                 value={draft.rolling_days}
@@ -348,7 +409,7 @@ export function AdminSyncPage() {
               <span>同步间隔</span>
               <select
                 onChange={(event) =>
-                  setDraft({ ...draft, interval_seconds: event.target.value })
+                  updateDraft({ interval_seconds: event.target.value })
                 }
                 value={draft.interval_seconds}
               >
@@ -364,8 +425,7 @@ export function AdminSyncPage() {
               <input
                 checked={draft.backfill_skip_completed}
                 onChange={(event) =>
-                  setDraft({
-                    ...draft,
+                  updateDraft({
                     backfill_skip_completed: event.target.checked,
                   })
                 }

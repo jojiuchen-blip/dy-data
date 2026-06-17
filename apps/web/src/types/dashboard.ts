@@ -251,6 +251,12 @@ export interface SkuRuleListData {
   pagination: Pagination;
 }
 
+export interface SkuRuleLookupData {
+  rows: SkuProductCommissionRule[];
+  missing_sku_ids: string[];
+  duplicate_sku_ids: string[];
+}
+
 export interface SkuRuleUpdateResult {
   updated_count: number;
   job_id: string;
