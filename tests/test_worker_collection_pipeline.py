@@ -16,6 +16,7 @@ from apps.worker.collectors.types import CollectionStats, CollectionWindow, Phas
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker import scheduler
 from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
+from apps.worker.sync_config import save_sync_config
 from apps.worker.repositories import (
     finish_job_run,
     queue_job_run,
@@ -197,6 +198,14 @@ def test_scheduler_worker_mode_defaults_to_collect_and_settle():
     assert resolve_worker_mode({"WORKER_MODE": "settlement_only"}) == "settlement_only"
     assert resolve_worker_mode({"WORKER_MODE": "backfill"}) == "backfill"
     assert resolve_worker_mode({"WORKER_MODE": "browser_export_only"}) == "browser_export_only"
+
+
+def test_scheduler_auto_sync_enabled_reads_database_config(db_session: Session):
+    save_sync_config(db_session, {"auto_sync_enabled": False})
+    db_session.commit()
+    factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
+
+    assert scheduler._auto_sync_enabled(factory) is False
 
 
 def test_browser_export_only_records_success_job(db_session: Session):

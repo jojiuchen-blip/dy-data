@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import text
+from sqlalchemy import select, text
 
+from apps.api.dy_api.models import JobRun
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
@@ -36,6 +37,7 @@ from dy_api.schemas import (
     SyncConfigData,
     SyncConfigUpdate,
     SyncProgressData,
+    SyncScheduleData,
     SyncWindowData,
     dump_model,
 )
@@ -246,9 +248,11 @@ def update_sync_config(
 ):
     store = _require_available_store(store)
     config = save_sync_config(store.session, dump_model(payload))
+    config_data = config.as_dict()
     data = SyncAdminData(
-        config=SyncConfigData(**config.as_dict()),
-        progress=_sync_progress(store.session, config.as_dict()),
+        config=SyncConfigData(**config_data),
+        progress=_sync_progress(store.session, config_data),
+        schedule=_sync_schedule(store.session, config_data),
         jobs=store.recent_jobs(20),
     )
     return {
@@ -291,10 +295,38 @@ def run_sync_now(
 
 def _sync_admin_data(store) -> SyncAdminData:
     config = load_sync_config(store.session)
+    config_data = config.as_dict()
     return SyncAdminData(
-        config=SyncConfigData(**config.as_dict()),
-        progress=_sync_progress(store.session, config.as_dict()),
+        config=SyncConfigData(**config_data),
+        progress=_sync_progress(store.session, config_data),
+        schedule=_sync_schedule(store.session, config_data),
         jobs=store.recent_jobs(20),
+    )
+
+
+def _sync_schedule(session, config: dict) -> SyncScheduleData:
+    latest_success = session.execute(
+        select(JobRun.finished_at)
+        .where(JobRun.job_name == "collect_and_settle")
+        .where(JobRun.status == "success")
+        .where(JobRun.finished_at.is_not(None))
+        .order_by(JobRun.finished_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    auto_sync_enabled = bool(config.get("auto_sync_enabled", True))
+    next_scheduled_at = None
+    if auto_sync_enabled:
+        interval_seconds = int(config.get("interval_seconds") or 86400)
+        latest_success = _aware_utc(latest_success)
+        next_scheduled_at = (
+            latest_success + timedelta(seconds=interval_seconds)
+            if latest_success is not None
+            else datetime.now(timezone.utc)
+        )
+    return SyncScheduleData(
+        auto_sync_enabled=auto_sync_enabled,
+        latest_successful_sync_at=_aware_utc(latest_success),
+        next_scheduled_sync_at=next_scheduled_at,
     )
 
 
@@ -379,6 +411,14 @@ def _manual_window(payload: ManualSyncRequest) -> tuple[datetime, datetime]:
 
 def _coerce_datetime(value: datetime) -> datetime:
     return value.astimezone(SHANGHAI_TZ) if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
+
+
+def _aware_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _window_key(window: CollectionWindow) -> tuple[str, str, str]:

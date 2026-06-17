@@ -14,6 +14,7 @@ DEFAULT_HISTORY_START = "2026-01-01"
 DEFAULT_HISTORY_CHUNK_DAYS = 1
 DEFAULT_ROLLING_DAYS = 30
 DEFAULT_INTERVAL_SECONDS = 60 * 60 * 24
+DEFAULT_AUTO_SYNC_ENABLED = True
 
 CONFIG_KEYS = {
     "history_start",
@@ -21,6 +22,7 @@ CONFIG_KEYS = {
     "history_chunk_days",
     "rolling_days",
     "interval_seconds",
+    "auto_sync_enabled",
     "backfill_skip_completed",
 }
 
@@ -32,6 +34,7 @@ class SyncConfig:
     history_chunk_days: int
     rolling_days: int
     interval_seconds: int
+    auto_sync_enabled: bool
     backfill_skip_completed: bool
 
     def as_dict(self) -> dict[str, Any]:
@@ -50,6 +53,7 @@ def load_sync_config(
         "history_chunk_days": source.get("WORKER_BACKFILL_CHUNK_DAYS") or str(DEFAULT_HISTORY_CHUNK_DAYS),
         "rolling_days": source.get("WORKER_ROLLING_DAYS") or str(DEFAULT_ROLLING_DAYS),
         "interval_seconds": source.get("WORKER_INTERVAL_SECONDS") or str(DEFAULT_INTERVAL_SECONDS),
+        "auto_sync_enabled": source.get("WORKER_AUTO_SYNC_ENABLED") or str(DEFAULT_AUTO_SYNC_ENABLED).lower(),
         "backfill_skip_completed": source.get("WORKER_BACKFILL_SKIP_COMPLETED") or "true",
     }
     if session is not None:
@@ -100,6 +104,7 @@ def _coerce_config(values: dict[str, Any]) -> SyncConfig:
             minimum=300,
             maximum=86400 * 7,
         ),
+        auto_sync_enabled=_truthy(str(values.get("auto_sync_enabled"))),
         backfill_skip_completed=_truthy(str(values.get("backfill_skip_completed"))),
     )
 

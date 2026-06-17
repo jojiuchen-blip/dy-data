@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -104,6 +104,7 @@ def test_admin_can_read_and_update_sync_config(client: TestClient) -> None:
             "history_chunk_days": 2,
             "rolling_days": 14,
             "interval_seconds": 1800,
+            "auto_sync_enabled": False,
         },
     )
 
@@ -114,9 +115,49 @@ def test_admin_can_read_and_update_sync_config(client: TestClient) -> None:
     assert config["history_chunk_days"] == 2
     assert config["rolling_days"] == 14
     assert config["interval_seconds"] == 1800
+    assert config["auto_sync_enabled"] is False
 
     response = client.get("/api/v1/admin/sync")
     assert response.json()["data"]["config"] == config
+
+
+def test_admin_sync_exposes_schedule_status(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    finished_at = datetime(2026, 6, 1, 8, 0, tzinfo=timezone.utc)
+    start_job_run(
+        db_session,
+        "collect-success",
+        "collect_and_settle",
+        metadata_json={"phases": {}},
+        started_at=finished_at - timedelta(minutes=5),
+    )
+    finish_job_run(
+        db_session,
+        "collect-success",
+        status="success",
+        success_count=1,
+        finished_at=finished_at,
+    )
+    db_session.commit()
+    _login(client)
+    client.put(
+        "/api/v1/admin/sync/config",
+        json={
+            "rolling_days": 30,
+            "interval_seconds": 3600,
+            "auto_sync_enabled": True,
+        },
+    )
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    schedule = response.json()["data"]["schedule"]
+    assert schedule["auto_sync_enabled"] is True
+    assert schedule["latest_successful_sync_at"].startswith("2026-06-01T08:00:00")
+    assert schedule["next_scheduled_sync_at"].startswith("2026-06-01T09:00:00")
 
 
 def test_admin_sync_progress_counts_completed_backfill_windows(

@@ -55,6 +55,7 @@ export interface SyncConfigData {
   history_chunk_days: number;
   rolling_days: number;
   interval_seconds: number;
+  auto_sync_enabled: boolean;
   backfill_skip_completed: boolean;
 }
 
@@ -69,6 +70,7 @@ export interface SyncProgressData {
 export interface SyncAdminData {
   config: SyncConfigData;
   progress: SyncProgressData;
+  schedule: SyncScheduleData;
   jobs: JobRun[];
 }
 
@@ -78,7 +80,14 @@ export interface SyncConfigUpdate {
   history_chunk_days?: number;
   rolling_days?: number;
   interval_seconds?: number;
+  auto_sync_enabled?: boolean;
   backfill_skip_completed?: boolean;
+}
+
+export interface SyncScheduleData {
+  auto_sync_enabled: boolean;
+  latest_successful_sync_at: string | null;
+  next_scheduled_sync_at: string | null;
 }
 
 export type ManualSyncTarget =

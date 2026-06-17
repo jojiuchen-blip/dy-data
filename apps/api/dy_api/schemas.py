@@ -145,6 +145,7 @@ class SyncConfigData(BaseModel):
     history_chunk_days: int = Field(ge=1, le=31)
     rolling_days: int = Field(ge=1, le=180)
     interval_seconds: int = Field(ge=300, le=604800)
+    auto_sync_enabled: bool = True
     backfill_skip_completed: bool = True
 
 
@@ -154,6 +155,7 @@ class SyncConfigUpdate(BaseModel):
     history_chunk_days: int | None = Field(default=None, ge=1, le=31)
     rolling_days: int | None = Field(default=None, ge=1, le=180)
     interval_seconds: int | None = Field(default=None, ge=300, le=604800)
+    auto_sync_enabled: bool | None = None
     backfill_skip_completed: bool | None = None
 
 
@@ -171,9 +173,16 @@ class SyncProgressData(BaseModel):
     latest_completed_window: SyncWindowData | None = None
 
 
+class SyncScheduleData(BaseModel):
+    auto_sync_enabled: bool = True
+    latest_successful_sync_at: datetime | None = None
+    next_scheduled_sync_at: datetime | None = None
+
+
 class SyncAdminData(BaseModel):
     config: SyncConfigData
     progress: SyncProgressData
+    schedule: SyncScheduleData
     jobs: list[JobRun] = Field(default_factory=list)
 
 

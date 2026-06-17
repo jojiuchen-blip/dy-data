@@ -33,6 +33,7 @@ function configToDraft(config: SyncConfigData) {
     history_chunk_days: String(config.history_chunk_days),
     rolling_days: String(config.rolling_days),
     interval_seconds: String(config.interval_seconds),
+    auto_sync_enabled: config.auto_sync_enabled,
     backfill_skip_completed: config.backfill_skip_completed,
   };
 }
@@ -209,6 +210,7 @@ export function AdminSyncPage() {
         history_chunk_days: Number(draft.history_chunk_days),
         rolling_days: Number(draft.rolling_days),
         interval_seconds: Number(draft.interval_seconds),
+        auto_sync_enabled: draft.auto_sync_enabled,
         backfill_skip_completed: draft.backfill_skip_completed,
       });
       const nextDraft = configToDraft(response.data.config);
@@ -322,7 +324,7 @@ export function AdminSyncPage() {
         </div>
       ) : null}
 
-      <section className="metric-grid metric-grid--three">
+      <section className="metric-grid metric-grid--four">
         <div className="metric-card">
           <div className="metric-card__label">历史回填进度</div>
           <div className="metric-card__value">{progressPercent}%</div>
@@ -337,6 +339,16 @@ export function AdminSyncPage() {
             {formatInteger(data?.progress.running_jobs ?? 0)}
           </div>
           <div className="metric-card__meta">正在写入数据库的任务数</div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-card__label">自动同步</div>
+          <div className="metric-card__value">
+            {data ? (data.schedule.auto_sync_enabled ? "开启" : "暂停") : "-"}
+          </div>
+          <div className="metric-card__meta">
+            最近 {formatDateTime(data?.schedule.latest_successful_sync_at)} / 下次{" "}
+            {formatDateTime(data?.schedule.next_scheduled_sync_at)}
+          </div>
         </div>
         <div className="metric-card metric-card--amber">
           <div className="metric-card__label">同步间隔</div>
@@ -364,6 +376,18 @@ export function AdminSyncPage() {
 
         {draft ? (
           <div className="sync-config-grid">
+            <label className="filter-field checkbox-field">
+              <span>自动同步</span>
+              <input
+                checked={draft.auto_sync_enabled}
+                onChange={(event) =>
+                  updateDraft({
+                    auto_sync_enabled: event.target.checked,
+                  })
+                }
+                type="checkbox"
+              />
+            </label>
             <label className="filter-field">
               <span>历史回填开始日期</span>
               <input

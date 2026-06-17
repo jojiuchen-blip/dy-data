@@ -22,6 +22,7 @@ from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DA
 
 
 _STOP = False
+DISABLED_POLL_SECONDS = 60
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
 
@@ -165,17 +166,19 @@ def main() -> None:
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     factory = get_session_factory()
 
-    if run_on_start or run_once_only:
-        run_once()
     if run_once_only:
+        run_once()
         return
+    if run_on_start and _auto_sync_enabled(factory):
+        run_once()
 
     while not _STOP:
+        if not _auto_sync_enabled(factory):
+            _sleep_until_stop(DISABLED_POLL_SECONDS)
+            continue
         interval_seconds = _configured_interval_seconds(factory)
-        sleep_until = time.monotonic() + interval_seconds
-        while not _STOP and time.monotonic() < sleep_until:
-            time.sleep(min(5, max(0, sleep_until - time.monotonic())))
-        if not _STOP:
+        _sleep_until_stop(interval_seconds)
+        if not _STOP and _auto_sync_enabled(factory):
             run_once()
 
 
@@ -184,6 +187,19 @@ def _configured_interval_seconds(factory) -> int:
         return int(os.getenv("WORKER_INTERVAL_SECONDS", str(DEFAULT_INTERVAL_SECONDS)))
     with session_scope(factory) as session:
         return load_sync_config(session).interval_seconds
+
+
+def _auto_sync_enabled(factory) -> bool:
+    if factory is None:
+        return _truthy(os.getenv("WORKER_AUTO_SYNC_ENABLED", "true"))
+    with session_scope(factory) as session:
+        return load_sync_config(session).auto_sync_enabled
+
+
+def _sleep_until_stop(seconds: int) -> None:
+    sleep_until = time.monotonic() + seconds
+    while not _STOP and time.monotonic() < sleep_until:
+        time.sleep(min(5, max(0, sleep_until - time.monotonic())))
 
 
 if __name__ == "__main__":
