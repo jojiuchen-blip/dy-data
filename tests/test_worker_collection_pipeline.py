@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from apps.api.dy_api.models import Base
-from apps.api.dy_api.models import DimNonCommissionOwnerAccount, JobRun, SettlementOrderDetail
+from apps.api.dy_api.models import ClueCenterOrder, DimNonCommissionOwnerAccount, JobRun, SettlementOrderDetail
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
@@ -80,6 +80,85 @@ def test_run_collect_and_settle_records_success_job_and_phase_order(db_session: 
     assert job.failed_count == 0
     assert job.metadata_json["phases"]["orders"]["upserted"] == 1
     assert job.metadata_json["source_window"]["timezone"] == "Asia/Shanghai"
+
+
+class FakeDefaultCollectionClient:
+    def iter_orders(self, start: datetime, end: datetime):
+        return iter(())
+
+    def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None):
+        return {"data": {"pois": [], "has_more": False}}
+
+    def query_craftsman_bind_info(self, *, cursor: str | int | None = None, size: int = 50):
+        return {"data": {"openapi_merchat_craftsman_info": [], "has_more": False}}
+
+    def query_verify_records(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        poi_id: str | None = None,
+        page_size: int = 20,
+        cursor: str | int | None = None,
+    ):
+        return {"data": {"verify_records": [], "has_more": False}}
+
+    def query_clues(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        page: int,
+        page_size: int,
+    ):
+        if page > 1:
+            return {"data": {"clue_data": []}}
+        return {
+            "data": {
+                "clue_data": [
+                    {
+                        "clue_id": "clue-1",
+                        "create_time_detail": "2026-01-01 10:00:00",
+                        "telephone": "13812345678",
+                        "product_id": "sku-1",
+                        "product_name": "Service Product",
+                        "order_id": "order-1",
+                        "order_status": "履约中",
+                        "follow_life_account_id": "store-1",
+                        "follow_life_account_name": "Store One",
+                    }
+                ]
+            }
+        }
+
+
+def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
+    db_session: Session,
+):
+    def settlement_runner(session: Session, source_run_id: str) -> PhaseStats:
+        return PhaseStats(name="settlement", fetched=0, upserted=0)
+
+    stats = run_collect_and_settle(
+        db_session,
+        client=FakeDefaultCollectionClient(),
+        window=window(),
+        job_id="collect-clues",
+        include_browser_export=False,
+        settlement_runner=settlement_runner,
+    )
+
+    phase_names = [phase.name for phase in stats.phases]
+    assert "clues" in phase_names
+    assert "clue_center_rebuild" in phase_names
+
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    assert order.phone_masked == "138****5678"
+
+    job = db_session.get(JobRun, "collect-clues")
+    assert job is not None
+    assert job.metadata_json["phases"]["clues"]["upserted"] == 1
+    assert job.metadata_json["phases"]["clue_center_rebuild"]["upserted"] == 1
 
 
 def test_run_collect_and_settle_marks_failed_and_skips_settlement(db_session: Session):

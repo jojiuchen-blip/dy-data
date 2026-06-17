@@ -105,6 +105,28 @@ def test_rebuild_materializes_eligible_order_level_clues(db_session: Session) ->
     assert db_session.get(ClueCenterOrder, "0") is None
 
 
+def test_rebuild_masks_phone_from_raw_payload_when_telephone_column_is_empty(
+    db_session: Session,
+) -> None:
+    clue = _raw_clue(
+        "row-1",
+        order_id="order-1",
+        clue_id="clue-1",
+        create_time=_dt(1),
+        telephone="",
+    )
+    clue.raw_payload = {"clue_id": "clue-1", "tel_addr": "13812345678"}
+    db_session.add(clue)
+    db_session.commit()
+
+    rebuild_clue_center(db_session, now=_dt(2))
+
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    assert order.phone_masked == "138****5678"
+    assert order.phone_source == "raw_payload"
+
+
 def test_sla_configuration_sets_expiration(db_session: Session) -> None:
     db_session.add(_raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1)))
     db_session.add(

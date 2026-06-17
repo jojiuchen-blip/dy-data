@@ -1,14 +1,16 @@
 from __future__ import annotations
 
-import re
 import os
+import re
 from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy.orm import Session
 
+from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.collectors.aweme_bindings import collect_aweme_bindings
+from apps.worker.collectors.clues import collect_clues
 from apps.worker.collectors.orders import collect_orders
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.collectors.verify_records import collect_shop_pois, collect_verify_records
@@ -100,6 +102,9 @@ def default_collectors() -> list[Collector]:
         lambda session, client, window, source_run_id: collect_orders(
             session, client, window, source_run_id=source_run_id
         ),
+        lambda session, client, window, source_run_id: collect_clues(
+            session, client, window, source_run_id=source_run_id
+        ),
         lambda session, client, window, source_run_id: collect_verify_records(
             session, client, window, source_run_id=source_run_id
         ),
@@ -137,6 +142,9 @@ class EmptyDouyinClient:
     def query_craftsman_bind_info(self, *, cursor: str | int | None = None, size: int = 50) -> dict[str, Any]:
         return {"data": {"openapi_merchat_craftsman_info": [], "has_more": False}}
 
+    def query_clues(self, start: Any, end: Any, *, page: int = 1, page_size: int = 100) -> dict[str, Any]:
+        return {"data": {"clue_data": []}}
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -167,6 +175,7 @@ def _run_job(
         active_client = client or build_douyin_client_from_env()
         for collector in collectors or default_collectors():
             stats.add_phase(collector(session, active_client, source_window, source_run_id))
+        stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id))
         if _include_browser_export(include_browser_export):
             runner = browser_export_runner or _run_browser_export_phase
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
@@ -198,6 +207,12 @@ def _run_job(
 def _run_settlement_phase(session: Session, source_run_id: str) -> PhaseStats:
     result = rebuild_settlement(session, source_run_id=source_run_id)
     return PhaseStats(name="settlement", fetched=0, upserted=result.detail_count)
+
+
+def _run_clue_center_rebuild_phase(session: Session, source_run_id: str) -> PhaseStats:
+    _ = source_run_id
+    result = rebuild_clue_center(session)
+    return PhaseStats(name="clue_center_rebuild", fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
 
 
 def _run_browser_export_phase(session: Session, source_run_id: str) -> PhaseStats:

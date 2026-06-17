@@ -14,6 +14,7 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     JobRun,
     RawAwemeBinding,
+    RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
@@ -32,6 +33,10 @@ def _merge(session: Session, model: type[ModelT], keys: Mapping[str, Any], value
 
 def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyinOrder:
     return _merge(session, RawDouyinOrder, {"order_id": order_id}, values)
+
+
+def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDouyinClue:
+    return _merge(session, RawDouyinClue, {"clue_row_key": clue_row_key}, values)
 
 
 def upsert_order_coupon(

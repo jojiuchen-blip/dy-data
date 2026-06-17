@@ -21,6 +21,15 @@ from apps.api.dy_api.models import (
 FOLLOWED_RESULTS = {"success", "failed", "unreachable", "continue_following"}
 SUCCESS_RESULT = "success"
 GLOBAL_REASSIGN_RULE_KEY = "global"
+PHONE_PAYLOAD_KEYS = (
+    "telephone",
+    "tel_addr",
+    "phone",
+    "mobile",
+    "phone_number",
+    "customer_phone",
+    "contact_phone",
+)
 
 
 def mask_phone(value: str | None) -> str:
@@ -137,8 +146,9 @@ def rebuild_clue_center(session: Session, *, now: datetime | None = None) -> dic
         center_order.assigned_store_name = round_row.assigned_store_name
         center_order.assigned_city = _clean(canonical.auto_city_name)
         center_order.assigned_province = _clean(canonical.auto_province_name)
-        center_order.phone_masked = mask_phone(canonical.telephone)
-        center_order.phone_source = "telephone" if center_order.phone_masked else None
+        phone_value, phone_source = _clue_phone(canonical)
+        center_order.phone_masked = mask_phone(phone_value)
+        center_order.phone_source = phone_source if center_order.phone_masked else None
         center_order.product_id = _clean(canonical.product_id)
         center_order.product_name = _clean(canonical.product_name)
         center_order.product_type = product_rule.product_type if product_rule else None
@@ -163,6 +173,19 @@ def _clean(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _clue_phone(clue: RawDouyinClue) -> tuple[str | None, str | None]:
+    telephone = _clean(clue.telephone)
+    if telephone:
+        return telephone, "telephone"
+
+    raw_payload = clue.raw_payload if isinstance(clue.raw_payload, dict) else {}
+    for key in PHONE_PAYLOAD_KEYS:
+        value = _clean(raw_payload.get(key))
+        if value:
+            return value, "raw_payload"
+    return None, None
 
 
 def _aware(value: datetime | None) -> datetime | None:
