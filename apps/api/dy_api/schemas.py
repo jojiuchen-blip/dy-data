@@ -80,6 +80,48 @@ class SkuRuleBulkUpdateResult(BaseModel):
     settlement_monthly_count: int | None = None
 
 
+class NonCommissionOwnerAccountRow(BaseModel):
+    owner_account_name: str
+    normalized_owner_account_name: str
+    is_active: bool = True
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class NonCommissionOwnerAccountInput(BaseModel):
+    owner_account_name: str
+
+    @field_validator("owner_account_name")
+    def normalize_owner_account_name_input(cls, value: str) -> str:
+        return value.strip()
+
+
+class NonCommissionOwnerAccountListData(BaseModel):
+    rows: list[NonCommissionOwnerAccountRow]
+
+
+class NonCommissionOwnerAccountBulkUpdateRequest(BaseModel):
+    accounts: list[NonCommissionOwnerAccountInput] = Field(default_factory=list, max_length=500)
+
+
+class NonCommissionOwnerAccountBulkUpdateResult(BaseModel):
+    rows: list[NonCommissionOwnerAccountRow]
+    updated_count: int
+    job_id: str
+    rebuild_status: Literal["queued", "running", "success", "failed"] = "queued"
+
+
+class CommissionRuleSkuSummaryRow(BaseModel):
+    sku_id: str
+    product_name: str = ""
+    commission_rate: float = 0
+
+
+class CommissionRulesSummaryData(BaseModel):
+    non_commission_owner_accounts: list[str] = Field(default_factory=list)
+    commission_skus: list[CommissionRuleSkuSummaryRow] = Field(default_factory=list)
+
+
 class StoreOption(BaseModel):
     store_id: str
     store_name: str

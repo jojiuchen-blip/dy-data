@@ -13,6 +13,7 @@ def test_production_mvp_tables_are_declared() -> None:
         "dim_stores",
         "dim_store_poi_mappings",
         "dim_sku_product_rules",
+        "dim_non_commission_owner_accounts",
         "dim_aweme_accounts",
         "settlement_order_details",
         "clue_center_orders",
@@ -38,6 +39,9 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in tables["clue_center_orders"].primary_key] == ["order_id"]
     assert [column.name for column in tables["clue_assignment_rounds"].primary_key] == ["assignment_round_id"]
     assert [column.name for column in tables["clue_reassign_rule_settings"].primary_key] == ["setting_key"]
+    assert [column.name for column in tables["dim_non_commission_owner_accounts"].primary_key] == [
+        "normalized_owner_account_name"
+    ]
     assert [column.name for column in tables["job_runs"].primary_key] == ["job_id"]
     assert [column.name for column in tables["data_quality_issues"].primary_key] == ["issue_id"]
 

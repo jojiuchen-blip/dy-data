@@ -2,11 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ApiRequestError,
   fetchAdminSession,
+  fetchNonCommissionOwnerAccounts,
   fetchSyncAdmin,
   fetchSkuRules,
   loginAdmin,
   logoutAdmin,
   lookupSkuRules,
+  saveNonCommissionOwnerAccounts,
   saveSkuRules,
 } from "../api/client";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
@@ -61,6 +63,21 @@ function parseSkuInput(value: string): string[] {
     .filter(Boolean);
 }
 
+function parseOwnerAccountInput(value: string): string[] {
+  const seen = new Set<string>();
+  return value
+    .split(/[\n,，;；]+/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .filter((item) => {
+      if (seen.has(item)) {
+        return false;
+      }
+      seen.add(item);
+      return true;
+    });
+}
+
 function ruleKey(rule: DraftRule): string {
   return rule.sku_id;
 }
@@ -88,6 +105,10 @@ export function AdminSkuRulesPage() {
   const [lookingUp, setLookingUp] = useState(false);
   const [selectedSkuMap, setSelectedSkuMap] = useState<Map<string, DraftRule>>(new Map());
   const [draftMap, setDraftMap] = useState<Map<string, DraftRule>>(new Map());
+  const [nonCommissionAccountText, setNonCommissionAccountText] = useState("");
+  const [nonCommissionAccountCount, setNonCommissionAccountCount] = useState(0);
+  const [loadingNonCommissionAccounts, setLoadingNonCommissionAccounts] = useState(false);
+  const [savingNonCommissionAccounts, setSavingNonCommissionAccounts] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,6 +170,40 @@ export function AdminSkuRulesPage() {
       cancelled = true;
     };
   }, [authenticated, page, query]);
+
+  useEffect(() => {
+    if (!authenticated) {
+      return;
+    }
+    let cancelled = false;
+    setLoadingNonCommissionAccounts(true);
+    fetchNonCommissionOwnerAccounts()
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        const names = response.data.rows.map((row) => row.owner_account_name);
+        setNonCommissionAccountText(names.join("\n"));
+        setNonCommissionAccountCount(names.length);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        if (!handleAuthError(error)) {
+          setStatusText("不分佣账号规则暂时无法读取。");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingNonCommissionAccounts(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
 
   useEffect(() => {
     if (!authenticated || !rebuildJobId) {
@@ -423,6 +478,38 @@ export function AdminSkuRulesPage() {
     setRows([]);
     setSelectedSkuMap(new Map());
     setDraftMap(new Map());
+    setNonCommissionAccountText("");
+    setNonCommissionAccountCount(0);
+  };
+
+  const handleSaveNonCommissionAccounts = async () => {
+    const accounts = parseOwnerAccountInput(nonCommissionAccountText);
+    const confirmed = window.confirm(
+      `将保存 ${accounts.length} 个不参与分佣的订单归属账号，并触发后台重建结算结果。确定继续吗？`,
+    );
+    if (!confirmed) {
+      return;
+    }
+    setSavingNonCommissionAccounts(true);
+    setStatusText("正在保存不分佣账号规则，并准备后台重建结算结果...");
+    try {
+      const response = await saveNonCommissionOwnerAccounts(accounts);
+      const names = response.data.rows.map((row) => row.owner_account_name);
+      setNonCommissionAccountText(names.join("\n"));
+      setNonCommissionAccountCount(names.length);
+      setRebuildJobId(response.data.job_id);
+      setStatusText(
+        `已保存 ${formatInteger(
+          response.data.updated_count,
+        )} 个不分佣账号，结算重建已在后台开始。任务编号：${response.data.job_id}`,
+      );
+    } catch (error) {
+      if (!handleAuthError(error)) {
+        setStatusText("不分佣账号规则保存失败，请稍后重试。");
+      }
+    } finally {
+      setSavingNonCommissionAccounts(false);
+    }
   };
 
   const handleSave = async () => {
@@ -539,6 +626,42 @@ export function AdminSkuRulesPage() {
           <option key={productType} value={productType} />
         ))}
       </datalist>
+
+      <section className="content-section non-commission-rule-panel">
+        <div className="section-title">
+          <div>
+            <h2>订单归属账号不分佣</h2>
+            <p>
+              每行填写一个订单归属账号。这些账号销售的订单不参与分佣，保存后会按新规则后台重建结算结果。
+            </p>
+          </div>
+          <span className="source-pill">
+            {loadingNonCommissionAccounts
+              ? "读取中"
+              : `当前 ${formatInteger(nonCommissionAccountCount)} 个`}
+          </span>
+        </div>
+        <label className="filter-field">
+          <span>不分佣账号列表</span>
+          <textarea
+            className="sku-lookup-input non-commission-account-input"
+            onChange={(event) => setNonCommissionAccountText(event.target.value)}
+            placeholder="例如：比亚迪汽车销售有限公司&#10;比亚迪汽车精品"
+            rows={5}
+            value={nonCommissionAccountText}
+          />
+        </label>
+        <div className="admin-header-actions sku-action-row">
+          <button
+            className="primary-button"
+            disabled={savingNonCommissionAccounts}
+            onClick={handleSaveNonCommissionAccounts}
+            type="button"
+          >
+            保存账号规则并重建
+          </button>
+        </div>
+      </section>
 
       <div className="sku-rule-workspace">
         <div className="sku-rule-main">

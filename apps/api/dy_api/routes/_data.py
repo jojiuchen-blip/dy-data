@@ -15,15 +15,23 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends
 
 try:
-    from sqlalchemy import text
+    from sqlalchemy import select, text
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
+    select = None  # type: ignore[assignment]
     text = None
 
 try:
-    from apps.api.dy_api.models import ClueReassignRuleSetting, DimSkuProductRule
+    from apps.api.dy_api.models import (
+        ClueReassignRuleSetting,
+        DimNonCommissionOwnerAccount,
+        DimSkuProductRule,
+    )
+    from apps.api.dy_api.rule_utils import normalize_owner_account_name
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     ClueReassignRuleSetting = None  # type: ignore[assignment]
+    DimNonCommissionOwnerAccount = None  # type: ignore[assignment]
     DimSkuProductRule = None  # type: ignore[assignment]
+    normalize_owner_account_name = None  # type: ignore[assignment]
 
 
 SENSITIVE_ERROR_RE = re.compile(
@@ -431,6 +439,92 @@ class DashboardDataStore:
             updated += 1
         self.session.flush()
         return updated
+
+    def list_non_commission_owner_accounts(
+        self, *, include_inactive: bool = False
+    ) -> list[dict[str, Any]]:
+        where_sql = "" if include_inactive else "WHERE is_active = true"
+        rows = self._execute(
+            f"""
+            SELECT owner_account_name, normalized_owner_account_name,
+                   is_active, updated_at, updated_by
+            FROM dim_non_commission_owner_accounts
+            {where_sql}
+            ORDER BY owner_account_name
+            """
+        )
+        return [self._clean_non_commission_owner_account_row(row) for row in rows]
+
+    def replace_non_commission_owner_accounts(
+        self,
+        accounts: list[str],
+        *,
+        updated_by: str,
+    ) -> dict[str, Any]:
+        if (
+            self.session is None
+            or DimNonCommissionOwnerAccount is None
+            or normalize_owner_account_name is None
+            or select is None
+        ):
+            return {"rows": [], "updated_count": 0}
+
+        deduped: dict[str, str] = {}
+        for account in accounts:
+            account_name = _to_str(account).strip()
+            normalized = normalize_owner_account_name(account_name)
+            if not account_name or not normalized:
+                continue
+            deduped[normalized] = account_name
+
+        now = generated_at()
+        for normalized, account_name in deduped.items():
+            self.session.merge(
+                DimNonCommissionOwnerAccount(
+                    normalized_owner_account_name=normalized,
+                    owner_account_name=account_name,
+                    is_active=True,
+                    updated_by=updated_by,
+                    updated_at=now,
+                )
+            )
+
+        for row in self.session.scalars(select(DimNonCommissionOwnerAccount)).all():
+            if row.normalized_owner_account_name not in deduped and row.is_active:
+                row.is_active = False
+                row.updated_by = updated_by
+                row.updated_at = now
+
+        self.session.flush()
+        return {
+            "rows": self.list_non_commission_owner_accounts(),
+            "updated_count": len(deduped),
+        }
+
+    def commission_rules_summary(self) -> dict[str, Any]:
+        sku_rows = self._execute(
+            """
+            SELECT sku_id, COALESCE(product_name, '') AS product_name, commission_rate
+            FROM dim_sku_product_rules
+            WHERE is_service_product = true
+              AND commission_rate > 0
+            ORDER BY sku_id
+            """
+        )
+        return {
+            "non_commission_owner_accounts": [
+                row["owner_account_name"]
+                for row in self.list_non_commission_owner_accounts()
+            ],
+            "commission_skus": [
+                {
+                    "sku_id": _to_str(row.get("sku_id")),
+                    "product_name": _to_str(row.get("product_name")),
+                    "commission_rate": _to_float(row.get("commission_rate")),
+                }
+                for row in sku_rows
+            ],
+        }
 
     def _sku_product_name(self, sku_id: str) -> str | None:
         rows = self._execute(
@@ -1111,6 +1205,15 @@ class DashboardDataStore:
             "is_service_product": _to_bool(row.get("is_service_product")),
             "order_count": _to_int(row.get("order_count")),
             "verified_coupon_count": _to_int(row.get("verified_coupon_count")),
+        }
+
+    def _clean_non_commission_owner_account_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "owner_account_name": _to_str(row.get("owner_account_name")),
+            "normalized_owner_account_name": _to_str(row.get("normalized_owner_account_name")),
+            "is_active": _to_bool(row.get("is_active")),
+            "updated_at": row.get("updated_at"),
+            "updated_by": row.get("updated_by"),
         }
 
     def _clean_ranking_row(self, rank: int, row: dict[str, Any]) -> dict[str, Any]:

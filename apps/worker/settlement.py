@@ -16,6 +16,7 @@ from apps.api.dy_api.models import (
     AggStoreRanking,
     DataQualityIssue,
     DimAwemeAccount,
+    DimNonCommissionOwnerAccount,
     DimSkuProductRule,
     DimStore,
     DimStorePoiMapping,
@@ -25,6 +26,7 @@ from apps.api.dy_api.models import (
     RawDouyinVerifyRecord,
     SettlementOrderDetail,
 )
+from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_quality_issue
 
 
@@ -168,16 +170,19 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
     relation_type = _relation_type(sale_store, verify_store, verify is not None)
     refund_excluded = _is_refund_excluded(order, coupon)
     paid_amount_cent = _paid_amount_cent(order, verify)
-    commission_rate = Decimal(sku_rule.commission_rate) if sku_rule else Decimal("0")
+    configured_commission_rate = Decimal(sku_rule.commission_rate) if sku_rule else Decimal("0")
     is_service_product = bool(sku_rule.is_service_product) if sku_rule else False
+    forced_non_commission = _is_non_commission_owner_account(session, order.owner_account_name)
     is_commissionable = (
         relation_type == "cross_store"
         and not refund_excluded
+        and not forced_non_commission
         and is_service_product
         and sku_rule is not None
         and sale_store is not None
         and verify_store is not None
     )
+    commission_rate = configured_commission_rate if is_commissionable else Decimal("0")
     commission_cent = _commission_cent(paid_amount_cent, commission_rate) if is_commissionable else 0
 
     detail = SettlementOrderDetail(
@@ -275,6 +280,14 @@ def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccou
 
 def _is_active_binding_status(status: str | None) -> bool:
     return _normalized(status) not in INACTIVE_BINDING_STATUSES
+
+
+def _is_non_commission_owner_account(session: Session, owner_account_name: str | None) -> bool:
+    normalized = normalize_owner_account_name(owner_account_name)
+    if not normalized:
+        return False
+    rule = session.get(DimNonCommissionOwnerAccount, normalized)
+    return bool(rule and rule.is_active)
 
 
 def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVerifyRecord | None:

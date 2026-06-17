@@ -10,12 +10,14 @@ from apps.api.dy_api.models import (
     AggStoreMonthlySettlement,
     AggStoreRanking,
     DataQualityIssue,
+    DimNonCommissionOwnerAccount,
     JobRun,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
     SettlementOrderDetail,
 )
+from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.repositories import (
     upsert_aweme_account,
     upsert_aweme_binding,
@@ -191,12 +193,17 @@ def test_settlement_owner_matching_issues_refund_exclusion_and_aggregates(db_ses
     assert same.sale_store_id == "store-s2"
     assert same.relation_type == "same_store"
     assert same.is_commissionable is False
+    assert same.commission_rate == Decimal("0.0000")
+    assert same.receivable_commission_cent == 0
+    assert same.payable_commission_cent == 0
 
     refunded = db_session.get(SettlementOrderDetail, "coupon-refund")
     assert refunded is not None
     assert refunded.is_refund_excluded is True
     assert refunded.is_commissionable is False
+    assert refunded.commission_rate == Decimal("0.0000")
     assert refunded.receivable_commission_cent == 0
+    assert refunded.payable_commission_cent == 0
 
     conflict = db_session.get(SettlementOrderDetail, "coupon-conflict")
     assert conflict is not None
@@ -219,6 +226,38 @@ def test_settlement_owner_matching_issues_refund_exclusion_and_aggregates(db_ses
     assert ranking_s1.sales_order_count == 3
     assert ranking_s1.self_sold_other_verified_count == 2
     assert ranking_s1.effective_commission_income_cent == 1000
+
+
+def test_non_commission_owner_account_forces_zero_rate_and_amounts(
+    db_session: Session,
+) -> None:
+    load_fixture(db_session)
+    db_session.merge(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name=normalize_owner_account_name(" Owner S1 "),
+            owner_account_name="Owner S1",
+            is_active=True,
+        )
+    )
+
+    run_settlement_job(db_session, job_id="job-non-commission-owner", source_run_id=SETTLEMENT_RUN_ID)
+
+    cross = db_session.get(SettlementOrderDetail, "coupon-cross")
+    assert cross is not None
+    assert cross.relation_type == "cross_store"
+    assert cross.is_commissionable is False
+    assert cross.commission_rate == Decimal("0.0000")
+    assert cross.receivable_commission_cent == 0
+    assert cross.payable_commission_cent == 0
+
+    monthly_s1 = db_session.get(AggStoreMonthlySettlement, ("2026-01", "store-s1", "all"))
+    if monthly_s1 is not None:
+        assert monthly_s1.estimated_receivable_commission_cent == 0
+        assert monthly_s1.commissionable_total_cent == 0
+
+    ranking_s1 = db_session.get(AggStoreRanking, ("2026-01", "all", "store-s1"))
+    assert ranking_s1 is not None
+    assert ranking_s1.effective_commission_income_cent == 0
 
 
 def test_numeric_verify_statuses_are_classified_before_settlement(db_session: Session) -> None:

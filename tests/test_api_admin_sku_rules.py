@@ -14,7 +14,12 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
-from apps.api.dy_api.models import AggStoreMonthlySettlement, DimSkuProductRule, JobRun  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    AggStoreMonthlySettlement,
+    DimNonCommissionOwnerAccount,
+    DimSkuProductRule,
+    JobRun,
+)
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from apps.worker.repositories import (  # noqa: E402
     queue_job_run,
@@ -295,3 +300,103 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
     assert job.job_name == "settlement_rebuild"
     assert job.metadata_json["trigger"] == "admin_sku_rules"
     assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+
+
+def test_admin_can_replace_non_commission_owner_accounts_and_queue_rebuild(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    queued_jobs: list[str] = []
+
+    def fake_rebuild_job(*, job_id: str) -> None:
+        queued_jobs.append(job_id)
+
+    monkeypatch.setattr(
+        admin_routes,
+        "run_admin_sku_rule_rebuild_job",
+        fake_rebuild_job,
+        raising=False,
+    )
+
+    _login(client)
+    response = client.put(
+        "/api/v1/admin/non-commission-owner-accounts",
+        json={
+            "accounts": [
+                {"owner_account_name": "比亚迪汽车精品"},
+                {"owner_account_name": " 精诚养车--比亚迪服务于全品牌 "},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["updated_count"] == 2
+    assert payload["rebuild_status"] == "queued"
+    assert payload["job_id"].startswith("admin-non-commission-accounts-")
+    assert queued_jobs == [payload["job_id"]]
+
+    rows = {
+        row["owner_account_name"]: row
+        for row in client.get("/api/v1/admin/non-commission-owner-accounts").json()["data"]["rows"]
+    }
+    assert set(rows) == {"比亚迪汽车精品", "精诚养车--比亚迪服务于全品牌"}
+    assert rows["精诚养车--比亚迪服务于全品牌"]["is_active"] is True
+
+    stored = db_session.get(
+        DimNonCommissionOwnerAccount,
+        rows["精诚养车--比亚迪服务于全品牌"]["normalized_owner_account_name"],
+    )
+    assert stored is not None
+    assert stored.owner_account_name == "精诚养车--比亚迪服务于全品牌"
+
+    job = db_session.get(JobRun, payload["job_id"])
+    assert job is not None
+    assert job.status == "queued"
+    assert job.metadata_json["trigger"] == "admin_non_commission_owner_accounts"
+
+
+def test_commission_rules_summary_is_public_and_filters_zero_rate_skus(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name="official",
+            owner_account_name="官方账号",
+            is_active=True,
+        )
+    )
+    db_session.add(
+        DimSkuProductRule(
+            sku_id="sku-commissionable",
+            product_name="分佣商品",
+            product_type="精诚养车",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
+        )
+    )
+    db_session.add(
+        DimSkuProductRule(
+            sku_id="sku-zero",
+            product_name="零比例商品",
+            product_type="精诚养车",
+            commission_rate=Decimal("0.0000"),
+            is_service_product=True,
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/commission-rules/summary")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["non_commission_owner_accounts"] == ["官方账号"]
+    assert data["commission_skus"] == [
+        {
+            "sku_id": "sku-commissionable",
+            "product_name": "分佣商品",
+            "commission_rate": 0.1,
+        }
+    ]

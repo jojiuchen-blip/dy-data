@@ -265,6 +265,36 @@ export interface SkuRuleUpdateResult {
   settlement_monthly_count?: number | null;
 }
 
+export interface NonCommissionOwnerAccount {
+  owner_account_name: string;
+  normalized_owner_account_name: string;
+  is_active: boolean;
+  updated_at?: string | null;
+  updated_by?: string | null;
+}
+
+export interface NonCommissionOwnerAccountListData {
+  rows: NonCommissionOwnerAccount[];
+}
+
+export interface NonCommissionOwnerAccountUpdateResult {
+  rows: NonCommissionOwnerAccount[];
+  updated_count: number;
+  job_id: string;
+  rebuild_status: "queued" | "running" | "success" | "failed";
+}
+
+export interface CommissionRuleSkuSummary {
+  sku_id: string;
+  product_name: string;
+  commission_rate: number;
+}
+
+export interface CommissionRulesSummaryData {
+  non_commission_owner_accounts: string[];
+  commission_skus: CommissionRuleSkuSummary[];
+}
+
 export interface SettlementViewData extends MonthlySettlementData {
   source: "contract-mock" | "detail-derived";
 }

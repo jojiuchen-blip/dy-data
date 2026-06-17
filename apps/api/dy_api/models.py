@@ -170,6 +170,16 @@ class DimSkuProductRule(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class DimNonCommissionOwnerAccount(Base):
+    __tablename__ = "dim_non_commission_owner_accounts"
+
+    normalized_owner_account_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    owner_account_name: Mapped[str] = mapped_column(Text, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class DimAwemeAccount(Base):
     __tablename__ = "dim_aweme_accounts"
 

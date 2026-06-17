@@ -103,6 +103,26 @@ a {
   gap: 6px;
 }
 
+.topnav-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.subnav-row {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.topnav--secondary a {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
 .topnav a {
   min-height: 36px;
   padding: 8px 12px;
@@ -129,6 +149,85 @@ a {
   background: var(--surface-muted);
   color: var(--ink);
   font-weight: 700;
+}
+
+.commission-rules {
+  position: relative;
+}
+
+.commission-rules__button {
+  min-height: 32px;
+  padding: 6px 10px;
+  font-size: 13px;
+}
+
+.commission-rules__popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 40;
+  display: grid;
+  width: min(760px, calc(100vw - 32px));
+  max-height: min(680px, calc(100vh - 120px));
+  gap: 14px;
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 16px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  text-align: left;
+}
+
+.commission-rules__header,
+.commission-rules__sku-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.commission-rules__header h2,
+.commission-rules__sku-header h3 {
+  margin: 0;
+}
+
+.commission-rules__list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 22px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.commission-rules__sku-header span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.commission-rules__table-wrap {
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.commission-rules__table {
+  min-width: 640px;
+}
+
+.icon-button {
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
 }
 
 .page-frame {
@@ -1138,6 +1237,14 @@ a.metric-card:hover,
   color: var(--ink);
 }
 
+.non-commission-rule-panel {
+  max-width: 980px;
+}
+
+.non-commission-account-input {
+  min-height: 120px;
+}
+
 @media (max-width: 920px) {
   .topbar {
     position: static;
@@ -1147,6 +1254,20 @@ a.metric-card:hover,
 
   .topnav {
     justify-content: flex-start;
+  }
+
+  .topnav-stack {
+    justify-items: start;
+    width: 100%;
+  }
+
+  .subnav-row {
+    justify-content: flex-start;
+  }
+
+  .commission-rules__popover {
+    left: 0;
+    right: auto;
   }
 
   .home-shell {

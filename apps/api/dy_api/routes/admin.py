@@ -24,6 +24,9 @@ from dy_api.schemas import (
     ClueReassignRuleData,
     ClueReassignRuleUpdate,
     ClueRebuildResult,
+    NonCommissionOwnerAccountBulkUpdateRequest,
+    NonCommissionOwnerAccountBulkUpdateResult,
+    NonCommissionOwnerAccountListData,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -110,6 +113,58 @@ def update_sku_rules(
     background_tasks.add_task(run_admin_sku_rule_rebuild_job, job_id=job_id)
     data = SkuRuleBulkUpdateResult(
         updated_count=updated_count,
+        job_id=job_id,
+        rebuild_status="queued",
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/non-commission-owner-accounts")
+def list_non_commission_owner_accounts(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = NonCommissionOwnerAccountListData(
+        rows=store.list_non_commission_owner_accounts()
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/non-commission-owner-accounts")
+def update_non_commission_owner_accounts(
+    payload: NonCommissionOwnerAccountBulkUpdateRequest,
+    background_tasks: BackgroundTasks,
+    username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    result = store.replace_non_commission_owner_accounts(
+        [account.owner_account_name for account in payload.accounts],
+        updated_by=username,
+    )
+    job_id = f"admin-non-commission-accounts-{uuid4().hex[:12]}"
+    queue_job_run(
+        store.session,
+        job_id,
+        "settlement_rebuild",
+        metadata_json={
+            "source_run_id": job_id,
+            "trigger": "admin_non_commission_owner_accounts",
+            "updated_rule_count": result["updated_count"],
+        },
+    )
+    store.session.commit()
+    background_tasks.add_task(run_admin_sku_rule_rebuild_job, job_id=job_id)
+    data = NonCommissionOwnerAccountBulkUpdateResult(
+        rows=result["rows"],
+        updated_count=result["updated_count"],
         job_id=job_id,
         rebuild_status="queued",
     )

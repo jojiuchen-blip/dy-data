@@ -6,6 +6,7 @@ import {
   orderDetails,
   page1Definitions,
   page2Definitions,
+  skuProductRulesResponse,
   storeRankingResponse,
 } from "../data/mockData";
 import type {
@@ -18,9 +19,12 @@ import type {
   ClueReassignRuleData,
   ClueReassignRuleUpdate,
   ClueRebuildResult,
+  CommissionRulesSummaryData,
   DetailFilters,
   FilterMetaData,
   MonthlySettlementData,
+  NonCommissionOwnerAccountListData,
+  NonCommissionOwnerAccountUpdateResult,
   OrderDetailsData,
   SelectOption,
   SettlementViewData,
@@ -198,6 +202,25 @@ function mockMetaResponse(): ApiResponse<FilterMetaData> {
       generated_at: generatedAt(),
       source: "mock",
     },
+  };
+}
+
+function mockCommissionRulesSummaryResponse(): ApiResponse<CommissionRulesSummaryData> {
+  return {
+    data: {
+      non_commission_owner_accounts: [],
+      commission_skus: skuProductRulesResponse.data.rows
+        .filter(
+          (rule) =>
+            (rule.is_service_product ?? true) && (rule.commission_rate ?? 0) > 0,
+        )
+        .map((rule) => ({
+          commission_rate: rule.commission_rate ?? 0,
+          product_name: rule.product_name ?? "",
+          sku_id: rule.sku_id,
+        })),
+    },
+    meta: { generated_at: generatedAt(), source: "contract-mock" },
   };
 }
 
@@ -501,6 +524,45 @@ export async function saveSkuRules(
     })),
     usingMock: false,
   };
+}
+
+export async function fetchNonCommissionOwnerAccounts(): Promise<
+  ApiLoadResult<NonCommissionOwnerAccountListData>
+> {
+  return {
+    ...(await requestJson<NonCommissionOwnerAccountListData>(
+      "/admin/non-commission-owner-accounts",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function saveNonCommissionOwnerAccounts(
+  ownerAccountNames: string[],
+): Promise<ApiLoadResult<NonCommissionOwnerAccountUpdateResult>> {
+  return {
+    ...(await sendJson<NonCommissionOwnerAccountUpdateResult>(
+      "/admin/non-commission-owner-accounts",
+      {
+        body: {
+          accounts: ownerAccountNames.map((owner_account_name) => ({
+            owner_account_name,
+          })),
+        },
+        method: "PUT",
+      },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchCommissionRulesSummary(): Promise<
+  ApiLoadResult<CommissionRulesSummaryData>
+> {
+  return withMockFallback(
+    () => requestJson<CommissionRulesSummaryData>("/commission-rules/summary"),
+    mockCommissionRulesSummaryResponse,
+  );
 }
 
 export async function fetchSyncAdmin(): Promise<ApiLoadResult<SyncAdminData>> {

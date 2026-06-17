@@ -7,6 +7,7 @@ from fastapi.responses import Response
 
 from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
+    CommissionRulesSummaryData,
     MonthlySettlementData,
     OrderDetailsData,
     StoreRankingData,
@@ -114,6 +115,15 @@ def store_ranking(
     return {
         "data": dump_model(data),
         "definitions": STORE_RANKING_DEFINITIONS,
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/commission-rules/summary")
+def commission_rules_summary(store=Depends(get_data_store)):
+    data = CommissionRulesSummaryData(**store.commission_rules_summary())
+    return {
+        "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
 
