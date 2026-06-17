@@ -4,7 +4,7 @@ const modules = [
     href: "/ranking",
     meta: "已接入当前项目内容",
     status: "已接入",
-    title: "订单结算中心",
+    title: "订单分佣结算中心",
   },
   {
     description: "汇总门店分配线索、跟进状态、待再分配和转化核销情况。",

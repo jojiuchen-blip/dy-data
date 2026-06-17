@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from decimal import Decimal
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -8,13 +9,26 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from apps.api.dy_api.models import Base
-from apps.api.dy_api.models import JobRun
+from apps.api.dy_api.models import DimNonCommissionOwnerAccount, JobRun, SettlementOrderDetail
+from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker import scheduler
 from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
-from apps.worker.repositories import finish_job_run, start_job_run
+from apps.worker.repositories import (
+    finish_job_run,
+    queue_job_run,
+    start_job_run,
+    upsert_aweme_binding,
+    upsert_order_coupon,
+    upsert_raw_order,
+    upsert_sku_product_rule,
+    upsert_store,
+    upsert_store_poi_mapping,
+    upsert_verify_record,
+)
+from apps.worker.settlement import run_settlement_job
 
 
 def window() -> CollectionWindow:
@@ -156,6 +170,138 @@ def test_browser_export_only_failure_persists_when_run_once_rethrows(monkeypatch
         assert job.error_message == "CDP endpoint unavailable"
 
 
+def test_queued_settlement_rebuild_applies_current_non_commission_rules(db_session: Session):
+    from apps.worker.queued_jobs import process_queued_settlement_rebuilds
+
+    upsert_store(db_session, "store-sale", "Sale Store")
+    upsert_store(db_session, "store-verify", "Verify Store")
+    upsert_store_poi_mapping(db_session, "store-verify", "poi-verify", mapping_source="fixture")
+    upsert_aweme_binding(
+        db_session,
+        "store-sale:dy-sale:poi-sale",
+        douyin_id="dy-sale",
+        douyin_nickname="Official Seller",
+        account_id="store-sale",
+        account_name="Sale Store",
+        poi_id="poi-sale",
+        binding_status="认证成功",
+    )
+    upsert_sku_product_rule(
+        db_session,
+        "sku-service",
+        "service",
+        product_name="Service SKU",
+        commission_rate=Decimal("0.1000"),
+        is_service_product=True,
+    )
+    upsert_raw_order(
+        db_session,
+        "order-cross",
+        order_status="paid",
+        sku_id="sku-service",
+        pay_time=datetime.fromisoformat("2026-06-01T10:00:00+08:00"),
+        paid_amount_cent=10000,
+        owner_account_name="Official Seller",
+    )
+    upsert_order_coupon(db_session, "coupon-cross", "order-cross", coupon_status="fulfilled")
+    upsert_verify_record(
+        db_session,
+        "verify-cross",
+        coupon_id="coupon-cross",
+        verify_status="valid",
+        verify_time=datetime.fromisoformat("2026-06-01T11:00:00+08:00"),
+        poi_id="poi-verify",
+        sku_id="sku-service",
+        paid_amount_cent=10000,
+    )
+    run_settlement_job(db_session, job_id="initial-rebuild", source_run_id="initial-rebuild")
+    before = db_session.get(SettlementOrderDetail, "coupon-cross")
+    assert before is not None
+    assert before.is_commissionable is True
+    assert before.receivable_commission_cent == 1000
+
+    db_session.merge(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name=normalize_owner_account_name("Official Seller"),
+            owner_account_name="Official Seller",
+            is_active=True,
+        )
+    )
+    queue_job_run(
+        db_session,
+        "queued-admin-rules",
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_non_commission_owner_accounts"},
+    )
+    db_session.commit()
+
+    result = process_queued_settlement_rebuilds(
+        sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
+    )
+
+    db_session.expire_all()
+    job = db_session.get(JobRun, "queued-admin-rules")
+    assert result.processed_job_id == "queued-admin-rules"
+    assert job is not None
+    assert job.status == "success"
+    detail = db_session.get(SettlementOrderDetail, "coupon-cross")
+    assert detail is not None
+    assert detail.source_run_id == "queued-admin-rules"
+    assert detail.is_commissionable is False
+    assert detail.commission_rate == Decimal("0.0000")
+    assert detail.receivable_commission_cent == 0
+    assert detail.payable_commission_cent == 0
+
+
+def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
+    db_session: Session,
+    monkeypatch,
+):
+    from apps.worker import queued_jobs
+
+    queue_job_run(
+        db_session,
+        "queued-old",
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_sku_rules"},
+        started_at=datetime.fromisoformat("2026-06-17T05:00:00+00:00"),
+    )
+    queue_job_run(
+        db_session,
+        "queued-new",
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_non_commission_owner_accounts"},
+        started_at=datetime.fromisoformat("2026-06-17T05:30:00+00:00"),
+    )
+    db_session.commit()
+    calls: list[tuple[str, str]] = []
+
+    def fake_run_settlement_job(session: Session, *, job_id: str, source_run_id: str):
+        calls.append((job_id, source_run_id))
+        start_job_run(session, job_id, "settlement_rebuild", metadata_json={"source_run_id": source_run_id})
+        finish_job_run(session, job_id, status="success", success_count=1)
+
+    monkeypatch.setattr(queued_jobs, "run_settlement_job", fake_run_settlement_job)
+
+    result = queued_jobs.process_queued_settlement_rebuilds(
+        sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
+    )
+
+    db_session.expire_all()
+    old_job = db_session.get(JobRun, "queued-old")
+    new_job = db_session.get(JobRun, "queued-new")
+    assert result.processed_job_id == "queued-new"
+    assert result.superseded_job_ids == ("queued-old",)
+    assert calls == [("queued-new", "queued-new")]
+    assert old_job is not None
+    assert old_job.status == "success"
+    assert old_job.success_count == 0
+    assert old_job.metadata_json["superseded_by"] == "queued-new"
+    assert new_job is not None
+    assert new_job.status == "success"
+    assert new_job.success_count == 1
+
+
 def test_backfill_splits_windows_by_chunk_days():
     source = CollectionWindow(
         start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
@@ -212,6 +358,66 @@ def test_backfill_skips_successful_completed_windows(db_session: Session):
     )
 
     assert calls == ["2026-01-02T00:00:00+08:00"]
+
+
+def test_backfill_runs_queued_job_runner_before_each_executed_chunk(db_session: Session):
+    calls: list[str] = []
+
+    def queued_job_runner() -> None:
+        calls.append("queued")
+
+    def runner(session: Session, *, window: CollectionWindow, job_id: str, include_browser_export: bool | None):
+        calls.append(window.start.isoformat())
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    run_backfill(
+        factory=sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True),
+        start="2026-01-01",
+        end="2026-01-03",
+        chunk_days=1,
+        runner=runner,
+        queued_job_runner=queued_job_runner,
+    )
+
+    assert calls == [
+        "queued",
+        "2026-01-01T00:00:00+08:00",
+        "queued",
+        "2026-01-02T00:00:00+08:00",
+    ]
+
+
+def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    calls: list[str] = []
+
+    def queued_runner(factory_arg):
+        assert factory_arg is factory
+        calls.append("queued")
+
+    def fake_backfill(**kwargs):
+        calls.append("backfill")
+        assert kwargs["factory"] is factory
+        assert callable(kwargs["queued_job_runner"])
+        kwargs["queued_job_runner"]()
+
+    monkeypatch.setenv("WORKER_MODE", "backfill")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", queued_runner, raising=False)
+    monkeypatch.setattr(scheduler, "run_backfill", fake_backfill)
+
+    run_once()
+
+    assert calls == ["queued", "backfill", "queued"]
 
 
 def test_incremental_collection_window_defaults_to_recent_30_days():

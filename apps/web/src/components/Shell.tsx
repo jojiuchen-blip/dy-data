@@ -4,7 +4,7 @@ import { CommissionRulesButton } from "./CommissionRulesButton";
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
 
 const primaryNavItems = [
-  { href: "/ranking", label: "结算中心", section: "settlement" },
+  { href: "/ranking", label: "订单分佣结算中心", section: "settlement" },
   { href: "/clues", label: "线索跟进分配中心", section: "clues" },
 ];
 
@@ -34,7 +34,7 @@ export function Shell({ currentPath, children }: ShellProps) {
           />
           <div>
             <strong>抖音经营数据引擎</strong>
-            <span>订单结算中心</span>
+            <span>订单分佣结算中心</span>
           </div>
         </a>
         <div className="topnav-stack">
@@ -53,7 +53,7 @@ export function Shell({ currentPath, children }: ShellProps) {
           </nav>
           {inSettlementCenter ? (
             <div className="subnav-row">
-              <nav className="topnav topnav--secondary" aria-label="结算中心导航">
+              <nav className="topnav topnav--secondary" aria-label="订单分佣结算中心导航">
                 {settlementNavItems.map((item) => (
                   <a
                     aria-current={currentPath === item.href ? "page" : undefined}

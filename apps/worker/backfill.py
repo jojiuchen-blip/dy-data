@@ -60,6 +60,7 @@ def run_backfill(
     include_browser_export: bool | None = None,
     skip_completed: bool | None = None,
     runner: Runner = run_collect_and_settle,
+    queued_job_runner: Callable[[], object] | None = None,
     now: datetime | None = None,
 ) -> BackfillResult:
     session_factory = factory or get_session_factory()
@@ -89,6 +90,9 @@ def run_backfill(
             result.skipped_windows.append(chunk)
             _log(f"chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
             continue
+
+        if queued_job_runner is not None:
+            queued_job_runner()
 
         job_id = _chunk_job_id(index, chunk)
         _log(f"chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")

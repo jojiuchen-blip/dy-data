@@ -15,6 +15,7 @@ from apps.worker.backfill import run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
+from apps.worker.queued_jobs import process_queued_settlement_rebuilds
 from apps.worker.repositories import finish_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DAYS, load_sync_config
@@ -69,6 +70,7 @@ def run_once() -> None:
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
+    process_queued_settlement_rebuilds(factory)
     if mode == "backfill":
         with session_scope(factory) as session:
             config = load_sync_config(session)
@@ -78,6 +80,7 @@ def run_once() -> None:
             end=config.history_end or None,
             chunk_days=config.history_chunk_days,
             skip_completed=config.backfill_skip_completed,
+            queued_job_runner=lambda: process_queued_settlement_rebuilds(factory),
         )
         return
     if mode == "browser_export_only":
