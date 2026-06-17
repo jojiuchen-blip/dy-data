@@ -537,6 +537,8 @@ h2 {
 .filter-field input:focus,
 .ghost-button:focus,
 .primary-button:focus,
+.link-button:focus,
+.modal-close:focus,
 .clickable-row:focus {
   border-color: var(--green);
   box-shadow: 0 0 0 3px rgb(23 107 91 / 18%);
@@ -739,6 +741,23 @@ a.metric-card:hover,
   outline: none;
 }
 
+.link-button {
+  border: 0;
+  border-radius: 4px;
+  padding: 0;
+  background: transparent;
+  color: var(--green);
+  cursor: pointer;
+  font-weight: 800;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.link-button:hover {
+  color: var(--blue);
+}
+
 .rank-badge {
   display: inline-grid;
   width: 28px;
@@ -778,6 +797,163 @@ a.metric-card:hover,
   font-family:
     "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(23 33 28 / 48%);
+  backdrop-filter: blur(6px);
+}
+
+.clue-detail-modal {
+  width: min(860px, calc(100vw - 32px));
+  max-height: min(86vh, 760px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 28px 80px rgb(23 33 28 / 24%);
+}
+
+.clue-detail-modal__header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding: 20px 22px 16px;
+  background: rgb(255 253 248 / 96%);
+}
+
+.clue-detail-modal__header h2 {
+  margin: 4px 0 0;
+  font-size: 22px;
+}
+
+.clue-detail-modal__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.modal-close {
+  display: inline-grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  color: var(--ink);
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.modal-close:hover {
+  border-color: var(--green);
+  background: #fbfff9;
+}
+
+.clue-detail-body {
+  display: grid;
+  gap: 18px;
+  padding: 20px 22px 22px;
+}
+
+.clue-detail-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.clue-detail-summary > div {
+  display: grid;
+  min-height: 74px;
+  align-content: start;
+  gap: 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fbfaf5;
+}
+
+.clue-detail-summary span,
+.clue-flow-fields dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.clue-detail-summary strong,
+.clue-flow-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.clue-flow-list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clue-flow-item {
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--line-strong);
+  border-radius: 8px;
+  padding: 16px;
+  background: #fffefa;
+}
+
+.clue-flow-item.is-selected {
+  border-color: var(--green);
+  border-left-color: var(--green);
+  box-shadow: 0 0 0 3px rgb(23 107 91 / 10%);
+}
+
+.clue-flow-item__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.clue-flow-item__header > div {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.clue-flow-round {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.clue-flow-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 0;
+}
+
+.clue-flow-fields > div {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  min-width: 0;
 }
 
 .table-input {
@@ -1313,6 +1489,14 @@ a.metric-card:hover,
   .clue-rule-grid {
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
+
+  .clue-detail-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .clue-flow-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
@@ -1397,6 +1581,27 @@ a.metric-card:hover,
   .content-section,
   .definition-panel {
     padding: 12px;
+  }
+
+  .modal-backdrop {
+    align-items: start;
+    padding: 12px;
+  }
+
+  .clue-detail-modal {
+    width: 100%;
+    max-height: calc(100vh - 24px);
+  }
+
+  .clue-detail-modal__header,
+  .clue-flow-item__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .clue-detail-summary,
+  .clue-flow-fields {
+    grid-template-columns: 1fr;
   }
 
   .pagination-controls {

@@ -7,6 +7,7 @@ from dy_api.schemas import (
     ClueAssignmentRoundData,
     ClueFilterMetadata,
     ClueOverviewMetrics,
+    ClueOrderDetailData,
     dump_model,
 )
 
@@ -95,6 +96,22 @@ def clue_assignment_rounds(
             }
         )
     )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clues/orders/{order_id}")
+def clue_order_detail(order_id: str, store=Depends(get_data_store)):
+    store = _require_available_store(store)
+    payload = store.clue_order_detail(order_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clue order not found",
+        )
+    data = ClueOrderDetailData(**payload)
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

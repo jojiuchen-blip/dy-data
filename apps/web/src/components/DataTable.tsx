@@ -14,6 +14,7 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   emptyText?: string;
+  onRowDoubleClick?: (row: T) => void;
   rowHref?: (row: T) => string;
   tableClassName?: string;
 }
@@ -79,6 +80,7 @@ export function DataTable<T>({
   columns,
   rows,
   emptyText = "暂无数据",
+  onRowDoubleClick,
   rowHref,
   tableClassName,
 }: DataTableProps<T>) {
@@ -114,21 +116,30 @@ export function DataTable<T>({
               const href = rowHref?.(row);
               return (
                 <tr
-                  className={href ? "clickable-row" : undefined}
+                  className={
+                    href || onRowDoubleClick ? "clickable-row" : undefined
+                  }
                   key={rowIndex}
                   onClick={href ? () => openInternalHref(href) : undefined}
+                  onDoubleClick={
+                    onRowDoubleClick ? () => onRowDoubleClick(row) : undefined
+                  }
                   onKeyDown={
-                    href
+                    href || onRowDoubleClick
                       ? (event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            openInternalHref(href);
+                            if (href) {
+                              openInternalHref(href);
+                            } else {
+                              onRowDoubleClick?.(row);
+                            }
                           }
                         }
                       : undefined
                   }
-                  role={href ? "link" : undefined}
-                  tabIndex={href ? 0 : undefined}
+                  role={href ? "link" : onRowDoubleClick ? "button" : undefined}
+                  tabIndex={href || onRowDoubleClick ? 0 : undefined}
                 >
                   {preparedColumns.map((column) => (
                     <td

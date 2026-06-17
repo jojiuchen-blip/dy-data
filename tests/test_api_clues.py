@@ -177,6 +177,56 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["remaining_reassign_seconds"] is None
 
 
+def test_clue_order_detail_returns_all_assignment_rounds(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        ClueAssignmentRound(
+            assignment_round_id="order-1-2",
+            order_id="order-1",
+            round_no=2,
+            assigned_at=_dt(2, 9),
+            assigned_at_source="manual_reassign",
+            assigned_store_id="store-2",
+            assigned_store_name="Store Two",
+            followed_at=None,
+            follow_result="pending",
+            is_followed=False,
+            is_follow_success=False,
+            round_status="active_unfollowed",
+            reassign_reason="timeout",
+            is_self_store_verified=False,
+            created_at=_dt(2, 9),
+            updated_at=_dt(2, 9),
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/v1/clues/orders/order-1")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["order_id"] == "order-1"
+    assert payload["phone_masked"] == "138****5678"
+    assert "telephone" not in payload
+    assert payload["product_id"] == "sku-1"
+    assert payload["product_name"] == "Service Product"
+    assert payload["product_type"] == "Car Service"
+    assert [row["assignment_round_id"] for row in payload["rounds"]] == [
+        "order-1-1",
+        "order-1-2",
+    ]
+    assert payload["rounds"][0]["follow_result"] == "success"
+    assert payload["rounds"][1]["reassign_reason"] == "timeout"
+
+
+def test_unknown_clue_order_detail_returns_404(client: TestClient) -> None:
+    response = client.get("/api/v1/clues/orders/missing-order")
+
+    assert response.status_code == 404
+
+
 def test_admin_clue_rule_requires_login(client: TestClient) -> None:
     assert client.get("/api/v1/admin/clue-reassign-rule").status_code == 401
     assert client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": None}).status_code == 401

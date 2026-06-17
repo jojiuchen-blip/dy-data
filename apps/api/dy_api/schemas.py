@@ -251,6 +251,20 @@ class ClueAssignmentRoundData(BaseModel):
     pagination: "Pagination"
 
 
+class ClueOrderDetailData(BaseModel):
+    order_id: str
+    canonical_clue_id: str | None = None
+    lead_status: str
+    phone_masked: str = ""
+    product_id: str | None = None
+    product_name: str | None = None
+    product_type: str | None = None
+    author_nickname: str | None = None
+    assigned_city: str | None = None
+    assigned_province: str | None = None
+    rounds: list[ClueAssignmentRoundRow] = Field(default_factory=list)
+
+
 class ClueReassignRuleData(BaseModel):
     reassign_sla_hours: int | None = None
     updated_at: datetime | None = None

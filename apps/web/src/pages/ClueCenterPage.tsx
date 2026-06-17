@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   fetchClueAssignmentRounds,
   fetchClueFilters,
+  fetchClueOrderDetail,
   fetchClueOverview,
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
@@ -16,6 +17,7 @@ import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueAssignmentRound,
+  ClueOrderDetail,
   ClueOverviewFilters,
   SelectOption,
 } from "../types/dashboard";
@@ -50,11 +52,28 @@ const followResultLabels: Record<string, string> = {
   continue_following: "继续跟进",
 };
 
+const reassignReasonLabels: Record<string, string> = {
+  timeout: "超时未跟进",
+  follow_failed: "门店反馈跟进失败",
+  manual: "人工再分配",
+};
+
+const roundNames = ["第一轮", "第二轮", "第三轮", "第四轮", "第五轮"];
+
 function labelFor(value: string | null | undefined, labels: Record<string, string>) {
   if (!value) {
     return "-";
   }
   return labels[value] ?? value;
+}
+
+function displayValue(value: string | null | undefined): string {
+  return value ? value : "-";
+}
+
+function roundLabel(index: number, total: number): string {
+  const base = roundNames[index] ?? `第${index + 1}轮`;
+  return index === total - 1 ? `${base} / 当前` : base;
 }
 
 function formatRemainingSeconds(value: number | null): string {
@@ -98,6 +117,13 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   );
   const [city, setCity] = useState(searchParams.get("city") ?? "");
   const [page, setPage] = useState(1);
+  const [selectedRound, setSelectedRound] = useState<ClueAssignmentRound | null>(
+    null,
+  );
+  const [detail, setDetail] = useState<ClueOrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
+  const [detailSource, setDetailSource] = useState("");
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
@@ -162,6 +188,82 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   const pagination = roundsResource.data?.data.pagination;
   const loading =
     filterResource.loading || overviewResource.loading || roundsResource.loading;
+  const selectedOrderId = selectedRound?.order_id ?? null;
+  const selectedRoundId = selectedRound?.assignment_round_id ?? null;
+  const detailProductLabel = detail
+    ? [detail.product_name, detail.product_type].filter(Boolean).join(" / ") ||
+      detail.product_id ||
+      "-"
+    : "-";
+  const detailRegionLabel = detail
+    ? [detail.assigned_province, detail.assigned_city].filter(Boolean).join(" / ") ||
+      "-"
+    : "-";
+
+  const openClueDetail = (row: ClueAssignmentRound) => {
+    setSelectedRound(row);
+  };
+
+  const closeClueDetail = () => {
+    setSelectedRound(null);
+    setDetail(null);
+    setDetailError(null);
+    setDetailSource("");
+    setDetailLoading(false);
+  };
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      return;
+    }
+
+    let cancelled = false;
+    setDetail(null);
+    setDetailError(null);
+    setDetailSource("");
+    setDetailLoading(true);
+
+    fetchClueOrderDetail(selectedOrderId)
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setDetail(result.data);
+        setDetailSource(
+          result.usingMock ? "mock fallback" : result.meta.source || "api",
+        );
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setDetailError(error instanceof Error ? error.message : "线索详情加载失败");
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedOrderId]);
+
+  useEffect(() => {
+    if (!selectedOrderId) {
+      return;
+    }
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        closeClueDetail();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [selectedOrderId]);
 
   const resetFilters = () => {
     setAssignedStoreId("");
@@ -180,7 +282,18 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       title: "分配轮次ID",
       minWidth: 180,
       sticky: true,
-      render: (row) => <span className="mono-cell">{row.assignment_round_id}</span>,
+      render: (row) => (
+        <button
+          className="link-button mono-cell"
+          onClick={(event) => {
+            event.stopPropagation();
+            openClueDetail(row);
+          }}
+          type="button"
+        >
+          {row.assignment_round_id}
+        </button>
+      ),
     },
     {
       key: "lead_status",
@@ -457,6 +570,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
           <DataTable
             columns={columns}
             emptyText="暂无线索分配记录"
+            onRowDoubleClick={openClueDetail}
             rows={rows}
             tableClassName="data-table--clues"
           />
@@ -491,6 +605,135 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
           </div>
         </div>
       </section>
+
+      {selectedRound ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeClueDetail();
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="clue-detail-title"
+            aria-modal="true"
+            className="clue-detail-modal"
+            role="dialog"
+          >
+            <header className="clue-detail-modal__header">
+              <div>
+                <p className="eyebrow">Clue flow</p>
+                <h2 id="clue-detail-title">线索流转详情</h2>
+              </div>
+              <div className="clue-detail-modal__actions">
+                <span className="source-pill">
+                  {detailLoading ? "加载中" : detailSource || "api"}
+                </span>
+                <button
+                  aria-label="关闭线索详情"
+                  className="modal-close"
+                  onClick={closeClueDetail}
+                  type="button"
+                >
+                  ×
+                </button>
+              </div>
+            </header>
+
+            {detailLoading ? (
+              <ResourcePanel>正在加载线索流转...</ResourcePanel>
+            ) : detailError ? (
+              <ResourcePanel tone="error">
+                线索详情暂不可用：{detailError}
+              </ResourcePanel>
+            ) : detail ? (
+              <div className="clue-detail-body">
+                <div className="clue-detail-summary">
+                  <div>
+                    <span>联系方式</span>
+                    <strong>{displayValue(detail.phone_masked)}</strong>
+                  </div>
+                  <div>
+                    <span>涉及商品</span>
+                    <strong>{detailProductLabel}</strong>
+                  </div>
+                  <div>
+                    <span>订单ID</span>
+                    <strong className="mono-cell">{detail.order_id}</strong>
+                  </div>
+                  <div>
+                    <span>城市</span>
+                    <strong>{detailRegionLabel}</strong>
+                  </div>
+                </div>
+
+                {detail.rounds.length ? (
+                  <ol className="clue-flow-list">
+                    {detail.rounds.map((round, index) => (
+                      <li
+                        className={[
+                          "clue-flow-item",
+                          round.assignment_round_id === selectedRoundId
+                            ? "is-selected"
+                            : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" ")}
+                        key={round.assignment_round_id}
+                      >
+                        <div className="clue-flow-item__header">
+                          <div>
+                            <span className="clue-flow-round">
+                              {roundLabel(index, detail.rounds.length)}
+                            </span>
+                            <strong>{displayValue(round.assigned_store_name)}</strong>
+                          </div>
+                          <span className="status-chip">
+                            {labelFor(round.round_status, roundStatusLabels)}
+                          </span>
+                        </div>
+                        <dl className="clue-flow-fields">
+                          <div>
+                            <dt>分配时间</dt>
+                            <dd>{formatDateTime(round.assigned_at)}</dd>
+                          </div>
+                          <div>
+                            <dt>归属门店</dt>
+                            <dd>
+                              {displayValue(round.assigned_store_name)}
+                              {round.assigned_store_id
+                                ? ` (${round.assigned_store_id})`
+                                : ""}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>再分配原因</dt>
+                            <dd>
+                              {labelFor(round.reassign_reason, reassignReasonLabels)}
+                            </dd>
+                          </div>
+                          <div>
+                            <dt>跟进时间</dt>
+                            <dd>{formatDateTime(round.followed_at)}</dd>
+                          </div>
+                          <div>
+                            <dt>跟进结果</dt>
+                            <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
+                          </div>
+                        </dl>
+                      </li>
+                    ))}
+                  </ol>
+                ) : (
+                  <ResourcePanel>暂无线索流转历史。</ResourcePanel>
+                )}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -8,6 +8,7 @@ import type {
   ApiResponse,
   ClueAssignmentRoundData,
   ClueFilterMetadata,
+  ClueOrderDetail,
   ClueOverviewMetrics,
   ClueReassignRuleData,
   ClueRebuildResult,
@@ -32,6 +33,7 @@ export const clueCenterResponses = clueCenterRaw as {
   filters: ApiResponse<ClueFilterMetadata>;
   overview: ApiResponse<ClueOverviewMetrics>;
   assignment_rounds: ApiResponse<ClueAssignmentRoundData>;
+  order_details?: Record<string, ApiResponse<ClueOrderDetail>>;
   rule: ApiResponse<ClueReassignRuleData>;
   rebuild: ApiResponse<ClueRebuildResult>;
 };

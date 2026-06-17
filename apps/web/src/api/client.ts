@@ -14,6 +14,7 @@ import type {
   AdminUser,
   ClueAssignmentRoundData,
   ClueFilterMetadata,
+  ClueOrderDetail,
   ClueOverviewFilters,
   ClueOverviewMetrics,
   ClueReassignRuleData,
@@ -351,6 +352,47 @@ function mockClueAssignmentRoundsResponse({
   };
 }
 
+function mockClueOrderDetailResponse(
+  orderId: string,
+): ApiResponse<ClueOrderDetail> {
+  const stored = clueCenterResponses.order_details?.[orderId];
+  if (stored) {
+    return {
+      ...stored,
+      meta: {
+        ...stored.meta,
+        generated_at: generatedAt(),
+        source: "mock",
+      },
+    };
+  }
+
+  const rounds = clueCenterResponses.assignment_rounds.data.rows.filter(
+    (row) => row.order_id === orderId,
+  );
+  const firstRound = rounds[0];
+
+  return {
+    data: {
+      order_id: orderId,
+      canonical_clue_id: null,
+      lead_status: firstRound?.lead_status ?? "active",
+      phone_masked: firstRound?.phone_masked ?? "",
+      product_id: null,
+      product_name: null,
+      product_type: firstRound?.product_type ?? null,
+      author_nickname: firstRound?.author_nickname ?? null,
+      assigned_city: null,
+      assigned_province: null,
+      rounds,
+    },
+    meta: {
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
 function mockClueRuleResponse(
   override?: ClueReassignRuleUpdate,
 ): ApiResponse<ClueReassignRuleData> {
@@ -460,6 +502,18 @@ export function fetchClueAssignmentRounds(
         page_size: query.pageSize,
       }),
     () => mockClueAssignmentRoundsResponse(query),
+  );
+}
+
+export function fetchClueOrderDetail(
+  orderId: string,
+): Promise<ApiLoadResult<ClueOrderDetail>> {
+  return withMockFallback(
+    () =>
+      requestJson<ClueOrderDetail>(
+        `/clues/orders/${encodeURIComponent(orderId)}`,
+      ),
+    () => mockClueOrderDetailResponse(orderId),
   );
 }
 

@@ -360,6 +360,20 @@ export interface ClueAssignmentRoundData {
   pagination: Pagination;
 }
 
+export interface ClueOrderDetail {
+  order_id: string;
+  canonical_clue_id: string | null;
+  lead_status: string;
+  phone_masked: string;
+  product_id: string | null;
+  product_name: string | null;
+  product_type: string | null;
+  author_nickname: string | null;
+  assigned_city: string | null;
+  assigned_province: string | null;
+  rounds: ClueAssignmentRound[];
+}
+
 export interface ClueReassignRuleData {
   reassign_sla_hours: number | null;
   updated_at: string | null;

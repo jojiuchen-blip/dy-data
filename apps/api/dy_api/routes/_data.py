@@ -869,6 +869,75 @@ class DashboardDataStore:
             },
         }
 
+    def clue_order_detail(self, order_id: str) -> dict[str, Any] | None:
+        order_id = _to_str(order_id).strip()
+        if not order_id:
+            return None
+        orders = self._execute(
+            """
+            SELECT order_id,
+                   canonical_clue_id,
+                   lead_status,
+                   COALESCE(phone_masked, '') AS phone_masked,
+                   product_id,
+                   product_name,
+                   product_type,
+                   author_nickname,
+                   assigned_city,
+                   assigned_province
+            FROM clue_center_orders
+            WHERE order_id = :order_id
+            LIMIT 1
+            """,
+            {"order_id": order_id},
+        )
+        if not orders:
+            return None
+
+        rows = self._execute(
+            """
+            SELECT r.assignment_round_id,
+                   r.order_id,
+                   r.round_no,
+                   c.lead_status,
+                   r.round_status,
+                   r.assigned_at,
+                   r.expires_at,
+                   r.assigned_store_id,
+                   r.assigned_store_name,
+                   COALESCE(c.phone_masked, '') AS phone_masked,
+                   c.product_type,
+                   c.author_nickname,
+                   r.followed_at,
+                   r.follow_result,
+                   r.reassign_reason,
+                   r.reassigned_at,
+                   r.verified_store_id,
+                   r.verified_store_name,
+                   r.verified_at,
+                   r.is_self_store_verified
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            WHERE r.order_id = :order_id
+            ORDER BY r.round_no, r.assigned_at, r.assignment_round_id
+            """,
+            {"order_id": order_id},
+        )
+        order = orders[0]
+        return {
+            "order_id": _to_str(order.get("order_id")),
+            "canonical_clue_id": order.get("canonical_clue_id"),
+            "lead_status": _to_str(order.get("lead_status")),
+            "phone_masked": _to_str(order.get("phone_masked")),
+            "product_id": order.get("product_id"),
+            "product_name": order.get("product_name"),
+            "product_type": order.get("product_type"),
+            "author_nickname": order.get("author_nickname"),
+            "assigned_city": order.get("assigned_city"),
+            "assigned_province": order.get("assigned_province"),
+            "rounds": [self._clean_clue_round_row(row) for row in rows],
+        }
+
     def get_clue_reassign_rule(self) -> dict[str, Any]:
         if self.session is None or ClueReassignRuleSetting is None:
             return {
