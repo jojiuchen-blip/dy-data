@@ -58,7 +58,9 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const selectedStore =
     view?.store ??
     metaStore ??
-    (activeStoreId ? { store_id: activeStoreId, store_name: activeStoreId } : defaultStore);
+    (activeStoreId
+      ? { store_id: activeStoreId, store_name: "当前门店" }
+      : defaultStore);
   const baseProduct = productType === "all" ? "all" : productType;
 
   const receivableHref = detailsHref({

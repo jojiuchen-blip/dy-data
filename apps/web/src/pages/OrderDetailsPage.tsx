@@ -42,8 +42,8 @@ const pageSizeOptions = [25, 50, 100, 200, 500];
 
 function storeName(meta: FilterMetaData | undefined, storeId: string): string {
   return (
-    meta?.stores.find((store) => store.store_id === storeId)?.store_name ??
-    storeId
+    meta?.stores.find((store) => store.store_id === storeId)?.store_name ||
+    "未匹配门店"
   );
 }
 
@@ -275,7 +275,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "ownerAccount",
       title: "订单归属账号",
       minWidth: 150,
-      render: (row) => row.owner_account_name || row.owner_account_id || "-",
+      render: (row) => row.owner_account_name || "-",
     },
     {
       key: "saleStore",

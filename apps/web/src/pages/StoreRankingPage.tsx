@@ -62,7 +62,6 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
       render: (row) => (
         <span className="store-name">
           {row.store_name}
-          <small>{row.store_id}</small>
         </span>
       ),
     },

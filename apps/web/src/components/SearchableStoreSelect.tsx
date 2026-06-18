@@ -16,14 +16,14 @@ function normalize(value: string): string {
 }
 
 function optionText(option: SelectOption): string {
-  return `${option.label} ${option.value}`;
+  return option.label;
 }
 
 function displayValue(options: SelectOption[], value: string): string {
   if (!value) {
     return "";
   }
-  return options.find((option) => option.value === value)?.label ?? value;
+  return options.find((option) => option.value === value)?.label ?? "";
 }
 
 export function SearchableStoreSelect({
@@ -31,7 +31,7 @@ export function SearchableStoreSelect({
   emptyLabel = "全部",
   onChange,
   options,
-  placeholder = "输入门店名称或 ID",
+  placeholder = "输入门店名称",
   value,
 }: SearchableStoreSelectProps) {
   const inputId = useId();
@@ -150,7 +150,6 @@ export function SearchableStoreSelect({
                 }}
               >
                 <strong>{option.label}</strong>
-                {option.value ? <small>{option.value}</small> : null}
               </div>
             ))
           ) : (
