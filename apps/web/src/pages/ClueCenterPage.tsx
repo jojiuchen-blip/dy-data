@@ -14,6 +14,7 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { SolarIcon } from "../components/SolarIcon";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueAssignmentRound,
@@ -277,6 +278,27 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   };
 
   const columns: Column<ClueAssignmentRound>[] = [
+    {
+      key: "current_assignment",
+      title: "线索当前归属",
+      minWidth: 180,
+      render: (row) => (
+        <span className="status-chip">
+          {row.is_current_round ? "当前" : "历史"} /{" "}
+          {displayValue(row.current_assigned_store_name)}
+        </span>
+      ),
+    },
+    {
+      key: "round_effective_status",
+      title: "本轮有效性",
+      minWidth: 110,
+      render: (row) => (
+        <span className="status-chip">
+          {row.round_effective_status === "active" ? "有效" : "无效"}
+        </span>
+      ),
+    },
     {
       key: "round_id",
       title: "分配轮次ID",
@@ -637,7 +659,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
                   onClick={closeClueDetail}
                   type="button"
                 >
-                  ×
+                  <SolarIcon name="close" size={18} />
                 </button>
               </div>
             </header>

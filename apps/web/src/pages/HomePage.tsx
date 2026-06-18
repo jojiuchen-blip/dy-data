@@ -1,3 +1,5 @@
+import { SolarIcon } from "../components/SolarIcon";
+
 const modules = [
   {
     description: "承接现有门店榜单、单店分账、月度明细和 SKU 分账规则管理。",
@@ -20,12 +22,7 @@ export function HomePage() {
     <main className="home-shell">
       <section className="home-heading" aria-labelledby="home-title">
         <div className="home-brand">
-          <img
-            aria-hidden="true"
-            className="brand__mark"
-            src="/business-loop-icon.svg"
-            alt=""
-          />
+          <SolarIcon className="brand__mark" name="brand" size={44} />
           <div>
             <p className="eyebrow">Douyin business data engine</p>
             <h1 id="home-title">抖音经营数据引擎</h1>

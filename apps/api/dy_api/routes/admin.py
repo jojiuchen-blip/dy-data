@@ -5,9 +5,9 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import select, text
+from sqlalchemy import delete, or_, select, text
 
-from apps.api.dy_api.models import JobRun
+from apps.api.dy_api.models import DimStore, JobRun, User, UserStoreScope
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
@@ -17,9 +17,14 @@ from apps.worker.manual_sync import run_manual_sync_job
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
-from dy_api.auth import get_current_admin
+from dy_api.auth import hash_password_pbkdf2, normalize_account_value, get_current_admin
 from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
+    AccountListData,
+    AccountPasswordUpdateRequest,
+    AccountRow,
+    AccountStoreScopeRow,
+    AccountUpsertRequest,
     ManualSyncRequest,
     ManualSyncResult,
     ClueReassignRuleData,
@@ -54,6 +59,123 @@ def _require_available_store(store):
             detail="Database is not available",
         )
     return store
+
+
+@router.get("/accounts")
+def list_accounts(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    users = store.session.execute(select(User).order_by(User.created_at, User.username)).scalars().all()
+    data = AccountListData(rows=[_account_row(store.session, user) for user in users])
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/accounts")
+def create_account(
+    payload: AccountUpsertRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _validate_password_payload(payload.password, payload.password_confirm, required=True)
+    _ensure_unique_user_fields(
+        store.session,
+        username=payload.username,
+        external_account_id=payload.external_account_id,
+        exclude_user_id=None,
+    )
+    _ensure_store_ids_exist(store.session, payload.store_ids)
+    now = generated_at()
+    user = User(
+        user_id=uuid4().hex,
+        username=normalize_account_value(payload.username),
+        external_account_id=_optional_account_value(payload.external_account_id),
+        display_name=normalize_account_value(payload.display_name),
+        role=payload.role,
+        status=payload.status,
+        is_initialized=True,
+        password_hash=hash_password_pbkdf2(payload.password or ""),
+        created_at=now,
+        updated_at=now,
+    )
+    store.session.add(user)
+    store.session.flush()
+    _replace_user_scopes(store.session, user.user_id, payload.store_ids)
+    store.session.commit()
+    data = _account_row(store.session, user)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/accounts/{user_id}")
+def update_account(
+    user_id: str,
+    payload: AccountUpsertRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    user = store.session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    _validate_password_payload(payload.password, payload.password_confirm, required=False)
+    _ensure_unique_user_fields(
+        store.session,
+        username=payload.username,
+        external_account_id=payload.external_account_id,
+        exclude_user_id=user_id,
+    )
+    _ensure_store_ids_exist(store.session, payload.store_ids)
+    user.username = normalize_account_value(payload.username)
+    user.external_account_id = _optional_account_value(payload.external_account_id)
+    user.display_name = normalize_account_value(payload.display_name)
+    user.role = payload.role
+    user.status = payload.status
+    user.is_initialized = True if payload.password else user.is_initialized
+    if payload.password:
+        user.password_hash = hash_password_pbkdf2(payload.password)
+    user.updated_at = generated_at()
+    _replace_user_scopes(store.session, user.user_id, payload.store_ids)
+    store.session.commit()
+    data = _account_row(store.session, user)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/accounts/{user_id}/reset-password")
+def admin_reset_account_password(
+    user_id: str,
+    payload: AccountPasswordUpdateRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    user = store.session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    if payload.password != payload.password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password confirmation does not match",
+        )
+    user.password_hash = hash_password_pbkdf2(payload.password)
+    user.is_initialized = True
+    user.updated_at = generated_at()
+    store.session.commit()
+    data = _account_row(store.session, user)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
 
 
 @router.get("/sku-rules")
@@ -302,6 +424,97 @@ def _sync_admin_data(store) -> SyncAdminData:
         schedule=_sync_schedule(store.session, config_data),
         jobs=store.recent_jobs(20),
     )
+
+
+def _account_row(session, user: User) -> AccountRow:
+    rows = session.execute(
+        select(UserStoreScope.store_id, DimStore.store_name)
+        .join(DimStore, DimStore.store_id == UserStoreScope.store_id)
+        .where(UserStoreScope.user_id == user.user_id)
+        .order_by(DimStore.store_name, UserStoreScope.store_id)
+    ).all()
+    return AccountRow(
+        user_id=user.user_id,
+        username=user.username,
+        external_account_id=user.external_account_id,
+        display_name=user.display_name,
+        role=user.role,
+        status=user.status,
+        is_initialized=user.is_initialized,
+        stores=[
+            AccountStoreScopeRow(store_id=row.store_id, store_name=row.store_name)
+            for row in rows
+        ],
+        created_at=user.created_at,
+        updated_at=user.updated_at,
+    )
+
+
+def _validate_password_payload(
+    password: str | None, password_confirm: str | None, *, required: bool
+) -> None:
+    if not password and not password_confirm and not required:
+        return
+    if not password or not password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password and confirmation are required",
+        )
+    if password != password_confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Password confirmation does not match",
+        )
+
+
+def _ensure_unique_user_fields(
+    session,
+    *,
+    username: str,
+    external_account_id: str | None,
+    exclude_user_id: str | None,
+) -> None:
+    username = normalize_account_value(username)
+    external_account_id = _optional_account_value(external_account_id)
+    clauses = [User.username == username]
+    if external_account_id:
+        clauses.append(User.external_account_id == external_account_id)
+    query = select(User).where(or_(*clauses))
+    for user in session.execute(query).scalars().all():
+        if user.user_id != exclude_user_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Account identifier already exists",
+            )
+
+
+def _ensure_store_ids_exist(session, store_ids: list[str]) -> None:
+    if not store_ids:
+        return
+    unique_store_ids = sorted(set(store_ids))
+    existing = set(
+        session.execute(
+            select(DimStore.store_id).where(DimStore.store_id.in_(unique_store_ids))
+        ).scalars().all()
+    )
+    missing = [store_id for store_id in unique_store_ids if store_id not in existing]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Unknown store_id: {', '.join(missing)}",
+        )
+
+
+def _replace_user_scopes(session, user_id: str, store_ids: list[str]) -> None:
+    session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
+    for store_id in sorted(set(store_ids)):
+        session.add(UserStoreScope(user_id=user_id, store_id=store_id))
+    session.flush()
+
+
+def _optional_account_value(value: str | None) -> str | None:
+    normalized = normalize_account_value(value)
+    return normalized or None
 
 
 def _sync_schedule(session, config: dict) -> SyncScheduleData:

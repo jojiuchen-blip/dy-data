@@ -39,8 +39,8 @@ Runtime secrets stay in Railway service variables, not in GitHub Actions logs or
 Required `api` variables:
 
 - `DATABASE_URL`
-- `DY_ADMIN_USERNAME`
-- `DY_ADMIN_PASSWORD_HASH`
+- `DY_SUPER_ADMIN_USERNAME`
+- `DY_SUPER_ADMIN_PASSWORD_HASH`
 - `DY_SESSION_SECRET`
 
 Required `web` variables:

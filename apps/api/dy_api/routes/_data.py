@@ -171,6 +171,12 @@ def _ratio(numerator: int, denominator: int) -> float:
     return round(numerator / denominator, 4)
 
 
+def _in_clause_params(prefix: str, values: Iterable[str]) -> tuple[str, dict[str, Any]]:
+    cleaned = [value for value in dict.fromkeys(_to_str(value).strip() for value in values) if value]
+    params = {f"{prefix}_{index}": value for index, value in enumerate(cleaned)}
+    return ", ".join(f":{key}" for key in params), params
+
+
 def _parse_filter_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value.astimezone(SHANGHAI_TZ) if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
@@ -227,18 +233,27 @@ class DashboardDataStore:
                 return []
             raise
 
-    def list_stores(self) -> list[dict[str, Any]]:
+    def list_stores(self, scope_store_ids: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {}
+        where_sql = ""
+        if scope_store_ids is not None:
+            placeholders, params = _in_clause_params("store_scope", scope_store_ids)
+            if not placeholders:
+                return []
+            where_sql = f"WHERE store_id IN ({placeholders})"
         return [
             {
                 "store_id": _to_str(row.get("store_id")),
                 "store_name": _to_str(row.get("store_name")),
             }
             for row in self._execute(
-                """
+                f"""
                 SELECT store_id, store_name
                 FROM dim_stores
+                {where_sql}
                 ORDER BY store_name, store_id
-                """
+                """,
+                params,
             )
         ]
 
@@ -704,65 +719,80 @@ class DashboardDataStore:
             },
         }
 
-    def clue_filters(self) -> dict[str, Any]:
+    def clue_filters(self, scope_store_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+        round_scope_sql, round_scope_params = self._store_scope_clause(
+            "assigned_store_id", scope_store_ids
+        )
+        order_scope_sql = self._order_scope_exists_clause(scope_store_ids)
+        order_scope_params = self._order_scope_params(scope_store_ids)
         assigned_stores = [
             {
                 "store_id": _to_str(row.get("store_id")),
                 "store_name": _to_str(row.get("store_name")),
             }
             for row in self._execute(
-                """
+                f"""
                 SELECT DISTINCT assigned_store_id AS store_id,
                                 assigned_store_name AS store_name
-                FROM clue_center_orders
+                FROM clue_assignment_rounds
                 WHERE assigned_store_id IS NOT NULL
                   AND assigned_store_id != ''
+                  {round_scope_sql}
                 ORDER BY assigned_store_name, assigned_store_id
-                """
+                """,
+                round_scope_params,
             )
         ]
         assigned_cities = [
             _to_str(row.get("assigned_city"))
             for row in self._execute(
-                """
+                f"""
                 SELECT DISTINCT assigned_city
                 FROM clue_center_orders
                 WHERE assigned_city IS NOT NULL AND assigned_city != ''
+                  {order_scope_sql}
                 ORDER BY assigned_city
-                """
+                """,
+                order_scope_params,
             )
         ]
         product_types = [
             _to_str(row.get("product_type"))
             for row in self._execute(
-                """
+                f"""
                 SELECT DISTINCT product_type
                 FROM clue_center_orders
                 WHERE product_type IS NOT NULL AND product_type != ''
+                  {order_scope_sql}
                 ORDER BY product_type
-                """
+                """,
+                order_scope_params,
             )
         ]
         lead_statuses = [
             _to_str(row.get("lead_status"))
             for row in self._execute(
-                """
+                f"""
                 SELECT DISTINCT lead_status
                 FROM clue_center_orders
                 WHERE lead_status IS NOT NULL AND lead_status != ''
+                  {order_scope_sql}
                 ORDER BY lead_status
-                """
+                """,
+                order_scope_params,
             )
         ]
         round_statuses = [
             _to_str(row.get("round_status"))
             for row in self._execute(
-                """
+                f"""
                 SELECT DISTINCT round_status
                 FROM clue_assignment_rounds
                 WHERE round_status IS NOT NULL AND round_status != ''
+                  {round_scope_sql}
                 ORDER BY round_status
-                """
+                """,
+                round_scope_params,
             )
         ]
         return {
@@ -774,28 +804,31 @@ class DashboardDataStore:
         }
 
     def clue_overview(self, filters: dict[str, Any]) -> dict[str, Any]:
-        where_sql, params = self._clue_where(filters, include_round=False)
+        where_sql, params = self._clue_where(filters, include_round=True)
         rows = self._execute(
             f"""
             SELECT COUNT(*) AS total_clues,
                    COALESCE(SUM(CASE
-                       WHEN current_round_status IN ('active_unfollowed', 'active_followed')
+                       WHEN r.assignment_round_id = c.current_assignment_round_id
+                         AND r.round_status IN ('active_unfollowed', 'active_followed')
                        THEN 1 ELSE 0 END), 0) AS active_clues,
-                   COALESCE(SUM(CASE WHEN is_followed = true THEN 1 ELSE 0 END), 0)
+                   COALESCE(SUM(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END), 0)
                        AS followed_clues,
-                   COALESCE(SUM(CASE WHEN is_follow_success = true THEN 1 ELSE 0 END), 0)
+                   COALESCE(SUM(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END), 0)
                        AS successful_follow_clues,
                    COALESCE(SUM(CASE
-                       WHEN is_follow_success = true AND is_self_store_verified = true
+                       WHEN r.is_follow_success = true AND r.is_self_store_verified = true
                        THEN 1 ELSE 0 END), 0) AS self_store_verified_clues,
                    COALESCE(SUM(CASE
-                       WHEN lead_status = 'pending_reassign'
-                         OR current_round_status IN (
+                       WHEN r.assignment_round_id = c.current_assignment_round_id
+                         AND (c.lead_status = 'pending_reassign'
+                         OR r.round_status IN (
                             'failed_pending_reassign',
                             'expired_pending_reassign'
-                         )
+                         ))
                        THEN 1 ELSE 0 END), 0) AS pending_reassign_count
-            FROM clue_center_orders c
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
             {where_sql}
             """,
             params,
@@ -835,6 +868,11 @@ class DashboardDataStore:
                    r.order_id,
                    r.round_no,
                    c.lead_status,
+                   c.current_assignment_round_id,
+                   c.current_round_no,
+                   c.current_round_status,
+                   c.assigned_store_id AS current_assigned_store_id,
+                   c.assigned_store_name AS current_assigned_store_name,
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
@@ -869,9 +907,15 @@ class DashboardDataStore:
             },
         }
 
-    def clue_order_detail(self, order_id: str) -> dict[str, Any] | None:
+    def clue_order_detail(
+        self,
+        order_id: str,
+        scope_store_ids: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
         order_id = _to_str(order_id).strip()
         if not order_id:
+            return None
+        if not self._clue_order_allowed(order_id, scope_store_ids):
             return None
         orders = self._execute(
             """
@@ -900,6 +944,11 @@ class DashboardDataStore:
                    r.order_id,
                    r.round_no,
                    c.lead_status,
+                   c.current_assignment_round_id,
+                   c.current_round_no,
+                   c.current_round_status,
+                   c.assigned_store_id AS current_assigned_store_id,
+                   c.assigned_store_name AS current_assigned_store_name,
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
@@ -1128,6 +1177,69 @@ class DashboardDataStore:
         )
         return [self._clean_non_commission_row(row) for row in rows]
 
+    def _store_scope_clause(
+        self,
+        column: str,
+        scope_store_ids: tuple[str, ...] | None,
+        *,
+        prefix: str = "scope_store",
+    ) -> tuple[str, dict[str, Any]]:
+        if scope_store_ids is None:
+            return "", {}
+        placeholders, params = _in_clause_params(prefix, scope_store_ids)
+        if not placeholders:
+            return " AND 1 = 0", {}
+        return f" AND {column} IN ({placeholders})", params
+
+    def _order_scope_params(
+        self, scope_store_ids: tuple[str, ...] | None
+    ) -> dict[str, Any]:
+        if scope_store_ids is None:
+            return {}
+        _, params = _in_clause_params("order_scope_store", scope_store_ids)
+        return params
+
+    def _order_scope_exists_clause(
+        self,
+        scope_store_ids: tuple[str, ...] | None,
+        *,
+        order_ref: str = "clue_center_orders.order_id",
+    ) -> str:
+        if scope_store_ids is None:
+            return ""
+        placeholders, _params = _in_clause_params("order_scope_store", scope_store_ids)
+        if not placeholders:
+            return " AND 1 = 0"
+        return (
+            " AND EXISTS ("
+            "SELECT 1 FROM clue_assignment_rounds scope_round "
+            f"WHERE scope_round.order_id = {order_ref} "
+            f"AND scope_round.assigned_store_id IN ({placeholders})"
+            ")"
+        )
+
+    def _clue_order_allowed(
+        self,
+        order_id: str,
+        scope_store_ids: tuple[str, ...] | None,
+    ) -> bool:
+        if scope_store_ids is None:
+            return True
+        placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
+        if not placeholders:
+            return False
+        rows = self._execute(
+            f"""
+            SELECT 1
+            FROM clue_assignment_rounds
+            WHERE order_id = :order_id
+              AND assigned_store_id IN ({placeholders})
+            LIMIT 1
+            """,
+            {"order_id": order_id, **params},
+        )
+        return bool(rows)
+
     def _detail_where(self, filters: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
@@ -1171,6 +1283,17 @@ class DashboardDataStore:
             clauses.append("(lower(order_id) LIKE :q OR lower(coupon_id) LIKE :q)")
             params["q"] = f"%{query}%"
 
+        scope_store_ids = filters.get("scope_store_ids")
+        if scope_store_ids is not None:
+            placeholders, scope_params = _in_clause_params("detail_scope_store", scope_store_ids)
+            if placeholders:
+                clauses.append(
+                    f"(sale_store_id IN ({placeholders}) OR verify_store_id IN ({placeholders}))"
+                )
+                params.update(scope_params)
+            else:
+                clauses.append("1 = 0")
+
         if not clauses:
             return "", params
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
@@ -1182,7 +1305,7 @@ class DashboardDataStore:
         params: dict[str, Any] = {}
 
         exact_filters = {
-            "assigned_store_id": "c.assigned_store_id",
+            "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",
             "lead_status": "c.lead_status",
             "product_type": "c.product_type",
             "city": "c.assigned_city",
@@ -1201,12 +1324,14 @@ class DashboardDataStore:
 
         assigned_start = _parse_filter_datetime(filters.get("assigned_date_start"))
         if assigned_start is not None:
-            clauses.append("c.assigned_at >= :assigned_date_start")
+            column = "r.assigned_at" if include_round else "c.assigned_at"
+            clauses.append(f"{column} >= :assigned_date_start")
             params["assigned_date_start"] = assigned_start
 
         assigned_end = _parse_filter_datetime(filters.get("assigned_date_end"))
         if assigned_end is not None:
-            clauses.append("c.assigned_at < :assigned_date_end")
+            column = "r.assigned_at" if include_round else "c.assigned_at"
+            clauses.append(f"{column} < :assigned_date_end")
             params["assigned_date_end"] = assigned_end
 
         query = _to_str(filters.get("q")).strip().lower()
@@ -1216,17 +1341,48 @@ class DashboardDataStore:
             )
             params["q"] = f"%{query}%"
 
+        scope_store_ids = filters.get("scope_store_ids")
+        if scope_store_ids is not None:
+            if include_round:
+                placeholders, scope_params = _in_clause_params("clue_scope_store", scope_store_ids)
+                if placeholders:
+                    clauses.append(f"r.assigned_store_id IN ({placeholders})")
+                    params.update(scope_params)
+                else:
+                    clauses.append("1 = 0")
+            else:
+                scope_sql = self._order_scope_exists_clause(scope_store_ids, order_ref="c.order_id")
+                scope_sql = scope_sql.removeprefix(" AND ")
+                if scope_sql:
+                    clauses.append(scope_sql)
+                    params.update(self._order_scope_params(scope_store_ids))
+
         if not clauses:
             return "", params
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
 
     def _clean_clue_round_row(self, row: dict[str, Any]) -> dict[str, Any]:
         expires_at = row.get("expires_at")
+        assignment_round_id = _to_str(row.get("assignment_round_id"))
+        current_assignment_round_id = _to_str(row.get("current_assignment_round_id"))
+        is_current_round = bool(
+            assignment_round_id
+            and current_assignment_round_id
+            and assignment_round_id == current_assignment_round_id
+        )
         return {
-            "assignment_round_id": _to_str(row.get("assignment_round_id")),
+            "assignment_round_id": assignment_round_id,
             "order_id": _to_str(row.get("order_id")),
             "round_no": _to_int(row.get("round_no"), 1),
             "lead_status": _to_str(row.get("lead_status")),
+            "order_current_status": _to_str(row.get("lead_status")),
+            "current_assignment_round_id": current_assignment_round_id or None,
+            "current_round_no": _to_int(row.get("current_round_no"), 0),
+            "current_round_status": _to_str(row.get("current_round_status")),
+            "current_assigned_store_id": row.get("current_assigned_store_id"),
+            "current_assigned_store_name": row.get("current_assigned_store_name"),
+            "is_current_round": is_current_round,
+            "round_effective_status": "active" if is_current_round else "inactive",
             "round_status": _to_str(row.get("round_status")),
             "assigned_at": row.get("assigned_at"),
             "expires_at": expires_at,

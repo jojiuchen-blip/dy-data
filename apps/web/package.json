@@ -9,6 +9,8 @@
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {
+    "@iconify-icons/solar": "^1.2.3",
+    "@iconify/react": "^6.0.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

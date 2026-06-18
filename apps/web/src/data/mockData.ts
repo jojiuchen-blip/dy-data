@@ -29,7 +29,7 @@ export const commissionTablesResponse =
 export const skuProductRulesResponse = skuProductRulesRaw as ApiResponse<{
   rows: SkuProductCommissionRule[];
 }>;
-export const clueCenterResponses = clueCenterRaw as {
+export const clueCenterResponses = clueCenterRaw as unknown as {
   filters: ApiResponse<ClueFilterMetadata>;
   overview: ApiResponse<ClueOverviewMetrics>;
   assignment_rounds: ApiResponse<ClueAssignmentRoundData>;

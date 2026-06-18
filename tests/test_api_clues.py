@@ -16,8 +16,12 @@ from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
     ClueCenterOrder,
+    DimStore,
     RawDouyinClue,
+    User,
+    UserStoreScope,
 )
+from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 
 
 def _dt(day: int, hour: int = 10) -> datetime:
@@ -27,6 +31,7 @@ def _dt(day: int, hour: int = 10) -> datetime:
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
 
@@ -42,7 +47,7 @@ def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
 def _login(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",
-        json={"username": "admin", "password": "test-password"},
+        json={"username": "system-admin", "password": "test-password"},
     )
     assert response.status_code == 200
 
@@ -50,6 +55,18 @@ def _login(client: TestClient) -> None:
 def _seed_clue_center(session: Session) -> None:
     session.add_all(
         [
+            DimStore(
+                store_id="store-1",
+                store_name="Store One",
+                certified_subject_name="Subject One",
+                is_active=True,
+            ),
+            DimStore(
+                store_id="store-2",
+                store_name="Store Two",
+                certified_subject_name="Subject Two",
+                is_active=True,
+            ),
             ClueCenterOrder(
                 order_id="order-1",
                 source_clue_ids=["clue-1"],
@@ -151,6 +168,7 @@ def _seed_clue_center(session: Session) -> None:
 
 def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> None:
     _seed_clue_center(db_session)
+    _login(client)
 
     filters = client.get("/api/v1/clues/filters")
     assert filters.status_code == 200
@@ -202,6 +220,7 @@ def test_clue_order_detail_returns_all_assignment_rounds(
         )
     )
     db_session.commit()
+    _login(client)
 
     response = client.get("/api/v1/clues/orders/order-1")
 
@@ -222,9 +241,88 @@ def test_clue_order_detail_returns_all_assignment_rounds(
 
 
 def test_unknown_clue_order_detail_returns_404(client: TestClient) -> None:
+    _login(client)
     response = client.get("/api/v1/clues/orders/missing-order")
 
     assert response.status_code == 404
+
+
+def test_store_account_sees_only_own_round_but_can_open_full_order_detail(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    order.lead_status = "active"
+    order.current_assignment_round_id = "order-1-2"
+    order.current_round_no = 2
+    order.current_round_status = "active_unfollowed"
+    order.assigned_store_id = "store-2"
+    order.assigned_store_name = "Store Two"
+    db_session.add(
+        ClueAssignmentRound(
+            assignment_round_id="order-1-2",
+            order_id="order-1",
+            round_no=2,
+            assigned_at=_dt(2, 9),
+            assigned_at_source="manual_reassign",
+            assigned_store_id="store-2",
+            assigned_store_name="Store Two",
+            follow_result="pending",
+            is_followed=False,
+            is_follow_success=False,
+            round_status="active_unfollowed",
+            reassign_reason="timeout",
+            is_self_store_verified=False,
+            created_at=_dt(2, 9),
+            updated_at=_dt(2, 9),
+        )
+    )
+    db_session.add_all(
+        [
+            User(
+                user_id="user-a",
+                username="store-a",
+                external_account_id="store-1",
+                display_name="Store A",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret-a"),
+            ),
+            UserStoreScope(user_id="user-a", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "store-a", "password": "secret-a"},
+    )
+    assert login.status_code == 200
+
+    rounds = client.get("/api/v1/clues/assignment-rounds")
+    assert rounds.status_code == 200
+    payload = rounds.json()["data"]
+    assert {row["assignment_round_id"] for row in payload["rows"]} == {
+        "order-1-1",
+        "order-2-1",
+    }
+    order_one = next(row for row in payload["rows"] if row["order_id"] == "order-1")
+    assert order_one["is_current_round"] is False
+    assert order_one["round_effective_status"] == "inactive"
+    assert order_one["current_assigned_store_id"] == "store-2"
+
+    detail = client.get("/api/v1/clues/orders/order-1")
+    assert detail.status_code == 200
+    assert [row["assignment_round_id"] for row in detail.json()["data"]["rounds"]] == [
+        "order-1-1",
+        "order-1-2",
+    ]
+
+    forbidden = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-2")
+    assert forbidden.status_code == 200
+    assert forbidden.json()["data"]["rows"] == []
 
 
 def test_admin_clue_rule_requires_login(client: TestClient) -> None:

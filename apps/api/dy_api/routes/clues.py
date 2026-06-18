@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
+from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
     ClueAssignmentRoundData,
@@ -24,10 +25,17 @@ def _require_available_store(store):
     return store
 
 
+def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
+    return None if current_user.is_admin else current_user.store_ids
+
+
 @router.get("/clues/filters")
-def clue_filters(store=Depends(get_data_store)):
+def clue_filters(
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
     store = _require_available_store(store)
-    data = ClueFilterMetadata(**store.clue_filters())
+    data = ClueFilterMetadata(**store.clue_filters(_scope_store_ids(current_user)))
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -43,6 +51,7 @@ def clue_overview(
     round_status: str | None = None,
     product_type: str | None = None,
     city: str | None = None,
+    current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -56,6 +65,7 @@ def clue_overview(
                 "round_status": round_status,
                 "product_type": product_type,
                 "city": city,
+                "scope_store_ids": _scope_store_ids(current_user),
             }
         )
     )
@@ -77,6 +87,7 @@ def clue_assignment_rounds(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -93,6 +104,7 @@ def clue_assignment_rounds(
                 "q": q,
                 "page": page,
                 "page_size": page_size,
+                "scope_store_ids": _scope_store_ids(current_user),
             }
         )
     )
@@ -103,9 +115,13 @@ def clue_assignment_rounds(
 
 
 @router.get("/clues/orders/{order_id}")
-def clue_order_detail(order_id: str, store=Depends(get_data_store)):
+def clue_order_detail(
+    order_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
     store = _require_available_store(store)
-    payload = store.clue_order_detail(order_id)
+    payload = store.clue_order_detail(order_id, _scope_store_ids(current_user))
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

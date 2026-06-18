@@ -21,6 +21,7 @@ from apps.worker.repositories import finish_job_run, start_job_run  # noqa: E402
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
 
@@ -36,7 +37,7 @@ def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
 def _login(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",
-        json={"username": "admin", "password": "test-password"},
+        json={"username": "system-admin", "password": "test-password"},
     )
     assert response.status_code == 200
 

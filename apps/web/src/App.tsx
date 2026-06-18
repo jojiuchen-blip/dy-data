@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { fetchAdminSession, logoutAdmin } from "./api/client";
+import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminClueRulePage } from "./pages/AdminClueRulePage";
+import { AdminAccountsPage } from "./pages/AdminAccountsPage";
+import { AuthPage, type AuthMode } from "./pages/AuthPage";
 import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
 import { AdminSyncPage } from "./pages/AdminSyncPage";
@@ -15,6 +19,97 @@ function readLocation() {
     pathname: window.location.pathname,
     search: window.location.search,
   };
+}
+
+interface AuthGateProps {
+  children: (props: { user: AdminUser; onLogout: () => void }) => ReactNode;
+  pathname: string;
+}
+
+function authModeFromPath(pathname: string): AuthMode {
+  if (pathname === "/auth/reset-password") {
+    return "reset";
+  }
+  if (pathname === "/auth/activate") {
+    return "activate";
+  }
+  return "login";
+}
+
+function AuthGate({ children, pathname }: AuthGateProps) {
+  const [checking, setChecking] = useState(true);
+  const [user, setUser] = useState<AdminUser | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdminSession()
+      .then((result) => {
+        if (!cancelled) {
+          setUser(result.data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUser(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setChecking(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleLogout = () => {
+    logoutAdmin().catch(() => undefined);
+    setUser(null);
+  };
+
+  const handleAuthenticated = (nextUser: AdminUser) => {
+    setUser(nextUser);
+    if (pathname === "/login" || pathname.startsWith("/auth/")) {
+      window.history.pushState(null, "", "/ranking");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  };
+
+  if (checking) {
+    return (
+      <main className="auth-shell">
+        <section className="auth-panel">正在检查登录状态...</section>
+      </main>
+    );
+  }
+
+  if (!user) {
+    return (
+      <AuthPage
+        initialMode={authModeFromPath(pathname)}
+        onAuthenticated={handleAuthenticated}
+      />
+    );
+  }
+
+  return <>{children({ user, onLogout: handleLogout })}</>;
+}
+
+function AdminForbiddenPage() {
+  return (
+    <div className="page-stack">
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <p className="eyebrow">Forbidden</p>
+            <h1>当前账号没有最高管理员权限</h1>
+            <p>请使用最高管理员账号登录后进入系统后台，不能通过地址直接进入。</p>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
 }
 
 export function App() {
@@ -58,39 +153,61 @@ export function App() {
     [location.search],
   );
 
-  const adminPage =
-    location.pathname === "/admin" ? (
-      <AdminHomePage />
-    ) : location.pathname === "/rule-admin" || location.pathname === "/admin/rules" ? (
-      <AdminSkuRulesPage />
-    ) : location.pathname === "/sync-admin" || location.pathname === "/admin/sync" ? (
-      <AdminSyncPage />
-    ) : location.pathname === "/admin/clues/rules" ? (
-      <AdminClueRulePage />
-    ) : null;
-
-  if (adminPage) {
-    return <Shell currentPath={location.pathname}>{adminPage}</Shell>;
-  }
-
-  if (location.pathname === "/") {
-    return <HomePage />;
-  }
-
-  const page =
-    location.pathname === "/settlement" ? (
-      <StoreSettlementPage searchParams={searchParams} />
-    ) : location.pathname === "/clues" ? (
-      <ClueCenterPage searchParams={searchParams} />
-    ) : location.pathname === "/details" ? (
-      <OrderDetailsPage searchParams={searchParams} />
-    ) : (
-      <StoreRankingPage searchParams={searchParams} />
-    );
-
   return (
-    <Shell currentPath={location.pathname}>
-      {page}
-    </Shell>
+    <AuthGate pathname={location.pathname}>
+      {({ user, onLogout }) => {
+        const adminPage =
+          location.pathname === "/admin" ? (
+            <AdminHomePage />
+          ) : location.pathname === "/admin/accounts" ? (
+            <AdminAccountsPage />
+          ) : location.pathname === "/rule-admin" ||
+            location.pathname === "/admin/rules" ? (
+            <AdminSkuRulesPage />
+          ) : location.pathname === "/sync-admin" ||
+            location.pathname === "/admin/sync" ? (
+            <AdminSyncPage />
+          ) : location.pathname === "/admin/clues/rules" ? (
+            <AdminClueRulePage />
+          ) : null;
+
+        if (adminPage) {
+          return (
+            <Shell
+              currentPath={location.pathname}
+              currentUser={user}
+              onLogout={onLogout}
+            >
+              {user.role === "admin" ? adminPage : <AdminForbiddenPage />}
+            </Shell>
+          );
+        }
+
+        if (location.pathname === "/" || location.pathname === "/login") {
+          return <HomePage />;
+        }
+
+        const page =
+          location.pathname === "/settlement" ? (
+            <StoreSettlementPage searchParams={searchParams} />
+          ) : location.pathname === "/clues" ? (
+            <ClueCenterPage searchParams={searchParams} />
+          ) : location.pathname === "/details" ? (
+            <OrderDetailsPage searchParams={searchParams} />
+          ) : (
+            <StoreRankingPage searchParams={searchParams} />
+          );
+
+        return (
+          <Shell
+            currentPath={location.pathname}
+            currentUser={user}
+            onLogout={onLogout}
+          >
+            {page}
+          </Shell>
+        );
+      }}
+    </AuthGate>
   );
 }

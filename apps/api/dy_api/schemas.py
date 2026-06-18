@@ -30,6 +30,80 @@ class LoginRequest(BaseModel):
 
 class AdminUser(BaseModel):
     username: str
+    user_id: str | None = None
+    display_name: str | None = None
+    role: str = "admin"
+    status: str = "active"
+    is_initialized: bool = True
+    store_ids: list[str] = Field(default_factory=list)
+
+
+class AccountInitializeRequest(BaseModel):
+    external_account_id: str
+    certified_subject_name: str
+    username: str
+    password: str
+    password_confirm: str
+    display_name: str | None = None
+
+    @field_validator("external_account_id", "certified_subject_name", "username", "password", "password_confirm")
+    def non_empty_account_input(cls, value: str) -> str:
+        value = " ".join(value.strip().split())
+        if not value:
+            raise ValueError("value is required")
+        return value
+
+
+class AccountStoreScopeRow(BaseModel):
+    store_id: str
+    store_name: str = ""
+
+
+class AccountRow(BaseModel):
+    user_id: str
+    username: str
+    external_account_id: str | None = None
+    display_name: str
+    role: Literal["admin", "store"] = "store"
+    status: Literal["active", "disabled"] = "active"
+    is_initialized: bool = False
+    stores: list[AccountStoreScopeRow] = Field(default_factory=list)
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class AccountListData(BaseModel):
+    rows: list[AccountRow]
+
+
+class AccountUpsertRequest(BaseModel):
+    username: str
+    display_name: str
+    role: Literal["admin", "store"] = "store"
+    status: Literal["active", "disabled"] = "active"
+    external_account_id: str | None = None
+    store_ids: list[str] = Field(default_factory=list)
+    password: str | None = None
+    password_confirm: str | None = None
+
+    @field_validator("username", "display_name")
+    def non_empty_user_input(cls, value: str) -> str:
+        value = " ".join(value.strip().split())
+        if not value:
+            raise ValueError("value is required")
+        return value
+
+
+class AccountPasswordUpdateRequest(BaseModel):
+    password: str
+    password_confirm: str
+
+    @field_validator("password", "password_confirm")
+    def non_empty_password_input(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("password is required")
+        return value
 
 
 class SkuRuleRow(BaseModel):
@@ -236,6 +310,14 @@ class ClueAssignmentRoundRow(BaseModel):
     order_id: str
     round_no: int = 1
     lead_status: str
+    order_current_status: str = ""
+    current_assignment_round_id: str | None = None
+    current_round_no: int = 0
+    current_round_status: str = ""
+    current_assigned_store_id: str | None = None
+    current_assigned_store_name: str | None = None
+    is_current_round: bool = False
+    round_effective_status: Literal["active", "inactive"] = "inactive"
     round_status: str
     assigned_at: datetime | None = None
     expires_at: datetime | None = None

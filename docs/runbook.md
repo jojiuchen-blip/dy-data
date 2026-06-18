@@ -71,17 +71,17 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm migrate
 
 只有 `proxy` 服务发布宿主机端口。`postgres`、`api`、`worker`、`web`、noVNC 和 Chromium CDP 只暴露在 Docker 网络中。公网部署时，在 proxy 或上游负载均衡终止 TLS，并确保容器原始端口不对宿主机开放。
 
-## 4. 管理员登录
+## 4. 最高管理员登录
 
 生产必须配置：
 
-- `DY_ADMIN_USERNAME`
-- `DY_ADMIN_PASSWORD_HASH`
+- `DY_SUPER_ADMIN_USERNAME`
+- `DY_SUPER_ADMIN_PASSWORD_HASH`
 - `DY_SESSION_SECRET`
 
-`DY_ADMIN_PASSWORD_HASH` 支持 PBKDF2 或 bcrypt。开发测试可以启用 `DY_API_TEST_MODE=true`，生产不得启用测试模式。
+`DY_SUPER_ADMIN_USERNAME` 是系统最高管理员账号名，不再提供默认账号。`DY_SUPER_ADMIN_PASSWORD_HASH` 支持 PBKDF2 或 bcrypt。开发测试可以启用 `DY_API_TEST_MODE=true` 并显式配置 `DY_TEST_ADMIN_PASSWORD`，生产不得启用测试模式。
 
-页面看板和明细导出是只读访问，不要求管理员登录。管理员 session cookie 仅用于后台管理类接口和 `/browser/` noVNC 入口，避免把数据采集行为暴露成前端看板功能。
+业务页面和明细导出都要求登录；后台管理类接口和 `/browser/` noVNC 入口只允许最高管理员访问，避免把数据采集行为暴露给普通门店账号。
 
 ## 5. 数据任务
 

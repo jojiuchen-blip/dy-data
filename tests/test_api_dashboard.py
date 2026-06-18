@@ -24,7 +24,7 @@ def deferred_field(*parts: str) -> str:
 
 
 class FakeStore:
-    def list_stores(self):
+    def list_stores(self, scope_store_ids=None):
         return [{"store_id": "store_001", "store_name": "Store One"}]
 
     def list_product_types(self):
@@ -163,6 +163,7 @@ class FakeStore:
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
     app = create_app()
@@ -170,7 +171,16 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+def _login(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "system-admin", "password": "test-password"},
+    )
+    assert response.status_code == 200
+
+
 def test_filter_metadata_contract(client: TestClient):
+    _login(client)
     response = client.get("/api/v1/meta/filters")
 
     assert response.status_code == 200
@@ -183,6 +193,7 @@ def test_filter_metadata_contract(client: TestClient):
 def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     client: TestClient,
 ):
+    _login(client)
     ranking = client.get("/api/v1/dashboard/store-ranking?month=2026-05")
     settlement = client.get(
         "/api/v1/stores/store_001/monthly-settlement?month=2026-05"
@@ -236,6 +247,7 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
 
 
 def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClient):
+    _login(client)
     response = client.get("/api/v1/order-details/export?sale_store_id=store_001")
 
     assert response.status_code == 200
@@ -250,7 +262,7 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
 def test_recent_jobs_contract(client: TestClient):
     login = client.post(
         "/api/v1/auth/login",
-        json={"username": "admin", "password": "test-password"},
+        json={"username": "system-admin", "password": "test-password"},
     )
     assert login.status_code == 200
 

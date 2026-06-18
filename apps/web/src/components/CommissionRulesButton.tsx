@@ -2,6 +2,7 @@ import { useState } from "react";
 import { fetchCommissionRulesSummary } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
 import { formatPercent } from "../utils/format";
+import { SolarIcon } from "./SolarIcon";
 
 export function CommissionRulesButton() {
   const [open, setOpen] = useState(false);
@@ -20,6 +21,7 @@ export function CommissionRulesButton() {
         onClick={() => setOpen((current) => !current)}
         type="button"
       >
+        <SolarIcon name="rules" size={15} />
         分佣规则
       </button>
       {open ? (
@@ -36,7 +38,7 @@ export function CommissionRulesButton() {
               onClick={() => setOpen(false)}
               type="button"
             >
-              ×
+              <SolarIcon name="close" size={18} />
             </button>
           </div>
           {resource.loading ? (

@@ -11,6 +11,11 @@ import {
 } from "../data/mockData";
 import type {
   ApiResponse,
+  AccountListData,
+  AccountPasswordPayload,
+  AccountRow,
+  AccountSelfServicePayload,
+  AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
   ClueFilterMetadata,
@@ -517,10 +522,15 @@ export function fetchClueOrderDetail(
   );
 }
 
-export async function loginAdmin(password: string): Promise<ApiLoadResult<AdminUser>> {
+export async function loginAdmin(
+  usernameOrPassword: string,
+  password?: string,
+): Promise<ApiLoadResult<AdminUser>> {
+  const username = password === undefined ? "admin" : usernameOrPassword;
+  const resolvedPassword = password === undefined ? usernameOrPassword : password;
   return {
     ...(await sendJson<AdminUser>("/auth/login", {
-      body: { username: "admin", password },
+      body: { username, password: resolvedPassword },
     })),
     usingMock: false,
   };
@@ -533,6 +543,75 @@ export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
 export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
   return {
     ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
+    usingMock: false,
+  };
+}
+
+export async function initializeAccount(
+  payload: AccountSelfServicePayload,
+): Promise<ApiLoadResult<AdminUser>> {
+  return {
+    ...(await sendJson<AdminUser>("/auth/initialize", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function resetAccountPassword(
+  payload: AccountSelfServicePayload,
+): Promise<ApiLoadResult<AdminUser>> {
+  return {
+    ...(await sendJson<AdminUser>("/auth/reset-password", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function changeCurrentUserPassword(
+  payload: AccountPasswordPayload,
+): Promise<ApiLoadResult<AdminUser>> {
+  return {
+    ...(await sendJson<AdminUser>("/auth/change-password", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function fetchAccounts(): Promise<ApiLoadResult<AccountListData>> {
+  return {
+    ...(await requestJson<AccountListData>("/admin/accounts")),
+    usingMock: false,
+  };
+}
+
+export async function createAccount(
+  payload: AccountUpsertPayload,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>("/admin/accounts", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function updateAccount(
+  userId: string,
+  payload: AccountUpsertPayload,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(`/admin/accounts/${encodeURIComponent(userId)}`, {
+      body: payload,
+      method: "PUT",
+    })),
+    usingMock: false,
+  };
+}
+
+export async function resetManagedAccountPassword(
+  userId: string,
+  payload: AccountPasswordPayload,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(
+      `/admin/accounts/${encodeURIComponent(userId)}/reset-password`,
+      { body: payload },
+    )),
     usingMock: false,
   };
 }

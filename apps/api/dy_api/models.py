@@ -143,6 +143,38 @@ class DimStore(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = (
+        UniqueConstraint("username", name="uq_users_username"),
+        UniqueConstraint("external_account_id", name="uq_users_external_account_id"),
+    )
+
+    user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    username: Mapped[str] = mapped_column(Text, index=True)
+    external_account_id: Mapped[str | None] = mapped_column(Text, index=True)
+    display_name: Mapped[str] = mapped_column(Text)
+    role: Mapped[str] = mapped_column(String(32), default="store", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    is_initialized: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    password_hash: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserStoreScope(Base):
+    __tablename__ = "user_store_scopes"
+    __table_args__ = (Index("ix_user_store_scopes_store_id", "store_id"),)
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    store_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("dim_stores.store_id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class DimStorePoiMapping(Base):
     __tablename__ = "dim_store_poi_mappings"
     __table_args__ = (

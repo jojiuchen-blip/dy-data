@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 
+from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
     CommissionRulesSummaryData,
@@ -103,6 +104,7 @@ def store_ranking(
     month: str,
     product_type: str = "all",
     limit: int = Query(default=20, ge=1, le=500),
+    _current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     data = StoreRankingData(
@@ -120,7 +122,10 @@ def store_ranking(
 
 
 @router.get("/commission-rules/summary")
-def commission_rules_summary(store=Depends(get_data_store)):
+def commission_rules_summary(
+    _current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
     data = CommissionRulesSummaryData(**store.commission_rules_summary())
     return {
         "data": dump_model(data),
@@ -133,8 +138,10 @@ def monthly_settlement(
     store_id: str,
     month: str,
     product_type: str = "all",
+    current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
+    _require_store_scope(current_user, store_id)
     data = MonthlySettlementData(
         **store.monthly_settlement(
             store_id=store_id, month=month, product_type=product_type
@@ -162,6 +169,7 @@ def order_details(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
+    current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
@@ -179,6 +187,8 @@ def order_details(
         page=page,
         page_size=page_size,
     )
+    if not current_user.is_admin:
+        filters["scope_store_ids"] = current_user.store_ids
     data = OrderDetailsData(**store.order_details(filters))
     return {
         "data": dump_model(data),
@@ -201,6 +211,7 @@ def order_details_export(
     q: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=500),
+    current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
@@ -218,6 +229,8 @@ def order_details_export(
         page=page,
         page_size=page_size,
     )
+    if not current_user.is_admin:
+        filters["scope_store_ids"] = current_user.store_ids
     generated = generated_at().isoformat()
     filename = quote(f"order-details-{generated[:10]}.csv")
     return Response(
@@ -229,3 +242,13 @@ def order_details_export(
             "X-Export-Filters": store.export_filter_header(filters),
         },
     )
+
+
+def _require_store_scope(current_user: AuthContext, store_id: str) -> None:
+    if current_user.is_admin:
+        return
+    if store_id not in current_user.store_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Store is outside current account scope",
+        )

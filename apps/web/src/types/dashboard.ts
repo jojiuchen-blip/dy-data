@@ -15,8 +15,64 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
+export type UserRole = "admin" | "store";
+export type UserStatus = "active" | "disabled";
+
 export interface AdminUser {
   username: string;
+  user_id?: string | null;
+  display_name?: string | null;
+  role: UserRole;
+  status: UserStatus;
+  is_initialized: boolean;
+  store_ids: string[];
+}
+
+export interface AccountStoreScope {
+  store_id: string;
+  store_name: string;
+}
+
+export interface AccountRow {
+  user_id: string;
+  username: string;
+  external_account_id: string | null;
+  display_name: string;
+  role: UserRole;
+  status: UserStatus;
+  is_initialized: boolean;
+  stores: AccountStoreScope[];
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface AccountListData {
+  rows: AccountRow[];
+}
+
+export interface AccountUpsertPayload {
+  username: string;
+  display_name: string;
+  role: UserRole;
+  status: UserStatus;
+  external_account_id?: string | null;
+  store_ids: string[];
+  password?: string | null;
+  password_confirm?: string | null;
+}
+
+export interface AccountPasswordPayload {
+  password: string;
+  password_confirm: string;
+}
+
+export interface AccountSelfServicePayload {
+  external_account_id: string;
+  certified_subject_name: string;
+  username: string;
+  password: string;
+  password_confirm: string;
+  display_name?: string | null;
 }
 
 export interface JobRun {
@@ -345,6 +401,14 @@ export interface ClueAssignmentRound {
   order_id: string;
   round_no: number;
   lead_status: string;
+  order_current_status: string;
+  current_assignment_round_id: string | null;
+  current_round_no: number;
+  current_round_status: string;
+  current_assigned_store_id: string | null;
+  current_assigned_store_name: string | null;
+  is_current_round: boolean;
+  round_effective_status: "active" | "inactive";
   round_status: string;
   assigned_at: string | null;
   expires_at: string | null;

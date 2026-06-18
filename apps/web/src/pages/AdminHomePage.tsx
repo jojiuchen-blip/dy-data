@@ -7,6 +7,12 @@ import {
 
 const adminModules = [
   {
+    href: "/admin/accounts",
+    title: "账号管理",
+    description: "创建、编辑、启用或停用账号，绑定单店或多店门店权限，并重置账号密码。",
+    meta: "账号体系 v1",
+  },
+  {
     href: "/admin/clues/rules",
     title: "线索再分配规则",
     description: "配置线索中心全局 SLA，支持留空关闭自动超时待再分配，并触发线索中心重建。",
