@@ -63,11 +63,10 @@ export function SearchableStoreSelect({
   const filteredOptions = useMemo(() => {
     const query = normalize(inputValue);
     if (!query) {
-      return allOptions.slice(0, 80);
+      return allOptions;
     }
     return allOptions
-      .filter((option) => normalize(optionText(option)).includes(query))
-      .slice(0, 80);
+      .filter((option) => normalize(optionText(option)).includes(query));
   }, [allOptions, inputValue]);
 
   const selectOption = (option: SelectOption) => {
