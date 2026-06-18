@@ -25,6 +25,9 @@ RUN mkdir -p /etc/nginx/templates \
     '        proxy_pass ${API_UPSTREAM};' \
     '        proxy_http_version 1.1;' \
     '        proxy_set_header Host api.railway.internal;' \
+    '        proxy_connect_timeout 5s;' \
+    '        proxy_send_timeout 30s;' \
+    '        proxy_read_timeout 30s;' \
     '    }' \
     '    location / {' \
     '        try_files $uri $uri/ /index.html;' \
