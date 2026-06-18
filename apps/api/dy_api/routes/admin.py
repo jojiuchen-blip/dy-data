@@ -89,7 +89,8 @@ def create_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=None,
     )
-    _ensure_store_ids_exist(store.session, payload.store_ids)
+    store_ids = _role_store_ids(payload.role, payload.store_ids)
+    _ensure_store_ids_exist(store.session, store_ids)
     now = generated_at()
     user = User(
         user_id=uuid4().hex,
@@ -105,7 +106,7 @@ def create_account(
     )
     store.session.add(user)
     store.session.flush()
-    _replace_user_scopes(store.session, user.user_id, payload.store_ids)
+    _replace_user_scopes(store.session, user.user_id, store_ids)
     store.session.commit()
     data = _account_row(store.session, user)
     return {
@@ -132,7 +133,8 @@ def update_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=user_id,
     )
-    _ensure_store_ids_exist(store.session, payload.store_ids)
+    store_ids = _role_store_ids(payload.role, payload.store_ids)
+    _ensure_store_ids_exist(store.session, store_ids)
     user.username = normalize_account_value(payload.username)
     user.external_account_id = _optional_account_value(payload.external_account_id)
     user.display_name = normalize_account_value(payload.display_name)
@@ -142,7 +144,7 @@ def update_account(
     if payload.password:
         user.password_hash = hash_password_pbkdf2(payload.password)
     user.updated_at = generated_at()
-    _replace_user_scopes(store.session, user.user_id, payload.store_ids)
+    _replace_user_scopes(store.session, user.user_id, store_ids)
     store.session.commit()
     data = _account_row(store.session, user)
     return {
@@ -503,6 +505,10 @@ def _ensure_store_ids_exist(session, store_ids: list[str]) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Unknown store_id: {', '.join(missing)}",
         )
+
+
+def _role_store_ids(role: str, store_ids: list[str]) -> list[str]:
+    return store_ids if role == "store" else []
 
 
 def _replace_user_scopes(session, user_id: str, store_ids: list[str]) -> None:

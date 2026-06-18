@@ -54,6 +54,16 @@ def _seed(session: Session) -> None:
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("secret"),
             ),
+            User(
+                user_id="viewer-user",
+                username="viewer-user",
+                external_account_id=None,
+                display_name="Viewer User",
+                role="viewer",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
             UserStoreScope(user_id="store-user", store_id="store-1"),
             AggStoreMonthlySettlement(
                 month="2026-05",
@@ -131,6 +141,14 @@ def _login_store(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def _login_viewer(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "viewer-user", "password": "secret"},
+    )
+    assert response.status_code == 200
+
+
 def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     assert client.get("/api/v1/order-details").status_code == 401
     _login_store(client)
@@ -145,3 +163,20 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     assert details.status_code == 200
     rows = details.json()["data"]["rows"]
     assert [row["order_id"] for row in rows] == ["order-sale"]
+
+
+def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> None:
+    _login_viewer(client)
+
+    other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
+    assert other_store.status_code == 200
+
+    details = client.get("/api/v1/order-details?page=1&page_size=50")
+    assert details.status_code == 200
+    assert {row["order_id"] for row in details.json()["data"]["rows"]} == {
+        "order-sale",
+        "order-other",
+    }
+
+    admin_accounts = client.get("/api/v1/admin/accounts")
+    assert admin_accounts.status_code == 403

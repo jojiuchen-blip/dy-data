@@ -26,7 +26,7 @@ def _require_available_store(store):
 
 
 def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
-    return None if current_user.is_admin else current_user.store_ids
+    return None if current_user.has_global_data_access else current_user.store_ids
 
 
 @router.get("/clues/filters")

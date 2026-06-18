@@ -15,7 +15,7 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
-export type UserRole = "admin" | "store";
+export type UserRole = "admin" | "viewer" | "store";
 export type UserStatus = "active" | "disabled";
 
 export interface AdminUser {

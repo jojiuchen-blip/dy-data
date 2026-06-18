@@ -15,7 +15,7 @@ def filters(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    scope_store_ids = None if current_user.is_admin else current_user.store_ids
+    scope_store_ids = None if current_user.has_global_data_access else current_user.store_ids
     data = FilterMetadata(
         stores=store.list_stores(scope_store_ids=scope_store_ids),
         product_types=store.list_product_types(),

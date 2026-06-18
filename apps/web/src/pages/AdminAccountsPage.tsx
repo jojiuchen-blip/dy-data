@@ -54,15 +54,25 @@ function compactPayload(
     role: draft.role,
     status: draft.status,
     external_account_id: draft.external_account_id?.trim() || null,
-    store_ids: draft.role === "admin" ? [] : draft.store_ids,
+    store_ids: draft.role === "store" ? draft.store_ids : [],
     password: includePassword || password || passwordConfirm ? password : null,
     password_confirm:
       includePassword || password || passwordConfirm ? passwordConfirm : null,
   };
 }
 
+function roleLabel(role: UserRole): string {
+  if (role === "admin") {
+    return "最高管理员";
+  }
+  if (role === "viewer") {
+    return "全局查看";
+  }
+  return "门店账号";
+}
+
 function storesLabel(account: AccountRow): string {
-  if (account.role === "admin") {
+  if (account.role !== "store") {
     return "全部门店";
   }
   if (!account.stores.length) {
@@ -242,7 +252,7 @@ export function AdminAccountsPage() {
                         <span className="mono-cell">{account.username}</span>
                       </td>
                       <td className="mono-cell">{account.external_account_id || "-"}</td>
-                      <td>{account.role === "admin" ? "管理员" : "门店账号"}</td>
+                      <td>{roleLabel(account.role)}</td>
                       <td>
                         <span className="status-chip">
                           {account.status === "active" ? "启用" : "停用"}
@@ -319,7 +329,8 @@ export function AdminAccountsPage() {
                 value={draft.role}
               >
                 <option value="store">门店账号</option>
-                <option value="admin">管理员</option>
+                <option value="viewer">全局查看</option>
+                <option value="admin">最高管理员</option>
               </select>
             </label>
             <label className="filter-field">
@@ -337,7 +348,7 @@ export function AdminAccountsPage() {
             <label className="filter-field">
               <span>门店权限</span>
               <select
-                disabled={draft.role === "admin"}
+                disabled={draft.role !== "store"}
                 multiple
                 onChange={(event) =>
                   setDraftField(

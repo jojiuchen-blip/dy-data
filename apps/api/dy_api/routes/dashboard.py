@@ -187,7 +187,7 @@ def order_details(
         page=page,
         page_size=page_size,
     )
-    if not current_user.is_admin:
+    if not current_user.has_global_data_access:
         filters["scope_store_ids"] = current_user.store_ids
     data = OrderDetailsData(**store.order_details(filters))
     return {
@@ -229,7 +229,7 @@ def order_details_export(
         page=page,
         page_size=page_size,
     )
-    if not current_user.is_admin:
+    if not current_user.has_global_data_access:
         filters["scope_store_ids"] = current_user.store_ids
     generated = generated_at().isoformat()
     filename = quote(f"order-details-{generated[:10]}.csv")
@@ -245,7 +245,7 @@ def order_details_export(
 
 
 def _require_store_scope(current_user: AuthContext, store_id: str) -> None:
-    if current_user.is_admin:
+    if current_user.has_global_data_access:
         return
     if store_id not in current_user.store_ids:
         raise HTTPException(

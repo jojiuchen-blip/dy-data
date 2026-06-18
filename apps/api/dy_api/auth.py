@@ -61,6 +61,10 @@ class AuthContext:
     def is_admin(self) -> bool:
         return self.role == "admin"
 
+    @property
+    def has_global_data_access(self) -> bool:
+        return self.role in {"admin", "viewer"}
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}

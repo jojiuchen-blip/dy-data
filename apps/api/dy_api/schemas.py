@@ -64,7 +64,7 @@ class AccountRow(BaseModel):
     username: str
     external_account_id: str | None = None
     display_name: str
-    role: Literal["admin", "store"] = "store"
+    role: Literal["admin", "viewer", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
     is_initialized: bool = False
     stores: list[AccountStoreScopeRow] = Field(default_factory=list)
@@ -79,7 +79,7 @@ class AccountListData(BaseModel):
 class AccountUpsertRequest(BaseModel):
     username: str
     display_name: str
-    role: Literal["admin", "store"] = "store"
+    role: Literal["admin", "viewer", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
     external_account_id: str | None = None
     store_ids: list[str] = Field(default_factory=list)

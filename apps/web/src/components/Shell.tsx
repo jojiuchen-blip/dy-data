@@ -115,6 +115,16 @@ function pageTitle(currentPath: string): string {
   );
 }
 
+function roleLabel(role: AdminUser["role"]): string {
+  if (role === "admin") {
+    return "最高管理员";
+  }
+  if (role === "viewer") {
+    return "全局查看";
+  }
+  return "门店账号";
+}
+
 export function Shell({ currentPath, currentUser, onLogout, children }: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -190,7 +200,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                 <div className="account-cluster__identity">
                   <SolarIcon name="accounts" size={18} />
                   <span>{currentUser.display_name || currentUser.username}</span>
-                  {currentUser.role === "admin" ? <em>管理员</em> : null}
+                  <em>{roleLabel(currentUser.role)}</em>
                 </div>
                 <button
                   className="ghost-button utility-button"
