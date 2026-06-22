@@ -943,8 +943,19 @@ class DashboardDataStore:
             """,
             {**params, "limit": page_size, "offset": offset},
         )
+        cleaned_rows = []
+        phone_mask_cache: dict[str, str] = {}
+        for row in rows:
+            cleaned = self._clean_clue_round_row(row)
+            if not cleaned["phone_masked"]:
+                row_order_id = cleaned["order_id"]
+                if row_order_id not in phone_mask_cache:
+                    phone_mask_cache[row_order_id] = self._clue_order_masked_phone(row_order_id)
+                cleaned["phone_masked"] = phone_mask_cache[row_order_id]
+            cleaned_rows.append(cleaned)
+
         return {
-            "rows": [self._clean_clue_round_row(row) for row in rows],
+            "rows": cleaned_rows,
             "pagination": {
                 "page": page,
                 "page_size": page_size,
@@ -1019,31 +1030,29 @@ class DashboardDataStore:
             {"order_id": order_id},
         )
         order = orders[0]
+        phone_masked = _to_str(order.get("phone_masked")) or self._clue_order_masked_phone(order_id)
+        cleaned_rounds = []
+        for row in rows:
+            cleaned = self._clean_clue_round_row(row)
+            if not cleaned["phone_masked"]:
+                cleaned["phone_masked"] = phone_masked
+            cleaned_rounds.append(cleaned)
+
         return {
             "order_id": _to_str(order.get("order_id")),
             "canonical_clue_id": order.get("canonical_clue_id"),
             "lead_status": _to_str(order.get("lead_status")),
-            "phone_masked": _to_str(order.get("phone_masked")),
+            "phone_masked": phone_masked,
             "product_id": order.get("product_id"),
             "product_name": order.get("product_name"),
             "product_type": order.get("product_type"),
             "author_nickname": order.get("author_nickname"),
             "assigned_city": order.get("assigned_city"),
             "assigned_province": order.get("assigned_province"),
-            "rounds": [self._clean_clue_round_row(row) for row in rows],
+            "rounds": cleaned_rounds,
         }
 
-    def clue_order_phone(
-        self,
-        order_id: str,
-        scope_store_ids: tuple[str, ...] | None = None,
-    ) -> dict[str, Any] | None:
-        order_id = _to_str(order_id).strip()
-        if not order_id:
-            return None
-        if not self._clue_order_allowed(order_id, scope_store_ids):
-            return None
-
+    def _raw_clue_phone(self, order_id: str) -> str:
         rows = self._execute(
             """
             SELECT telephone,
@@ -1057,11 +1066,30 @@ class DashboardDataStore:
         for row in rows:
             phone = _phone_from_clue_payload(row)
             if phone:
-                return {
-                    "order_id": order_id,
-                    "phone": phone,
-                    "phone_masked": _masked_phone(phone),
-                }
+                return phone
+        return ""
+
+    def _clue_order_masked_phone(self, order_id: str) -> str:
+        return _masked_phone(self._raw_clue_phone(order_id))
+
+    def clue_order_phone(
+        self,
+        order_id: str,
+        scope_store_ids: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        order_id = _to_str(order_id).strip()
+        if not order_id:
+            return None
+        if not self._clue_order_allowed(order_id, scope_store_ids):
+            return None
+
+        phone = self._raw_clue_phone(order_id)
+        if phone:
+            return {
+                "order_id": order_id,
+                "phone": phone,
+                "phone_masked": _masked_phone(phone),
+            }
         return None
 
     def get_clue_reassign_rule(self) -> dict[str, Any]:
