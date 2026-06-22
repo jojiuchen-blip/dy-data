@@ -14,6 +14,7 @@ from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.manual_sync import run_manual_sync_job
+from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
@@ -50,6 +51,15 @@ from dy_api.schemas import (
 
 router = APIRouter()
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+
+
+def _phone_plain_resolver():
+    try:
+        client = build_douyin_client_from_env()
+    except Exception:
+        return None
+    resolver = getattr(client, "decrypt_cipher_texts", None)
+    return resolver if callable(resolver) else None
 
 
 def _require_available_store(store):
@@ -339,7 +349,10 @@ def rebuild_clues(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    stats = rebuild_clue_center(store.session)
+    stats = rebuild_clue_center(
+        store.session,
+        phone_plain_resolver=_phone_plain_resolver(),
+    )
     store.session.commit()
     data = ClueRebuildResult(
         rebuilt_order_count=stats.get("eligible_orders", 0),

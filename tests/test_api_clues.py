@@ -13,6 +13,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import _data as data_module  # noqa: E402
+from dy_api.routes import admin as admin_module  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
@@ -590,3 +591,51 @@ def test_admin_can_rebuild_clues(client: TestClient, db_session: Session) -> Non
     assert response.status_code == 200
     assert response.json()["data"]["rebuilt_order_count"] == 1
     assert db_session.get(ClueCenterOrder, "order-1") is not None
+
+
+def test_admin_rebuild_decrypts_encrypted_clue_phone(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.add(
+        RawDouyinClue(
+            clue_row_key="raw-enc-1",
+            clue_id="clue-enc-1",
+            create_time_detail=_dt(1),
+            telephone="",
+            enc_telephone="Enc.phone-1",
+            product_id="sku-1",
+            product_name="Service Product",
+            order_id="order-1",
+            order_status="履约中",
+            follow_life_account_id="store-1",
+            follow_life_account_name="Store One",
+            raw_payload={"clue_id": "clue-enc-1"},
+            imported_at=_dt(1),
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+    calls: list[list[str]] = []
+
+    class FakeDouyinClient:
+        def decrypt_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+            calls.append(cipher_texts)
+            return {"Enc.phone-1": "13812345678"}
+
+    monkeypatch.setattr(
+        admin_module,
+        "build_douyin_client_from_env",
+        lambda: FakeDouyinClient(),
+    )
+
+    _login(client)
+    response = client.post("/api/v1/admin/clues/rebuild")
+
+    assert response.status_code == 200
+    assert calls == [["Enc.phone-1"]]
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    assert order.phone_plain == "13812345678"
+    assert order.phone_masked == "138****5678"
