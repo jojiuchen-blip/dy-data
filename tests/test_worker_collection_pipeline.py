@@ -508,6 +508,55 @@ def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypat
     assert calls == ["queued", "backfill", "queued"]
 
 
+def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        save_sync_config(
+            session,
+            {
+                "rolling_days": 2,
+                "history_chunk_days": 1,
+            },
+        )
+        session.commit()
+
+    source_window = CollectionWindow(
+        start=datetime.fromisoformat("2026-06-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-06-03T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    calls: list[tuple[str, str, str]] = []
+
+    def fake_runner(session: Session, *, job_id: str, window: CollectionWindow, include_browser_export: bool):
+        assert include_browser_export is False
+        calls.append((job_id, window.start.isoformat(), window.end.isoformat()))
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
+
+    run_once()
+
+    assert [(start, end) for _job_id, start, end in calls] == [
+        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00"),
+        ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00"),
+    ]
+    assert calls[0][0].startswith("collect_0001_")
+    assert calls[1][0].startswith("collect_0002_")
+
+
 def test_incremental_collection_window_defaults_to_recent_30_days():
     window = scheduler.resolve_incremental_collection_window(
         now=datetime.fromisoformat("2026-06-16T15:30:00+08:00"),

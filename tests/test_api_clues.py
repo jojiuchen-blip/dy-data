@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
+from dy_api.routes import _data as data_module  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
@@ -340,6 +341,56 @@ def test_clue_phone_reveal_returns_full_phone_on_demand(
     detail = client.get("/api/v1/clues/orders/order-1")
     assert detail.status_code == 200
     assert "telephone" not in detail.json()["data"]
+
+    response = client.get("/api/v1/clues/orders/order-1/phone")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload == {
+        "order_id": "order-1",
+        "phone": "13812345678",
+        "phone_masked": "138****5678",
+    }
+
+
+def test_clue_phone_reveal_decrypts_encrypted_phone_on_demand(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        RawDouyinClue(
+            clue_row_key="raw-enc-phone-1",
+            clue_id="clue-1",
+            create_time_detail=_dt(1),
+            telephone="",
+            enc_telephone="Enc.phone-1",
+            product_id="sku-1",
+            product_name="Service Product",
+            order_id="order-1",
+            order_status="履约中",
+            follow_life_account_id="store-1",
+            follow_life_account_name="Store One",
+            raw_payload={"clue_id": "clue-1"},
+            imported_at=_dt(1),
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+
+    class FakeDouyinClient:
+        def decrypt_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+            assert cipher_texts == ["Enc.phone-1"]
+            return {"Enc.phone-1": "13812345678"}
+
+    monkeypatch.setattr(
+        data_module,
+        "build_douyin_client_from_env",
+        lambda: FakeDouyinClient(),
+        raising=False,
+    )
+    _login(client)
 
     response = client.get("/api/v1/clues/orders/order-1/phone")
 

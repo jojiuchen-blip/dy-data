@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -30,6 +31,8 @@ PHONE_PAYLOAD_KEYS = (
     "customer_phone",
     "contact_phone",
 )
+ENCRYPTED_PHONE_PAYLOAD_KEYS = ("enc_telephone", "encrypted_telephone")
+PhoneMaskResolver = Callable[[list[str]], dict[str, str]]
 
 
 def mask_phone(value: str | None) -> str:
@@ -47,7 +50,12 @@ def load_reassign_sla_hours(session: Session) -> int | None:
     return setting.reassign_sla_hours
 
 
-def rebuild_clue_center(session: Session, *, now: datetime | None = None) -> dict[str, int]:
+def rebuild_clue_center(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    phone_mask_resolver: PhoneMaskResolver | None = None,
+) -> dict[str, int]:
     now = _aware(now or utcnow())
     sla_hours = load_reassign_sla_hours(session)
     raw_clues = session.scalars(
@@ -71,6 +79,7 @@ def rebuild_clue_center(session: Session, *, now: datetime | None = None) -> dic
     sku_rules = _sku_rules(session, raw_clues)
     verifications = _verification_rows(session, order_ids)
     existing_rounds = _existing_rounds(session, order_ids)
+    encrypted_phone_masks = _encrypted_phone_masks(raw_clues, phone_mask_resolver)
 
     assignment_rounds = 0
     for order_id, clues in grouped.items():
@@ -146,9 +155,9 @@ def rebuild_clue_center(session: Session, *, now: datetime | None = None) -> dic
         center_order.assigned_store_name = round_row.assigned_store_name
         center_order.assigned_city = _clean(canonical.auto_city_name)
         center_order.assigned_province = _clean(canonical.auto_province_name)
-        phone_value, phone_source = _first_clue_phone(sorted_clues)
-        center_order.phone_masked = mask_phone(phone_value)
-        center_order.phone_source = phone_source if center_order.phone_masked else None
+        phone_masked, phone_source = _first_clue_phone_mask(sorted_clues, encrypted_phone_masks)
+        center_order.phone_masked = phone_masked
+        center_order.phone_source = phone_source if phone_masked else None
         center_order.product_id = _clean(canonical.product_id)
         center_order.product_name = _clean(canonical.product_name)
         center_order.product_type = product_rule.product_type if product_rule else None
@@ -188,12 +197,71 @@ def _clue_phone(clue: RawDouyinClue) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _first_clue_phone(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
+def _first_clue_phone_mask(
+    clues: list[RawDouyinClue],
+    encrypted_phone_masks: dict[str, str],
+) -> tuple[str | None, str | None]:
     for clue in clues:
         phone_value, phone_source = _clue_phone(clue)
-        if mask_phone(phone_value):
-            return phone_value, phone_source
+        masked = mask_phone(phone_value)
+        if masked:
+            return masked, phone_source
+    for clue in clues:
+        cipher_text = _encrypted_phone_text(clue)
+        if cipher_text:
+            masked = _mask_or_masked_phone(encrypted_phone_masks.get(cipher_text))
+            if masked:
+                return masked, "enc_telephone"
     return None, None
+
+
+def _encrypted_phone_masks(
+    clues: list[RawDouyinClue],
+    resolver: PhoneMaskResolver | None,
+) -> dict[str, str]:
+    if resolver is None:
+        return {}
+    cipher_texts = [
+        cipher_text
+        for cipher_text in dict.fromkeys(_encrypted_phone_text(clue) for clue in clues)
+        if cipher_text
+    ]
+    if not cipher_texts:
+        return {}
+    try:
+        return resolver(cipher_texts)
+    except Exception:
+        print("[worker-clue-center] encrypted phone mask resolver failed", flush=True)
+        return {}
+
+
+def _encrypted_phone_text(clue: RawDouyinClue) -> str | None:
+    value = _clean(clue.enc_telephone)
+    if _is_online_cipher(value):
+        return value
+
+    raw_payload = clue.raw_payload if isinstance(clue.raw_payload, dict) else {}
+    for key in ENCRYPTED_PHONE_PAYLOAD_KEYS:
+        value = _clean(raw_payload.get(key))
+        if _is_online_cipher(value):
+            return value
+
+    for key in PHONE_PAYLOAD_KEYS:
+        value = _clean(raw_payload.get(key))
+        if _is_online_cipher(value):
+            return value
+    return None
+
+
+def _is_online_cipher(value: str | None) -> bool:
+    return bool(value and value.startswith("Enc."))
+
+
+def _mask_or_masked_phone(value: str | None) -> str:
+    text = _clean(value) or ""
+    if re.fullmatch(r"\d{3}\*{4}\d{4}", text):
+        return text
+    return mask_phone(text)
 
 
 def _aware(value: datetime | None) -> datetime | None:

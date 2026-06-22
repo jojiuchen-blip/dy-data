@@ -17,6 +17,9 @@ REFUND_QUERY_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/qu
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
 CLUE_QUERY_URL = "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
+CIPHER_DECRYPT_URL = "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt/"
+CIPHER_DECRYPT_MASK_URL = "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt_mask/"
+CIPHER_BATCH_SIZE = 50
 
 
 def douyin_headers(token: str, account_id: str) -> dict[str, str]:
@@ -167,6 +170,20 @@ class DouyinOpenApiClient:
         }
         return self._get_json(CLUE_QUERY_URL, params)
 
+    def decrypt_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+        return self._decrypt_cipher_texts(CIPHER_DECRYPT_URL, cipher_texts)
+
+    def decrypt_mask_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+        return self._decrypt_cipher_texts(CIPHER_DECRYPT_MASK_URL, cipher_texts)
+
+    def _decrypt_cipher_texts(self, url: str, cipher_texts: list[str]) -> dict[str, str]:
+        result: dict[str, str] = {}
+        cleaned = _clean_cipher_texts(cipher_texts)
+        for batch in _chunks(cleaned, CIPHER_BATCH_SIZE):
+            payload = self._get_json(url, {"cipher_text_list": batch})
+            result.update(_cipher_result_map(payload, batch))
+        return result
+
     def _token_headers(self) -> dict[str, str]:
         token = self._token or self.get_client_token()
         return douyin_headers(token, self.credentials.account_id)
@@ -310,6 +327,72 @@ def _cursor_param(cursor: Any) -> str:
 
 def _datetime_param(value: datetime) -> str:
     return value.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _clean_cipher_texts(values: list[str]) -> list[str]:
+    return [str(value).strip() for value in values if str(value or "").strip()]
+
+
+def _chunks(values: list[str], size: int):
+    for index in range(0, len(values), size):
+        yield values[index : index + size]
+
+
+def _cipher_result_map(payload: dict[str, Any], requested: list[str]) -> dict[str, str]:
+    rows = _cipher_result_rows(payload)
+    result: dict[str, str] = {}
+    if rows and all(isinstance(row, str) for row in rows):
+        for cipher_text, plain_text in zip(requested, rows):
+            if plain_text:
+                result[cipher_text] = str(plain_text)
+        return result
+
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            continue
+        cipher_text = _first_text(
+            row.get("cipher_text"),
+            row.get("ciphertext"),
+            row.get("encrypted_text"),
+            row.get("encrypt_text"),
+        )
+        if not cipher_text and index < len(requested):
+            cipher_text = requested[index]
+        plain_text = _first_text(
+            row.get("plain_text"),
+            row.get("decrypt_text"),
+            row.get("decrypted_text"),
+            row.get("phone_number"),
+            row.get("phone"),
+            row.get("masked_phone"),
+            row.get("masked_text"),
+            row.get("mask_text"),
+            row.get("text"),
+            row.get("value"),
+        )
+        if cipher_text and plain_text:
+            result[str(cipher_text)] = str(plain_text)
+    return result
+
+
+def _cipher_result_rows(payload: dict[str, Any]) -> list[Any]:
+    data = payload.get("data")
+    if isinstance(data, list):
+        return data
+    source = data if isinstance(data, dict) else payload
+    for key in (
+        "decrypt_result_list",
+        "decrypt_results",
+        "result_list",
+        "results",
+        "phone_number_list",
+        "plain_text_list",
+        "list",
+    ):
+        value = source.get(key)
+        if isinstance(value, list):
+            return value
+    return []
 
 
 def _order_next_cursor(data: dict[str, Any]) -> str | None:

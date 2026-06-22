@@ -145,6 +145,10 @@ class EmptyDouyinClient:
     def query_clues(self, start: Any, end: Any, *, page: int = 1, page_size: int = 100) -> dict[str, Any]:
         return {"data": {"clue_data": []}}
 
+    def decrypt_mask_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+        _ = cipher_texts
+        return {}
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -175,7 +179,7 @@ def _run_job(
         active_client = client or build_douyin_client_from_env()
         for collector in collectors or default_collectors():
             stats.add_phase(collector(session, active_client, source_window, source_run_id))
-        stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id))
+        stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id, active_client))
         if _include_browser_export(include_browser_export):
             runner = browser_export_runner or _run_browser_export_phase
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
@@ -209,9 +213,17 @@ def _run_settlement_phase(session: Session, source_run_id: str) -> PhaseStats:
     return PhaseStats(name="settlement", fetched=0, upserted=result.detail_count)
 
 
-def _run_clue_center_rebuild_phase(session: Session, source_run_id: str) -> PhaseStats:
+def _run_clue_center_rebuild_phase(
+    session: Session,
+    source_run_id: str,
+    client: Any | None = None,
+) -> PhaseStats:
     _ = source_run_id
-    result = rebuild_clue_center(session)
+    resolver = getattr(client, "decrypt_mask_cipher_texts", None)
+    result = rebuild_clue_center(
+        session,
+        phone_mask_resolver=resolver if callable(resolver) else None,
+    )
     return PhaseStats(name="clue_center_rebuild", fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
 
 

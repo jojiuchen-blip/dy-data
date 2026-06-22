@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import JobRun
 from apps.api.dy_api.db import get_session_factory, session_scope
-from apps.worker.backfill import run_backfill
+from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
@@ -38,6 +38,11 @@ def _handle_stop(signum: int, frame: object) -> None:
 def _job_id(prefix: str = "settlement") -> str:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
     return f"{prefix}_{stamp}"
+
+
+def _chunk_job_id(prefix: str, index: int, window: CollectionWindow) -> str:
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return f"{prefix}_{index:04d}_{window.start:%Y%m%d}_{stamp}"
 
 
 def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
@@ -68,6 +73,7 @@ def resolve_incremental_collection_window(
 def run_once() -> None:
     source_run_id = os.getenv("WORKER_SOURCE_RUN_ID", "scheduled")
     mode = resolve_worker_mode()
+    _log(f"run_once_start mode={mode} source_run_id={source_run_id}")
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
@@ -92,14 +98,40 @@ def run_once() -> None:
             run_settlement_job(session, job_id=_job_id("settlement"), source_run_id=source_run_id)
             return
         config = load_sync_config(session)
-        run_collect_and_settle(
-            session,
-            job_id=_job_id("collect"),
-            window=resolve_incremental_collection_window(
-                env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
-            ),
-            include_browser_export=False,
+    run_incremental_collection_chunks(factory, config)
+
+
+def run_incremental_collection_chunks(factory, config) -> None:
+    source_window = resolve_incremental_collection_window(
+        env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
+    )
+    chunks = list(iter_backfill_windows(source_window, chunk_days=config.history_chunk_days))
+    _log(
+        "incremental_start "
+        f"chunks={len(chunks)} chunk_days={config.history_chunk_days} "
+        f"start={source_window.start.isoformat()} end={source_window.end.isoformat()}"
+    )
+    for index, chunk in enumerate(chunks, start=1):
+        process_queued_settlement_rebuilds(factory)
+        job_id = _chunk_job_id("collect", index, chunk)
+        _log(f"incremental_chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
+        try:
+            with session_scope(factory) as session:
+                stats = run_collect_and_settle(
+                    session,
+                    job_id=job_id,
+                    window=chunk,
+                    include_browser_export=False,
+                )
+        except Exception as exc:
+            _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=exc)
+            _log(f"incremental_chunk_failed index={index} job_id={job_id}")
+            raise
+        _log(
+            f"incremental_chunk_done index={index} job_id={job_id} "
+            f"success={stats.success_count} failed={stats.failed_count}"
         )
+    _log("incremental_done")
 
 
 def run_browser_export_once(factory) -> None:
@@ -200,6 +232,33 @@ def _sleep_until_stop(seconds: int) -> None:
     sleep_until = time.monotonic() + seconds
     while not _STOP and time.monotonic() < sleep_until:
         time.sleep(min(5, max(0, sleep_until - time.monotonic())))
+
+
+def _record_failed_collect_chunk(
+    factory,
+    *,
+    job_id: str,
+    window: CollectionWindow,
+    error: Exception,
+) -> None:
+    with session_scope(factory) as session:
+        start_job_run(
+            session,
+            job_id,
+            "collect_and_settle",
+            metadata_json={"source_window": window.as_metadata(), "phases": {}},
+        )
+        finish_job_run(
+            session,
+            job_id,
+            status="failed",
+            failed_count=1,
+            error_message=sanitize_error_message(str(error)),
+        )
+
+
+def _log(message: str) -> None:
+    print(f"[worker-scheduler] {message}", flush=True)
 
 
 if __name__ == "__main__":

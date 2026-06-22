@@ -161,6 +161,63 @@ def test_clue_query_sends_expected_url_and_query_params():
     }
 
 
+def test_decrypt_mask_cipher_texts_uses_official_batch_endpoint():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse(
+                {
+                    "data": {
+                        "decrypt_result_list": [
+                            {"cipher_text": "Enc.phone-1", "plain_text": "138****5678"},
+                            {"cipher_text": "Enc.phone-2", "plain_text": "139****5678"},
+                        ]
+                    }
+                }
+            ),
+        ]
+    )
+    client = client_with(http)
+
+    result = client.decrypt_mask_cipher_texts(["Enc.phone-1", "Enc.phone-2"])
+
+    assert result == {
+        "Enc.phone-1": "138****5678",
+        "Enc.phone-2": "139****5678",
+    }
+    assert http.calls[1]["method"] == "GET"
+    assert http.calls[1]["url"] == "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt_mask/"
+    assert http.calls[1]["headers"]["Rpc-Transit-Life-Account"] == "acct-1"
+    assert http.calls[1]["params"] == {"cipher_text_list": ["Enc.phone-1", "Enc.phone-2"]}
+
+
+def test_decrypt_cipher_texts_batches_fifty_cipher_values_per_request():
+    cipher_texts = [f"Enc.phone-{index}" for index in range(51)]
+    first_batch = [
+        {"cipher_text": value, "plain_text": f"1380000{index:04d}"}
+        for index, value in enumerate(cipher_texts[:50])
+    ]
+    second_batch = [{"cipher_text": cipher_texts[50], "plain_text": "13900000050"}]
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"decrypt_result_list": first_batch}}),
+            FakeResponse({"data": {"decrypt_result_list": second_batch}}),
+        ]
+    )
+    client = client_with(http)
+
+    result = client.decrypt_cipher_texts(cipher_texts)
+
+    assert result[cipher_texts[0]] == "13800000000"
+    assert result[cipher_texts[50]] == "13900000050"
+    assert [len(call["params"]["cipher_text_list"]) for call in http.calls[1:]] == [50, 1]
+    assert all(
+        call["url"] == "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt/"
+        for call in http.calls[1:]
+    )
+
+
 def test_certificate_query_uses_order_id_and_returns_raw_payload():
     http = FakeHttp(
         [

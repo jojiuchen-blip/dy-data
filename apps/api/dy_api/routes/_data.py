@@ -33,6 +33,11 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
     DimSkuProductRule = None  # type: ignore[assignment]
     normalize_owner_account_name = None  # type: ignore[assignment]
 
+try:
+    from apps.worker.pipeline import build_douyin_client_from_env
+except ImportError:  # pragma: no cover - covered only in stripped runtime images.
+    build_douyin_client_from_env = None  # type: ignore[assignment]
+
 
 SENSITIVE_ERROR_RE = re.compile(
     r"(?i)(cookie|token|secret|password|passwd|authorization|credential)"
@@ -193,6 +198,33 @@ def _phone_from_clue_payload(row: dict[str, Any]) -> str:
         if phone:
             return phone
     return ""
+
+
+def _encrypted_phone_from_clue_payload(row: dict[str, Any]) -> str:
+    for key in ("enc_telephone", "encrypted_telephone", "telephone"):
+        value = _to_str(row.get(key)).strip()
+        if _is_online_cipher(value):
+            return value
+    payload = _json_object(row.get("raw_payload"))
+    for key in (
+        "enc_telephone",
+        "encrypted_telephone",
+        "telephone",
+        "tel_addr",
+        "phone",
+        "mobile",
+        "phone_number",
+        "customer_phone",
+        "contact_phone",
+    ):
+        value = _to_str(payload.get(key)).strip()
+        if _is_online_cipher(value):
+            return value
+    return ""
+
+
+def _is_online_cipher(value: str) -> bool:
+    return value.startswith("Enc.")
 
 
 def _optional_bool(value: Any) -> bool | None:
@@ -738,7 +770,27 @@ class DashboardDataStore:
         offset = (page - 1) * page_size
         rows = self._execute(
             f"""
-            SELECT order_id, coupon_id, sku_id, owner_account_id,
+            SELECT settlement_order_details.order_id,
+                   settlement_order_details.coupon_id,
+                   COALESCE(
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM dim_sku_product_rules
+                           WHERE sku_id = settlement_order_details.sku_id
+                       ),
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM raw_douyin_orders
+                           WHERE order_id = settlement_order_details.order_id
+                       ),
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM raw_douyin_verify_records
+                           WHERE verify_id = settlement_order_details.verify_id
+                       ),
+                       ''
+                   ) AS product_name,
+                   settlement_order_details.sku_id, owner_account_id,
                    owner_account_name, product_type, sale_store_id,
                    sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
                    sale_time, is_verified, verify_store_id,
@@ -1056,6 +1108,7 @@ class DashboardDataStore:
         rows = self._execute(
             """
             SELECT telephone,
+                   enc_telephone,
                    raw_payload
             FROM raw_douyin_clues
             WHERE order_id = :order_id
@@ -1068,6 +1121,35 @@ class DashboardDataStore:
             if phone:
                 return phone
         return ""
+
+    def _raw_clue_encrypted_phone(self, order_id: str) -> str:
+        rows = self._execute(
+            """
+            SELECT telephone,
+                   enc_telephone,
+                   raw_payload
+            FROM raw_douyin_clues
+            WHERE order_id = :order_id
+            ORDER BY create_time_detail, clue_row_key
+            """,
+            {"order_id": order_id},
+        )
+        for row in rows:
+            cipher_text = _encrypted_phone_from_clue_payload(row)
+            if cipher_text:
+                return cipher_text
+        return ""
+
+    def _decrypted_raw_clue_phone(self, order_id: str) -> str:
+        cipher_text = self._raw_clue_encrypted_phone(order_id)
+        if not cipher_text or build_douyin_client_from_env is None:
+            return ""
+        try:
+            client = build_douyin_client_from_env()
+            decrypted = client.decrypt_cipher_texts([cipher_text]).get(cipher_text, "")
+        except Exception:
+            return ""
+        return _normalized_phone(decrypted)
 
     def _clue_order_masked_phone(self, order_id: str) -> str:
         return _masked_phone(self._raw_clue_phone(order_id))
@@ -1083,7 +1165,7 @@ class DashboardDataStore:
         if not self._clue_order_allowed(order_id, scope_store_ids):
             return None
 
-        phone = self._raw_clue_phone(order_id)
+        phone = self._raw_clue_phone(order_id) or self._decrypted_raw_clue_phone(order_id)
         if phone:
             return {
                 "order_id": order_id,
@@ -1135,7 +1217,27 @@ class DashboardDataStore:
         where_sql, params = self._detail_where(filters)
         rows = self._execute(
             f"""
-            SELECT order_id, coupon_id, sku_id, owner_account_id,
+            SELECT settlement_order_details.order_id,
+                   settlement_order_details.coupon_id,
+                   COALESCE(
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM dim_sku_product_rules
+                           WHERE sku_id = settlement_order_details.sku_id
+                       ),
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM raw_douyin_orders
+                           WHERE order_id = settlement_order_details.order_id
+                       ),
+                       (
+                           SELECT NULLIF(product_name, '')
+                           FROM raw_douyin_verify_records
+                           WHERE verify_id = settlement_order_details.verify_id
+                       ),
+                       ''
+                   ) AS product_name,
+                   settlement_order_details.sku_id, owner_account_id,
                    owner_account_name, product_type, sale_store_id,
                    sale_store_name, sale_store.certified_subject_name AS sale_store_subject_name,
                    sale_time, is_verified, verify_store_id,
@@ -1157,6 +1259,7 @@ class DashboardDataStore:
             fieldnames=[
                 "order_id",
                 "coupon_id",
+                "product_name",
                 "sku_id",
                 "owner_account_id",
                 "owner_account_name",
@@ -1614,6 +1717,7 @@ class DashboardDataStore:
         return {
             "order_id": _to_str(row.get("order_id")),
             "coupon_id": _to_str(row.get("coupon_id")),
+            "product_name": _to_str(row.get("product_name")),
             "sku_id": _to_str(row.get("sku_id")),
             "owner_account_id": _to_str(row.get("owner_account_id")),
             "owner_account_name": _to_str(row.get("owner_account_name")),

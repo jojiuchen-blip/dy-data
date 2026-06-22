@@ -127,6 +127,35 @@ def test_rebuild_masks_phone_from_raw_payload_when_telephone_column_is_empty(
     assert order.phone_source == "raw_payload"
 
 
+def test_rebuild_masks_phone_from_encrypted_telephone_resolver(
+    db_session: Session,
+) -> None:
+    clue = _raw_clue(
+        "row-1",
+        order_id="order-1",
+        clue_id="clue-1",
+        create_time=_dt(1),
+        telephone="",
+    )
+    clue.enc_telephone = "Enc.phone-1"
+    clue.raw_payload = {"clue_id": "clue-1"}
+    db_session.add(clue)
+    db_session.commit()
+    calls: list[list[str]] = []
+
+    def resolver(cipher_texts: list[str]) -> dict[str, str]:
+        calls.append(cipher_texts)
+        return {"Enc.phone-1": "138****5678"}
+
+    rebuild_clue_center(db_session, now=_dt(2), phone_mask_resolver=resolver)
+
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    assert calls == [["Enc.phone-1"]]
+    assert order.phone_masked == "138****5678"
+    assert order.phone_source == "enc_telephone"
+
+
 def test_rebuild_uses_phone_from_any_source_clue_for_same_order(
     db_session: Session,
 ) -> None:
