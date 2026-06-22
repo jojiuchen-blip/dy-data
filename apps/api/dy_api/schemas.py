@@ -457,6 +457,7 @@ class MonthlySettlementData(BaseModel):
 class OrderDetailRow(BaseModel):
     order_id: str
     coupon_id: str
+    product_name: str = ""
     sku_id: str
     owner_account_id: str
     owner_account_name: str

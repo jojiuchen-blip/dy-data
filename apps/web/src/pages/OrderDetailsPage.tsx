@@ -260,6 +260,12 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       render: (row) => row.coupon_id,
     },
     {
+      key: "productName",
+      title: "商品名称",
+      minWidth: 240,
+      render: (row) => row.product_name || "-",
+    },
+    {
       key: "sku",
       title: "SKU ID",
       minWidth: 138,

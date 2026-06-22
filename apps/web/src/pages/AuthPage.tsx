@@ -26,6 +26,47 @@ const selfServiceErrorMessages: Record<Exclude<AuthMode, "login">, string> = {
   reset: "密码重置失败，请核对所属账户ID、认证主体全称和密码确认。",
 };
 
+type ActivationHintKey =
+  | "external_account_id"
+  | "certified_subject_name"
+  | "username"
+  | "display_name"
+  | "password"
+  | "password_confirm";
+
+interface ActivationFieldHint {
+  title: string;
+  body: string;
+}
+
+const activationFieldHints: Record<ActivationHintKey, ActivationFieldHint> = {
+  external_account_id: {
+    title: "所属账户ID",
+    body:
+      "抖音来客电脑端右上角个人头像下方的“账户ID”；手机端“我的-个人中心-我的账户ID”。",
+  },
+  certified_subject_name: {
+    title: "认证主体全称",
+    body: "抖音来客账号绑定的公司主体全名。",
+  },
+  username: {
+    title: "账号名",
+    body: "自行设置。",
+  },
+  display_name: {
+    title: "显示名称",
+    body: "自行设置。",
+  },
+  password: {
+    title: "密码",
+    body: "自行设置。",
+  },
+  password_confirm: {
+    title: "确认密码",
+    body: "自行设置。",
+  },
+};
+
 function emptyActivationPayload(): AccountSelfServicePayload {
   return {
     external_account_id: "",
@@ -44,14 +85,27 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
   const [payload, setPayload] = useState<AccountSelfServicePayload>(
     emptyActivationPayload,
   );
+  const [activeActivationHint, setActiveActivationHint] =
+    useState<ActivationHintKey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
 
   const title = useMemo(() => modeLabels[mode], [mode]);
+  const activeActivationHintDetail =
+    mode === "login" || !activeActivationHint
+      ? null
+      : activationFieldHints[activeActivationHint];
+  const authShellClassName = [
+    "auth-shell",
+    mode === "login" ? "" : "auth-shell--with-help",
+  ]
+    .filter(Boolean)
+    .join(" ");
 
   useEffect(() => {
     setMode(initialMode);
     setMessage("");
+    setActiveActivationHint(null);
   }, [initialMode]);
 
   const setPayloadField = (
@@ -64,6 +118,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
     setMessage("");
+    setActiveActivationHint(null);
   };
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -109,7 +164,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
   };
 
   return (
-    <main className="auth-shell">
+    <main className={authShellClassName}>
       <section className="auth-panel" aria-labelledby="auth-title">
         <div className="auth-brand">
           <SolarIcon className="brand__mark" name="brand" size={44} />
@@ -180,6 +235,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>所属账户ID</span>
               <input
                 autoComplete="off"
+                onFocus={() => setActiveActivationHint("external_account_id")}
                 onChange={(event) =>
                   setPayloadField("external_account_id", event.target.value)
                 }
@@ -191,6 +247,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>认证主体全称</span>
               <input
                 autoComplete="organization"
+                onFocus={() => setActiveActivationHint("certified_subject_name")}
                 onChange={(event) =>
                   setPayloadField("certified_subject_name", event.target.value)
                 }
@@ -202,6 +259,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>账号名</span>
               <input
                 autoComplete="username"
+                onFocus={() => setActiveActivationHint("username")}
                 onChange={(event) => setPayloadField("username", event.target.value)}
                 placeholder="设置后续登录使用的账号名"
                 value={payload.username}
@@ -211,6 +269,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>显示名称</span>
               <input
                 autoComplete="name"
+                onFocus={() => setActiveActivationHint("display_name")}
                 onChange={(event) =>
                   setPayloadField("display_name", event.target.value)
                 }
@@ -222,6 +281,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>密码</span>
               <input
                 autoComplete="new-password"
+                onFocus={() => setActiveActivationHint("password")}
                 onChange={(event) => setPayloadField("password", event.target.value)}
                 placeholder="设置密码"
                 type="password"
@@ -232,6 +292,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <span>确认密码</span>
               <input
                 autoComplete="new-password"
+                onFocus={() => setActiveActivationHint("password_confirm")}
                 onChange={(event) =>
                   setPayloadField("password_confirm", event.target.value)
                 }
@@ -247,6 +308,15 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
           </form>
         )}
       </section>
+      {activeActivationHintDetail ? (
+        <aside className="auth-help-card" aria-live="polite">
+          <p className="auth-help-card__eyebrow">字段来源</p>
+          <h2>{activeActivationHintDetail.title}</h2>
+          {activeActivationHintDetail.body ? (
+            <p>{activeActivationHintDetail.body}</p>
+          ) : null}
+        </aside>
+      ) : null}
     </main>
   );
 }

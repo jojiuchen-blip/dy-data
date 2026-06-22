@@ -838,6 +838,14 @@ h2 {
   padding: 28px;
 }
 
+.auth-shell--with-help {
+  grid-template-columns: minmax(0, 520px) minmax(300px, 420px);
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  place-items: stretch;
+}
+
 .auth-panel {
   display: grid;
   width: min(520px, 100%);
@@ -847,6 +855,40 @@ h2 {
   padding: 24px;
   background: var(--surface);
   box-shadow: var(--shadow-soft);
+}
+
+.auth-shell--with-help .auth-panel {
+  width: 100%;
+}
+
+.auth-help-card {
+  align-self: center;
+  display: grid;
+  min-height: 148px;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.auth-help-card__eyebrow {
+  color: var(--green);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.auth-help-card h2 {
+  font-size: 22px;
+  line-height: 1.25;
+}
+
+.auth-help-card p:not(.auth-help-card__eyebrow) {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
 }
 
 .auth-brand {
@@ -2039,6 +2081,11 @@ a.metric-card:hover,
 
   .account-editor {
     position: static;
+  }
+
+  .auth-shell--with-help {
+    grid-template-columns: minmax(0, 520px);
+    align-content: center;
   }
 
   .sku-selection-drawer {

@@ -264,6 +264,7 @@ export interface MonthlySettlementData extends MonthlySummaryData {
 export interface OrderDetail {
   order_id: string;
   coupon_id: string;
+  product_name: string;
   sku_id: string;
   owner_account_id: string;
   owner_account_name: string;

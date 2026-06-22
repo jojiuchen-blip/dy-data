@@ -61,6 +61,7 @@ export const orderDetails: OrderDetail[] = parseCsv(orderDetailCsv).map(
     return {
       order_id: row.order_id,
       coupon_id: row.coupon_id,
+      product_name: rule?.product_name ?? "",
       sku_id: row.sku_id,
       owner_account_id: row.owner_account_id,
       owner_account_name: row.owner_account_name,
