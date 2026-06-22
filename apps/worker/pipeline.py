@@ -151,6 +151,10 @@ class EmptyDouyinClient:
         _ = cipher_texts
         return {}
 
+    def decrypt_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+        _ = cipher_texts
+        return {}
+
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -224,10 +228,10 @@ def _run_clue_center_rebuild_phase(
     client: Any | None = None,
 ) -> PhaseStats:
     _ = source_run_id
-    resolver = getattr(client, "decrypt_mask_cipher_texts", None)
+    resolver = getattr(client, "decrypt_cipher_texts", None)
     result = rebuild_clue_center(
         session,
-        phone_mask_resolver=resolver if callable(resolver) else None,
+        phone_plain_resolver=resolver if callable(resolver) else None,
     )
     return PhaseStats(name="clue_center_rebuild", fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
 

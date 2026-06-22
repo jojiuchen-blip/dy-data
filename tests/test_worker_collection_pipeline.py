@@ -154,6 +154,7 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
+    assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
 
     job = db_session.get(JobRun, "collect-clues")

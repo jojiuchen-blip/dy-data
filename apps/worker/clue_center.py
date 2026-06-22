@@ -32,14 +32,20 @@ PHONE_PAYLOAD_KEYS = (
     "contact_phone",
 )
 ENCRYPTED_PHONE_PAYLOAD_KEYS = ("enc_telephone", "encrypted_telephone")
-PhoneMaskResolver = Callable[[list[str]], dict[str, str]]
+PhonePlainResolver = Callable[[list[str]], dict[str, str]]
 
 
-def mask_phone(value: str | None) -> str:
+def normalize_phone(value: str | None) -> str:
     digits = re.sub(r"\D", "", value or "")
     if len(digits) < 11:
         return ""
-    phone = digits[-11:]
+    return digits[-11:]
+
+
+def mask_phone(value: str | None) -> str:
+    phone = normalize_phone(value)
+    if not phone:
+        return ""
     return f"{phone[:3]}****{phone[-4:]}"
 
 
@@ -54,7 +60,7 @@ def rebuild_clue_center(
     session: Session,
     *,
     now: datetime | None = None,
-    phone_mask_resolver: PhoneMaskResolver | None = None,
+    phone_plain_resolver: PhonePlainResolver | None = None,
 ) -> dict[str, int]:
     now = _aware(now or utcnow())
     sla_hours = load_reassign_sla_hours(session)
@@ -80,10 +86,10 @@ def rebuild_clue_center(
     verifications = _verification_rows(session, order_ids)
     existing_rounds = _existing_rounds(session, order_ids)
     existing_center_orders = _existing_center_orders(session, order_ids)
-    encrypted_phone_masks = _encrypted_phone_masks(
+    encrypted_phone_plain_values = _encrypted_phone_plain_values(
         grouped,
         existing_center_orders,
-        phone_mask_resolver,
+        phone_plain_resolver,
     )
 
     assignment_rounds = 0
@@ -161,12 +167,17 @@ def rebuild_clue_center(
         center_order.assigned_store_name = round_row.assigned_store_name
         center_order.assigned_city = _clean(canonical.auto_city_name)
         center_order.assigned_province = _clean(canonical.auto_province_name)
-        phone_masked, phone_source = _first_clue_phone_mask(sorted_clues, encrypted_phone_masks)
+        phone_plain, phone_source = _first_clue_phone(sorted_clues, encrypted_phone_plain_values)
+        if not phone_plain:
+            phone_plain = normalize_phone(center_order.phone_plain)
+            phone_source = _clean(center_order.phone_source)
+        phone_masked = mask_phone(phone_plain)
         if not phone_masked:
             phone_masked = _mask_or_masked_phone(center_order.phone_masked)
-            phone_source = _clean(center_order.phone_source)
+            phone_source = phone_source or _clean(center_order.phone_source)
+        center_order.phone_plain = phone_plain or None
         center_order.phone_masked = phone_masked
-        center_order.phone_source = phone_source if phone_masked else None
+        center_order.phone_source = phone_source if phone_plain or phone_masked else None
         center_order.product_id = _clean(canonical.product_id)
         center_order.product_name = _clean(canonical.product_name)
         center_order.product_type = product_rule.product_type if product_rule else None
@@ -194,58 +205,57 @@ def _clean(value: Any) -> str | None:
 
 
 def _clue_phone(clue: RawDouyinClue) -> tuple[str | None, str | None]:
-    telephone = _clean(clue.telephone)
+    telephone = normalize_phone(clue.telephone)
     if telephone:
         return telephone, "telephone"
 
     raw_payload = clue.raw_payload if isinstance(clue.raw_payload, dict) else {}
     for key in PHONE_PAYLOAD_KEYS:
-        value = _clean(raw_payload.get(key))
+        value = normalize_phone(_clean(raw_payload.get(key)))
         if value:
             return value, "raw_payload"
     return None, None
 
 
-def _first_clue_phone_mask(
+def _first_clue_phone(
     clues: list[RawDouyinClue],
-    encrypted_phone_masks: dict[str, str],
+    encrypted_phone_plain_values: dict[str, str],
 ) -> tuple[str | None, str | None]:
-    masked, source = _first_plain_clue_phone_mask(clues)
-    if masked:
-        return masked, source
+    phone, source = _first_plain_clue_phone(clues)
+    if phone:
+        return phone, source
     for clue in clues:
         cipher_text = _encrypted_phone_text(clue)
         if cipher_text:
-            masked = _mask_or_masked_phone(encrypted_phone_masks.get(cipher_text))
-            if masked:
-                return masked, "enc_telephone"
+            phone = normalize_phone(encrypted_phone_plain_values.get(cipher_text))
+            if phone:
+                return phone, "enc_telephone"
     return None, None
 
 
-def _first_plain_clue_phone_mask(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
+def _first_plain_clue_phone(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
     for clue in clues:
         phone_value, phone_source = _clue_phone(clue)
-        masked = mask_phone(phone_value)
-        if masked:
-            return masked, phone_source
+        if phone_value:
+            return phone_value, phone_source
     return None, None
 
 
-def _encrypted_phone_masks(
+def _encrypted_phone_plain_values(
     grouped: dict[str, list[RawDouyinClue]],
     existing_center_orders: dict[str, ClueCenterOrder],
-    resolver: PhoneMaskResolver | None,
+    resolver: PhonePlainResolver | None,
 ) -> dict[str, str]:
     if resolver is None:
         return {}
     cipher_texts: list[str] = []
     for order_id, clues in grouped.items():
         existing = existing_center_orders.get(order_id)
-        if existing is not None and _mask_or_masked_phone(existing.phone_masked):
+        if existing is not None and normalize_phone(existing.phone_plain):
             continue
         sorted_clues = sorted(clues, key=_clue_sort_key)
-        plain_mask, _ = _first_plain_clue_phone_mask(sorted_clues)
-        if plain_mask:
+        plain_phone, _ = _first_plain_clue_phone(sorted_clues)
+        if plain_phone:
             continue
         for clue in sorted_clues:
             cipher_text = _encrypted_phone_text(clue)
@@ -256,9 +266,13 @@ def _encrypted_phone_masks(
     if not cipher_texts:
         return {}
     try:
-        return resolver(cipher_texts)
+        return {
+            cipher_text: phone
+            for cipher_text, value in resolver(cipher_texts).items()
+            if (phone := normalize_phone(value))
+        }
     except Exception:
-        print("[worker-clue-center] encrypted phone mask resolver failed", flush=True)
+        print("[worker-clue-center] encrypted phone resolver failed", flush=True)
         return {}
 
 

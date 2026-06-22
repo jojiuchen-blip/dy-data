@@ -1111,6 +1111,20 @@ class DashboardDataStore:
             "rounds": cleaned_rounds,
         }
 
+    def _clue_order_cached_phone(self, order_id: str) -> str:
+        rows = self._execute(
+            """
+            SELECT phone_plain
+            FROM clue_center_orders
+            WHERE order_id = :order_id
+            LIMIT 1
+            """,
+            {"order_id": order_id},
+        )
+        if not rows:
+            return ""
+        return _normalized_phone(rows[0].get("phone_plain"))
+
     def _raw_clue_phone(self, order_id: str) -> str:
         rows = self._execute(
             """
@@ -1159,17 +1173,12 @@ class DashboardDataStore:
         return _normalized_phone(decrypted)
 
     def _decrypted_raw_clue_masked_phone(self, order_id: str) -> str:
-        cipher_text = self._raw_clue_encrypted_phone(order_id)
-        if not cipher_text or build_douyin_client_from_env is None:
-            return ""
-        try:
-            client = build_douyin_client_from_env()
-            decrypted = client.decrypt_mask_cipher_texts([cipher_text]).get(cipher_text, "")
-        except Exception:
-            return ""
-        return _mask_or_masked_phone(decrypted)
+        return _masked_phone(self._decrypted_raw_clue_phone(order_id))
 
     def _clue_order_masked_phone(self, order_id: str) -> str:
+        cached = _masked_phone(self._clue_order_cached_phone(order_id))
+        if cached:
+            return cached
         masked = _masked_phone(self._raw_clue_phone(order_id))
         if masked:
             return masked
@@ -1187,7 +1196,11 @@ class DashboardDataStore:
         if not self._clue_order_allowed(order_id, scope_store_ids):
             return None
 
-        phone = self._raw_clue_phone(order_id) or self._decrypted_raw_clue_phone(order_id)
+        phone = (
+            self._clue_order_cached_phone(order_id)
+            or self._raw_clue_phone(order_id)
+            or self._decrypted_raw_clue_phone(order_id)
+        )
         if phone:
             return {
                 "order_id": order_id,

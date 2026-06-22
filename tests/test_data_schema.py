@@ -39,6 +39,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in tables["raw_douyin_clues"].primary_key] == ["clue_row_key"]
     assert [column.name for column in tables["settlement_order_details"].primary_key] == ["coupon_id"]
     assert [column.name for column in tables["clue_center_orders"].primary_key] == ["order_id"]
+    assert "phone_plain" in tables["clue_center_orders"].columns
     assert [column.name for column in tables["clue_assignment_rounds"].primary_key] == ["assignment_round_id"]
     assert [column.name for column in tables["clue_reassign_rule_settings"].primary_key] == ["setting_key"]
     assert [column.name for column in tables["users"].primary_key] == ["user_id"]

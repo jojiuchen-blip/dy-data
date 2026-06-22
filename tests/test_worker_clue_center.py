@@ -96,6 +96,7 @@ def test_rebuild_materializes_eligible_order_level_clues(db_session: Session) ->
     assert order.assigned_at_source == "clue_create_time_detail"
     assert order.assigned_store_id == "store-1"
     assert order.product_type == "Car Service"
+    assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
     assert order.lead_status == "active"
     assert order.current_round_status == "active_unfollowed"
@@ -123,6 +124,7 @@ def test_rebuild_masks_phone_from_raw_payload_when_telephone_column_is_empty(
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
+    assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
     assert order.phone_source == "raw_payload"
 
@@ -145,13 +147,14 @@ def test_rebuild_masks_phone_from_encrypted_telephone_resolver(
 
     def resolver(cipher_texts: list[str]) -> dict[str, str]:
         calls.append(cipher_texts)
-        return {"Enc.phone-1": "138****5678"}
+        return {"Enc.phone-1": "13812345678"}
 
-    rebuild_clue_center(db_session, now=_dt(2), phone_mask_resolver=resolver)
+    rebuild_clue_center(db_session, now=_dt(2), phone_plain_resolver=resolver)
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
     assert calls == [["Enc.phone-1"]]
+    assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
     assert order.phone_source == "enc_telephone"
 
@@ -175,6 +178,7 @@ def test_rebuild_keeps_existing_encrypted_phone_mask_without_resolving_again(
                 order_id="order-1",
                 lead_status="active",
                 current_round_status="active_unfollowed",
+                phone_plain="13812345678",
                 phone_masked="138****5678",
                 phone_source="enc_telephone",
                 created_at=_dt(1),
@@ -185,12 +189,13 @@ def test_rebuild_keeps_existing_encrypted_phone_mask_without_resolving_again(
     db_session.commit()
 
     def resolver(cipher_texts: list[str]) -> dict[str, str]:
-        raise AssertionError(f"resolver should not be called for existing masks: {cipher_texts!r}")
+        raise AssertionError(f"resolver should not be called for existing phones: {cipher_texts!r}")
 
-    rebuild_clue_center(db_session, now=_dt(2), phone_mask_resolver=resolver)
+    rebuild_clue_center(db_session, now=_dt(2), phone_plain_resolver=resolver)
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
+    assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
     assert order.phone_source == "enc_telephone"
 
@@ -222,6 +227,7 @@ def test_rebuild_uses_phone_from_any_source_clue_for_same_order(
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
     assert order.canonical_clue_id == "clue-early"
+    assert order.phone_plain == "13912345678"
     assert order.phone_masked == "139****5678"
     assert order.phone_source == "raw_payload"
 
