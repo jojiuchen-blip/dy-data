@@ -74,6 +74,7 @@ def run_collect_and_settle(
     window: CollectionWindow | None = None,
     job_id: str | None = None,
     include_browser_export: bool | None = None,
+    include_materialization: bool = True,
     collectors: Sequence[Collector] | None = None,
     browser_export_runner: BrowserExportRunner | None = None,
     settlement_runner: SettlementRunner | None = None,
@@ -86,7 +87,8 @@ def run_collect_and_settle(
         collectors=collectors,
         browser_export_runner=browser_export_runner,
         include_browser_export=include_browser_export,
-        settlement_runner=settlement_runner or _run_settlement_phase,
+        include_clue_center_rebuild=include_materialization,
+        settlement_runner=(settlement_runner or _run_settlement_phase) if include_materialization else None,
         job_name="collect_and_settle",
     )
 
@@ -163,6 +165,7 @@ def _run_job(
     collectors: Sequence[Collector] | None,
     browser_export_runner: BrowserExportRunner | None = None,
     include_browser_export: bool | None = None,
+    include_clue_center_rebuild: bool = True,
     settlement_runner: SettlementRunner | None,
     job_name: str,
 ) -> CollectionStats:
@@ -177,9 +180,11 @@ def _run_job(
     )
     try:
         active_client = client or build_douyin_client_from_env()
-        for collector in collectors or default_collectors():
+        active_collectors = default_collectors() if collectors is None else collectors
+        for collector in active_collectors:
             stats.add_phase(collector(session, active_client, source_window, source_run_id))
-        stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id, active_client))
+        if include_clue_center_rebuild:
+            stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id, active_client))
         if _include_browser_export(include_browser_export):
             runner = browser_export_runner or _run_browser_export_phase
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))

@@ -532,11 +532,23 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
         end=datetime.fromisoformat("2026-06-03T00:00:00+08:00"),
         timezone_name="Asia/Shanghai",
     )
-    calls: list[tuple[str, str, str]] = []
+    calls: list[tuple[str, str, str, bool]] = []
 
-    def fake_runner(session: Session, *, job_id: str, window: CollectionWindow, include_browser_export: bool):
+    def fake_runner(
+        session: Session,
+        *,
+        job_id: str,
+        window: CollectionWindow,
+        include_browser_export: bool,
+        include_materialization: bool = True,
+        collectors: list | None = None,
+    ):
         assert include_browser_export is False
-        calls.append((job_id, window.start.isoformat(), window.end.isoformat()))
+        if include_materialization:
+            assert collectors == []
+        else:
+            assert collectors is None
+        calls.append((job_id, window.start.isoformat(), window.end.isoformat(), include_materialization))
         stats = CollectionStats(run_id=job_id, source_window=window)
         stats.add_phase(PhaseStats(name="orders", upserted=1))
         return stats
@@ -549,12 +561,14 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
 
     run_once()
 
-    assert [(start, end) for _job_id, start, end in calls] == [
-        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00"),
-        ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00"),
+    assert [(start, end, materialize) for _job_id, start, end, materialize in calls] == [
+        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00", False),
+        ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00", False),
+        ("2026-06-01T00:00:00+08:00", "2026-06-03T00:00:00+08:00", True),
     ]
     assert calls[0][0].startswith("collect_0001_")
     assert calls[1][0].startswith("collect_0002_")
+    assert calls[2][0].startswith("collect_materialize_")
 
 
 def test_incremental_collection_window_defaults_to_recent_30_days():

@@ -122,6 +122,7 @@ def run_incremental_collection_chunks(factory, config) -> None:
                     job_id=job_id,
                     window=chunk,
                     include_browser_export=False,
+                    include_materialization=False,
                 )
         except Exception as exc:
             _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=exc)
@@ -131,6 +132,26 @@ def run_incremental_collection_chunks(factory, config) -> None:
             f"incremental_chunk_done index={index} job_id={job_id} "
             f"success={stats.success_count} failed={stats.failed_count}"
         )
+    materialize_job_id = _job_id("collect_materialize")
+    _log(f"incremental_materialize_start job_id={materialize_job_id}")
+    try:
+        with session_scope(factory) as session:
+            stats = run_collect_and_settle(
+                session,
+                job_id=materialize_job_id,
+                window=source_window,
+                include_browser_export=False,
+                include_materialization=True,
+                collectors=[],
+            )
+    except Exception as exc:
+        _record_failed_collect_chunk(factory, job_id=materialize_job_id, window=source_window, error=exc)
+        _log(f"incremental_materialize_failed job_id={materialize_job_id}")
+        raise
+    _log(
+        f"incremental_materialize_done job_id={materialize_job_id} "
+        f"success={stats.success_count} failed={stats.failed_count}"
+    )
     _log("incremental_done")
 
 
