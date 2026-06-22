@@ -79,7 +79,12 @@ def rebuild_clue_center(
     sku_rules = _sku_rules(session, raw_clues)
     verifications = _verification_rows(session, order_ids)
     existing_rounds = _existing_rounds(session, order_ids)
-    encrypted_phone_masks = _encrypted_phone_masks(raw_clues, phone_mask_resolver)
+    existing_center_orders = _existing_center_orders(session, order_ids)
+    encrypted_phone_masks = _encrypted_phone_masks(
+        grouped,
+        existing_center_orders,
+        phone_mask_resolver,
+    )
 
     assignment_rounds = 0
     for order_id, clues in grouped.items():
@@ -137,10 +142,11 @@ def rebuild_clue_center(
         assignment_rounds += 1
 
         product_rule = sku_rules.get(_clean(canonical.product_id) or "")
-        center_order = session.get(ClueCenterOrder, order_id)
+        center_order = existing_center_orders.get(order_id)
         if center_order is None:
             center_order = ClueCenterOrder(order_id=order_id, created_at=now, updated_at=now)
             session.add(center_order)
+            existing_center_orders[order_id] = center_order
 
         center_order.source_clue_ids = [_clue_identifier(clue) for clue in sorted_clues]
         center_order.source_clue_count = len(sorted_clues)
@@ -156,6 +162,9 @@ def rebuild_clue_center(
         center_order.assigned_city = _clean(canonical.auto_city_name)
         center_order.assigned_province = _clean(canonical.auto_province_name)
         phone_masked, phone_source = _first_clue_phone_mask(sorted_clues, encrypted_phone_masks)
+        if not phone_masked:
+            phone_masked = _mask_or_masked_phone(center_order.phone_masked)
+            phone_source = _clean(center_order.phone_source)
         center_order.phone_masked = phone_masked
         center_order.phone_source = phone_source if phone_masked else None
         center_order.product_id = _clean(canonical.product_id)
@@ -201,11 +210,9 @@ def _first_clue_phone_mask(
     clues: list[RawDouyinClue],
     encrypted_phone_masks: dict[str, str],
 ) -> tuple[str | None, str | None]:
-    for clue in clues:
-        phone_value, phone_source = _clue_phone(clue)
-        masked = mask_phone(phone_value)
-        if masked:
-            return masked, phone_source
+    masked, source = _first_plain_clue_phone_mask(clues)
+    if masked:
+        return masked, source
     for clue in clues:
         cipher_text = _encrypted_phone_text(clue)
         if cipher_text:
@@ -215,17 +222,37 @@ def _first_clue_phone_mask(
     return None, None
 
 
+def _first_plain_clue_phone_mask(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
+    for clue in clues:
+        phone_value, phone_source = _clue_phone(clue)
+        masked = mask_phone(phone_value)
+        if masked:
+            return masked, phone_source
+    return None, None
+
+
 def _encrypted_phone_masks(
-    clues: list[RawDouyinClue],
+    grouped: dict[str, list[RawDouyinClue]],
+    existing_center_orders: dict[str, ClueCenterOrder],
     resolver: PhoneMaskResolver | None,
 ) -> dict[str, str]:
     if resolver is None:
         return {}
-    cipher_texts = [
-        cipher_text
-        for cipher_text in dict.fromkeys(_encrypted_phone_text(clue) for clue in clues)
-        if cipher_text
-    ]
+    cipher_texts: list[str] = []
+    for order_id, clues in grouped.items():
+        existing = existing_center_orders.get(order_id)
+        if existing is not None and _mask_or_masked_phone(existing.phone_masked):
+            continue
+        sorted_clues = sorted(clues, key=_clue_sort_key)
+        plain_mask, _ = _first_plain_clue_phone_mask(sorted_clues)
+        if plain_mask:
+            continue
+        for clue in sorted_clues:
+            cipher_text = _encrypted_phone_text(clue)
+            if cipher_text:
+                cipher_texts.append(cipher_text)
+                break
+    cipher_texts = [cipher_text for cipher_text in dict.fromkeys(cipher_texts) if cipher_text]
     if not cipher_texts:
         return {}
     try:
@@ -329,6 +356,11 @@ def _existing_rounds(session: Session, order_ids: set[str]) -> dict[str, ClueAss
         .where(ClueAssignmentRound.order_id.in_(order_ids))
         .where(ClueAssignmentRound.round_no == 1)
     ).all()
+    return {row.order_id: row for row in rows}
+
+
+def _existing_center_orders(session: Session, order_ids: set[str]) -> dict[str, ClueCenterOrder]:
+    rows = session.scalars(select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_ids))).all()
     return {row.order_id: row for row in rows}
 
 
