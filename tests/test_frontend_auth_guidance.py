@@ -35,3 +35,5 @@ def test_activation_guidance_card_has_layout_styles() -> None:
     assert ".auth-shell--with-help" in source
     assert ".auth-help-card" in source
     assert ".auth-help-card__eyebrow" in source
+    assert "grid-template-columns: minmax(0, 520px) minmax(300px, 420px)" not in source
+    assert "position: fixed;" in source
