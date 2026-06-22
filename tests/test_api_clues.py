@@ -314,6 +314,58 @@ def test_clue_order_detail_falls_back_to_raw_masked_phone(
     assert "telephone" not in payload
 
 
+def test_clue_order_detail_falls_back_to_encrypted_masked_phone(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_clue_center(db_session)
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    order.phone_masked = None
+    order.phone_source = None
+    db_session.add(
+        RawDouyinClue(
+            clue_row_key="raw-enc-phone-mask-detail-1",
+            clue_id="clue-1",
+            create_time_detail=_dt(1),
+            telephone="",
+            enc_telephone="Enc.phone-1",
+            raw_payload={"clue_id": "clue-1"},
+            product_id="sku-1",
+            product_name="Service Product",
+            order_id="order-1",
+            order_status="履约中",
+            follow_life_account_id="store-1",
+            follow_life_account_name="Store One",
+            imported_at=_dt(1),
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+
+    class FakeDouyinClient:
+        def decrypt_mask_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
+            assert cipher_texts == ["Enc.phone-1"]
+            return {"Enc.phone-1": "138****5678"}
+
+    monkeypatch.setattr(
+        data_module,
+        "build_douyin_client_from_env",
+        lambda: FakeDouyinClient(),
+        raising=False,
+    )
+    _login(client)
+
+    response = client.get("/api/v1/clues/orders/order-1")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["phone_masked"] == "138****5678"
+    assert payload["rounds"][0]["phone_masked"] == "138****5678"
+    assert "telephone" not in payload
+
+
 def test_clue_phone_reveal_returns_full_phone_on_demand(
     client: TestClient, db_session: Session
 ) -> None:

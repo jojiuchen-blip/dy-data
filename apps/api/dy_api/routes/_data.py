@@ -180,6 +180,13 @@ def _masked_phone(value: Any) -> str:
     return f"{phone[:3]}****{phone[-4:]}"
 
 
+def _mask_or_masked_phone(value: Any) -> str:
+    text_value = _to_str(value).strip()
+    if re.fullmatch(r"\d{3}\*{4}\d{4}", text_value):
+        return text_value
+    return _masked_phone(text_value)
+
+
 def _phone_from_clue_payload(row: dict[str, Any]) -> str:
     phone = _normalized_phone(row.get("telephone"))
     if phone:
@@ -1151,8 +1158,23 @@ class DashboardDataStore:
             return ""
         return _normalized_phone(decrypted)
 
+    def _decrypted_raw_clue_masked_phone(self, order_id: str) -> str:
+        cipher_text = self._raw_clue_encrypted_phone(order_id)
+        if not cipher_text or build_douyin_client_from_env is None:
+            return ""
+        try:
+            client = build_douyin_client_from_env()
+            decrypted = client.decrypt_mask_cipher_texts([cipher_text]).get(cipher_text, "")
+        except Exception:
+            return ""
+        return _mask_or_masked_phone(decrypted)
+
     def _clue_order_masked_phone(self, order_id: str) -> str:
-        return _masked_phone(self._raw_clue_phone(order_id))
+        masked = _masked_phone(self._raw_clue_phone(order_id))
+        if masked:
+            return masked
+        return self._decrypted_raw_clue_masked_phone(order_id)
+
 
     def clue_order_phone(
         self,
