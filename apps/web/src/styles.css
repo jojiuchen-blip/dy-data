@@ -1172,6 +1172,18 @@ a.metric-card:hover,
   color: var(--blue);
 }
 
+.phone-reveal {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.phone-reveal .link-button {
+  font-size: 12px;
+}
+
 .rank-badge {
   display: inline-grid;
   width: 28px;

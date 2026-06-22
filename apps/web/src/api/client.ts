@@ -22,6 +22,7 @@ import type {
   ClueOrderDetail,
   ClueOverviewFilters,
   ClueOverviewMetrics,
+  CluePhoneReveal,
   ClueReassignRuleData,
   ClueReassignRuleUpdate,
   ClueRebuildResult,
@@ -398,6 +399,28 @@ function mockClueOrderDetailResponse(
   };
 }
 
+function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneReveal> {
+  const stored = clueCenterResponses.order_details?.[orderId];
+  const phoneMasked =
+    stored?.data.phone_masked ??
+    clueCenterResponses.assignment_rounds.data.rows.find(
+      (row) => row.order_id === orderId,
+    )?.phone_masked ??
+    "";
+  const phone = phoneMasked.replace("****", "0000") || "";
+  return {
+    data: {
+      order_id: orderId,
+      phone,
+      phone_masked: phoneMasked,
+    },
+    meta: {
+      generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
 function mockClueRuleResponse(
   override?: ClueReassignRuleUpdate,
 ): ApiResponse<ClueReassignRuleData> {
@@ -519,6 +542,18 @@ export function fetchClueOrderDetail(
         `/clues/orders/${encodeURIComponent(orderId)}`,
       ),
     () => mockClueOrderDetailResponse(orderId),
+  );
+}
+
+export function fetchClueOrderPhone(
+  orderId: string,
+): Promise<ApiLoadResult<CluePhoneReveal>> {
+  return withMockFallback(
+    () =>
+      requestJson<CluePhoneReveal>(
+        `/clues/orders/${encodeURIComponent(orderId)}/phone`,
+      ),
+    () => mockClueOrderPhoneResponse(orderId),
   );
 }
 

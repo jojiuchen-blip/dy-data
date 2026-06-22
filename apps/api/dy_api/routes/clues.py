@@ -9,6 +9,7 @@ from dy_api.schemas import (
     ClueFilterMetadata,
     ClueOverviewMetrics,
     ClueOrderDetailData,
+    CluePhoneRevealData,
     dump_model,
 )
 
@@ -128,6 +129,26 @@ def clue_order_detail(
             detail="Clue order not found",
         )
     data = ClueOrderDetailData(**payload)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clues/orders/{order_id}/phone")
+def clue_order_phone(
+    order_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    payload = store.clue_order_phone(order_id, _scope_store_ids(current_user))
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clue phone not found",
+        )
+    data = CluePhoneRevealData(**payload)
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

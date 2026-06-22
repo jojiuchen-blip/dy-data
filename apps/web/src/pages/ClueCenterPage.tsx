@@ -3,6 +3,7 @@ import {
   fetchClueAssignmentRounds,
   fetchClueFilters,
   fetchClueOrderDetail,
+  fetchClueOrderPhone,
   fetchClueOverview,
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
@@ -125,6 +126,9 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSource, setDetailSource] = useState("");
+  const [revealedPhones, setRevealedPhones] = useState<Record<string, string>>({});
+  const [revealingOrderId, setRevealingOrderId] = useState<string | null>(null);
+  const [phoneRevealError, setPhoneRevealError] = useState<string | null>(null);
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
@@ -211,6 +215,51 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     setDetailError(null);
     setDetailSource("");
     setDetailLoading(false);
+  };
+
+  const revealPhone = async (orderId: string) => {
+    if (revealedPhones[orderId]) {
+      return;
+    }
+    setPhoneRevealError(null);
+    setRevealingOrderId(orderId);
+    try {
+      const result = await fetchClueOrderPhone(orderId);
+      setRevealedPhones((current) => ({
+        ...current,
+        [orderId]: result.data.phone,
+      }));
+    } catch (error: unknown) {
+      setPhoneRevealError(
+        error instanceof Error ? error.message : "手机号暂不可查看",
+      );
+    } finally {
+      setRevealingOrderId(null);
+    }
+  };
+
+  const renderPhoneContact = (orderId: string, phoneMasked: string) => {
+    const revealedPhone = revealedPhones[orderId];
+    const displayPhone = revealedPhone || phoneMasked || "-";
+    const canReveal = Boolean(phoneMasked) && !revealedPhone;
+    return (
+      <span className="phone-reveal">
+        <span className="mono-cell">{displayPhone}</span>
+        {canReveal ? (
+          <button
+            className="link-button"
+            disabled={revealingOrderId === orderId}
+            onClick={(event) => {
+              event.stopPropagation();
+              void revealPhone(orderId);
+            }}
+            type="button"
+          >
+            {revealingOrderId === orderId ? "读取中" : "查看"}
+          </button>
+        ) : null}
+      </span>
+    );
   };
 
   useEffect(() => {
@@ -362,8 +411,8 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     {
       key: "phone",
       title: "手机号",
-      minWidth: 120,
-      render: (row) => row.phone_masked || "",
+      minWidth: 150,
+      render: (row) => renderPhoneContact(row.order_id, row.phone_masked),
     },
     {
       key: "product_type",
@@ -672,10 +721,17 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
               </ResourcePanel>
             ) : detail ? (
               <div className="clue-detail-body">
+                {phoneRevealError ? (
+                  <div className="resource-notice resource-notice--warning">
+                    {phoneRevealError}
+                  </div>
+                ) : null}
                 <div className="clue-detail-summary">
                   <div>
                     <span>联系方式</span>
-                    <strong>{displayValue(detail.phone_masked)}</strong>
+                    <strong>
+                      {renderPhoneContact(detail.order_id, detail.phone_masked)}
+                    </strong>
                   </div>
                   <div>
                     <span>涉及商品</span>

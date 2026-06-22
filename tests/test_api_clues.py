@@ -240,6 +240,56 @@ def test_clue_order_detail_returns_all_assignment_rounds(
     assert payload["rounds"][1]["reassign_reason"] == "timeout"
 
 
+def test_clue_phone_reveal_returns_full_phone_on_demand(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        RawDouyinClue(
+            clue_row_key="raw-phone-1",
+            clue_id="clue-1",
+            create_time_detail=_dt(1),
+            telephone="13812345678",
+            product_id="sku-1",
+            product_name="Service Product",
+            order_id="order-1",
+            order_status="履约中",
+            follow_life_account_id="store-1",
+            follow_life_account_name="Store One",
+            raw_payload={"clue_id": "clue-1"},
+            imported_at=_dt(1),
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    detail = client.get("/api/v1/clues/orders/order-1")
+    assert detail.status_code == 200
+    assert "telephone" not in detail.json()["data"]
+
+    response = client.get("/api/v1/clues/orders/order-1/phone")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload == {
+        "order_id": "order-1",
+        "phone": "13812345678",
+        "phone_masked": "138****5678",
+    }
+
+
+def test_clue_phone_reveal_returns_404_when_no_phone(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _login(client)
+
+    response = client.get("/api/v1/clues/orders/order-1/phone")
+
+    assert response.status_code == 404
+
+
 def test_unknown_clue_order_detail_returns_404(client: TestClient) -> None:
     _login(client)
     response = client.get("/api/v1/clues/orders/missing-order")

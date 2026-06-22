@@ -149,6 +149,52 @@ def _to_bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _json_object(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _normalized_phone(value: Any) -> str:
+    digits = re.sub(r"\D", "", _to_str(value))
+    if len(digits) < 11:
+        return ""
+    return digits[-11:]
+
+
+def _masked_phone(value: Any) -> str:
+    phone = _normalized_phone(value)
+    if not phone:
+        return ""
+    return f"{phone[:3]}****{phone[-4:]}"
+
+
+def _phone_from_clue_payload(row: dict[str, Any]) -> str:
+    phone = _normalized_phone(row.get("telephone"))
+    if phone:
+        return phone
+    payload = _json_object(row.get("raw_payload"))
+    for key in (
+        "telephone",
+        "tel_addr",
+        "phone",
+        "mobile",
+        "phone_number",
+        "customer_phone",
+        "contact_phone",
+    ):
+        phone = _normalized_phone(payload.get(key))
+        if phone:
+            return phone
+    return ""
+
+
 def _optional_bool(value: Any) -> bool | None:
     if value is None or value == "":
         return None
@@ -986,6 +1032,37 @@ class DashboardDataStore:
             "assigned_province": order.get("assigned_province"),
             "rounds": [self._clean_clue_round_row(row) for row in rows],
         }
+
+    def clue_order_phone(
+        self,
+        order_id: str,
+        scope_store_ids: tuple[str, ...] | None = None,
+    ) -> dict[str, Any] | None:
+        order_id = _to_str(order_id).strip()
+        if not order_id:
+            return None
+        if not self._clue_order_allowed(order_id, scope_store_ids):
+            return None
+
+        rows = self._execute(
+            """
+            SELECT telephone,
+                   raw_payload
+            FROM raw_douyin_clues
+            WHERE order_id = :order_id
+            ORDER BY create_time_detail, clue_row_key
+            """,
+            {"order_id": order_id},
+        )
+        for row in rows:
+            phone = _phone_from_clue_payload(row)
+            if phone:
+                return {
+                    "order_id": order_id,
+                    "phone": phone,
+                    "phone_masked": _masked_phone(phone),
+                }
+        return None
 
     def get_clue_reassign_rule(self) -> dict[str, Any]:
         if self.session is None or ClueReassignRuleSetting is None:

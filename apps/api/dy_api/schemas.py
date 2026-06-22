@@ -356,6 +356,12 @@ class ClueOrderDetailData(BaseModel):
     rounds: list[ClueAssignmentRoundRow] = Field(default_factory=list)
 
 
+class CluePhoneRevealData(BaseModel):
+    order_id: str
+    phone: str
+    phone_masked: str
+
+
 class ClueReassignRuleData(BaseModel):
     reassign_sla_hours: int | None = None
     updated_at: datetime | None = None

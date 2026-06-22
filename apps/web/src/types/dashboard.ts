@@ -447,6 +447,12 @@ export interface ClueOrderDetail {
   rounds: ClueAssignmentRound[];
 }
 
+export interface CluePhoneReveal {
+  order_id: string;
+  phone: string;
+  phone_masked: string;
+}
+
 export interface ClueReassignRuleData {
   reassign_sla_hours: number | null;
   updated_at: string | null;

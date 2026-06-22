@@ -146,7 +146,7 @@ def rebuild_clue_center(session: Session, *, now: datetime | None = None) -> dic
         center_order.assigned_store_name = round_row.assigned_store_name
         center_order.assigned_city = _clean(canonical.auto_city_name)
         center_order.assigned_province = _clean(canonical.auto_province_name)
-        phone_value, phone_source = _clue_phone(canonical)
+        phone_value, phone_source = _first_clue_phone(sorted_clues)
         center_order.phone_masked = mask_phone(phone_value)
         center_order.phone_source = phone_source if center_order.phone_masked else None
         center_order.product_id = _clean(canonical.product_id)
@@ -185,6 +185,14 @@ def _clue_phone(clue: RawDouyinClue) -> tuple[str | None, str | None]:
         value = _clean(raw_payload.get(key))
         if value:
             return value, "raw_payload"
+    return None, None
+
+
+def _first_clue_phone(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
+    for clue in clues:
+        phone_value, phone_source = _clue_phone(clue)
+        if mask_phone(phone_value):
+            return phone_value, phone_source
     return None, None
 
 
