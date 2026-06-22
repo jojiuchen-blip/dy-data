@@ -17,8 +17,8 @@ REFUND_QUERY_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/qu
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
 CLUE_QUERY_URL = "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
-CIPHER_DECRYPT_URL = "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt/"
-CIPHER_DECRYPT_MASK_URL = "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt_mask/"
+CIPHER_DECRYPT_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt/batch/"
+CIPHER_DECRYPT_MASK_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt_mask/batch/"
 CIPHER_BATCH_SIZE = 50
 
 
@@ -180,7 +180,14 @@ class DouyinOpenApiClient:
         result: dict[str, str] = {}
         cleaned = _clean_cipher_texts(cipher_texts)
         for batch in _chunks(cleaned, CIPHER_BATCH_SIZE):
-            payload = self._get_json(url, {"cipher_text_list": batch})
+            payload = self._post_json(
+                url,
+                {
+                    "account_id": self.credentials.account_id,
+                    "cipher_texts": batch,
+                },
+                headers=self._token_headers(),
+            )
             result.update(_cipher_result_map(payload, batch))
         return result
 

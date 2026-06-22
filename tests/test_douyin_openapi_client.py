@@ -185,10 +185,16 @@ def test_decrypt_mask_cipher_texts_uses_official_batch_endpoint():
         "Enc.phone-1": "138****5678",
         "Enc.phone-2": "139****5678",
     }
-    assert http.calls[1]["method"] == "GET"
-    assert http.calls[1]["url"] == "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt_mask/"
+    assert http.calls[1]["method"] == "POST"
+    assert (
+        http.calls[1]["url"]
+        == "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt_mask/batch/"
+    )
     assert http.calls[1]["headers"]["Rpc-Transit-Life-Account"] == "acct-1"
-    assert http.calls[1]["params"] == {"cipher_text_list": ["Enc.phone-1", "Enc.phone-2"]}
+    assert http.calls[1]["json"] == {
+        "account_id": "acct-1",
+        "cipher_texts": ["Enc.phone-1", "Enc.phone-2"],
+    }
 
 
 def test_decrypt_cipher_texts_batches_fifty_cipher_values_per_request():
@@ -211,9 +217,10 @@ def test_decrypt_cipher_texts_batches_fifty_cipher_values_per_request():
 
     assert result[cipher_texts[0]] == "13800000000"
     assert result[cipher_texts[50]] == "13900000050"
-    assert [len(call["params"]["cipher_text_list"]) for call in http.calls[1:]] == [50, 1]
+    assert [len(call["json"]["cipher_texts"]) for call in http.calls[1:]] == [50, 1]
     assert all(
-        call["url"] == "https://open.douyin.com/goodlife/v1/tools/cipher/decrypt/"
+        call["url"]
+        == "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt/batch/"
         for call in http.calls[1:]
     )
 
