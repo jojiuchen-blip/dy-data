@@ -253,10 +253,27 @@ class SyncScheduleData(BaseModel):
     next_scheduled_sync_at: datetime | None = None
 
 
+class SyncWorkerStatusData(BaseModel):
+    mode: str = "collect_and_settle"
+    auto_sync_enabled: bool = True
+    interval_seconds: int = 86400
+    rolling_days: int = 30
+    history_chunk_days: int = 1
+    run_on_start: bool = True
+    run_once: bool = False
+    chunk_max_attempts: int = 2
+    disabled_poll_seconds: int = 60
+    active_job: JobRun | None = None
+    latest_success: JobRun | None = None
+    latest_failure: JobRun | None = None
+    next_scheduled_sync_at: datetime | None = None
+
+
 class SyncAdminData(BaseModel):
     config: SyncConfigData
     progress: SyncProgressData
     schedule: SyncScheduleData
+    worker_status: SyncWorkerStatusData
     jobs: list[JobRun] = Field(default_factory=list)
 
 

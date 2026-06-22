@@ -161,6 +161,83 @@ def test_admin_sync_exposes_schedule_status(
     assert schedule["next_scheduled_sync_at"].startswith("2026-06-01T09:00:00")
 
 
+def test_admin_sync_exposes_worker_runtime_status(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setenv("WORKER_RUN_ON_START", "false")
+    monkeypatch.setenv("WORKER_RUN_ONCE", "true")
+    monkeypatch.setenv("WORKER_CHUNK_MAX_ATTEMPTS", "4")
+    start_job_run(
+        db_session,
+        "running-window",
+        "collect_and_settle",
+        metadata_json={
+            "source_window": _window(
+                "2026-06-12T00:00:00+08:00",
+                "2026-06-13T00:00:00+08:00",
+            ).as_metadata(),
+            "phases": {},
+        },
+        started_at=datetime(2026, 6, 12, 16, 0, tzinfo=timezone.utc),
+    )
+    _record_successful_collect_window(
+        db_session,
+        job_id="successful-window",
+        window=_window("2026-06-13T00:00:00+08:00", "2026-06-14T00:00:00+08:00"),
+    )
+    start_job_run(
+        db_session,
+        "failed-window",
+        "collect_and_settle",
+        metadata_json={
+            "source_window": _window(
+                "2026-06-14T00:00:00+08:00",
+                "2026-06-15T00:00:00+08:00",
+            ).as_metadata(),
+            "phases": {},
+        },
+        started_at=datetime(2026, 6, 14, 16, 0, tzinfo=timezone.utc),
+    )
+    finish_job_run(
+        db_session,
+        "failed-window",
+        status="failed",
+        failed_count=1,
+        error_message="open api returned 0 rows",
+        finished_at=datetime(2026, 6, 14, 16, 10, tzinfo=timezone.utc),
+    )
+    db_session.commit()
+    _login(client)
+    client.put(
+        "/api/v1/admin/sync/config",
+        json={
+            "rolling_days": 30,
+            "history_chunk_days": 1,
+            "interval_seconds": 1800,
+            "auto_sync_enabled": True,
+        },
+    )
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    worker_status = response.json()["data"]["worker_status"]
+    assert worker_status["mode"] == "collect_and_settle"
+    assert worker_status["auto_sync_enabled"] is True
+    assert worker_status["rolling_days"] == 30
+    assert worker_status["interval_seconds"] == 1800
+    assert worker_status["run_on_start"] is False
+    assert worker_status["run_once"] is True
+    assert worker_status["chunk_max_attempts"] == 4
+    assert worker_status["active_job"]["job_id"] == "running-window"
+    assert worker_status["latest_success"]["job_id"] == "successful-window"
+    assert worker_status["latest_failure"]["job_id"] == "failed-window"
+    assert worker_status["latest_failure"]["error_message"] == "open api returned 0 rows"
+
+
 def test_admin_sync_progress_counts_completed_backfill_windows(
     client: TestClient,
     db_session: Session,

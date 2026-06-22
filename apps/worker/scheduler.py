@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import JobRun
@@ -23,6 +24,7 @@ from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DA
 
 _STOP = False
 DISABLED_POLL_SECONDS = 60
+DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS = 2
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
 
@@ -106,28 +108,52 @@ def run_incremental_collection_chunks(factory, config) -> None:
         env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
     )
     chunks = list(iter_backfill_windows(source_window, chunk_days=config.history_chunk_days))
+    day_start = _window_day_start(source_window)
+    with session_scope(factory) as session:
+        completed_windows = _successful_collect_window_keys(session, since=day_start)
     _log(
         "incremental_start "
         f"chunks={len(chunks)} chunk_days={config.history_chunk_days} "
         f"start={source_window.start.isoformat()} end={source_window.end.isoformat()}"
     )
+    failed_chunks = 0
+    max_attempts = _configured_chunk_max_attempts()
     for index, chunk in enumerate(chunks, start=1):
+        if _window_key(chunk) in completed_windows:
+            _log(f"incremental_chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
+            continue
+
         process_queued_settlement_rebuilds(factory)
         job_id = _chunk_job_id("collect", index, chunk)
         _log(f"incremental_chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-        try:
-            with session_scope(factory) as session:
-                stats = run_collect_and_settle(
-                    session,
-                    job_id=job_id,
-                    window=chunk,
-                    include_browser_export=False,
-                    include_materialization=False,
-                )
-        except Exception as exc:
-            _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=exc)
-            _log(f"incremental_chunk_failed index={index} job_id={job_id}")
-            raise
+        stats = None
+        last_error: Exception | None = None
+        for attempt in range(1, max_attempts + 1):
+            try:
+                with session_scope(factory) as session:
+                    stats = run_collect_and_settle(
+                        session,
+                        job_id=job_id,
+                        window=chunk,
+                        include_browser_export=False,
+                        include_materialization=False,
+                    )
+                break
+            except Exception as exc:
+                last_error = exc
+                if attempt < max_attempts:
+                    _log(
+                        f"incremental_chunk_retry index={index} job_id={job_id} "
+                        f"attempt={attempt + 1}/{max_attempts}"
+                    )
+                    continue
+        if stats is None:
+            assert last_error is not None
+            _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=last_error)
+            _log(f"incremental_chunk_failed index={index} job_id={job_id} attempts={max_attempts}")
+            failed_chunks += 1
+            continue
+        completed_windows.add(_window_key(chunk))
         _log(
             f"incremental_chunk_done index={index} job_id={job_id} "
             f"success={stats.success_count} failed={stats.failed_count}"
@@ -147,12 +173,12 @@ def run_incremental_collection_chunks(factory, config) -> None:
     except Exception as exc:
         _record_failed_collect_chunk(factory, job_id=materialize_job_id, window=source_window, error=exc)
         _log(f"incremental_materialize_failed job_id={materialize_job_id}")
-        raise
+        return
     _log(
         f"incremental_materialize_done job_id={materialize_job_id} "
         f"success={stats.success_count} failed={stats.failed_count}"
     )
-    _log("incremental_done")
+    _log(f"incremental_done failed_chunks={failed_chunks}")
 
 
 def run_browser_export_once(factory) -> None:
@@ -249,6 +275,14 @@ def _auto_sync_enabled(factory) -> bool:
         return load_sync_config(session).auto_sync_enabled
 
 
+def _configured_chunk_max_attempts() -> int:
+    try:
+        attempts = int(os.getenv("WORKER_CHUNK_MAX_ATTEMPTS", str(DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS)))
+    except ValueError:
+        attempts = DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS
+    return max(1, min(5, attempts))
+
+
 def _sleep_until_stop(seconds: int) -> None:
     sleep_until = time.monotonic() + seconds
     while not _STOP and time.monotonic() < sleep_until:
@@ -276,6 +310,46 @@ def _record_failed_collect_chunk(
             failed_count=1,
             error_message=sanitize_error_message(str(error)),
         )
+
+
+def _successful_collect_window_keys(
+    session: Session,
+    *,
+    since: datetime,
+) -> set[tuple[str, str, str]]:
+    rows = session.scalars(
+        select(JobRun).where(
+            JobRun.job_name == "collect_and_settle",
+            JobRun.status == "success",
+            JobRun.started_at >= since,
+        )
+    ).all()
+    keys: set[tuple[str, str, str]] = set()
+    for row in rows:
+        key = _metadata_window_key(row.metadata_json)
+        if key is not None:
+            keys.add(key)
+    return keys
+
+
+def _metadata_window_key(metadata: dict | None) -> tuple[str, str, str] | None:
+    source_window = (metadata or {}).get("source_window")
+    if not isinstance(source_window, dict):
+        return None
+    start = source_window.get("start")
+    end = source_window.get("end")
+    timezone_name = source_window.get("timezone")
+    if not isinstance(start, str) or not isinstance(end, str) or not isinstance(timezone_name, str):
+        return None
+    return (start, end, timezone_name)
+
+
+def _window_key(window: CollectionWindow) -> tuple[str, str, str]:
+    return (window.start.isoformat(), window.end.isoformat(), window.timezone_name)
+
+
+def _window_day_start(window: CollectionWindow) -> datetime:
+    return window.end.replace(hour=0, minute=0, second=0, microsecond=0)
 
 
 def _log(message: str) -> None:

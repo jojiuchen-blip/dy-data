@@ -572,6 +572,190 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
     assert calls[2][0].startswith("collect_materialize_")
 
 
+def test_run_once_skips_successful_incremental_chunks(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    completed = CollectionWindow(
+        start=datetime.fromisoformat("2026-06-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-06-02T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    with factory() as session:
+        save_sync_config(session, {"rolling_days": 2, "history_chunk_days": 1})
+        start_job_run(
+            session,
+            "previous-incremental",
+            "collect_and_settle",
+            started_at=datetime.fromisoformat("2026-06-03T01:00:00+08:00"),
+            metadata_json={
+                "source_window": completed.as_metadata(),
+                "phases": {"orders": {"name": "orders", "upserted": 1}},
+            },
+        )
+        finish_job_run(session, "previous-incremental", status="success", success_count=1)
+        session.commit()
+
+    source_window = CollectionWindow(
+        start=datetime.fromisoformat("2026-06-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-06-03T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    calls: list[tuple[str, str, bool]] = []
+
+    def fake_runner(
+        session: Session,
+        *,
+        job_id: str,
+        window: CollectionWindow,
+        include_browser_export: bool,
+        include_materialization: bool = True,
+        collectors: list | None = None,
+    ):
+        calls.append((job_id, window.start.isoformat(), include_materialization))
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
+
+    run_once()
+
+    assert [(start, materialize) for _job_id, start, materialize in calls] == [
+        ("2026-06-02T00:00:00+08:00", False),
+        ("2026-06-01T00:00:00+08:00", True),
+    ]
+
+
+def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        save_sync_config(session, {"rolling_days": 3, "history_chunk_days": 1})
+        session.commit()
+
+    source_window = CollectionWindow(
+        start=datetime.fromisoformat("2026-06-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-06-04T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    calls: list[tuple[str, str, bool]] = []
+
+    def fake_runner(
+        session: Session,
+        *,
+        job_id: str,
+        window: CollectionWindow,
+        include_browser_export: bool,
+        include_materialization: bool = True,
+        collectors: list | None = None,
+    ):
+        calls.append((job_id, window.start.isoformat(), include_materialization))
+        if not include_materialization and window.start.isoformat() == "2026-06-02T00:00:00+08:00":
+            raise RuntimeError("temporary Douyin API error")
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
+
+    run_once()
+
+    assert [(start, materialize) for _job_id, start, materialize in calls] == [
+        ("2026-06-01T00:00:00+08:00", False),
+        ("2026-06-02T00:00:00+08:00", False),
+        ("2026-06-02T00:00:00+08:00", False),
+        ("2026-06-03T00:00:00+08:00", False),
+        ("2026-06-01T00:00:00+08:00", True),
+    ]
+    with factory() as session:
+        failed = session.scalar(
+            select(JobRun).where(
+                JobRun.status == "failed",
+                JobRun.error_message == "temporary Douyin API error",
+            )
+        )
+        assert failed is not None
+        assert failed.metadata_json["source_window"]["start"] == "2026-06-02T00:00:00+08:00"
+
+
+def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        save_sync_config(session, {"rolling_days": 2, "history_chunk_days": 1})
+        session.commit()
+
+    source_window = CollectionWindow(
+        start=datetime.fromisoformat("2026-06-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-06-03T00:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+    attempts_by_call: dict[tuple[str, bool], int] = {}
+
+    def fake_runner(
+        session: Session,
+        *,
+        job_id: str,
+        window: CollectionWindow,
+        include_browser_export: bool,
+        include_materialization: bool = True,
+        collectors: list | None = None,
+    ):
+        start = window.start.isoformat()
+        call_key = (start, include_materialization)
+        attempts_by_call[call_key] = attempts_by_call.get(call_key, 0) + 1
+        if (
+            not include_materialization
+            and start == "2026-06-02T00:00:00+08:00"
+            and attempts_by_call[call_key] == 1
+        ):
+            raise RuntimeError("temporary Douyin API error")
+        stats = CollectionStats(run_id=job_id, source_window=window)
+        stats.add_phase(PhaseStats(name="orders", upserted=1))
+        return stats
+
+    monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
+
+    run_once()
+
+    assert attempts_by_call[("2026-06-01T00:00:00+08:00", False)] == 1
+    assert attempts_by_call[("2026-06-02T00:00:00+08:00", False)] == 2
+    assert attempts_by_call[("2026-06-01T00:00:00+08:00", True)] == 1
+    with factory() as session:
+        failed_count = session.query(JobRun).where(JobRun.status == "failed").count()
+        assert failed_count == 0
+
+
 def test_incremental_collection_window_defaults_to_recent_30_days():
     window = scheduler.resolve_incremental_collection_window(
         now=datetime.fromisoformat("2026-06-16T15:30:00+08:00"),

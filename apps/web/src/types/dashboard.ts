@@ -127,6 +127,7 @@ export interface SyncAdminData {
   config: SyncConfigData;
   progress: SyncProgressData;
   schedule: SyncScheduleData;
+  worker_status: SyncWorkerStatusData;
   jobs: JobRun[];
 }
 
@@ -143,6 +144,22 @@ export interface SyncConfigUpdate {
 export interface SyncScheduleData {
   auto_sync_enabled: boolean;
   latest_successful_sync_at: string | null;
+  next_scheduled_sync_at: string | null;
+}
+
+export interface SyncWorkerStatusData {
+  mode: string;
+  auto_sync_enabled: boolean;
+  interval_seconds: number;
+  rolling_days: number;
+  history_chunk_days: number;
+  run_on_start: boolean;
+  run_once: boolean;
+  chunk_max_attempts: number;
+  disabled_poll_seconds: number;
+  active_job: JobRun | null;
+  latest_success: JobRun | null;
+  latest_failure: JobRun | null;
   next_scheduled_sync_at: string | null;
 }
 

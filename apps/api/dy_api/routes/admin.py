@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -19,7 +20,7 @@ from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
 from dy_api.auth import hash_password_pbkdf2, normalize_account_value, get_current_admin
-from dy_api.routes._data import get_data_store, generated_at
+from dy_api.routes._data import get_data_store, generated_at, sanitize_error_message
 from dy_api.schemas import (
     AccountListData,
     AccountPasswordUpdateRequest,
@@ -44,13 +45,23 @@ from dy_api.schemas import (
     SyncConfigUpdate,
     SyncProgressData,
     SyncScheduleData,
+    SyncWorkerStatusData,
     SyncWindowData,
+    JobRun as JobRunData,
     dump_model,
 )
 
 
 router = APIRouter()
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+WORKER_STATUS_JOB_NAMES = (
+    "collect_and_settle",
+    "backend_aweme_export",
+    "manual_backend_aweme_export",
+    "douyin_collection",
+)
+DEFAULT_WORKER_CHUNK_MAX_ATTEMPTS = 2
+DISABLED_WORKER_POLL_SECONDS = 60
 
 
 def _phone_plain_resolver():
@@ -386,10 +397,12 @@ def update_sync_config(
     store = _require_available_store(store)
     config = save_sync_config(store.session, dump_model(payload))
     config_data = config.as_dict()
+    schedule = _sync_schedule(store.session, config_data)
     data = SyncAdminData(
         config=SyncConfigData(**config_data),
         progress=_sync_progress(store.session, config_data),
-        schedule=_sync_schedule(store.session, config_data),
+        schedule=schedule,
+        worker_status=_sync_worker_status(store.session, config_data, schedule),
         jobs=store.recent_jobs(20),
     )
     return {
@@ -433,10 +446,12 @@ def run_sync_now(
 def _sync_admin_data(store) -> SyncAdminData:
     config = load_sync_config(store.session)
     config_data = config.as_dict()
+    schedule = _sync_schedule(store.session, config_data)
     return SyncAdminData(
         config=SyncConfigData(**config_data),
         progress=_sync_progress(store.session, config_data),
-        schedule=_sync_schedule(store.session, config_data),
+        schedule=schedule,
+        worker_status=_sync_worker_status(store.session, config_data, schedule),
         jobs=store.recent_jobs(20),
     )
 
@@ -560,6 +575,77 @@ def _sync_schedule(session, config: dict) -> SyncScheduleData:
         latest_successful_sync_at=_aware_utc(latest_success),
         next_scheduled_sync_at=next_scheduled_at,
     )
+
+
+def _sync_worker_status(
+    session,
+    config: dict,
+    schedule: SyncScheduleData,
+) -> SyncWorkerStatusData:
+    return SyncWorkerStatusData(
+        mode=_worker_mode_from_env(),
+        auto_sync_enabled=bool(config.get("auto_sync_enabled", True)),
+        interval_seconds=int(config.get("interval_seconds") or 86400),
+        rolling_days=int(config.get("rolling_days") or 30),
+        history_chunk_days=int(config.get("history_chunk_days") or 1),
+        run_on_start=_truthy_env(os.getenv("WORKER_RUN_ON_START", "true")),
+        run_once=_truthy_env(os.getenv("WORKER_RUN_ONCE")),
+        chunk_max_attempts=_worker_chunk_max_attempts(),
+        disabled_poll_seconds=DISABLED_WORKER_POLL_SECONDS,
+        active_job=_job_run_data(_latest_worker_job(session, status="running")),
+        latest_success=_job_run_data(_latest_worker_job(session, status="success")),
+        latest_failure=_job_run_data(_latest_worker_job(session, status="failed")),
+        next_scheduled_sync_at=schedule.next_scheduled_sync_at,
+    )
+
+
+def _latest_worker_job(session, *, status: str) -> JobRun | None:
+    return session.execute(
+        select(JobRun)
+        .where(JobRun.job_name.in_(WORKER_STATUS_JOB_NAMES))
+        .where(JobRun.status == status)
+        .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def _job_run_data(job: JobRun | None) -> JobRunData | None:
+    if job is None:
+        return None
+    metadata = job.metadata_json if isinstance(job.metadata_json, dict) else {}
+    return JobRunData(
+        job_id=job.job_id,
+        job_name=job.job_name,
+        status=job.status,
+        started_at=_aware_utc(job.started_at),
+        finished_at=_aware_utc(job.finished_at),
+        success_count=job.success_count or 0,
+        failed_count=job.failed_count or 0,
+        error_message=sanitize_error_message(job.error_message),
+        metadata_json=metadata,
+    )
+
+
+def _worker_mode_from_env() -> str:
+    mode = (os.getenv("WORKER_MODE") or "collect_and_settle").strip().lower()
+    return mode or "collect_and_settle"
+
+
+def _worker_chunk_max_attempts() -> int:
+    try:
+        attempts = int(
+            os.getenv(
+                "WORKER_CHUNK_MAX_ATTEMPTS",
+                str(DEFAULT_WORKER_CHUNK_MAX_ATTEMPTS),
+            )
+        )
+    except ValueError:
+        attempts = DEFAULT_WORKER_CHUNK_MAX_ATTEMPTS
+    return max(1, min(5, attempts))
+
+
+def _truthy_env(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def run_admin_sku_rule_rebuild_job(*, job_id: str) -> None:

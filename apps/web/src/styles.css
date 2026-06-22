@@ -1668,6 +1668,43 @@ a.metric-card:hover,
   grid-template-columns: minmax(240px, 1fr) minmax(140px, 0.45fr) auto auto;
 }
 
+.worker-status-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin: 0;
+}
+
+.worker-status-item {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  min-height: 118px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: #fffefa;
+}
+
+.worker-status-item dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.worker-status-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.worker-status-item small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .sku-rule-workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);

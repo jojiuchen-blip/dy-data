@@ -69,6 +69,32 @@ function intervalText(seconds: number): string {
   return `${formatInteger(seconds)} 秒`;
 }
 
+function workerModeLabel(mode: string): string {
+  if (mode === "collect_and_settle") return "接口采集并重建结算";
+  if (mode === "settlement_only") return "只重建结算";
+  if (mode === "backfill") return "历史数据回填";
+  if (mode === "browser_export_only") return "只执行浏览器导出";
+  return mode || "-";
+}
+
+function yesNo(value: boolean): string {
+  return value ? "是" : "否";
+}
+
+function jobWindowText(job: JobRun | null | undefined): string {
+  const window = job?.metadata_json?.source_window;
+  if (!window) return "-";
+  return `${formatDateTime(window.start)} 至 ${formatDateTime(window.end)}`;
+}
+
+function jobStatusLine(job: JobRun | null | undefined): string {
+  if (!job) return "暂无记录";
+  const finishedAt = job.finished_at
+    ? `完成于 ${formatDateTime(job.finished_at)}`
+    : `开始于 ${formatDateTime(job.started_at)}`;
+  return `${statusLabel(job.status)}，${finishedAt}`;
+}
+
 export function AdminSyncPage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
@@ -174,6 +200,7 @@ export function AdminSyncPage() {
       (data.progress.completed_windows / data.progress.total_windows) * 100,
     );
   }, [data]);
+  const workerStatus = data?.worker_status ?? null;
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -359,6 +386,83 @@ export function AdminSyncPage() {
             日常同步每次回看 {formatInteger(data?.config.rolling_days ?? 0)} 天
           </div>
         </div>
+      </section>
+
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <h2>Worker 状态</h2>
+            <p>
+              根据后台配置和最近任务日志判断采集进度，用于确认是否正在跑、跑到哪段、失败原因是什么。
+            </p>
+          </div>
+          <button className="ghost-button" onClick={loadData} type="button">
+            刷新状态
+          </button>
+        </div>
+        {workerStatus ? (
+          <dl className="worker-status-grid">
+            <div className="worker-status-item">
+              <dt>自动同步</dt>
+              <dd>{workerStatus.auto_sync_enabled ? "开启" : "暂停"}</dd>
+              <small>
+                下次调度 {formatDateTime(workerStatus.next_scheduled_sync_at)}
+              </small>
+            </div>
+            <div className="worker-status-item">
+              <dt>运行模式</dt>
+              <dd>{workerModeLabel(workerStatus.mode)}</dd>
+              <small>
+                启动后立即同步：{yesNo(workerStatus.run_on_start)}；单次运行：
+                {yesNo(workerStatus.run_once)}
+              </small>
+            </div>
+            <div className="worker-status-item">
+              <dt>日常刷新范围</dt>
+              <dd>最近 {formatInteger(workerStatus.rolling_days)} 天</dd>
+              <small>
+                每 {intervalText(workerStatus.interval_seconds)} 触发；每片{" "}
+                {formatInteger(workerStatus.history_chunk_days)} 天；失败最多重试{" "}
+                {formatInteger(workerStatus.chunk_max_attempts)} 次
+              </small>
+            </div>
+            <div className="worker-status-item">
+              <dt>当前运行任务</dt>
+              <dd>
+                {workerStatus.active_job
+                  ? statusLabel(workerStatus.active_job.status)
+                  : "暂无运行中任务"}
+              </dd>
+              <small>
+                {workerStatus.active_job
+                  ? `${workerStatus.active_job.job_id}，${jobWindowText(workerStatus.active_job)}`
+                  : "如果 worker 正在长事务里写入，任务记录可能会在提交后才显示。"}
+              </small>
+            </div>
+            <div className="worker-status-item">
+              <dt>最近成功窗口</dt>
+              <dd>{jobWindowText(workerStatus.latest_success)}</dd>
+              <small>{jobStatusLine(workerStatus.latest_success)}</small>
+            </div>
+            <div className="worker-status-item">
+              <dt>最近失败原因</dt>
+              <dd>
+                {workerStatus.latest_failure?.error_message
+                  ? workerStatus.latest_failure.error_message
+                  : "暂无失败记录"}
+              </dd>
+              <small>
+                {workerStatus.latest_failure
+                  ? `${jobWindowText(workerStatus.latest_failure)}，${jobStatusLine(
+                      workerStatus.latest_failure,
+                    )}`
+                  : "最近没有失败的采集任务。"}
+              </small>
+            </div>
+          </dl>
+        ) : (
+          <div className="resource-panel">暂无 worker 状态数据</div>
+        )}
       </section>
 
       <section className="content-section">
