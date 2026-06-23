@@ -14,14 +14,12 @@ import {
   ResourcePanel,
   resourceSourceLabel,
 } from "../components/ResourceState";
-import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { SolarIcon } from "../components/SolarIcon";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueAssignmentRound,
   ClueOrderDetail,
   ClueOverviewFilters,
-  SelectOption,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
 
@@ -101,9 +99,6 @@ function optionList(values: string[] | undefined, labels?: Record<string, string
 }
 
 export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
-  const [assignedStoreId, setAssignedStoreId] = useState(
-    searchParams.get("assigned_store_id") ?? "",
-  );
   const [assignedDateStart, setAssignedDateStart] = useState(
     searchParams.get("assigned_date_start") ?? "",
   );
@@ -135,7 +130,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
-      assigned_store_id: assignedStoreId,
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
       lead_status: leadStatus,
@@ -144,7 +138,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       city,
     }),
     [
-      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
@@ -157,7 +150,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   const overviewResource = useApiResource(
     () => fetchClueOverview(filters),
     [
-      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
@@ -169,7 +161,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize: PAGE_SIZE }),
     [
-      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
@@ -178,15 +169,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       productType,
       roundStatus,
     ],
-  );
-
-  const storeOptions: SelectOption[] = useMemo(
-    () =>
-      (meta?.assigned_stores ?? []).map((store) => ({
-        value: store.store_id,
-        label: store.store_name,
-      })),
-    [meta?.assigned_stores],
   );
   const overview = overviewResource.data?.data;
   const rows = roundsResource.data?.data.rows ?? [];
@@ -316,7 +298,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   }, [selectedOrderId]);
 
   const resetFilters = () => {
-    setAssignedStoreId("");
     setAssignedDateStart("");
     setAssignedDateEnd("");
     setLeadStatus("");
@@ -328,29 +309,18 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
 
   const columns: Column<ClueAssignmentRound>[] = [
     {
-      key: "current_assignment",
-      title: "线索当前归属",
-      minWidth: 180,
-      render: (row) => (
-        <span className="status-chip">
-          {row.is_current_round ? "当前" : "历史"} /{" "}
-          {displayValue(row.current_assigned_store_name)}
-        </span>
-      ),
-    },
-    {
       key: "round_effective_status",
-      title: "本轮有效性",
+      title: "当前轮次",
       minWidth: 110,
       render: (row) => (
         <span className="status-chip">
-          {row.round_effective_status === "active" ? "有效" : "无效"}
+          {row.round_effective_status === "active" ? "当前生效" : "历史轮次"}
         </span>
       ),
     },
     {
       key: "round_id",
-      title: "分配轮次ID",
+      title: "线索轮次ID",
       minWidth: 180,
       sticky: true,
       render: (row) => (
@@ -386,7 +356,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     },
     {
       key: "assigned_at",
-      title: "分配时间",
+      title: "线索生成时间",
       minWidth: 150,
       render: (row) => formatDateTime(row.assigned_at),
     },
@@ -395,18 +365,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       title: "距离再分配剩余时间",
       minWidth: 150,
       render: (row) => formatRemainingSeconds(row.remaining_reassign_seconds),
-    },
-    {
-      key: "store",
-      title: "分配门店",
-      minWidth: 170,
-      render: (row) => row.assigned_store_name || "-",
-    },
-    {
-      key: "store_id",
-      title: "门店ID",
-      minWidth: 110,
-      render: (row) => row.assigned_store_id || "-",
     },
     {
       key: "phone",
@@ -478,19 +436,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       />
 
       <FilterBar className="clue-filter-bar">
-        <FilterField label="分配门店">
-          <SearchableStoreSelect
-            allowEmpty
-            emptyLabel="全部门店"
-            onChange={(value) => {
-              setPage(1);
-              setAssignedStoreId(value);
-            }}
-            options={storeOptions}
-            value={assignedStoreId}
-          />
-        </FilterField>
-        <FilterField label="分配日期起">
+        <FilterField label="线索生成日期起">
           <input
             onChange={(event) => {
               setPage(1);
@@ -500,7 +446,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             value={assignedDateStart}
           />
         </FilterField>
-        <FilterField label="分配日期止">
+        <FilterField label="线索生成日期止">
           <input
             onChange={(event) => {
               setPage(1);
@@ -625,7 +571,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       <section className="content-section">
         <div className="section-title">
           <div>
-            <h2>分配轮次明细</h2>
+            <h2>线索明细</h2>
             <p>订单粒度轮次记录，手机号脱敏展示。</p>
           </div>
           {pagination ? (
@@ -766,7 +712,9 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
                             <span className="clue-flow-round">
                               {roundLabel(index, detail.rounds.length)}
                             </span>
-                            <strong>{displayValue(round.assigned_store_name)}</strong>
+                            <strong className="mono-cell">
+                              {round.assignment_round_id}
+                            </strong>
                           </div>
                           <span className="status-chip">
                             {labelFor(round.round_status, roundStatusLabels)}
@@ -774,17 +722,8 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
                         </div>
                         <dl className="clue-flow-fields">
                           <div>
-                            <dt>分配时间</dt>
+                            <dt>线索生成时间</dt>
                             <dd>{formatDateTime(round.assigned_at)}</dd>
-                          </div>
-                          <div>
-                            <dt>归属门店</dt>
-                            <dd>
-                              {displayValue(round.assigned_store_name)}
-                              {round.assigned_store_id
-                                ? ` (${round.assigned_store_id})`
-                                : ""}
-                            </dd>
                           </div>
                           <div>
                             <dt>再分配原因</dt>
