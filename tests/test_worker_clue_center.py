@@ -258,6 +258,7 @@ def test_failed_and_unreachable_follow_results_have_distinct_meanings(db_session
     db_session.add_all(
         [
             _raw_clue("row-failed", order_id="order-failed", clue_id="clue-failed", create_time=_dt(1)),
+            _raw_clue("row-lost", order_id="order-lost", clue_id="clue-lost", create_time=_dt(1)),
             _raw_clue("row-unreachable", order_id="order-unreachable", clue_id="clue-unreachable", create_time=_dt(1)),
             ClueAssignmentRound(
                 assignment_round_id="order-failed-1",
@@ -266,6 +267,19 @@ def test_failed_and_unreachable_follow_results_have_distinct_meanings(db_session
                 assigned_at=_dt(1),
                 assigned_at_source="clue_create_time_detail",
                 follow_result="failed",
+                is_followed=True,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="order-lost-1",
+                order_id="order-lost",
+                round_no=1,
+                assigned_at=_dt(1),
+                assigned_at_source="clue_create_time_detail",
+                follow_result="lost",
                 is_followed=True,
                 is_follow_success=False,
                 round_status="active_unfollowed",
@@ -292,11 +306,17 @@ def test_failed_and_unreachable_follow_results_have_distinct_meanings(db_session
     rebuild_clue_center(db_session, now=_dt(2))
 
     failed = db_session.get(ClueCenterOrder, "order-failed")
+    lost = db_session.get(ClueCenterOrder, "order-lost")
     unreachable = db_session.get(ClueCenterOrder, "order-unreachable")
     assert failed is not None
+    assert lost is not None
     assert unreachable is not None
     assert failed.current_round_status == "failed_pending_reassign"
     assert failed.lead_status == "pending_reassign"
+    assert lost.follow_result == "lost"
+    assert lost.current_round_status == "failed_pending_reassign"
+    assert lost.lead_status == "pending_reassign"
+    assert lost.reassign_reason == "follow_lost"
     assert unreachable.current_round_status == "active_followed"
     assert unreachable.is_followed is True
     assert unreachable.is_follow_success is False

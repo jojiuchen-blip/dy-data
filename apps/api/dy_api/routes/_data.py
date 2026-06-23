@@ -10,6 +10,7 @@ from collections.abc import Generator, Iterable
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends
@@ -47,6 +48,8 @@ FILE_PATH_RE = re.compile(
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _SESSION_FACTORY: Any | None = None
+FOLLOW_UP_RESULTS = {"unreachable", "lost", "success"}
+CURRENT_OPERABLE_ROUND_STATUSES = {"active_unfollowed", "active_followed"}
 
 
 def generated_at() -> datetime:
@@ -984,6 +987,7 @@ class DashboardDataStore:
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
+                   c.product_name,
                    c.product_type,
                    c.author_nickname,
                    r.followed_at,
@@ -1088,6 +1092,24 @@ class DashboardDataStore:
             """,
             {"order_id": order_id},
         )
+        record_rows = self._execute(
+            """
+            SELECT follow_up_record_id,
+                   order_id,
+                   assignment_round_id,
+                   round_no,
+                   assigned_store_id,
+                   follow_result,
+                   note,
+                   operator_user_id,
+                   operator_username,
+                   created_at
+            FROM clue_follow_up_records
+            WHERE order_id = :order_id
+            ORDER BY created_at, follow_up_record_id
+            """,
+            {"order_id": order_id},
+        )
         order = orders[0]
         phone_masked = _to_str(order.get("phone_masked")) or self._clue_order_masked_phone(order_id)
         cleaned_rounds = []
@@ -1109,6 +1131,9 @@ class DashboardDataStore:
             "assigned_city": order.get("assigned_city"),
             "assigned_province": order.get("assigned_province"),
             "rounds": cleaned_rounds,
+            "follow_up_records": [
+                self._clean_follow_up_record(row) for row in record_rows
+            ],
         }
 
     def _clue_order_cached_phone(self, order_id: str) -> str:
@@ -1184,16 +1209,259 @@ class DashboardDataStore:
             return masked
         return self._decrypted_raw_clue_masked_phone(order_id)
 
+    def _current_operation_round(self, order_id: str) -> dict[str, Any] | None:
+        rows = self._execute(
+            """
+            SELECT c.order_id,
+                   c.lead_status,
+                   c.current_assignment_round_id,
+                   c.current_round_no,
+                   c.current_round_status,
+                   c.assigned_store_id AS current_assigned_store_id,
+                   r.assignment_round_id,
+                   r.round_no,
+                   r.assigned_store_id,
+                   r.round_status
+            FROM clue_center_orders c
+            JOIN clue_assignment_rounds r
+              ON r.order_id = c.order_id
+             AND r.assignment_round_id = c.current_assignment_round_id
+            WHERE c.order_id = :order_id
+            LIMIT 1
+            """,
+            {"order_id": order_id},
+        )
+        return rows[0] if rows else None
+
+    def _requested_operation_round(
+        self,
+        order_id: str,
+        assignment_round_id: str,
+    ) -> dict[str, Any] | None:
+        rows = self._execute(
+            """
+            SELECT c.order_id,
+                   c.lead_status,
+                   c.current_assignment_round_id,
+                   c.current_round_no,
+                   c.current_round_status,
+                   c.assigned_store_id AS current_assigned_store_id,
+                   r.assignment_round_id,
+                   r.round_no,
+                   r.assigned_store_id,
+                   r.round_status
+            FROM clue_center_orders c
+            JOIN clue_assignment_rounds r
+              ON r.order_id = c.order_id
+             AND r.assignment_round_id = :assignment_round_id
+            WHERE c.order_id = :order_id
+            LIMIT 1
+            """,
+            {
+                "order_id": order_id,
+                "assignment_round_id": assignment_round_id,
+            },
+        )
+        return rows[0] if rows else None
+
+    def _is_current_effective_round(self, row: dict[str, Any]) -> bool:
+        assignment_round_id = _to_str(row.get("assignment_round_id"))
+        return bool(
+            assignment_round_id
+            and assignment_round_id == _to_str(row.get("current_assignment_round_id"))
+            and _to_str(row.get("lead_status")) == "active"
+            and _to_str(row.get("round_status")) in CURRENT_OPERABLE_ROUND_STATUSES
+            and _to_str(row.get("current_round_status")) in CURRENT_OPERABLE_ROUND_STATUSES
+        )
+
+    def _actor_store_ids(self, actor: dict[str, Any]) -> set[str]:
+        return {
+            store_id
+            for store_id in (_to_str(value).strip() for value in actor.get("store_ids") or ())
+            if store_id
+        }
+
+    def _actor_can_operate_current_round(
+        self,
+        row: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> bool:
+        role = _to_str(actor.get("role"))
+        if role == "admin":
+            return True
+        if role != "store":
+            return False
+        assigned_store_id = _to_str(
+            row.get("current_assigned_store_id") or row.get("assigned_store_id")
+        ).strip()
+        return bool(assigned_store_id and assigned_store_id in self._actor_store_ids(actor))
+
+    def save_clue_follow_up(
+        self,
+        order_id: str,
+        payload: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> tuple[str, dict[str, Any] | None]:
+        order_id = _to_str(order_id).strip()
+        assignment_round_id = _to_str(payload.get("assignment_round_id")).strip()
+        follow_result = _to_str(payload.get("follow_result")).strip()
+        note = _to_str(payload.get("note")).strip() or None
+        if not order_id or not assignment_round_id:
+            return "not_found", None
+        if follow_result not in FOLLOW_UP_RESULTS:
+            return "conflict", None
+
+        row = self._requested_operation_round(order_id, assignment_round_id)
+        if row is None:
+            return "not_found", None
+        if not self._actor_can_operate_current_round(row, actor):
+            return "forbidden", None
+        if not self._is_current_effective_round(row):
+            return "conflict", None
+
+        is_follow_success = follow_result == "success"
+        round_status = "active_followed"
+        lead_status = "active"
+        reassign_reason = None
+        if follow_result == "lost":
+            round_status = "failed_pending_reassign"
+            lead_status = "pending_reassign"
+            reassign_reason = "follow_lost"
+
+        now = generated_at()
+        record = {
+            "follow_up_record_id": uuid4().hex,
+            "order_id": order_id,
+            "assignment_round_id": assignment_round_id,
+            "round_no": _to_int(row.get("round_no"), 1),
+            "assigned_store_id": row.get("assigned_store_id"),
+            "follow_result": follow_result,
+            "note": note,
+            "operator_user_id": actor.get("user_id"),
+            "operator_username": actor.get("username"),
+            "created_at": now,
+        }
+        assert text is not None
+        update_params = {
+            "now": now,
+            "follow_result": follow_result,
+            "is_follow_success": is_follow_success,
+            "round_status": round_status,
+            "lead_status": lead_status,
+            "reassign_reason": reassign_reason,
+            "order_id": order_id,
+            "assignment_round_id": assignment_round_id,
+            "expected_lead_status": _to_str(row.get("lead_status")),
+            "expected_current_round_status": _to_str(row.get("current_round_status")),
+            "expected_round_status": _to_str(row.get("round_status")),
+        }
+        savepoint = self.session.begin_nested()
+        try:
+            order_result = self.session.execute(
+                text(
+                    """
+                    UPDATE clue_center_orders
+                    SET follow_result = :follow_result,
+                        is_followed = true,
+                        is_follow_success = :is_follow_success,
+                        current_round_status = :round_status,
+                        lead_status = :lead_status,
+                        reassign_reason = :reassign_reason,
+                        updated_at = :now
+                    WHERE order_id = :order_id
+                      AND current_assignment_round_id = :assignment_round_id
+                      AND lead_status = :expected_lead_status
+                      AND current_round_status = :expected_current_round_status
+                      AND EXISTS (
+                          SELECT 1
+                          FROM clue_assignment_rounds r
+                          WHERE r.assignment_round_id = :assignment_round_id
+                            AND r.order_id = clue_center_orders.order_id
+                            AND r.round_status = :expected_round_status
+                      )
+                    """
+                ),
+                update_params,
+            )
+            if order_result.rowcount != 1:
+                savepoint.rollback()
+                return "conflict", None
+
+            round_result = self.session.execute(
+                text(
+                    """
+                    UPDATE clue_assignment_rounds
+                    SET followed_at = :now,
+                        follow_result = :follow_result,
+                        is_followed = true,
+                        is_follow_success = :is_follow_success,
+                        round_status = :round_status,
+                        reassign_reason = :reassign_reason,
+                        updated_at = :now
+                    WHERE assignment_round_id = :assignment_round_id
+                      AND order_id = :order_id
+                      AND round_status = :expected_round_status
+                    """
+                ),
+                update_params,
+            )
+            if round_result.rowcount != 1:
+                savepoint.rollback()
+                return "conflict", None
+
+            self.session.execute(
+                text(
+                    """
+                    INSERT INTO clue_follow_up_records (
+                        follow_up_record_id,
+                        order_id,
+                        assignment_round_id,
+                        round_no,
+                        assigned_store_id,
+                        follow_result,
+                        note,
+                        operator_user_id,
+                        operator_username,
+                        created_at
+                    )
+                    VALUES (
+                        :follow_up_record_id,
+                        :order_id,
+                        :assignment_round_id,
+                        :round_no,
+                        :assigned_store_id,
+                        :follow_result,
+                        :note,
+                        :operator_user_id,
+                        :operator_username,
+                        :created_at
+                    )
+                    """
+                ),
+                record,
+            )
+        except Exception:
+            savepoint.rollback()
+            raise
+        else:
+            savepoint.commit()
+        self.session.flush()
+        return "ok", record
 
     def clue_order_phone(
         self,
         order_id: str,
-        scope_store_ids: tuple[str, ...] | None = None,
+        actor: dict[str, Any],
     ) -> dict[str, Any] | None:
         order_id = _to_str(order_id).strip()
         if not order_id:
             return None
-        if not self._clue_order_allowed(order_id, scope_store_ids):
+        row = self._current_operation_round(order_id)
+        if row is None:
+            return None
+        if not self._actor_can_operate_current_round(row, actor):
+            return None
+        if not self._is_current_effective_round(row):
             return None
 
         phone = (
@@ -1619,6 +1887,7 @@ class DashboardDataStore:
             "round_no": _to_int(row.get("round_no"), 1),
             "lead_status": _to_str(row.get("lead_status")),
             "order_current_status": _to_str(row.get("lead_status")),
+            "store_display_status": self._store_display_status(row),
             "current_assignment_round_id": current_assignment_round_id or None,
             "current_round_no": _to_int(row.get("current_round_no"), 0),
             "current_round_status": _to_str(row.get("current_round_status")),
@@ -1633,6 +1902,7 @@ class DashboardDataStore:
             "assigned_store_id": row.get("assigned_store_id"),
             "assigned_store_name": row.get("assigned_store_name"),
             "phone_masked": _to_str(row.get("phone_masked")),
+            "product_name": row.get("product_name"),
             "product_type": row.get("product_type"),
             "author_nickname": row.get("author_nickname"),
             "followed_at": row.get("followed_at"),
@@ -1643,6 +1913,38 @@ class DashboardDataStore:
             "verified_store_name": row.get("verified_store_name"),
             "verified_at": row.get("verified_at"),
             "is_self_store_verified": _to_bool(row.get("is_self_store_verified")),
+        }
+
+    def _store_display_status(self, row: dict[str, Any]) -> str:
+        lead_status = _to_str(row.get("lead_status"))
+        round_status = _to_str(row.get("round_status"))
+        follow_result = _to_str(row.get("follow_result"), "pending")
+        if lead_status == "converted":
+            return "已核销"
+        if lead_status == "refunded":
+            return "已退款"
+        if round_status == "expired_pending_reassign":
+            return "超期失效"
+        if round_status == "failed_pending_reassign" or follow_result in {"lost", "failed"}:
+            return "主动战败"
+        if lead_status == "active" and round_status == "active_followed":
+            return "已跟进"
+        if lead_status == "active" and round_status == "active_unfollowed":
+            return "待跟进"
+        return "不可跟进"
+
+    def _clean_follow_up_record(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "follow_up_record_id": _to_str(row.get("follow_up_record_id")),
+            "order_id": _to_str(row.get("order_id")),
+            "assignment_round_id": _to_str(row.get("assignment_round_id")),
+            "round_no": _to_int(row.get("round_no"), 1),
+            "assigned_store_id": row.get("assigned_store_id"),
+            "follow_result": _to_str(row.get("follow_result")),
+            "note": row.get("note"),
+            "operator_user_id": row.get("operator_user_id"),
+            "operator_username": row.get("operator_username"),
+            "created_at": row.get("created_at"),
         }
 
     def _clean_job(self, row: dict[str, Any]) -> dict[str, Any]:

@@ -392,6 +392,27 @@ class ClueAssignmentRound(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ClueFollowUpRecord(Base):
+    __tablename__ = "clue_follow_up_records"
+    __table_args__ = (
+        Index("ix_clue_follow_up_records_order_id", "order_id"),
+        Index("ix_clue_follow_up_records_assignment_round_id", "assignment_round_id"),
+        Index("ix_clue_follow_up_records_assigned_store_id", "assigned_store_id"),
+        Index("ix_clue_follow_up_records_created_at", "created_at"),
+    )
+
+    follow_up_record_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    order_id: Mapped[str] = mapped_column(Text)
+    assignment_round_id: Mapped[str] = mapped_column(Text)
+    round_no: Mapped[int] = mapped_column(Integer)
+    assigned_store_id: Mapped[str | None] = mapped_column(Text)
+    follow_result: Mapped[str] = mapped_column(String(32))
+    note: Mapped[str | None] = mapped_column(Text)
+    operator_user_id: Mapped[str | None] = mapped_column(Text)
+    operator_username: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ClueReassignRuleSetting(Base):
     __tablename__ = "clue_reassign_rule_settings"
 

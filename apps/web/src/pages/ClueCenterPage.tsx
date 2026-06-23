@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   fetchClueAssignmentRounds,
   fetchClueFilters,
   fetchClueOrderDetail,
   fetchClueOrderPhone,
   fetchClueOverview,
+  saveClueFollowUp,
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -18,6 +19,8 @@ import { SolarIcon } from "../components/SolarIcon";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueAssignmentRound,
+  ClueFollowUpRecord,
+  ClueFollowUpResult,
   ClueOrderDetail,
   ClueOverviewFilters,
 } from "../types/dashboard";
@@ -27,38 +30,63 @@ interface ClueCenterPageProps {
   searchParams: URLSearchParams;
 }
 
+type StoreClueStatus =
+  | "待跟进"
+  | "已跟进"
+  | "超期失效"
+  | "主动战败"
+  | "已核销"
+  | "已退款"
+  | "不可跟进";
+
 const PAGE_SIZE = 20;
 
 const leadStatusLabels: Record<string, string> = {
-  active: "有效线索",
-  pending_reassign: "待再分配",
-  converted: "已转化",
-  closed: "已关闭",
+  active: "可跟进",
+  pending_reassign: "待处理",
+  converted: "已核销",
+  refunded: "已退款",
+  closed: "不可跟进",
 };
 
-const roundStatusLabels: Record<string, string> = {
-  active_unfollowed: "未跟进",
+const followStateLabels: Record<string, string> = {
+  active_unfollowed: "待跟进",
   active_followed: "已跟进",
-  failed_pending_reassign: "跟进失败待再分配",
-  expired_pending_reassign: "超时待再分配",
-  reassigned: "已再分配",
+  failed_pending_reassign: "主动战败",
+  expired_pending_reassign: "超期失效",
+  reassigned: "已转出",
 };
 
 const followResultLabels: Record<string, string> = {
-  pending: "未跟进",
-  success: "成功跟进",
-  failed: "跟进失败",
+  pending: "-",
   unreachable: "未接通",
+  lost: "线索战败",
+  failed: "线索战败",
+  success: "跟进成功",
   continue_following: "继续跟进",
 };
 
 const reassignReasonLabels: Record<string, string> = {
-  timeout: "超时未跟进",
-  follow_failed: "门店反馈跟进失败",
-  manual: "人工再分配",
+  timeout: "超期失效",
+  follow_failed: "线索战败",
+  "follow_lost": "线索战败",
+  manual: "人工调整",
+  "线索战败": "线索战败",
 };
 
-const roundNames = ["第一轮", "第二轮", "第三轮", "第四轮", "第五轮"];
+const storeStatusAliases: Record<string, StoreClueStatus> = {
+  active_unfollowed: "待跟进",
+  active_followed: "已跟进",
+  expired_pending_reassign: "超期失效",
+  failed_pending_reassign: "主动战败",
+  lost: "主动战败",
+  failed: "主动战败",
+  converted: "已核销",
+  refunded: "已退款",
+};
+
+const editableStatuses = new Set<StoreClueStatus>(["待跟进", "已跟进"]);
+const invalidStatuses = new Set<StoreClueStatus>(["超期失效", "主动战败"]);
 
 function labelFor(value: string | null | undefined, labels: Record<string, string>) {
   if (!value) {
@@ -71,24 +99,8 @@ function displayValue(value: string | null | undefined): string {
   return value ? value : "-";
 }
 
-function roundLabel(index: number, total: number): string {
-  const base = roundNames[index] ?? `第${index + 1}轮`;
-  return index === total - 1 ? `${base} / 当前` : base;
-}
-
-function formatRemainingSeconds(value: number | null): string {
-  if (value === null) {
-    return "";
-  }
-  if (value <= 0) {
-    return "0分钟";
-  }
-  const hours = Math.floor(value / 3600);
-  const minutes = Math.ceil((value % 3600) / 60);
-  if (hours <= 0) {
-    return `${minutes}分钟`;
-  }
-  return `${hours}小时${minutes > 0 ? `${minutes}分钟` : ""}`;
+function roundLabel(value: number | null | undefined): string {
+  return value ? `第${value}轮` : "-";
 }
 
 function optionList(values: string[] | undefined, labels?: Record<string, string>) {
@@ -96,6 +108,169 @@ function optionList(values: string[] | undefined, labels?: Record<string, string
     value,
     label: labels?.[value] ?? value,
   }));
+}
+
+function normalizeStoreStatus(value: string | null | undefined) {
+  if (!value) {
+    return null;
+  }
+  if (
+    [
+      "待跟进",
+      "已跟进",
+      "超期失效",
+      "主动战败",
+      "已核销",
+      "已退款",
+      "不可跟进",
+    ].includes(value)
+  ) {
+    return value as StoreClueStatus;
+  }
+  return storeStatusAliases[value] ?? null;
+}
+
+function getStoreDisplayStatus(row: ClueAssignmentRound): StoreClueStatus {
+  const explicitStatus = normalizeStoreStatus(row.store_display_status);
+  if (explicitStatus) {
+    return explicitStatus;
+  }
+  if (row.lead_status === "converted") {
+    return "已核销";
+  }
+  if (row.lead_status === "refunded" || row.order_current_status === "refunded") {
+    return "已退款";
+  }
+  if (row.round_status === "expired_pending_reassign") {
+    return "超期失效";
+  }
+  if (
+    row.round_status === "failed_pending_reassign" ||
+    row.follow_result === "lost" ||
+    row.follow_result === "failed"
+  ) {
+    return "主动战败";
+  }
+  if (row.lead_status === "active" && row.round_status === "active_followed") {
+    return "已跟进";
+  }
+  if (row.lead_status === "active" && row.round_status === "active_unfollowed") {
+    return "待跟进";
+  }
+  if (row.lead_status === "closed") {
+    return "不可跟进";
+  }
+  return "不可跟进";
+}
+
+function canViewFullPhone(row: ClueAssignmentRound): boolean {
+  return (
+    row.is_current_round &&
+    row.round_effective_status === "active" &&
+    editableStatuses.has(getStoreDisplayStatus(row))
+  );
+}
+
+function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
+  const status = getStoreDisplayStatus(row);
+  if (status === "超期失效") {
+    return "已失效不可跟进";
+  }
+  if (status === "主动战败") {
+    return "已主动战败，不可跟进";
+  }
+  if (status === "已核销") {
+    return "订单已完成";
+  }
+  return "不可跟进";
+}
+
+function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
+  const status = getStoreDisplayStatus(row);
+  if (status === "超期失效") {
+    return "已失效不可跟进";
+  }
+  if (status === "主动战败") {
+    return "线索已战败，不可继续跟进";
+  }
+  if (status === "已核销") {
+    return "订单已完成";
+  }
+  if (status === "已退款") {
+    return "订单已退款，不可跟进";
+  }
+  return "不可跟进";
+}
+
+function formatInvalidatedAt(row: ClueAssignmentRound): string {
+  const status = getStoreDisplayStatus(row);
+  if (status === "超期失效") {
+    return row.expires_at ? formatDateTime(row.expires_at) : "";
+  }
+  if (status === "主动战败") {
+    return formatDateTime(row.expires_at ?? row.followed_at ?? row.reassigned_at);
+  }
+  return "";
+}
+
+function invalidationReason(row: ClueAssignmentRound): string {
+  const status = getStoreDisplayStatus(row);
+  if (status === "超期失效") {
+    return "超期失效";
+  }
+  if (status === "主动战败") {
+    return labelFor(row.reassign_reason, reassignReasonLabels);
+  }
+  return "-";
+}
+
+function statusClassName(status: StoreClueStatus): string {
+  const tone =
+    status === "待跟进"
+      ? "pending"
+      : status === "已跟进"
+        ? "followed"
+        : status === "已核销"
+          ? "converted"
+          : invalidStatuses.has(status)
+            ? "invalid"
+            : "closed";
+  return `status-chip status-chip--${tone}`;
+}
+
+function currentDetailRound(
+  detail: ClueOrderDetail | null,
+  selectedRound: ClueAssignmentRound | null,
+  selectedRoundId: string | null,
+): ClueAssignmentRound | null {
+  if (!detail) {
+    return selectedRound;
+  }
+  return (
+    detail.rounds.find((round) => round.assignment_round_id === selectedRoundId) ??
+    detail.rounds.find((round) => round.round_effective_status === "active") ??
+    detail.rounds[detail.rounds.length - 1] ??
+    selectedRound
+  );
+}
+
+function roundForRecord(
+  detail: ClueOrderDetail,
+  record: ClueFollowUpRecord,
+): ClueAssignmentRound | undefined {
+  return detail.rounds.find(
+    (round) => round.assignment_round_id === record.assignment_round_id,
+  );
+}
+
+function storeScopeLabel(
+  assignedStoreId: string | null | undefined,
+  selectedStoreId: string | null | undefined,
+): string {
+  if (!selectedStoreId || assignedStoreId === selectedStoreId) {
+    return "本店";
+  }
+  return "其他门店";
 }
 
 export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
@@ -121,9 +296,17 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [detailSource, setDetailSource] = useState("");
+  const [detailReloadIndex, setDetailReloadIndex] = useState(0);
   const [revealedPhones, setRevealedPhones] = useState<Record<string, string>>({});
   const [revealingOrderId, setRevealingOrderId] = useState<string | null>(null);
+  const [copyingOrderId, setCopyingOrderId] = useState<string | null>(null);
   const [phoneRevealError, setPhoneRevealError] = useState<string | null>(null);
+  const [phoneActionMessage, setPhoneActionMessage] = useState<string | null>(null);
+  const [followResult, setFollowResult] =
+    useState<ClueFollowUpResult>("unreachable");
+  const [followNote, setFollowNote] = useState("");
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [savingFollowUp, setSavingFollowUp] = useState(false);
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
@@ -177,15 +360,28 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     filterResource.loading || overviewResource.loading || roundsResource.loading;
   const selectedOrderId = selectedRound?.order_id ?? null;
   const selectedRoundId = selectedRound?.assignment_round_id ?? null;
-  const detailProductLabel = detail
-    ? [detail.product_name, detail.product_type].filter(Boolean).join(" / ") ||
-      detail.product_id ||
+  const selectedStoreId = selectedRound?.assigned_store_id ?? null;
+  const activeDetailRound = currentDetailRound(
+    detail,
+    selectedRound,
+    selectedRoundId,
+  );
+  const activeDetailStatus = activeDetailRound
+    ? getStoreDisplayStatus(activeDetailRound)
+    : null;
+  const detailProductName =
+    detail?.product_name ?? activeDetailRound?.product_name ?? "-";
+  const detailProductType =
+    detail?.product_type ?? activeDetailRound?.product_type ?? "-";
+  const canShowActiveDetailPhone = activeDetailRound
+    ? canViewFullPhone(activeDetailRound)
+    : false;
+  const detailPhoneValue = activeDetailRound
+    ? (canShowActiveDetailPhone ? revealedPhones[activeDetailRound.order_id] : undefined) ||
+      activeDetailRound.phone_masked ||
       "-"
     : "-";
-  const detailRegionLabel = detail
-    ? [detail.assigned_province, detail.assigned_city].filter(Boolean).join(" / ") ||
-      "-"
-    : "-";
+  const canEditFollowUp = canShowActiveDetailPhone;
 
   const openClueDetail = (row: ClueAssignmentRound) => {
     setSelectedRound(row);
@@ -197,49 +393,113 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     setDetailError(null);
     setDetailSource("");
     setDetailLoading(false);
+    setPhoneRevealError(null);
+    setPhoneActionMessage(null);
+    setFollowUpError(null);
   };
 
-  const revealPhone = async (orderId: string) => {
-    if (revealedPhones[orderId]) {
-      return;
+  const fetchFullPhone = async (row: ClueAssignmentRound) => {
+    if (!canViewFullPhone(row)) {
+      setPhoneRevealError(getPhoneUnavailableReason(row));
+      return null;
     }
+    if (revealedPhones[row.order_id]) {
+      return revealedPhones[row.order_id];
+    }
+
     setPhoneRevealError(null);
-    setRevealingOrderId(orderId);
+    setPhoneActionMessage(null);
+    setRevealingOrderId(row.order_id);
     try {
-      const result = await fetchClueOrderPhone(orderId);
+      const result = await fetchClueOrderPhone(row.order_id);
+      const fullPhone = result.data.phone;
       setRevealedPhones((current) => ({
         ...current,
-        [orderId]: result.data.phone,
+        [row.order_id]: fullPhone,
       }));
-    } catch (error: unknown) {
-      setPhoneRevealError(
-        error instanceof Error ? error.message : "手机号暂不可查看",
-      );
+      return fullPhone;
+    } catch {
+      setPhoneRevealError("完整手机号暂不可查看");
+      return null;
     } finally {
       setRevealingOrderId(null);
     }
   };
 
-  const renderPhoneContact = (orderId: string, phoneMasked: string) => {
-    const revealedPhone = revealedPhones[orderId];
-    const displayPhone = revealedPhone || phoneMasked || "-";
-    const canReveal = Boolean(phoneMasked) && !revealedPhone;
+  const revealPhone = async (row: ClueAssignmentRound) => {
+    await fetchFullPhone(row);
+  };
+
+  const copyPhone = async (row: ClueAssignmentRound) => {
+    setCopyingOrderId(row.order_id);
+    try {
+      const fullPhone = await fetchFullPhone(row);
+      if (!fullPhone) {
+        return;
+      }
+      await navigator.clipboard.writeText(fullPhone);
+      setPhoneActionMessage("完整手机号已复制");
+    } catch {
+      setPhoneRevealError("完整手机号复制失败");
+    } finally {
+      setCopyingOrderId(null);
+    }
+  };
+
+  const renderPhoneContact = (
+    row: ClueAssignmentRound,
+    mode: "table" | "panel" = "table",
+  ) => {
+    const mayRevealFullPhone = canViewFullPhone(row);
+    const revealedPhone = mayRevealFullPhone ? revealedPhones[row.order_id] : undefined;
+    const displayPhone = revealedPhone || row.phone_masked || "-";
+    const disabled = revealingOrderId === row.order_id || copyingOrderId === row.order_id;
+    if (!mayRevealFullPhone) {
+      return (
+        <span className="phone-reveal phone-reveal--disabled">
+          <span className="mono-cell">{displayPhone}</span>
+          <span className="phone-reveal__reason">
+            {getPhoneUnavailableReason(row)}
+          </span>
+        </span>
+      );
+    }
+
     return (
       <span className="phone-reveal">
         <span className="mono-cell">{displayPhone}</span>
-        {canReveal ? (
+        {!revealedPhone ? (
           <button
             className="link-button"
-            disabled={revealingOrderId === orderId}
+            disabled={disabled}
             onClick={(event) => {
               event.stopPropagation();
-              void revealPhone(orderId);
+              void revealPhone(row);
             }}
             type="button"
           >
-            {revealingOrderId === orderId ? "读取中" : "查看"}
+            {revealingOrderId === row.order_id
+              ? "读取中"
+              : mode === "panel"
+                ? "查看完整手机号"
+                : "查看"}
           </button>
         ) : null}
+        <button
+          className="link-button"
+          disabled={disabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            void copyPhone(row);
+          }}
+          type="button"
+        >
+          {copyingOrderId === row.order_id
+            ? "复制中"
+            : mode === "panel"
+              ? "复制完整手机号"
+              : "复制"}
+        </button>
       </span>
     );
   };
@@ -280,7 +540,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedOrderId]);
+  }, [selectedOrderId, detailReloadIndex]);
 
   useEffect(() => {
     if (!selectedOrderId) {
@@ -297,6 +557,14 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [selectedOrderId]);
 
+  useEffect(() => {
+    setFollowResult("unreachable");
+    setFollowNote("");
+    setFollowUpError(null);
+    setPhoneRevealError(null);
+    setPhoneActionMessage(null);
+  }, [selectedOrderId]);
+
   const resetFilters = () => {
     setAssignedDateStart("");
     setAssignedDateEnd("");
@@ -307,70 +575,88 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     setPage(1);
   };
 
+  const handleSaveFollowUp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!detail || !activeDetailRound || !canEditFollowUp) {
+      return;
+    }
+
+    setSavingFollowUp(true);
+    setFollowUpError(null);
+    setPhoneActionMessage(null);
+    try {
+      await saveClueFollowUp(detail.order_id, {
+        assignment_round_id: activeDetailRound.assignment_round_id,
+        follow_result: followResult,
+        note: followNote.trim() || null,
+      });
+      if (followResult === "lost") {
+        setRevealedPhones((current) => {
+          if (!current[detail.order_id]) {
+            return current;
+          }
+          const next = { ...current };
+          delete next[detail.order_id];
+          return next;
+        });
+      }
+      setFollowNote("");
+      setPhoneActionMessage("跟进已保存");
+      setDetailReloadIndex((current) => current + 1);
+      overviewResource.reload();
+      roundsResource.reload();
+    } catch (error: unknown) {
+      setFollowUpError(error instanceof Error ? error.message : "跟进保存失败");
+    } finally {
+      setSavingFollowUp(false);
+    }
+  };
+
   const columns: Column<ClueAssignmentRound>[] = [
     {
-      key: "round_effective_status",
-      title: "当前轮次",
-      minWidth: 110,
-      render: (row) => (
-        <span className="status-chip">
-          {row.round_effective_status === "active" ? "当前生效" : "历史轮次"}
-        </span>
-      ),
+      key: "phone",
+      title: "联系方式",
+      minWidth: 190,
+      sticky: true,
+      render: (row) => renderPhoneContact(row),
     },
     {
-      key: "round_id",
-      title: "线索轮次ID",
-      minWidth: 180,
-      sticky: true,
+      key: "store_display_status",
+      title: "线索状态",
+      minWidth: 110,
+      render: (row) => {
+        const status = getStoreDisplayStatus(row);
+        return <span className={statusClassName(status)}>{status}</span>;
+      },
+    },
+    {
+      key: "round_no",
+      title: "分配轮次",
+      minWidth: 100,
+      render: (row) => roundLabel(row.round_no),
+    },
+    {
+      key: "followed_at",
+      title: "本轮跟进时间",
+      minWidth: 150,
+      render: (row) => formatDateTime(row.followed_at),
+    },
+    {
+      key: "product_name",
+      title: "商品名称",
+      minWidth: 230,
       render: (row) => (
         <button
-          className="link-button mono-cell"
+          className="link-button clue-product-link"
           onClick={(event) => {
             event.stopPropagation();
             openClueDetail(row);
           }}
           type="button"
         >
-          {row.assignment_round_id}
+          {displayValue(row.product_name)}
         </button>
       ),
-    },
-    {
-      key: "lead_status",
-      title: "线索状态",
-      minWidth: 110,
-      render: (row) => (
-        <span className="status-chip">{labelFor(row.lead_status, leadStatusLabels)}</span>
-      ),
-    },
-    {
-      key: "round_status",
-      title: "轮次状态",
-      minWidth: 150,
-      render: (row) => (
-        <span className="status-chip">
-          {labelFor(row.round_status, roundStatusLabels)}
-        </span>
-      ),
-    },
-    {
-      key: "assigned_at",
-      title: "线索生成时间",
-      minWidth: 150,
-      render: (row) => formatDateTime(row.assigned_at),
-    },
-    {
-      key: "remaining",
-      title: "距离再分配剩余时间",
-      minWidth: 150,
-      render: (row) => formatRemainingSeconds(row.remaining_reassign_seconds),
-    },
-    {
-      key: "phone",
-      title: "手机号",
-      minWidth: 150,
-      render: (row) => renderPhoneContact(row.order_id, row.phone_masked),
     },
     {
       key: "product_type",
@@ -379,35 +665,16 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       render: (row) => row.product_type || "-",
     },
     {
-      key: "author",
-      title: "达人/作者",
-      minWidth: 130,
-      render: (row) => row.author_nickname || "-",
-    },
-    {
-      key: "followed_at",
-      title: "跟进时间",
+      key: "assigned_at",
+      title: "线索生成时间",
       minWidth: 150,
-      render: (row) => formatDateTime(row.followed_at),
+      render: (row) => formatDateTime(row.assigned_at),
     },
     {
-      key: "follow_result",
-      title: "跟进结果",
-      minWidth: 120,
-      render: (row) => labelFor(row.follow_result, followResultLabels),
-    },
-    {
-      key: "reassigned_at",
-      title: "再分配时间",
+      key: "expires_at",
+      title: "本轮失效时间",
       minWidth: 150,
-      render: (row) => formatDateTime(row.reassigned_at),
-    },
-    {
-      key: "verified",
-      title: "自店核销",
-      align: "center",
-      minWidth: 100,
-      render: (row) => (row.is_self_store_verified ? "是" : "否"),
+      render: (row) => formatInvalidatedAt(row),
     },
   ];
 
@@ -415,8 +682,8 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     <div className="page-stack">
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Clue allocation center</p>
-          <h1>线索跟进分配中心</h1>
+          <p className="eyebrow">Clue follow-up center</p>
+          <h1>线索跟进中心</h1>
         </div>
         <span className="source-pill">
           {resourceSourceLabel(roundsResource.data, roundsResource.loading)}
@@ -472,7 +739,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             ))}
           </select>
         </FilterField>
-        <FilterField label="轮次状态">
+        <FilterField label="处理状态">
           <select
             onChange={(event) => {
               setPage(1);
@@ -481,7 +748,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             value={roundStatus}
           >
             <option value="">全部</option>
-            {optionList(meta?.round_statuses, roundStatusLabels).map((option) => (
+            {optionList(meta?.round_statuses, followStateLabels).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>
@@ -537,8 +804,8 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             value={formatInteger(overview.total_clues)}
           />
           <MetricCard
-            label="有效线索总数"
-            meta="当前仍需门店处理"
+            label="可跟进线索"
+            meta="仍需门店处理"
             tone="blue"
             value={formatInteger(overview.active_clues)}
           />
@@ -554,14 +821,14 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             value={formatPercent(overview.follow_success_rate)}
           />
           <MetricCard
-            label="自店核销比例"
-            meta="成功且本店核销"
+            label="核销比例"
+            meta="成功且完成核销"
             tone="blue"
             value={formatPercent(overview.self_store_verify_rate)}
           />
           <MetricCard
-            label="待再分配"
-            meta="失败或超时待处理"
+            label="待处理"
+            meta="战败或超期"
             tone="amber"
             value={formatInteger(overview.pending_reassign_count)}
           />
@@ -572,7 +839,7 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
         <div className="section-title">
           <div>
             <h2>线索明细</h2>
-            <p>订单粒度轮次记录，手机号脱敏展示。</p>
+            <p>店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</p>
           </div>
           {pagination ? (
             <span className="source-pill">
@@ -636,15 +903,15 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
           <section
             aria-labelledby="clue-detail-title"
             aria-modal="true"
-            className="clue-detail-modal"
+            className="clue-detail-modal clue-followup-detail"
             role="dialog"
           >
-            <header className="clue-detail-modal__header">
+            <header className="clue-followup-detail__header">
               <div>
-                <p className="eyebrow">Clue flow</p>
-                <h2 id="clue-detail-title">线索流转详情</h2>
+                <p className="eyebrow">Follow-up detail</p>
+                <h2 id="clue-detail-title">线索跟进详情</h2>
               </div>
-              <div className="clue-detail-modal__actions">
+              <div className="clue-followup-detail__actions">
                 <span className="source-pill">
                   {detailLoading ? "加载中" : detailSource || "api"}
                 </span>
@@ -660,92 +927,242 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             </header>
 
             {detailLoading ? (
-              <ResourcePanel>正在加载线索流转...</ResourcePanel>
+              <ResourcePanel>正在加载线索跟进详情...</ResourcePanel>
             ) : detailError ? (
               <ResourcePanel tone="error">
                 线索详情暂不可用：{detailError}
               </ResourcePanel>
-            ) : detail ? (
-              <div className="clue-detail-body">
+            ) : detail && activeDetailRound ? (
+              <div className="clue-followup-detail__body">
                 {phoneRevealError ? (
                   <div className="resource-notice resource-notice--warning">
                     {phoneRevealError}
                   </div>
                 ) : null}
-                <div className="clue-detail-summary">
-                  <div>
-                    <span>联系方式</span>
-                    <strong>
-                      {renderPhoneContact(detail.order_id, detail.phone_masked)}
-                    </strong>
+                {phoneActionMessage ? (
+                  <div className="resource-notice">{phoneActionMessage}</div>
+                ) : null}
+                {followUpError ? (
+                  <div className="resource-notice resource-notice--error">
+                    {followUpError}
                   </div>
-                  <div>
-                    <span>涉及商品</span>
-                    <strong>{detailProductLabel}</strong>
-                  </div>
-                  <div>
-                    <span>订单ID</span>
-                    <strong className="mono-cell">{detail.order_id}</strong>
-                  </div>
-                  <div>
-                    <span>城市</span>
-                    <strong>{detailRegionLabel}</strong>
-                  </div>
-                </div>
+                ) : null}
+                <div className="clue-followup-detail__grid">
+                  <main className="clue-followup-detail__main">
+                    <section className="clue-followup-detail__summary">
+                      <div>
+                        <span>线索状态</span>
+                        <strong className={statusClassName(activeDetailStatus ?? "不可跟进")}>
+                          {activeDetailStatus}
+                        </strong>
+                      </div>
+                      <div>
+                        <span>联系方式</span>
+                        <strong className="mono-cell">{detailPhoneValue}</strong>
+                      </div>
+                      <div>
+                        <span>订单ID</span>
+                        <strong className="mono-cell">{detail.order_id}</strong>
+                      </div>
+                      <div>
+                        <span>商品类型</span>
+                        <strong>{displayValue(detailProductType)}</strong>
+                      </div>
+                      <div>
+                        <span>线索生成时间</span>
+                        <strong>{formatDateTime(activeDetailRound.assigned_at)}</strong>
+                      </div>
+                      <div>
+                        <span>分配轮次</span>
+                        <strong>{roundLabel(activeDetailRound.round_no)}</strong>
+                      </div>
+                    </section>
 
-                {detail.rounds.length ? (
-                  <ol className="clue-flow-list">
-                    {detail.rounds.map((round, index) => (
-                      <li
-                        className={[
-                          "clue-flow-item",
-                          round.assignment_round_id === selectedRoundId
-                            ? "is-selected"
-                            : "",
-                        ]
-                          .filter(Boolean)
-                          .join(" ")}
-                        key={round.assignment_round_id}
-                      >
-                        <div className="clue-flow-item__header">
-                          <div>
-                            <span className="clue-flow-round">
-                              {roundLabel(index, detail.rounds.length)}
-                            </span>
-                            <strong className="mono-cell">
-                              {round.assignment_round_id}
-                            </strong>
-                          </div>
-                          <span className="status-chip">
-                            {labelFor(round.round_status, roundStatusLabels)}
-                          </span>
-                        </div>
-                        <dl className="clue-flow-fields">
-                          <div>
-                            <dt>线索生成时间</dt>
-                            <dd>{formatDateTime(round.assigned_at)}</dd>
-                          </div>
-                          <div>
-                            <dt>再分配原因</dt>
-                            <dd>
-                              {labelFor(round.reassign_reason, reassignReasonLabels)}
-                            </dd>
-                          </div>
-                          <div>
-                            <dt>跟进时间</dt>
-                            <dd>{formatDateTime(round.followed_at)}</dd>
-                          </div>
-                          <div>
-                            <dt>跟进结果</dt>
-                            <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
-                          </div>
-                        </dl>
-                      </li>
-                    ))}
-                  </ol>
-                ) : (
-                  <ResourcePanel>暂无线索流转历史。</ResourcePanel>
-                )}
+                    <section className="clue-followup-product">
+                      <span>完整商品名称</span>
+                      <strong>{displayValue(detailProductName)}</strong>
+                    </section>
+
+                    <section className="clue-followup-history">
+                      <div className="clue-followup-section-title">
+                        <h3>跟进历史</h3>
+                      </div>
+                      {detail.follow_up_records.length ? (
+                        <ol className="clue-followup-timeline">
+                          {detail.follow_up_records.map((record) => {
+                            const round = roundForRecord(detail, record);
+                            const status = round
+                              ? getStoreDisplayStatus(round)
+                              : "已跟进";
+                            return (
+                              <li
+                                className="clue-followup-timeline__item"
+                                key={record.follow_up_record_id}
+                              >
+                                <div className="clue-followup-timeline__head">
+                                  <div>
+                                    <span>
+                                      {roundLabel(record.round_no)} ·{" "}
+                                      {storeScopeLabel(
+                                        record.assigned_store_id,
+                                        selectedStoreId,
+                                      )}
+                                    </span>
+                                    <strong>{labelFor(record.follow_result, followResultLabels)}</strong>
+                                  </div>
+                                  <span className={statusClassName(status)}>
+                                    {status}
+                                  </span>
+                                </div>
+                                <dl className="clue-followup-history-fields">
+                                  <div>
+                                    <dt>本轮跟进时间</dt>
+                                    <dd>{formatDateTime(record.created_at)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>跟进结果</dt>
+                                    <dd>{labelFor(record.follow_result, followResultLabels)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>本次跟进结论/备注</dt>
+                                    <dd>{displayValue(record.note)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>本轮失效时间</dt>
+                                    <dd>{round ? displayValue(formatInvalidatedAt(round)) : "-"}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>失效原因</dt>
+                                    <dd>{round ? invalidationReason(round) : "-"}</dd>
+                                  </div>
+                                </dl>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : detail.rounds.length ? (
+                        <ol className="clue-followup-timeline">
+                          {detail.rounds.map((round) => {
+                            const status = getStoreDisplayStatus(round);
+                            return (
+                              <li
+                                className="clue-followup-timeline__item"
+                                key={round.assignment_round_id}
+                              >
+                                <div className="clue-followup-timeline__head">
+                                  <div>
+                                    <span>
+                                      {roundLabel(round.round_no)} ·{" "}
+                                      {storeScopeLabel(
+                                        round.assigned_store_id,
+                                        selectedStoreId,
+                                      )}
+                                    </span>
+                                    <strong>{status}</strong>
+                                  </div>
+                                  <span className={statusClassName(status)}>
+                                    {status}
+                                  </span>
+                                </div>
+                                <dl className="clue-followup-history-fields">
+                                  <div>
+                                    <dt>本轮跟进时间</dt>
+                                    <dd>{formatDateTime(round.followed_at)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>跟进结果</dt>
+                                    <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>本次跟进结论/备注</dt>
+                                    <dd>-</dd>
+                                  </div>
+                                  <div>
+                                    <dt>本轮失效时间</dt>
+                                    <dd>{displayValue(formatInvalidatedAt(round))}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>失效原因</dt>
+                                    <dd>{invalidationReason(round)}</dd>
+                                  </div>
+                                </dl>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : (
+                        <ResourcePanel>暂无线索跟进历史。</ResourcePanel>
+                      )}
+                    </section>
+                  </main>
+
+                  <aside className="clue-followup-detail__side">
+                    <section className="clue-followup-side-section">
+                      <h3>联系方式</h3>
+                      {renderPhoneContact(activeDetailRound, "panel")}
+                    </section>
+
+                    <section className="clue-followup-side-section">
+                      <h3>跟进操作</h3>
+                      {canEditFollowUp ? (
+                        <form className="clue-followup-form" onSubmit={handleSaveFollowUp}>
+                          <fieldset>
+                            <legend>跟进结果</legend>
+                            <label>
+                              <input
+                                checked={followResult === "unreachable"}
+                                name="follow_result"
+                                onChange={() => setFollowResult("unreachable")}
+                                type="radio"
+                                value="unreachable"
+                              />
+                              未接通
+                            </label>
+                            <label>
+                              <input
+                                checked={followResult === "lost"}
+                                name="follow_result"
+                                onChange={() => setFollowResult("lost")}
+                                type="radio"
+                                value="lost"
+                              />
+                              线索战败
+                            </label>
+                            <label>
+                              <input
+                                checked={followResult === "success"}
+                                name="follow_result"
+                                onChange={() => setFollowResult("success")}
+                                type="radio"
+                                value="success"
+                              />
+                              跟进成功
+                            </label>
+                          </fieldset>
+                          <label className="clue-followup-note">
+                            <span>本次跟进结论/备注</span>
+                            <textarea
+                              onChange={(event) => setFollowNote(event.target.value)}
+                              rows={5}
+                              value={followNote}
+                            />
+                          </label>
+                          <button
+                            className="primary-button"
+                            disabled={savingFollowUp}
+                            type="submit"
+                          >
+                            {savingFollowUp ? "保存中" : "保存跟进"}
+                          </button>
+                        </form>
+                      ) : (
+                        <ResourcePanel>
+                          {getFollowUpUnavailableReason(activeDetailRound)}
+                        </ResourcePanel>
+                      )}
+                    </section>
+                  </aside>
+                </div>
               </div>
             ) : null}
           </section>

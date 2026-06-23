@@ -20,6 +20,7 @@ def test_production_mvp_tables_are_declared() -> None:
         "settlement_order_details",
         "clue_center_orders",
         "clue_assignment_rounds",
+        "clue_follow_up_records",
         "clue_reassign_rule_settings",
         "agg_store_ranking",
         "agg_store_monthly_settlement",
@@ -41,6 +42,20 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in tables["clue_center_orders"].primary_key] == ["order_id"]
     assert "phone_plain" in tables["clue_center_orders"].columns
     assert [column.name for column in tables["clue_assignment_rounds"].primary_key] == ["assignment_round_id"]
+    assert [column.name for column in tables["clue_follow_up_records"].primary_key] == ["follow_up_record_id"]
+    follow_up_columns = tables["clue_follow_up_records"].columns
+    for column_name in (
+        "order_id",
+        "assignment_round_id",
+        "round_no",
+        "assigned_store_id",
+        "follow_result",
+        "note",
+        "operator_user_id",
+        "operator_username",
+        "created_at",
+    ):
+        assert column_name in follow_up_columns
     assert [column.name for column in tables["clue_reassign_rule_settings"].primary_key] == ["setting_key"]
     assert [column.name for column in tables["users"].primary_key] == ["user_id"]
     assert [column.name for column in tables["user_store_scopes"].primary_key] == [
@@ -57,3 +72,12 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     monthly_pk = [column.name for column in tables["agg_store_monthly_settlement"].primary_key]
     assert ranking_pk == ["month", "product_type", "store_id"]
     assert monthly_pk == ["month", "store_id", "product_type"]
+
+    follow_up_indexes = {
+        tuple(index.columns.keys())
+        for index in tables["clue_follow_up_records"].indexes
+    }
+    assert ("order_id",) in follow_up_indexes
+    assert ("assignment_round_id",) in follow_up_indexes
+    assert ("assigned_store_id",) in follow_up_indexes
+    assert ("created_at",) in follow_up_indexes

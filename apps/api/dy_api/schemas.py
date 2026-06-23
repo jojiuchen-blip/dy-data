@@ -328,6 +328,7 @@ class ClueAssignmentRoundRow(BaseModel):
     round_no: int = 1
     lead_status: str
     order_current_status: str = ""
+    store_display_status: str = ""
     current_assignment_round_id: str | None = None
     current_round_no: int = 0
     current_round_status: str = ""
@@ -342,6 +343,7 @@ class ClueAssignmentRoundRow(BaseModel):
     assigned_store_id: str | None = None
     assigned_store_name: str | None = None
     phone_masked: str = ""
+    product_name: str | None = None
     product_type: str | None = None
     author_nickname: str | None = None
     followed_at: datetime | None = None
@@ -359,6 +361,43 @@ class ClueAssignmentRoundData(BaseModel):
     pagination: "Pagination"
 
 
+class ClueFollowUpRequest(BaseModel):
+    assignment_round_id: str
+    follow_result: Literal["unreachable", "lost", "success"]
+    note: str | None = None
+
+    @field_validator("assignment_round_id")
+    def non_empty_assignment_round_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("assignment_round_id is required")
+        return value
+
+    @field_validator("note")
+    def normalize_note(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = value.strip()
+        return value or None
+
+
+class ClueFollowUpRecordRow(BaseModel):
+    follow_up_record_id: str
+    order_id: str
+    assignment_round_id: str
+    round_no: int
+    assigned_store_id: str | None = None
+    follow_result: Literal["unreachable", "lost", "success"]
+    note: str | None = None
+    operator_user_id: str | None = None
+    operator_username: str | None = None
+    created_at: datetime
+
+
+class ClueFollowUpResponseData(ClueFollowUpRecordRow):
+    pass
+
+
 class ClueOrderDetailData(BaseModel):
     order_id: str
     canonical_clue_id: str | None = None
@@ -371,6 +410,7 @@ class ClueOrderDetailData(BaseModel):
     assigned_city: str | None = None
     assigned_province: str | None = None
     rounds: list[ClueAssignmentRoundRow] = Field(default_factory=list)
+    follow_up_records: list[ClueFollowUpRecordRow] = Field(default_factory=list)
 
 
 class CluePhoneRevealData(BaseModel):

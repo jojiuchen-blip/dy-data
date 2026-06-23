@@ -418,6 +418,7 @@ export interface ClueAssignmentRound {
   assignment_round_id: string;
   order_id: string;
   round_no: number;
+  store_display_status?: string | null;
   lead_status: string;
   order_current_status: string;
   current_assignment_round_id: string | null;
@@ -434,6 +435,7 @@ export interface ClueAssignmentRound {
   assigned_store_id: string | null;
   assigned_store_name: string | null;
   phone_masked: string;
+  product_name?: string | null;
   product_type: string | null;
   author_nickname: string | null;
   followed_at: string | null;
@@ -451,6 +453,27 @@ export interface ClueAssignmentRoundData {
   pagination: Pagination;
 }
 
+export type ClueFollowUpResult = "unreachable" | "lost" | "success";
+
+export interface ClueFollowUpRecord {
+  follow_up_record_id: string;
+  order_id: string;
+  assignment_round_id: string;
+  round_no: number;
+  assigned_store_id: string | null;
+  follow_result: "unreachable" | "lost" | "success";
+  note: string | null;
+  operator_user_id: string | null;
+  operator_username: string | null;
+  created_at: string;
+}
+
+export interface ClueFollowUpPayload {
+  assignment_round_id: string;
+  follow_result: "unreachable" | "lost" | "success";
+  note: string | null;
+}
+
 export interface ClueOrderDetail {
   order_id: string;
   canonical_clue_id: string | null;
@@ -463,6 +486,7 @@ export interface ClueOrderDetail {
   assigned_city: string | null;
   assigned_province: string | null;
   rounds: ClueAssignmentRound[];
+  follow_up_records: ClueFollowUpRecord[];
 }
 
 export interface CluePhoneReveal {

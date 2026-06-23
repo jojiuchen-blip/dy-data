@@ -7,6 +7,8 @@ from dy_api.routes._data import get_data_store, generated_at
 from dy_api.schemas import (
     ClueAssignmentRoundData,
     ClueFilterMetadata,
+    ClueFollowUpRequest,
+    ClueFollowUpResponseData,
     ClueOverviewMetrics,
     ClueOrderDetailData,
     CluePhoneRevealData,
@@ -28,6 +30,15 @@ def _require_available_store(store):
 
 def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
     return None if current_user.has_global_data_access else current_user.store_ids
+
+
+def _operation_actor(current_user: AuthContext) -> dict:
+    return {
+        "role": current_user.role,
+        "store_ids": current_user.store_ids,
+        "user_id": current_user.user_id,
+        "username": current_user.username,
+    }
 
 
 @router.get("/clues/filters")
@@ -135,6 +146,42 @@ def clue_order_detail(
     }
 
 
+@router.post("/clues/orders/{order_id}/follow-up")
+def clue_order_follow_up(
+    order_id: str,
+    payload: ClueFollowUpRequest,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    result_status, record = store.save_clue_follow_up(
+        order_id,
+        dump_model(payload),
+        _operation_actor(current_user),
+    )
+    if result_status == "forbidden":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Current clue round is not writable",
+        )
+    if result_status == "not_found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Clue order not found",
+        )
+    if result_status == "conflict":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Current clue round is not active",
+        )
+    data = ClueFollowUpResponseData(**(record or {}))
+    store.session.commit()
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
 @router.get("/clues/orders/{order_id}/phone")
 def clue_order_phone(
     order_id: str,
@@ -142,7 +189,7 @@ def clue_order_phone(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    payload = store.clue_order_phone(order_id, _scope_store_ids(current_user))
+    payload = store.clue_order_phone(order_id, _operation_actor(current_user))
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

@@ -19,7 +19,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 
-FOLLOWED_RESULTS = {"success", "failed", "unreachable", "continue_following"}
+FOLLOWED_RESULTS = {"success", "failed", "lost", "unreachable", "continue_following"}
 SUCCESS_RESULT = "success"
 GLOBAL_REASSIGN_RULE_KEY = "global"
 PHONE_PAYLOAD_KEYS = (
@@ -338,8 +338,9 @@ def _round_status(
     expires_at: datetime | None,
     now: datetime | None,
 ) -> tuple[str, str | None]:
-    if follow_result == "failed":
-        return "failed_pending_reassign", "follow_failed"
+    if follow_result in {"failed", "lost"}:
+        reason = "follow_lost" if follow_result == "lost" else "follow_failed"
+        return "failed_pending_reassign", reason
     if expires_at is not None and now is not None and not is_followed and now >= expires_at:
         return "expired_pending_reassign", "timeout"
     if is_followed:

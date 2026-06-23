@@ -19,6 +19,8 @@ import type {
   AdminUser,
   ClueAssignmentRoundData,
   ClueFilterMetadata,
+  ClueFollowUpPayload,
+  ClueFollowUpRecord,
   ClueOrderDetail,
   ClueOverviewFilters,
   ClueOverviewMetrics,
@@ -58,6 +60,7 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
+const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
 
 type QueryParams = Record<
   string,
@@ -166,6 +169,7 @@ async function sendJson<T>(
 async function withMockFallback<T>(
   request: () => Promise<ApiResponse<T>>,
   fallback: () => ApiResponse<T>,
+  options: { fallbackOnError?: boolean } = {},
 ): Promise<ApiLoadResult<T>> {
   if (USE_MOCKS) {
     return {
@@ -178,7 +182,7 @@ async function withMockFallback<T>(
   try {
     return { ...(await request()), usingMock: false };
   } catch (error) {
-    if (isAuthError(error)) {
+    if (isAuthError(error) || options.fallbackOnError === false) {
       throw error;
     }
     return {
@@ -362,9 +366,16 @@ function mockClueOrderDetailResponse(
   orderId: string,
 ): ApiResponse<ClueOrderDetail> {
   const stored = clueCenterResponses.order_details?.[orderId];
+  const extraRecords = mockFollowUpRecordsByOrder[orderId] ?? [];
   if (stored) {
     return {
-      ...stored,
+      data: {
+        ...stored.data,
+        follow_up_records: [
+          ...(stored.data.follow_up_records ?? []),
+          ...extraRecords,
+        ],
+      },
       meta: {
         ...stored.meta,
         generated_at: generatedAt(),
@@ -385,15 +396,68 @@ function mockClueOrderDetailResponse(
       lead_status: firstRound?.lead_status ?? "active",
       phone_masked: firstRound?.phone_masked ?? "",
       product_id: null,
-      product_name: null,
+      product_name: firstRound?.product_name ?? null,
       product_type: firstRound?.product_type ?? null,
       author_nickname: firstRound?.author_nickname ?? null,
       assigned_city: null,
       assigned_province: null,
       rounds,
+      follow_up_records: extraRecords,
     },
     meta: {
       generated_at: generatedAt(),
+      source: "mock",
+    },
+  };
+}
+
+function mockClueFollowUpResponse(
+  orderId: string,
+  payload: ClueFollowUpPayload,
+): ApiResponse<ClueFollowUpRecord> {
+  const createdAt = generatedAt();
+  const row = clueCenterResponses.assignment_rounds.data.rows.find(
+    (candidate) =>
+      candidate.order_id === orderId &&
+      candidate.assignment_round_id === payload.assignment_round_id,
+  );
+  const record: ClueFollowUpRecord = {
+    follow_up_record_id: `mock-follow-up-${orderId}-${Date.now()}`,
+    order_id: orderId,
+    assignment_round_id: payload.assignment_round_id,
+    round_no: row?.round_no ?? 1,
+    assigned_store_id: row?.assigned_store_id ?? null,
+    follow_result: payload.follow_result,
+    note: payload.note,
+    operator_user_id: "mock-store-user",
+    operator_username: "本店账号",
+    created_at: createdAt,
+  };
+
+  mockFollowUpRecordsByOrder[orderId] = [
+    ...(mockFollowUpRecordsByOrder[orderId] ?? []),
+    record,
+  ];
+
+  if (row) {
+    row.followed_at = createdAt;
+    row.follow_result = payload.follow_result;
+    row.round_status =
+      payload.follow_result === "lost"
+        ? "failed_pending_reassign"
+        : "active_followed";
+    if (payload.follow_result === "lost") {
+      row.lead_status = "pending_reassign";
+      row.expires_at = createdAt;
+      row.remaining_reassign_seconds = 0;
+      row.reassign_reason = "follow_lost";
+    }
+  }
+
+  return {
+    data: record,
+    meta: {
+      generated_at: createdAt,
       source: "mock",
     },
   };
@@ -554,6 +618,25 @@ export function fetchClueOrderPhone(
         `/clues/orders/${encodeURIComponent(orderId)}/phone`,
       ),
     () => mockClueOrderPhoneResponse(orderId),
+    { fallbackOnError: false },
+  );
+}
+
+export function saveClueFollowUp(
+  orderId: string,
+  payload: ClueFollowUpPayload,
+): Promise<ApiLoadResult<ClueFollowUpRecord>> {
+  return withMockFallback(
+    () =>
+      sendJson<ClueFollowUpRecord>(
+        `/clues/orders/${encodeURIComponent(orderId)}/follow-up`,
+        {
+          body: payload,
+          method: "POST",
+        },
+      ),
+    () => mockClueFollowUpResponse(orderId, payload),
+    { fallbackOnError: false },
   );
 }
 
