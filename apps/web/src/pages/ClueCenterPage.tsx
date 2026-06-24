@@ -1122,6 +1122,14 @@ export function ClueCenterPage({
         <button className="ghost-button" onClick={resetFilters} type="button">
           清空筛选
         </button>
+        <button
+          aria-controls="clue-filter-panel"
+          className="ghost-button clue-filter-collapse-mobile"
+          onClick={() => setMobileFiltersOpen(false)}
+          type="button"
+        >
+          收起筛选
+        </button>
       </FilterBar>
 
       {!isDetailsView && !overview && overviewResource.loading ? (

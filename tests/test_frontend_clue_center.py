@@ -118,8 +118,11 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             'label="商品类型"',
             'label="核销状态"',
             "清空筛选",
+            "收起筛选",
         ],
     )
+    assert 'className="ghost-button clue-filter-collapse-mobile"' in filter_bar
+    assert "setMobileFiltersOpen(false)" in filter_bar
 
     assert "assigned_provinces: string[];" in types_source
     assert "verification_statuses: string[];" in types_source
@@ -231,6 +234,25 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     assert "top: var(--table-sticky-top);" in desktop_clue_table_rules
     assert ".workspace-shell .page-frame .data-table th" not in styles_source
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
+
+
+def test_mobile_clue_filter_panel_has_visible_collapse_action() -> None:
+    styles_source = read_source("styles.css")
+
+    base_collapse_rules = styles_source[
+        styles_source.index(".clue-filter-collapse-mobile {") :
+        styles_source.index(".filter-field {")
+    ]
+    mobile_phone_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
+    mobile_collapse_rules = mobile_phone_rules[
+        mobile_phone_rules.index(".clue-filter-collapse-mobile {") :
+        mobile_phone_rules.index(".clue-table-view")
+    ]
+
+    assert "display: none;" in base_collapse_rules
+    assert "display: flex;" in mobile_collapse_rules
+    assert "min-height: var(--touch-target);" in mobile_collapse_rules
+    assert "justify-content: center;" in mobile_collapse_rules
 
 
 def test_admin_pages_use_shell_for_global_navigation_actions() -> None:

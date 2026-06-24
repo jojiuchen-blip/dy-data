@@ -848,6 +848,10 @@ h2 {
     minmax(130px, 0.7fr) auto;
 }
 
+.clue-filter-collapse-mobile {
+  display: none;
+}
+
 .filter-field {
   display: grid;
   gap: 6px;
@@ -2743,6 +2747,12 @@ a.metric-card:hover,
 
   .clue-filter-clear-mobile {
     min-height: 36px;
+  }
+
+  .clue-filter-collapse-mobile {
+    display: flex;
+    min-height: var(--touch-target);
+    justify-content: center;
   }
 
   .clue-table-view {
