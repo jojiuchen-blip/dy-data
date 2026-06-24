@@ -1211,10 +1211,6 @@ a.metric-card:hover,
   box-shadow: 0 1px 0 var(--line);
 }
 
-.workspace-shell .page-frame .data-table th {
-  top: var(--table-sticky-top);
-}
-
 .data-table td.is-sticky-column,
 .data-table th.is-sticky-column {
   position: sticky;
@@ -1243,6 +1239,16 @@ a.metric-card:hover,
 
 .data-table tbody tr:hover td.is-sticky-column {
   background: #fbfdf9;
+}
+
+@media (min-width: 921px) {
+  .clue-table-view .table-wrap {
+    overflow-x: visible;
+  }
+
+  .clue-table-view .data-table th {
+    top: var(--table-sticky-top);
+  }
 }
 
 .clue-card-list {
@@ -2508,10 +2514,6 @@ a.metric-card:hover,
   .workspace-subnav a {
     min-height: var(--touch-target);
     padding: 8px 12px;
-  }
-
-  .workspace-shell .page-frame .data-table th {
-    top: var(--workspace-subnav-height);
   }
 
   .workspace-shell .page-frame {

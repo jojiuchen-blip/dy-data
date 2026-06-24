@@ -201,15 +201,15 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     ]
     base_header_rules = styles_source[
         styles_source.index(".data-table th {") :
-        styles_source.index(".workspace-shell .page-frame .data-table th")
-    ]
-    shell_header_rules = styles_source[
-        styles_source.index(".workspace-shell .page-frame .data-table th") :
         styles_source.index(".data-table td.is-sticky-column")
     ]
     sticky_column_header_rules = styles_source[
         styles_source.index(".data-table th.is-sticky-column") :
         styles_source.index(".data-table td.is-sticky-column-last")
+    ]
+    desktop_clue_table_rules = styles_source[
+        styles_source.index("@media (min-width: 921px)") :
+        styles_source.index(".clue-card-list")
     ]
     mobile_shell_rules = styles_source[
         styles_source.index("@media (max-width: 920px)") :
@@ -224,9 +224,13 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     ) in root_rules
     assert "top: 0;" in base_header_rules
     assert "z-index: 3;" in base_header_rules
-    assert "top: var(--table-sticky-top);" in shell_header_rules
     assert "z-index: 5;" in sticky_column_header_rules
-    assert "top: var(--workspace-subnav-height);" in mobile_shell_rules
+    assert ".clue-table-view .table-wrap" in desktop_clue_table_rules
+    assert "overflow-x: visible;" in desktop_clue_table_rules
+    assert ".clue-table-view .data-table th" in desktop_clue_table_rules
+    assert "top: var(--table-sticky-top);" in desktop_clue_table_rules
+    assert ".workspace-shell .page-frame .data-table th" not in styles_source
+    assert "top: var(--table-sticky-top);" not in mobile_shell_rules
 
 
 def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
