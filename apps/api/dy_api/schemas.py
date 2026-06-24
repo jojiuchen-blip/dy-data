@@ -307,10 +307,12 @@ class FilterMetadata(BaseModel):
 
 class ClueFilterMetadata(BaseModel):
     assigned_stores: list[StoreOption]
+    assigned_provinces: list[str]
     assigned_cities: list[str]
     product_types: list[str]
     lead_statuses: list[str]
     round_statuses: list[str]
+    verification_statuses: list[str]
 
 
 class ClueOverviewMetrics(BaseModel):

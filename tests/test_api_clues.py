@@ -211,6 +211,60 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["remaining_reassign_seconds"] is None
 
 
+def test_clue_filters_include_store_location_and_verification_status(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _login(client)
+
+    filters = client.get("/api/v1/clues/filters")
+    assert filters.status_code == 200
+    data = filters.json()["data"]
+    assert data["assigned_provinces"] == ["Shanghai"]
+    assert data["assigned_cities"] == ["Shanghai"]
+    assert data["verification_statuses"] == [
+        "unverified",
+        "self_store_verified",
+        "other_store_verified",
+    ]
+
+
+def test_clue_rounds_can_filter_by_location_store_and_verification_status(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _login(client)
+
+    unverified = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={"province": "Shanghai", "verification_status": "unverified"},
+    )
+    assert unverified.status_code == 200
+    assert [row["order_id"] for row in unverified.json()["data"]["rows"]] == [
+        "order-2"
+    ]
+
+    verified = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={
+            "assigned_store_id": "store-1",
+            "city": "Shanghai",
+            "verification_status": "self_store_verified",
+        },
+    )
+    assert verified.status_code == 200
+    assert [row["order_id"] for row in verified.json()["data"]["rows"]] == [
+        "order-1"
+    ]
+
+    other_province = client.get(
+        "/api/v1/clues/overview",
+        params={"province": "Beijing", "verification_status": "unverified"},
+    )
+    assert other_province.status_code == 200
+    assert other_province.json()["data"]["total_clues"] == 0
+
+
 def test_clue_order_detail_returns_all_assignment_rounds(
     client: TestClient, db_session: Session
 ) -> None:

@@ -79,6 +79,45 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert summary_start < history_start < side_start
 
 
+def test_clue_center_filters_follow_store_scope_spec() -> None:
+    source = read_source("pages/ClueCenterPage.tsx")
+    types_source = read_source("types/dashboard.ts")
+
+    assert "currentUser" in source
+    assert "showStoreLocationFilters" in source
+    assert "currentUser.role !== \"store\" || currentUser.store_ids.length !== 1" in source
+    assert "province" in source
+    assert "verificationStatus" in source
+    assert "assigned_store_id" in source
+
+    filter_bar_start = source.index('<FilterBar className="clue-filter-bar">')
+    filter_bar_end = source.index("</FilterBar>", filter_bar_start)
+    filter_bar = source[filter_bar_start:filter_bar_end]
+    assert "处理状态" not in filter_bar
+    assert "roundStatus" not in filter_bar
+    assert "round_status" not in filter_bar
+    assert_in_order(
+        filter_bar,
+        [
+            "showStoreLocationFilters",
+            'label="省份"',
+            'label="城市"',
+            'label="门店"',
+            'label="线索生成日期起"',
+            'label="线索生成日期止"',
+            'label="线索状态"',
+            'label="商品类型"',
+            'label="核销状态"',
+            "清空筛选",
+        ],
+    )
+
+    assert "assigned_provinces: string[];" in types_source
+    assert "verification_statuses: string[];" in types_source
+    assert "province?: string;" in types_source
+    assert "verification_status?: string;" in types_source
+
+
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     types_source = read_source("types/dashboard.ts")
     client_source = read_source("api/client.ts")

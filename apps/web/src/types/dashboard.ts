@@ -394,15 +394,19 @@ export interface ClueOverviewFilters {
   lead_status?: string;
   round_status?: string;
   product_type?: string;
+  province?: string;
   city?: string;
+  verification_status?: string;
 }
 
 export interface ClueFilterMetadata {
   assigned_stores: StoreOption[];
+  assigned_provinces: string[];
   assigned_cities: string[];
   product_types: string[];
   lead_statuses: string[];
   round_statuses: string[];
+  verification_statuses: string[];
 }
 
 export interface ClueOverviewMetrics {

@@ -6,6 +6,7 @@
         { "store_id": "STORE-002", "store_name": "南站服务门店" },
         { "store_id": "STORE-003", "store_name": "高新区直营网点" }
       ],
+      "assigned_provinces": ["浙江", "江苏"],
       "assigned_cities": ["杭州", "宁波", "苏州"],
       "product_types": ["保养服务", "洗美服务", "轮胎服务"],
       "lead_statuses": ["active", "pending_reassign", "converted", "refunded"],
@@ -14,6 +15,11 @@
         "active_followed",
         "failed_pending_reassign",
         "expired_pending_reassign"
+      ],
+      "verification_statuses": [
+        "unverified",
+        "self_store_verified",
+        "other_store_verified"
       ]
     },
     "meta": {

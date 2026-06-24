@@ -23,10 +23,12 @@ import type {
   ClueFollowUpResult,
   ClueOrderDetail,
   ClueOverviewFilters,
+  AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
 
 interface ClueCenterPageProps {
+  currentUser: AdminUser;
   searchParams: URLSearchParams;
 }
 
@@ -49,12 +51,10 @@ const leadStatusLabels: Record<string, string> = {
   closed: "不可跟进",
 };
 
-const followStateLabels: Record<string, string> = {
-  active_unfollowed: "待跟进",
-  active_followed: "已跟进",
-  failed_pending_reassign: "主动战败",
-  expired_pending_reassign: "超期失效",
-  reassigned: "已转出",
+const verificationStatusLabels: Record<string, string> = {
+  unverified: "未核销",
+  self_store_verified: "本店核销",
+  other_store_verified: "非本店核销",
 };
 
 const followResultLabels: Record<string, string> = {
@@ -273,7 +273,14 @@ function storeScopeLabel(
   return "其他门店";
 }
 
-export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
+export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProps) {
+  const showStoreLocationFilters =
+    currentUser.role !== "store" || currentUser.store_ids.length !== 1;
+  const [province, setProvince] = useState(searchParams.get("province") ?? "");
+  const [city, setCity] = useState(searchParams.get("city") ?? "");
+  const [assignedStoreId, setAssignedStoreId] = useState(
+    searchParams.get("assigned_store_id") ?? "",
+  );
   const [assignedDateStart, setAssignedDateStart] = useState(
     searchParams.get("assigned_date_start") ?? "",
   );
@@ -281,13 +288,12 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
     searchParams.get("assigned_date_end") ?? "",
   );
   const [leadStatus, setLeadStatus] = useState(searchParams.get("lead_status") ?? "");
-  const [roundStatus, setRoundStatus] = useState(
-    searchParams.get("round_status") ?? "",
-  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
-  const [city, setCity] = useState(searchParams.get("city") ?? "");
+  const [verificationStatus, setVerificationStatus] = useState(
+    searchParams.get("verification_status") ?? "",
+  );
   const [page, setPage] = useState(1);
   const [selectedRound, setSelectedRound] = useState<ClueAssignmentRound | null>(
     null,
@@ -313,44 +319,55 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
+      assigned_store_id: showStoreLocationFilters ? assignedStoreId : "",
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
       lead_status: leadStatus,
-      round_status: roundStatus,
       product_type: productType,
-      city,
+      province: showStoreLocationFilters ? province : "",
+      city: showStoreLocationFilters ? city : "",
+      verification_status: verificationStatus,
     }),
     [
+      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
       leadStatus,
       productType,
-      roundStatus,
+      province,
+      showStoreLocationFilters,
+      verificationStatus,
     ],
   );
 
   const overviewResource = useApiResource(
     () => fetchClueOverview(filters),
     [
+      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
       leadStatus,
       productType,
-      roundStatus,
+      province,
+      showStoreLocationFilters,
+      verificationStatus,
     ],
   );
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize: PAGE_SIZE }),
     [
+      assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
       city,
       leadStatus,
       page,
       productType,
-      roundStatus,
+      province,
+      showStoreLocationFilters,
+      verificationStatus,
     ],
   );
   const overview = overviewResource.data?.data;
@@ -566,12 +583,14 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
   }, [selectedOrderId]);
 
   const resetFilters = () => {
+    setProvince("");
+    setCity("");
+    setAssignedStoreId("");
     setAssignedDateStart("");
     setAssignedDateEnd("");
     setLeadStatus("");
-    setRoundStatus("");
     setProductType("");
-    setCity("");
+    setVerificationStatus("");
     setPage(1);
   };
 
@@ -703,6 +722,58 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
       />
 
       <FilterBar className="clue-filter-bar">
+        {showStoreLocationFilters ? (
+          <>
+            <FilterField label="省份">
+              <select
+                onChange={(event) => {
+                  setPage(1);
+                  setProvince(event.target.value);
+                }}
+                value={province}
+              >
+                <option value="">全部</option>
+                {optionList(meta?.assigned_provinces).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="城市">
+              <select
+                onChange={(event) => {
+                  setPage(1);
+                  setCity(event.target.value);
+                }}
+                value={city}
+              >
+                <option value="">全部</option>
+                {optionList(meta?.assigned_cities).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+            <FilterField label="门店">
+              <select
+                onChange={(event) => {
+                  setPage(1);
+                  setAssignedStoreId(event.target.value);
+                }}
+                value={assignedStoreId}
+              >
+                <option value="">全部</option>
+                {(meta?.assigned_stores ?? []).map((store) => (
+                  <option key={store.store_id} value={store.store_id}>
+                    {store.store_name}
+                  </option>
+                ))}
+              </select>
+            </FilterField>
+          </>
+        ) : null}
         <FilterField label="线索生成日期起">
           <input
             onChange={(event) => {
@@ -739,22 +810,6 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             ))}
           </select>
         </FilterField>
-        <FilterField label="处理状态">
-          <select
-            onChange={(event) => {
-              setPage(1);
-              setRoundStatus(event.target.value);
-            }}
-            value={roundStatus}
-          >
-            <option value="">全部</option>
-            {optionList(meta?.round_statuses, followStateLabels).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
         <FilterField label="商品类型">
           <select
             onChange={(event) => {
@@ -771,16 +826,19 @@ export function ClueCenterPage({ searchParams }: ClueCenterPageProps) {
             ))}
           </select>
         </FilterField>
-        <FilterField label="城市">
+        <FilterField label="核销状态">
           <select
             onChange={(event) => {
               setPage(1);
-              setCity(event.target.value);
+              setVerificationStatus(event.target.value);
             }}
-            value={city}
+            value={verificationStatus}
           >
             <option value="">全部</option>
-            {optionList(meta?.assigned_cities).map((option) => (
+            {optionList(
+              meta?.verification_statuses,
+              verificationStatusLabels,
+            ).map((option) => (
               <option key={option.value} value={option.value}>
                 {option.label}
               </option>

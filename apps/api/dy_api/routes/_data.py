@@ -50,6 +50,11 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _SESSION_FACTORY: Any | None = None
 FOLLOW_UP_RESULTS = {"unreachable", "lost", "success"}
 CURRENT_OPERABLE_ROUND_STATUSES = {"active_unfollowed", "active_followed"}
+CLUE_VERIFICATION_STATUSES = [
+    "unverified",
+    "self_store_verified",
+    "other_store_verified",
+]
 
 
 def generated_at() -> datetime:
@@ -864,6 +869,19 @@ class DashboardDataStore:
                 order_scope_params,
             )
         ]
+        assigned_provinces = [
+            _to_str(row.get("assigned_province"))
+            for row in self._execute(
+                f"""
+                SELECT DISTINCT assigned_province
+                FROM clue_center_orders
+                WHERE assigned_province IS NOT NULL AND assigned_province != ''
+                  {order_scope_sql}
+                ORDER BY assigned_province
+                """,
+                order_scope_params,
+            )
+        ]
         product_types = [
             _to_str(row.get("product_type"))
             for row in self._execute(
@@ -905,10 +923,12 @@ class DashboardDataStore:
         ]
         return {
             "assigned_stores": assigned_stores,
+            "assigned_provinces": assigned_provinces,
             "assigned_cities": assigned_cities,
             "product_types": product_types,
             "lead_statuses": lead_statuses,
             "round_statuses": round_statuses,
+            "verification_statuses": CLUE_VERIFICATION_STATUSES,
         }
 
     def clue_overview(self, filters: dict[str, Any]) -> dict[str, Any]:
@@ -1819,6 +1839,7 @@ class DashboardDataStore:
             "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",
             "lead_status": "c.lead_status",
             "product_type": "c.product_type",
+            "province": "c.assigned_province",
             "city": "c.assigned_city",
         }
         for key, column in exact_filters.items():
@@ -1832,6 +1853,25 @@ class DashboardDataStore:
             column = "r.round_status" if include_round else "c.current_round_status"
             clauses.append(f"{column} = :round_status")
             params["round_status"] = round_status
+
+        verification_status = _to_str(filters.get("verification_status")).strip()
+        if verification_status and verification_status != "all":
+            verified_at_column = "r.verified_at" if include_round else "c.verified_at"
+            self_verified_column = (
+                "r.is_self_store_verified" if include_round else "c.is_self_store_verified"
+            )
+            if verification_status == "unverified":
+                clauses.append(f"{verified_at_column} IS NULL")
+            elif verification_status == "self_store_verified":
+                clauses.append(
+                    f"{verified_at_column} IS NOT NULL "
+                    f"AND {self_verified_column} = true"
+                )
+            elif verification_status == "other_store_verified":
+                clauses.append(
+                    f"{verified_at_column} IS NOT NULL "
+                    f"AND {self_verified_column} = false"
+                )
 
         assigned_start = _parse_filter_datetime(filters.get("assigned_date_start"))
         if assigned_start is not None:
