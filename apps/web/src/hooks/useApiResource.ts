@@ -14,14 +14,27 @@ function errorMessage(error: unknown): string {
 export function useApiResource<T>(
   load: () => Promise<ApiLoadResult<T>>,
   dependencies: DependencyList,
+  options?: { enabled?: boolean },
 ) {
+  const enabled = options?.enabled ?? true;
   const [reloadIndex, setReloadIndex] = useState(0);
   const [state, setState] = useState<ApiResourceState<T>>({
-    loading: true,
+    loading: enabled,
   });
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!enabled) {
+      setState((current) => ({
+        data: current.data,
+        error: undefined,
+        loading: false,
+      }));
+      return () => {
+        cancelled = true;
+      };
+    }
 
     setState((current) => ({
       ...current,
@@ -48,7 +61,7 @@ export function useApiResource<T>(
     return () => {
       cancelled = true;
     };
-  }, [...dependencies, reloadIndex]);
+  }, [...dependencies, reloadIndex, enabled]);
 
   const reload = useCallback(() => {
     setReloadIndex((current) => current + 1);

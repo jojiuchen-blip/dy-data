@@ -59,7 +59,8 @@ const settlementNavItems: NavItem[] = [
 ];
 
 const clueNavItems: NavItem[] = [
-  { href: "/clues", label: "线索中心", icon: "cluesLine" },
+  { href: "/clues", label: "线索看板", icon: "chart" },
+  { href: "/clues/details", label: "线索明细", icon: "details" },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -87,7 +88,7 @@ function activeSection(currentPath: string): NavSection {
   if (adminPaths.has(currentPath)) {
     return "admin";
   }
-  if (currentPath === "/clues") {
+  if (currentPath === "/clues" || currentPath.startsWith("/clues/")) {
     return "clues";
   }
   return "settlement";

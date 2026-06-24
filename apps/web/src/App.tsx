@@ -191,7 +191,17 @@ export function App() {
           location.pathname === "/settlement" ? (
             <StoreSettlementPage searchParams={searchParams} />
           ) : location.pathname === "/clues" ? (
-            <ClueCenterPage currentUser={user} searchParams={searchParams} />
+            <ClueCenterPage
+              currentUser={user}
+              searchParams={searchParams}
+              view="dashboard"
+            />
+          ) : location.pathname === "/clues/details" ? (
+            <ClueCenterPage
+              currentUser={user}
+              searchParams={searchParams}
+              view="details"
+            />
           ) : location.pathname === "/details" ? (
             <OrderDetailsPage searchParams={searchParams} />
           ) : (

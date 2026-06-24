@@ -37,7 +37,10 @@ import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
 interface ClueCenterPageProps {
   currentUser: AdminUser;
   searchParams: URLSearchParams;
+  view?: ClueCenterView;
 }
+
+type ClueCenterView = "dashboard" | "details";
 
 type StoreClueStatus =
   | "待跟进"
@@ -310,7 +313,12 @@ function dialogFocusableElements(dialog: HTMLElement): HTMLElement[] {
   ).filter((element) => !element.closest("[aria-hidden='true']"));
 }
 
-export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProps) {
+export function ClueCenterPage({
+  currentUser,
+  searchParams,
+  view = "dashboard",
+}: ClueCenterPageProps) {
+  const isDetailsView = view === "details";
   const showStoreLocationFilters =
     currentUser.role !== "store" || currentUser.store_ids.length !== 1;
   const [province, setProvince] = useState(searchParams.get("province") ?? "");
@@ -459,6 +467,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       showStoreLocationFilters,
       verificationStatus,
     ],
+    { enabled: !isDetailsView },
   );
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize: PAGE_SIZE }),
@@ -473,13 +482,24 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       province,
       showStoreLocationFilters,
       verificationStatus,
+      isDetailsView,
     ],
+    { enabled: isDetailsView },
   );
   const overview = overviewResource.data?.data;
   const rows = roundsResource.data?.data.rows ?? [];
   const pagination = roundsResource.data?.data.pagination;
   const loading =
-    filterResource.loading || overviewResource.loading || roundsResource.loading;
+    filterResource.loading ||
+    (isDetailsView ? roundsResource.loading : overviewResource.loading);
+  const activeResourceError =
+    filterResource.error ??
+    (isDetailsView ? roundsResource.error : overviewResource.error);
+  const activeFallbackReason =
+    filterResource.data?.fallbackReason ??
+    (isDetailsView
+      ? roundsResource.data?.fallbackReason
+      : overviewResource.data?.fallbackReason);
   const selectedOrderId = selectedRound?.order_id ?? null;
   const selectedRoundId = selectedRound?.assignment_round_id ?? null;
   const selectedStoreId = selectedRound?.assigned_store_id ?? null;
@@ -560,6 +580,19 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     await fetchFullPhone(row);
   };
 
+  const hidePhone = (row: ClueAssignmentRound) => {
+    setRevealedPhones((current) => {
+      if (!current[row.order_id]) {
+        return current;
+      }
+      const next = { ...current };
+      delete next[row.order_id];
+      return next;
+    });
+    setPhoneRevealError(null);
+    setPhoneActionMessage("完整手机号已隐藏");
+  };
+
   const copyPhone = async (row: ClueAssignmentRound) => {
     setCopyingOrderId(row.order_id);
     try {
@@ -585,6 +618,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     const displayPhone = revealedPhone || row.phone_masked || "-";
     const disabled = revealingOrderId === row.order_id || copyingOrderId === row.order_id;
     const iconMode = mode !== "panel";
+    const phoneVisible = Boolean(revealedPhone);
     if (!mayRevealFullPhone) {
       return (
         <span className={`phone-reveal phone-reveal--${mode} phone-reveal--disabled`}>
@@ -599,28 +633,32 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     return (
       <span className={`phone-reveal phone-reveal--${mode}`}>
         <span className="mono-cell">{displayPhone}</span>
-        {!revealedPhone ? (
-          <button
-            aria-label="查看完整手机号"
-            className={iconMode ? "phone-action-button" : "link-button"}
-            disabled={disabled}
-            onClick={(event) => {
-              event.stopPropagation();
-              void revealPhone(row);
-            }}
-            onDoubleClick={(event) => event.stopPropagation()}
-            title="查看完整手机号"
-            type="button"
-          >
-            {iconMode ? (
-              <SolarIcon name="eye" size={16} />
-            ) : revealingOrderId === row.order_id ? (
-              "读取中"
-            ) : (
-              "查看完整手机号"
-            )}
-          </button>
-        ) : null}
+        <button
+          aria-label={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+          className={iconMode ? "phone-action-button" : "link-button"}
+          disabled={disabled}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (phoneVisible) {
+              hidePhone(row);
+              return;
+            }
+            void revealPhone(row);
+          }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+          type="button"
+        >
+          {iconMode ? (
+            <SolarIcon name={phoneVisible ? "eyeClosed" : "eye"} size={16} />
+          ) : phoneVisible ? (
+            "隐藏完整手机号"
+          ) : revealingOrderId === row.order_id ? (
+            "读取中"
+          ) : (
+            "查看完整手机号"
+          )}
+        </button>
         <button
           aria-label="复制完整手机号"
           className={iconMode ? "phone-action-button" : "link-button"}
@@ -644,6 +682,12 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       </span>
     );
   };
+
+  useEffect(() => {
+    if (!isDetailsView && selectedRound) {
+      closeClueDetail();
+    }
+  }, [isDetailsView, selectedRound]);
 
   useEffect(() => {
     if (!selectedOrderId) {
@@ -899,23 +943,21 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       <div className="clue-page-content" ref={cluePageContentRef}>
       <section className="page-heading">
         <div>
-          <p className="eyebrow">Clue follow-up center</p>
-          <h1>线索跟进中心</h1>
+          <p className="eyebrow">
+            {isDetailsView ? "Clue detail list" : "Clue dashboard"}
+          </p>
+          <h1>{isDetailsView ? "线索明细" : "线索看板"}</h1>
         </div>
         <span className="source-pill">
-          {resourceSourceLabel(roundsResource.data, roundsResource.loading)}
+          {isDetailsView
+            ? resourceSourceLabel(roundsResource.data, roundsResource.loading)
+            : resourceSourceLabel(overviewResource.data, overviewResource.loading)}
         </span>
       </section>
 
       <ResourceNotice
-        error={
-          filterResource.error ?? overviewResource.error ?? roundsResource.error
-        }
-        fallbackReason={
-          filterResource.data?.fallbackReason ??
-          overviewResource.data?.fallbackReason ??
-          roundsResource.data?.fallbackReason
-        }
+        error={activeResourceError}
+        fallbackReason={activeFallbackReason}
         loading={loading}
       />
 
@@ -1087,11 +1129,11 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
         </button>
       </FilterBar>
 
-      {!overview && overviewResource.loading ? (
+      {!isDetailsView && !overview && overviewResource.loading ? (
         <ResourcePanel>正在加载线索指标...</ResourcePanel>
-      ) : !overview ? (
+      ) : !isDetailsView && !overview ? (
         <ResourcePanel tone="error">线索指标暂不可用。</ResourcePanel>
-      ) : (
+      ) : !isDetailsView && overview ? (
         <section className="metric-grid clue-metric-grid">
           <MetricCard
             label="线索总数"
@@ -1128,119 +1170,121 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
             value={formatInteger(overview.pending_reassign_count)}
           />
         </section>
-      )}
+      ) : null}
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>线索明细</h2>
-            <p>店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</p>
+      {isDetailsView ? (
+        <section className="content-section">
+          <div className="section-title">
+            <div>
+              <h2>线索明细</h2>
+              <p>店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</p>
+            </div>
+            {pagination ? (
+              <span className="source-pill">
+                共 {formatInteger(pagination.total)} 条
+              </span>
+            ) : null}
           </div>
-          {pagination ? (
-            <span className="source-pill">
-              共 {formatInteger(pagination.total)} 条
+
+          {!rows.length && roundsResource.loading ? (
+            <ResourcePanel>正在加载线索明细...</ResourcePanel>
+          ) : (
+            <>
+              <div className="clue-table-view">
+                <DataTable
+                  columns={columns}
+                  emptyText="暂无线索分配记录"
+                  onRowDoubleClick={(row, event) => {
+                    const trigger = event.currentTarget.querySelector<HTMLButtonElement>(
+                      ".clue-detail-trigger",
+                    );
+                    openClueDetail(row, trigger);
+                  }}
+                  rows={rows}
+                  tableClassName="data-table--clues"
+                />
+              </div>
+              <div className="clue-card-list" aria-label="线索卡片列表">
+                {rows.length ? (
+                  rows.map((row) => {
+                    const status = getStoreDisplayStatus(row);
+                    return (
+                      <article className="clue-card" key={row.assignment_round_id}>
+                        <div className="clue-card__header">
+                          <span className={statusClassName(status)}>{status}</span>
+                          <span>{roundLabel(row.round_no)}</span>
+                        </div>
+                        <div className="clue-card__phone">
+                          {renderPhoneContact(row, "card")}
+                        </div>
+                        <div className="clue-card__product">
+                          <strong>{displayValue(row.product_name)}</strong>
+                          <span>{displayValue(row.product_type)}</span>
+                        </div>
+                        <dl className="clue-card__meta">
+                          <div>
+                            <dt>最近跟进</dt>
+                            <dd>{formatDateTime(row.followed_at)}</dd>
+                          </div>
+                          <div>
+                            <dt>生成时间</dt>
+                            <dd>{formatDateTime(row.assigned_at)}</dd>
+                          </div>
+                          <div>
+                            <dt>本轮失效</dt>
+                            <dd>{displayValue(formatInvalidatedAt(row))}</dd>
+                          </div>
+                        </dl>
+                        <button
+                          className="primary-button clue-card__detail clue-detail-trigger"
+                          onClick={(event) => openClueDetail(row, event.currentTarget)}
+                          type="button"
+                        >
+                          查看详情
+                        </button>
+                      </article>
+                    );
+                  })
+                ) : (
+                  <ResourcePanel>暂无线索分配记录</ResourcePanel>
+                )}
+              </div>
+            </>
+          )}
+
+          <div className="pagination-controls">
+            <span className="pagination-controls__summary">
+              第 {formatInteger(pagination?.page ?? page)} /{" "}
+              {formatInteger(pagination?.total_pages ?? 1)} 页
             </span>
-          ) : null}
-        </div>
-
-        {!rows.length && roundsResource.loading ? (
-          <ResourcePanel>正在加载线索明细...</ResourcePanel>
-        ) : (
-          <>
-            <div className="clue-table-view">
-              <DataTable
-                columns={columns}
-                emptyText="暂无线索分配记录"
-                onRowDoubleClick={(row, event) => {
-                  const trigger = event.currentTarget.querySelector<HTMLButtonElement>(
-                    ".clue-detail-trigger",
-                  );
-                  openClueDetail(row, trigger);
-                }}
-                rows={rows}
-                tableClassName="data-table--clues"
-              />
+            <div className="pagination-controls__actions">
+              <button
+                className="ghost-button"
+                disabled={page <= 1}
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                type="button"
+              >
+                上一页
+              </button>
+              <button
+                className="ghost-button"
+                disabled={pagination ? page >= pagination.total_pages : true}
+                onClick={() =>
+                  setPage((current) =>
+                    Math.min(pagination?.total_pages ?? current, current + 1),
+                  )
+                }
+                type="button"
+              >
+                下一页
+              </button>
             </div>
-            <div className="clue-card-list" aria-label="线索卡片列表">
-              {rows.length ? (
-                rows.map((row) => {
-                  const status = getStoreDisplayStatus(row);
-                  return (
-                    <article className="clue-card" key={row.assignment_round_id}>
-                      <div className="clue-card__header">
-                        <span className={statusClassName(status)}>{status}</span>
-                        <span>{roundLabel(row.round_no)}</span>
-                      </div>
-                      <div className="clue-card__phone">
-                        {renderPhoneContact(row, "card")}
-                      </div>
-                      <div className="clue-card__product">
-                        <strong>{displayValue(row.product_name)}</strong>
-                        <span>{displayValue(row.product_type)}</span>
-                      </div>
-                      <dl className="clue-card__meta">
-                        <div>
-                          <dt>最近跟进</dt>
-                          <dd>{formatDateTime(row.followed_at)}</dd>
-                        </div>
-                        <div>
-                          <dt>生成时间</dt>
-                          <dd>{formatDateTime(row.assigned_at)}</dd>
-                        </div>
-                        <div>
-                          <dt>本轮失效</dt>
-                          <dd>{displayValue(formatInvalidatedAt(row))}</dd>
-                        </div>
-                      </dl>
-                      <button
-                        className="primary-button clue-card__detail clue-detail-trigger"
-                        onClick={(event) => openClueDetail(row, event.currentTarget)}
-                        type="button"
-                      >
-                        查看详情
-                      </button>
-                    </article>
-                  );
-                })
-              ) : (
-                <ResourcePanel>暂无线索分配记录</ResourcePanel>
-              )}
-            </div>
-          </>
-        )}
-
-        <div className="pagination-controls">
-          <span className="pagination-controls__summary">
-            第 {formatInteger(pagination?.page ?? page)} /{" "}
-            {formatInteger(pagination?.total_pages ?? 1)} 页
-          </span>
-          <div className="pagination-controls__actions">
-            <button
-              className="ghost-button"
-              disabled={page <= 1}
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              type="button"
-            >
-              上一页
-            </button>
-            <button
-              className="ghost-button"
-              disabled={pagination ? page >= pagination.total_pages : true}
-              onClick={() =>
-                setPage((current) =>
-                  Math.min(pagination?.total_pages ?? current, current + 1),
-                )
-              }
-              type="button"
-            >
-              下一页
-            </button>
           </div>
-        </div>
-      </section>
+        </section>
+      ) : null}
       </div>
 
-      {selectedRound ? (
+      {isDetailsView && selectedRound ? (
         <div
           className="modal-backdrop"
           onMouseDown={(event) => {

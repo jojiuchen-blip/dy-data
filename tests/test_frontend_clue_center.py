@@ -121,6 +121,26 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "verification_status?: string;" in types_source
 
 
+def test_clue_center_splits_dashboard_and_detail_routes() -> None:
+    app_source = read_source("App.tsx")
+    shell_source = read_source("components/Shell.tsx")
+    page_source = read_source("pages/ClueCenterPage.tsx")
+
+    assert 'location.pathname === "/clues"' in app_source
+    assert 'view="dashboard"' in app_source
+    assert 'location.pathname === "/clues/details"' in app_source
+    assert 'view="details"' in app_source
+    assert '{ href: "/clues", label: "线索看板", icon: "chart" }' in shell_source
+    assert (
+        '{ href: "/clues/details", label: "线索明细", icon: "details" }'
+        in shell_source
+    )
+    assert 'currentPath.startsWith("/clues/")' in shell_source
+    assert 'view?: ClueCenterView' in page_source
+    assert 'const isDetailsView = view === "details"' in page_source
+    assert '{isDetailsView ? "线索明细" : "线索看板"}' in page_source
+
+
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     types_source = read_source("types/dashboard.ts")
     client_source = read_source("api/client.ts")
@@ -163,6 +183,12 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     ]
     assert "const mayRevealFullPhone = canViewFullPhone(row)" in render_body
     assert "mayRevealFullPhone ? revealedPhones[row.order_id] : undefined" in render_body
+    assert "const phoneVisible = Boolean(revealedPhone)" in render_body
+    assert 'phoneVisible ? "隐藏完整手机号" : "查看完整手机号"' in render_body
+    assert 'name={phoneVisible ? "eyeClosed" : "eye"}' in render_body
+    assert "hidePhone(row)" in render_body
+    assert "const hidePhone" in source
+    assert "delete next[row.order_id]" in source
     detail_phone_body = source[
         source.index("const canShowActiveDetailPhone") : source.index("const openClueDetail")
     ]
