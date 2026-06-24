@@ -17,11 +17,12 @@ export function FilterField({ label, children }: FilterFieldProps) {
 interface FilterBarProps {
   children: ReactNode;
   className?: string;
+  id?: string;
 }
 
-export function FilterBar({ children, className }: FilterBarProps) {
+export function FilterBar({ children, className, id }: FilterBarProps) {
   return (
-    <div className={["filter-bar", className].filter(Boolean).join(" ")}>
+    <div className={["filter-bar", className].filter(Boolean).join(" ")} id={id}>
       {children}
     </div>
   );

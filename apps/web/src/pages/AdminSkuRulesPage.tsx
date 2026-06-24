@@ -590,7 +590,11 @@ export function AdminSkuRulesPage() {
               value={password}
             />
           </label>
-          {loginError ? <p className="admin-error">{loginError}</p> : null}
+          {loginError ? (
+            <p className="admin-error" role="alert">
+              {loginError}
+            </p>
+          ) : null}
           <button className="primary-button" type="submit">
             进入管理页
           </button>
@@ -622,7 +626,16 @@ export function AdminSkuRulesPage() {
         </div>
       </section>
 
-      {statusText ? <div className="resource-notice">{statusText}</div> : null}
+      {statusText ? (
+        <div
+          aria-atomic="true"
+          aria-live="polite"
+          className="resource-notice"
+          role="status"
+        >
+          {statusText}
+        </div>
+      ) : null}
 
       <datalist id="product-type-options">
         {productTypeOptions.map((productType) => (

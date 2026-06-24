@@ -190,7 +190,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               <span>/</span>
               <strong>{pageTitle(currentPath)}</strong>
             </div>
-            <h1>{pageTitle(currentPath)}</h1>
+            <div className="workspace-title">{pageTitle(currentPath)}</div>
           </div>
 
           <div className="workspace-actions">
@@ -246,6 +246,22 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
 
         <main className="page-frame">{children}</main>
       </div>
+
+      <nav className="mobile-bottom-nav" aria-label="一级导航">
+        {visibleModuleItems.map((item) => {
+          const active = item.section === section;
+          return (
+            <a
+              aria-current={active ? "page" : undefined}
+              href={item.href}
+              key={item.href}
+            >
+              {item.icon ? <SolarIcon name={item.icon} size={21} /> : null}
+              <span>{item.label}</span>
+            </a>
+          );
+        })}
+      </nav>
 
       {settingsOpen ? (
         <div

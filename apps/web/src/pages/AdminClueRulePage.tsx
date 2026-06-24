@@ -27,6 +27,13 @@ function validateSla(value: string): number | null | undefined {
   return parsed;
 }
 
+function displayOperator(value: string | null | undefined): string {
+  if (!value) {
+    return "-";
+  }
+  return value.includes("mock") ? "演示管理员" : value;
+}
+
 export function AdminClueRulePage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
@@ -131,7 +138,7 @@ export function AdminClueRulePage() {
       setSlaInput(slaToInput(response.data.reassign_sla_hours));
       setStatusText(
         response.usingMock
-          ? response.fallbackReason ?? "已保存到本地 mock 响应。"
+          ? response.fallbackReason ?? "规则已保存到演示数据。"
           : "线索再分配规则已保存。",
       );
     } catch (error) {
@@ -196,7 +203,11 @@ export function AdminClueRulePage() {
               value={password}
             />
           </label>
-          {loginError ? <p className="admin-error">{loginError}</p> : null}
+          {loginError ? (
+            <p className="admin-error" role="alert">
+              {loginError}
+            </p>
+          ) : null}
           <button className="primary-button" type="submit">
             进入管理页
           </button>
@@ -228,7 +239,16 @@ export function AdminClueRulePage() {
         </div>
       </section>
 
-      {statusText ? <div className="resource-notice">{statusText}</div> : null}
+      {statusText ? (
+        <div
+          aria-atomic="true"
+          aria-live="polite"
+          className="resource-notice"
+          role="status"
+        >
+          {statusText}
+        </div>
+      ) : null}
 
       <section className="content-section clue-rule-panel">
         <div className="section-title">
@@ -259,7 +279,7 @@ export function AdminClueRulePage() {
                 : `${rule.reassign_sla_hours} 小时`}
             </strong>
             <small>
-              更新人 {rule?.updated_by || "-"} · 更新时间{" "}
+              更新人 {displayOperator(rule?.updated_by)} · 更新时间{" "}
               {formatDateTime(rule?.updated_at)}
             </small>
           </div>

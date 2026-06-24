@@ -63,7 +63,7 @@ export function CommissionRulesButton() {
                 <table className="data-table commission-rules__table">
                   <thead>
                     <tr>
-                      <th>SKU ID</th>
+                      <th>商品编码</th>
                       <th>商品名称</th>
                       <th>销售店分佣比例</th>
                     </tr>

@@ -10,25 +10,25 @@ const adminModules = [
     href: "/admin/accounts",
     title: "账号管理",
     description: "创建、编辑、启用或停用账号，绑定单店或多店门店权限，并重置账号密码。",
-    meta: "账号体系 v1",
+    meta: "账号与权限",
   },
   {
     href: "/admin/clues/rules",
     title: "线索再分配规则",
     description: "配置线索中心全局 SLA，支持留空关闭自动超时待再分配，并触发线索中心重建。",
-    meta: "线索中心 MVP",
+    meta: "线索规则",
   },
   {
     href: "/admin/rules",
     title: "商品分账规则",
     description: "按 SKU 配置商品类型和分账比例，保存后后台重建看板结果。",
-    meta: "对应旧入口 /rule-admin",
+    meta: "商品分账配置",
   },
   {
     href: "/admin/sync",
     title: "数据同步管理",
     description: "配置同步时间跨度、同步间隔，查看任务日志和手动补拉数据。",
-    meta: "对应旧入口 /sync-admin",
+    meta: "同步与任务",
   },
 ];
 
@@ -105,7 +105,11 @@ export function AdminHomePage() {
               value={password}
             />
           </label>
-          {loginError ? <p className="admin-error">{loginError}</p> : null}
+          {loginError ? (
+            <p className="admin-error" role="alert">
+              {loginError}
+            </p>
+          ) : null}
           <button className="primary-button" type="submit">
             进入后台
           </button>

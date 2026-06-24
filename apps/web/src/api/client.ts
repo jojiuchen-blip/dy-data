@@ -175,7 +175,7 @@ async function withMockFallback<T>(
     return {
       ...fallback(),
       usingMock: true,
-      fallbackReason: "VITE_USE_MOCKS=true，已使用本地 mock 数据。",
+      fallbackReason: "当前展示演示数据。",
     };
   }
 
@@ -188,7 +188,7 @@ async function withMockFallback<T>(
     return {
       ...fallback(),
       usingMock: true,
-      fallbackReason: `API 不可用，已使用本地 mock 数据。${errorMessage(error)}`,
+      fallbackReason: "服务暂不可用，当前展示演示数据。",
     };
   }
 }

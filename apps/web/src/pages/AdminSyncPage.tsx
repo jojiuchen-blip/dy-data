@@ -309,7 +309,11 @@ export function AdminSyncPage() {
               value={password}
             />
           </label>
-          {loginError ? <p className="admin-error">{loginError}</p> : null}
+          {loginError ? (
+            <p className="admin-error" role="alert">
+              {loginError}
+            </p>
+          ) : null}
           <button className="primary-button" type="submit">
             进入管理页
           </button>
@@ -341,9 +345,23 @@ export function AdminSyncPage() {
         </div>
       </section>
 
-      {statusText ? <div className="resource-notice">{statusText}</div> : null}
+      {statusText ? (
+        <div
+          aria-atomic="true"
+          aria-live="polite"
+          className="resource-notice"
+          role="status"
+        >
+          {statusText}
+        </div>
+      ) : null}
       {remoteConfigChanged ? (
-        <div className="resource-notice resource-notice--warning">
+        <div
+          aria-atomic="true"
+          aria-live="polite"
+          className="resource-notice resource-notice--warning"
+          role="status"
+        >
           <span>服务器配置已更新，本地草稿暂未覆盖。</span>
           <button className="ghost-button" onClick={discardDraftAndRefresh} type="button">
             放弃草稿并刷新

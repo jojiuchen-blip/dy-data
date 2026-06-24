@@ -1,4 +1,4 @@
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, MouseEvent, ReactNode } from "react";
 
 export interface Column<T> {
   key: string;
@@ -14,7 +14,7 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   emptyText?: string;
-  onRowDoubleClick?: (row: T) => void;
+  onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
   rowHref?: (row: T) => string;
   tableClassName?: string;
 }
@@ -122,24 +122,22 @@ export function DataTable<T>({
                   key={rowIndex}
                   onClick={href ? () => openInternalHref(href) : undefined}
                   onDoubleClick={
-                    onRowDoubleClick ? () => onRowDoubleClick(row) : undefined
+                    onRowDoubleClick
+                      ? (event) => onRowDoubleClick(row, event)
+                      : undefined
                   }
                   onKeyDown={
-                    href || onRowDoubleClick
+                    href
                       ? (event) => {
                           if (event.key === "Enter" || event.key === " ") {
                             event.preventDefault();
-                            if (href) {
-                              openInternalHref(href);
-                            } else {
-                              onRowDoubleClick?.(row);
-                            }
+                            openInternalHref(href);
                           }
                         }
                       : undefined
                   }
-                  role={href ? "link" : onRowDoubleClick ? "button" : undefined}
-                  tabIndex={href || onRowDoubleClick ? 0 : undefined}
+                  role={href ? "link" : undefined}
+                  tabIndex={href ? 0 : undefined}
                 >
                   {preparedColumns.map((column) => (
                     <td

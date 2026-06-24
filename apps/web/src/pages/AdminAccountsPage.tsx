@@ -211,7 +211,16 @@ export function AdminAccountsPage() {
         </div>
       </section>
 
-      {statusText ? <div className="resource-notice">{statusText}</div> : null}
+      {statusText ? (
+        <div
+          aria-atomic="true"
+          aria-live="polite"
+          className="resource-notice"
+          role="status"
+        >
+          {statusText}
+        </div>
+      ) : null}
 
       <section className="content-section account-admin-layout">
         <div className="account-admin-main">

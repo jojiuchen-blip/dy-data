@@ -247,14 +247,14 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const columns: Column<OrderDetail>[] = [
     {
       key: "order",
-      title: "订单 ID",
+      title: "订单编号",
       sticky: true,
       width: 150,
       render: (row) => row.order_id,
     },
     {
       key: "coupon",
-      title: "券 ID",
+      title: "券码",
       sticky: true,
       width: 154,
       render: (row) => row.coupon_id,
@@ -267,7 +267,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     },
     {
       key: "sku",
-      title: "SKU ID",
+      title: "商品编码",
       minWidth: 138,
       render: (row) => row.sku_id,
     },
@@ -421,7 +421,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           </FilterField>
           <FilterField label="订单 / 券搜索">
             <input
-              placeholder="订单 ID 或券 ID"
+              placeholder="订单编号或券码"
               value={filters.q ?? ""}
               onChange={(event) => updateFilter("q", event.target.value)}
             />

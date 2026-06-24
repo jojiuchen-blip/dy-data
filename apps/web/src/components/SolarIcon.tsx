@@ -7,6 +7,8 @@ import chart2Linear from "@iconify-icons/solar/chart-2-linear";
 import chatRoundDotsBoldDuotone from "@iconify-icons/solar/chat-round-dots-bold-duotone";
 import chatRoundDotsLinear from "@iconify-icons/solar/chat-round-dots-linear";
 import closeCircleLinear from "@iconify-icons/solar/close-circle-linear";
+import copyLinear from "@iconify-icons/solar/copy-linear";
+import eyeLinear from "@iconify-icons/solar/eye-linear";
 import graphNewUpBoldDuotone from "@iconify-icons/solar/graph-new-up-bold-duotone";
 import home2Linear from "@iconify-icons/solar/home-2-linear";
 import keyMinimalisticSquareLinear from "@iconify-icons/solar/key-minimalistic-square-linear";
@@ -22,7 +24,9 @@ const solarIcons = {
   brand: graphNewUpBoldDuotone,
   chart: chart2BoldDuotone,
   close: closeCircleLinear,
+  copy: copyLinear,
   details: billListLinear,
+  eye: eyeLinear,
   home: home2Linear,
   key: keyMinimalisticSquareLinear,
   logout: logout3Linear,

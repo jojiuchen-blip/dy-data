@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent,
+} from "react";
 import {
   fetchClueAssignmentRounds,
   fetchClueFilters,
@@ -42,6 +49,30 @@ type StoreClueStatus =
   | "不可跟进";
 
 const PAGE_SIZE = 20;
+const focusableDialogSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+type ClueFilterKey =
+  | "province"
+  | "city"
+  | "assignedStoreId"
+  | "assignedDateStart"
+  | "assignedDateEnd"
+  | "leadStatus"
+  | "productType"
+  | "verificationStatus";
+
+interface ActiveClueFilter {
+  key: ClueFilterKey;
+  label: string;
+  value: string;
+}
 
 const leadStatusLabels: Record<string, string> = {
   active: "可跟进",
@@ -273,6 +304,12 @@ function storeScopeLabel(
   return "其他门店";
 }
 
+function dialogFocusableElements(dialog: HTMLElement): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(focusableDialogSelector),
+  ).filter((element) => !element.closest("[aria-hidden='true']"));
+}
+
 export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProps) {
   const showStoreLocationFilters =
     currentUser.role !== "store" || currentUser.store_ids.length !== 1;
@@ -295,6 +332,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     searchParams.get("verification_status") ?? "",
   );
   const [page, setPage] = useState(1);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<ClueAssignmentRound | null>(
     null,
   );
@@ -313,6 +351,10 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
   const [followNote, setFollowNote] = useState("");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [savingFollowUp, setSavingFollowUp] = useState(false);
+  const cluePageContentRef = useRef<HTMLDivElement | null>(null);
+  const detailDialogRef = useRef<HTMLElement | null>(null);
+  const detailCloseButtonRef = useRef<HTMLButtonElement | null>(null);
+  const detailReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
@@ -340,6 +382,69 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       verificationStatus,
     ],
   );
+
+  const activeFilterChips: ActiveClueFilter[] = useMemo(() => {
+    const chips: ActiveClueFilter[] = [];
+    if (showStoreLocationFilters && province) {
+      chips.push({ key: "province", label: "省份", value: province });
+    }
+    if (showStoreLocationFilters && city) {
+      chips.push({ key: "city", label: "城市", value: city });
+    }
+    if (showStoreLocationFilters && assignedStoreId) {
+      chips.push({
+        key: "assignedStoreId",
+        label: "门店",
+        value:
+          meta?.assigned_stores.find(
+            (store) => store.store_id === assignedStoreId,
+          )?.store_name ?? assignedStoreId,
+      });
+    }
+    if (assignedDateStart) {
+      chips.push({
+        key: "assignedDateStart",
+        label: "起始",
+        value: assignedDateStart,
+      });
+    }
+    if (assignedDateEnd) {
+      chips.push({
+        key: "assignedDateEnd",
+        label: "截止",
+        value: assignedDateEnd,
+      });
+    }
+    if (leadStatus) {
+      chips.push({
+        key: "leadStatus",
+        label: "状态",
+        value: labelFor(leadStatus, leadStatusLabels),
+      });
+    }
+    if (productType) {
+      chips.push({ key: "productType", label: "商品", value: productType });
+    }
+    if (verificationStatus) {
+      chips.push({
+        key: "verificationStatus",
+        label: "核销",
+        value: labelFor(verificationStatus, verificationStatusLabels),
+      });
+    }
+    return chips;
+  }, [
+    assignedDateEnd,
+    assignedDateStart,
+    assignedStoreId,
+    city,
+    leadStatus,
+    meta?.assigned_stores,
+    productType,
+    province,
+    showStoreLocationFilters,
+    verificationStatus,
+  ]);
 
   const overviewResource = useApiResource(
     () => fetchClueOverview(filters),
@@ -400,7 +505,15 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     : "-";
   const canEditFollowUp = canShowActiveDetailPhone;
 
-  const openClueDetail = (row: ClueAssignmentRound) => {
+  const openClueDetail = (
+    row: ClueAssignmentRound,
+    triggerElement?: HTMLElement | null,
+  ) => {
+    detailReturnFocusRef.current =
+      triggerElement ??
+      (document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null);
     setSelectedRound(row);
   };
 
@@ -465,15 +578,16 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
 
   const renderPhoneContact = (
     row: ClueAssignmentRound,
-    mode: "table" | "panel" = "table",
+    mode: "table" | "panel" | "card" = "table",
   ) => {
     const mayRevealFullPhone = canViewFullPhone(row);
     const revealedPhone = mayRevealFullPhone ? revealedPhones[row.order_id] : undefined;
     const displayPhone = revealedPhone || row.phone_masked || "-";
     const disabled = revealingOrderId === row.order_id || copyingOrderId === row.order_id;
+    const iconMode = mode !== "panel";
     if (!mayRevealFullPhone) {
       return (
-        <span className="phone-reveal phone-reveal--disabled">
+        <span className={`phone-reveal phone-reveal--${mode} phone-reveal--disabled`}>
           <span className="mono-cell">{displayPhone}</span>
           <span className="phone-reveal__reason">
             {getPhoneUnavailableReason(row)}
@@ -483,39 +597,49 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     }
 
     return (
-      <span className="phone-reveal">
+      <span className={`phone-reveal phone-reveal--${mode}`}>
         <span className="mono-cell">{displayPhone}</span>
         {!revealedPhone ? (
           <button
-            className="link-button"
+            aria-label="查看完整手机号"
+            className={iconMode ? "phone-action-button" : "link-button"}
             disabled={disabled}
             onClick={(event) => {
               event.stopPropagation();
               void revealPhone(row);
             }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            title="查看完整手机号"
             type="button"
           >
-            {revealingOrderId === row.order_id
-              ? "读取中"
-              : mode === "panel"
-                ? "查看完整手机号"
-                : "查看"}
+            {iconMode ? (
+              <SolarIcon name="eye" size={16} />
+            ) : revealingOrderId === row.order_id ? (
+              "读取中"
+            ) : (
+              "查看完整手机号"
+            )}
           </button>
         ) : null}
         <button
-          className="link-button"
+          aria-label="复制完整手机号"
+          className={iconMode ? "phone-action-button" : "link-button"}
           disabled={disabled}
           onClick={(event) => {
             event.stopPropagation();
             void copyPhone(row);
           }}
+          onDoubleClick={(event) => event.stopPropagation()}
+          title="复制完整手机号"
           type="button"
         >
-          {copyingOrderId === row.order_id
-            ? "复制中"
-            : mode === "panel"
-              ? "复制完整手机号"
-              : "复制"}
+          {iconMode ? (
+            <SolarIcon name="copy" size={16} />
+          ) : copyingOrderId === row.order_id ? (
+            "复制中"
+          ) : (
+            "复制完整手机号"
+          )}
         </button>
       </span>
     );
@@ -538,9 +662,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
           return;
         }
         setDetail(result.data);
-        setDetailSource(
-          result.usingMock ? "mock fallback" : result.meta.source || "api",
-        );
+        setDetailSource(result.usingMock ? "演示数据" : "实时数据");
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -566,12 +688,58 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
+        event.preventDefault();
         closeClueDetail();
+        return;
+      }
+
+      if (event.key !== "Tab") {
+        return;
+      }
+
+      const dialog = detailDialogRef.current;
+      if (!dialog) {
+        return;
+      }
+
+      const focusableElements = dialogFocusableElements(dialog);
+      if (!focusableElements.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+
+      const firstElement = focusableElements[0];
+      const lastElement = focusableElements[focusableElements.length - 1];
+      if (event.shiftKey && document.activeElement === firstElement) {
+        event.preventDefault();
+        lastElement.focus();
+      } else if (!event.shiftKey && document.activeElement === lastElement) {
+        event.preventDefault();
+        firstElement.focus();
       }
     };
 
+    const pageContent = cluePageContentRef.current;
+    pageContent?.setAttribute("inert", "");
+    pageContent?.setAttribute("aria-hidden", "true");
+    window.setTimeout(() => {
+      detailCloseButtonRef.current?.focus();
+    }, 0);
+
     window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      pageContent?.removeAttribute("inert");
+      pageContent?.removeAttribute("aria-hidden");
+      const returnTarget = detailReturnFocusRef.current;
+      window.setTimeout(() => {
+        if (returnTarget && document.contains(returnTarget)) {
+          returnTarget.focus();
+        }
+        detailReturnFocusRef.current = null;
+      }, 0);
+    };
   }, [selectedOrderId]);
 
   useEffect(() => {
@@ -592,6 +760,27 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     setProductType("");
     setVerificationStatus("");
     setPage(1);
+  };
+
+  const removeFilter = (key: ClueFilterKey) => {
+    setPage(1);
+    if (key === "province") {
+      setProvince("");
+    } else if (key === "city") {
+      setCity("");
+    } else if (key === "assignedStoreId") {
+      setAssignedStoreId("");
+    } else if (key === "assignedDateStart") {
+      setAssignedDateStart("");
+    } else if (key === "assignedDateEnd") {
+      setAssignedDateEnd("");
+    } else if (key === "leadStatus") {
+      setLeadStatus("");
+    } else if (key === "productType") {
+      setProductType("");
+    } else if (key === "verificationStatus") {
+      setVerificationStatus("");
+    }
   };
 
   const handleSaveFollowUp = async (event: FormEvent<HTMLFormElement>) => {
@@ -635,9 +824,24 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
     {
       key: "phone",
       title: "联系方式",
-      minWidth: 190,
+      minWidth: 230,
       sticky: true,
-      render: (row) => renderPhoneContact(row),
+      render: (row) => (
+        <div className="clue-contact-cell">
+          {renderPhoneContact(row)}
+          <button
+            className="link-button clue-detail-trigger"
+            onClick={(event) => {
+              event.stopPropagation();
+              openClueDetail(row, event.currentTarget);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            type="button"
+          >
+            查看详情
+          </button>
+        </div>
+      ),
     },
     {
       key: "store_display_status",
@@ -665,16 +869,9 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
       title: "商品名称",
       minWidth: 230,
       render: (row) => (
-        <button
-          className="link-button clue-product-link"
-          onClick={(event) => {
-            event.stopPropagation();
-            openClueDetail(row);
-          }}
-          type="button"
-        >
+        <span className="clue-product-name">
           {displayValue(row.product_name)}
-        </button>
+        </span>
       ),
     },
     {
@@ -699,6 +896,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
 
   return (
     <div className="page-stack">
+      <div className="clue-page-content" ref={cluePageContentRef}>
       <section className="page-heading">
         <div>
           <p className="eyebrow">Clue follow-up center</p>
@@ -721,7 +919,46 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
         loading={loading}
       />
 
-      <FilterBar className="clue-filter-bar">
+      <div className="clue-filter-mobile-summary">
+        <button
+          aria-controls="clue-filter-panel"
+          aria-expanded={mobileFiltersOpen}
+          className="ghost-button clue-filter-toggle"
+          onClick={() => setMobileFiltersOpen((current) => !current)}
+          type="button"
+        >
+          筛选{activeFilterChips.length ? ` (${activeFilterChips.length})` : ""}
+        </button>
+        {activeFilterChips.length ? (
+          <div className="clue-filter-chips" aria-label="已选筛选条件">
+            {activeFilterChips.map((chip) => (
+              <button
+                className="filter-chip"
+                key={chip.key}
+                onClick={() => removeFilter(chip.key)}
+                type="button"
+              >
+                <span>
+                  {chip.label}：{chip.value}
+                </span>
+                <span aria-hidden="true">×</span>
+              </button>
+            ))}
+            <button
+              className="link-button clue-filter-clear-mobile"
+              onClick={resetFilters}
+              type="button"
+            >
+              清空
+            </button>
+          </div>
+        ) : null}
+      </div>
+
+      <FilterBar
+        className={`clue-filter-bar ${mobileFiltersOpen ? "is-open" : ""}`}
+        id="clue-filter-panel"
+      >
         {showStoreLocationFilters ? (
           <>
             <FilterField label="省份">
@@ -909,13 +1146,67 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
         {!rows.length && roundsResource.loading ? (
           <ResourcePanel>正在加载线索明细...</ResourcePanel>
         ) : (
-          <DataTable
-            columns={columns}
-            emptyText="暂无线索分配记录"
-            onRowDoubleClick={openClueDetail}
-            rows={rows}
-            tableClassName="data-table--clues"
-          />
+          <>
+            <div className="clue-table-view">
+              <DataTable
+                columns={columns}
+                emptyText="暂无线索分配记录"
+                onRowDoubleClick={(row, event) => {
+                  const trigger = event.currentTarget.querySelector<HTMLButtonElement>(
+                    ".clue-detail-trigger",
+                  );
+                  openClueDetail(row, trigger);
+                }}
+                rows={rows}
+                tableClassName="data-table--clues"
+              />
+            </div>
+            <div className="clue-card-list" aria-label="线索卡片列表">
+              {rows.length ? (
+                rows.map((row) => {
+                  const status = getStoreDisplayStatus(row);
+                  return (
+                    <article className="clue-card" key={row.assignment_round_id}>
+                      <div className="clue-card__header">
+                        <span className={statusClassName(status)}>{status}</span>
+                        <span>{roundLabel(row.round_no)}</span>
+                      </div>
+                      <div className="clue-card__phone">
+                        {renderPhoneContact(row, "card")}
+                      </div>
+                      <div className="clue-card__product">
+                        <strong>{displayValue(row.product_name)}</strong>
+                        <span>{displayValue(row.product_type)}</span>
+                      </div>
+                      <dl className="clue-card__meta">
+                        <div>
+                          <dt>最近跟进</dt>
+                          <dd>{formatDateTime(row.followed_at)}</dd>
+                        </div>
+                        <div>
+                          <dt>生成时间</dt>
+                          <dd>{formatDateTime(row.assigned_at)}</dd>
+                        </div>
+                        <div>
+                          <dt>本轮失效</dt>
+                          <dd>{displayValue(formatInvalidatedAt(row))}</dd>
+                        </div>
+                      </dl>
+                      <button
+                        className="primary-button clue-card__detail clue-detail-trigger"
+                        onClick={(event) => openClueDetail(row, event.currentTarget)}
+                        type="button"
+                      >
+                        查看详情
+                      </button>
+                    </article>
+                  );
+                })
+              ) : (
+                <ResourcePanel>暂无线索分配记录</ResourcePanel>
+              )}
+            </div>
+          </>
         )}
 
         <div className="pagination-controls">
@@ -947,6 +1238,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
           </div>
         </div>
       </section>
+      </div>
 
       {selectedRound ? (
         <div
@@ -962,7 +1254,9 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
             aria-labelledby="clue-detail-title"
             aria-modal="true"
             className="clue-detail-modal clue-followup-detail"
+            ref={detailDialogRef}
             role="dialog"
+            tabIndex={-1}
           >
             <header className="clue-followup-detail__header">
               <div>
@@ -971,12 +1265,13 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
               </div>
               <div className="clue-followup-detail__actions">
                 <span className="source-pill">
-                  {detailLoading ? "加载中" : detailSource || "api"}
+                  {detailLoading ? "加载中" : detailSource || "实时数据"}
                 </span>
                 <button
                   aria-label="关闭线索详情"
                   className="modal-close"
                   onClick={closeClueDetail}
+                  ref={detailCloseButtonRef}
                   type="button"
                 >
                   <SolarIcon name="close" size={18} />
@@ -993,15 +1288,32 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
             ) : detail && activeDetailRound ? (
               <div className="clue-followup-detail__body">
                 {phoneRevealError ? (
-                  <div className="resource-notice resource-notice--warning">
+                  <div
+                    aria-atomic="true"
+                    aria-live="polite"
+                    className="resource-notice resource-notice--warning"
+                    role="status"
+                  >
                     {phoneRevealError}
                   </div>
                 ) : null}
                 {phoneActionMessage ? (
-                  <div className="resource-notice">{phoneActionMessage}</div>
+                  <div
+                    aria-atomic="true"
+                    aria-live="polite"
+                    className="resource-notice"
+                    role="status"
+                  >
+                    {phoneActionMessage}
+                  </div>
                 ) : null}
                 {followUpError ? (
-                  <div className="resource-notice resource-notice--error">
+                  <div
+                    aria-atomic="true"
+                    aria-live="assertive"
+                    className="resource-notice resource-notice--error"
+                    role="alert"
+                  >
                     {followUpError}
                   </div>
                 ) : null}
@@ -1019,7 +1331,7 @@ export function ClueCenterPage({ currentUser, searchParams }: ClueCenterPageProp
                         <strong className="mono-cell">{detailPhoneValue}</strong>
                       </div>
                       <div>
-                        <span>订单ID</span>
+                        <span>订单编号</span>
                         <strong className="mono-cell">{detail.order_id}</strong>
                       </div>
                       <div>
