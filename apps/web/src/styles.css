@@ -22,6 +22,9 @@
   --danger: #a0443e;
   --target-min: 24px;
   --touch-target: 44px;
+  --workspace-topbar-height: 82px;
+  --workspace-subnav-height: 51px;
+  --table-sticky-top: calc(var(--workspace-topbar-height) + var(--workspace-subnav-height));
   --focus-ring: 0 0 0 3px rgb(15 91 75 / 22%);
   --shadow: 0 14px 42px rgb(31 43 36 / 7%);
   --shadow-soft: 0 1px 2px rgb(31 43 36 / 5%), 0 10px 26px rgb(31 43 36 / 6%);
@@ -167,7 +170,7 @@ a {
   top: 0;
   z-index: 30;
   display: flex;
-  min-height: 82px;
+  min-height: var(--workspace-topbar-height);
   align-items: center;
   justify-content: space-between;
   gap: 20px;
@@ -249,7 +252,7 @@ a {
 
 .workspace-subnav {
   position: sticky;
-  top: 82px;
+  top: var(--workspace-topbar-height);
   z-index: 24;
   display: flex;
   align-items: center;
@@ -1199,12 +1202,17 @@ a.metric-card:hover,
 .data-table th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 3;
   background: #f4f7f3;
   color: #334039;
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
+  box-shadow: 0 1px 0 var(--line);
+}
+
+.workspace-shell .page-frame .data-table th {
+  top: var(--table-sticky-top);
 }
 
 .data-table td.is-sticky-column,
@@ -1216,7 +1224,7 @@ a.metric-card:hover,
 }
 
 .data-table th.is-sticky-column {
-  z-index: 4;
+  z-index: 5;
   background: #eef3ef;
 }
 
@@ -2500,6 +2508,10 @@ a.metric-card:hover,
   .workspace-subnav a {
     min-height: var(--touch-target);
     padding: 8px 12px;
+  }
+
+  .workspace-shell .page-frame .data-table th {
+    top: var(--workspace-subnav-height);
   }
 
   .workspace-shell .page-frame {

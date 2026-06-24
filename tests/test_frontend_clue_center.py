@@ -192,6 +192,43 @@ def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
     assert "top: 0;" in subnav_rules
 
 
+def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
+    styles_source = read_source("styles.css")
+
+    root_rules = styles_source[
+        styles_source.index(":root") :
+        styles_source.index("* {")
+    ]
+    base_header_rules = styles_source[
+        styles_source.index(".data-table th {") :
+        styles_source.index(".workspace-shell .page-frame .data-table th")
+    ]
+    shell_header_rules = styles_source[
+        styles_source.index(".workspace-shell .page-frame .data-table th") :
+        styles_source.index(".data-table td.is-sticky-column")
+    ]
+    sticky_column_header_rules = styles_source[
+        styles_source.index(".data-table th.is-sticky-column") :
+        styles_source.index(".data-table td.is-sticky-column-last")
+    ]
+    mobile_shell_rules = styles_source[
+        styles_source.index("@media (max-width: 920px)") :
+        styles_source.index("@media (max-width: 640px)")
+    ]
+
+    assert "--workspace-topbar-height: 82px;" in root_rules
+    assert "--workspace-subnav-height: 51px;" in root_rules
+    assert (
+        "--table-sticky-top: calc(var(--workspace-topbar-height) + "
+        "var(--workspace-subnav-height));"
+    ) in root_rules
+    assert "top: 0;" in base_header_rules
+    assert "z-index: 3;" in base_header_rules
+    assert "top: var(--table-sticky-top);" in shell_header_rules
+    assert "z-index: 5;" in sticky_column_header_rules
+    assert "top: var(--workspace-subnav-height);" in mobile_shell_rules
+
+
 def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     admin_pages = [
         "pages/AdminHomePage.tsx",
