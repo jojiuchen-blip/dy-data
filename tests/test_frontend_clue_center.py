@@ -90,9 +90,12 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "verificationStatus" in source
     assert "assigned_store_id" in source
 
-    filter_bar_start = source.index('<FilterBar className="clue-filter-bar">')
+    filter_panel_id = source.index('id="clue-filter-panel"')
+    filter_bar_start = source.rindex("<FilterBar", 0, filter_panel_id)
     filter_bar_end = source.index("</FilterBar>", filter_bar_start)
     filter_bar = source[filter_bar_start:filter_bar_end]
+    assert "mobileFiltersOpen" in filter_bar
+    assert "clue-filter-bar" in filter_bar
     assert "处理状态" not in filter_bar
     assert "roundStatus" not in filter_bar
     assert "round_status" not in filter_bar
