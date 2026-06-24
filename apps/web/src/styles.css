@@ -192,18 +192,6 @@ a {
   font-weight: 750;
 }
 
-.workspace-kicker strong {
-  color: var(--green);
-  font-weight: 850;
-}
-
-.workspace-title {
-  color: var(--ink);
-  font-size: 24px;
-  font-weight: 850;
-  line-height: 1.16;
-}
-
 .workspace-actions {
   display: flex;
   min-width: 0;
@@ -732,6 +720,20 @@ h2 {
   color: var(--muted);
   font-size: 12px;
   background: var(--surface);
+}
+
+.result-count {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  white-space: nowrap;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 5px 12px;
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
 }
 
 .resource-notice {
@@ -2612,10 +2614,6 @@ a.metric-card:hover,
 
   .rail-brand {
     grid-template-columns: auto 1fr;
-  }
-
-  .workspace-title {
-    font-size: 21px;
   }
 
   .account-cluster {

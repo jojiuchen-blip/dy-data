@@ -4,7 +4,6 @@ import {
   fetchAdminSession,
   fetchSyncAdmin,
   loginAdmin,
-  logoutAdmin,
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
@@ -215,17 +214,6 @@ export function AdminSyncPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutAdmin().catch(() => undefined);
-    setAuthenticated(false);
-    setData(null);
-    setDraft(null);
-    setDraftDirty(false);
-    draftDirtyRef.current = false;
-    configBaselineRef.current = "";
-    setRemoteConfigChanged(false);
-  };
-
   const handleSave = async () => {
     if (!draft) return;
     setSaving(true);
@@ -295,7 +283,6 @@ export function AdminSyncPage() {
       <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">系统管理后台</p>
             <h1>数据同步管理</h1>
             <p className="admin-muted">输入管理密码后进入。</p>
           </div>
@@ -326,22 +313,10 @@ export function AdminSyncPage() {
     <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">系统管理后台</p>
           <h1>数据同步管理</h1>
           <p className="admin-muted">
             配置后台采集节奏，查看任务执行情况，并按需手动补拉数据。
           </p>
-        </div>
-        <div className="admin-header-actions">
-          <a className="ghost-button admin-link-button" href="/">
-            返回看板主页
-          </a>
-          <a className="ghost-button admin-link-button" href="/admin">
-            返回后台首页
-          </a>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            退出
-          </button>
         </div>
       </section>
 

@@ -195,16 +195,12 @@ export function AdminAccountsPage() {
     <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">账号体系</p>
           <h1>账号管理</h1>
           <p className="admin-muted">
             管理登录账号、角色状态和门店数据范围。
           </p>
         </div>
         <div className="admin-header-actions">
-          <a className="ghost-button admin-link-button" href="/admin">
-            返回后台首页
-          </a>
           <button className="primary-button" onClick={startCreate} type="button">
             新建账号
           </button>

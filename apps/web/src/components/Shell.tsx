@@ -104,18 +104,6 @@ function secondaryNav(section: NavSection): NavItem[] {
   return settlementNavItems;
 }
 
-function pageTitle(currentPath: string): string {
-  const allItems = [...settlementNavItems, ...clueNavItems, ...adminNavItems];
-  return (
-    allItems.find((item) => item.href === currentPath)?.label ??
-    (currentPath === "/rule-admin"
-      ? "分佣规则"
-      : currentPath === "/sync-admin"
-        ? "数据同步"
-        : "全国门店榜单")
-  );
-}
-
 function roleLabel(role: AdminUser["role"]): string {
   if (role === "admin") {
     return "最高管理员";
@@ -188,10 +176,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           <div className="workspace-context">
             <div className="workspace-kicker">
               <span>{sectionLabels[section]}</span>
-              <span>/</span>
-              <strong>{pageTitle(currentPath)}</strong>
             </div>
-            <div className="workspace-title">{pageTitle(currentPath)}</div>
           </div>
 
           <div className="workspace-actions">

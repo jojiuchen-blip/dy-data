@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import {
   fetchAdminSession,
   loginAdmin,
-  logoutAdmin,
 } from "../api/client";
 
 const adminModules = [
@@ -73,11 +72,6 @@ export function AdminHomePage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutAdmin().catch(() => undefined);
-    setAuthenticated(false);
-  };
-
   if (checkingSession) {
     return (
       <div className="admin-page">
@@ -91,7 +85,6 @@ export function AdminHomePage() {
       <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">系统管理后台</p>
             <h1>抖音经营中枢后台</h1>
             <p className="admin-muted">输入管理密码后进入配置页面。</p>
           </div>
@@ -122,17 +115,8 @@ export function AdminHomePage() {
     <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">系统管理后台</p>
           <h1>抖音经营中枢后台</h1>
           <p className="admin-muted">选择需要管理的配置模块。</p>
-        </div>
-        <div className="admin-header-actions">
-          <a className="ghost-button admin-link-button" href="/">
-            返回看板主页
-          </a>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            退出
-          </button>
         </div>
       </section>
 

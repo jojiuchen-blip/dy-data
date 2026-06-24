@@ -6,7 +6,6 @@ import {
   fetchSyncAdmin,
   fetchSkuRules,
   loginAdmin,
-  logoutAdmin,
   lookupSkuRules,
   saveNonCommissionOwnerAccounts,
   saveSkuRules,
@@ -472,16 +471,6 @@ export function AdminSkuRulesPage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutAdmin().catch(() => undefined);
-    setAuthenticated(false);
-    setRows([]);
-    setSelectedSkuMap(new Map());
-    setDraftMap(new Map());
-    setNonCommissionAccountText("");
-    setNonCommissionAccountCount(0);
-  };
-
   const handleSaveNonCommissionAccounts = async () => {
     const accounts = parseOwnerAccountInput(nonCommissionAccountText);
     const confirmed = window.confirm(
@@ -576,7 +565,6 @@ export function AdminSkuRulesPage() {
       <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">系统管理后台</p>
             <h1>商品分账规则管理</h1>
             <p className="admin-muted">输入管理密码后进入。</p>
           </div>
@@ -607,22 +595,10 @@ export function AdminSkuRulesPage() {
     <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">系统管理后台</p>
           <h1>商品分账规则管理</h1>
           <p className="admin-muted">
             先查询并预选 SKU，再对预选范围批量修改；保存后会写入规则表并后台重建结算结果。
           </p>
-        </div>
-        <div className="admin-header-actions">
-          <a className="ghost-button admin-link-button" href="/">
-            返回看板主页
-          </a>
-          <a className="ghost-button admin-link-button" href="/admin">
-            返回后台首页
-          </a>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            退出
-          </button>
         </div>
       </section>
 

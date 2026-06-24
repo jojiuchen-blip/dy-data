@@ -319,6 +319,7 @@ export function ClueCenterPage({
   view = "dashboard",
 }: ClueCenterPageProps) {
   const isDetailsView = view === "details";
+  const pageHeadingTitle = isDetailsView ? "线索跟进列表" : "经营线索概览";
   const showStoreLocationFilters =
     currentUser.role !== "store" || currentUser.store_ids.length !== 1;
   const [province, setProvince] = useState(searchParams.get("province") ?? "");
@@ -518,12 +519,9 @@ export function ClueCenterPage({
   const canShowActiveDetailPhone = activeDetailRound
     ? canViewFullPhone(activeDetailRound)
     : false;
-  const detailPhoneValue = activeDetailRound
-    ? (canShowActiveDetailPhone ? revealedPhones[activeDetailRound.order_id] : undefined) ||
-      activeDetailRound.phone_masked ||
-      "-"
-    : "-";
   const canEditFollowUp = canShowActiveDetailPhone;
+  const historicalDetailRounds =
+    detail?.rounds.filter((round) => !round.is_current_round) ?? [];
 
   const openClueDetail = (
     row: ClueAssignmentRound,
@@ -943,10 +941,7 @@ export function ClueCenterPage({
       <div className="clue-page-content" ref={cluePageContentRef}>
       <section className="page-heading">
         <div>
-          <p className="eyebrow">
-            {isDetailsView ? "Clue detail list" : "Clue dashboard"}
-          </p>
-          <h1>{isDetailsView ? "线索明细" : "线索看板"}</h1>
+          <h1>{pageHeadingTitle}</h1>
         </div>
         <span className="source-pill">
           {isDetailsView
@@ -1176,11 +1171,11 @@ export function ClueCenterPage({
         <section className="content-section">
           <div className="section-title">
             <div>
-              <h2>线索明细</h2>
+              <h2>当前筛选结果</h2>
               <p>店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</p>
             </div>
             {pagination ? (
-              <span className="source-pill">
+              <span className="result-count">
                 共 {formatInteger(pagination.total)} 条
               </span>
             ) : null}
@@ -1304,8 +1299,7 @@ export function ClueCenterPage({
           >
             <header className="clue-followup-detail__header">
               <div>
-                <p className="eyebrow">Follow-up detail</p>
-                <h2 id="clue-detail-title">线索跟进详情</h2>
+                <h2 id="clue-detail-title">跟进详情</h2>
               </div>
               <div className="clue-followup-detail__actions">
                 <span className="source-pill">
@@ -1324,7 +1318,7 @@ export function ClueCenterPage({
             </header>
 
             {detailLoading ? (
-              <ResourcePanel>正在加载线索跟进详情...</ResourcePanel>
+              <ResourcePanel>正在加载详情...</ResourcePanel>
             ) : detailError ? (
               <ResourcePanel tone="error">
                 线索详情暂不可用：{detailError}
@@ -1371,10 +1365,6 @@ export function ClueCenterPage({
                         </strong>
                       </div>
                       <div>
-                        <span>联系方式</span>
-                        <strong className="mono-cell">{detailPhoneValue}</strong>
-                      </div>
-                      <div>
                         <span>订单编号</span>
                         <strong className="mono-cell">{detail.order_id}</strong>
                       </div>
@@ -1387,7 +1377,7 @@ export function ClueCenterPage({
                         <strong>{formatDateTime(activeDetailRound.assigned_at)}</strong>
                       </div>
                       <div>
-                        <span>分配轮次</span>
+                        <span>跟进轮次</span>
                         <strong>{roundLabel(activeDetailRound.round_no)}</strong>
                       </div>
                     </section>
@@ -1405,9 +1395,6 @@ export function ClueCenterPage({
                         <ol className="clue-followup-timeline">
                           {detail.follow_up_records.map((record) => {
                             const round = roundForRecord(detail, record);
-                            const status = round
-                              ? getStoreDisplayStatus(round)
-                              : "已跟进";
                             return (
                               <li
                                 className="clue-followup-timeline__item"
@@ -1424,9 +1411,6 @@ export function ClueCenterPage({
                                     </span>
                                     <strong>{labelFor(record.follow_result, followResultLabels)}</strong>
                                   </div>
-                                  <span className={statusClassName(status)}>
-                                    {status}
-                                  </span>
                                 </div>
                                 <dl className="clue-followup-history-fields">
                                   <div>
@@ -1454,9 +1438,9 @@ export function ClueCenterPage({
                             );
                           })}
                         </ol>
-                      ) : detail.rounds.length ? (
+                      ) : historicalDetailRounds.length ? (
                         <ol className="clue-followup-timeline">
-                          {detail.rounds.map((round) => {
+                          {historicalDetailRounds.map((round) => {
                             const status = getStoreDisplayStatus(round);
                             return (
                               <li
@@ -1474,9 +1458,6 @@ export function ClueCenterPage({
                                     </span>
                                     <strong>{status}</strong>
                                   </div>
-                                  <span className={statusClassName(status)}>
-                                    {status}
-                                  </span>
                                 </div>
                                 <dl className="clue-followup-history-fields">
                                   <div>
@@ -1512,7 +1493,7 @@ export function ClueCenterPage({
 
                   <aside className="clue-followup-detail__side">
                     <section className="clue-followup-side-section">
-                      <h3>联系方式</h3>
+                      <h3>号码操作</h3>
                       {renderPhoneContact(activeDetailRound, "panel")}
                     </section>
 

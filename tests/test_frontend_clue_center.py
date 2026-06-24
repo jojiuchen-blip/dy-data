@@ -58,10 +58,11 @@ def test_clue_center_does_not_display_douyin_follow_store_as_our_assignment() ->
 def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 
-    assert "线索跟进详情" in source
+    assert "跟进详情" in source
     assert "clue-followup-detail__grid" in source
     assert "clue-followup-detail__main" in source
     assert "clue-followup-detail__side" in source
+    assert "号码操作" in source
     assert "跟进历史" in source
     assert "跟进操作" in source
     assert 'value="unreachable"' in source
@@ -77,6 +78,11 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     history_start = source.index("跟进历史")
     side_start = source.index("clue-followup-detail__side")
     assert summary_start < history_start < side_start
+    summary_end = source.index("</section>", summary_start)
+    summary = source[summary_start:summary_end]
+    assert "联系方式" not in summary
+    assert "detailPhoneValue" not in source
+    assert "historicalDetailRounds" in source
 
 
 def test_clue_center_filters_follow_store_scope_spec() -> None:
@@ -138,7 +144,57 @@ def test_clue_center_splits_dashboard_and_detail_routes() -> None:
     assert 'currentPath.startsWith("/clues/")' in shell_source
     assert 'view?: ClueCenterView' in page_source
     assert 'const isDetailsView = view === "details"' in page_source
-    assert '{isDetailsView ? "线索明细" : "线索看板"}' in page_source
+    assert 'const pageHeadingTitle = isDetailsView ? "线索跟进列表" : "经营线索概览"' in page_source
+
+
+def test_clue_center_removes_repeated_engineering_labels() -> None:
+    page_source = read_source("pages/ClueCenterPage.tsx")
+
+    for removed_label in [
+        "Clue detail list",
+        "Clue dashboard",
+        "Follow-up detail",
+        "线索跟进详情",
+        "<h2>线索明细</h2>",
+    ]:
+        assert removed_label not in page_source
+
+    assert "当前筛选结果" in page_source
+    assert 'className="result-count"' in page_source
+
+
+def test_shell_uses_module_context_without_repeating_page_title() -> None:
+    shell_source = read_source("components/Shell.tsx")
+    styles_source = read_source("styles.css")
+
+    assert "sectionLabels[section]" in shell_source
+    assert "pageTitle" not in shell_source
+    assert "workspace-title" not in shell_source
+    assert ".workspace-title" not in styles_source
+
+
+def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
+    admin_pages = [
+        "pages/AdminHomePage.tsx",
+        "pages/AdminSkuRulesPage.tsx",
+        "pages/AdminClueRulePage.tsx",
+        "pages/AdminSyncPage.tsx",
+        "pages/AdminAccountsPage.tsx",
+    ]
+
+    for relative_path in admin_pages:
+        source = read_source(relative_path)
+        assert "返回看板主页" not in source
+        assert "返回后台首页" not in source
+        assert "logoutAdmin" not in source
+        assert "handleLogout" not in source
+
+    for relative_path in admin_pages[:-1]:
+        assert "系统管理后台" not in read_source(relative_path)
+
+    accounts_source = read_source("pages/AdminAccountsPage.tsx")
+    assert "账号体系" not in accounts_source
+    assert "新建账号" in accounts_source
 
 
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:
@@ -193,7 +249,8 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
         source.index("const canShowActiveDetailPhone") : source.index("const openClueDetail")
     ]
     assert "const canShowActiveDetailPhone" in detail_phone_body
-    assert "canShowActiveDetailPhone ? revealedPhones[activeDetailRound.order_id] : undefined" in detail_phone_body
+    assert "detailPhoneValue" not in detail_phone_body
+    assert "{renderPhoneContact(activeDetailRound, \"panel\")}" in source
 
 
 def test_clue_mock_data_covers_active_followed_lost_and_history() -> None:

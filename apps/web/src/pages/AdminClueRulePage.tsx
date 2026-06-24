@@ -4,7 +4,6 @@ import {
   fetchAdminSession,
   fetchClueReassignRule,
   loginAdmin,
-  logoutAdmin,
   rebuildClues,
   saveClueReassignRule,
 } from "../api/client";
@@ -115,12 +114,6 @@ export function AdminClueRulePage() {
     }
   };
 
-  const handleLogout = async () => {
-    await logoutAdmin().catch(() => undefined);
-    setAuthenticated(false);
-    setRule(null);
-  };
-
   const handleSave = async () => {
     const parsed = validateSla(slaInput);
     if (parsed === undefined) {
@@ -189,7 +182,6 @@ export function AdminClueRulePage() {
       <div className="admin-page admin-page--centered">
         <form className="admin-login-panel" onSubmit={handleLogin}>
           <div>
-            <p className="source-pill">系统管理后台</p>
             <h1>线索再分配规则</h1>
             <p className="admin-muted">规则配置页</p>
           </div>
@@ -220,22 +212,10 @@ export function AdminClueRulePage() {
     <div className="admin-page">
       <section className="admin-header">
         <div>
-          <p className="source-pill">系统管理后台</p>
           <h1>线索再分配规则</h1>
           <p className="admin-muted">
             全局 SLA 小时数；留空时不启用自动超时待再分配。
           </p>
-        </div>
-        <div className="admin-header-actions">
-          <a className="ghost-button admin-link-button" href="/">
-            返回看板主页
-          </a>
-          <a className="ghost-button admin-link-button" href="/admin">
-            返回后台首页
-          </a>
-          <button className="ghost-button" onClick={handleLogout} type="button">
-            退出
-          </button>
         </div>
       </section>
 
