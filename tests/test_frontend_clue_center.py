@@ -176,6 +176,66 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
     assert ".workspace-title" not in styles_source
 
 
+def test_shell_has_feedback_submission_entry() -> None:
+    shell_source = read_source("components/Shell.tsx")
+    styles_source = read_source("styles.css")
+    client_source = read_source("api/client.ts")
+    types_source = read_source("types/dashboard.ts")
+
+    assert 'className="rail-feedback-button"' in shell_source
+    assert 'className="mobile-bottom-nav__feedback"' not in shell_source
+    assert 'className="mobile-bottom-nav__mine"' in shell_source
+    assert 'className="mine-panel"' in shell_source
+    assert "openFeedbackFromMine" in shell_source
+    assert "openSettingsFromMine" in shell_source
+    assert "提交建议" in shell_source
+    assert "handleFeedbackSubmit" in shell_source
+    assert "submitFeedback" in shell_source
+    assert "page_path: currentPath" in shell_source
+    assert "grid-template-rows: auto 1fr auto;" in styles_source
+    assert ".rail-feedback-button" in styles_source
+    assert ".mobile-bottom-nav__mine" in styles_source
+    assert ".mine-panel" in styles_source
+    assert ".feedback-modal" in styles_source
+
+    assert "export type FeedbackCategory" in types_source
+    assert "export interface FeedbackSubmissionPayload" in types_source
+    assert "export interface FeedbackSubmissionReceipt" in types_source
+    assert "export async function submitFeedback" in client_source
+    assert 'sendJson<FeedbackSubmissionReceipt>("/feedback"' in client_source
+
+
+def test_admin_feedback_page_is_wired_to_shell_and_api_client() -> None:
+    app_source = read_source("App.tsx")
+    shell_source = read_source("components/Shell.tsx")
+    home_source = read_source("pages/AdminHomePage.tsx")
+    page_source = read_source("pages/AdminFeedbackPage.tsx")
+    client_source = read_source("api/client.ts")
+    types_source = read_source("types/dashboard.ts")
+
+    assert "AdminFeedbackPage" in app_source
+    assert 'location.pathname === "/admin/feedback"' in app_source
+    assert '"/admin/feedback"' in shell_source
+    assert 'label: "用户建议", icon: "feedback"' in shell_source
+    assert 'href: "/admin/feedback"' in home_source
+
+    assert "用户建议" in page_source
+    assert "feedback-summary-row" in page_source
+    assert "admin-feedback-filters" in page_source
+    assert "updateFeedbackStatus" in page_source
+    assert "fetchFeedback" in page_source
+    assert "标记已读" in page_source
+    assert "已处理" in page_source
+
+    assert "export interface FeedbackRow" in types_source
+    assert "export interface FeedbackListData" in types_source
+    assert "export type FeedbackStatus" in types_source
+    assert "export async function fetchFeedback" in client_source
+    assert 'requestJson<FeedbackListData>("/admin/feedback"' in client_source
+    assert "export async function updateFeedbackStatus" in client_source
+    assert "/admin/feedback/${encodeURIComponent(feedbackId)}/status" in client_source
+
+
 def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
     styles_source = read_source("styles.css")
     mobile_shell_rules = styles_source[
@@ -260,6 +320,7 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
         "pages/AdminHomePage.tsx",
         "pages/AdminSkuRulesPage.tsx",
         "pages/AdminClueRulePage.tsx",
+        "pages/AdminFeedbackPage.tsx",
         "pages/AdminSyncPage.tsx",
         "pages/AdminAccountsPage.tsx",
     ]

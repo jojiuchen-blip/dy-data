@@ -3,6 +3,7 @@ import { fetchAdminSession, logoutAdmin } from "./api/client";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminClueRulePage } from "./pages/AdminClueRulePage";
+import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { AdminAccountsPage } from "./pages/AdminAccountsPage";
 import { AuthPage, type AuthMode } from "./pages/AuthPage";
 import { Shell } from "./components/Shell";
@@ -169,6 +170,8 @@ export function App() {
             <AdminSyncPage />
           ) : location.pathname === "/admin/clues/rules" ? (
             <AdminClueRulePage />
+          ) : location.pathname === "/admin/feedback" ? (
+            <AdminFeedbackPage />
           ) : null;
 
         if (adminPage) {

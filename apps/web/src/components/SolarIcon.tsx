@@ -29,6 +29,7 @@ const solarIcons = {
   details: billListLinear,
   eyeClosed: eyeClosedLinear,
   eye: eyeLinear,
+  feedback: chatRoundDotsLinear,
   home: home2Linear,
   key: keyMinimalisticSquareLinear,
   logout: logout3Linear,

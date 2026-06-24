@@ -175,6 +175,26 @@ class UserStoreScope(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class UserFeedbackSubmission(Base):
+    __tablename__ = "user_feedback_submissions"
+    __table_args__ = (
+        Index("ix_user_feedback_submissions_created_at", "created_at"),
+        Index("ix_user_feedback_submissions_status", "status"),
+        Index("ix_user_feedback_submissions_user_id", "user_id"),
+    )
+
+    feedback_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    category: Mapped[str] = mapped_column(String(32), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    contact: Mapped[str | None] = mapped_column(Text)
+    page_path: Mapped[str | None] = mapped_column(Text)
+    user_id: Mapped[str | None] = mapped_column(Text)
+    username: Mapped[str | None] = mapped_column(Text)
+    user_role: Mapped[str | None] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32), default="new")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class DimStorePoiMapping(Base):
     __tablename__ = "dim_store_poi_mappings"
     __table_args__ = (

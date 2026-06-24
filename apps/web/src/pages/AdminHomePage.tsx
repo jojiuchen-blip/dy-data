@@ -18,6 +18,12 @@ const adminModules = [
     meta: "线索规则",
   },
   {
+    href: "/admin/feedback",
+    title: "用户建议",
+    description: "查看用户提交的体验反馈、数据问题和功能建议，并标记处理状态。",
+    meta: "反馈处理",
+  },
+  {
     href: "/admin/rules",
     title: "商品分账规则",
     description: "按 SKU 配置商品类型和分账比例，保存后后台重建看板结果。",

@@ -30,6 +30,12 @@ import type {
   ClueRebuildResult,
   CommissionRulesSummaryData,
   DetailFilters,
+  FeedbackCategory,
+  FeedbackListData,
+  FeedbackRow,
+  FeedbackSubmissionPayload,
+  FeedbackSubmissionReceipt,
+  FeedbackStatus,
   FilterMetaData,
   MonthlySettlementData,
   NonCommissionOwnerAccountListData,
@@ -688,6 +694,56 @@ export async function changeCurrentUserPassword(
 ): Promise<ApiLoadResult<AdminUser>> {
   return {
     ...(await sendJson<AdminUser>("/auth/change-password", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function submitFeedback(
+  payload: FeedbackSubmissionPayload,
+): Promise<ApiLoadResult<FeedbackSubmissionReceipt>> {
+  return {
+    ...(await sendJson<FeedbackSubmissionReceipt>("/feedback", { body: payload })),
+    usingMock: false,
+  };
+}
+
+export async function fetchFeedback({
+  category,
+  page,
+  pageSize,
+  q,
+  status,
+}: {
+  category?: FeedbackCategory | "";
+  page: number;
+  pageSize: number;
+  q?: string;
+  status?: FeedbackStatus | "";
+}): Promise<ApiLoadResult<FeedbackListData>> {
+  return {
+    ...(await requestJson<FeedbackListData>("/admin/feedback", {
+      category,
+      page,
+      page_size: pageSize,
+      q,
+      status,
+    })),
+    usingMock: false,
+  };
+}
+
+export async function updateFeedbackStatus(
+  feedbackId: string,
+  status: FeedbackStatus,
+): Promise<ApiLoadResult<FeedbackRow>> {
+  return {
+    ...(await sendJson<FeedbackRow>(
+      `/admin/feedback/${encodeURIComponent(feedbackId)}/status`,
+      {
+        body: { status },
+        method: "PUT",
+      },
+    )),
     usingMock: false,
   };
 }

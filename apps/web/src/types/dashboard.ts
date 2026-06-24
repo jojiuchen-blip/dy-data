@@ -66,6 +66,43 @@ export interface AccountPasswordPayload {
   password_confirm: string;
 }
 
+export type FeedbackCategory = "experience" | "data" | "feature" | "other";
+
+export interface FeedbackSubmissionPayload {
+  category: FeedbackCategory;
+  content: string;
+  contact?: string | null;
+  page_path?: string | null;
+}
+
+export interface FeedbackSubmissionReceipt {
+  feedback_id: string;
+  category: FeedbackCategory;
+  status: "new";
+  created_at: string;
+}
+
+export type FeedbackStatus = "new" | "reviewed" | "resolved" | "ignored";
+
+export interface FeedbackRow {
+  feedback_id: string;
+  category: FeedbackCategory;
+  content: string;
+  contact: string | null;
+  page_path: string | null;
+  user_id: string | null;
+  username: string | null;
+  user_role: string | null;
+  status: FeedbackStatus;
+  created_at: string;
+}
+
+export interface FeedbackListData {
+  rows: FeedbackRow[];
+  pagination: Pagination;
+  status_counts: Record<string, number>;
+}
+
 export interface AccountSelfServicePayload {
   external_account_id: string;
   certified_subject_name: string;

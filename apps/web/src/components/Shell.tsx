@@ -1,6 +1,6 @@
-import { useState, type ReactNode } from "react";
-import { changeCurrentUserPassword } from "../api/client";
-import type { AdminUser } from "../types/dashboard";
+import { useState, type FormEvent, type ReactNode } from "react";
+import { changeCurrentUserPassword, submitFeedback } from "../api/client";
+import type { AdminUser, FeedbackCategory } from "../types/dashboard";
 import { CommissionRulesButton } from "./CommissionRulesButton";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
@@ -11,6 +11,7 @@ const adminPaths = new Set([
   "/admin/rules",
   "/admin/sync",
   "/admin/clues/rules",
+  "/admin/feedback",
   "/rule-admin",
   "/sync-admin",
 ]);
@@ -26,22 +27,24 @@ interface NavItem {
 interface ModuleNavItem extends NavItem {
   section: NavSection;
   description: string;
+  badge?: string;
 }
 
 const moduleNavItems: ModuleNavItem[] = [
   {
-    href: "/ranking",
-    icon: "chart",
-    label: "结算",
-    section: "settlement",
-    description: "订单分佣",
-  },
-  {
     href: "/clues",
     icon: "clues",
-    label: "线索",
+    label: "线索中心",
     section: "clues",
-    description: "跟进分配",
+    description: "经营线索",
+  },
+  {
+    href: "/ranking",
+    icon: "chart",
+    label: "订单分佣",
+    section: "settlement",
+    description: "BETA",
+    badge: "BETA",
   },
   {
     href: "/admin",
@@ -68,14 +71,22 @@ const adminNavItems: NavItem[] = [
   { href: "/admin/accounts", label: "账号管理", icon: "accounts" },
   { href: "/admin/rules", label: "分佣规则", icon: "rules" },
   { href: "/admin/clues/rules", label: "线索规则", icon: "cluesLine" },
+  { href: "/admin/feedback", label: "用户建议", icon: "feedback" },
   { href: "/admin/sync", label: "数据同步", icon: "sync" },
 ];
 
 const sectionLabels: Record<NavSection, string> = {
-  settlement: "结算中心",
+  settlement: "订单分佣结算中心",
   clues: "线索中心",
   admin: "管理后台",
 };
+
+const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
+  { label: "使用体验", value: "experience" },
+  { label: "数据问题", value: "data" },
+  { label: "功能建议", value: "feature" },
+  { label: "其他", value: "other" },
+];
 
 interface ShellProps {
   currentPath: string;
@@ -116,17 +127,88 @@ function roleLabel(role: AdminUser["role"]): string {
 
 export function Shell({ currentPath, currentUser, onLogout, children }: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [mineOpen, setMineOpen] = useState(false);
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [feedbackCategory, setFeedbackCategory] =
+    useState<FeedbackCategory>("experience");
+  const [feedbackContent, setFeedbackContent] = useState("");
+  const [feedbackContact, setFeedbackContact] = useState("");
+  const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [feedbackMessageType, setFeedbackMessageType] = useState<
+    "error" | "success" | null
+  >(null);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
   const sectionNavItems = secondaryNav(section);
   const visibleModuleItems = moduleNavItems.filter(
     (item) => item.section !== "admin" || currentUser?.role === "admin",
   );
 
-  const handlePasswordChange = async (event: React.FormEvent<HTMLFormElement>) => {
+  const openFeedback = () => {
+    setFeedbackOpen(true);
+    setFeedbackMessage("");
+    setFeedbackMessageType(null);
+  };
+
+  const openFeedbackFromMine = () => {
+    setMineOpen(false);
+    openFeedback();
+  };
+
+  const openSettingsFromMine = () => {
+    setMineOpen(false);
+    setSettingsOpen(true);
+  };
+
+  const handleMineLogout = () => {
+    setMineOpen(false);
+    onLogout?.();
+  };
+
+  const storeScopeLabel =
+    currentUser && currentUser.store_ids.length > 0
+      ? `${currentUser.store_ids.length} 个门店`
+      : currentUser?.role === "store"
+        ? "未绑定门店"
+        : "全部数据";
+
+  const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const content = feedbackContent.trim();
+    const contact = feedbackContact.trim();
+    if (!content) {
+      setFeedbackMessage("请先写下你的建议。");
+      setFeedbackMessageType("error");
+      return;
+    }
+
+    setSubmittingFeedback(true);
+    setFeedbackMessage("");
+    setFeedbackMessageType(null);
+    try {
+      await submitFeedback({
+        category: feedbackCategory,
+        contact: contact || null,
+        content,
+        page_path: currentPath,
+      });
+      setFeedbackContent("");
+      setFeedbackContact("");
+      setFeedbackMessage("建议已提交，感谢反馈。");
+      setFeedbackMessageType("success");
+    } catch {
+      setFeedbackMessage("提交失败，请稍后重试。");
+      setFeedbackMessageType("error");
+    } finally {
+      setSubmittingFeedback(false);
+    }
+  };
+
+  const handlePasswordChange = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSettingsMessage("");
     setSavingPassword(true);
@@ -164,11 +246,23 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               >
                 {item.icon ? <SolarIcon name={item.icon} size={19} /> : null}
                 <span>{item.label}</span>
-                <small>{item.description}</small>
+                <small>
+                  {item.badge ? <em>{item.badge}</em> : item.description}
+                </small>
               </a>
             );
           })}
         </nav>
+        <button
+          aria-label="提交使用体验建议"
+          className="rail-feedback-button"
+          onClick={openFeedback}
+          type="button"
+        >
+          <SolarIcon name="feedback" size={20} />
+          <span>建议</span>
+          <small>提交体验</small>
+        </button>
       </aside>
 
       <div className="workspace-shell">
@@ -176,6 +270,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           <div className="workspace-context">
             <div className="workspace-kicker">
               <span>{sectionLabels[section]}</span>
+              {section === "settlement" ? <em>BETA</em> : null}
             </div>
           </div>
 
@@ -243,11 +338,204 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               key={item.href}
             >
               {item.icon ? <SolarIcon name={item.icon} size={21} /> : null}
-              <span>{item.label}</span>
+              <span>
+                {item.label}
+                {item.badge ? <em>{item.badge}</em> : null}
+              </span>
             </a>
           );
         })}
+        <button
+          aria-label="我的账号"
+          aria-expanded={mineOpen}
+          className="mobile-bottom-nav__mine"
+          onClick={() => setMineOpen(true)}
+          type="button"
+        >
+          <SolarIcon name="accounts" size={21} />
+          <span>我的</span>
+        </button>
       </nav>
+
+      {mineOpen && currentUser ? (
+        <div
+          className="modal-backdrop modal-backdrop--mine"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setMineOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="mine-panel-title"
+            aria-modal="true"
+            className="mine-panel"
+            role="dialog"
+          >
+            <header className="mine-panel__header">
+              <div>
+                <p className="eyebrow">Account</p>
+                <h2 id="mine-panel-title">我的</h2>
+              </div>
+              <button
+                aria-label="关闭我的"
+                className="modal-close"
+                onClick={() => setMineOpen(false)}
+                type="button"
+              >
+                <SolarIcon name="close" size={18} />
+              </button>
+            </header>
+            <div className="mine-panel__identity">
+              <SolarIcon name="accounts" size={30} />
+              <div>
+                <strong>{currentUser.display_name || currentUser.username}</strong>
+                <span>{currentUser.username}</span>
+              </div>
+            </div>
+            <dl className="mine-panel__meta">
+              <div>
+                <dt>角色</dt>
+                <dd>{roleLabel(currentUser.role)}</dd>
+              </div>
+              <div>
+                <dt>账号状态</dt>
+                <dd>{currentUser.status === "active" ? "正常" : "已停用"}</dd>
+              </div>
+              <div>
+                <dt>可见范围</dt>
+                <dd>{storeScopeLabel}</dd>
+              </div>
+              <div>
+                <dt>激活状态</dt>
+                <dd>{currentUser.is_initialized ? "已激活" : "未激活"}</dd>
+              </div>
+            </dl>
+            <div className="mine-panel__actions" aria-label="我的操作">
+              <button
+                className="ghost-button mine-panel__action"
+                onClick={openSettingsFromMine}
+                type="button"
+              >
+                <SolarIcon name="key" size={18} />
+                <span>修改密码</span>
+              </button>
+              <button
+                className="ghost-button mine-panel__action"
+                onClick={openFeedbackFromMine}
+                type="button"
+              >
+                <SolarIcon name="feedback" size={18} />
+                <span>提交建议</span>
+              </button>
+              {onLogout ? (
+                <button
+                  className="ghost-button mine-panel__action mine-panel__action--danger"
+                  onClick={handleMineLogout}
+                  type="button"
+                >
+                  <SolarIcon name="logout" size={18} />
+                  <span>退出登录</span>
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {feedbackOpen ? (
+        <div
+          className="modal-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !submittingFeedback) {
+              setFeedbackOpen(false);
+            }
+          }}
+          role="presentation"
+        >
+          <section
+            aria-labelledby="feedback-title"
+            aria-modal="true"
+            className="feedback-modal"
+            role="dialog"
+          >
+            <header className="clue-detail-modal__header">
+              <div>
+                <p className="eyebrow">Feedback</p>
+                <h2 id="feedback-title">提交建议</h2>
+              </div>
+              <button
+                aria-label="关闭提交建议"
+                className="modal-close"
+                disabled={submittingFeedback}
+                onClick={() => setFeedbackOpen(false)}
+                type="button"
+              >
+                <SolarIcon name="close" size={18} />
+              </button>
+            </header>
+            <form className="feedback-form" onSubmit={handleFeedbackSubmit}>
+              <label className="filter-field">
+                <span>建议类型</span>
+                <select
+                  onChange={(event) =>
+                    setFeedbackCategory(event.target.value as FeedbackCategory)
+                  }
+                  value={feedbackCategory}
+                >
+                  {feedbackCategories.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">
+                <span>你的建议</span>
+                <textarea
+                  maxLength={2000}
+                  onChange={(event) => setFeedbackContent(event.target.value)}
+                  placeholder="写下哪里不好用、缺什么能力，或数据哪里不符合预期。"
+                  required
+                  value={feedbackContent}
+                />
+              </label>
+              <label className="filter-field">
+                <span>联系方式（选填）</span>
+                <input
+                  maxLength={120}
+                  onChange={(event) => setFeedbackContact(event.target.value)}
+                  placeholder="方便回访时填写姓名、门店或手机号"
+                  value={feedbackContact}
+                />
+              </label>
+              {feedbackMessage ? (
+                <p className={`feedback-form__message feedback-form__message--${feedbackMessageType}`}>
+                  {feedbackMessage}
+                </p>
+              ) : null}
+              <div className="feedback-form__actions">
+                <button
+                  className="ghost-button"
+                  disabled={submittingFeedback}
+                  onClick={() => setFeedbackOpen(false)}
+                  type="button"
+                >
+                  取消
+                </button>
+                <button
+                  className="primary-button"
+                  disabled={submittingFeedback || !feedbackContent.trim()}
+                  type="submit"
+                >
+                  {submittingFeedback ? "提交中..." : "提交建议"}
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      ) : null}
 
       {settingsOpen ? (
         <div

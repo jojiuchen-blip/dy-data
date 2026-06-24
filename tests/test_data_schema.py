@@ -17,6 +17,7 @@ def test_production_mvp_tables_are_declared() -> None:
         "dim_aweme_accounts",
         "users",
         "user_store_scopes",
+        "user_feedback_submissions",
         "settlement_order_details",
         "clue_center_orders",
         "clue_assignment_rounds",
@@ -62,6 +63,22 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
         "user_id",
         "store_id",
     ]
+    assert [column.name for column in tables["user_feedback_submissions"].primary_key] == [
+        "feedback_id"
+    ]
+    feedback_columns = tables["user_feedback_submissions"].columns
+    for column_name in (
+        "category",
+        "content",
+        "contact",
+        "page_path",
+        "user_id",
+        "username",
+        "user_role",
+        "status",
+        "created_at",
+    ):
+        assert column_name in feedback_columns
     assert [column.name for column in tables["dim_non_commission_owner_accounts"].primary_key] == [
         "normalized_owner_account_name"
     ]
@@ -81,3 +98,12 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert ("assignment_round_id",) in follow_up_indexes
     assert ("assigned_store_id",) in follow_up_indexes
     assert ("created_at",) in follow_up_indexes
+
+    feedback_indexes = {
+        tuple(index.columns.keys())
+        for index in tables["user_feedback_submissions"].indexes
+    }
+    assert ("category",) in feedback_indexes
+    assert ("status",) in feedback_indexes
+    assert ("user_id",) in feedback_indexes
+    assert ("created_at",) in feedback_indexes

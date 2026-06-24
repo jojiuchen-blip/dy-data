@@ -6,9 +6,9 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import delete, or_, select, text
+from sqlalchemy import delete, func, or_, select, text
 
-from apps.api.dy_api.models import DimStore, JobRun, User, UserStoreScope
+from apps.api.dy_api.models import DimStore, JobRun, User, UserFeedbackSubmission, UserStoreScope
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
@@ -32,9 +32,13 @@ from dy_api.schemas import (
     ClueReassignRuleData,
     ClueReassignRuleUpdate,
     ClueRebuildResult,
+    FeedbackListData,
+    FeedbackRow,
+    FeedbackStatusUpdateRequest,
     NonCommissionOwnerAccountBulkUpdateRequest,
     NonCommissionOwnerAccountBulkUpdateResult,
     NonCommissionOwnerAccountListData,
+    Pagination,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -62,6 +66,8 @@ WORKER_STATUS_JOB_NAMES = (
 )
 DEFAULT_WORKER_CHUNK_MAX_ATTEMPTS = 2
 DISABLED_WORKER_POLL_SECONDS = 60
+FEEDBACK_CATEGORIES = {"experience", "data", "feature", "other"}
+FEEDBACK_STATUSES = {"new", "reviewed", "resolved", "ignored"}
 
 
 def _phone_plain_resolver():
@@ -195,6 +201,76 @@ def admin_reset_account_password(
     user.updated_at = generated_at()
     store.session.commit()
     data = _account_row(store.session, user)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/feedback")
+def list_feedback(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    category: str | None = None,
+    feedback_status: str | None = Query(default=None, alias="status"),
+    q: str | None = None,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    base_conditions = _feedback_conditions(category=category, q=q)
+    filtered_conditions = [
+        *base_conditions,
+        *(_feedback_status_condition(feedback_status)),
+    ]
+
+    total = store.session.execute(
+        select(func.count())
+        .select_from(UserFeedbackSubmission)
+        .where(*filtered_conditions)
+    ).scalar_one()
+    rows = store.session.execute(
+        select(UserFeedbackSubmission)
+        .where(*filtered_conditions)
+        .order_by(UserFeedbackSubmission.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).scalars().all()
+    status_rows = store.session.execute(
+        select(UserFeedbackSubmission.status, func.count())
+        .where(*base_conditions)
+        .group_by(UserFeedbackSubmission.status)
+    ).all()
+    data = FeedbackListData(
+        rows=[_feedback_row(row) for row in rows],
+        pagination=Pagination(
+            page=page,
+            page_size=page_size,
+            total=total,
+            total_pages=max(1, (total + page_size - 1) // page_size),
+        ),
+        status_counts={status_name: count for status_name, count in status_rows},
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/feedback/{feedback_id}/status")
+def update_feedback_status(
+    feedback_id: str,
+    payload: FeedbackStatusUpdateRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    row = store.session.get(UserFeedbackSubmission, feedback_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Feedback not found")
+    row.status = payload.status
+    store.session.commit()
+    data = _feedback_row(row)
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -477,6 +553,59 @@ def _account_row(session, user: User) -> AccountRow:
         ],
         created_at=user.created_at,
         updated_at=user.updated_at,
+    )
+
+
+def _feedback_conditions(
+    *,
+    category: str | None,
+    q: str | None,
+) -> list:
+    conditions = []
+    if category:
+        if category not in FEEDBACK_CATEGORIES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid feedback category",
+            )
+        conditions.append(UserFeedbackSubmission.category == category)
+    normalized_query = (q or "").strip()
+    if normalized_query:
+        pattern = f"%{normalized_query}%"
+        conditions.append(
+            or_(
+                UserFeedbackSubmission.content.ilike(pattern),
+                UserFeedbackSubmission.contact.ilike(pattern),
+                UserFeedbackSubmission.page_path.ilike(pattern),
+                UserFeedbackSubmission.username.ilike(pattern),
+            )
+        )
+    return conditions
+
+
+def _feedback_status_condition(feedback_status: str | None) -> list:
+    if not feedback_status:
+        return []
+    if feedback_status not in FEEDBACK_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid feedback status",
+        )
+    return [UserFeedbackSubmission.status == feedback_status]
+
+
+def _feedback_row(row: UserFeedbackSubmission) -> FeedbackRow:
+    return FeedbackRow(
+        feedback_id=row.feedback_id,
+        category=row.category,
+        content=row.content,
+        contact=row.contact,
+        page_path=row.page_path,
+        user_id=row.user_id,
+        username=row.username,
+        user_role=row.user_role,
+        status=row.status,
+        created_at=row.created_at,
     )
 
 

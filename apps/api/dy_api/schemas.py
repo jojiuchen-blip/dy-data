@@ -106,6 +106,63 @@ class AccountPasswordUpdateRequest(BaseModel):
         return value
 
 
+FeedbackCategory = Literal["experience", "data", "feature", "other"]
+
+
+class FeedbackSubmissionRequest(BaseModel):
+    category: FeedbackCategory = "experience"
+    content: str = Field(min_length=1, max_length=2000)
+    contact: str | None = Field(default=None, max_length=120)
+    page_path: str | None = Field(default=None, max_length=240)
+
+    @field_validator("content")
+    def normalize_content(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("content is required")
+        return value
+
+    @field_validator("contact", "page_path")
+    def normalize_optional_text(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.strip().split())
+        return value or None
+
+
+class FeedbackSubmissionResponseData(BaseModel):
+    feedback_id: str
+    category: FeedbackCategory
+    status: Literal["new"] = "new"
+    created_at: datetime
+
+
+FeedbackStatus = Literal["new", "reviewed", "resolved", "ignored"]
+
+
+class FeedbackRow(BaseModel):
+    feedback_id: str
+    category: FeedbackCategory
+    content: str
+    contact: str | None = None
+    page_path: str | None = None
+    user_id: str | None = None
+    username: str | None = None
+    user_role: str | None = None
+    status: FeedbackStatus
+    created_at: datetime
+
+
+class FeedbackListData(BaseModel):
+    rows: list[FeedbackRow]
+    pagination: "Pagination"
+    status_counts: dict[str, int] = Field(default_factory=dict)
+
+
+class FeedbackStatusUpdateRequest(BaseModel):
+    status: FeedbackStatus
+
+
 class SkuRuleRow(BaseModel):
     sku_id: str
     product_name: str = ""
