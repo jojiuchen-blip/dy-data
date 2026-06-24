@@ -173,6 +173,25 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
     assert ".workspace-title" not in styles_source
 
 
+def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
+    styles_source = read_source("styles.css")
+    mobile_shell_rules = styles_source[
+        styles_source.index("@media (max-width: 920px)") :
+        styles_source.index("@media (max-width: 640px)")
+    ]
+    topbar_rules = mobile_shell_rules[
+        mobile_shell_rules.index(".workspace-topbar") :
+        mobile_shell_rules.index(".workspace-actions")
+    ]
+    subnav_rules = mobile_shell_rules[
+        mobile_shell_rules.index(".workspace-subnav") :
+        mobile_shell_rules.index(".workspace-subnav a")
+    ]
+
+    assert "display: none;" in topbar_rules
+    assert "top: 0;" in subnav_rules
+
+
 def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     admin_pages = [
         "pages/AdminHomePage.tsx",

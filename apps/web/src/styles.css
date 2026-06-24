@@ -2476,10 +2476,7 @@ a.metric-card:hover,
   }
 
   .workspace-topbar {
-    position: static;
-    align-items: flex-start;
-    flex-direction: column;
-    padding: 16px;
+    display: none;
   }
 
   .workspace-actions {
