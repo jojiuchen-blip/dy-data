@@ -1084,6 +1084,7 @@ export function ClueCenterPage({
                     openClueDetail(row, trigger);
                   }}
                   rows={rows}
+                  stickyHeader="container"
                   tableClassName="data-table--clues"
                 />
               </div>

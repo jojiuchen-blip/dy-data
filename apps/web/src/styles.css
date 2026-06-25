@@ -734,11 +734,13 @@ a {
 .page-stack {
   display: grid;
   gap: 18px;
+  min-width: 0;
 }
 
 .clue-page-content {
   display: grid;
   gap: 18px;
+  min-width: 0;
 }
 
 .page-heading,
@@ -747,6 +749,12 @@ a {
   align-items: flex-end;
   justify-content: space-between;
   gap: 18px;
+  min-width: 0;
+}
+
+.page-heading > *,
+.section-title > * {
+  min-width: 0;
 }
 
 .eyebrow {
@@ -807,6 +815,7 @@ h2 {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 10px 12px;
@@ -859,6 +868,7 @@ h2 {
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   align-items: end;
   gap: 12px;
+  min-width: 0;
   padding: 15px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -885,15 +895,15 @@ h2 {
 }
 
 .clue-filter-bar {
-  grid-template-columns:
-    minmax(220px, 1.2fr) minmax(150px, 0.7fr)
-    minmax(150px, 0.7fr) minmax(150px, 0.8fr)
-    minmax(160px, 0.9fr) minmax(150px, 0.8fr)
-    minmax(130px, 0.7fr) auto;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
 }
 
 .clue-filter-collapse-mobile {
   display: none;
+}
+
+.clue-table-view {
+  min-width: 0;
 }
 
 .filter-field {
@@ -1630,15 +1640,23 @@ a.metric-card:hover,
 .content-section {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .table-wrap {
   width: 100%;
   overflow-x: auto;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: inset 0 1px 0 var(--surface-white-70);
+}
+
+.table-wrap--contained-sticky {
+  max-height: min(720px, calc(100vh - var(--table-sticky-top) - 16px));
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .data-table-mobile-list {
@@ -1733,6 +1751,12 @@ a.metric-card:hover,
   box-shadow: 0 1px 0 var(--line);
 }
 
+.table-wrap--contained-sticky .data-table th {
+  box-shadow:
+    0 1px 0 var(--line),
+    0 12px 20px -18px var(--ink-shadow-45);
+}
+
 .data-table td.is-sticky-column,
 .data-table th.is-sticky-column {
   position: sticky;
@@ -1761,20 +1785,6 @@ a.metric-card:hover,
 
 .data-table tbody tr:hover td.is-sticky-column {
   background: var(--surface-row);
-}
-
-@media (min-width: 921px) {
-  .clue-table-view .table-wrap {
-    overflow-x: visible;
-  }
-
-  .clue-table-view .data-table th {
-    top: var(--table-sticky-top);
-    box-shadow:
-      0 calc(var(--table-sticky-gap) * -1) 0 var(--bg),
-      0 1px 0 var(--line),
-      0 12px 20px -18px var(--ink-shadow-45);
-  }
 }
 
 .clue-card-list {
@@ -3080,8 +3090,13 @@ a.metric-card:hover,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  min-width: 0;
   border-top: 1px solid var(--line);
   padding-top: 12px;
+}
+
+.pagination-controls > * {
+  min-width: 0;
 }
 
 .pagination-controls__summary {
@@ -3329,6 +3344,17 @@ a.metric-card:hover,
 
   .feedback-summary-row {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  }
+
+  .clue-table-view,
+  .table-wrap--mobile-cards {
+    display: none;
+  }
+
+  .data-table-mobile-list,
+  .clue-card-list {
+    display: grid;
+    gap: 12px;
   }
 
   .admin-feedback-filters {

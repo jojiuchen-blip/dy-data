@@ -488,6 +488,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
             <DataTable
               columns={columns}
               rows={rows}
+              stickyHeader="container"
               tableClassName="data-table--details"
             />
             <PaginationControls

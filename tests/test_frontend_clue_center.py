@@ -255,9 +255,12 @@ def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
     assert "top: 0;" in subnav_rules
 
 
-def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
+def test_shell_data_table_header_uses_container_sticky_contract() -> None:
     styles_source = read_source("styles.css")
     token_source = read_source("design-tokens.css")
+    data_table_source = read_source("components/DataTable.tsx")
+    clue_page_source = read_source("pages/ClueCenterPage.tsx")
+    order_details_source = read_source("pages/OrderDetailsPage.tsx")
 
     root_rules = token_source[
         token_source.index(":root") :
@@ -271,9 +274,9 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
         styles_source.index(".data-table th.is-sticky-column") :
         styles_source.index(".data-table td.is-sticky-column-last")
     ]
-    desktop_clue_table_rules = styles_source[
-        styles_source.index("@media (min-width: 921px)") :
-        styles_source.index(".clue-card-list")
+    contained_sticky_rules = styles_source[
+        styles_source.index(".table-wrap--contained-sticky {") :
+        styles_source.index(".data-table-mobile-list")
     ]
     mobile_shell_rules = styles_source[
         styles_source.index("@media (max-width: 920px)") :
@@ -291,12 +294,19 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     assert "top: 0;" in base_header_rules
     assert "z-index: var(--z-table-header);" in base_header_rules
     assert "z-index: var(--z-table-header-corner);" in sticky_column_header_rules
-    assert ".clue-table-view .table-wrap" in desktop_clue_table_rules
-    assert "overflow-x: visible;" in desktop_clue_table_rules
-    assert ".clue-table-view .data-table th" in desktop_clue_table_rules
-    assert "top: var(--table-sticky-top);" in desktop_clue_table_rules
-    assert "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg)" in desktop_clue_table_rules
-    assert "0 12px 20px -18px var(--ink-shadow-45)" in desktop_clue_table_rules
+    assert "max-height: min(720px, calc(100vh - var(--table-sticky-top) - 16px));" in contained_sticky_rules
+    assert "overflow: auto;" in contained_sticky_rules
+    assert "overscroll-behavior: contain;" in contained_sticky_rules
+    assert "scrollbar-gutter: stable;" in contained_sticky_rules
+    assert ".table-wrap--contained-sticky .data-table th" in styles_source
+    assert "0 12px 20px -18px var(--ink-shadow-45)" in styles_source
+    assert '"table-wrap--contained-sticky"' in data_table_source
+    assert 'stickyHeader="container"' in clue_page_source
+    assert 'stickyHeader="container"' in order_details_source
+    assert ".clue-table-view .data-table th" not in styles_source
+    assert "overflow-x: visible;" not in styles_source
+    assert "top: var(--table-sticky-top);" not in styles_source
+    assert "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg)" not in styles_source
     assert ".workspace-shell .page-frame .data-table th" not in styles_source
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
 

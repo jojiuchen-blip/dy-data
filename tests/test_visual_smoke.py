@@ -223,7 +223,9 @@ def install_api_routes(page: Page) -> None:
             "抖音经营数据引擎 UI 设计规范",
         ),
         ("clues", "/clues", "经营线索概览"),
+        ("clue-details", "/clues/details", "线索跟进列表"),
         ("settlement", "/settlement", "单店月度分账看板"),
+        ("order-details", "/details", "门店月度数据明细表"),
         ("admin-sync", "/admin/sync", "数据同步管理"),
     ],
 )

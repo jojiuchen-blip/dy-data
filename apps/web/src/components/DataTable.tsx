@@ -20,6 +20,7 @@ interface DataTableProps<T> {
   onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
   rowHref?: (row: T) => string;
   state?: "ready" | "loading" | "error";
+  stickyHeader?: "container";
   tableClassName?: string;
 }
 
@@ -90,6 +91,7 @@ export function DataTable<T>({
   onRowDoubleClick,
   rowHref,
   state = "ready",
+  stickyHeader,
   tableClassName,
 }: DataTableProps<T>) {
   const preparedColumns = prepareColumns(columns);
@@ -133,6 +135,7 @@ export function DataTable<T>({
         className={[
           "table-wrap",
           hasMobileCards ? "table-wrap--mobile-cards" : "",
+          stickyHeader === "container" ? "table-wrap--contained-sticky" : "",
         ]
           .filter(Boolean)
           .join(" ")}
