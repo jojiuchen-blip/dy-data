@@ -23,9 +23,9 @@
 .searchable-store-select__menu {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
   left: 0;
   z-index: 40;
+  width: max(100%, min(420px, calc(100vw - 48px)));
   max-height: 280px;
   overflow-y: auto;
   border: 1px solid var(--line-strong);
@@ -47,20 +47,20 @@
 }
 
 .searchable-store-select__option strong {
-  overflow: hidden;
   color: var(--ink);
   font-size: 13px;
   font-weight: 750;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .searchable-store-select__option small {
-  overflow: hidden;
   color: var(--muted);
   font-size: 11px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .searchable-store-select__empty {

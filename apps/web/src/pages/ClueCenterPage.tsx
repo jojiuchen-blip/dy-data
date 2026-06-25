@@ -25,6 +25,7 @@ import {
   ResourcePanel,
   resourceSourceLabel,
 } from "../components/ResourceState";
+import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { SolarIcon } from "../components/SolarIcon";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -911,39 +912,48 @@ export function ClueCenterPage({
       >
         {showStoreLocationFilters ? (
           <>
-            <SelectField
-              label="省份"
-              onChange={(value) => {
-                setPage(1);
-                setProvince(value);
-              }}
-              options={[{ value: "", label: "全部" }, ...optionList(meta?.assigned_provinces)]}
-              value={province}
-            />
-            <SelectField
-              label="城市"
-              onChange={(value) => {
-                setPage(1);
-                setCity(value);
-              }}
-              options={[{ value: "", label: "全部" }, ...optionList(meta?.assigned_cities)]}
-              value={city}
-            />
-            <SelectField
-              label="门店"
-              onChange={(value) => {
-                setPage(1);
-                setAssignedStoreId(value);
-              }}
-              options={[
-                { value: "", label: "全部" },
-                ...(meta?.assigned_stores ?? []).map((store) => ({
+            <FilterField label="省份">
+              <SearchableStoreSelect
+                allowEmpty
+                emptyMessage="未找到省份"
+                options={optionList(meta?.assigned_provinces)}
+                placeholder="搜索省份"
+                value={province}
+                onChange={(value) => {
+                  setPage(1);
+                  setProvince(value);
+                }}
+              />
+            </FilterField>
+            <FilterField label="城市">
+              <SearchableStoreSelect
+                allowEmpty
+                emptyMessage="未找到城市"
+                options={optionList(meta?.assigned_cities)}
+                placeholder="搜索城市"
+                value={city}
+                onChange={(value) => {
+                  setPage(1);
+                  setCity(value);
+                }}
+              />
+            </FilterField>
+            <FilterField label="门店">
+              <SearchableStoreSelect
+                allowEmpty
+                emptyMessage="未找到门店"
+                options={(meta?.assigned_stores ?? []).map((store) => ({
                   label: store.store_name,
                   value: store.store_id,
-                })),
-              ]}
-              value={assignedStoreId}
-            />
+                }))}
+                placeholder="搜索门店名称"
+                value={assignedStoreId}
+                onChange={(value) => {
+                  setPage(1);
+                  setAssignedStoreId(value);
+                }}
+              />
+            </FilterField>
           </>
         ) : null}
         <FilterField label="线索生成日期起">

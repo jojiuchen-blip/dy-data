@@ -5,6 +5,7 @@ import "./SearchableStoreSelect.css";
 interface SearchableStoreSelectProps {
   allowEmpty?: boolean;
   emptyLabel?: string;
+  emptyMessage?: string;
   onChange: (value: string) => void;
   options: SelectOption[];
   placeholder?: string;
@@ -20,15 +21,13 @@ function optionText(option: SelectOption): string {
 }
 
 function displayValue(options: SelectOption[], value: string): string {
-  if (!value) {
-    return "";
-  }
   return options.find((option) => option.value === value)?.label ?? "";
 }
 
 export function SearchableStoreSelect({
   allowEmpty = false,
   emptyLabel = "全部",
+  emptyMessage = "未找到门店",
   onChange,
   options,
   placeholder = "输入门店名称",
@@ -71,7 +70,7 @@ export function SearchableStoreSelect({
 
   const selectOption = (option: SelectOption) => {
     onChange(option.value);
-    setInputValue(option.value ? option.label : "");
+    setInputValue(option.label);
     setIsOpen(false);
     setActiveIndex(0);
   };
@@ -152,7 +151,7 @@ export function SearchableStoreSelect({
               </div>
             ))
           ) : (
-            <div className="searchable-store-select__empty">未找到门店</div>
+            <div className="searchable-store-select__empty">{emptyMessage}</div>
           )}
         </div>
       ) : null}

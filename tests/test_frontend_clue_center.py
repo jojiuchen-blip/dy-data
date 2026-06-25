@@ -105,6 +105,16 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "处理状态" not in filter_bar
     assert "roundStatus" not in filter_bar
     assert "round_status" not in filter_bar
+    assert filter_bar.count("<SearchableStoreSelect") >= 3
+    assert 'placeholder="搜索省份"' in filter_bar
+    assert 'placeholder="搜索城市"' in filter_bar
+    assert 'placeholder="搜索门店名称"' in filter_bar
+    assert 'emptyMessage="未找到省份"' in filter_bar
+    assert 'emptyMessage="未找到城市"' in filter_bar
+    assert 'emptyMessage="未找到门店"' in filter_bar
+    assert '<SelectField\n              label="省份"' not in filter_bar
+    assert '<SelectField\n              label="城市"' not in filter_bar
+    assert '<SelectField\n              label="门店"' not in filter_bar
     assert_in_order(
         filter_bar,
         [
