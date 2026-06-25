@@ -57,9 +57,14 @@
         box-sizing: border-box;
       }
 
+      html {
+        overflow-x: hidden;
+      }
+
       body {
         margin: 0;
         min-width: 320px;
+        overflow-x: hidden;
         background:
           linear-gradient(180deg, rgb(255 255 255 / 72%), transparent 280px),
           var(--bg);
@@ -440,6 +445,46 @@
         opacity: 0.58;
       }
 
+      .button-like.danger {
+        border-color: var(--danger);
+        background: var(--danger);
+        color: #fffdf8;
+      }
+
+      .button-like.text {
+        border-color: transparent;
+        background: transparent;
+        color: var(--green);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
+      .button-like.is-loading {
+        color: rgb(255 253 248 / 88%);
+        cursor: progress;
+      }
+
+      .button-like.is-loading::before {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgb(255 253 248 / 42%);
+        border-top-color: #fffdf8;
+        border-radius: var(--radius-full);
+        content: "";
+      }
+
+      .button-group-block,
+      .component-demo-block {
+        display: grid;
+        gap: 8px;
+      }
+
+      .component-demo-title {
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 850;
+      }
+
       .icon-svg {
         display: inline-block;
         flex: 0 0 auto;
@@ -465,6 +510,27 @@
       .icon-button-demo .icon-svg {
         width: 18px;
         height: 18px;
+      }
+
+      .icon-button-demo.compact .icon-svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .icon-button-demo.mobile {
+        width: 44px;
+        height: 44px;
+      }
+
+      .icon-button-demo.active {
+        border-color: rgb(15 91 75 / 20%);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .icon-button-demo.danger {
+        border-color: rgb(160 68 62 / 22%);
+        color: var(--danger);
       }
 
       .field-grid {
@@ -528,6 +594,15 @@
         cursor: pointer;
       }
 
+      button.field-trigger {
+        display: flex;
+        align-items: center;
+        appearance: none;
+        -webkit-appearance: none;
+        text-align: left;
+        cursor: pointer;
+      }
+
       select.field::-ms-expand {
         display: none;
       }
@@ -543,9 +618,26 @@
         box-shadow: var(--focus-ring);
       }
 
+      .field-control--open .field {
+        border-color: var(--green);
+        box-shadow: var(--focus-ring);
+      }
+
       .field-control--error .field {
         border-color: var(--danger);
         background: #fff8f6;
+      }
+
+      .field-control--disabled .field {
+        border-color: var(--line);
+        background: var(--surface-subtle);
+        color: rgb(83 98 91 / 70%);
+        cursor: not-allowed;
+      }
+
+      .field-control--readonly .field {
+        background: var(--surface-subtle);
+        color: var(--ink);
       }
 
       .field-control--select .field {
@@ -556,10 +648,10 @@
         position: absolute;
         top: 50%;
         right: 14px;
-        width: 8px;
-        height: 8px;
-        border-right: 1.7px solid currentColor;
-        border-bottom: 1.7px solid currentColor;
+        width: 9px;
+        height: 9px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
         pointer-events: none;
         color: var(--muted);
         transform: translateY(-65%) rotate(45deg);
@@ -583,6 +675,36 @@
       .field-error {
         color: var(--danger);
         font-weight: 750;
+      }
+
+      .select-menu-demo,
+      .combobox-menu-demo {
+        display: grid;
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 6px;
+        background: var(--surface);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .select-option-demo,
+      .combobox-option-demo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-radius: var(--radius-sm);
+        padding: 7px 8px;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .select-option-demo.active,
+      .combobox-option-demo.active {
+        background: var(--green-soft);
+        color: var(--green);
+        font-weight: 850;
       }
 
       .metric-preview {
@@ -677,6 +799,166 @@
         color: var(--danger);
       }
 
+      .chip-family-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .chip-family-block {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px;
+        background: var(--surface-subtle);
+      }
+
+      .chip-family-block strong {
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .chip-line {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .count-pill,
+      .filter-chip,
+      .role-badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-full);
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .count-pill {
+        min-height: 30px;
+        padding: 0 12px;
+        color: var(--ink);
+      }
+
+      .filter-chip {
+        min-height: 30px;
+        padding: 0 10px;
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .filter-chip::after {
+        margin-left: 6px;
+        color: currentColor;
+        content: "×";
+      }
+
+      .role-badge {
+        min-height: 24px;
+        border-radius: var(--radius-sm);
+        padding: 0 7px;
+        background: var(--surface);
+        color: var(--muted);
+      }
+
+      .role-badge.strong {
+        border-color: rgb(15 91 75 / 24%);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .dialog-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .dialog-backdrop-demo {
+        display: grid;
+        min-height: 272px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        background:
+          linear-gradient(rgb(247 248 245 / 76%), rgb(247 248 245 / 76%)),
+          repeating-linear-gradient(0deg, transparent, transparent 28px, rgb(221 228 221 / 58%) 29px);
+      }
+
+      .dialog-demo {
+        position: relative;
+        display: grid;
+        width: min(360px, 100%);
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        padding: 18px;
+        background: var(--surface);
+        box-shadow: 0 24px 64px rgb(31 43 36 / 18%);
+      }
+
+      .dialog-demo.confirm {
+        border-color: rgb(160 68 62 / 26%);
+      }
+
+      .dialog-close-demo {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+      }
+
+      .dialog-title {
+        display: grid;
+        gap: 5px;
+        padding-right: 42px;
+      }
+
+      .dialog-title strong {
+        color: var(--ink);
+        font-size: 17px;
+        line-height: 1.3;
+      }
+
+      .dialog-title span,
+      .dialog-demo p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .dialog-rule-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .dialog-rule-list li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
       .component-card {
         display: grid;
         gap: 12px;
@@ -748,6 +1030,65 @@
         border-radius: var(--radius-full);
         background: var(--green);
         content: "";
+      }
+
+      .icon-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .icon-choice-item {
+        display: grid;
+        min-height: 108px;
+        align-content: center;
+        justify-items: center;
+        gap: 7px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px 8px;
+        background: var(--surface-subtle);
+        color: var(--green);
+        text-align: center;
+      }
+
+      .icon-choice-item.emphasis {
+        border-color: rgb(15 91 75 / 20%);
+        background: var(--green-soft);
+      }
+
+      .icon-choice-item .icon-svg {
+        width: var(--icon-size, 20px);
+        height: var(--icon-size, 20px);
+      }
+
+      .icon-choice-item strong {
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .icon-choice-item span {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .icon-style-note {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .icon-style-note code {
+        flex: 0 0 auto;
       }
 
       .table-preview-wrap {
@@ -822,6 +1163,94 @@
 
       .table-preview tbody tr:hover td {
         background: #fbfdf9;
+      }
+
+      .table-state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .table-state-card {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .table-state-card strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .table-state-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .table-action-group {
+        display: flex;
+        gap: 8px;
+      }
+
+      .empty-state-demo {
+        display: grid;
+        min-height: 116px;
+        place-items: center;
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface-subtle);
+        text-align: center;
+      }
+
+      .empty-state-demo span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .skeleton-table-demo {
+        display: grid;
+        gap: 8px;
+      }
+
+      .skeleton-row-demo {
+        display: grid;
+        grid-template-columns: 1.2fr 0.7fr 1fr;
+        gap: 8px;
+      }
+
+      .skeleton-row-demo span {
+        height: 14px;
+        border-radius: var(--radius-full);
+        background: linear-gradient(90deg, #eef3ee, #f8faf6, #eef3ee);
+      }
+
+      .record-card-map {
+        display: grid;
+        gap: 7px;
+      }
+
+      .record-card-map span {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .record-card-map strong {
+        color: var(--ink);
+        font-size: 12px;
       }
 
       .mobile-card-demo {
@@ -1100,8 +1529,12 @@
         .grid-3,
         .grid-4,
         .icon-spec-grid,
+        .icon-choice-grid,
         .flow-steps,
-        .field-grid {
+        .field-grid,
+        .chip-family-grid,
+        .dialog-preview-grid,
+        .table-state-grid {
           grid-template-columns: 1fr;
         }
 
@@ -1137,6 +1570,18 @@
           height: 44px;
           min-height: 44px;
           max-height: 44px;
+        }
+
+        .icon-button-demo {
+          width: 44px;
+        }
+
+        .dialog-actions {
+          justify-content: stretch;
+        }
+
+        .dialog-actions .button-like {
+          flex: 1 1 auto;
         }
       }
     </style>
@@ -1358,50 +1803,77 @@
         <div class="section-head">
           <div>
             <h2>组件家族</h2>
-            <p>按钮、输入框、筛选器、状态、指标卡、表格和移动卡片必须像同一个产品里的部件。</p>
+            <p>按钮、输入框、筛选器、状态、弹层、指标卡、表格和移动卡片必须像同一个产品里的部件。</p>
           </div>
           <code>radius 6/8 · height 38/44</code>
         </div>
         <div class="grid grid-2">
           <article class="component-card">
             <h3>按钮</h3>
-            <div class="button-row">
-              <button class="button-like primary" type="button">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path
-                      d="M16.755 2h-9.51c-1.159 0-1.738 0-2.206.163a3.046 3.046 0 0 0-1.881 1.936C3 4.581 3 5.177 3 6.37v14.004c0 .858.985 1.314 1.608.744a.946.946 0 0 1 1.284 0l.483.442a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0l.483-.442a.946.946 0 0 1 1.284 0c.623.57 1.608.114 1.608-.744V6.37c0-1.193 0-1.79-.158-2.27a3.045 3.045 0 0 0-1.881-1.937C18.493 2 17.914 2 16.755 2Z"
-                    />
-                    <path
-                      stroke-linecap="round"
-                      d="M10.5 11H17M7 11h.5M7 7.5h.5m-.5 7h.5m3-7H17m-6.5 7H17"
-                    />
-                  </g>
-                </svg>
-                查看详情
-              </button>
-              <button class="button-like" type="button">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <circle cx="12" cy="12" r="10" />
-                    <path stroke-linecap="round" d="m14.5 9.5l-5 5m0-5l5 5" />
-                  </g>
-                </svg>
-                清空筛选
-              </button>
-              <button class="button-like soft" type="button">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none">
-                    <path
-                      fill="currentColor"
-                      d="M7.378 11.63h-.75h.75Zm0 .926l-.562.497a.75.75 0 0 0 1.08.044l-.518-.541Zm2.141-1.015a.75.75 0 0 0-1.038-1.082l1.038 1.082Zm-2.958-1.038a.75.75 0 1 0-1.122.994l1.122-.994Zm8.37-1.494a.75.75 0 1 0 1.102-1.018l-1.101 1.018ZM12.045 6.25c-2.986 0-5.416 2.403-5.416 5.38h1.5c0-2.137 1.747-3.88 3.916-3.88v-1.5Zm-5.416 5.38v.926h1.5v-.926h-1.5Zm1.269 1.467l1.622-1.556l-1.038-1.082l-1.622 1.555l1.038 1.083Zm.042-1.039l-1.378-1.555l-1.122.994l1.377 1.556l1.123-.995Zm8.094-4.067a5.42 5.42 0 0 0-3.99-1.741v1.5a3.92 3.92 0 0 1 2.889 1.26l1.1-1.02Zm.585 3.453l.56-.498a.75.75 0 0 0-1.08-.043l.52.541Zm-2.139 1.014a.75.75 0 1 0 1.04 1.082l-1.04-1.082Zm2.96 1.04a.75.75 0 0 0 1.12-.997l-1.12.996Zm-8.393 1.507a.75.75 0 0 0-1.094 1.026l1.094-1.026Zm2.888 2.745c2.993 0 5.434-2.4 5.434-5.38h-1.5c0 2.135-1.753 3.88-3.934 3.88v1.5Zm5.434-5.38v-.926h-1.5v.926h1.5Zm-1.27-1.467l-1.619 1.555l1.04 1.082l1.618-1.555l-1.039-1.082Zm-.04 1.04l1.38 1.554l1.122-.996l-1.381-1.555l-1.122.997ZM7.952 16.03a5.447 5.447 0 0 0 3.982 1.719v-1.5c-1.143 0-2.17-.48-2.888-1.245L7.953 16.03Z"
-                    />
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="1.5" />
-                  </g>
-                </svg>
-                实时数据
-              </button>
-              <button class="button-like is-disabled" type="button" disabled>不可用</button>
+            <div class="button-group-block">
+              <span class="component-demo-title">文字按钮状态</span>
+              <div class="button-row">
+                <button class="button-like primary" type="button">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M16.755 2h-9.51c-1.159 0-1.738 0-2.206.163a3.046 3.046 0 0 0-1.881 1.936C3 4.581 3 5.177 3 6.37v14.004c0 .858.985 1.314 1.608.744a.946.946 0 0 1 1.284 0l.483.442a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0l.483-.442a.946.946 0 0 1 1.284 0c.623.57 1.608.114 1.608-.744V6.37c0-1.193 0-1.79-.158-2.27a3.045 3.045 0 0 0-1.881-1.937C18.493 2 17.914 2 16.755 2Z" />
+                      <path stroke-linecap="round" d="M10.5 11H17M7 11h.5M7 7.5h.5m-.5 7h.5m3-7H17m-6.5 7H17" />
+                    </g>
+                  </svg>
+                  查看详情
+                </button>
+                <button class="button-like" type="button">清空筛选</button>
+                <button class="button-like soft" type="button">实时数据</button>
+                <button class="button-like danger" type="button">删除规则</button>
+                <button class="button-like text" type="button">查看明细</button>
+                <button class="button-like primary is-loading" type="button">保存中</button>
+                <button class="button-like is-disabled" type="button" disabled>不可用</button>
+              </div>
+            </div>
+            <div class="button-group-block">
+              <span class="component-demo-title">IconButton 尺寸</span>
+              <div class="button-row">
+                <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
+                      <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="icon-button-demo active" type="button" aria-label="隐藏完整号码">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                      <path d="m3 3l18 18" />
+                      <path d="M10.58 10.58A2 2 0 0 0 13.42 13.4" />
+                      <path d="M9.9 4.24A9.9 9.9 0 0 1 12 4c4.18 0 7.03 2.5 8.73 4.7C21.58 9.81 22 10.36 22 12c0 .72-.08 1.2-.25 1.62M6.6 6.55A16.1 16.1 0 0 0 3.28 8.7C2.42 9.81 2 10.36 2 12c0 1.64.42 2.19 1.28 3.3C4.97 17.5 7.82 20 12 20c1.48 0 2.8-.31 3.95-.8" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="icon-button-demo" type="button" aria-label="复制号码">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
+                      <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="icon-button-demo danger" type="button" aria-label="移除">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                      <path d="M4 7h16M10 11v6m4-6v6M6 7l.7 11.2c.1 1.7.97 2.8 2.7 2.8h5.2c1.73 0 2.6-1.1 2.7-2.8L18 7" />
+                      <path d="M9 7V5.8C9 4.8 9.8 4 10.8 4h2.4C14.2 4 15 4.8 15 5.8V7" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="icon-button-demo mobile" type="button" aria-label="移动端筛选">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                      <path d="M4 7h16M7 12h10M10 17h4" />
+                    </g>
+                  </svg>
+                </button>
+              </div>
             </div>
             <p>桌面按钮固定 38px，移动可点击区域 44px。图标与文字并列时保持 6px 间距，禁用态不新增高度或半径。</p>
           </article>
@@ -1411,15 +1883,27 @@
               <div class="field-group">
                 <div class="field-label-row">
                   <label for="demo-province">省份</label>
-                  <span>默认</span>
+                  <span>展开</span>
                 </div>
-                <div class="field-control field-control--select">
-                  <select id="demo-province" class="field">
-                    <option>全部</option>
-                  </select>
+                <div class="field-control field-control--select field-control--open">
+                  <button
+                    id="demo-province"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="true"
+                    aria-controls="demo-province-menu"
+                  >
+                    全部
+                  </button>
                   <span class="select-indicator" aria-hidden="true"></span>
                 </div>
-                <p class="field-helper">用于筛选门店所在省份，不选择时表示全部区域。</p>
+                <div id="demo-province-menu" class="select-menu-demo" role="listbox" aria-label="省份选项">
+                  <div class="select-option-demo active" role="option" aria-selected="true"><span>全部</span><strong>默认</strong></div>
+                  <div class="select-option-demo" role="option"><span>浙江</span><strong>12,482</strong></div>
+                  <div class="select-option-demo" role="option"><span>江苏</span><strong>4,206</strong></div>
+                </div>
+                <p class="field-helper">Select 展开态与 Combobox 共用菜单面板，不使用简单线框或浏览器原生样式作为规范样张。</p>
               </div>
               <div class="field-group">
                 <div class="field-label-row">
@@ -1427,9 +1911,15 @@
                   <span>聚焦</span>
                 </div>
                 <div class="field-control field-control--select field-control--focus">
-                  <select id="demo-status" class="field">
-                    <option>待跟进</option>
-                  </select>
+                  <button
+                    id="demo-status"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="false"
+                  >
+                    待跟进
+                  </button>
                   <span class="select-indicator" aria-hidden="true"></span>
                 </div>
                 <p class="field-helper">聚焦态只改变边框和 ring，不改变控件尺寸。</p>
@@ -1454,18 +1944,87 @@
                 </div>
                 <p class="field-error" role="alert">截止日期不能早于起始日期。</p>
               </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-disabled">核销状态</label>
+                  <span>禁用</span>
+                </div>
+                <div class="field-control field-control--select field-control--disabled">
+                  <button
+                    id="demo-disabled"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="false"
+                    disabled
+                  >
+                    全部
+                  </button>
+                  <span class="select-indicator" aria-hidden="true"></span>
+                </div>
+                <p class="field-helper">禁用态降低对比和交互感，不改变控件高度。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-readonly">门店</label>
+                  <span>只读</span>
+                </div>
+                <div class="field-control field-control--readonly">
+                  <input id="demo-readonly" class="field" value="默认门店" readonly />
+                </div>
+                <p class="field-helper">只读信息仍按字段展示，不改成普通正文。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-combobox">搜索门店</label>
+                  <span>Combobox</span>
+                </div>
+                <div class="field-control field-control--focus">
+                  <input id="demo-combobox" class="field" value="精诚" role="combobox" aria-expanded="true" />
+                </div>
+                <div class="combobox-menu-demo" role="listbox" aria-label="搜索门店结果">
+                  <div class="combobox-option-demo active" role="option" aria-selected="true"><span>精诚养车杭州店</span><strong>已选</strong></div>
+                  <div class="combobox-option-demo" role="option"><span>精诚养车宁波店</span><strong>2,184</strong></div>
+                </div>
+              </div>
             </div>
             <p>字段保留 label、格式提示、辅助说明和错误提示；控件文字不用粗体，避免像按钮。</p>
           </article>
           <article class="component-card">
-            <h3>状态标签</h3>
-            <div class="status-row">
-              <span class="status-chip pending">待跟进</span>
-              <span class="status-chip success">已跟进</span>
-              <span class="status-chip warning">待再分配</span>
-              <span class="status-chip danger">错误</span>
+            <h3>Chip 体系</h3>
+            <div class="chip-family-grid">
+              <div class="chip-family-block">
+                <strong>StatusChip</strong>
+                <div class="status-row">
+                  <span class="status-chip pending">待跟进</span>
+                  <span class="status-chip success">已跟进</span>
+                  <span class="status-chip warning">待再分配</span>
+                  <span class="status-chip danger">错误</span>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>CountPill</strong>
+                <div class="chip-line">
+                  <span class="count-pill">共 21,732 条</span>
+                  <span class="count-pill">已选 3 项</span>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>FilterChip</strong>
+                <div class="chip-line">
+                  <span class="filter-chip">省份：浙江</span>
+                  <span class="filter-chip">状态：待跟进</span>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>RoleBadge</strong>
+                <div class="chip-line">
+                  <span class="role-badge strong">最高管理员</span>
+                  <span class="role-badge">门店账号</span>
+                </div>
+              </div>
             </div>
-            <p>状态色按语义使用，不能为了视觉变化随意换色。</p>
+            <p>状态、数量、筛选条件和角色不是同一种语义，不能继续都塞进一个 status-chip 变体里。</p>
           </article>
           <article class="component-card">
             <h3>指标卡</h3>
@@ -1487,6 +2046,43 @@
               </div>
             </div>
             <p>指标卡用于看板，不作为普通信息区块的默认容器。</p>
+          </article>
+          <article class="component-card">
+            <h3>Dialog / ConfirmDialog</h3>
+            <div class="dialog-preview-grid">
+              <div class="dialog-backdrop-demo">
+                <div class="dialog-demo" role="dialog" aria-modal="true" aria-labelledby="dialog-demo-title">
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭弹层">×</button>
+                  <div class="dialog-title">
+                    <strong id="dialog-demo-title">线索详情</strong>
+                    <span>打开后先聚焦关闭按钮或标题，关闭后回到触发行。</span>
+                  </div>
+                  <p>弹层内容可以包含字段、跟进记录和操作按钮；背景区域必须被隔离，Tab 不应穿透到页面表格。</p>
+                  <div class="dialog-actions">
+                    <button class="button-like" type="button">取消</button>
+                    <button class="button-like primary" type="button">保存跟进</button>
+                  </div>
+                </div>
+              </div>
+              <div class="dialog-backdrop-demo">
+                <div class="dialog-demo confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-demo-title">
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭确认弹层">×</button>
+                  <div class="dialog-title">
+                    <strong id="confirm-demo-title">删除分佣规则？</strong>
+                    <span>危险操作标题必须说清楚对象和后果。</span>
+                  </div>
+                  <p>删除后该 SKU 将不再按当前规则参与计算。这个操作需要明确二次确认。</p>
+                  <div class="dialog-actions">
+                    <button class="button-like" type="button">取消</button>
+                    <button class="button-like danger" type="button">删除规则</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <ul class="dialog-rule-list">
+              <li>Dialog 统一提供 focus trap、Esc 关闭、关闭后回焦和背景 inert。</li>
+              <li>ConfirmDialog 用于删除、权限变更、批量或不可逆操作；取消按钮保留并优先聚焦。</li>
+            </ul>
           </article>
         </div>
       </section>
@@ -1565,6 +2161,114 @@
               </div>
             </div>
             <p>图标按钮桌面容器 38px，移动容器 44px；图标大小不要靠缩放容器临时决定。</p>
+          </article>
+          <article class="component-card">
+            <h3>Solar 图标选择矩阵</h3>
+            <div class="icon-style-note">
+              <span>默认用 linear；只有主导航激活态、品牌入口和模块入口可以用 bold-duotone。</span>
+              <code>linear first</code>
+            </div>
+            <div class="icon-choice-grid">
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
+                    <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+                  </g>
+                </svg>
+                <strong>查看</strong>
+                <span>linear · 表格动作</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                    <path d="m3 3l18 18" />
+                    <path d="M9.9 4.24A9.9 9.9 0 0 1 12 4c4.18 0 7.03 2.5 8.73 4.7C21.58 9.81 22 10.36 22 12c0 .72-.08 1.2-.25 1.62M6.6 6.55A16.1 16.1 0 0 0 3.28 8.7C2.42 9.81 2 10.36 2 12c0 1.64.42 2.19 1.28 3.3C4.97 17.5 7.82 20 12 20c1.48 0 2.8-.31 3.95-.8" />
+                  </g>
+                </svg>
+                <strong>隐藏</strong>
+                <span>linear · 显隐切换</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
+                    <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
+                  </g>
+                </svg>
+                <strong>复制</strong>
+                <span>linear · 快捷动作</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                    <path d="M4 7h16M7 12h10M10 17h4" />
+                  </g>
+                </svg>
+                <strong>筛选</strong>
+                <span>linear · 面板开关</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
+                    <path d="m6 15l6-6l6 6" />
+                  </g>
+                </svg>
+                <strong>收起</strong>
+                <span>linear · 展开区底部</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z" />
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33a1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
+                  </g>
+                </svg>
+                <strong>设置</strong>
+                <span>linear · 用户操作</span>
+              </div>
+              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="currentColor">
+                    <path opacity=".35" d="M4 6.5C4 4.57 5.57 3 7.5 3h9C18.43 3 20 4.57 20 6.5v11c0 1.93-1.57 3.5-3.5 3.5h-9A3.5 3.5 0 0 1 4 17.5v-11Z" />
+                    <path d="M8 14.5a1 1 0 0 1 1-1h6.6l-2.3-2.3a1 1 0 1 1 1.4-1.4l4 4a1 1 0 0 1 0 1.4l-4 4a1 1 0 1 1-1.4-1.4l2.3-2.3H9a1 1 0 0 1-1-1Z" />
+                  </g>
+                </svg>
+                <strong>退出</strong>
+                <span>duotone 仅限强调</span>
+              </div>
+              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="currentColor">
+                    <path opacity=".35" d="M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2S2 6.48 2 12s4.48 10 10 10Z" />
+                    <path d="M8.5 12.2a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Zm3.5 0a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Zm3.5 0a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Z" />
+                  </g>
+                </svg>
+                <strong>线索</strong>
+                <span>duotone · 激活导航</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
+                    <path d="M3 22h18" />
+                    <path d="M5 18V9m7 9V5m7 13v-7" />
+                  </g>
+                </svg>
+                <strong>看板</strong>
+                <span>linear · 二级标签</span>
+              </div>
+              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
+                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                  <g fill="currentColor">
+                    <path opacity=".35" d="M12 2l7 3v6c0 4.55-2.92 8.47-7 10c-4.08-1.53-7-5.45-7-10V5l7-3Z" />
+                    <path d="m10.6 13.8l5-5a1 1 0 0 1 1.4 1.4l-5.7 5.7a1 1 0 0 1-1.4 0l-2.7-2.7a1 1 0 1 1 1.4-1.4l2 2Z" />
+                  </g>
+                </svg>
+                <strong>后台</strong>
+                <span>duotone · 一级导航</span>
+              </div>
+            </div>
+            <p>矩阵只定义语义选择；业务实现仍通过 <code>SolarIcon.tsx</code> 注册名称后引用。</p>
           </article>
         </div>
       </section>
@@ -1663,6 +2367,59 @@
                 </tr>
               </tbody>
             </table>
+          </div>
+          <div class="table-state-grid">
+            <div class="table-state-card">
+              <strong>标准表格</strong>
+              <p>桌面长列表优先使用 DataTable：表头、行高、单元格 padding、行 hover 和行操作统一。</p>
+              <div class="table-action-group">
+                <button class="icon-button-demo compact" type="button" aria-label="查看详情">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
+                      <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="icon-button-demo compact" type="button" aria-label="复制">
+                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                    <g fill="none" stroke="currentColor" stroke-width="1.5">
+                      <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
+                      <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
+                    </g>
+                  </svg>
+                </button>
+                <button class="button-like text" type="button">查看详情</button>
+              </div>
+            </div>
+            <div class="table-state-card">
+              <strong>空状态</strong>
+              <div class="empty-state-demo">
+                <div>
+                  <strong>暂无符合条件的数据</strong>
+                  <span>调整筛选或清空条件后再试。</span>
+                </div>
+              </div>
+            </div>
+            <div class="table-state-card">
+              <strong>加载骨架</strong>
+              <div class="skeleton-table-demo" aria-hidden="true">
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+              </div>
+              <p>骨架形状跟最终行结构一致，不使用脱离上下文的居中圆形 loading。</p>
+            </div>
+            <div class="table-state-card">
+              <strong>移动端卡片映射</strong>
+              <div class="record-card-map">
+                <span>状态 <strong>待跟进</strong></span>
+                <span>主标识 <strong>139****2401</strong></span>
+                <span>商品 <strong>基础保养套餐</strong></span>
+                <span>主操作 <strong>查看详情</strong></span>
+              </div>
+              <p>字段不能横向塞进手机宽表，必须映射为可扫描的记录卡片。</p>
+            </div>
           </div>
         </div>
       </section>
