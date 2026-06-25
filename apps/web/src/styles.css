@@ -24,7 +24,13 @@
   --touch-target: 44px;
   --workspace-topbar-height: 82px;
   --workspace-subnav-height: 51px;
-  --table-sticky-top: calc(var(--workspace-topbar-height) + var(--workspace-subnav-height));
+  --table-sticky-gap: 8px;
+  --table-sticky-top: calc(
+    var(--workspace-topbar-height) + var(--workspace-subnav-height) + var(--table-sticky-gap)
+  );
+  --z-table-sticky-column: 2;
+  --z-table-header: 3;
+  --z-table-header-corner: 5;
   --focus-ring: 0 0 0 3px rgb(15 91 75 / 22%);
   --shadow: 0 14px 42px rgb(31 43 36 / 7%);
   --shadow-soft: 0 1px 2px rgb(31 43 36 / 5%), 0 10px 26px rgb(31 43 36 / 6%);
@@ -1484,7 +1490,7 @@ a.metric-card:hover,
 .data-table th {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--z-table-header);
   background: #f4f7f3;
   color: #334039;
   font-size: 12px;
@@ -1497,12 +1503,12 @@ a.metric-card:hover,
 .data-table th.is-sticky-column {
   position: sticky;
   left: var(--sticky-left);
-  z-index: 2;
+  z-index: var(--z-table-sticky-column);
   background: #fffdf8;
 }
 
 .data-table th.is-sticky-column {
-  z-index: 5;
+  z-index: var(--z-table-header-corner);
   background: #eef3ef;
 }
 
@@ -1530,6 +1536,10 @@ a.metric-card:hover,
 
   .clue-table-view .data-table th {
     top: var(--table-sticky-top);
+    box-shadow:
+      0 calc(var(--table-sticky-gap) * -1) 0 var(--bg),
+      0 1px 0 var(--line),
+      0 12px 20px -18px rgb(23 33 28 / 45%);
   }
 }
 

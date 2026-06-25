@@ -281,17 +281,21 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
 
     assert "--workspace-topbar-height: 82px;" in root_rules
     assert "--workspace-subnav-height: 51px;" in root_rules
-    assert (
-        "--table-sticky-top: calc(var(--workspace-topbar-height) + "
-        "var(--workspace-subnav-height));"
-    ) in root_rules
+    assert "--table-sticky-gap: 8px;" in root_rules
+    assert "--z-table-sticky-column: 2;" in root_rules
+    assert "--z-table-header: 3;" in root_rules
+    assert "--z-table-header-corner: 5;" in root_rules
+    assert "--table-sticky-top: calc(" in root_rules
+    assert "var(--workspace-topbar-height) + var(--workspace-subnav-height) + var(--table-sticky-gap)" in root_rules
     assert "top: 0;" in base_header_rules
-    assert "z-index: 3;" in base_header_rules
-    assert "z-index: 5;" in sticky_column_header_rules
+    assert "z-index: var(--z-table-header);" in base_header_rules
+    assert "z-index: var(--z-table-header-corner);" in sticky_column_header_rules
     assert ".clue-table-view .table-wrap" in desktop_clue_table_rules
     assert "overflow-x: visible;" in desktop_clue_table_rules
     assert ".clue-table-view .data-table th" in desktop_clue_table_rules
     assert "top: var(--table-sticky-top);" in desktop_clue_table_rules
+    assert "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg)" in desktop_clue_table_rules
+    assert "0 12px 20px -18px rgb(23 33 28 / 45%)" in desktop_clue_table_rules
     assert ".workspace-shell .page-frame .data-table th" not in styles_source
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
 
