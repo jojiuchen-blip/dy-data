@@ -6,6 +6,7 @@ import {
   resetManagedAccountPassword,
   updateAccount,
 } from "../api/client";
+import { MultiSelectField, SelectField } from "../components/FormControls";
 import type {
   AccountRow,
   AccountUpsertPayload,
@@ -325,54 +326,41 @@ export function AdminAccountsPage() {
                 value={draft.external_account_id ?? ""}
               />
             </label>
-            <label className="filter-field">
-              <span>角色</span>
-              <select
-                onChange={(event) =>
-                  setDraftField("role", event.target.value as UserRole)
-                }
-                value={draft.role}
-              >
-                <option value="store">门店账号</option>
-                <option value="viewer">全局查看</option>
-                <option value="admin">最高管理员</option>
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>状态</span>
-              <select
-                onChange={(event) =>
-                  setDraftField("status", event.target.value as UserStatus)
-                }
-                value={draft.status}
-              >
-                <option value="active">启用</option>
-                <option value="disabled">停用</option>
-              </select>
-            </label>
-            <label className="filter-field">
-              <span>门店权限</span>
-              <select
-                disabled={draft.role !== "store"}
-                multiple
-                onChange={(event) =>
-                  setDraftField(
-                    "store_ids",
-                    Array.from(event.currentTarget.selectedOptions).map(
-                      (option) => option.value,
-                    ),
-                  )
-                }
-                size={Math.min(10, Math.max(4, stores.length))}
-                value={draft.store_ids}
-              >
-                {stores.map((store) => (
-                  <option key={store.store_id} value={store.store_id}>
-                    {store.store_name} ({store.store_id})
-                  </option>
-                ))}
-              </select>
-            </label>
+            <SelectField
+              label="角色"
+              onChange={(value) => setDraftField("role", value as UserRole)}
+              options={[
+                { value: "store", label: "门店账号" },
+                { value: "viewer", label: "全局查看" },
+                { value: "admin", label: "最高管理员" },
+              ]}
+              value={draft.role}
+            />
+            <SelectField
+              label="状态"
+              onChange={(value) => setDraftField("status", value as UserStatus)}
+              options={[
+                { value: "active", label: "启用" },
+                { value: "disabled", label: "停用" },
+              ]}
+              value={draft.status}
+            />
+            <MultiSelectField
+              disabled={draft.role !== "store"}
+              emptyLabel={draft.role === "store" ? "未绑定门店" : "全部门店"}
+              helperText={
+                draft.role === "store"
+                  ? "门店账号只能查看和操作已绑定门店。"
+                  : "全局角色默认拥有全部门店范围。"
+              }
+              label="门店权限"
+              onChange={(value) => setDraftField("store_ids", value)}
+              options={stores.map((store) => ({
+                label: `${store.store_name} (${store.store_id})`,
+                value: store.store_id,
+              }))}
+              value={draft.role === "store" ? draft.store_ids : []}
+            />
             <label className="filter-field">
               <span>{editingAccount ? "新密码（可选）" : "密码"}</span>
               <input

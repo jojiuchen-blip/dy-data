@@ -14,8 +14,12 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   rows: T[];
   emptyText?: string;
+  errorText?: string;
+  loadingText?: string;
+  mobileCard?: (row: T, index: number) => ReactNode;
   onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
   rowHref?: (row: T) => string;
+  state?: "ready" | "loading" | "error";
   tableClassName?: string;
 }
 
@@ -80,80 +84,120 @@ export function DataTable<T>({
   columns,
   rows,
   emptyText = "暂无数据",
+  errorText = "数据暂不可用",
+  loadingText = "正在加载数据...",
+  mobileCard,
   onRowDoubleClick,
   rowHref,
+  state = "ready",
   tableClassName,
 }: DataTableProps<T>) {
   const preparedColumns = prepareColumns(columns);
+  const statusText =
+    state === "loading" ? loadingText : state === "error" ? errorText : emptyText;
+  const shouldRenderStatus = rows.length === 0 || state !== "ready";
 
   return (
-    <div className="table-wrap">
-      <table
-        className={["data-table", tableClassName].filter(Boolean).join(" ")}
+    <>
+      <div
+        className={[
+          "table-wrap",
+          mobileCard ? "table-wrap--mobile-cards" : "",
+        ]
+          .filter(Boolean)
+          .join(" ")}
       >
-        <thead>
-          <tr>
-            {preparedColumns.map((column) => (
-              <th
-                className={columnClass(column)}
-                key={column.key}
-                style={columnStyle(column)}
-              >
-                {column.title}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
+        <table
+          className={["data-table", tableClassName].filter(Boolean).join(" ")}
+        >
+          <thead>
             <tr>
-              <td className="empty-cell" colSpan={columns.length}>
-                {emptyText}
-              </td>
-            </tr>
-          ) : (
-            rows.map((row, rowIndex) => {
-              const href = rowHref?.(row);
-              return (
-                <tr
-                  className={
-                    href || onRowDoubleClick ? "clickable-row" : undefined
-                  }
-                  key={rowIndex}
-                  onClick={href ? () => openInternalHref(href) : undefined}
-                  onDoubleClick={
-                    onRowDoubleClick
-                      ? (event) => onRowDoubleClick(row, event)
-                      : undefined
-                  }
-                  onKeyDown={
-                    href
-                      ? (event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            openInternalHref(href);
-                          }
-                        }
-                      : undefined
-                  }
-                  role={href ? "link" : undefined}
-                  tabIndex={href ? 0 : undefined}
+              {preparedColumns.map((column) => (
+                <th
+                  className={columnClass(column)}
+                  key={column.key}
+                  style={columnStyle(column)}
                 >
-                  {preparedColumns.map((column) => (
-                    <td
-                      className={columnClass(column)}
-                      key={column.key}
-                      style={columnStyle(column)}
-                    >
-                      {column.render(row, rowIndex)}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })
+                  {column.title}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {shouldRenderStatus ? (
+              <tr>
+                <td
+                  aria-live={state === "error" ? "assertive" : "polite"}
+                  className="empty-cell"
+                  colSpan={columns.length}
+                  role={state === "error" ? "alert" : "status"}
+                >
+                  {statusText}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row, rowIndex) => {
+                const href = rowHref?.(row);
+                return (
+                  <tr
+                    className={
+                      href || onRowDoubleClick ? "clickable-row" : undefined
+                    }
+                    key={rowIndex}
+                    onClick={href ? () => openInternalHref(href) : undefined}
+                    onDoubleClick={
+                      onRowDoubleClick
+                        ? (event) => onRowDoubleClick(row, event)
+                        : undefined
+                    }
+                    onKeyDown={
+                      href
+                        ? (event) => {
+                            if (event.key === "Enter" || event.key === " ") {
+                              event.preventDefault();
+                              openInternalHref(href);
+                            }
+                          }
+                        : undefined
+                    }
+                    role={href ? "link" : undefined}
+                    tabIndex={href ? 0 : undefined}
+                  >
+                    {preparedColumns.map((column) => (
+                      <td
+                        className={columnClass(column)}
+                        key={column.key}
+                        style={columnStyle(column)}
+                      >
+                        {column.render(row, rowIndex)}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+      {mobileCard ? (
+        <div className="data-table-mobile-list">
+          {shouldRenderStatus ? (
+            <div
+              aria-live={state === "error" ? "assertive" : "polite"}
+              className="resource-panel"
+              role={state === "error" ? "alert" : "status"}
+            >
+              {statusText}
+            </div>
+          ) : (
+            rows.map((row, rowIndex) => (
+              <div className="data-table-mobile-card" key={rowIndex}>
+                {mobileCard(row, rowIndex)}
+              </div>
+            ))
           )}
-        </tbody>
-      </table>
-    </div>
+        </div>
+      ) : null}
+    </>
   );
 }

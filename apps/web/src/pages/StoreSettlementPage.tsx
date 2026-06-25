@@ -8,6 +8,7 @@ import {
 import { DataTable, type Column } from "../components/DataTable";
 import { DefinitionList } from "../components/DefinitionList";
 import { FilterBar, FilterField } from "../components/Filters";
+import { SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import {
   ResourceNotice,
@@ -174,15 +175,12 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       />
 
       <FilterBar>
-        <FilterField label="月份">
-          <select value={activeMonth} onChange={(event) => setMonth(event.target.value)}>
-            {verifyMonthOptions(meta, activeMonth).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        <SelectField
+          label="月份"
+          onChange={setMonth}
+          options={verifyMonthOptions(meta, activeMonth)}
+          value={activeMonth}
+        />
         <FilterField label="门店">
           <SearchableStoreSelect
             options={storeOptions(meta, selectedStore)}
@@ -190,18 +188,12 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             onChange={setStoreId}
           />
         </FilterField>
-        <FilterField label="产品范围">
-          <select
-            value={productType}
-            onChange={(event) => setProductType(event.target.value)}
-          >
-            {productOptions(meta, productType).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        <SelectField
+          label="产品范围"
+          onChange={setProductType}
+          options={productOptions(meta, productType)}
+          value={productType}
+        />
       </FilterBar>
 
       {!view && settlementResource.loading ? (

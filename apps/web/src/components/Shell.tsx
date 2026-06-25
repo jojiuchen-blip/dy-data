@@ -2,6 +2,7 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { changeCurrentUserPassword, submitFeedback } from "../api/client";
 import type { AdminUser, FeedbackCategory } from "../types/dashboard";
 import { CommissionRulesButton } from "./CommissionRulesButton";
+import { SelectField } from "./FormControls";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
@@ -476,21 +477,12 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               </button>
             </header>
             <form className="feedback-form" onSubmit={handleFeedbackSubmit}>
-              <label className="filter-field">
-                <span>建议类型</span>
-                <select
-                  onChange={(event) =>
-                    setFeedbackCategory(event.target.value as FeedbackCategory)
-                  }
-                  value={feedbackCategory}
-                >
-                  {feedbackCategories.map((item) => (
-                    <option key={item.value} value={item.value}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <SelectField
+                label="建议类型"
+                onChange={(value) => setFeedbackCategory(value as FeedbackCategory)}
+                options={feedbackCategories}
+                value={feedbackCategory}
+              />
               <label className="filter-field">
                 <span>你的建议</span>
                 <textarea

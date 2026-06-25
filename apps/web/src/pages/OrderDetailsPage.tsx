@@ -6,6 +6,7 @@ import {
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
+import { SelectField } from "../components/FormControls";
 import {
   ResourceNotice,
   ResourcePanel,
@@ -39,6 +40,10 @@ const booleanOptions = [
 ];
 
 const pageSizeOptions = [25, 50, 100, 200, 500];
+const pageSizeSelectOptions = pageSizeOptions.map((option) => ({
+  label: String(option),
+  value: String(option),
+}));
 
 function storeName(meta: FilterMetaData | undefined, storeId: string): string {
   return (
@@ -176,19 +181,14 @@ function PaginationControls({
         >
           下一页
         </button>
-        <label className="pagination-controls__size">
-          <span>每页</span>
-          <select
-            value={pageSize}
-            onChange={(event) => onPageSizeChange(Number(event.target.value))}
-          >
-            {pageSizeOptions.map((option) => (
-              <option key={option} value={option}>
-                {option}
-              </option>
-            ))}
-          </select>
-        </label>
+        <div className="pagination-controls__size">
+          <SelectField
+            label="每页"
+            onChange={(value) => onPageSizeChange(Number(value))}
+            options={pageSizeSelectOptions}
+            value={String(pageSize)}
+          />
+        </div>
       </div>
     </div>
   );
@@ -390,35 +390,21 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               onChange={(value) => updateFilter("sale_store_id", value)}
             />
           </FilterField>
-          <FilterField label="核销月份">
-            <select
-              value={filters.verify_month ?? ""}
-              onChange={(event) =>
-                updateFilter("verify_month", event.target.value)
-              }
-            >
-              <option value="">全部</option>
-              {verifyMonthOptions(meta, filters.verify_month).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField label="产品范围">
-            <select
-              value={filters.product_type ?? "all"}
-              onChange={(event) =>
-                updateFilter("product_type", event.target.value)
-              }
-            >
-              {productOptions(meta, filters.product_type ?? "all").map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
+          <SelectField
+            label="核销月份"
+            onChange={(value) => updateFilter("verify_month", value)}
+            options={[
+              { value: "", label: "全部" },
+              ...verifyMonthOptions(meta, filters.verify_month),
+            ]}
+            value={filters.verify_month ?? ""}
+          />
+          <SelectField
+            label="产品范围"
+            onChange={(value) => updateFilter("product_type", value)}
+            options={productOptions(meta, filters.product_type ?? "all")}
+            value={filters.product_type ?? "all"}
+          />
           <FilterField label="订单 / 券搜索">
             <input
               placeholder="订单编号或券码"
@@ -432,31 +418,21 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         </FilterBar>
 
         <FilterBar className="detail-filter-bar detail-filter-bar--secondary">
-          <FilterField label="销售月份">
-            <select
-              value={filters.sale_month ?? ""}
-              onChange={(event) => updateFilter("sale_month", event.target.value)}
-            >
-              <option value="">全部</option>
-              {saleMonthOptions(meta, filters.sale_month).map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
-          <FilterField label="是否核销">
-            <select
-              value={filters.is_verified ?? ""}
-              onChange={(event) => updateFilter("is_verified", event.target.value)}
-            >
-              {booleanOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
+          <SelectField
+            label="销售月份"
+            onChange={(value) => updateFilter("sale_month", value)}
+            options={[
+              { value: "", label: "全部" },
+              ...saleMonthOptions(meta, filters.sale_month),
+            ]}
+            value={filters.sale_month ?? ""}
+          />
+          <SelectField
+            label="是否核销"
+            onChange={(value) => updateFilter("is_verified", value)}
+            options={booleanOptions}
+            value={filters.is_verified ?? ""}
+          />
           <FilterField label="实际核销门店">
             <SearchableStoreSelect
               allowEmpty
@@ -468,20 +444,12 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               onChange={(value) => updateFilter("verify_store_id", value)}
             />
           </FilterField>
-          <FilterField label="是否分佣">
-            <select
-              value={filters.is_commissionable ?? ""}
-              onChange={(event) =>
-                updateFilter("is_commissionable", event.target.value)
-              }
-            >
-              {booleanOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </FilterField>
+          <SelectField
+            label="是否分佣"
+            onChange={(value) => updateFilter("is_commissionable", value)}
+            options={booleanOptions}
+            value={filters.is_commissionable ?? ""}
+          />
         </FilterBar>
       </div>
 

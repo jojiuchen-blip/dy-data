@@ -16,6 +16,7 @@ import {
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
+import { SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import {
   ResourceNotice,
@@ -998,54 +999,39 @@ export function ClueCenterPage({
       >
         {showStoreLocationFilters ? (
           <>
-            <FilterField label="省份">
-              <select
-                onChange={(event) => {
-                  setPage(1);
-                  setProvince(event.target.value);
-                }}
-                value={province}
-              >
-                <option value="">全部</option>
-                {optionList(meta?.assigned_provinces).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-            <FilterField label="城市">
-              <select
-                onChange={(event) => {
-                  setPage(1);
-                  setCity(event.target.value);
-                }}
-                value={city}
-              >
-                <option value="">全部</option>
-                {optionList(meta?.assigned_cities).map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-            <FilterField label="门店">
-              <select
-                onChange={(event) => {
-                  setPage(1);
-                  setAssignedStoreId(event.target.value);
-                }}
-                value={assignedStoreId}
-              >
-                <option value="">全部</option>
-                {(meta?.assigned_stores ?? []).map((store) => (
-                  <option key={store.store_id} value={store.store_id}>
-                    {store.store_name}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
+            <SelectField
+              label="省份"
+              onChange={(value) => {
+                setPage(1);
+                setProvince(value);
+              }}
+              options={[{ value: "", label: "全部" }, ...optionList(meta?.assigned_provinces)]}
+              value={province}
+            />
+            <SelectField
+              label="城市"
+              onChange={(value) => {
+                setPage(1);
+                setCity(value);
+              }}
+              options={[{ value: "", label: "全部" }, ...optionList(meta?.assigned_cities)]}
+              value={city}
+            />
+            <SelectField
+              label="门店"
+              onChange={(value) => {
+                setPage(1);
+                setAssignedStoreId(value);
+              }}
+              options={[
+                { value: "", label: "全部" },
+                ...(meta?.assigned_stores ?? []).map((store) => ({
+                  label: store.store_name,
+                  value: store.store_id,
+                })),
+              ]}
+              value={assignedStoreId}
+            />
           </>
         ) : null}
         <FilterField label="线索生成日期起">
@@ -1068,57 +1054,39 @@ export function ClueCenterPage({
             value={assignedDateEnd}
           />
         </FilterField>
-        <FilterField label="线索状态">
-          <select
-            onChange={(event) => {
-              setPage(1);
-              setLeadStatus(event.target.value);
-            }}
-            value={leadStatus}
-          >
-            <option value="">全部</option>
-            {optionList(meta?.lead_statuses, leadStatusLabels).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="商品类型">
-          <select
-            onChange={(event) => {
-              setPage(1);
-              setProductType(event.target.value);
-            }}
-            value={productType}
-          >
-            <option value="">全部</option>
-            {optionList(meta?.product_types).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
-        <FilterField label="核销状态">
-          <select
-            onChange={(event) => {
-              setPage(1);
-              setVerificationStatus(event.target.value);
-            }}
-            value={verificationStatus}
-          >
-            <option value="">全部</option>
-            {optionList(
-              meta?.verification_statuses,
-              verificationStatusLabels,
-            ).map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </FilterField>
+        <SelectField
+          label="线索状态"
+          onChange={(value) => {
+            setPage(1);
+            setLeadStatus(value);
+          }}
+          options={[
+            { value: "", label: "全部" },
+            ...optionList(meta?.lead_statuses, leadStatusLabels),
+          ]}
+          value={leadStatus}
+        />
+        <SelectField
+          label="商品类型"
+          onChange={(value) => {
+            setPage(1);
+            setProductType(value);
+          }}
+          options={[{ value: "", label: "全部" }, ...optionList(meta?.product_types)]}
+          value={productType}
+        />
+        <SelectField
+          label="核销状态"
+          onChange={(value) => {
+            setPage(1);
+            setVerificationStatus(value);
+          }}
+          options={[
+            { value: "", label: "全部" },
+            ...optionList(meta?.verification_statuses, verificationStatusLabels),
+          ]}
+          value={verificationStatus}
+        />
         <button className="ghost-button" onClick={resetFilters} type="button">
           清空筛选
         </button>

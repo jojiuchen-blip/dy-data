@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DataTable, type Column } from "../components/DataTable";
+import { SelectField } from "../components/FormControls";
 import { fetchFeedback, updateFeedbackStatus } from "../api/client";
 import type {
   FeedbackCategory,
@@ -241,22 +242,15 @@ export function AdminFeedbackPage() {
       </section>
 
       <form className="filter-bar admin-feedback-filters" onSubmit={submitSearch}>
-        <label className="filter-field">
-          <span>建议类型</span>
-          <select
-            onChange={(event) => {
-              setCategory(event.target.value as FeedbackCategory | "");
-              setPage(1);
-            }}
-            value={category}
-          >
-            {categoryOptions.map((item) => (
-              <option key={item.value || "all"} value={item.value}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SelectField
+          label="建议类型"
+          onChange={(value) => {
+            setCategory(value as FeedbackCategory | "");
+            setPage(1);
+          }}
+          options={categoryOptions}
+          value={category}
+        />
         <label className="filter-field">
           <span>关键词</span>
           <input

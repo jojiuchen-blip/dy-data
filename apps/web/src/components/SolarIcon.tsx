@@ -1,15 +1,18 @@
 import { Icon } from "@iconify/react";
 import type { IconifyIcon } from "@iconify/react";
+import altArrowDownLinear from "@iconify-icons/solar/alt-arrow-down-linear";
 import billListLinear from "@iconify-icons/solar/bill-list-linear";
 import buildings2Linear from "@iconify-icons/solar/buildings-2-linear";
 import chart2BoldDuotone from "@iconify-icons/solar/chart-2-bold-duotone";
 import chart2Linear from "@iconify-icons/solar/chart-2-linear";
 import chatRoundDotsBoldDuotone from "@iconify-icons/solar/chat-round-dots-bold-duotone";
 import chatRoundDotsLinear from "@iconify-icons/solar/chat-round-dots-linear";
+import checkCircleLinear from "@iconify-icons/solar/check-circle-linear";
 import closeCircleLinear from "@iconify-icons/solar/close-circle-linear";
 import copyLinear from "@iconify-icons/solar/copy-linear";
 import eyeClosedLinear from "@iconify-icons/solar/eye-closed-linear";
 import eyeLinear from "@iconify-icons/solar/eye-linear";
+import filterLinear from "@iconify-icons/solar/filter-linear";
 import graphNewUpBoldDuotone from "@iconify-icons/solar/graph-new-up-bold-duotone";
 import home2Linear from "@iconify-icons/solar/home-2-linear";
 import keyMinimalisticSquareLinear from "@iconify-icons/solar/key-minimalistic-square-linear";
@@ -24,12 +27,15 @@ const solarIcons = {
   admin: shieldCheckBoldDuotone,
   brand: graphNewUpBoldDuotone,
   chart: chart2BoldDuotone,
+  check: checkCircleLinear,
+  chevronDown: altArrowDownLinear,
   close: closeCircleLinear,
   copy: copyLinear,
   details: billListLinear,
   eyeClosed: eyeClosedLinear,
   eye: eyeLinear,
   feedback: chatRoundDotsLinear,
+  filter: filterLinear,
   home: home2Linear,
   key: keyMinimalisticSquareLinear,
   logout: logout3Linear,

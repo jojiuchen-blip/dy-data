@@ -11,6 +11,9 @@ TOKENS_PATH = DESIGN_SYSTEM_DIR / "tokens.json"
 HTML_PATH = DESIGN_SYSTEM_DIR / "index.html"
 WEB_SRC_DIR = REPO_ROOT / "apps" / "web" / "src"
 SOLAR_ICON_PATH = WEB_SRC_DIR / "components" / "SolarIcon.tsx"
+SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
+RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
+DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
 
 
 def read_text(path: Path) -> str:
@@ -91,3 +94,44 @@ def test_iconify_imports_are_centralized_in_solar_icon_component() -> None:
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_business_tsx_does_not_render_native_select_controls() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*.tsx"):
+        text = read_text(path)
+        if "<select" in text or "</select>" in text:
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_shell_visual_title_does_not_create_global_h1() -> None:
+    shell = read_text(SHELL_PATH)
+
+    assert "<h1" not in shell
+    assert "</h1>" not in shell
+
+
+def test_status_and_dialog_components_keep_accessibility_contracts() -> None:
+    resource_state = read_text(RESOURCE_STATE_PATH)
+    dialog = read_text(DIALOG_PATH)
+
+    for phrase in [
+        'role={error ? "alert" : "status"}',
+        'aria-live={error ? "assertive" : "polite"}',
+        "aria-atomic=\"true\"",
+    ]:
+        assert phrase in resource_state
+
+    for phrase in [
+        'role="dialog"',
+        'aria-modal="true"',
+        "focusableElements",
+        '"Tab"',
+        '"Escape"',
+        'setAttribute("inert"',
+        "previousFocusRef.current?.focus",
+    ]:
+        assert phrase in dialog

@@ -7,6 +7,7 @@ import {
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
+import { SelectField } from "../components/FormControls";
 import type {
   JobRun,
   ManualSyncTarget,
@@ -23,6 +24,14 @@ const targetOptions: { value: ManualSyncTarget; label: string }[] = [
   { value: "aweme_bindings", label: "子机构号开放接口" },
   { value: "backend_aweme_export", label: "子机构号浏览器导出" },
   { value: "settlement", label: "仅重建结算结果" },
+];
+
+const intervalOptions = [
+  { value: "1800", label: "半小时" },
+  { value: "3600", label: "1 小时" },
+  { value: "7200", label: "2 小时" },
+  { value: "21600", label: "6 小时" },
+  { value: "86400", label: "每天" },
 ];
 
 function configToDraft(config: SyncConfigData) {
@@ -529,21 +538,12 @@ export function AdminSyncPage() {
                 value={draft.rolling_days}
               />
             </label>
-            <label className="filter-field">
-              <span>同步间隔</span>
-              <select
-                onChange={(event) =>
-                  updateDraft({ interval_seconds: event.target.value })
-                }
-                value={draft.interval_seconds}
-              >
-                <option value="1800">半小时</option>
-                <option value="3600">1 小时</option>
-                <option value="7200">2 小时</option>
-                <option value="21600">6 小时</option>
-                <option value="86400">每天</option>
-              </select>
-            </label>
+            <SelectField
+              label="同步间隔"
+              onChange={(value) => updateDraft({ interval_seconds: value })}
+              options={intervalOptions}
+              value={draft.interval_seconds}
+            />
             <label className="filter-field checkbox-field">
               <span>历史回填断点续跑</span>
               <input
@@ -578,21 +578,12 @@ export function AdminSyncPage() {
           </div>
         </div>
         <div className="manual-sync-grid">
-          <label className="filter-field">
-            <span>数据表 / 任务类型</span>
-            <select
-              onChange={(event) =>
-                setTarget(event.target.value as ManualSyncTarget)
-              }
-              value={target}
-            >
-              {targetOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <SelectField
+            label="数据表 / 任务类型"
+            onChange={(value) => setTarget(value as ManualSyncTarget)}
+            options={targetOptions}
+            value={target}
+          />
           <label className="filter-field">
             <span>回看天数</span>
             <input
