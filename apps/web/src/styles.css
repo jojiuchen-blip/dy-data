@@ -206,39 +206,12 @@ a {
   display: flex;
   min-height: var(--workspace-topbar-height);
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 20px;
   border-bottom: 1px solid var(--line);
-  padding: 14px 28px 12px;
+  padding: 10px 28px;
   background: var(--surface-white-92);
   backdrop-filter: blur(16px);
-}
-
-.workspace-context {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-}
-
-.workspace-kicker {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 750;
-}
-
-.workspace-kicker em {
-  border: 1px solid var(--amber-token-24);
-  border-radius: 999px;
-  padding: 2px 7px;
-  background: var(--amber-soft);
-  color: var(--amber);
-  font-size: 10px;
-  font-style: normal;
-  font-weight: 850;
-  letter-spacing: 0;
 }
 
 .workspace-actions {
@@ -876,26 +849,32 @@ h2 {
   box-shadow: var(--shadow);
 }
 
+.filter-bar--compact {
+  gap: 8px;
+  padding: 10px;
+}
+
+.filter-bar--compact .filter-field {
+  gap: 4px;
+}
+
+.filter-bar--compact .ghost-button {
+  min-width: 92px;
+  padding-right: 10px;
+  padding-left: 10px;
+}
+
 .detail-filter-stack {
   display: grid;
   gap: 10px;
 }
 
 .detail-filter-bar {
-  grid-template-columns:
-    minmax(250px, 1.25fr) minmax(150px, 0.75fr)
-    minmax(170px, 0.8fr) minmax(180px, 0.9fr)
-    minmax(190px, 1fr) auto;
-}
-
-.detail-filter-bar--secondary {
-  grid-template-columns:
-    minmax(180px, 0.8fr) minmax(180px, 0.8fr)
-    minmax(250px, 1.25fr) minmax(180px, 0.8fr);
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .clue-filter-bar {
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
 .clue-filter-collapse-mobile {
@@ -904,6 +883,26 @@ h2 {
 
 .clue-table-view {
   min-width: 0;
+}
+
+@media (min-width: 1380px) {
+  .clue-filter-bar {
+    grid-template-columns:
+      minmax(120px, 0.8fr) minmax(120px, 0.8fr)
+      minmax(140px, 1fr) minmax(132px, 0.95fr)
+      minmax(132px, 0.95fr) minmax(116px, 0.75fr)
+      minmax(116px, 0.75fr) minmax(116px, 0.75fr)
+      minmax(92px, 0.55fr);
+  }
+
+  .detail-filter-bar--single-line {
+    grid-template-columns:
+      minmax(150px, 1.2fr) minmax(104px, 0.7fr)
+      minmax(112px, 0.75fr) minmax(136px, 0.95fr)
+      minmax(104px, 0.7fr) minmax(96px, 0.6fr)
+      minmax(150px, 1.2fr) minmax(96px, 0.6fr)
+      minmax(92px, 0.55fr);
+  }
 }
 
 .filter-field {

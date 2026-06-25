@@ -387,7 +387,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       />
 
       <div className="detail-filter-stack">
-        <FilterBar className="detail-filter-bar">
+        <FilterBar className="filter-bar--compact detail-filter-bar detail-filter-bar--single-line">
           <FilterField label="销售归属门店">
             <SearchableStoreSelect
               allowEmpty
@@ -418,12 +418,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               onChange={(event) => updateFilter("q", event.target.value)}
             />
           </FilterField>
-          <button className="ghost-button" onClick={clearFilters} type="button">
-            清空筛选
-          </button>
-        </FilterBar>
-
-        <FilterBar className="detail-filter-bar detail-filter-bar--secondary">
           <SelectField
             label="销售月份"
             onChange={(value) => updateFilter("sale_month", value)}
@@ -456,6 +450,9 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
             options={booleanOptions}
             value={filters.is_commissionable ?? ""}
           />
+          <button className="ghost-button" onClick={clearFilters} type="button">
+            清空筛选
+          </button>
         </FilterBar>
       </div>
 

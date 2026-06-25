@@ -269,13 +269,6 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
 
       <div className="workspace-shell">
         <header className="workspace-topbar">
-          <div className="workspace-context">
-            <div className="workspace-kicker">
-              <span>{sectionLabels[section]}</span>
-              {section === "settlement" ? <em>试运行</em> : null}
-            </div>
-          </div>
-
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (

@@ -266,3 +266,49 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
         assert console_errors == []
     finally:
         context.close()
+
+
+@pytest.mark.parametrize(
+    ("url_path", "expected_text", "selector"),
+    [
+        ("/clues/details", "线索跟进列表", ".clue-filter-bar"),
+        ("/details", "门店月度数据明细表", ".detail-filter-bar--single-line"),
+    ],
+)
+def test_detail_filter_bars_fit_one_desktop_row(
+    browser: Browser,
+    vite_base_url: str,
+    url_path: str,
+    expected_text: str,
+    selector: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+
+        metrics = page.locator(selector).evaluate(
+            """(node) => {
+              const children = Array.from(node.children).filter(
+                (child) => getComputedStyle(child).display !== "none",
+              );
+              const rows = new Set(
+                children.map((child) => Math.round(child.getBoundingClientRect().bottom)),
+              );
+              return {
+                childCount: children.length,
+                clientWidth: node.clientWidth,
+                rowCount: rows.size,
+                scrollWidth: node.scrollWidth,
+              };
+            }""",
+        )
+
+        assert metrics["childCount"] > 0
+        assert metrics["rowCount"] == 1
+        assert metrics["scrollWidth"] - metrics["clientWidth"] <= 2
+    finally:
+        context.close()

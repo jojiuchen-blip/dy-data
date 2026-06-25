@@ -171,8 +171,12 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
     styles_source = read_source("styles.css")
 
     assert "sectionLabels[section]" in shell_source
+    assert 'className="workspace-context"' not in shell_source
+    assert "workspace-kicker" not in shell_source
     assert "pageTitle" not in shell_source
     assert "workspace-title" not in shell_source
+    assert ".workspace-context" not in styles_source
+    assert ".workspace-kicker" not in styles_source
     assert ".workspace-title" not in styles_source
 
 
@@ -283,7 +287,7 @@ def test_shell_data_table_header_uses_container_sticky_contract() -> None:
         styles_source.index("@media (max-width: 640px)")
     ]
 
-    assert "--workspace-topbar-height: 82px;" in root_rules
+    assert "--workspace-topbar-height: 58px;" in root_rules
     assert "--workspace-subnav-height: 51px;" in root_rules
     assert "--table-sticky-gap: 8px;" in root_rules
     assert "--z-table-sticky-column: 2;" in root_rules
@@ -311,12 +315,36 @@ def test_shell_data_table_header_uses_container_sticky_contract() -> None:
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
 
 
+def test_detail_filters_use_compact_single_row_desktop_contract() -> None:
+    styles_source = read_source("styles.css")
+    clue_page_source = read_source("pages/ClueCenterPage.tsx")
+    order_details_source = read_source("pages/OrderDetailsPage.tsx")
+
+    desktop_density_rules = styles_source[
+        styles_source.index("@media (min-width: 1380px)") :
+        styles_source.index("\n.filter-field {")
+    ]
+    mobile_rules = styles_source[
+        styles_source.index("@media (max-width: 640px)") :
+        styles_source.index(".feedback-summary-row,")
+    ]
+
+    assert "filter-bar--compact clue-filter-bar" in clue_page_source
+    assert "filter-bar--compact detail-filter-bar detail-filter-bar--single-line" in order_details_source
+    assert order_details_source.count("<FilterBar") == 1
+    assert "detail-filter-bar--secondary" not in order_details_source
+    assert ".clue-filter-bar" in desktop_density_rules
+    assert ".detail-filter-bar--single-line" in desktop_density_rules
+    assert "minmax(92px, 0.55fr)" in desktop_density_rules
+    assert ".clue-filter-bar,\n  .clue-rule-grid {\n    grid-template-columns: 1fr;" in mobile_rules
+
+
 def test_mobile_clue_filter_panel_has_visible_collapse_action() -> None:
     styles_source = read_source("styles.css")
 
     base_collapse_rules = styles_source[
         styles_source.index(".clue-filter-collapse-mobile {") :
-        styles_source.index(".filter-field {")
+        styles_source.index("\n.filter-field {")
     ]
     mobile_phone_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
     mobile_collapse_rules = mobile_phone_rules[

@@ -906,7 +906,7 @@ export function ClueCenterPage({
       </div>
 
       <FilterBar
-        className={`clue-filter-bar ${mobileFiltersOpen ? "is-open" : ""}`}
+        className={`filter-bar--compact clue-filter-bar ${mobileFiltersOpen ? "is-open" : ""}`}
         id="clue-filter-panel"
       >
         {showStoreLocationFilters ? (
