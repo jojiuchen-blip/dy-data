@@ -7,6 +7,7 @@ import {
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
+import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
 import type {
   JobRun,
@@ -209,6 +210,50 @@ export function AdminSyncPage() {
     );
   }, [data]);
   const workerStatus = data?.worker_status ?? null;
+  const jobColumns: Column<JobRun>[] = [
+    {
+      key: "job_id",
+      title: "任务 ID",
+      render: (job) => <span className="mono-cell">{job.job_id}</span>,
+    },
+    { key: "type", title: "类型", render: (job) => job.job_name },
+    {
+      key: "status",
+      title: "状态",
+      render: (job) => <span className="status-chip">{statusLabel(job.status)}</span>,
+    },
+    {
+      key: "window",
+      title: "数据窗口",
+      render: (job) => {
+        const window = job.metadata_json?.source_window;
+        return window
+          ? `${formatDateTime(window.start)} 至 ${formatDateTime(window.end)}`
+          : "-";
+      },
+    },
+    {
+      key: "started",
+      title: "开始时间",
+      render: (job) => formatDateTime(job.started_at),
+    },
+    {
+      key: "finished",
+      title: "结束时间",
+      render: (job) => formatDateTime(job.finished_at),
+    },
+    {
+      align: "right",
+      key: "success",
+      title: "成功数",
+      render: (job) => formatInteger(job.success_count),
+    },
+    {
+      key: "detail",
+      title: "明细",
+      render: (job) => job.error_message || phaseSummary(job),
+    },
+  ];
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -615,55 +660,12 @@ export function AdminSyncPage() {
             <p>最近 20 个任务，包含后台自动任务和手动任务。</p>
           </div>
         </div>
-        <div className="table-wrap">
-          <table className="data-table admin-sync-table">
-            <thead>
-              <tr>
-                <th>任务 ID</th>
-                <th>类型</th>
-                <th>状态</th>
-                <th>数据窗口</th>
-                <th>开始时间</th>
-                <th>结束时间</th>
-                <th className="is-right">成功数</th>
-                <th>明细</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.jobs.length ? (
-                data.jobs.map((job) => {
-                  const window = job.metadata_json?.source_window;
-                  return (
-                    <tr key={job.job_id}>
-                      <td className="mono-cell">{job.job_id}</td>
-                      <td>{job.job_name}</td>
-                      <td>
-                        <span className="status-chip">{statusLabel(job.status)}</span>
-                      </td>
-                      <td>
-                        {window
-                          ? `${formatDateTime(window.start)} 至 ${formatDateTime(window.end)}`
-                          : "-"}
-                      </td>
-                      <td>{formatDateTime(job.started_at)}</td>
-                      <td>{formatDateTime(job.finished_at)}</td>
-                      <td className="is-right">
-                        {formatInteger(job.success_count)}
-                      </td>
-                      <td>{job.error_message || phaseSummary(job)}</td>
-                    </tr>
-                  );
-                })
-              ) : (
-                <tr>
-                  <td className="empty-cell" colSpan={8}>
-                    暂无同步日志
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <DataTable
+          columns={jobColumns}
+          emptyText="暂无同步日志"
+          rows={data?.jobs ?? []}
+          tableClassName="admin-sync-table"
+        />
       </section>
     </div>
   );

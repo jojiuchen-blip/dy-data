@@ -6,6 +6,7 @@ import {
   resetManagedAccountPassword,
   updateAccount,
 } from "../api/client";
+import { DataTable, type Column } from "../components/DataTable";
 import { MultiSelectField, SelectField } from "../components/FormControls";
 import type {
   AccountRow,
@@ -136,6 +137,71 @@ export function AdminAccountsPage() {
     setStatusText("");
   };
 
+  const accountColumns: Column<AccountRow>[] = [
+    {
+      key: "account",
+      title: "账号名",
+      render: (account) => (
+        <>
+          <strong>{account.display_name || account.username}</strong>
+          <br />
+          <span className="mono-cell">{account.username}</span>
+        </>
+      ),
+    },
+    {
+      key: "external",
+      title: "所属账户ID",
+      render: (account) => (
+        <span className="mono-cell">{account.external_account_id || "-"}</span>
+      ),
+    },
+    { key: "role", title: "角色", render: (account) => roleLabel(account.role) },
+    {
+      key: "status",
+      title: "状态",
+      render: (account) => (
+        <span className="status-chip">
+          {account.status === "active" ? "启用" : "停用"}
+        </span>
+      ),
+    },
+    { key: "stores", title: "门店范围", render: storesLabel },
+    {
+      key: "initialized",
+      title: "激活状态",
+      render: (account) => (account.is_initialized ? "已激活" : "未激活"),
+    },
+    {
+      key: "updated",
+      title: "更新时间",
+      render: (account) => formatDateTime(account.updated_at),
+    },
+    {
+      align: "center",
+      key: "actions",
+      title: "操作",
+      render: (account) => (
+        <div className="table-action-row">
+          <button
+            className="ghost-button"
+            onClick={() => startEdit(account)}
+            type="button"
+          >
+            编辑
+          </button>
+          <button
+            className="ghost-button"
+            onClick={() => setResetTarget(account)}
+            type="button"
+          >
+            重置密码
+          </button>
+        </div>
+      ),
+    },
+  ];
+
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setSaving(true);
@@ -228,69 +294,13 @@ export function AdminAccountsPage() {
             </div>
             {loading ? <span className="source-pill">加载中</span> : null}
           </div>
-          <div className="table-wrap">
-            <table className="data-table account-table">
-              <thead>
-                <tr>
-                  <th>账号名</th>
-                  <th>所属账户ID</th>
-                  <th>角色</th>
-                  <th>状态</th>
-                  <th>门店范围</th>
-                  <th>激活状态</th>
-                  <th>更新时间</th>
-                  <th className="is-center">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {accounts.length === 0 ? (
-                  <tr>
-                    <td className="empty-cell" colSpan={8}>
-                      暂无账号
-                    </td>
-                  </tr>
-                ) : (
-                  accounts.map((account) => (
-                    <tr key={account.user_id}>
-                      <td>
-                        <strong>{account.display_name || account.username}</strong>
-                        <br />
-                        <span className="mono-cell">{account.username}</span>
-                      </td>
-                      <td className="mono-cell">{account.external_account_id || "-"}</td>
-                      <td>{roleLabel(account.role)}</td>
-                      <td>
-                        <span className="status-chip">
-                          {account.status === "active" ? "启用" : "停用"}
-                        </span>
-                      </td>
-                      <td>{storesLabel(account)}</td>
-                      <td>{account.is_initialized ? "已激活" : "未激活"}</td>
-                      <td>{formatDateTime(account.updated_at)}</td>
-                      <td className="is-center">
-                        <div className="table-action-row">
-                          <button
-                            className="ghost-button"
-                            onClick={() => startEdit(account)}
-                            type="button"
-                          >
-                            编辑
-                          </button>
-                          <button
-                            className="ghost-button"
-                            onClick={() => setResetTarget(account)}
-                            type="button"
-                          >
-                            重置密码
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
+          <DataTable
+            columns={accountColumns}
+            emptyText={loading ? "正在加载账号..." : "暂无账号"}
+            rows={accounts}
+            state={loading ? "loading" : "ready"}
+            tableClassName="account-table"
+          />
         </div>
 
         <aside className="account-editor">

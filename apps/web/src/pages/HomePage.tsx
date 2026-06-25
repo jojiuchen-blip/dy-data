@@ -12,7 +12,7 @@ const modules = [
     beta: true,
     description: "承接现有门店榜单、单店分账、月度明细和 SKU 分账规则管理。",
     href: "/ranking",
-    meta: "BETA 阶段",
+    meta: "试运行阶段",
     status: "已接入",
     title: "订单分佣结算中心",
   },
@@ -25,7 +25,7 @@ export function HomePage() {
         <div className="home-brand">
           <SolarIcon className="brand__mark" name="brand" size={44} />
           <div>
-            <p className="eyebrow">Douyin business data engine</p>
+            <p className="eyebrow">抖音经营数据引擎</p>
             <h1 id="home-title">抖音经营数据引擎</h1>
           </div>
         </div>
@@ -42,7 +42,7 @@ export function HomePage() {
             <div>
               <h2>
                 {module.title}
-                {module.beta ? <span className="beta-badge">BETA</span> : null}
+                {module.beta ? <span className="beta-badge">试运行</span> : null}
               </h2>
               <p>{module.description}</p>
             </div>

@@ -16,7 +16,7 @@ interface DataTableProps<T> {
   emptyText?: string;
   errorText?: string;
   loadingText?: string;
-  mobileCard?: (row: T, index: number) => ReactNode;
+  mobileCard?: ((row: T, index: number) => ReactNode) | false;
   onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
   rowHref?: (row: T) => string;
   state?: "ready" | "loading" | "error";
@@ -96,13 +96,43 @@ export function DataTable<T>({
   const statusText =
     state === "loading" ? loadingText : state === "error" ? errorText : emptyText;
   const shouldRenderStatus = rows.length === 0 || state !== "ready";
+  const hasMobileCards = mobileCard !== false;
+
+  const renderMobileCard = (row: T, rowIndex: number) => {
+    if (typeof mobileCard === "function") {
+      return mobileCard(row, rowIndex);
+    }
+
+    const href = rowHref?.(row);
+    return (
+      <>
+        <dl className="data-table-mobile-card__fields">
+          {preparedColumns.map((column) => (
+            <div key={column.key}>
+              <dt>{column.title}</dt>
+              <dd>{column.render(row, rowIndex)}</dd>
+            </div>
+          ))}
+        </dl>
+        {href ? (
+          <button
+            className="primary-button data-table-mobile-card__action"
+            onClick={() => openInternalHref(href)}
+            type="button"
+          >
+            查看详情
+          </button>
+        ) : null}
+      </>
+    );
+  };
 
   return (
     <>
       <div
         className={[
           "table-wrap",
-          mobileCard ? "table-wrap--mobile-cards" : "",
+          hasMobileCards ? "table-wrap--mobile-cards" : "",
         ]
           .filter(Boolean)
           .join(" ")}
@@ -179,7 +209,7 @@ export function DataTable<T>({
           </tbody>
         </table>
       </div>
-      {mobileCard ? (
+      {hasMobileCards ? (
         <div className="data-table-mobile-list">
           {shouldRenderStatus ? (
             <div
@@ -192,7 +222,7 @@ export function DataTable<T>({
           ) : (
             rows.map((row, rowIndex) => (
               <div className="data-table-mobile-card" key={rowIndex}>
-                {mobileCard(row, rowIndex)}
+                {renderMobileCard(row, rowIndex)}
               </div>
             ))
           )}

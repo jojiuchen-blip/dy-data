@@ -103,7 +103,7 @@ function AdminForbiddenPage() {
       <section className="content-section">
         <div className="section-title">
           <div>
-            <p className="eyebrow">Forbidden</p>
+            <p className="eyebrow">无权访问</p>
             <h1>当前账号没有最高管理员权限</h1>
             <p>请使用最高管理员账号登录后进入系统后台，不能通过地址直接进入。</p>
           </div>

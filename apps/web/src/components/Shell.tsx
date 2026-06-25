@@ -45,8 +45,8 @@ const moduleNavItems: ModuleNavItem[] = [
     icon: "chart",
     label: "订单分佣",
     section: "settlement",
-    description: "BETA",
-    badge: "BETA",
+    description: "试运行",
+    badge: "试运行",
   },
   {
     href: "/admin",
@@ -272,7 +272,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           <div className="workspace-context">
             <div className="workspace-kicker">
               <span>{sectionLabels[section]}</span>
-              {section === "settlement" ? <em>BETA</em> : null}
+              {section === "settlement" ? <em>试运行</em> : null}
             </div>
           </div>
 

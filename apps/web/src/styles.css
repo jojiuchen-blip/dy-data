@@ -1711,6 +1711,56 @@ a.metric-card:hover,
   min-width: 0;
 }
 
+.data-table-mobile-card {
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+.data-table-mobile-card__fields {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+}
+
+.data-table-mobile-card__fields div {
+  display: grid;
+  grid-template-columns: minmax(88px, 0.38fr) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 9px;
+}
+
+.data-table-mobile-card__fields div:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.data-table-mobile-card__fields dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.data-table-mobile-card__fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
+.data-table-mobile-card__action {
+  width: 100%;
+  min-height: var(--control-height-touch);
+}
+
 .data-table {
   width: 100%;
   min-width: 900px;

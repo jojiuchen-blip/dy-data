@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { fetchCommissionRulesSummary } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
+import type { CommissionRuleSkuSummary } from "../types/dashboard";
 import { formatPercent } from "../utils/format";
+import { DataTable, type Column } from "./DataTable";
 import { SolarIcon } from "./SolarIcon";
 
 export function CommissionRulesButton() {
@@ -12,6 +14,24 @@ export function CommissionRulesButton() {
     ? rules.non_commission_owner_accounts.join("、")
     : "暂无已配置的不分佣账号";
   const commissionSkus = rules?.commission_skus ?? [];
+  const columns: Column<CommissionRuleSkuSummary>[] = [
+    {
+      key: "sku",
+      title: "商品编码",
+      render: (row) => <span className="mono-cell">{row.sku_id}</span>,
+    },
+    {
+      key: "name",
+      title: "商品名称",
+      render: (row) => row.product_name || "-",
+    },
+    {
+      align: "right",
+      key: "rate",
+      title: "销售店分佣比例",
+      render: (row) => formatPercent(row.commission_rate),
+    },
+  ];
 
   return (
     <div className="commission-rules">
@@ -62,30 +82,12 @@ export function CommissionRulesButton() {
                 <span>{commissionSkus.length} 个</span>
               </div>
               <div className="commission-rules__table-wrap">
-                <table className="data-table commission-rules__table">
-                  <thead>
-                    <tr>
-                      <th>商品编码</th>
-                      <th>商品名称</th>
-                      <th>销售店分佣比例</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {commissionSkus.length ? (
-                      commissionSkus.map((row) => (
-                        <tr key={row.sku_id}>
-                          <td className="mono-cell">{row.sku_id}</td>
-                          <td>{row.product_name || "-"}</td>
-                          <td>{formatPercent(row.commission_rate)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3}>暂无分佣比例不为 0% 的商品 SKU</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
+                <DataTable
+                  columns={columns}
+                  emptyText="暂无分佣比例不为 0% 的商品 SKU"
+                  rows={commissionSkus}
+                  tableClassName="commission-rules__table"
+                />
               </div>
             </>
           )}

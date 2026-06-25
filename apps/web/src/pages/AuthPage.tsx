@@ -169,7 +169,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         <div className="auth-brand">
           <SolarIcon className="brand__mark" name="brand" size={44} />
           <div>
-            <p className="eyebrow">Douyin Business Data Engine</p>
+            <p className="eyebrow">抖音经营数据引擎</p>
             <h1 id="auth-title">{title}</h1>
           </div>
         </div>

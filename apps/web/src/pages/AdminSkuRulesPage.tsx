@@ -10,6 +10,7 @@ import {
   saveNonCommissionOwnerAccounts,
   saveSkuRules,
 } from "../api/client";
+import { DataTable, type Column } from "../components/DataTable";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
 import { formatInteger, formatPercent } from "../utils/format";
 
@@ -552,6 +553,88 @@ export function AdminSkuRulesPage() {
     }
   };
 
+  const skuColumns: Column<SkuProductCommissionRule>[] = [
+    {
+      align: "center",
+      key: "select",
+      title: (
+        <input
+          aria-label="选择当前页全部 SKU"
+          checked={allSelected}
+          onChange={toggleAll}
+          type="checkbox"
+        />
+      ),
+      render: (row) => (
+        <input
+          aria-label={`选择 SKU ${row.sku_id}`}
+          checked={selectedIds.has(row.sku_id)}
+          onChange={() => toggleSelected(row.sku_id)}
+          type="checkbox"
+        />
+      ),
+    },
+    {
+      key: "sku",
+      title: "SKU ID",
+      render: (row) => <span className="mono-cell">{row.sku_id}</span>,
+    },
+    {
+      key: "name",
+      title: "商品名称",
+      render: (row) => row.product_name || "-",
+    },
+    {
+      key: "type",
+      title: "商品类型",
+      render: (row) => (draftMap.get(row.sku_id) ?? row).product_type || "未配置",
+    },
+    {
+      align: "right",
+      key: "rate",
+      title: "分账比例",
+      render: (row) => formatPercent((draftMap.get(row.sku_id) ?? row).commission_rate),
+    },
+    {
+      align: "center",
+      key: "service",
+      title: "参与分账",
+      render: (row) => ((draftMap.get(row.sku_id) ?? row).is_service_product ? "是" : "否"),
+    },
+    {
+      align: "right",
+      key: "orders",
+      title: "订单数",
+      render: (row) => formatInteger(row.order_count ?? 0),
+    },
+    {
+      align: "right",
+      key: "verified",
+      title: "核销券数",
+      render: (row) => formatInteger(row.verified_coupon_count ?? 0),
+    },
+    {
+      align: "center",
+      key: "status",
+      title: "状态",
+      render: (row) => {
+        const selected = selectedSkuMap.has(row.sku_id);
+        const dirty = draftMap.has(row.sku_id);
+        return (
+          <span className="status-chip">
+            {dirty
+              ? "待保存"
+              : selected
+                ? "已预选"
+                : row.product_type
+                  ? "已配置"
+                  : "未配置"}
+          </span>
+        );
+      },
+    },
+  ];
+
   if (checkingSession) {
     return (
       <div className="admin-page">
@@ -788,81 +871,13 @@ export function AdminSkuRulesPage() {
               {loadingRows ? <span className="source-pill">加载中</span> : null}
             </div>
 
-            <div className="table-wrap">
-              <table className="data-table admin-rule-table">
-                <thead>
-                  <tr>
-                    <th className="is-center">
-                      <input
-                        aria-label="选择当前页全部 SKU"
-                        checked={allSelected}
-                        onChange={toggleAll}
-                        type="checkbox"
-                      />
-                    </th>
-                    <th>SKU ID</th>
-                    <th>商品名称</th>
-                    <th>商品类型</th>
-                    <th className="is-right">分账比例</th>
-                    <th className="is-center">参与分账</th>
-                    <th className="is-right">订单数</th>
-                    <th className="is-right">核销券数</th>
-                    <th className="is-center">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td className="empty-cell" colSpan={9}>
-                        暂无 SKU 数据
-                      </td>
-                    </tr>
-                  ) : (
-                    rows.map((row) => {
-                      const selected = selectedSkuMap.has(row.sku_id);
-                      const dirty = draftMap.has(row.sku_id);
-                      const visibleRow = draftMap.get(row.sku_id) ?? row;
-                      return (
-                        <tr key={row.sku_id}>
-                          <td className="is-center">
-                            <input
-                              aria-label={`选择 SKU ${row.sku_id}`}
-                              checked={selectedIds.has(row.sku_id)}
-                              onChange={() => toggleSelected(row.sku_id)}
-                              type="checkbox"
-                            />
-                          </td>
-                          <td className="mono-cell">{row.sku_id}</td>
-                          <td>{row.product_name || "-"}</td>
-                          <td>{visibleRow.product_type || "未配置"}</td>
-                          <td className="is-right">
-                            {formatPercent(visibleRow.commission_rate)}
-                          </td>
-                          <td className="is-center">
-                            {visibleRow.is_service_product ? "是" : "否"}
-                          </td>
-                          <td className="is-right">{formatInteger(row.order_count)}</td>
-                          <td className="is-right">
-                            {formatInteger(row.verified_coupon_count)}
-                          </td>
-                          <td className="is-center">
-                            <span className="status-chip">
-                              {dirty
-                                ? "待保存"
-                                : selected
-                                  ? "已预选"
-                                  : row.product_type
-                                    ? "已配置"
-                                    : "未配置"}
-                            </span>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              columns={skuColumns}
+              emptyText={loadingRows ? "正在加载 SKU 数据..." : "暂无 SKU 数据"}
+              rows={rows}
+              state={loadingRows ? "loading" : "ready"}
+              tableClassName="admin-rule-table"
+            />
 
             <div className="pagination-controls">
               <span className="pagination-controls__summary">
