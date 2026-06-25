@@ -11,6 +11,7 @@ TOKENS_PATH = DESIGN_SYSTEM_DIR / "tokens.json"
 HTML_PATH = DESIGN_SYSTEM_DIR / "index.html"
 WEB_SRC_DIR = REPO_ROOT / "apps" / "web" / "src"
 SOLAR_ICON_PATH = WEB_SRC_DIR / "components" / "SolarIcon.tsx"
+DATA_TABLE_PATH = WEB_SRC_DIR / "components" / "DataTable.tsx"
 SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
 RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
 DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
@@ -102,6 +103,30 @@ def test_business_tsx_does_not_render_native_select_controls() -> None:
     for path in WEB_SRC_DIR.rglob("*.tsx"):
         text = read_text(path)
         if "<select" in text or "</select>" in text:
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_business_tables_use_the_shared_data_table_component() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*.tsx"):
+        text = read_text(path)
+        contains_table_markup = "<table" in text or "</table>" in text
+        if contains_table_markup and path.resolve() != DATA_TABLE_PATH.resolve():
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_modal_dialog_semantics_are_centralized_in_dialog_component() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*.tsx"):
+        text = read_text(path)
+        contains_modal_dialog = 'aria-modal="true"' in text or 'role="dialog"' in text
+        if contains_modal_dialog and path.resolve() != DIALOG_PATH.resolve():
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []

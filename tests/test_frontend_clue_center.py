@@ -185,7 +185,7 @@ def test_shell_has_feedback_submission_entry() -> None:
     assert 'className="rail-feedback-button"' in shell_source
     assert 'className="mobile-bottom-nav__feedback"' not in shell_source
     assert 'className="mobile-bottom-nav__mine"' in shell_source
-    assert 'className="mine-panel"' in shell_source
+    assert 'panelClassName="mine-panel"' in shell_source
     assert "openFeedbackFromMine" in shell_source
     assert "openSettingsFromMine" in shell_source
     assert "提交建议" in shell_source
