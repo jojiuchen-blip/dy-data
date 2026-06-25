@@ -16,6 +16,7 @@ export function CommissionRulesButton() {
   return (
     <div className="commission-rules">
       <button
+        aria-controls="commission-rules-popover"
         aria-expanded={open}
         className="ghost-button commission-rules__button"
         onClick={() => setOpen((current) => !current)}
@@ -28,7 +29,8 @@ export function CommissionRulesButton() {
         <div
           aria-labelledby="commission-rules-title"
           className="commission-rules__popover"
-          role="dialog"
+          id="commission-rules-popover"
+          role="region"
         >
           <div className="commission-rules__header">
             <h2 id="commission-rules-title">分佣规则</h2>

@@ -2215,6 +2215,10 @@ a.metric-card:hover,
   padding: 18px 20px;
 }
 
+.ui-dialog__body--flush {
+  padding: 0;
+}
+
 .ui-dialog__actions {
   justify-content: flex-end;
   border-top: 1px solid var(--line);

@@ -10,12 +10,17 @@ import { IconButton } from "./Button";
 
 interface DialogProps {
   actions?: ReactNode;
+  backdropClassName?: string;
+  bodyClassName?: string;
   children: ReactNode;
+  closeDisabled?: boolean;
   closeLabel?: string;
   description?: ReactNode;
   initialFocusRef?: React.RefObject<HTMLElement | null>;
   onClose: () => void;
   open: boolean;
+  panelClassName?: string;
+  returnFocusRef?: React.RefObject<HTMLElement | null>;
   title: ReactNode;
 }
 
@@ -43,12 +48,17 @@ function focusableElements(container: HTMLElement): HTMLElement[] {
 
 export function Dialog({
   actions,
+  backdropClassName,
+  bodyClassName,
   children,
+  closeDisabled = false,
   closeLabel = "关闭弹层",
   description,
   initialFocusRef,
   onClose,
   open,
+  panelClassName,
+  returnFocusRef,
   title,
 }: DialogProps) {
   const titleId = useId();
@@ -101,27 +111,33 @@ export function Dialog({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       appRoot?.removeAttribute("inert");
-      previousFocusRef.current?.focus?.();
+      const returnTarget = returnFocusRef?.current ?? previousFocusRef.current;
+      returnTarget?.focus?.();
     };
-  }, [initialFocusRef, onClose, open]);
+  }, [initialFocusRef, onClose, open, returnFocusRef]);
 
   if (!open) {
     return null;
   }
 
   const handleBackdropMouseDown = (event: MouseEvent<HTMLDivElement>) => {
-    if (event.target === event.currentTarget) {
+    if (event.target === event.currentTarget && !closeDisabled) {
       onClose();
     }
   };
 
   return createPortal(
-    <div className="modal-backdrop ui-dialog-backdrop" onMouseDown={handleBackdropMouseDown}>
+    <div
+      className={["modal-backdrop", "ui-dialog-backdrop", backdropClassName]
+        .filter(Boolean)
+        .join(" ")}
+      onMouseDown={handleBackdropMouseDown}
+    >
       <section
         aria-describedby={description ? descriptionId : undefined}
         aria-labelledby={titleId}
         aria-modal="true"
-        className="ui-dialog"
+        className={["ui-dialog", panelClassName].filter(Boolean).join(" ")}
         ref={panelRef}
         role="dialog"
         tabIndex={-1}
@@ -135,9 +151,20 @@ export function Dialog({
               </p>
             ) : null}
           </div>
-          <IconButton icon="close" label={closeLabel} onClick={onClose} />
+          <IconButton
+            disabled={closeDisabled}
+            icon="close"
+            label={closeLabel}
+            onClick={onClose}
+          />
         </header>
-        <div className="ui-dialog__body">{children}</div>
+        <div
+          className={["ui-dialog__body", bodyClassName]
+            .filter(Boolean)
+            .join(" ")}
+        >
+          {children}
+        </div>
         {actions ? <footer className="ui-dialog__actions">{actions}</footer> : null}
       </section>
     </div>,

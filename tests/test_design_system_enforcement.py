@@ -132,6 +132,6 @@ def test_status_and_dialog_components_keep_accessibility_contracts() -> None:
         '"Tab"',
         '"Escape"',
         'setAttribute("inert"',
-        "previousFocusRef.current?.focus",
+        "returnTarget?.focus",
     ]:
         assert phrase in dialog

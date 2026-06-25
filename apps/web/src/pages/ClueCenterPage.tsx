@@ -15,6 +15,7 @@ import {
   saveClueFollowUp,
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
+import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
 import { SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
@@ -53,14 +54,6 @@ type StoreClueStatus =
   | "不可跟进";
 
 const PAGE_SIZE = 20;
-const focusableDialogSelector = [
-  "a[href]",
-  "button:not([disabled])",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",");
 
 type ClueFilterKey =
   | "province"
@@ -308,12 +301,6 @@ function storeScopeLabel(
   return "其他门店";
 }
 
-function dialogFocusableElements(dialog: HTMLElement): HTMLElement[] {
-  return Array.from(
-    dialog.querySelectorAll<HTMLElement>(focusableDialogSelector),
-  ).filter((element) => !element.closest("[aria-hidden='true']"));
-}
-
 export function ClueCenterPage({
   currentUser,
   searchParams,
@@ -361,9 +348,6 @@ export function ClueCenterPage({
   const [followNote, setFollowNote] = useState("");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [savingFollowUp, setSavingFollowUp] = useState(false);
-  const cluePageContentRef = useRef<HTMLDivElement | null>(null);
-  const detailDialogRef = useRef<HTMLElement | null>(null);
-  const detailCloseButtonRef = useRef<HTMLButtonElement | null>(null);
   const detailReturnFocusRef = useRef<HTMLElement | null>(null);
 
   const filterResource = useApiResource(fetchClueFilters, []);
@@ -725,67 +709,6 @@ export function ClueCenterPage({
   }, [selectedOrderId, detailReloadIndex]);
 
   useEffect(() => {
-    if (!selectedOrderId) {
-      return;
-    }
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        closeClueDetail();
-        return;
-      }
-
-      if (event.key !== "Tab") {
-        return;
-      }
-
-      const dialog = detailDialogRef.current;
-      if (!dialog) {
-        return;
-      }
-
-      const focusableElements = dialogFocusableElements(dialog);
-      if (!focusableElements.length) {
-        event.preventDefault();
-        dialog.focus();
-        return;
-      }
-
-      const firstElement = focusableElements[0];
-      const lastElement = focusableElements[focusableElements.length - 1];
-      if (event.shiftKey && document.activeElement === firstElement) {
-        event.preventDefault();
-        lastElement.focus();
-      } else if (!event.shiftKey && document.activeElement === lastElement) {
-        event.preventDefault();
-        firstElement.focus();
-      }
-    };
-
-    const pageContent = cluePageContentRef.current;
-    pageContent?.setAttribute("inert", "");
-    pageContent?.setAttribute("aria-hidden", "true");
-    window.setTimeout(() => {
-      detailCloseButtonRef.current?.focus();
-    }, 0);
-
-    window.addEventListener("keydown", handleKeyDown);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      pageContent?.removeAttribute("inert");
-      pageContent?.removeAttribute("aria-hidden");
-      const returnTarget = detailReturnFocusRef.current;
-      window.setTimeout(() => {
-        if (returnTarget && document.contains(returnTarget)) {
-          returnTarget.focus();
-        }
-        detailReturnFocusRef.current = null;
-      }, 0);
-    };
-  }, [selectedOrderId]);
-
-  useEffect(() => {
     setFollowResult("unreachable");
     setFollowNote("");
     setFollowUpError(null);
@@ -939,7 +862,7 @@ export function ClueCenterPage({
 
   return (
     <div className="page-stack">
-      <div className="clue-page-content" ref={cluePageContentRef}>
+      <div className="clue-page-content">
       <section className="page-heading">
         <div>
           <h1>{pageHeadingTitle}</h1>
@@ -1256,43 +1179,21 @@ export function ClueCenterPage({
       </div>
 
       {isDetailsView && selectedRound ? (
-        <div
-          className="modal-backdrop"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              closeClueDetail();
-            }
-          }}
-          role="presentation"
+        <Dialog
+          bodyClassName="ui-dialog__body--flush"
+          closeLabel="关闭线索详情"
+          description={
+            <span className="source-pill">
+              {detailLoading ? "加载中" : detailSource || "实时数据"}
+            </span>
+          }
+          onClose={closeClueDetail}
+          open={isDetailsView && Boolean(selectedRound)}
+          panelClassName="clue-detail-modal clue-followup-detail"
+          returnFocusRef={detailReturnFocusRef}
+          title="跟进详情"
         >
-          <section
-            aria-labelledby="clue-detail-title"
-            aria-modal="true"
-            className="clue-detail-modal clue-followup-detail"
-            ref={detailDialogRef}
-            role="dialog"
-            tabIndex={-1}
-          >
-            <header className="clue-followup-detail__header">
-              <div>
-                <h2 id="clue-detail-title">跟进详情</h2>
-              </div>
-              <div className="clue-followup-detail__actions">
-                <span className="source-pill">
-                  {detailLoading ? "加载中" : detailSource || "实时数据"}
-                </span>
-                <button
-                  aria-label="关闭线索详情"
-                  className="modal-close"
-                  onClick={closeClueDetail}
-                  ref={detailCloseButtonRef}
-                  type="button"
-                >
-                  <SolarIcon name="close" size={18} />
-                </button>
-              </div>
-            </header>
-
+          <div className="clue-followup-detail__body">
             {detailLoading ? (
               <ResourcePanel>正在加载详情...</ResourcePanel>
             ) : detailError ? (
@@ -1536,8 +1437,8 @@ export function ClueCenterPage({
                 </div>
               </div>
             ) : null}
-          </section>
-        </div>
+          </div>
+        </Dialog>
       ) : null}
     </div>
   );
