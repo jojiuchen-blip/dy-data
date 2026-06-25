@@ -7,8 +7,10 @@ import {
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
+import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
+import { MetricCard } from "../components/MetricCard";
 import type {
   JobRun,
   ManualSyncTarget,
@@ -56,6 +58,13 @@ function statusLabel(status: JobRun["status"]): string {
   if (status === "failed") return "失败";
   if (status === "running") return "运行中";
   return "已排队";
+}
+
+function statusTone(status: JobRun["status"]): "amber" | "blue" | "danger" | "green" {
+  if (status === "success") return "green";
+  if (status === "failed") return "danger";
+  if (status === "running") return "blue";
+  return "amber";
 }
 
 function phaseSummary(job: JobRun): string {
@@ -220,7 +229,9 @@ export function AdminSyncPage() {
     {
       key: "status",
       title: "状态",
-      render: (job) => <span className="status-chip">{statusLabel(job.status)}</span>,
+      render: (job) => (
+        <StatusChip tone={statusTone(job.status)}>{statusLabel(job.status)}</StatusChip>
+      ),
     },
     {
       key: "window",
@@ -399,40 +410,42 @@ export function AdminSyncPage() {
       ) : null}
 
       <section className="metric-grid metric-grid--four">
-        <div className="metric-card">
-          <div className="metric-card__label">历史回填进度</div>
-          <div className="metric-card__value">{progressPercent}%</div>
-          <div className="metric-card__meta">
-            已完成 {formatInteger(data?.progress.completed_windows ?? 0)} /{" "}
-            {formatInteger(data?.progress.total_windows ?? 0)} 个时间片
-          </div>
-        </div>
-        <div className="metric-card metric-card--blue">
-          <div className="metric-card__label">当前运行任务</div>
-          <div className="metric-card__value">
-            {formatInteger(data?.progress.running_jobs ?? 0)}
-          </div>
-          <div className="metric-card__meta">正在写入数据库的任务数</div>
-        </div>
-        <div className="metric-card">
-          <div className="metric-card__label">自动同步</div>
-          <div className="metric-card__value">
-            {data ? (data.schedule.auto_sync_enabled ? "开启" : "暂停") : "-"}
-          </div>
-          <div className="metric-card__meta">
-            最近 {formatDateTime(data?.schedule.latest_successful_sync_at)} / 下次{" "}
-            {formatDateTime(data?.schedule.next_scheduled_sync_at)}
-          </div>
-        </div>
-        <div className="metric-card metric-card--amber">
-          <div className="metric-card__label">同步间隔</div>
-          <div className="metric-card__value">
-            {data ? intervalText(data.config.interval_seconds) : "-"}
-          </div>
-          <div className="metric-card__meta">
-            日常同步每次回看 {formatInteger(data?.config.rolling_days ?? 0)} 天
-          </div>
-        </div>
+        <MetricCard
+          label="历史回填进度"
+          value={`${progressPercent}%`}
+          meta={
+            <>
+              已完成 {formatInteger(data?.progress.completed_windows ?? 0)} /{" "}
+              {formatInteger(data?.progress.total_windows ?? 0)} 个时间片
+            </>
+          }
+        />
+        <MetricCard
+          label="当前运行任务"
+          tone="blue"
+          value={formatInteger(data?.progress.running_jobs ?? 0)}
+          meta="正在写入数据库的任务数"
+        />
+        <MetricCard
+          label="自动同步"
+          value={data ? (data.schedule.auto_sync_enabled ? "开启" : "暂停") : "-"}
+          meta={
+            <>
+              最近 {formatDateTime(data?.schedule.latest_successful_sync_at)} / 下次{" "}
+              {formatDateTime(data?.schedule.next_scheduled_sync_at)}
+            </>
+          }
+        />
+        <MetricCard
+          label="同步间隔"
+          tone="amber"
+          value={data ? intervalText(data.config.interval_seconds) : "-"}
+          meta={
+            <>
+              日常同步每次回看 {formatInteger(data?.config.rolling_days ?? 0)} 天
+            </>
+          }
+        />
       </section>
 
       <section className="content-section">

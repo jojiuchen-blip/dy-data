@@ -257,10 +257,11 @@ def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
 
 def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     styles_source = read_source("styles.css")
+    token_source = read_source("design-tokens.css")
 
-    root_rules = styles_source[
-        styles_source.index(":root") :
-        styles_source.index("* {")
+    root_rules = token_source[
+        token_source.index(":root") :
+        token_source.index("}")
     ]
     base_header_rules = styles_source[
         styles_source.index(".data-table th {") :
@@ -295,7 +296,7 @@ def test_shell_data_table_header_sticks_below_desktop_navigation() -> None:
     assert ".clue-table-view .data-table th" in desktop_clue_table_rules
     assert "top: var(--table-sticky-top);" in desktop_clue_table_rules
     assert "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg)" in desktop_clue_table_rules
-    assert "0 12px 20px -18px rgb(23 33 28 / 45%)" in desktop_clue_table_rules
+    assert "0 12px 20px -18px var(--ink-shadow-45)" in desktop_clue_table_rules
     assert ".workspace-shell .page-frame .data-table th" not in styles_source
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
 

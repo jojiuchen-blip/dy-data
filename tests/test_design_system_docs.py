@@ -10,6 +10,7 @@ DESIGN_SYSTEM_DIR = REPO_ROOT / "docs" / "design-system"
 TOKENS_PATH = DESIGN_SYSTEM_DIR / "tokens.json"
 HTML_PATH = DESIGN_SYSTEM_DIR / "index.html"
 APP_STYLES_PATH = REPO_ROOT / "apps" / "web" / "src" / "styles.css"
+DESIGN_TOKENS_CSS_PATH = REPO_ROOT / "apps" / "web" / "src" / "design-tokens.css"
 WEB_PACKAGE_PATH = REPO_ROOT / "apps" / "web" / "package.json"
 SOLAR_ICON_PATH = REPO_ROOT / "apps" / "web" / "src" / "components" / "SolarIcon.tsx"
 
@@ -47,7 +48,10 @@ def test_design_system_artifacts_exist_and_identify_their_status() -> None:
 
 def test_core_app_css_tokens_match_design_system_tokens() -> None:
     tokens = load_tokens()["tokens"]
+    runtime_tokens = read_text(DESIGN_TOKENS_CSS_PATH)
     styles = read_text(APP_STYLES_PATH)
+
+    assert '@import "./design-tokens.css";' in styles
 
     app_variables = [
         ("--bg", tokens["color"]["bg"]["value"]),
@@ -79,7 +83,7 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
     ]
 
     for variable_name, expected_value in app_variables:
-        assert css_variable_value(styles, variable_name) == expected_value
+        assert css_variable_value(runtime_tokens, variable_name) == expected_value
 
 
 def test_design_system_html_renders_key_decision_surfaces() -> None:

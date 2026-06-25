@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { RoleBadge, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
 import { fetchFeedback, updateFeedbackStatus } from "../api/client";
@@ -40,6 +41,13 @@ const statusLabels: Record<FeedbackStatus, string> = {
   new: "未处理",
   resolved: "已处理",
   reviewed: "已读",
+};
+
+const feedbackStatusTones: Record<FeedbackStatus, "blue" | "danger" | "green" | "neutral"> = {
+  ignored: "neutral",
+  new: "danger",
+  resolved: "green",
+  reviewed: "blue",
 };
 
 const statusActions: Array<{ label: string; value: FeedbackStatus }> = [
@@ -134,20 +142,16 @@ export function AdminFeedbackPage() {
       key: "category",
       minWidth: 96,
       title: "类型",
-      render: (row) => (
-        <span className={`feedback-category-chip feedback-category-chip--${row.category}`}>
-          {categoryLabels[row.category]}
-        </span>
-      ),
+      render: (row) => <RoleBadge>{categoryLabels[row.category]}</RoleBadge>,
     },
     {
       key: "status",
       minWidth: 86,
       title: "状态",
       render: (row) => (
-        <span className={`feedback-status-chip feedback-status-chip--${row.status}`}>
+        <StatusChip tone={feedbackStatusTones[row.status]}>
           {statusLabels[row.status]}
-        </span>
+        </StatusChip>
       ),
     },
     {

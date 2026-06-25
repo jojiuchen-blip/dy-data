@@ -4,6 +4,7 @@ import {
   fetchFilterMeta,
   fetchOrderDetails,
 } from "../api/client";
+import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { SelectField } from "../components/FormControls";
@@ -44,6 +45,13 @@ const pageSizeSelectOptions = pageSizeOptions.map((option) => ({
   label: String(option),
   value: String(option),
 }));
+
+function BooleanStatusChip({ value }: { value: boolean | null | undefined }) {
+  if (typeof value !== "boolean") {
+    return <StatusChip tone="neutral">-</StatusChip>;
+  }
+  return <StatusChip tone={value ? "green" : "neutral"}>{labelForBoolean(value)}</StatusChip>;
+}
 
 function storeName(meta: FilterMetaData | undefined, storeId: string): string {
   return (
@@ -305,7 +313,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "verified",
       title: "是否核销",
       align: "center",
-      render: (row) => <span className="status-chip">{labelForBoolean(row.is_verified)}</span>,
+      render: (row) => <BooleanStatusChip value={row.is_verified} />,
     },
     {
       key: "verifyStore",
@@ -329,9 +337,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
       key: "commissionable",
       title: "是否分佣",
       align: "center",
-      render: (row) => (
-        <span className="status-chip">{labelForBoolean(row.is_commissionable)}</span>
-      ),
+      render: (row) => <BooleanStatusChip value={row.is_commissionable} />,
     },
     {
       key: "paid",

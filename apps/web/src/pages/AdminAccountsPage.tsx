@@ -6,6 +6,7 @@ import {
   resetManagedAccountPassword,
   updateAccount,
 } from "../api/client";
+import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { MultiSelectField, SelectField } from "../components/FormControls";
 import type {
@@ -161,9 +162,9 @@ export function AdminAccountsPage() {
       key: "status",
       title: "状态",
       render: (account) => (
-        <span className="status-chip">
+        <StatusChip tone={account.status === "active" ? "green" : "neutral"}>
           {account.status === "active" ? "启用" : "停用"}
-        </span>
+        </StatusChip>
       ),
     },
     { key: "stores", title: "门店范围", render: storesLabel },

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 
@@ -15,6 +16,17 @@ DATA_TABLE_PATH = WEB_SRC_DIR / "components" / "DataTable.tsx"
 SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
 RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
 DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
+DESIGN_TOKENS_CSS_PATH = WEB_SRC_DIR / "design-tokens.css"
+LEGACY_UI_CLASS_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:status-chip|feedback-status-chip|filter-chip|metric-card)"
+    r"(?:--[A-Za-z0-9_-]+)?"
+    r"(?![A-Za-z0-9_-])"
+)
+NON_INTERACTIVE_CLICK_PATTERN = re.compile(r"<(?:div|span)\b[^>]*\bonClick=", re.DOTALL)
+COLOR_LITERAL_PATTERN = re.compile(
+    r"#[0-9a-fA-F]{3,8}\b|rgba?\([^)]+\)|hsla?\([^)]+\)|oklch\([^)]+\)"
+)
 
 
 def read_text(path: Path) -> str:
@@ -34,13 +46,16 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
     required_phrases = [
         "tokens.json",
         "index.html",
+        "apps/web/src/design-tokens.css",
         "tests/test_design_system_docs.py",
         "tests/test_design_system_enforcement.py",
         "V0.1 只承诺浅色模式",
         "先改 `tokens.json`",
         "同步更新 `index.html`",
+        "同步更新 `apps/web/src/design-tokens.css`",
         "不在业务代码里直接导入 `@iconify/react`",
         "apps/web/src/components/SolarIcon.tsx",
+        "不绕过 `apps/web/src/design-tokens.css`",
         "npm --prefix apps/web run build",
     ]
 
@@ -61,16 +76,19 @@ def test_tokens_declare_current_enforcement_scope() -> None:
         "tests/test_design_system_docs.py",
         "tests/test_design_system_enforcement.py",
         "SolarIcon.tsx",
+        "design-tokens.css",
+        "unauthorized hex",
+        "legacy status-chip",
+        "div or span click handlers",
         "light-only",
     ]
     for phrase in current_required:
         assert phrase in current_rules
 
     next_required = [
-        "generated or shared token file",
         "visual regression screenshots",
         "PR checklist",
-        "unauthorized hex colors",
+        "Generate apps/web/src/design-tokens.css",
     ]
     for phrase in next_required:
         assert phrase in next_rules
@@ -115,6 +133,43 @@ def test_business_tables_use_the_shared_data_table_component() -> None:
         text = read_text(path)
         contains_table_markup = "<table" in text or "</table>" in text
         if contains_table_markup and path.resolve() != DATA_TABLE_PATH.resolve():
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_business_pages_do_not_use_legacy_visual_class_entries() -> None:
+    offenders: list[str] = []
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        text = read_text(path)
+        if LEGACY_UI_CLASS_PATTERN.search(text):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_business_tsx_does_not_use_div_or_span_as_buttons() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*.tsx"):
+        text = read_text(path)
+        if NON_INTERACTIVE_CLICK_PATTERN.search(text):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_runtime_ui_colors_are_centralized_in_design_tokens_css() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*"):
+        if not path.is_file() or path.suffix not in {".css", ".ts", ".tsx"}:
+            continue
+        if path.resolve() == DESIGN_TOKENS_CSS_PATH.resolve():
+            continue
+        text = read_text(path)
+        if COLOR_LITERAL_PATTERN.search(text):
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []

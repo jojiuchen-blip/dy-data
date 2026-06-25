@@ -14,6 +14,7 @@ import {
   fetchClueOverview,
   saveClueFollowUp,
 } from "../api/client";
+import { FilterChip, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -252,18 +253,11 @@ function invalidationReason(row: ClueAssignmentRound): string {
   return "-";
 }
 
-function statusClassName(status: StoreClueStatus): string {
-  const tone =
-    status === "待跟进"
-      ? "pending"
-      : status === "已跟进"
-        ? "followed"
-        : status === "已核销"
-          ? "converted"
-          : invalidStatuses.has(status)
-            ? "invalid"
-            : "closed";
-  return `status-chip status-chip--${tone}`;
+function clueStatusTone(status: StoreClueStatus): "amber" | "blue" | "green" | "neutral" {
+  if (status === "待跟进") return "blue";
+  if (status === "已跟进" || status === "已核销") return "green";
+  if (invalidStatuses.has(status)) return "amber";
+  return "neutral";
 }
 
 function currentDetailRound(
@@ -815,7 +809,7 @@ export function ClueCenterPage({
       minWidth: 110,
       render: (row) => {
         const status = getStoreDisplayStatus(row);
-        return <span className={statusClassName(status)}>{status}</span>;
+        return <StatusChip tone={clueStatusTone(status)}>{status}</StatusChip>;
       },
     },
     {
@@ -893,17 +887,12 @@ export function ClueCenterPage({
         {activeFilterChips.length ? (
           <div className="clue-filter-chips" aria-label="已选筛选条件">
             {activeFilterChips.map((chip) => (
-              <button
-                className="filter-chip"
+              <FilterChip
                 key={chip.key}
                 onClick={() => removeFilter(chip.key)}
-                type="button"
               >
-                <span>
-                  {chip.label}：{chip.value}
-                </span>
-                <span aria-hidden="true">×</span>
-              </button>
+                {chip.label}：{chip.value}
+              </FilterChip>
             ))}
             <button
               className="link-button clue-filter-clear-mobile"
@@ -1105,7 +1094,7 @@ export function ClueCenterPage({
                     return (
                       <article className="clue-card" key={row.assignment_round_id}>
                         <div className="clue-card__header">
-                          <span className={statusClassName(status)}>{status}</span>
+                          <StatusChip tone={clueStatusTone(status)}>{status}</StatusChip>
                           <span>{roundLabel(row.round_no)}</span>
                         </div>
                         <div className="clue-card__phone">
@@ -1237,9 +1226,9 @@ export function ClueCenterPage({
                     <section className="clue-followup-detail__summary">
                       <div>
                         <span>线索状态</span>
-                        <strong className={statusClassName(activeDetailStatus ?? "不可跟进")}>
-                          {activeDetailStatus}
-                        </strong>
+                        <StatusChip tone={clueStatusTone(activeDetailStatus ?? "不可跟进")}>
+                          {activeDetailStatus ?? "不可跟进"}
+                        </StatusChip>
                       </div>
                       <div>
                         <span>订单编号</span>

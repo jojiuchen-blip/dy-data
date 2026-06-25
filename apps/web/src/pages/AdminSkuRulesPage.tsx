@@ -10,6 +10,7 @@ import {
   saveNonCommissionOwnerAccounts,
   saveSkuRules,
 } from "../api/client";
+import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
 import { formatInteger, formatPercent } from "../utils/format";
@@ -620,16 +621,18 @@ export function AdminSkuRulesPage() {
       render: (row) => {
         const selected = selectedSkuMap.has(row.sku_id);
         const dirty = draftMap.has(row.sku_id);
+        const label = dirty
+          ? "待保存"
+          : selected
+            ? "已预选"
+            : row.product_type
+              ? "已配置"
+              : "未配置";
+        const tone = dirty ? "amber" : selected || row.product_type ? "green" : "neutral";
         return (
-          <span className="status-chip">
-            {dirty
-              ? "待保存"
-              : selected
-                ? "已预选"
-                : row.product_type
-                  ? "已配置"
-                  : "未配置"}
-          </span>
+          <StatusChip tone={tone}>
+            {label}
+          </StatusChip>
         );
       },
     },
@@ -998,7 +1001,9 @@ export function AdminSkuRulesPage() {
                       </div>
                     </dl>
                     <div className="sku-selected-item__footer">
-                      <span className="status-chip">{dirty ? "待保存" : "已预选"}</span>
+                      <StatusChip tone={dirty ? "amber" : "green"}>
+                        {dirty ? "待保存" : "已预选"}
+                      </StatusChip>
                       <button
                         className="ghost-button"
                         onClick={() => removeSelectedSku(row.sku_id)}

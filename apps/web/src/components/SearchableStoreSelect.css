@@ -1,4 +1,4 @@
-.searchable-store-select {
+﻿.searchable-store-select {
   position: relative;
   min-width: 0;
 }
@@ -30,8 +30,8 @@
   overflow-y: auto;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: #fffefa;
-  box-shadow: 0 18px 40px rgb(23 33 28 / 16%);
+  background: var(--surface-warm);
+  box-shadow: 0 18px 40px var(--ink-shadow-16);
 }
 
 .searchable-store-select__option {

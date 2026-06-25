@@ -42,9 +42,6 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
-      - name: Run backend tests
-        run: python -m pytest
-
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -55,6 +52,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci
+
+      - name: Install Playwright browser
+        run: python -m playwright install chromium --with-deps
+
+      - name: Run tests
+        run: python -m pytest
 
       - name: Build frontend
         working-directory: apps/web
