@@ -437,7 +437,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           bodyClassName="ui-dialog__body--flush"
           closeDisabled={submittingFeedback}
           closeLabel="关闭提交建议"
-          description="反馈体验问题、数据问题或希望补充的能力。"
+          description="我们会采取星评加分等激励措施，期待您一起构建更好的数据经营平台。"
           onClose={() => setFeedbackOpen(false)}
           open={feedbackOpen}
           panelClassName="feedback-modal"
