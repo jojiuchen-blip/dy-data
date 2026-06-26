@@ -971,6 +971,7 @@ class DashboardDataStore:
             "active_clues": _to_int(row.get("active_clues")),
             "follow_rate": _ratio(followed, total),
             "follow_success_rate": _ratio(successful, total),
+            "verified_count": self_verified,
             "self_store_verify_rate": _ratio(self_verified, total),
             "pending_reassign_count": _to_int(row.get("pending_reassign_count")),
         }
@@ -1467,6 +1468,140 @@ class DashboardDataStore:
             savepoint.commit()
         self.session.flush()
         return "ok", record
+
+    def delete_clue_follow_up_record(
+        self,
+        follow_up_record_id: str,
+    ) -> tuple[str, dict[str, Any] | None]:
+        follow_up_record_id = _to_str(follow_up_record_id).strip()
+        if not follow_up_record_id:
+            return "not_found", None
+        rows = self._execute(
+            """
+            SELECT follow_up_record_id,
+                   order_id,
+                   assignment_round_id,
+                   round_no,
+                   assigned_store_id,
+                   follow_result,
+                   note,
+                   operator_user_id,
+                   operator_username,
+                   created_at
+            FROM clue_follow_up_records
+            WHERE follow_up_record_id = :follow_up_record_id
+            LIMIT 1
+            """,
+            {"follow_up_record_id": follow_up_record_id},
+        )
+        if not rows:
+            return "not_found", None
+        deleted_record = dict(rows[0])
+        order_id = _to_str(deleted_record.get("order_id"))
+        assignment_round_id = _to_str(deleted_record.get("assignment_round_id"))
+
+        savepoint = self.session.begin_nested()
+        try:
+            self.session.execute(
+                text(
+                    """
+                    DELETE FROM clue_follow_up_records
+                    WHERE follow_up_record_id = :follow_up_record_id
+                    """
+                ),
+                {"follow_up_record_id": follow_up_record_id},
+            )
+            latest_rows = self._execute(
+                """
+                SELECT follow_result, created_at
+                FROM clue_follow_up_records
+                WHERE assignment_round_id = :assignment_round_id
+                ORDER BY created_at DESC, follow_up_record_id DESC
+                LIMIT 1
+                """,
+                {"assignment_round_id": assignment_round_id},
+            )
+            latest = latest_rows[0] if latest_rows else None
+            if latest:
+                follow_result = _to_str(latest.get("follow_result"))
+                followed_at = latest.get("created_at")
+                is_followed = True
+                is_follow_success = follow_result == "success"
+                round_status = (
+                    "failed_pending_reassign"
+                    if follow_result == "lost"
+                    else "active_followed"
+                )
+                lead_status = (
+                    "pending_reassign" if follow_result == "lost" else "active"
+                )
+                reassign_reason = "follow_lost" if follow_result == "lost" else None
+            else:
+                follow_result = "pending"
+                followed_at = None
+                is_followed = False
+                is_follow_success = False
+                round_status = "active_unfollowed"
+                lead_status = "active"
+                reassign_reason = None
+
+            now = generated_at()
+            summary_params = {
+                "order_id": order_id,
+                "assignment_round_id": assignment_round_id,
+                "follow_result": follow_result,
+                "followed_at": followed_at,
+                "is_followed": is_followed,
+                "is_follow_success": is_follow_success,
+                "round_status": round_status,
+                "lead_status": lead_status,
+                "reassign_reason": reassign_reason,
+                "now": now,
+            }
+            self.session.execute(
+                text(
+                    """
+                    UPDATE clue_assignment_rounds
+                    SET followed_at = :followed_at,
+                        follow_result = :follow_result,
+                        is_followed = :is_followed,
+                        is_follow_success = :is_follow_success,
+                        round_status = :round_status,
+                        reassign_reason = :reassign_reason,
+                        updated_at = :now
+                    WHERE assignment_round_id = :assignment_round_id
+                    """
+                ),
+                summary_params,
+            )
+            self.session.execute(
+                text(
+                    """
+                    UPDATE clue_center_orders
+                    SET follow_result = :follow_result,
+                        is_followed = :is_followed,
+                        is_follow_success = :is_follow_success,
+                        current_round_status = :round_status,
+                        lead_status = CASE
+                            WHEN lead_status IN ('converted', 'refunded', 'closed')
+                            THEN lead_status
+                            ELSE :lead_status
+                        END,
+                        reassign_reason = :reassign_reason,
+                        updated_at = :now
+                    WHERE order_id = :order_id
+                      AND current_assignment_round_id = :assignment_round_id
+                    """
+                ),
+                summary_params,
+            )
+        except Exception:
+            savepoint.rollback()
+            raise
+        else:
+            savepoint.commit()
+        self.session.flush()
+        return "ok", deleted_record
 
     def clue_order_phone(
         self,

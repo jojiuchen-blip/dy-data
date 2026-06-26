@@ -190,6 +190,32 @@ def clue_order_follow_up(
     }
 
 
+@router.delete("/clues/follow-up-records/{follow_up_record_id}")
+def delete_clue_follow_up_record(
+    follow_up_record_id: str,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    store = _require_available_store(store)
+    result_status, record = store.delete_clue_follow_up_record(follow_up_record_id)
+    if result_status == "not_found":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Follow-up record not found",
+        )
+    data = ClueFollowUpResponseData(**(record or {}))
+    store.session.commit()
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
 @router.get("/clues/orders/{order_id}/phone")
 def clue_order_phone(
     order_id: str,

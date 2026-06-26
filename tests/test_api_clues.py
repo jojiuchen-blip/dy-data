@@ -20,6 +20,7 @@ from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
     ClueCenterOrder,
+    ClueFollowUpRecord,
     DimStore,
     RawDouyinClue,
     User,
@@ -197,6 +198,7 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert metrics["active_clues"] == 2
     assert metrics["follow_rate"] == 0.5
     assert metrics["follow_success_rate"] == 0.5
+    assert metrics["verified_count"] == 1
     assert metrics["self_store_verify_rate"] == 0.5
 
     details = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-1")
@@ -385,6 +387,92 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     serialized_detail = json.dumps(detail_payload, ensure_ascii=False)
     assert "phone_plain" not in serialized_detail
     assert "telephone" not in serialized_detail
+
+
+def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _login(client)
+    created = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={
+            "assignment_round_id": "order-2-1",
+            "follow_result": "unreachable",
+            "note": "No answer after two calls.",
+        },
+    )
+    assert created.status_code == 200
+    record_id = created.json()["data"]["follow_up_record_id"]
+
+    deleted = client.delete(f"/api/v1/clues/follow-up-records/{record_id}")
+
+    assert deleted.status_code == 200
+    payload = deleted.json()["data"]
+    assert payload["follow_up_record_id"] == record_id
+    assert payload["follow_result"] == "unreachable"
+    assert db_session.get(ClueFollowUpRecord, record_id) is None
+    db_session.expire_all()
+    order = db_session.get(ClueCenterOrder, "order-2")
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert order is not None
+    assert round_row is not None
+    assert order.follow_result == "pending"
+    assert order.is_followed is False
+    assert order.is_follow_success is False
+    assert order.current_round_status == "active_unfollowed"
+    assert order.lead_status == "active"
+    assert round_row.follow_result == "pending"
+    assert round_row.is_followed is False
+    assert round_row.is_follow_success is False
+    assert round_row.round_status == "active_unfollowed"
+    assert round_row.followed_at is None
+
+    detail = client.get("/api/v1/clues/orders/order-2")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["follow_up_records"] == []
+
+
+def test_store_cannot_delete_follow_up_record(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add_all(
+        [
+            User(
+                user_id="user-store-1",
+                username="store-current",
+                external_account_id="store-current",
+                display_name="Store Current",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret-current"),
+            ),
+            UserStoreScope(user_id="user-store-1", store_id="store-1"),
+            ClueFollowUpRecord(
+                follow_up_record_id="record-store-delete-forbidden",
+                order_id="order-2",
+                assignment_round_id="order-2-1",
+                round_no=1,
+                assigned_store_id="store-1",
+                follow_result="unreachable",
+                note="Existing note",
+                operator_user_id="admin",
+                operator_username="system-admin",
+                created_at=_dt(1, 14),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "store-current", "secret-current")
+
+    response = client.delete(
+        "/api/v1/clues/follow-up-records/record-store-delete-forbidden"
+    )
+
+    assert response.status_code == 403
+    assert db_session.get(ClueFollowUpRecord, "record-store-delete-forbidden") is not None
 
 
 def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(

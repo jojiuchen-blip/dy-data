@@ -377,6 +377,7 @@ class ClueOverviewMetrics(BaseModel):
     active_clues: int = 0
     follow_rate: float = 0
     follow_success_rate: float = 0
+    verified_count: int = 0
     self_store_verify_rate: float = 0
     pending_reassign_count: int = 0
 
