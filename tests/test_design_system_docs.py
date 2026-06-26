@@ -133,7 +133,9 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "cluesLine" in html
     assert "线索表格冻结表头" in html
     assert "--table-sticky-gap: 8px" in html
-    assert "action bar 58px + subnav 51px + gap 8px" in html
+    assert "action bar 58px + gap 8px" in html
+    assert "移动端 top subnav 单独计算" in html
+    assert "action bar 58px + subnav 51px + gap 8px" not in html
     assert 'class="sticky-demo-shell"' in html
     assert 'class="sticky-offset-demo"' in html
     assert 'class="table-preview-wrap table-preview-wrap--sticky"' in html

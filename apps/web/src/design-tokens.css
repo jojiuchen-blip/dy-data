@@ -26,7 +26,7 @@
   --workspace-subnav-height: 51px;
   --table-sticky-gap: 8px;
   --table-sticky-top: calc(
-    var(--workspace-topbar-height) + var(--workspace-subnav-height) + var(--table-sticky-gap)
+    var(--workspace-topbar-height) + var(--table-sticky-gap)
   );
   --control-height: 38px;
   --control-height-touch: 44px;

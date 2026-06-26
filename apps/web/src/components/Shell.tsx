@@ -178,6 +178,30 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         ? "未绑定门店"
         : "全部数据";
 
+  const renderSecondaryNav = (className: string) => (
+    <nav
+      className={`workspace-subnav ${className}`}
+      aria-label={`${sectionLabels[section]}导航`}
+    >
+      {sectionNavItems.map((item) => {
+        const active =
+          currentPath === item.href ||
+          (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
+          (item.href === "/admin/sync" && currentPath === "/sync-admin");
+        return (
+          <a
+            aria-current={active ? "page" : undefined}
+            href={item.href}
+            key={item.href}
+          >
+            {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
+            {item.label}
+          </a>
+        );
+      })}
+    </nav>
+  );
+
   const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const content = feedbackContent.trim();
@@ -269,6 +293,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
 
       <div className="workspace-shell">
         <header className="workspace-topbar">
+          {renderSecondaryNav("workspace-subnav--desktop")}
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (
@@ -301,24 +326,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           </div>
         </header>
 
-        <nav className="workspace-subnav" aria-label={`${sectionLabels[section]}导航`}>
-          {sectionNavItems.map((item) => {
-            const active =
-              currentPath === item.href ||
-              (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
-              (item.href === "/admin/sync" && currentPath === "/sync-admin");
-            return (
-              <a
-                aria-current={active ? "page" : undefined}
-                href={item.href}
-                key={item.href}
-              >
-                {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
-                {item.label}
-              </a>
-            );
-          })}
-        </nav>
+        {renderSecondaryNav("workspace-subnav--mobile")}
 
         <main className="page-frame">{children}</main>
       </div>

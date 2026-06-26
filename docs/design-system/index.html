@@ -28,8 +28,7 @@
         --workspace-subnav-height: 51px;
         --table-sticky-gap: 8px;
         --table-sticky-top: calc(
-          var(--workspace-topbar-height) + var(--workspace-subnav-height) +
-            var(--table-sticky-gap)
+          var(--workspace-topbar-height) + var(--table-sticky-gap)
         );
         --z-table-sticky-column: 2;
         --z-table-header: 3;
@@ -2282,13 +2281,13 @@
         <div class="section-head">
           <div>
             <h2>线索表格冻结表头</h2>
-            <p>桌面表头冻结时必须避开全局导航，并保留 8px 间隙，避免直接粘在顶部。</p>
+            <p>桌面表头冻结时避开顶部操作栏，并保留 8px 间隙；移动端二级菜单单独固定在顶部。</p>
           </div>
           <code>--table-sticky-gap: 8px</code>
         </div>
         <div class="sticky-demo-shell">
           <div class="sticky-offset-demo">
-            <span>产品页桌面端仍使用导航避让：action bar 58px + subnav 51px + gap 8px。</span>
+            <span>产品页桌面端使用顶部栏避让：action bar 58px + gap 8px；移动端 top subnav 单独计算。</span>
             <strong>表格容器内部：thead top 0</strong>
           </div>
           <div
@@ -2577,7 +2576,7 @@
               </tr>
               <tr>
                 <td>表头冻结</td>
-                <td>action bar 58px + subnav 51px + gap 8px</td>
+                <td>桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
                 <td><span class="status-chip success">已落地</span></td>
                 <td>扩大到其他桌面长表，避免每个表单独写 sticky top。</td>
               </tr>
@@ -2589,7 +2588,7 @@
               </tr>
               <tr>
                 <td>页面骨架</td>
-                <td>桌面 rail/topbar/subnav/page，移动 top subnav/bottom nav</td>
+                <td>桌面 rail/topbar(page tabs)/page，移动 top subnav/bottom nav</td>
                 <td><span class="status-chip success">已开始落地</span></td>
                 <td>后台、结算、明细页继续去重标题和工程信息。</td>
               </tr>

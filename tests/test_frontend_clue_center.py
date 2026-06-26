@@ -179,8 +179,21 @@ def test_clue_center_removes_repeated_engineering_labels() -> None:
 def test_shell_uses_module_context_without_repeating_page_title() -> None:
     shell_source = read_source("components/Shell.tsx")
     styles_source = read_source("styles.css")
+    topbar_start = shell_source.index('<header className="workspace-topbar">')
+    topbar_end = shell_source.index("</header>", topbar_start)
+    topbar_source = shell_source[topbar_start:topbar_end]
 
     assert "sectionLabels[section]" in shell_source
+    assert "const renderSecondaryNav" in shell_source
+    assert 'renderSecondaryNav("workspace-subnav--desktop")' in topbar_source
+    assert topbar_source.index('workspace-subnav--desktop') < topbar_source.index(
+        'className="workspace-actions"'
+    )
+    assert 'renderSecondaryNav("workspace-subnav--mobile")' in shell_source[
+        topbar_end:
+    ]
+    assert ".workspace-subnav--desktop" in styles_source
+    assert ".workspace-subnav--mobile" in styles_source
     assert 'className="workspace-context"' not in shell_source
     assert "workspace-kicker" not in shell_source
     assert "pageTitle" not in shell_source
@@ -261,11 +274,13 @@ def test_mobile_shell_does_not_reserve_empty_desktop_topbar_space() -> None:
         mobile_shell_rules.index(".workspace-actions")
     ]
     subnav_rules = mobile_shell_rules[
-        mobile_shell_rules.index(".workspace-subnav") :
-        mobile_shell_rules.index(".workspace-subnav a")
+        mobile_shell_rules.index(".workspace-subnav--mobile") :
+        mobile_shell_rules.index(".workspace-subnav--mobile a")
     ]
 
     assert "display: none;" in topbar_rules
+    assert ".workspace-subnav {\n    display: none;" in mobile_shell_rules
+    assert "display: flex;" in subnav_rules
     assert "top: 0;" in subnav_rules
 
 
@@ -304,7 +319,8 @@ def test_shell_data_table_header_uses_container_sticky_contract() -> None:
     assert "--z-table-header: 3;" in root_rules
     assert "--z-table-header-corner: 5;" in root_rules
     assert "--table-sticky-top: calc(" in root_rules
-    assert "var(--workspace-topbar-height) + var(--workspace-subnav-height) + var(--table-sticky-gap)" in root_rules
+    assert "var(--workspace-topbar-height) + var(--table-sticky-gap)" in root_rules
+    assert "workspace-subnav-height) + var(--table-sticky-gap)" not in root_rules
     assert "top: 0;" in base_header_rules
     assert "z-index: var(--z-table-header);" in base_header_rules
     assert "z-index: var(--z-table-header-corner);" in sticky_column_header_rules
