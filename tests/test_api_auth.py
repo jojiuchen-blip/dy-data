@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import DimStore, User, UserStoreScope  # noqa: E402
+from apps.api.dy_api.models import DimStore, DimStorePoiMapping, User, UserStoreScope  # noqa: E402
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 
@@ -122,6 +122,125 @@ def test_store_account_can_initialize_login_and_change_password(
     )
 
 
+def test_store_account_can_initialize_and_login_with_poi_id(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store-1",
+                store_name="Store One",
+                certified_subject_name="Subject One",
+                is_active=True,
+            ),
+            DimStorePoiMapping(
+                store_id="store-1",
+                poi_id="poi-1",
+                poi_name="Store One POI",
+                mapping_source="test",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    app = create_app()
+
+    from dy_api.routes._data import get_session_dependency  # noqa: WPS433
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session_dependency] = override_session
+    client = TestClient(app)
+
+    init = client.post(
+        "/api/v1/auth/initialize",
+        json={
+            "external_account_id": "poi-1",
+            "certified_subject_name": "Subject One",
+            "username": "store-one",
+            "password": "first-pass",
+            "password_confirm": "first-pass",
+        },
+    )
+    assert init.status_code == 200
+    assert init.json()["data"]["store_ids"] == ["store-1"]
+    user = db_session.query(User).filter_by(username="store-one").one()
+    assert user.external_account_id == "store-1"
+
+    client.post("/api/v1/auth/logout")
+    by_poi_id = client.post(
+        "/api/v1/auth/login",
+        json={"username": "poi-1", "password": "first-pass"},
+    )
+    assert by_poi_id.status_code == 200
+
+    client.post("/api/v1/auth/logout")
+    by_store_id = client.post(
+        "/api/v1/auth/login",
+        json={"username": "store-1", "password": "first-pass"},
+    )
+    assert by_store_id.status_code == 200
+
+
+def test_existing_store_account_can_login_with_poi_id(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store-1",
+                store_name="Store One",
+                certified_subject_name="Subject One",
+                is_active=True,
+            ),
+            DimStorePoiMapping(
+                store_id="store-1",
+                poi_id="poi-1",
+                poi_name="Store One POI",
+                mapping_source="test",
+            ),
+            User(
+                user_id="existing",
+                username="store-one",
+                external_account_id="store-1",
+                display_name="Store One Account",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            UserStoreScope(user_id="existing", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+
+    app = create_app()
+
+    from dy_api.routes._data import get_session_dependency  # noqa: WPS433
+
+    def override_session():
+        yield db_session
+
+    app.dependency_overrides[get_session_dependency] = override_session
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "poi-1", "password": "secret"},
+    )
+    assert response.status_code == 200
+    assert response.json()["data"]["store_ids"] == ["store-1"]
+
+
 def test_store_account_can_reset_password_with_subject_verification(
     monkeypatch: pytest.MonkeyPatch,
     db_session,
@@ -142,6 +261,12 @@ def test_store_account_can_reset_password_with_subject_verification(
                 store_name="Store Two",
                 certified_subject_name="Subject Two",
                 is_active=True,
+            ),
+            DimStorePoiMapping(
+                store_id="store-1",
+                poi_id="poi-1",
+                poi_name="Store One POI",
+                mapping_source="test",
             ),
             User(
                 user_id="existing",
@@ -206,7 +331,7 @@ def test_store_account_can_reset_password_with_subject_verification(
     reset = client.post(
         "/api/v1/auth/reset-password",
         json={
-            "external_account_id": "store-1",
+            "external_account_id": "poi-1",
             "certified_subject_name": "Subject One",
             "username": "store-one-new",
             "password": "new-pass",

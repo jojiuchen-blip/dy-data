@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import or_, select
 
-from apps.api.dy_api.models import User, UserStoreScope
+from apps.api.dy_api.models import DimAwemeAccount, DimStorePoiMapping, User, UserStoreScope
 from dy_api.routes._data import get_session_dependency
 
 
@@ -72,6 +72,114 @@ def _truthy(value: str | None) -> bool:
 
 def normalize_account_value(value: str | None) -> str:
     return " ".join((value or "").strip().split())
+
+
+def _unique_account_values(values: list[str | None]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        item = normalize_account_value(value)
+        if not item or item in seen:
+            continue
+        normalized.append(item)
+        seen.add(item)
+    return tuple(normalized)
+
+
+def store_ids_for_account_identifier(
+    session: Any | None, identifier: str
+) -> tuple[str, ...]:
+    normalized = normalize_account_value(identifier)
+    if not normalized:
+        return ()
+    if session is None:
+        return (normalized,)
+
+    values: list[str | None] = [normalized]
+    values.extend(
+        session.execute(
+            select(DimAwemeAccount.store_id).where(
+                DimAwemeAccount.account_id == normalized
+            )
+        )
+        .scalars()
+        .all()
+    )
+    values.extend(
+        session.execute(
+            select(DimStorePoiMapping.store_id).where(
+                DimStorePoiMapping.poi_id == normalized
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return _unique_account_values(values)
+
+
+def account_identifier_aliases(
+    session: Any | None, identifier: str
+) -> tuple[str, ...]:
+    normalized = normalize_account_value(identifier)
+    if not normalized:
+        return ()
+
+    aliases: list[str | None] = [normalized]
+    store_ids = store_ids_for_account_identifier(session, normalized)
+    aliases.extend(store_ids)
+    if session is None or not store_ids:
+        return _unique_account_values(aliases)
+
+    aliases.extend(
+        session.execute(
+            select(DimAwemeAccount.account_id).where(
+                DimAwemeAccount.store_id.in_(store_ids)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    aliases.extend(
+        session.execute(
+            select(DimStorePoiMapping.poi_id).where(
+                DimStorePoiMapping.store_id.in_(store_ids)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return _unique_account_values(aliases)
+
+
+def find_user_by_account_identifier(
+    session: Any | None, identifier: str
+) -> User | None:
+    if session is None:
+        return None
+    aliases = account_identifier_aliases(session, identifier)
+    if not aliases:
+        return None
+
+    users = (
+        session.execute(
+            select(User)
+            .where(User.external_account_id.in_(aliases))
+            .order_by(User.created_at, User.user_id)
+        )
+        .scalars()
+        .all()
+    )
+    if len(users) == 1:
+        return users[0]
+
+    active_store_users = [
+        user
+        for user in users
+        if user.role == "store" and user.status == "active" and user.is_initialized
+    ]
+    if len(active_store_users) == 1:
+        return active_store_users[0]
+    return None
 
 
 def _b64encode(raw: bytes) -> str:
@@ -184,11 +292,14 @@ def find_user_by_identifier(session: Any | None, identifier: str) -> User | None
     normalized = normalize_account_value(identifier)
     if not normalized:
         return None
-    return session.execute(
+    user = session.execute(
         select(User).where(
             or_(User.username == normalized, User.external_account_id == normalized)
         )
     ).scalar_one_or_none()
+    if user is not None:
+        return user
+    return find_user_by_account_identifier(session, normalized)
 
 
 def verify_user_credentials(

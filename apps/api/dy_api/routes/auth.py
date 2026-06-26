@@ -9,12 +9,14 @@ from dy_api.auth import (
     AuthContext,
     AdminPasswordNotConfigured,
     clear_session_cookie,
+    find_user_by_account_identifier,
     find_user_by_identifier,
     get_current_user,
     hash_password_pbkdf2,
     normalize_account_value,
     set_auth_cookie,
     set_session_cookie,
+    store_ids_for_account_identifier,
     user_store_ids,
     verify_user_credentials,
     verify_admin_credentials,
@@ -27,7 +29,7 @@ from dy_api.schemas import (
     LoginRequest,
     dump_model,
 )
-from apps.api.dy_api.models import DimAwemeAccount, DimStore, User, UserStoreScope
+from apps.api.dy_api.models import DimStore, User, UserStoreScope
 
 
 router = APIRouter()
@@ -201,12 +203,9 @@ def _activate_account(
         )
 
     username = normalize_account_value(payload.username)
-    external_account_id = normalize_account_value(payload.external_account_id)
+    external_account_id = normalize_account_value(store.store_id)
+    target = find_user_by_account_identifier(session, payload.external_account_id)
     existing_by_username = find_user_by_identifier(session, username)
-    existing_by_external = session.execute(
-        select(User).where(User.external_account_id == external_account_id)
-    ).scalar_one_or_none()
-    target = existing_by_external
 
     if existing_by_username is not None and existing_by_username is not target:
         raise HTTPException(
@@ -236,6 +235,7 @@ def _activate_account(
         session.add(target)
     else:
         target.username = username
+        target.external_account_id = external_account_id
         target.display_name = normalize_account_value(payload.display_name) or store.store_name
         target.status = "active"
         target.is_initialized = True
@@ -276,14 +276,8 @@ def _reset_account_password(
         )
 
     username = normalize_account_value(payload.username)
-    external_account_id = normalize_account_value(payload.external_account_id)
-    target = session.execute(
-        select(User).where(User.external_account_id == external_account_id)
-    ).scalar_one_or_none()
-    if target is None and store.store_id != external_account_id:
-        target = session.execute(
-            select(User).where(User.external_account_id == store.store_id)
-        ).scalar_one_or_none()
+    external_account_id = normalize_account_value(store.store_id)
+    target = find_user_by_account_identifier(session, payload.external_account_id)
     if target is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -307,6 +301,7 @@ def _reset_account_password(
 
     now = generated_at()
     target.username = username
+    target.external_account_id = external_account_id
     target.display_name = (
         normalize_account_value(payload.display_name)
         or target.display_name
@@ -329,10 +324,7 @@ def _verified_store(
 ) -> DimStore | None:
     external_account_id = normalize_account_value(external_account_id)
     expected_subject = normalize_account_value(certified_subject_name)
-    candidate_store_ids = [external_account_id]
-    aweme_account = session.get(DimAwemeAccount, external_account_id)
-    if aweme_account is not None and aweme_account.store_id:
-        candidate_store_ids.insert(0, aweme_account.store_id)
+    candidate_store_ids = store_ids_for_account_identifier(session, external_account_id)
 
     stores = session.execute(
         select(DimStore).where(DimStore.store_id.in_(candidate_store_ids))
