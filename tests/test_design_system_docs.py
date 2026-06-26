@@ -98,6 +98,8 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
         'id="iconography"',
         'id="table-sticky"',
         'id="mobile-card"',
+        'id="clue-followup-workbench"',
+        'id="clue-followup-mobile-detail"',
         'id="page-templates"',
         'id="decisions"',
         'id="enforcement"',
@@ -160,6 +162,32 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "top: var(--table-sticky-top);" not in html
     assert "移动端线索卡片" in html
     assert "桌面 38px，移动 44px" in html
+    assert "线索跟进详情工作台浮层" in html
+    assert "width: min(1440px, 100vw - 48px)" in html
+    assert "height: min(920px, calc(100dvh - 32px))" in html
+    assert "联系方式 · 号码操作" in html
+    assert "订单编号" in html
+    assert "下单时间" in html
+    assert "线索跟进历史" in html
+    assert "分配轮次与跟进历史" not in html
+    assert "2 轮 · 3 条跟进记录" in html
+    assert "号码操作" in html
+    assert "跟进操作" in html
+    assert "未接通也算产生跟进行为" in html
+    assert "失效、已核销、已退款时显示“已失效不可跟进”" in html
+    assert "店端：" in html
+    assert "不展示内部轮次 ID" in html
+    mobile_detail_section = html.split('id="clue-followup-mobile-detail"', 1)[1].split(
+        'id="page-templates"', 1
+    )[0]
+    assert "移动端线索详情" in mobile_detail_section
+    assert 'class="mobile-clue-detail-demo"' in mobile_detail_section
+    assert "手机号与状态" in mobile_detail_section
+    assert "保存本次跟进" in mobile_detail_section
+    assert "第2轮 / 当前" in mobile_detail_section
+    assert "2轮 · 3条记录" in mobile_detail_section
+    assert "移动端实现规则" in mobile_detail_section
+    assert "实时数据" not in mobile_detail_section
 
 
 def test_design_system_html_does_not_depend_on_remote_assets() -> None:

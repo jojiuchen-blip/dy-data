@@ -1556,6 +1556,571 @@
         font-size: 13px;
       }
 
+      .section-wide-preview {
+        width: min(1440px, calc(100vw - 48px));
+        max-width: calc(100vw - 48px);
+        margin-left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .clue-workbench-backdrop {
+        display: grid;
+        min-height: min(920px, calc(100dvh - 32px));
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+        background:
+          linear-gradient(rgb(21 34 29 / 48%), rgb(21 34 29 / 48%)),
+          repeating-linear-gradient(0deg, transparent, transparent 28px, rgb(221 228 221 / 62%) 29px),
+          var(--bg);
+      }
+
+      .clue-workbench-modal {
+        display: grid;
+        width: min(1440px, 100%);
+        height: min(920px, calc(100dvh - 32px));
+        min-height: 680px;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        box-shadow: 0 30px 80px rgb(21 34 29 / 24%);
+      }
+
+      .clue-workbench-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 20px;
+        background: rgb(255 255 255 / 96%);
+      }
+
+      .clue-workbench-title {
+        display: grid;
+        gap: 7px;
+      }
+
+      .clue-workbench-title h3 {
+        font-size: 24px;
+      }
+
+      .clue-workbench-context {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .clue-workbench-body {
+        display: grid;
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 16px;
+        overflow: hidden;
+        padding: 16px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-workbench-main,
+      .clue-workbench-rail {
+        min-height: 0;
+        overflow: auto;
+        scrollbar-gutter: stable;
+      }
+
+      .clue-workbench-main {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+      }
+
+      .clue-summary-strip {
+        display: grid;
+        grid-template-columns: minmax(0, 2.2fr) minmax(240px, 0.9fr);
+        gap: 10px;
+      }
+
+      .clue-summary-item,
+      .clue-section-block,
+      .clue-action-block {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+      }
+
+      .clue-summary-item {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        min-height: 86px;
+        padding: 13px;
+      }
+
+      .clue-summary-item span,
+      .clue-field-row span,
+      .clue-record-meta,
+      .clue-action-block p,
+      .clue-mobile-order li {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .clue-summary-item strong {
+        font-size: 16px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .clue-summary-item--contact {
+        min-height: 104px;
+      }
+
+      .clue-summary-phone-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .clue-summary-phone-row strong {
+        font-size: 22px;
+      }
+
+      .clue-summary-item--status strong {
+        display: inline-flex;
+        width: fit-content;
+        min-height: 28px;
+        align-items: center;
+        border: 1px solid rgb(47 95 149 / 20%);
+        border-radius: var(--radius-full);
+        padding: 0 10px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 14px;
+      }
+
+      .clue-section-block {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .clue-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .clue-field-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .clue-order-grid .clue-field-row--product {
+        grid-column: span 2;
+      }
+
+      .clue-field-row {
+        display: grid;
+        gap: 5px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .clue-field-row strong {
+        font-size: 13px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .clue-history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .clue-round-card {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-round-card.current {
+        border-color: rgb(15 91 75 / 34%);
+        background: rgb(225 239 233 / 42%);
+      }
+
+      .clue-round-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .clue-round-top strong {
+        font-size: 15px;
+      }
+
+      .clue-round-facts {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .clue-record-list {
+        display: grid;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .clue-record-item {
+        display: grid;
+        grid-template-columns: 132px 96px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface);
+      }
+
+      .clue-record-item strong {
+        font-size: 13px;
+      }
+
+      .clue-workbench-rail {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+      }
+
+      .clue-action-block {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .clue-phone-value {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-phone-value strong {
+        font-size: 18px;
+      }
+
+      .clue-radio-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .clue-radio-item {
+        display: flex;
+        min-height: 42px;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        font-weight: 800;
+      }
+
+      .clue-radio-dot {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--line-strong);
+        border-radius: var(--radius-full);
+      }
+
+      .clue-radio-item.active .clue-radio-dot {
+        border: 5px solid var(--green);
+      }
+
+      .clue-note-box {
+        min-height: 112px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: #fffefa;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .clue-mobile-order {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .clue-mobile-order li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-detail-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      .mobile-clue-detail-demo {
+        width: min(390px, 100%);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .mobile-clue-detail-demo__top {
+        display: flex;
+        min-height: 64px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 14px;
+        background: rgb(255 255 255 / 96%);
+      }
+
+      .mobile-clue-detail-demo__top h3 {
+        font-size: 21px;
+      }
+
+      .mobile-clue-detail-demo__scroll {
+        display: grid;
+        max-height: 696px;
+        gap: 12px;
+        overflow: auto;
+        padding: 12px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__section {
+        display: grid;
+        gap: 11px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+      }
+
+      .mobile-clue-detail-demo__section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__section-head h4 {
+        font-size: 16px;
+      }
+
+      .mobile-clue-detail-demo__phone-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .mobile-clue-detail-demo__phone-row strong {
+        font-size: 24px;
+      }
+
+      .mobile-clue-detail-demo__icon-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__icon {
+        display: grid;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        min-height: 44px;
+        appearance: none;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--green);
+        cursor: pointer;
+      }
+
+      .mobile-clue-detail-demo__hint,
+      .mobile-clue-detail-demo__meta,
+      .mobile-clue-detail-demo__fact span,
+      .mobile-clue-detail-demo__record span,
+      .mobile-clue-detail-demo__note {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .mobile-clue-detail-demo__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .mobile-clue-detail-demo__meta span {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-full);
+        padding: 4px 8px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__radio-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__radio {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        font-weight: 850;
+      }
+
+      .mobile-clue-detail-demo__radio-dot {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--line-strong);
+        border-radius: var(--radius-full);
+      }
+
+      .mobile-clue-detail-demo__radio.active .mobile-clue-detail-demo__radio-dot {
+        border: 5px solid var(--green);
+      }
+
+      .mobile-clue-detail-demo__note {
+        min-height: 96px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: #fffefa;
+      }
+
+      .mobile-clue-detail-demo__save {
+        width: 100%;
+      }
+
+      .mobile-clue-detail-demo__facts {
+        display: grid;
+        gap: 9px;
+      }
+
+      .mobile-clue-detail-demo__fact {
+        display: grid;
+        gap: 4px;
+        border-top: 1px solid var(--line);
+        padding-top: 8px;
+      }
+
+      .mobile-clue-detail-demo__fact strong,
+      .mobile-clue-detail-demo__record strong {
+        overflow-wrap: anywhere;
+        font-size: 13px;
+      }
+
+      .mobile-clue-detail-demo__rounds {
+        display: grid;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__round {
+        display: grid;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 11px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__round.current {
+        border-color: rgb(15 91 75 / 34%);
+        background: rgb(225 239 233 / 42%);
+      }
+
+      .mobile-clue-detail-demo__round-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__round-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__records {
+        display: grid;
+        gap: 7px;
+        border-top: 1px solid var(--line);
+        padding-top: 9px;
+      }
+
+      .mobile-clue-detail-demo__record {
+        display: grid;
+        grid-template-columns: 70px 62px minmax(0, 1fr);
+        gap: 7px;
+        align-items: start;
+        border-radius: var(--radius-md);
+        padding: 8px;
+        background: var(--surface);
+      }
+
+      .mobile-detail-spec-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .mobile-detail-spec-list li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .mobile-detail-spec-list strong {
+        color: var(--ink);
+      }
+
       .layout-preview {
         overflow: hidden;
         border: 1px solid var(--line);
@@ -1794,6 +2359,44 @@
           grid-template-columns: 1fr;
         }
 
+        .section-wide-preview {
+          width: 100%;
+          max-width: 100%;
+          margin-left: 0;
+          transform: none;
+        }
+
+        .clue-workbench-backdrop {
+          min-height: auto;
+          padding: 12px;
+        }
+
+        .clue-workbench-modal {
+          height: auto;
+          min-height: 0;
+          max-height: none;
+        }
+
+        .clue-workbench-body {
+          grid-template-columns: 1fr;
+          overflow: visible;
+        }
+
+        .clue-workbench-main,
+        .clue-workbench-rail {
+          overflow: visible;
+        }
+
+        .clue-workbench-rail {
+          order: -1;
+        }
+
+        .clue-summary-strip,
+        .clue-field-grid,
+        .clue-round-facts {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
         .type-row {
           grid-template-columns: 1fr;
           gap: 8px;
@@ -1808,6 +2411,10 @@
         }
 
         .filter-demo {
+          grid-template-columns: 1fr;
+        }
+
+        .mobile-detail-preview-grid {
           grid-template-columns: 1fr;
         }
       }
@@ -1838,6 +2445,46 @@
 
         .dialog-actions .button-like {
           flex: 1 1 auto;
+        }
+
+        .clue-workbench-header {
+          align-items: start;
+          padding: 14px;
+        }
+
+        .clue-workbench-title h3 {
+          font-size: 21px;
+        }
+
+        .clue-workbench-body {
+          gap: 12px;
+          padding: 12px;
+        }
+
+        .clue-summary-strip,
+        .clue-field-grid,
+        .clue-round-facts,
+        .clue-record-item {
+          grid-template-columns: 1fr;
+        }
+
+        .clue-phone-value {
+          align-items: start;
+          flex-direction: column;
+        }
+
+        .mobile-clue-detail-demo {
+          width: 100%;
+        }
+
+        .mobile-clue-detail-demo__scroll {
+          max-height: none;
+        }
+
+        .mobile-clue-detail-demo__phone-row,
+        .mobile-clue-detail-demo__round-grid,
+        .mobile-clue-detail-demo__record {
+          grid-template-columns: 1fr;
         }
 
         .table-pagination-demo {
@@ -2803,6 +3450,322 @@
         </div>
       </section>
 
+      <section class="section section-wide-preview" id="clue-followup-workbench">
+        <div class="section-head">
+          <div>
+            <h2>线索跟进详情工作台浮层</h2>
+            <p>这是线索中心的特殊浮层：桌面尽量接近全屏，承载联系方式、商品订单、分配轮次历史和当前跟进操作；移动端转为近全屏单列工作台。</p>
+          </div>
+          <code>width: min(1440px, 100vw - 48px)</code>
+        </div>
+        <div class="clue-workbench-backdrop">
+          <article class="clue-workbench-modal" role="dialog" aria-modal="true" aria-labelledby="clue-workbench-title">
+            <header class="clue-workbench-header">
+              <div class="clue-workbench-title">
+                <h3 id="clue-workbench-title">线索跟进详情</h3>
+              </div>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭线索跟进详情">×</button>
+            </header>
+            <div class="clue-workbench-body">
+              <div class="clue-workbench-main">
+                <div class="clue-summary-strip" aria-label="线索摘要">
+                  <div class="clue-summary-item clue-summary-item--contact">
+                    <span>联系方式 · 号码操作</span>
+                    <div class="clue-summary-phone-row">
+                      <strong>178****6163</strong>
+                      <div class="button-row">
+                        <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
+                          <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                            <g fill="none" stroke="currentColor" stroke-width="1.5">
+                              <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
+                              <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+                            </g>
+                          </svg>
+                        </button>
+                        <button class="icon-button-demo compact" type="button" aria-label="复制完整号码">
+                          <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                            <g fill="none" stroke="currentColor" stroke-width="1.5">
+                              <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
+                              <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
+                            </g>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                    <span>当前有效轮次允许查看和复制完整号码；失效、已核销、已退款时显示“已失效不可跟进”。</span>
+                  </div>
+                  <div class="clue-summary-item clue-summary-item--status">
+                    <span>线索状态</span>
+                    <strong>待跟进</strong>
+                    <span>当前轮次仍可处理</span>
+                  </div>
+                </div>
+
+                <section class="clue-section-block" aria-labelledby="clue-order-title">
+                  <div class="clue-section-head">
+                    <h3 id="clue-order-title">商品与订单</h3>
+                  </div>
+                  <div class="clue-field-grid clue-order-grid">
+                    <div class="clue-field-row">
+                      <span>订单编号</span>
+                      <strong>111533703281303808</strong>
+                    </div>
+                    <div class="clue-field-row clue-field-row--product">
+                      <span>完整商品名称</span>
+                      <strong>店端【超值爆品】无骨雨刮赠送2副胶条（部分车型适用）</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>商品类型</span>
+                      <strong>精诚养车</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>订单状态</span>
+                      <strong>履约中</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>下单时间</span>
+                      <strong>2026-06-26 02:04</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>核销状态</span>
+                      <strong>未核销</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="clue-section-block" aria-labelledby="clue-history-title">
+                  <div class="clue-section-head">
+                    <h3 id="clue-history-title">线索跟进历史</h3>
+                    <span class="count-pill">2 轮 · 3 条跟进记录</span>
+                  </div>
+                  <div class="clue-history-list">
+                    <article class="clue-round-card">
+                      <div class="clue-round-top">
+                        <strong>第1轮</strong>
+                        <span class="status-chip warning">超期失效</span>
+                      </div>
+                      <div class="clue-round-facts">
+                        <div class="clue-field-row"><span>分配时间</span><strong>2026-06-24 09:18</strong></div>
+                        <div class="clue-field-row"><span>处理范围</span><strong>其他门店</strong></div>
+                        <div class="clue-field-row"><span>失效原因</span><strong>超过处理时限</strong></div>
+                        <div class="clue-field-row"><span>失效时间</span><strong>2026-06-25 09:18</strong></div>
+                        <div class="clue-field-row"><span>最近结果</span><strong>未接通</strong></div>
+                      </div>
+                      <div class="clue-record-list">
+                        <div class="clue-record-item">
+                          <strong>06-24 10:06</strong>
+                          <span class="clue-record-meta">未接通</span>
+                          <span class="clue-record-meta">电话无人接听，计划下午再次联系。</span>
+                        </div>
+                        <div class="clue-record-item">
+                          <strong>06-24 16:31</strong>
+                          <span class="clue-record-meta">未接通</span>
+                          <span class="clue-record-meta">第二次未接通，本轮后续超期。</span>
+                        </div>
+                      </div>
+                    </article>
+                    <article class="clue-round-card current">
+                      <div class="clue-round-top">
+                        <strong>第2轮 / 当前</strong>
+                        <span class="status-chip pending">待跟进</span>
+                      </div>
+                      <div class="clue-round-facts">
+                        <div class="clue-field-row"><span>分配时间</span><strong>2026-06-26 02:04</strong></div>
+                        <div class="clue-field-row"><span>处理范围</span><strong>本店</strong></div>
+                        <div class="clue-field-row"><span>再分配原因</span><strong>上一轮超期</strong></div>
+                        <div class="clue-field-row"><span>失效时间</span><strong>-</strong></div>
+                        <div class="clue-field-row"><span>最近结果</span><strong>-</strong></div>
+                      </div>
+                      <div class="clue-record-list">
+                        <div class="clue-record-item">
+                          <strong>暂无记录</strong>
+                          <span class="clue-record-meta">待处理</span>
+                          <span class="clue-record-meta">本轮尚未登记跟进结果。</span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="clue-workbench-rail" aria-label="当前线索操作">
+                <section class="clue-action-block">
+                  <h3>跟进操作</h3>
+                  <div class="clue-radio-list" role="radiogroup" aria-label="跟进结果">
+                    <div class="clue-radio-item active"><span class="clue-radio-dot" aria-hidden="true"></span>未接通</div>
+                    <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>线索战败</div>
+                    <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>跟进成功</div>
+                  </div>
+                  <div class="clue-note-box">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                  <button class="button-like primary" type="button">保存跟进</button>
+                </section>
+              </aside>
+            </div>
+          </article>
+        </div>
+        <div class="grid grid-3">
+          <div class="panel">
+            <h3>桌面尺寸</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>宽度：</strong><code>min(1440px, calc(100vw - 48px))</code>，让 1440 屏接近铺满，超宽屏保持阅读上限。</li>
+              <li><strong>高度：</strong><code>min(920px, calc(100dvh - 32px))</code>，内部滚动，不让背景页面参与滚动。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>内容分区</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>左侧：</strong>线索摘要、商品订单、分配轮次历史和每轮跟进记录。</li>
+              <li><strong>右侧：</strong>号码查看/复制、跟进结果单选、备注、保存按钮和禁用原因。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>使用边界</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>店端：</strong>历史门店只显示本店/其他门店，不展示内部轮次 ID。</li>
+              <li><strong>管理端：</strong>后续可加排查信息折叠区，但不放进店端默认视图。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>移动端顺序</h3>
+            <ol class="clue-mobile-order" style="margin-top: 12px">
+              <li>先显示线索状态和号码操作，确保店员能马上判断是否可联系。</li>
+              <li>紧接跟进操作，当前轮次不可操作时整块禁用并说明原因。</li>
+              <li>再展示订单、商品摘要和下单时间。</li>
+              <li>最后展示线索跟进历史和每轮下的跟进记录。</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="clue-followup-mobile-detail">
+        <div class="section-head">
+          <div>
+            <h2>移动端线索详情</h2>
+            <p>手机端不复用桌面双栏浮层，而是独立的单列任务页：先让店员判断能不能联系，再完成本轮跟进，最后查看订单商品和历史。</p>
+          </div>
+          <code>mobile: single task page</code>
+        </div>
+        <div class="mobile-detail-preview-grid">
+          <article class="mobile-clue-detail-demo" aria-label="移动端线索详情样张">
+            <header class="mobile-clue-detail-demo__top">
+              <h3>线索跟进详情</h3>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭移动端线索详情">×</button>
+            </header>
+            <div class="mobile-clue-detail-demo__scroll">
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-phone-status-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-phone-status-title">手机号与状态</h4>
+                  <span class="status-chip pending">待跟进</span>
+                </div>
+                <div class="mobile-clue-detail-demo__phone-row">
+                  <strong>178****6163</strong>
+                  <div class="mobile-clue-detail-demo__icon-actions">
+                    <button class="mobile-clue-detail-demo__icon" type="button" aria-label="查看完整手机号">
+                      <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                        <g fill="none" stroke="currentColor" stroke-width="1.5">
+                          <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
+                          <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
+                        </g>
+                      </svg>
+                    </button>
+                    <button class="mobile-clue-detail-demo__icon" type="button" aria-label="复制完整手机号">
+                      <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
+                        <g fill="none" stroke="currentColor" stroke-width="1.5">
+                          <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
+                          <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
+                        </g>
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="mobile-clue-detail-demo__hint">当前有效轮次允许查看和复制完整号码；失效、已核销、已退款时显示“已失效不可跟进”。</p>
+                <div class="mobile-clue-detail-demo__meta">
+                  <span>第2轮 / 当前</span>
+                  <span>本轮仍可处理</span>
+                </div>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-follow-action-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-follow-action-title">跟进操作</h4>
+                </div>
+                <div class="mobile-clue-detail-demo__radio-list" role="radiogroup" aria-label="本次跟进结果">
+                  <div class="mobile-clue-detail-demo__radio active"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>未接通</div>
+                  <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>线索战败</div>
+                  <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>跟进成功</div>
+                </div>
+                <div class="mobile-clue-detail-demo__note">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                <button class="button-like primary mobile-clue-detail-demo__save" type="button">保存本次跟进</button>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-order-product-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-order-product-title">商品与订单</h4>
+                </div>
+                <div class="mobile-clue-detail-demo__facts">
+                  <div class="mobile-clue-detail-demo__fact"><span>订单编号</span><strong>111533703281303808</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>下单时间</span><strong>2026-06-26 02:04</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>订单状态</span><strong>履约中</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>完整商品名称</span><strong>店端【超值爆品】无骨雨刮赠送2副胶条（部分车型适用）</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>商品类型</span><strong>精诚养车</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>核销状态</span><strong>未核销</strong></div>
+                </div>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-history-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-history-title">线索跟进历史</h4>
+                  <span class="count-pill">2轮 · 3条记录</span>
+                </div>
+                <div class="mobile-clue-detail-demo__rounds">
+                  <article class="mobile-clue-detail-demo__round">
+                    <div class="mobile-clue-detail-demo__round-top">
+                      <strong>第1轮</strong>
+                      <span class="status-chip warning">超期失效</span>
+                    </div>
+                    <div class="mobile-clue-detail-demo__round-grid">
+                      <div class="mobile-clue-detail-demo__fact"><span>分配时间</span><strong>2026-06-24 09:18</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>处理范围</span><strong>其他门店</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>失效原因</span><strong>超过处理时限</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>失效时间</span><strong>2026-06-25 09:18</strong></div>
+                    </div>
+                    <div class="mobile-clue-detail-demo__records">
+                      <div class="mobile-clue-detail-demo__record"><strong>06-24 10:06</strong><span>未接通</span><span>电话无人接听，计划下午再次联系。</span></div>
+                      <div class="mobile-clue-detail-demo__record"><strong>06-24 16:31</strong><span>未接通</span><span>第二次未接通，本轮后续超期。</span></div>
+                    </div>
+                  </article>
+                  <article class="mobile-clue-detail-demo__round current">
+                    <div class="mobile-clue-detail-demo__round-top">
+                      <strong>第2轮 / 当前</strong>
+                      <span class="status-chip pending">待跟进</span>
+                    </div>
+                    <div class="mobile-clue-detail-demo__round-grid">
+                      <div class="mobile-clue-detail-demo__fact"><span>分配时间</span><strong>2026-06-26 02:04</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>处理范围</span><strong>本店</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>再分配原因</span><strong>上一轮超期</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>最近结果</span><strong>-</strong></div>
+                    </div>
+                    <div class="mobile-clue-detail-demo__records">
+                      <div class="mobile-clue-detail-demo__record"><strong>暂无记录</strong><span>待处理</span><span>本轮尚未登记跟进结果。</span></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </article>
+
+          <div class="panel">
+            <h3>移动端实现规则</h3>
+            <ul class="mobile-detail-spec-list" style="margin-top: 12px">
+              <li><strong>单列任务流：</strong>移动端独立实现，不把桌面右侧操作栏提前塞进同一个浮层布局。</li>
+              <li><strong>首屏判断：</strong>手机号、查看/复制、线索状态和当前轮次必须在首屏最前面。</li>
+              <li><strong>操作优先：</strong>跟进操作紧接联系方式，保存按钮全宽显示，触控目标不小于 44px。</li>
+              <li><strong>历史后置：</strong>订单商品和线索跟进历史保留完整信息，但放在跟进操作之后，避免店员先读审计信息。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
       <section class="section" id="page-templates">
         <div class="section-head">
           <div>
@@ -2972,10 +3935,11 @@
           <div class="panel">
             <h3>明细工作台规则</h3>
             <ul class="rule-list" style="margin-top: 12px">
-              <li><strong>桌面端：</strong>用于线索明细、订单明细这类高密度长表；页面框架宽度为 100%，高度为 <code>calc(100vh - topbar)</code>。</li>
+              <li><strong>全局工作区：</strong>登录后的业务页面默认铺满 Shell 可用宽度，不再使用居中窄容器；具体阅读宽度由页面内卡片、表格或弹层自己控制。</li>
+              <li><strong>桌面端：</strong>明细工作台用于线索明细、订单明细这类高密度长表；在全宽基础上增加高度 <code>calc(100vh - topbar)</code> 和内部滚动。</li>
               <li><strong>滚动归属：</strong>外层页面不纵向滚动，结果区使用 <code>content-section--data-workspace</code>，只有结果表格区域上下滚动；分页固定在结果区底部可见。</li>
               <li><strong>筛选区：</strong>桌面优先单行密度，避免占用表格高度；移动端可折叠筛选并恢复自然页面滚动。</li>
-              <li><strong>适用边界：</strong>看板、后台表单、解释型页面不套该模板，继续使用普通页面容器。</li>
+              <li><strong>适用边界：</strong>看板、后台表单、解释型页面使用全宽普通页面容器，但不套固定高度明细工作台。</li>
             </ul>
           </div>
         </div>
@@ -3026,7 +3990,7 @@
               </tr>
               <tr>
                 <td>页面骨架</td>
-                <td>桌面 rail/topbar(page tabs)/page，移动 top subnav/bottom nav</td>
+                <td>桌面 rail/topbar(page tabs)/full-width page，移动 top subnav/bottom nav</td>
                 <td><span class="status-chip success">已开始落地</span></td>
                 <td>后台、结算、明细页继续去重标题和工程信息。</td>
               </tr>

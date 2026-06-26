@@ -73,10 +73,16 @@ def test_tokens_declare_current_enforcement_scope() -> None:
     next_rules = "\n".join(tokens["enforcement"]["next"])
     layout_tokens = tokens["tokens"]["layout"]
     data_table_tokens = tokens["components"]["dataTable"]
+    follow_up_workbench = tokens["components"]["clueFollowUpWorkbench"]
+    follow_up_mobile_detail = tokens["components"]["clueFollowUpMobileDetail"]
     detail_workspace = tokens["pageTemplates"]["detailDataWorkspace"]
+    follow_up_modal = tokens["pageTemplates"]["clueFollowUpWorkbenchModal"]
+    follow_up_mobile_template = tokens["pageTemplates"]["clueFollowUpMobileDetail"]
 
     assert tokens["meta"]["colorMode"] == "light-only"
     assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.1"
+    assert layout_tokens["workspacePageWidth"]["value"] == "100%"
+    assert "authenticated workspace pages fill" in layout_tokens["workspacePageWidth"]["usage"]
     assert layout_tokens["dataWorkspaceWidth"]["value"] == "100%"
     assert (
         layout_tokens["dataWorkspaceHeight"]["value"]
@@ -89,6 +95,32 @@ def test_tokens_declare_current_enforcement_scope() -> None:
     assert detail_workspace["appliesTo"] == ["/clues/details", "/details"]
     assert "fixed viewport workspace" in detail_workspace["desktopRule"]
     assert "natural page scroll" in detail_workspace["mobileRule"]
+    assert follow_up_workbench["desktopWidth"] == "min(1440px, calc(100vw - 48px))"
+    assert follow_up_workbench["desktopHeight"] == "min(920px, calc(100dvh - 32px))"
+    assert follow_up_workbench["desktopColumns"] == "minmax(0, 1fr) 380px"
+    assert "grouped round history" in follow_up_workbench["contentRegions"][-1]
+    assert "source badge" not in "\n".join(follow_up_workbench["contentRegions"])
+    assert "order time" in "\n".join(follow_up_workbench["contentRegions"])
+    assert "not the default Dialog size" in follow_up_workbench["rule"]
+    assert follow_up_mobile_detail["width"] == "min(390px, 100%)"
+    assert follow_up_mobile_detail["touchTarget"] == "44px minimum for reveal, copy and save controls"
+    assert follow_up_mobile_detail["contentOrder"][0] == "phone and lead status"
+    assert follow_up_mobile_detail["contentOrder"][-1] == "round history and nested follow-up records"
+    assert "not a squeezed desktop modal" in follow_up_mobile_detail["rule"]
+    assert "data-origin labels" in follow_up_mobile_detail["rule"]
+    assert "source badge" not in follow_up_mobile_detail["rule"]
+    assert follow_up_modal["appliesTo"] == ["ClueCenterPage follow-up detail modal"]
+    assert "large centered modal overlay" in follow_up_modal["desktopStructure"]
+    assert "source badge" not in "\n".join(follow_up_modal["desktopStructure"])
+    assert "order-time" in "\n".join(follow_up_modal["desktopStructure"])
+    assert "follow-up action form" in follow_up_modal["mobileStructure"]
+    assert "not a small detail dialog" in follow_up_modal["desktopRule"]
+    assert "current active round" in follow_up_modal["permissionRule"]
+    assert follow_up_mobile_template["appliesTo"] == ["ClueCenterPage mobile follow-up detail view"]
+    assert "phone, reveal/copy actions, lead status and current round" in follow_up_mobile_template["structure"]
+    assert "full-width save action" in "\n".join(follow_up_mobile_template["structure"])
+    assert "one-column task flow" in follow_up_mobile_template["rule"]
+    assert "disable full phone reveal/copy" in follow_up_mobile_template["permissionRule"]
 
     current_required = [
         "docs/design-system/README.md",
