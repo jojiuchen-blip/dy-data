@@ -151,7 +151,7 @@ async function sendJson<T>(
     params,
   }: {
     body?: unknown;
-    method?: "POST" | "PUT";
+    method?: "DELETE" | "POST" | "PUT";
     params?: QueryParams;
   } = {},
 ): Promise<ApiResponse<T>> {
@@ -469,6 +469,45 @@ function mockClueFollowUpResponse(
   };
 }
 
+function mockDeleteClueFollowUpRecordResponse(
+  followUpRecordId: string,
+): ApiResponse<ClueFollowUpRecord> {
+  for (const records of Object.values(mockFollowUpRecordsByOrder)) {
+    const index = records.findIndex(
+      (record) => record.follow_up_record_id === followUpRecordId,
+    );
+    if (index >= 0) {
+      const [record] = records.splice(index, 1);
+      return {
+        data: record,
+        meta: {
+          generated_at: generatedAt(),
+          source: "mock",
+        },
+      };
+    }
+  }
+
+  for (const detail of Object.values(clueCenterResponses.order_details ?? {})) {
+    const records = detail.data.follow_up_records ?? [];
+    const index = records.findIndex(
+      (record) => record.follow_up_record_id === followUpRecordId,
+    );
+    if (index >= 0) {
+      const [record] = records.splice(index, 1);
+      return {
+        data: record,
+        meta: {
+          generated_at: generatedAt(),
+          source: "mock",
+        },
+      };
+    }
+  }
+
+  throw new ApiRequestError(404);
+}
+
 function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneReveal> {
   const stored = clueCenterResponses.order_details?.[orderId];
   const phoneMasked =
@@ -642,6 +681,20 @@ export function saveClueFollowUp(
         },
       ),
     () => mockClueFollowUpResponse(orderId, payload),
+    { fallbackOnError: false },
+  );
+}
+
+export function deleteClueFollowUpRecord(
+  followUpRecordId: string,
+): Promise<ApiLoadResult<ClueFollowUpRecord>> {
+  return withMockFallback(
+    () =>
+      sendJson<ClueFollowUpRecord>(
+        `/clues/follow-up-records/${encodeURIComponent(followUpRecordId)}`,
+        { method: "DELETE" },
+      ),
+    () => mockDeleteClueFollowUpRecordResponse(followUpRecordId),
     { fallbackOnError: false },
   );
 }

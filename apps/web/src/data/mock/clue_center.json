@@ -33,6 +33,7 @@
       "active_clues": 3,
       "follow_rate": 0.67,
       "follow_success_rate": 0.17,
+      "verified_count": 1,
       "self_store_verify_rate": 0.17,
       "pending_reassign_count": 2
     },

@@ -433,7 +433,6 @@ export interface ClueOverviewFilters {
   product_type?: string;
   province?: string;
   city?: string;
-  verification_status?: string;
 }
 
 export interface ClueFilterMetadata {
@@ -451,6 +450,7 @@ export interface ClueOverviewMetrics {
   active_clues: number;
   follow_rate: number;
   follow_success_rate: number;
+  verified_count: number;
   self_store_verify_rate: number;
   pending_reassign_count: number;
 }

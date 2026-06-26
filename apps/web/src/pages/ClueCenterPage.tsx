@@ -5,8 +5,10 @@ import {
   useState,
   type FormEvent,
   type MouseEvent,
+  type TouchEvent,
 } from "react";
 import {
+  deleteClueFollowUpRecord,
   fetchClueAssignmentRounds,
   fetchClueFilters,
   fetchClueOrderDetail,
@@ -66,8 +68,7 @@ type ClueFilterKey =
   | "assignedDateStart"
   | "assignedDateEnd"
   | "leadStatus"
-  | "productType"
-  | "verificationStatus";
+  | "productType";
 
 interface ActiveClueFilter {
   key: ClueFilterKey;
@@ -309,16 +310,6 @@ function recordsForRound(
   );
 }
 
-function storeScopeLabel(
-  assignedStoreId: string | null | undefined,
-  selectedStoreId: string | null | undefined,
-): string {
-  if (!selectedStoreId || assignedStoreId === selectedStoreId) {
-    return "本店";
-  }
-  return "其他门店";
-}
-
 export function ClueCenterPage({
   currentUser,
   searchParams,
@@ -343,9 +334,6 @@ export function ClueCenterPage({
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
-  const [verificationStatus, setVerificationStatus] = useState(
-    searchParams.get("verification_status") ?? "",
-  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DEFAULT_CLUE_PAGE_SIZE);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -365,8 +353,11 @@ export function ClueCenterPage({
     useState<ClueFollowUpResult>("unreachable");
   const [followNote, setFollowNote] = useState("");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [deletingFollowUpRecordId, setDeletingFollowUpRecordId] =
+    useState<string | null>(null);
   const [savingFollowUp, setSavingFollowUp] = useState(false);
   const detailReturnFocusRef = useRef<HTMLElement | null>(null);
+  const detailTouchStartRef = useRef<{ x: number; y: number } | null>(null);
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
@@ -380,7 +371,6 @@ export function ClueCenterPage({
       product_type: productType,
       province: showStoreLocationFilters ? province : "",
       city: showStoreLocationFilters ? city : "",
-      verification_status: verificationStatus,
     }),
     [
       assignedStoreId,
@@ -391,7 +381,6 @@ export function ClueCenterPage({
       productType,
       province,
       showStoreLocationFilters,
-      verificationStatus,
     ],
   );
 
@@ -437,13 +426,6 @@ export function ClueCenterPage({
     if (productType) {
       chips.push({ key: "productType", label: "商品", value: productType });
     }
-    if (verificationStatus) {
-      chips.push({
-        key: "verificationStatus",
-        label: "核销",
-        value: labelFor(verificationStatus, verificationStatusLabels),
-      });
-    }
     return chips;
   }, [
     assignedDateEnd,
@@ -455,7 +437,6 @@ export function ClueCenterPage({
     productType,
     province,
     showStoreLocationFilters,
-    verificationStatus,
   ]);
 
   const overviewResource = useApiResource(
@@ -469,7 +450,6 @@ export function ClueCenterPage({
       productType,
       province,
       showStoreLocationFilters,
-      verificationStatus,
     ],
     { enabled: !isDetailsView },
   );
@@ -486,7 +466,6 @@ export function ClueCenterPage({
       productType,
       province,
       showStoreLocationFilters,
-      verificationStatus,
       isDetailsView,
     ],
     { enabled: isDetailsView },
@@ -494,6 +473,18 @@ export function ClueCenterPage({
   const overview = overviewResource.data?.data;
   const rows = roundsResource.data?.data.rows ?? [];
   const pagination = roundsResource.data?.data.pagination;
+  const selectedRoundIndex = selectedRound
+    ? rows.findIndex(
+        (row) => row.assignment_round_id === selectedRound.assignment_round_id,
+      )
+    : -1;
+  const currentCluePosition =
+    selectedRoundIndex >= 0
+      ? `第 ${selectedRoundIndex + 1} / ${rows.length} 条`
+      : "";
+  const hasPreviousClue = selectedRoundIndex > 0;
+  const hasNextClue =
+    selectedRoundIndex >= 0 && selectedRoundIndex < rows.length - 1;
   const loading =
     filterResource.loading ||
     (isDetailsView ? roundsResource.loading : overviewResource.loading);
@@ -507,7 +498,6 @@ export function ClueCenterPage({
       : overviewResource.data?.fallbackReason);
   const selectedOrderId = selectedRound?.order_id ?? null;
   const selectedRoundId = selectedRound?.assignment_round_id ?? null;
-  const selectedStoreId = selectedRound?.assigned_store_id ?? null;
   const activeDetailRound = currentDetailRound(
     detail,
     selectedRound,
@@ -530,6 +520,7 @@ export function ClueCenterPage({
     ? canViewFullPhone(activeDetailRound)
     : false;
   const canEditFollowUp = canShowActiveDetailPhone;
+  const canDeleteFollowUpRecords = currentUser.role === "admin";
   const openClueDetail = (
     row: ClueAssignmentRound,
     triggerElement?: HTMLElement | null,
@@ -540,6 +531,21 @@ export function ClueCenterPage({
         ? document.activeElement
         : null);
     setSelectedRound(row);
+  };
+
+  const switchSelectedClue = (direction: -1 | 1) => {
+    const nextIndex = selectedRoundIndex + direction;
+    const nextRound = rows[nextIndex];
+    if (!nextRound) {
+      return;
+    }
+    setSelectedRound(nextRound);
+    setDetail(null);
+    setDetailError(null);
+    setPhoneRevealError(null);
+    setPhoneActionMessage(null);
+    setFollowUpError(null);
+    setDeletingFollowUpRecordId(null);
   };
 
   const closeClueDetail = () => {
@@ -610,6 +616,30 @@ export function ClueCenterPage({
       setPhoneRevealError("完整手机号复制失败");
     } finally {
       setCopyingOrderId(null);
+    }
+  };
+
+  const handleDetailTouchStart = (event: TouchEvent<HTMLDivElement>) => {
+    const touch = event.touches[0];
+    detailTouchStartRef.current = { x: touch.clientX, y: touch.clientY };
+  };
+
+  const handleDetailTouchEnd = (event: TouchEvent<HTMLDivElement>) => {
+    const start = detailTouchStartRef.current;
+    detailTouchStartRef.current = null;
+    const touch = event.changedTouches[0];
+    if (!start || !touch) {
+      return;
+    }
+    const deltaX = touch.clientX - start.x;
+    const deltaY = touch.clientY - start.y;
+    if (Math.abs(deltaX) < 56 || Math.abs(deltaX) < Math.abs(deltaY) * 1.35) {
+      return;
+    }
+    if (deltaX < 0) {
+      switchSelectedClue(1);
+    } else {
+      switchSelectedClue(-1);
     }
   };
 
@@ -753,7 +783,6 @@ export function ClueCenterPage({
     setAssignedDateEnd("");
     setLeadStatus("");
     setProductType("");
-    setVerificationStatus("");
     setPage(1);
   };
 
@@ -773,8 +802,6 @@ export function ClueCenterPage({
       setLeadStatus("");
     } else if (key === "productType") {
       setProductType("");
-    } else if (key === "verificationStatus") {
-      setVerificationStatus("");
     }
   };
 
@@ -812,6 +839,32 @@ export function ClueCenterPage({
       setFollowUpError(error instanceof Error ? error.message : "跟进保存失败");
     } finally {
       setSavingFollowUp(false);
+    }
+  };
+
+  const handleDeleteFollowUpRecord = async (record: ClueFollowUpRecord) => {
+    if (!canDeleteFollowUpRecords || deletingFollowUpRecordId) {
+      return;
+    }
+    const confirmed = window.confirm("确认删除这条跟进历史记录？");
+    if (!confirmed) {
+      return;
+    }
+    setDeletingFollowUpRecordId(record.follow_up_record_id);
+    setFollowUpError(null);
+    setPhoneActionMessage(null);
+    try {
+      await deleteClueFollowUpRecord(record.follow_up_record_id);
+      setPhoneActionMessage("跟进历史已删除");
+      setDetailReloadIndex((current) => current + 1);
+      overviewResource.reload();
+      roundsResource.reload();
+    } catch (error: unknown) {
+      setFollowUpError(
+        error instanceof Error ? error.message : "跟进历史删除失败",
+      );
+    } finally {
+      setDeletingFollowUpRecordId(null);
     }
   };
 
@@ -1042,18 +1095,6 @@ export function ClueCenterPage({
           options={[{ value: "", label: "全部" }, ...optionList(meta?.product_types)]}
           value={productType}
         />
-        <SelectField
-          label="核销状态"
-          onChange={(value) => {
-            setPage(1);
-            setVerificationStatus(value);
-          }}
-          options={[
-            { value: "", label: "全部" },
-            ...optionList(meta?.verification_statuses, verificationStatusLabels),
-          ]}
-          value={verificationStatus}
-        />
         <button className="ghost-button" onClick={resetFilters} type="button">
           清空筛选
         </button>
@@ -1085,15 +1126,16 @@ export function ClueCenterPage({
             value={formatInteger(overview.active_clues)}
           />
           <MetricCard
-            label="跟进比例"
-            meta="已产生跟进行为"
-            value={formatPercent(overview.follow_rate)}
-          />
-          <MetricCard
-            label="跟进成功率"
+            label="线索跟进率"
             meta="成功跟进 / 全部线索"
             tone="amber"
             value={formatPercent(overview.follow_success_rate)}
+          />
+          <MetricCard
+            label="核销数"
+            meta="进入跟进池后已核销"
+            tone="blue"
+            value={formatInteger(overview.verified_count)}
           />
           <MetricCard
             label="核销比例"
@@ -1221,7 +1263,11 @@ export function ClueCenterPage({
           returnFocusRef={detailReturnFocusRef}
           title="线索跟进详情"
         >
-          <div className="clue-followup-detail__body">
+          <div
+            className="clue-followup-detail__body"
+            onTouchEnd={handleDetailTouchEnd}
+            onTouchStart={handleDetailTouchStart}
+          >
             {detailLoading ? (
               <ResourcePanel>正在加载详情...</ResourcePanel>
             ) : detailError ? (
@@ -1411,11 +1457,11 @@ export function ClueCenterPage({
                                     <dd>{formatDateTime(round.assigned_at)}</dd>
                                   </div>
                                   <div>
-                                    <dt>处理范围</dt>
+                                    <dt>跟进门店</dt>
                                     <dd>
-                                      {storeScopeLabel(
-                                        round.assigned_store_id,
-                                        selectedStoreId,
+                                      {displayValue(
+                                        round.assigned_store_name ??
+                                          round.assigned_store_id,
                                       )}
                                     </dd>
                                   </div>
@@ -1448,6 +1494,23 @@ export function ClueCenterPage({
                                             )}
                                           </span>
                                           <p>{displayValue(record.note)}</p>
+                                          {canDeleteFollowUpRecords ? (
+                                            <button
+                                              aria-label="删除跟进历史"
+                                              className="clue-followup-delete-record"
+                                              disabled={
+                                                deletingFollowUpRecordId ===
+                                                record.follow_up_record_id
+                                              }
+                                              onClick={() => {
+                                                void handleDeleteFollowUpRecord(record);
+                                              }}
+                                              title="删除跟进历史"
+                                              type="button"
+                                            >
+                                              <SolarIcon name="trash" size={16} />
+                                            </button>
+                                          ) : null}
                                         </li>
                                       ))}
                                     </ol>
@@ -1471,6 +1534,28 @@ export function ClueCenterPage({
                     </section>
                   </main>
                 </div>
+                <nav
+                  aria-label="切换线索"
+                  className="clue-followup-detail__pager"
+                >
+                  <button
+                    className="ghost-button"
+                    disabled={!hasPreviousClue}
+                    onClick={() => switchSelectedClue(-1)}
+                    type="button"
+                  >
+                    上一条线索
+                  </button>
+                  <span>{currentCluePosition}</span>
+                  <button
+                    className="ghost-button"
+                    disabled={!hasNextClue}
+                    onClick={() => switchSelectedClue(1)}
+                    type="button"
+                  >
+                    下一条线索
+                  </button>
+                </nav>
               </>
             ) : null}
           </div>

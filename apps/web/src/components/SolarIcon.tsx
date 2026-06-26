@@ -20,6 +20,7 @@ import logout3Linear from "@iconify-icons/solar/logout-3-linear";
 import refreshCircleLinear from "@iconify-icons/solar/refresh-circle-linear";
 import settingsMinimalisticLinear from "@iconify-icons/solar/settings-minimalistic-linear";
 import shieldCheckBoldDuotone from "@iconify-icons/solar/shield-check-bold-duotone";
+import trashBinMinimalisticLinear from "@iconify-icons/solar/trash-bin-minimalistic-linear";
 import userCircleLinear from "@iconify-icons/solar/user-circle-linear";
 
 const solarIcons = {
@@ -43,6 +44,7 @@ const solarIcons = {
   rules: settingsMinimalisticLinear,
   settlement: buildings2Linear,
   sync: refreshCircleLinear,
+  trash: trashBinMinimalisticLinear,
   clues: chatRoundDotsBoldDuotone,
   cluesLine: chatRoundDotsLinear,
 } satisfies Record<string, IconifyIcon>;

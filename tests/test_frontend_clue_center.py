@@ -92,7 +92,6 @@ def test_clue_center_does_not_display_douyin_follow_store_as_our_assignment() ->
     assert "分配门店" not in source
     assert "归属门店" not in source
     assert "current_assigned_store_name" not in source
-    assert "assigned_store_name" not in source
 
 
 def test_clue_center_detail_follow_up_layout_and_actions() -> None:
@@ -121,12 +120,29 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "跟进成功" in source
     assert "本次跟进结论/备注" in source
     assert "保存本次跟进" in source
+    assert "canDeleteFollowUpRecords" in source
+    assert 'currentUser.role === "admin"' in source
+    assert "handleDeleteFollowUpRecord" in source
+    assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
+    assert 'aria-label="删除跟进历史"' in source
+    assert 'title="删除跟进历史"' in source
+    assert 'name="trash"' in source
+    assert "clue-followup-detail__pager" in source
+    assert 'aria-label="切换线索"' in source
+    assert "上一条线索" in source
+    assert "下一条线索" in source
+    assert "switchSelectedClue" in source
+    assert "handleDetailTouchStart" in source
+    assert "handleDetailTouchEnd" in source
+    assert "onTouchStart={handleDetailTouchStart}" in source
+    assert "onTouchEnd={handleDetailTouchEnd}" in source
     assert "实时数据" not in source[source.index('title="线索跟进详情"') :]
     assert "当前有效轮次允许查看和复制完整号码" not in source[
         source.index('title="线索跟进详情"') :
     ]
     assert "本轮仍可处理" not in source[source.index('title="线索跟进详情"') :]
     assert "detailRoundLabel" not in source
+    assert "storeScopeLabel" not in source
     assert 'className="clue-followup-toast"' in source
     assert "window.setTimeout" in source
     assert "setPhoneActionMessage(null)" in source
@@ -144,8 +160,11 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "detail.rounds.map" in history_section
     assert "const roundRecords = recordsForRound(" in history_section
     assert "round.assignment_round_id" in history_section
+    assert "跟进门店" in history_section
+    assert "round.assigned_store_name" in history_section
     assert "roundRecords.map" in history_section
     assert "本轮尚未登记跟进结果" in history_section
+    assert "处理范围" not in history_section
     assert "跟进轮次历史" not in history_section
     assert "线索生成时间" not in source[source.index('title="线索跟进详情"') :]
     assert "detailPhoneValue" not in source
@@ -179,6 +198,10 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
         styles_source.index(".clue-followup-toast {") :
         styles_source.index(".clue-followup-detail__grid {")
     ]
+    pager_rules = styles_source[
+        styles_source.index(".clue-followup-detail__pager {") :
+        styles_source.index(".clue-followup-detail__pager span")
+    ]
 
     assert "grid-template-rows: auto minmax(0, 1fr);" in modal_rules
     assert "width: min(1440px, calc(100vw - 48px));" in modal_rules
@@ -196,6 +219,12 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
     assert "position: absolute;" in toast_rules
     assert "border-radius: 999px;" in toast_rules
     assert "pointer-events: none;" in toast_rules
+    assert "grid-template-rows: minmax(0, 1fr) auto;" in styles_source
+    assert "touch-action: pan-y;" in styles_source
+    assert "display: flex;" in pager_rules
+    assert ".clue-followup-detail__pager {\n    display: none;" in mobile_rules
+    assert ".clue-followup-delete-record" in styles_source
+    assert "color: var(--danger);" in styles_source
 
 
 def test_clue_center_filters_follow_store_scope_spec() -> None:
@@ -206,7 +235,6 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "showStoreLocationFilters" in source
     assert "currentUser.role !== \"store\" || currentUser.store_ids.length !== 1" in source
     assert "province" in source
-    assert "verificationStatus" in source
     assert "assigned_store_id" in source
 
     filter_panel_id = source.index('id="clue-filter-panel"')
@@ -218,6 +246,9 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "处理状态" not in filter_bar
     assert "roundStatus" not in filter_bar
     assert "round_status" not in filter_bar
+    assert "核销状态" not in filter_bar
+    assert "verificationStatus" not in filter_bar
+    assert "verification_status" not in filter_bar
     assert filter_bar.count("<SearchableStoreSelect") >= 3
     assert 'placeholder="搜索省份"' in filter_bar
     assert 'placeholder="搜索城市"' in filter_bar
@@ -239,7 +270,6 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             'label="线索生成日期止"',
             'label="线索状态"',
             'label="商品类型"',
-            'label="核销状态"',
             "清空筛选",
             "收起筛选",
         ],
@@ -250,7 +280,32 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     assert "assigned_provinces: string[];" in types_source
     assert "verification_statuses: string[];" in types_source
     assert "province?: string;" in types_source
-    assert "verification_status?: string;" in types_source
+
+
+def test_clue_dashboard_metrics_use_current_business_labels() -> None:
+    source = read_source("pages/ClueCenterPage.tsx")
+    types_source = read_source("types/dashboard.ts")
+
+    metric_section = source[
+        source.index('label="线索总数"') :
+        source.index("</section>", source.index('label="线索总数"'))
+    ]
+
+    assert "verified_count: number;" in types_source
+    assert "跟进比例" not in metric_section
+    assert "跟进成功率" not in metric_section
+    assert_in_order(
+        metric_section,
+        [
+            'label="线索总数"',
+            'label="可跟进线索"',
+            'label="线索跟进率"',
+            'label="核销数"',
+            'label="核销比例"',
+            'label="待处理"',
+        ],
+    )
+    assert "overview.verified_count" in metric_section
 
 
 def test_clue_center_splits_dashboard_and_detail_routes() -> None:
@@ -612,6 +667,7 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     types_source = read_source("types/dashboard.ts")
     client_source = read_source("api/client.ts")
+    icon_source = read_source("components/SolarIcon.tsx")
 
     assert "export interface ClueFollowUpRecord" in types_source
     assert "follow_up_record_id: string;" in types_source
@@ -625,6 +681,12 @@ def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     assert "/follow-up" in client_source
     assert "sendJson<ClueFollowUpRecord>" in client_source
     assert "body: payload" in client_source
+    assert "deleteClueFollowUpRecord" in client_source
+    assert 'method?: "DELETE" | "POST" | "PUT";' in client_source
+    assert "/clues/follow-up-records/" in client_source
+    assert "mockDeleteClueFollowUpRecordResponse" in client_source
+    assert "trashBinMinimalisticLinear" in icon_source
+    assert "trash: trashBinMinimalisticLinear" in icon_source
 
 
 def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:

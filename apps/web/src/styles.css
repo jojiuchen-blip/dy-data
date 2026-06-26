@@ -2408,12 +2408,14 @@ a.metric-card:hover,
 .clue-followup-detail__body {
   display: grid;
   position: relative;
+  grid-template-rows: minmax(0, 1fr) auto;
   min-height: 0;
   height: 100%;
   gap: 12px;
   overflow: hidden;
   padding: 16px;
   background: var(--surface-subtle);
+  touch-action: pan-y;
 }
 
 .clue-followup-toast {
@@ -2444,6 +2446,25 @@ a.metric-card:hover,
   grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
   overflow: hidden;
+}
+
+.clue-followup-detail__pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+}
+
+.clue-followup-detail__pager span {
+  min-width: 96px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  text-align: center;
 }
 
 .clue-followup-detail__main,
@@ -2655,7 +2676,7 @@ a.metric-card:hover,
 
 .clue-followup-round-records li {
   display: grid;
-  grid-template-columns: 132px 96px minmax(0, 1fr);
+  grid-template-columns: 132px 96px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: start;
   border-radius: 6px;
@@ -2678,6 +2699,31 @@ a.metric-card:hover,
 .clue-followup-round-records p {
   margin: 0;
   overflow-wrap: anywhere;
+}
+
+.clue-followup-delete-record {
+  display: inline-grid;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  place-items: center;
+  justify-self: end;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--danger);
+  cursor: pointer;
+}
+
+.clue-followup-delete-record:hover:not(:disabled) {
+  border-color: var(--danger-token-35);
+  background: var(--surface-danger);
+}
+
+.clue-followup-delete-record:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .clue-followup-side-section {
@@ -4036,10 +4082,15 @@ a.metric-card:hover,
   }
 
   .clue-followup-detail__body {
+    grid-template-rows: minmax(0, 1fr);
     height: auto;
     min-height: 0;
     overflow: visible;
     padding: 12px;
+  }
+
+  .clue-followup-detail__pager {
+    display: none;
   }
 
   .clue-followup-detail__grid {
