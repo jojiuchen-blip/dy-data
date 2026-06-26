@@ -256,6 +256,21 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
     assert ".workspace-title" not in styles_source
 
 
+def test_workspace_pages_use_full_width_frame_by_default() -> None:
+    styles_source = read_source("styles.css")
+
+    workspace_frame_rules = styles_source[
+        styles_source.index(".workspace-shell .page-frame {") :
+        styles_source.index(".workspace-shell .page-frame--data-workspace {")
+    ]
+
+    assert "width: 100%;" in workspace_frame_rules
+    assert "max-width: none;" in workspace_frame_rules
+    assert "margin: 0;" in workspace_frame_rules
+    assert "margin: 0 auto;" not in workspace_frame_rules
+    assert "width: min(1460px, 100%);" not in workspace_frame_rules
+
+
 def test_shell_has_feedback_submission_entry() -> None:
     shell_source = read_source("components/Shell.tsx")
     styles_source = read_source("styles.css")

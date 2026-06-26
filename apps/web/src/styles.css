@@ -320,8 +320,10 @@ a {
 }
 
 .workspace-shell .page-frame {
-  width: min(1460px, 100%);
-  padding: 24px 28px 34px;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 18px 28px 28px;
 }
 
 .workspace-shell .page-frame--data-workspace {
