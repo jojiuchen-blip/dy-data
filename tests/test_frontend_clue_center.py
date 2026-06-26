@@ -127,6 +127,10 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     ]
     assert "本轮仍可处理" not in source[source.index('title="线索跟进详情"') :]
     assert "detailRoundLabel" not in source
+    assert 'className="clue-followup-toast"' in source
+    assert "window.setTimeout" in source
+    assert "setPhoneActionMessage(null)" in source
+    assert 'className="resource-notice"\\n                    role="status"\\n                  >\\n                    {phoneActionMessage}' not in source
 
     summary_start = source.index("clue-followup-contact-status")
     side_start = source.index("clue-followup-detail__side")
@@ -171,6 +175,10 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
         tablet_rules.index(".clue-followup-detail__grid {") :
         tablet_rules.index(".clue-followup-detail__main")
     ]
+    toast_rules = styles_source[
+        styles_source.index(".clue-followup-toast {") :
+        styles_source.index(".clue-followup-detail__grid {")
+    ]
 
     assert "grid-template-rows: auto minmax(0, 1fr);" in modal_rules
     assert "width: min(1440px, calc(100vw - 48px));" in modal_rules
@@ -185,6 +193,9 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
     assert '"summary"' in tablet_grid_rules
     assert '"side"' in tablet_grid_rules
     assert '"main"' in tablet_grid_rules
+    assert "position: absolute;" in toast_rules
+    assert "border-radius: 999px;" in toast_rules
+    assert "pointer-events: none;" in toast_rules
 
 
 def test_clue_center_filters_follow_store_scope_spec() -> None:

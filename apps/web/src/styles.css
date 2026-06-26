@@ -2407,12 +2407,31 @@ a.metric-card:hover,
 
 .clue-followup-detail__body {
   display: grid;
+  position: relative;
   min-height: 0;
   height: 100%;
   gap: 12px;
   overflow: hidden;
   padding: 16px;
   background: var(--surface-subtle);
+}
+
+.clue-followup-toast {
+  position: absolute;
+  z-index: 3;
+  top: 14px;
+  right: 16px;
+  max-width: min(320px, calc(100% - 32px));
+  border: 1px solid var(--green-token-30);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--green);
+  box-shadow: var(--shadow-soft);
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1.35;
+  pointer-events: none;
 }
 
 .clue-followup-detail__grid {

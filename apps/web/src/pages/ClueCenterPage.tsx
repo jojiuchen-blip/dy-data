@@ -735,6 +735,16 @@ export function ClueCenterPage({
     setPhoneActionMessage(null);
   }, [selectedOrderId]);
 
+  useEffect(() => {
+    if (!phoneActionMessage) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setPhoneActionMessage(null);
+    }, 1800);
+    return () => window.clearTimeout(timer);
+  }, [phoneActionMessage]);
+
   const resetFilters = () => {
     setProvince("");
     setCity("");
@@ -1234,7 +1244,7 @@ export function ClueCenterPage({
                   <div
                     aria-atomic="true"
                     aria-live="polite"
-                    className="resource-notice"
+                    className="clue-followup-toast"
                     role="status"
                   >
                     {phoneActionMessage}
