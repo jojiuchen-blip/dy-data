@@ -2259,13 +2259,25 @@ a.metric-card:hover,
 
 .clue-followup-detail {
   grid-template-rows: auto minmax(0, 1fr);
-  max-height: min(92dvh, calc(100dvh - 32px));
+  width: min(1440px, calc(100vw - 48px));
+  height: min(920px, calc(100dvh - 32px));
+  min-height: 680px;
+  max-height: min(920px, calc(100dvh - 32px));
   overflow: hidden;
+}
+
+.clue-followup-detail .ui-dialog__header {
+  padding: 18px 20px;
+  background: var(--surface-cream-96);
+}
+
+.clue-followup-detail .ui-dialog__header h2 {
+  font-size: 24px;
 }
 
 .clue-followup-detail .ui-dialog__body {
   min-height: 0;
-  overflow-y: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
@@ -2395,48 +2407,76 @@ a.metric-card:hover,
 
 .clue-followup-detail__body {
   display: grid;
+  min-height: 0;
+  height: 100%;
   gap: 12px;
-  padding: 18px 20px 20px;
+  overflow: hidden;
+  padding: 16px;
+  background: var(--surface-subtle);
 }
 
 .clue-followup-detail__grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(300px, 0.75fr);
-  align-items: start;
+  min-height: 0;
+  grid-template-areas:
+    "summary side"
+    "main side";
+  grid-template-columns: minmax(0, 1fr) 380px;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 16px;
+  overflow: hidden;
 }
 
 .clue-followup-detail__main,
 .clue-followup-detail__side {
   display: grid;
   min-width: 0;
+  min-height: 0;
+  align-content: start;
   gap: 14px;
+  overflow: auto;
+  scrollbar-gutter: stable;
 }
 
-.clue-followup-detail__summary {
+.clue-followup-detail__main {
+  grid-area: main;
+}
+
+.clue-followup-detail__side {
+  grid-area: side;
+}
+
+.clue-followup-contact-status {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-area: summary;
+  grid-template-columns: minmax(0, 2.2fr) minmax(240px, 0.9fr);
   gap: 10px;
 }
 
-.clue-followup-detail__summary > div,
+.clue-followup-contact-card,
+.clue-followup-status-card,
 .clue-followup-product,
 .clue-followup-side-section {
   display: grid;
   align-content: start;
-  gap: 7px;
+  gap: 8px;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 12px;
-  background: var(--surface-subtle);
+  padding: 13px;
+  background: var(--surface);
 }
 
-.clue-followup-detail__summary > div {
-  min-height: 72px;
+.clue-followup-contact-card {
+  min-height: 96px;
 }
 
-.clue-followup-detail__summary span,
-.clue-followup-product span,
+.clue-followup-status-card {
+  min-height: 96px;
+}
+
+.clue-followup-contact-card > span,
+.clue-followup-status-card > span,
+.clue-followup-product dt,
 .clue-followup-history-fields dt,
 .clue-followup-note span {
   color: var(--muted);
@@ -2444,21 +2484,78 @@ a.metric-card:hover,
   font-weight: 750;
 }
 
-.clue-followup-detail__summary strong,
-.clue-followup-product strong,
-.clue-followup-history-fields dd {
+.phone-reveal--detail {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.phone-reveal--detail .mono-cell {
   min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 850;
+}
+
+.phone-reveal--detail.phone-reveal--disabled {
+  grid-template-columns: 1fr;
+}
+
+.phone-reveal--detail .phone-action-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+}
+
+.phone-reveal--detail .phone-reveal__reason {
+  white-space: normal;
 }
 
 .clue-followup-product {
-  background: var(--surface);
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+}
+
+.clue-followup-order-fields {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.clue-followup-order-fields > div {
+  display: grid;
+  gap: 5px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+  min-width: 0;
+}
+
+.clue-followup-order-fields__product {
+  grid-column: span 2;
+}
+
+.clue-followup-product dd,
+.clue-followup-history-fields dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .clue-followup-history {
   display: grid;
   gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface);
 }
 
 .clue-followup-section-title {
@@ -2471,7 +2568,7 @@ a.metric-card:hover,
 .clue-followup-section-title h3,
 .clue-followup-side-section h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.35;
 }
 
@@ -2487,40 +2584,26 @@ a.metric-card:hover,
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
-  border-left: 4px solid var(--line-strong);
   border-radius: 8px;
   padding: 12px;
-  background: var(--surface);
+  background: var(--surface-subtle);
 }
 
 .clue-followup-timeline__item.is-current {
   border-color: var(--green-accent-30);
-  border-left-color: var(--green);
   background: var(--green-soft);
 }
 
 .clue-followup-timeline__head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 
-.clue-followup-timeline__head > div {
-  display: grid;
-  min-width: 0;
-  gap: 3px;
-}
-
-.clue-followup-timeline__head span:first-child {
-  color: var(--green);
-  font-size: 12px;
-  font-weight: 800;
-}
-
 .clue-followup-timeline__head strong {
   color: var(--ink);
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .clue-followup-history-fields {
@@ -2539,16 +2622,8 @@ a.metric-card:hover,
 
 .clue-followup-round-records {
   display: grid;
-  gap: 8px;
   border-top: 1px solid var(--line);
   padding-top: 10px;
-}
-
-.clue-followup-round-records h4 {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
 }
 
 .clue-followup-round-records ol {
@@ -2561,18 +2636,12 @@ a.metric-card:hover,
 
 .clue-followup-round-records li {
   display: grid;
-  gap: 5px;
-  border: 1px solid var(--line);
+  grid-template-columns: 132px 96px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
   border-radius: 6px;
   padding: 9px 10px;
-  background: var(--surface-warm);
-}
-
-.clue-followup-round-records li > div {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  background: var(--surface);
 }
 
 .clue-followup-round-records strong {
@@ -2593,7 +2662,7 @@ a.metric-card:hover,
 }
 
 .clue-followup-side-section {
-  background: var(--surface);
+  gap: 12px;
 }
 
 .clue-followup-form {
@@ -2618,16 +2687,15 @@ a.metric-card:hover,
 
 .clue-followup-form label {
   display: flex;
-  min-height: 36px;
+  min-height: 44px;
   align-items: center;
-  gap: 7px;
+  gap: 9px;
   border: 1px solid var(--line);
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 7px 10px;
   background: var(--surface);
   cursor: pointer;
-  font-size: 13px;
-  font-weight: 750;
+  font-weight: 850;
 }
 
 .clue-followup-form input[type="radio"] {
@@ -2656,6 +2724,11 @@ a.metric-card:hover,
 .clue-followup-note textarea:focus {
   border-color: var(--green);
   box-shadow: 0 0 0 3px var(--green-vivid-14);
+}
+
+.clue-followup-form .primary-button {
+  width: 100%;
+  min-height: 44px;
 }
 
 .table-input {
@@ -3671,10 +3744,22 @@ a.metric-card:hover,
   }
 
   .clue-followup-detail__grid {
+    grid-template-areas:
+      "summary"
+      "side"
+      "main";
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    overflow: auto;
   }
 
-  .clue-followup-detail__summary,
+  .clue-followup-detail__main,
+  .clue-followup-detail__side {
+    overflow: visible;
+  }
+
+  .clue-followup-contact-status,
+  .clue-followup-order-fields,
   .clue-followup-history-fields {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -3896,8 +3981,23 @@ a.metric-card:hover,
   }
 
   .clue-followup-detail {
+    width: 100%;
     height: calc(100dvh - 24px);
+    min-height: 0;
     max-height: calc(100dvh - 24px);
+  }
+
+  .clue-followup-detail .ui-dialog__header {
+    align-items: flex-start;
+    padding: 14px;
+  }
+
+  .clue-followup-detail .ui-dialog__header h2 {
+    font-size: 22px;
+  }
+
+  .clue-followup-detail .ui-dialog__body {
+    overflow-y: auto;
   }
 
   .clue-detail-modal__header,
@@ -3906,20 +4006,50 @@ a.metric-card:hover,
     flex-direction: column;
   }
 
-  .clue-followup-detail__header,
   .clue-followup-timeline__head {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .clue-followup-detail__actions {
-    width: 100%;
-    justify-content: space-between;
-  }
-
   .modal-close {
     width: var(--touch-target);
     height: var(--touch-target);
+  }
+
+  .clue-followup-detail__body {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+    padding: 12px;
+  }
+
+  .clue-followup-detail__grid {
+    gap: 12px;
+    overflow: visible;
+  }
+
+  .clue-followup-contact-status,
+  .clue-followup-order-fields,
+  .clue-followup-history-fields,
+  .clue-followup-round-records li,
+  .phone-reveal--detail {
+    grid-template-columns: 1fr;
+  }
+
+  .clue-followup-order-fields__product {
+    grid-column: auto;
+  }
+
+  .phone-reveal--detail {
+    align-items: start;
+  }
+
+  .phone-reveal--detail .phone-action-button {
+    display: inline-grid;
+  }
+
+  .phone-reveal--detail:not(.phone-reveal--disabled) {
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .clue-followup-form label {
@@ -3931,9 +4061,7 @@ a.metric-card:hover,
   }
 
   .clue-detail-summary,
-  .clue-flow-fields,
-  .clue-followup-detail__summary,
-  .clue-followup-history-fields {
+  .clue-flow-fields {
     grid-template-columns: 1fr;
   }
 

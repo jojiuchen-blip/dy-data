@@ -14,7 +14,7 @@ import {
   fetchClueOverview,
   saveClueFollowUp,
 } from "../api/client";
-import { FilterChip, StatusChip } from "../components/Chips";
+import { CountPill, FilterChip, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -87,6 +87,13 @@ const verificationStatusLabels: Record<string, string> = {
   unverified: "未核销",
   self_store_verified: "本店核销",
   other_store_verified: "非本店核销",
+};
+
+const orderStatusLabels: Record<string, string> = {
+  active: "履约中",
+  converted: "已核销",
+  refunded: "已退款",
+  closed: "已关闭",
 };
 
 const followResultLabels: Record<string, string> = {
@@ -234,6 +241,13 @@ function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
   return "不可跟进";
 }
 
+function verificationStatusText(row: ClueAssignmentRound): string {
+  if (!row.verified_store_id) {
+    return "未核销";
+  }
+  return row.is_self_store_verified ? "本店核销" : "非本店核销";
+}
+
 function formatInvalidatedAt(row: ClueAssignmentRound): string {
   const status = getStoreDisplayStatus(row);
   if (status === "超期失效") {
@@ -254,6 +268,13 @@ function invalidationReason(row: ClueAssignmentRound): string {
     return labelFor(row.reassign_reason, reassignReasonLabels);
   }
   return "-";
+}
+
+function roundTransitionReason(row: ClueAssignmentRound): string {
+  if (row.reassign_reason) {
+    return labelFor(row.reassign_reason, reassignReasonLabels);
+  }
+  return invalidationReason(row);
 }
 
 function clueStatusTone(status: StoreClueStatus): "amber" | "blue" | "green" | "neutral" {
@@ -334,7 +355,6 @@ export function ClueCenterPage({
   const [detail, setDetail] = useState<ClueOrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [detailSource, setDetailSource] = useState("");
   const [detailReloadIndex, setDetailReloadIndex] = useState(0);
   const [revealedPhones, setRevealedPhones] = useState<Record<string, string>>({});
   const [revealingOrderId, setRevealingOrderId] = useState<string | null>(null);
@@ -500,6 +520,12 @@ export function ClueCenterPage({
     detail?.product_name ?? activeDetailRound?.product_name ?? "-";
   const detailProductType =
     detail?.product_type ?? activeDetailRound?.product_type ?? "-";
+  const detailOrderStatus = activeDetailRound
+    ? labelFor(activeDetailRound.order_current_status, orderStatusLabels)
+    : "-";
+  const detailVerificationStatus = activeDetailRound
+    ? verificationStatusText(activeDetailRound)
+    : "-";
   const canShowActiveDetailPhone = activeDetailRound
     ? canViewFullPhone(activeDetailRound)
     : false;
@@ -520,7 +546,6 @@ export function ClueCenterPage({
     setSelectedRound(null);
     setDetail(null);
     setDetailError(null);
-    setDetailSource("");
     setDetailLoading(false);
     setPhoneRevealError(null);
     setPhoneActionMessage(null);
@@ -590,7 +615,7 @@ export function ClueCenterPage({
 
   const renderPhoneContact = (
     row: ClueAssignmentRound,
-    mode: "table" | "panel" | "card" = "table",
+    mode: "table" | "panel" | "card" | "detail" = "table",
   ) => {
     const mayRevealFullPhone = canViewFullPhone(row);
     const revealedPhone = mayRevealFullPhone ? revealedPhones[row.order_id] : undefined;
@@ -676,7 +701,6 @@ export function ClueCenterPage({
     let cancelled = false;
     setDetail(null);
     setDetailError(null);
-    setDetailSource("");
     setDetailLoading(true);
 
     fetchClueOrderDetail(selectedOrderId)
@@ -685,7 +709,6 @@ export function ClueCenterPage({
           return;
         }
         setDetail(result.data);
-        setDetailSource(result.usingMock ? "演示数据" : "实时数据");
       })
       .catch((error: unknown) => {
         if (cancelled) {
@@ -1182,16 +1205,11 @@ export function ClueCenterPage({
         <Dialog
           bodyClassName="ui-dialog__body--flush"
           closeLabel="关闭线索详情"
-          description={
-            <span className="source-pill">
-              {detailLoading ? "加载中" : detailSource || "实时数据"}
-            </span>
-          }
           onClose={closeClueDetail}
           open={isDetailsView && Boolean(selectedRound)}
           panelClassName="clue-detail-modal clue-followup-detail"
           returnFocusRef={detailReturnFocusRef}
-          title="跟进详情"
+          title="线索跟进详情"
         >
           <div className="clue-followup-detail__body">
             {detailLoading ? (
@@ -1201,7 +1219,7 @@ export function ClueCenterPage({
                 线索详情暂不可用：{detailError}
               </ResourcePanel>
             ) : detail && activeDetailRound ? (
-              <div className="clue-followup-detail__body">
+              <>
                 {phoneRevealError ? (
                   <div
                     aria-atomic="true"
@@ -1233,144 +1251,24 @@ export function ClueCenterPage({
                   </div>
                 ) : null}
                 <div className="clue-followup-detail__grid">
-                  <main className="clue-followup-detail__main">
-                    <section className="clue-followup-detail__summary">
-                      <div>
-                        <span>线索状态</span>
-                        <StatusChip tone={clueStatusTone(activeDetailStatus ?? "不可跟进")}>
-                          {activeDetailStatus ?? "不可跟进"}
-                        </StatusChip>
-                      </div>
-                      <div>
-                        <span>订单编号</span>
-                        <strong className="mono-cell">{detail.order_id}</strong>
-                      </div>
-                      <div>
-                        <span>商品类型</span>
-                        <strong>{displayValue(detailProductType)}</strong>
-                      </div>
-                      <div>
-                        <span>线索生成时间</span>
-                        <strong>{formatDateTime(activeDetailRound.assigned_at)}</strong>
-                      </div>
-                      <div>
-                        <span>跟进轮次</span>
-                        <strong>{roundLabel(activeDetailRound.round_no)}</strong>
-                      </div>
-                    </section>
-
-                    <section className="clue-followup-product">
-                      <span>完整商品名称</span>
-                      <strong>{displayValue(detailProductName)}</strong>
-                    </section>
-
-                    <section className="clue-followup-history">
-                      <div className="clue-followup-section-title">
-                        <h3>跟进历史</h3>
-                      </div>
-                      {detail.rounds.length ? (
-                        <ol className="clue-followup-timeline">
-                          {detail.rounds.map((round) => {
-                            const status = getStoreDisplayStatus(round);
-                            const roundRecords = recordsForRound(
-                              detail,
-                              round.assignment_round_id,
-                            );
-                            return (
-                              <li
-                                className={
-                                  round.is_current_round
-                                    ? "clue-followup-timeline__item clue-followup-round-card is-current"
-                                    : "clue-followup-timeline__item clue-followup-round-card"
-                                }
-                                key={round.assignment_round_id}
-                              >
-                                <div className="clue-followup-timeline__head">
-                                  <div>
-                                    <span>
-                                      {roundLabel(round.round_no)} ·{" "}
-                                      {storeScopeLabel(
-                                        round.assigned_store_id,
-                                        selectedStoreId,
-                                      )}
-                                    </span>
-                                    <strong>{status}</strong>
-                                  </div>
-                                  {round.is_current_round ? (
-                                    <StatusChip tone="green">当前</StatusChip>
-                                  ) : null}
-                                </div>
-                                <dl className="clue-followup-history-fields">
-                                  <div>
-                                    <dt>分配时间</dt>
-                                    <dd>{formatDateTime(round.assigned_at)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>处理范围</dt>
-                                    <dd>
-                                      {storeScopeLabel(
-                                        round.assigned_store_id,
-                                        selectedStoreId,
-                                      )}
-                                    </dd>
-                                  </div>
-                                  <div>
-                                    <dt>再分配原因</dt>
-                                    <dd>{invalidationReason(round)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>跟进时间</dt>
-                                    <dd>{formatDateTime(round.followed_at)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>跟进结果</dt>
-                                    <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>本轮失效时间</dt>
-                                    <dd>{displayValue(formatInvalidatedAt(round))}</dd>
-                                  </div>
-                                </dl>
-                                <div className="clue-followup-round-records">
-                                  <h4>本轮跟进记录</h4>
-                                  {roundRecords.length ? (
-                                    <ol>
-                                      {roundRecords.map((record) => (
-                                        <li key={record.follow_up_record_id}>
-                                          <div>
-                                            <strong>
-                                              {labelFor(
-                                                record.follow_result,
-                                                followResultLabels,
-                                              )}
-                                            </strong>
-                                            <span>{formatDateTime(record.created_at)}</span>
-                                          </div>
-                                          <p>{displayValue(record.note)}</p>
-                                        </li>
-                                      ))}
-                                    </ol>
-                                  ) : (
-                                    <p>暂无本轮跟进记录</p>
-                                  )}
-                                </div>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      ) : (
-                        <ResourcePanel>暂无跟进历史。</ResourcePanel>
-                      )}
-                    </section>
-                  </main>
+                  <section
+                    aria-label="手机号与状态"
+                    className="clue-followup-contact-status"
+                  >
+                    <div className="clue-followup-contact-card">
+                      <span>联系方式 · 号码操作</span>
+                      {renderPhoneContact(activeDetailRound, "detail")}
+                    </div>
+                    <div className="clue-followup-status-card">
+                      <span>线索状态</span>
+                      <StatusChip tone={clueStatusTone(activeDetailStatus ?? "不可跟进")}>
+                        {activeDetailStatus ?? "不可跟进"}
+                      </StatusChip>
+                    </div>
+                  </section>
 
                   <aside className="clue-followup-detail__side">
-                    <section className="clue-followup-side-section">
-                      <h3>号码操作</h3>
-                      {renderPhoneContact(activeDetailRound, "panel")}
-                    </section>
-
-                    <section className="clue-followup-side-section">
+                    <section className="clue-followup-side-section clue-followup-action-section">
                       <h3>跟进操作</h3>
                       {canEditFollowUp ? (
                         <form className="clue-followup-form" onSubmit={handleSaveFollowUp}>
@@ -1420,7 +1318,7 @@ export function ClueCenterPage({
                             disabled={savingFollowUp}
                             type="submit"
                           >
-                            {savingFollowUp ? "保存中" : "保存跟进"}
+                            {savingFollowUp ? "保存中" : "保存本次跟进"}
                           </button>
                         </form>
                       ) : (
@@ -1430,8 +1328,140 @@ export function ClueCenterPage({
                       )}
                     </section>
                   </aside>
+
+                  <main className="clue-followup-detail__main">
+                    <section className="clue-followup-product clue-followup-order">
+                      <div className="clue-followup-section-title">
+                        <h3>商品与订单</h3>
+                      </div>
+                      <dl className="clue-followup-order-fields">
+                        <div>
+                          <dt>订单编号</dt>
+                          <dd className="mono-cell">{detail.order_id}</dd>
+                        </div>
+                        <div className="clue-followup-order-fields__product">
+                          <dt>完整商品名称</dt>
+                          <dd>{displayValue(detailProductName)}</dd>
+                        </div>
+                        <div>
+                          <dt>商品类型</dt>
+                          <dd>{displayValue(detailProductType)}</dd>
+                        </div>
+                        <div>
+                          <dt>订单状态</dt>
+                          <dd>{detailOrderStatus}</dd>
+                        </div>
+                        <div>
+                          <dt>下单时间</dt>
+                          <dd>{formatDateTime(activeDetailRound.assigned_at)}</dd>
+                        </div>
+                        <div>
+                          <dt>核销状态</dt>
+                          <dd>{detailVerificationStatus}</dd>
+                        </div>
+                      </dl>
+                    </section>
+
+                    <section className="clue-followup-history">
+                      <div className="clue-followup-section-title">
+                        <h3>线索跟进历史</h3>
+                        <CountPill>
+                          {detail.rounds.length}轮 · {detail.follow_up_records.length}条记录
+                        </CountPill>
+                      </div>
+                      {detail.rounds.length ? (
+                        <ol className="clue-followup-timeline">
+                          {detail.rounds.map((round) => {
+                            const status = getStoreDisplayStatus(round);
+                            const roundRecords = recordsForRound(
+                              detail,
+                              round.assignment_round_id,
+                            );
+                            return (
+                              <li
+                                className={
+                                  round.is_current_round
+                                    ? "clue-followup-timeline__item clue-followup-round-card is-current"
+                                    : "clue-followup-timeline__item clue-followup-round-card"
+                                }
+                                key={round.assignment_round_id}
+                              >
+                                <div className="clue-followup-timeline__head">
+                                  <strong>
+                                    {roundLabel(round.round_no)}
+                                    {round.is_current_round ? " / 当前" : ""}
+                                  </strong>
+                                  <StatusChip tone={clueStatusTone(status)}>
+                                    {status}
+                                  </StatusChip>
+                                </div>
+                                <dl className="clue-followup-history-fields">
+                                  <div>
+                                    <dt>分配时间</dt>
+                                    <dd>{formatDateTime(round.assigned_at)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>处理范围</dt>
+                                    <dd>
+                                      {storeScopeLabel(
+                                        round.assigned_store_id,
+                                        selectedStoreId,
+                                      )}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt>再分配原因</dt>
+                                    <dd>{roundTransitionReason(round)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>失效时间</dt>
+                                    <dd>{displayValue(formatInvalidatedAt(round))}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>最近结果</dt>
+                                    <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
+                                  </div>
+                                </dl>
+                                <div className="clue-followup-round-records">
+                                  {roundRecords.length ? (
+                                    <ol>
+                                      {roundRecords.map((record) => (
+                                        <li
+                                          className="clue-followup-round-record"
+                                          key={record.follow_up_record_id}
+                                        >
+                                          <strong>{formatDateTime(record.created_at)}</strong>
+                                          <span>
+                                            {labelFor(
+                                              record.follow_result,
+                                              followResultLabels,
+                                            )}
+                                          </span>
+                                          <p>{displayValue(record.note)}</p>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <ol>
+                                      <li className="clue-followup-round-record">
+                                        <strong>暂无记录</strong>
+                                        <span>待处理</span>
+                                        <p>本轮尚未登记跟进结果。</p>
+                                      </li>
+                                    </ol>
+                                  )}
+                                </div>
+                              </li>
+                            );
+                          })}
+                        </ol>
+                      ) : (
+                        <ResourcePanel>暂无跟进历史。</ResourcePanel>
+                      )}
+                    </section>
+                  </main>
                 </div>
-              </div>
+              </>
             ) : null}
           </div>
         </Dialog>

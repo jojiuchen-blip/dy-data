@@ -98,14 +98,19 @@ def test_clue_center_does_not_display_douyin_follow_store_as_our_assignment() ->
 def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 
-    assert "跟进详情" in source
+    assert 'title="线索跟进详情"' in source
     assert "clue-followup-detail__grid" in source
+    assert "clue-followup-contact-status" in source
     assert "clue-followup-detail__main" in source
     assert "clue-followup-detail__side" in source
-    assert "号码操作" in source
-    assert "跟进历史" in source
+    assert "联系方式 · 号码操作" in source
+    assert "手机号与状态" in source
+    assert "线索跟进历史" in source
+    assert "商品与订单" in source
+    assert "下单时间" in source
     assert "clue-followup-round-card" in source
     assert "clue-followup-round-records" in source
+    assert "clue-followup-round-record" in source
     assert "recordsForRound" in source
     assert "跟进操作" in source
     assert 'value="unreachable"' in source
@@ -115,25 +120,30 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert 'value="success"' in source
     assert "跟进成功" in source
     assert "本次跟进结论/备注" in source
-    assert "保存跟进" in source
+    assert "保存本次跟进" in source
+    assert "实时数据" not in source[source.index('title="线索跟进详情"') :]
+    assert "当前有效轮次允许查看和复制完整号码" not in source[
+        source.index('title="线索跟进详情"') :
+    ]
+    assert "本轮仍可处理" not in source[source.index('title="线索跟进详情"') :]
+    assert "detailRoundLabel" not in source
 
-    summary_start = source.index("clue-followup-detail__summary")
-    history_start = source.index("跟进历史")
+    summary_start = source.index("clue-followup-contact-status")
     side_start = source.index("clue-followup-detail__side")
-    assert summary_start < history_start < side_start
+    order_start = source.index("clue-followup-product clue-followup-order")
+    history_start = source.index("线索跟进历史")
+    assert summary_start < side_start < order_start < history_start
     history_section = source[
         source.index("clue-followup-history") :
-        source.index("clue-followup-detail__side")
+        source.index("</main>", source.index("clue-followup-history"))
     ]
     assert "detail.rounds.map" in history_section
     assert "const roundRecords = recordsForRound(" in history_section
     assert "round.assignment_round_id" in history_section
     assert "roundRecords.map" in history_section
-    assert "暂无本轮跟进记录" in history_section
+    assert "本轮尚未登记跟进结果" in history_section
     assert "跟进轮次历史" not in history_section
-    summary_end = source.index("</section>", summary_start)
-    summary = source[summary_start:summary_end]
-    assert "联系方式" not in summary
+    assert "线索生成时间" not in source[source.index('title="线索跟进详情"') :]
     assert "detailPhoneValue" not in source
 
 
@@ -148,20 +158,33 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
         styles_source.index(".clue-followup-detail .ui-dialog__body {") :
         styles_source.index(".clue-detail-body")
     ]
+    tablet_rules = styles_source[
+        styles_source.index("@media (max-width: 920px)") :
+        styles_source.index("@media (max-width: 640px)")
+    ]
     mobile_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
     mobile_detail_rules = mobile_rules[
         mobile_rules.index(".clue-followup-detail {") :
         mobile_rules.index(".clue-detail-modal__header")
     ]
+    tablet_grid_rules = tablet_rules[
+        tablet_rules.index(".clue-followup-detail__grid {") :
+        tablet_rules.index(".clue-followup-detail__main")
+    ]
 
     assert "grid-template-rows: auto minmax(0, 1fr);" in modal_rules
-    assert "max-height: min(92dvh, calc(100dvh - 32px));" in modal_rules
+    assert "width: min(1440px, calc(100vw - 48px));" in modal_rules
+    assert "height: min(920px, calc(100dvh - 32px));" in modal_rules
+    assert "max-height: min(920px, calc(100dvh - 32px));" in modal_rules
     assert "min-height: 0;" in body_rules
-    assert "overflow-y: auto;" in body_rules
+    assert "overflow: hidden;" in body_rules
     assert "overscroll-behavior: contain;" in body_rules
     assert "-webkit-overflow-scrolling: touch;" in body_rules
     assert "height: calc(100dvh - 24px);" in mobile_detail_rules
     assert "max-height: calc(100dvh - 24px);" in mobile_detail_rules
+    assert '"summary"' in tablet_grid_rules
+    assert '"side"' in tablet_grid_rules
+    assert '"main"' in tablet_grid_rules
 
 
 def test_clue_center_filters_follow_store_scope_spec() -> None:
@@ -246,7 +269,6 @@ def test_clue_center_removes_repeated_engineering_labels() -> None:
         "Clue detail list",
         "Clue dashboard",
         "Follow-up detail",
-        "线索跟进详情",
         "<h2>线索明细</h2>",
     ]:
         assert removed_label not in page_source
@@ -629,7 +651,7 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     ]
     assert "const canShowActiveDetailPhone" in detail_phone_body
     assert "detailPhoneValue" not in detail_phone_body
-    assert "{renderPhoneContact(activeDetailRound, \"panel\")}" in source
+    assert '{renderPhoneContact(activeDetailRound, "detail")}' in source
 
 
 def test_clue_mock_data_covers_active_followed_lost_and_history() -> None:
