@@ -7,6 +7,7 @@ __pycache__/
 /diagnostics/
 /exports/
 /output_refund/
+/output/
 /logs/
 /runs/
 /local_exports/
