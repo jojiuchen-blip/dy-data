@@ -259,6 +259,22 @@ def test_clue_rounds_can_filter_by_location_store_and_verification_status(
         "order-1"
     ]
 
+    pending_follow = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={"store_display_status": "待跟进"},
+    )
+    assert pending_follow.status_code == 200
+    assert [row["order_id"] for row in pending_follow.json()["data"]["rows"]] == [
+        "order-2"
+    ]
+
+    converted = client.get(
+        "/api/v1/clues/overview",
+        params={"store_display_status": "已核销"},
+    )
+    assert converted.status_code == 200
+    assert converted.json()["data"]["total_clues"] == 1
+
     other_province = client.get(
         "/api/v1/clues/overview",
         params={"province": "Beijing", "verification_status": "unverified"},

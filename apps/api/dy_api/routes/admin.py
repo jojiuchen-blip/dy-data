@@ -39,6 +39,8 @@ from dy_api.schemas import (
     NonCommissionOwnerAccountBulkUpdateResult,
     NonCommissionOwnerAccountListData,
     Pagination,
+    ProductTypeVisibilityData,
+    ProductTypeVisibilityUpdate,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -445,6 +447,45 @@ def rebuild_clues(
         rebuilt_order_count=stats.get("eligible_orders", 0),
         rebuilt_round_count=stats.get("assignment_rounds", 0),
     )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/product-type-visibility")
+def get_product_type_visibility(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = ProductTypeVisibilityData(**store.product_type_visibility())
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/product-type-visibility")
+def update_product_type_visibility(
+    payload: ProductTypeVisibilityUpdate,
+    username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    if payload.enabled and not payload.visible_product_types:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one product type is required when visibility control is enabled",
+        )
+    data = ProductTypeVisibilityData(
+        **store.save_product_type_visibility(
+            enabled=payload.enabled,
+            visible_product_types=payload.visible_product_types,
+            updated_by=username,
+        )
+    )
+    store.session.commit()
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

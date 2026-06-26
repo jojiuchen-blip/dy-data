@@ -26,12 +26,14 @@ try:
         ClueReassignRuleSetting,
         DimNonCommissionOwnerAccount,
         DimSkuProductRule,
+        ProductTypeVisibilitySetting,
     )
     from apps.api.dy_api.rule_utils import normalize_owner_account_name
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     ClueReassignRuleSetting = None  # type: ignore[assignment]
     DimNonCommissionOwnerAccount = None  # type: ignore[assignment]
     DimSkuProductRule = None  # type: ignore[assignment]
+    ProductTypeVisibilitySetting = None  # type: ignore[assignment]
     normalize_owner_account_name = None  # type: ignore[assignment]
 
 try:
@@ -270,6 +272,18 @@ def _in_clause_params(prefix: str, values: Iterable[str]) -> tuple[str, dict[str
     return ", ".join(f":{key}" for key in params), params
 
 
+def _normalize_product_type_list(values: Iterable[Any]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        product_type = " ".join(_to_str(value).strip().split())
+        if not product_type or product_type == "all" or product_type in seen:
+            continue
+        normalized.append(product_type)
+        seen.add(product_type)
+    return normalized
+
+
 def _parse_filter_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value.astimezone(SHANGHAI_TZ) if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
@@ -350,17 +364,127 @@ class DashboardDataStore:
             )
         ]
 
-    def list_product_types(self) -> list[str]:
+    def _all_product_types(self) -> list[str]:
         product_types: set[str] = set()
         for sql in (
             "SELECT DISTINCT product_type FROM dim_sku_product_rules WHERE product_type IS NOT NULL",
             "SELECT DISTINCT product_type FROM settlement_order_details WHERE product_type IS NOT NULL",
+            "SELECT DISTINCT product_type FROM clue_center_orders WHERE product_type IS NOT NULL",
         ):
             for row in self._execute(sql):
                 product_type = _to_str(row.get("product_type")).strip()
                 if product_type and product_type != "all":
                     product_types.add(product_type)
-        return ["all", *sorted(product_types)]
+        return sorted(product_types)
+
+    def _product_type_visibility_setting(self):
+        if self.session is None or ProductTypeVisibilitySetting is None:
+            return None
+        return self.session.get(ProductTypeVisibilitySetting, "global")
+
+    def _visible_product_types(self) -> tuple[str, ...] | None:
+        setting = self._product_type_visibility_setting()
+        if setting is None or not setting.enabled:
+            return None
+        values = setting.visible_product_types
+        if isinstance(values, str):
+            try:
+                values = json.loads(values)
+            except json.JSONDecodeError:
+                values = []
+        if not isinstance(values, list):
+            values = []
+        return tuple(_normalize_product_type_list(values))
+
+    def _visible_product_type_clause(
+        self,
+        column: str,
+        params: dict[str, Any],
+        *,
+        prefix: str = "visible_product_type",
+    ) -> str:
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is None:
+            return ""
+        placeholders, visible_params = _in_clause_params(prefix, visible_product_types)
+        if not placeholders:
+            return " AND 1 = 0"
+        params.update(visible_params)
+        return f" AND {column} IN ({placeholders})"
+
+    def _is_product_type_visible(self, product_type: str) -> bool:
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is None:
+            return True
+        product_type = _to_str(product_type).strip()
+        if not product_type or product_type == "all":
+            return True
+        return product_type in set(visible_product_types)
+
+    def list_product_types(self) -> list[str]:
+        product_types = self._all_product_types()
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is not None:
+            allowed = set(visible_product_types)
+            product_types = [product_type for product_type in product_types if product_type in allowed]
+        return ["all", *product_types]
+
+    def product_type_visibility(self) -> dict[str, Any]:
+        setting = self._product_type_visibility_setting()
+        visible_product_types: list[str] = []
+        enabled = False
+        updated_at = None
+        updated_by = None
+        if setting is not None:
+            enabled = bool(setting.enabled)
+            raw_values = setting.visible_product_types
+            if isinstance(raw_values, str):
+                try:
+                    raw_values = json.loads(raw_values)
+                except json.JSONDecodeError:
+                    raw_values = []
+            if not isinstance(raw_values, list):
+                raw_values = []
+            visible_product_types = _normalize_product_type_list(raw_values)
+            updated_at = setting.updated_at
+            updated_by = setting.updated_by
+        available = sorted(set(self._all_product_types()) | set(visible_product_types))
+        return {
+            "enabled": enabled,
+            "visible_product_types": visible_product_types,
+            "available_product_types": available,
+            "updated_at": updated_at,
+            "updated_by": updated_by,
+        }
+
+    def save_product_type_visibility(
+        self,
+        *,
+        enabled: bool,
+        visible_product_types: list[str],
+        updated_by: str,
+    ) -> dict[str, Any]:
+        if self.session is None or ProductTypeVisibilitySetting is None:
+            return self.product_type_visibility()
+        visible_product_types = _normalize_product_type_list(visible_product_types)
+        now = generated_at()
+        setting = self.session.get(ProductTypeVisibilitySetting, "global")
+        if setting is None:
+            setting = ProductTypeVisibilitySetting(
+                setting_key="global",
+                enabled=enabled,
+                visible_product_types=visible_product_types,
+                updated_by=updated_by,
+                updated_at=now,
+            )
+            self.session.add(setting)
+        else:
+            setting.enabled = enabled
+            setting.visible_product_types = visible_product_types
+            setting.updated_by = updated_by
+            setting.updated_at = now
+        self.session.flush()
+        return self.product_type_visibility()
 
     def list_sale_months(self) -> list[str]:
         expr = self._month_expr("sale_time")
@@ -672,6 +796,67 @@ class DashboardDataStore:
     def store_ranking(
         self, *, month: str, product_type: str, limit: int
     ) -> list[dict[str, Any]]:
+        visible_product_types = self._visible_product_types()
+        requested_product_type = _to_str(product_type).strip() or "all"
+        params: dict[str, Any] = {"month": month, "limit": limit}
+        if requested_product_type != "all":
+            if not self._is_product_type_visible(requested_product_type):
+                return []
+            product_sql = "product_type = :product_type"
+            params["product_type"] = requested_product_type
+            rows = self._execute(
+                f"""
+                SELECT store_id, store_name, sales_order_count,
+                       self_sold_self_verified_count,
+                       self_sold_other_verified_count,
+                       other_sold_self_verified_count,
+                       self_verify_income_cent,
+                       effective_commission_income_cent
+                FROM agg_store_ranking
+                WHERE month = :month AND {product_sql}
+                ORDER BY sales_order_count DESC,
+                         effective_commission_income_cent DESC,
+                         store_id
+                LIMIT :limit
+                """,
+                params,
+            )
+            return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
+
+        if visible_product_types is not None:
+            placeholders, product_params = _in_clause_params(
+                "ranking_visible_product", visible_product_types
+            )
+            if not placeholders:
+                return []
+            params.update(product_params)
+            rows = self._execute(
+                f"""
+                SELECT store_id,
+                       COALESCE(MAX(NULLIF(store_name, '')), store_id) AS store_name,
+                       COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
+                       COALESCE(SUM(self_sold_self_verified_count), 0)
+                           AS self_sold_self_verified_count,
+                       COALESCE(SUM(self_sold_other_verified_count), 0)
+                           AS self_sold_other_verified_count,
+                       COALESCE(SUM(other_sold_self_verified_count), 0)
+                           AS other_sold_self_verified_count,
+                       COALESCE(SUM(self_verify_income_cent), 0) AS self_verify_income_cent,
+                       COALESCE(SUM(effective_commission_income_cent), 0)
+                           AS effective_commission_income_cent
+                FROM agg_store_ranking
+                WHERE month = :month
+                  AND product_type IN ({placeholders})
+                GROUP BY store_id
+                ORDER BY sales_order_count DESC,
+                         effective_commission_income_cent DESC,
+                         store_id
+                LIMIT :limit
+                """,
+                params,
+            )
+            return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
+
         rows = self._execute(
             """
             SELECT store_id, store_name, sales_order_count,
@@ -687,21 +872,49 @@ class DashboardDataStore:
                      store_id
             LIMIT :limit
             """,
-            {"month": month, "product_type": product_type, "limit": limit},
+            {"month": month, "product_type": "all", "limit": limit},
         )
         return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
 
     def store_ranking_totals(self, *, month: str, product_type: str) -> dict[str, Any]:
+        visible_product_types = self._visible_product_types()
+        requested_product_type = _to_str(product_type).strip() or "all"
+        params: dict[str, Any] = {"month": month}
+        if requested_product_type != "all":
+            if not self._is_product_type_visible(requested_product_type):
+                return {
+                    "sales_order_count": 0,
+                    "self_verify_income_cent": 0,
+                    "effective_commission_income_cent": 0,
+                }
+            product_sql = "product_type = :product_type"
+            params["product_type"] = requested_product_type
+        elif visible_product_types is not None:
+            placeholders, product_params = _in_clause_params(
+                "ranking_total_visible_product", visible_product_types
+            )
+            if not placeholders:
+                return {
+                    "sales_order_count": 0,
+                    "self_verify_income_cent": 0,
+                    "effective_commission_income_cent": 0,
+                }
+            params.update(product_params)
+            product_sql = f"product_type IN ({placeholders})"
+        else:
+            product_sql = "product_type = :product_type"
+            params["product_type"] = "all"
+
         rows = self._execute(
-            """
+            f"""
             SELECT COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
                    COALESCE(SUM(self_verify_income_cent), 0) AS self_verify_income_cent,
                    COALESCE(SUM(effective_commission_income_cent), 0)
                        AS effective_commission_income_cent
             FROM agg_store_ranking
-            WHERE month = :month AND product_type = :product_type
+            WHERE month = :month AND {product_sql}
             """,
-            {"month": month, "product_type": product_type},
+            params,
         )
         row = rows[0] if rows else {}
         return {
@@ -732,18 +945,42 @@ class DashboardDataStore:
     def monthly_settlement(
         self, *, store_id: str, month: str, product_type: str
     ) -> dict[str, Any]:
+        requested_product_type = _to_str(product_type).strip() or "all"
+        visible_product_types = self._visible_product_types()
+        summary_params: dict[str, Any] = {"store_id": store_id, "month": month}
+        if requested_product_type != "all":
+            if not self._is_product_type_visible(requested_product_type):
+                summary_product_sql = "1 = 0"
+            else:
+                summary_product_sql = "product_type = :product_type"
+                summary_params["product_type"] = requested_product_type
+        elif visible_product_types is not None:
+            placeholders, product_params = _in_clause_params(
+                "monthly_visible_product", visible_product_types
+            )
+            if placeholders:
+                summary_product_sql = f"product_type IN ({placeholders})"
+                summary_params.update(product_params)
+            else:
+                summary_product_sql = "1 = 0"
+        else:
+            summary_product_sql = "product_type = :product_type"
+            summary_params["product_type"] = "all"
+
         summary = self._execute(
-            """
-            SELECT estimated_receivable_commission_cent,
-                   commissionable_total_cent,
-                   estimated_payable_commission_cent
+            f"""
+            SELECT COALESCE(SUM(estimated_receivable_commission_cent), 0)
+                       AS estimated_receivable_commission_cent,
+                   COALESCE(SUM(commissionable_total_cent), 0)
+                       AS commissionable_total_cent,
+                   COALESCE(SUM(estimated_payable_commission_cent), 0)
+                       AS estimated_payable_commission_cent
             FROM agg_store_monthly_settlement
             WHERE store_id = :store_id
               AND month = :month
-              AND product_type = :product_type
-            LIMIT 1
+              AND {summary_product_sql}
             """,
-            {"store_id": store_id, "month": month, "product_type": product_type},
+            summary_params,
         )
         metrics = (
             self._clean_metrics(summary[0])
@@ -758,17 +995,17 @@ class DashboardDataStore:
         return {
             "store": self.get_store(store_id),
             "month": month,
-            "product_type": product_type,
+            "product_type": requested_product_type,
             "metrics": metrics,
             "tables": {
                 "receivable_commissions": self._receivable_rows(
-                    store_id, month, product_type
+                    store_id, month, requested_product_type
                 ),
                 "payable_commissions": self._payable_rows(
-                    store_id, month, product_type
+                    store_id, month, requested_product_type
                 ),
                 "non_commission_orders": self._non_commission_rows(
-                    store_id, month, product_type
+                    store_id, month, requested_product_type
                 ),
             },
         }
@@ -834,10 +1071,26 @@ class DashboardDataStore:
 
     def clue_filters(self, scope_store_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
         round_scope_sql, round_scope_params = self._store_scope_clause(
-            "assigned_store_id", scope_store_ids
+            "r.assigned_store_id", scope_store_ids
         )
-        order_scope_sql = self._order_scope_exists_clause(scope_store_ids)
+        order_scope_sql = self._order_scope_exists_clause(
+            scope_store_ids, order_ref="c.order_id"
+        )
         order_scope_params = self._order_scope_params(scope_store_ids)
+        round_visibility_params: dict[str, Any] = {}
+        round_visibility_sql = self._visible_product_type_clause(
+            "c.product_type",
+            round_visibility_params,
+            prefix="clue_filter_round_product",
+        )
+        order_visibility_params: dict[str, Any] = {}
+        order_visibility_sql = self._visible_product_type_clause(
+            "c.product_type",
+            order_visibility_params,
+            prefix="clue_filter_order_product",
+        )
+        round_params = {**round_scope_params, **round_visibility_params}
+        order_params = {**order_scope_params, **order_visibility_params}
         assigned_stores = [
             {
                 "store_id": _to_str(row.get("store_id")),
@@ -845,80 +1098,88 @@ class DashboardDataStore:
             }
             for row in self._execute(
                 f"""
-                SELECT DISTINCT assigned_store_id AS store_id,
-                                assigned_store_name AS store_name
-                FROM clue_assignment_rounds
-                WHERE assigned_store_id IS NOT NULL
-                  AND assigned_store_id != ''
+                SELECT DISTINCT r.assigned_store_id AS store_id,
+                                r.assigned_store_name AS store_name
+                FROM clue_assignment_rounds r
+                JOIN clue_center_orders c ON c.order_id = r.order_id
+                WHERE r.assigned_store_id IS NOT NULL
+                  AND r.assigned_store_id != ''
                   {round_scope_sql}
-                ORDER BY assigned_store_name, assigned_store_id
+                  {round_visibility_sql}
+                ORDER BY r.assigned_store_name, r.assigned_store_id
                 """,
-                round_scope_params,
+                round_params,
             )
         ]
         assigned_cities = [
             _to_str(row.get("assigned_city"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT assigned_city
-                FROM clue_center_orders
-                WHERE assigned_city IS NOT NULL AND assigned_city != ''
+                SELECT DISTINCT c.assigned_city
+                FROM clue_center_orders c
+                WHERE c.assigned_city IS NOT NULL AND c.assigned_city != ''
                   {order_scope_sql}
-                ORDER BY assigned_city
+                  {order_visibility_sql}
+                ORDER BY c.assigned_city
                 """,
-                order_scope_params,
+                order_params,
             )
         ]
         assigned_provinces = [
             _to_str(row.get("assigned_province"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT assigned_province
-                FROM clue_center_orders
-                WHERE assigned_province IS NOT NULL AND assigned_province != ''
+                SELECT DISTINCT c.assigned_province
+                FROM clue_center_orders c
+                WHERE c.assigned_province IS NOT NULL AND c.assigned_province != ''
                   {order_scope_sql}
-                ORDER BY assigned_province
+                  {order_visibility_sql}
+                ORDER BY c.assigned_province
                 """,
-                order_scope_params,
+                order_params,
             )
         ]
         product_types = [
             _to_str(row.get("product_type"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT product_type
-                FROM clue_center_orders
-                WHERE product_type IS NOT NULL AND product_type != ''
+                SELECT DISTINCT c.product_type
+                FROM clue_center_orders c
+                WHERE c.product_type IS NOT NULL AND c.product_type != ''
                   {order_scope_sql}
-                ORDER BY product_type
+                  {order_visibility_sql}
+                ORDER BY c.product_type
                 """,
-                order_scope_params,
+                order_params,
             )
         ]
         lead_statuses = [
             _to_str(row.get("lead_status"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT lead_status
-                FROM clue_center_orders
-                WHERE lead_status IS NOT NULL AND lead_status != ''
+                SELECT DISTINCT c.lead_status
+                FROM clue_center_orders c
+                WHERE c.lead_status IS NOT NULL AND c.lead_status != ''
                   {order_scope_sql}
-                ORDER BY lead_status
+                  {order_visibility_sql}
+                ORDER BY c.lead_status
                 """,
-                order_scope_params,
+                order_params,
             )
         ]
         round_statuses = [
             _to_str(row.get("round_status"))
             for row in self._execute(
                 f"""
-                SELECT DISTINCT round_status
-                FROM clue_assignment_rounds
-                WHERE round_status IS NOT NULL AND round_status != ''
+                SELECT DISTINCT r.round_status
+                FROM clue_assignment_rounds r
+                JOIN clue_center_orders c ON c.order_id = r.order_id
+                WHERE r.round_status IS NOT NULL AND r.round_status != ''
                   {round_scope_sql}
-                ORDER BY round_status
+                  {round_visibility_sql}
+                ORDER BY r.round_status
                 """,
-                round_scope_params,
+                round_params,
             )
         ]
         return {
@@ -1331,6 +1592,8 @@ class DashboardDataStore:
             return "not_found", None
         if follow_result not in FOLLOW_UP_RESULTS:
             return "conflict", None
+        if not self._clue_order_product_visible(order_id):
+            return "not_found", None
 
         row = self._requested_operation_round(order_id, assignment_round_id)
         if row is None:
@@ -1611,6 +1874,8 @@ class DashboardDataStore:
         order_id = _to_str(order_id).strip()
         if not order_id:
             return None
+        if not self._clue_order_product_visible(order_id):
+            return None
         row = self._current_operation_round(order_id)
         if row is None:
             return None
@@ -1755,10 +2020,13 @@ class DashboardDataStore:
     def _product_type_clause(
         self, product_type: str, params: dict[str, Any]
     ) -> str:
+        product_type = _to_str(product_type).strip()
         if product_type and product_type != "all":
+            if not self._is_product_type_visible(product_type):
+                return " AND 1 = 0"
             params["product_type"] = product_type
             return " AND product_type = :product_type"
-        return ""
+        return self._visible_product_type_clause("product_type", params)
 
     def _receivable_rows(
         self, store_id: str, month: str, product_type: str
@@ -1889,6 +2157,8 @@ class DashboardDataStore:
         order_id: str,
         scope_store_ids: tuple[str, ...] | None,
     ) -> bool:
+        if not self._clue_order_product_visible(order_id):
+            return False
         if scope_store_ids is None:
             return True
         placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
@@ -1906,14 +2176,44 @@ class DashboardDataStore:
         )
         return bool(rows)
 
+    def _clue_order_product_visible(self, order_id: str) -> bool:
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is None:
+            return True
+        rows = self._execute(
+            """
+            SELECT product_type
+            FROM clue_center_orders
+            WHERE order_id = :order_id
+            LIMIT 1
+            """,
+            {"order_id": order_id},
+        )
+        if not rows:
+            return False
+        product_type = _to_str(rows[0].get("product_type")).strip()
+        return product_type in set(visible_product_types)
+
     def _detail_where(self, filters: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
 
         product_type = _to_str(filters.get("product_type"))
         if product_type and product_type != "all":
-            clauses.append("product_type = :product_type")
+            clauses.append("settlement_order_details.product_type = :product_type")
             params["product_type"] = product_type
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is not None:
+            placeholders, visible_params = _in_clause_params(
+                "detail_visible_product", visible_product_types
+            )
+            if placeholders:
+                clauses.append(
+                    f"settlement_order_details.product_type IN ({placeholders})"
+                )
+                params.update(visible_params)
+            else:
+                clauses.append("1 = 0")
 
         for key in ("sale_store_id", "verify_store_id", "relation_type"):
             value = filters.get(key)
@@ -1982,6 +2282,24 @@ class DashboardDataStore:
             if value and value != "all":
                 clauses.append(f"{column} = :{key}")
                 params[key] = value
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is not None:
+            placeholders, visible_params = _in_clause_params(
+                "clue_visible_product", visible_product_types
+            )
+            if placeholders:
+                clauses.append(f"c.product_type IN ({placeholders})")
+                params.update(visible_params)
+            else:
+                clauses.append("1 = 0")
+
+        store_display_status = _to_str(filters.get("store_display_status")).strip()
+        if store_display_status and store_display_status != "all":
+            clauses.append(
+                f"{self._store_display_status_sql(include_round=include_round)} "
+                "= :store_display_status"
+            )
+            params["store_display_status"] = store_display_status
 
         round_status = _to_str(filters.get("round_status")).strip()
         if round_status and round_status != "all":
@@ -2107,6 +2425,27 @@ class DashboardDataStore:
         if lead_status == "active" and round_status == "active_unfollowed":
             return "待跟进"
         return "不可跟进"
+
+    def _store_display_status_sql(self, *, include_round: bool) -> str:
+        round_status_column = "r.round_status" if include_round else "c.current_round_status"
+        follow_result_column = "r.follow_result" if include_round else "c.follow_result"
+        return f"""
+            CASE
+                WHEN c.lead_status = 'converted' THEN '已核销'
+                WHEN c.lead_status = 'refunded' THEN '已退款'
+                WHEN {round_status_column} = 'expired_pending_reassign' THEN '超期失效'
+                WHEN {round_status_column} = 'failed_pending_reassign'
+                  OR COALESCE({follow_result_column}, 'pending') IN ('lost', 'failed')
+                THEN '主动战败'
+                WHEN c.lead_status = 'active'
+                  AND {round_status_column} = 'active_followed'
+                THEN '已跟进'
+                WHEN c.lead_status = 'active'
+                  AND {round_status_column} = 'active_unfollowed'
+                THEN '待跟进'
+                ELSE '不可跟进'
+            END
+        """
 
     def _clean_follow_up_record(self, row: dict[str, Any]) -> dict[str, Any]:
         return {

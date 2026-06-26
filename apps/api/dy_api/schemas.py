@@ -502,6 +502,31 @@ class ClueRebuildResult(BaseModel):
     rebuilt_round_count: int = 0
 
 
+class ProductTypeVisibilityData(BaseModel):
+    enabled: bool = False
+    visible_product_types: list[str] = Field(default_factory=list)
+    available_product_types: list[str] = Field(default_factory=list)
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+
+
+class ProductTypeVisibilityUpdate(BaseModel):
+    enabled: bool = False
+    visible_product_types: list[str] = Field(default_factory=list, max_length=100)
+
+    @field_validator("visible_product_types")
+    def normalize_product_types(cls, values: list[str]) -> list[str]:
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for value in values:
+            product_type = " ".join(str(value).strip().split())
+            if not product_type or product_type == "all" or product_type in seen:
+                continue
+            normalized.append(product_type)
+            seen.add(product_type)
+        return normalized
+
+
 class StoreRankingRow(BaseModel):
     rank: int
     store_id: str
