@@ -10,7 +10,14 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import DimStore  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    DimAwemeAccount,
+    DimStore,
+    DimStorePoiMapping,
+    User,
+    UserStoreScope,
+)
+from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 
@@ -138,3 +145,85 @@ def test_admin_can_create_global_viewer_without_store_scopes(client: TestClient)
     )
     assert login.status_code == 200
     assert login.json()["data"]["role"] == "viewer"
+
+
+def test_admin_can_list_prepared_unactivated_stores_and_search(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store-3",
+                store_name="Store Three",
+                certified_subject_name="Subject Three",
+                is_active=True,
+            ),
+            DimStore(
+                store_id="store-disabled",
+                store_name="Store Disabled",
+                certified_subject_name="Subject Disabled",
+                is_active=False,
+            ),
+            DimAwemeAccount(
+                account_id="account-2",
+                nickname="Store Two Account",
+                store_id="store-2",
+                binding_status="active",
+            ),
+            DimStorePoiMapping(
+                store_id="store-1",
+                poi_id="poi-1",
+                poi_name="Store One POI",
+                mapping_source="test",
+            ),
+            DimStorePoiMapping(
+                store_id="store-2",
+                poi_id="poi-2",
+                poi_name="Store Two POI",
+                mapping_source="test",
+            ),
+            DimStorePoiMapping(
+                store_id="store-3",
+                poi_id="poi-3",
+                poi_name="Store Three POI",
+                mapping_source="test",
+            ),
+            User(
+                user_id="activated-store-1",
+                username="store-one",
+                external_account_id="store-1",
+                display_name="Store One Account",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            UserStoreScope(user_id="activated-store-1", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+    _login_admin(client)
+
+    response = client.get("/api/v1/admin/accounts/unactivated-stores")
+
+    assert response.status_code == 200
+    rows = response.json()["data"]["rows"]
+    assert [row["store_id"] for row in rows] == ["store-3", "store-2"]
+    assert rows[1]["account_ids"] == ["account-2", "store-2"]
+    assert rows[1]["poi_ids"] == ["poi-2"]
+    assert all(row["store_id"] != "store-disabled" for row in rows)
+
+    by_poi = client.get(
+        "/api/v1/admin/accounts/unactivated-stores",
+        params={"q": "poi-2"},
+    )
+    assert by_poi.status_code == 200
+    assert [row["store_id"] for row in by_poi.json()["data"]["rows"]] == ["store-2"]
+
+    by_account = client.get(
+        "/api/v1/admin/accounts/unactivated-stores",
+        params={"q": "account-2"},
+    )
+    assert by_account.status_code == 200
+    assert [row["store_id"] for row in by_account.json()["data"]["rows"]] == ["store-2"]

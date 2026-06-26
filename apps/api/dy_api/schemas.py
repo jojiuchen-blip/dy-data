@@ -76,6 +76,19 @@ class AccountListData(BaseModel):
     rows: list[AccountRow]
 
 
+class UnactivatedStoreAccountRow(BaseModel):
+    store_id: str
+    store_name: str = ""
+    certified_subject_name: str = ""
+    account_ids: list[str] = Field(default_factory=list)
+    poi_ids: list[str] = Field(default_factory=list)
+    poi_names: list[str] = Field(default_factory=list)
+
+
+class UnactivatedStoreAccountListData(BaseModel):
+    rows: list[UnactivatedStoreAccountRow]
+
+
 class AccountUpsertRequest(BaseModel):
     username: str
     display_name: str

@@ -3,6 +3,7 @@ import {
   createAccount,
   fetchAccounts,
   fetchFilterMeta,
+  fetchUnactivatedAccountStores,
   resetManagedAccountPassword,
   updateAccount,
 } from "../api/client";
@@ -13,6 +14,7 @@ import type {
   AccountRow,
   AccountUpsertPayload,
   StoreOption,
+  UnactivatedStoreAccountRow,
   UserRole,
   UserStatus,
 } from "../types/dashboard";
@@ -86,15 +88,24 @@ function storesLabel(account: AccountRow): string {
     .join("、");
 }
 
+function idListLabel(values: string[]): string {
+  return values.length ? values.join("、") : "-";
+}
+
 export function AdminAccountsPage() {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [stores, setStores] = useState<StoreOption[]>([]);
+  const [unactivatedStores, setUnactivatedStores] = useState<
+    UnactivatedStoreAccountRow[]
+  >([]);
+  const [unactivatedQuery, setUnactivatedQuery] = useState("");
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [draft, setDraft] = useState<AccountUpsertPayload>(accountDraft());
   const [resetTarget, setResetTarget] = useState<AccountRow | null>(null);
   const [resetPassword, setResetPassword] = useState("");
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState("");
   const [loading, setLoading] = useState(true);
+  const [unactivatedLoading, setUnactivatedLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [statusText, setStatusText] = useState("");
 
@@ -105,16 +116,25 @@ export function AdminAccountsPage() {
 
   const loadData = () => {
     setLoading(true);
+    setUnactivatedLoading(true);
     setStatusText("");
-    Promise.all([fetchAccounts(), fetchFilterMeta()])
-      .then(([accountResponse, filterResponse]) => {
+    Promise.all([
+      fetchAccounts(),
+      fetchFilterMeta(),
+      fetchUnactivatedAccountStores(),
+    ])
+      .then(([accountResponse, filterResponse, unactivatedResponse]) => {
         setAccounts(accountResponse.data.rows);
         setStores(filterResponse.data.stores);
+        setUnactivatedStores(unactivatedResponse.data.rows);
       })
       .catch(() => {
         setStatusText("账号数据暂时无法读取，请确认当前账号具有管理员权限。");
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        setLoading(false);
+        setUnactivatedLoading(false);
+      });
   };
 
   useEffect(loadData, []);
@@ -137,6 +157,81 @@ export function AdminAccountsPage() {
     setDraft(accountDraft(account));
     setStatusText("");
   };
+
+  const handleUnactivatedSearch = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    setUnactivatedLoading(true);
+    setStatusText("");
+    try {
+      const response = await fetchUnactivatedAccountStores(
+        unactivatedQuery.trim(),
+      );
+      setUnactivatedStores(response.data.rows);
+    } catch {
+      setStatusText("未激活门店暂时无法读取，请稍后重试。");
+    } finally {
+      setUnactivatedLoading(false);
+    }
+  };
+
+  const resetUnactivatedSearch = async () => {
+    setUnactivatedQuery("");
+    setUnactivatedLoading(true);
+    setStatusText("");
+    try {
+      const response = await fetchUnactivatedAccountStores();
+      setUnactivatedStores(response.data.rows);
+    } catch {
+      setStatusText("未激活门店暂时无法读取，请稍后重试。");
+    } finally {
+      setUnactivatedLoading(false);
+    }
+  };
+
+  const unactivatedStoreColumns: Column<UnactivatedStoreAccountRow>[] = [
+    {
+      key: "store",
+      title: "门店",
+      align: "left",
+      render: (store) => (
+        <>
+          <strong>{store.store_name || store.store_id}</strong>
+          <br />
+          <span className="mono-cell">{store.store_id}</span>
+        </>
+      ),
+    },
+    {
+      key: "subject",
+      title: "认证主体",
+      align: "left",
+      render: (store) => store.certified_subject_name || "-",
+    },
+    {
+      key: "account_ids",
+      title: "所属账户ID",
+      align: "left",
+      render: (store) => (
+        <span className="mono-cell">{idListLabel(store.account_ids)}</span>
+      ),
+    },
+    {
+      key: "poi_ids",
+      title: "POI ID",
+      align: "left",
+      render: (store) => (
+        <span className="mono-cell">{idListLabel(store.poi_ids)}</span>
+      ),
+    },
+    {
+      key: "poi_names",
+      title: "POI 名称",
+      align: "left",
+      render: (store) => idListLabel(store.poi_names),
+    },
+  ];
 
   const accountColumns: Column<AccountRow>[] = [
     {
@@ -441,6 +536,49 @@ export function AdminAccountsPage() {
             </form>
           ) : null}
         </aside>
+      </section>
+
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <h2>未激活门店</h2>
+            <p>
+              共 {unactivatedStores.length} 个已准备但尚未激活账号的门店，可按所属账户ID/POI ID查询。
+            </p>
+          </div>
+          {unactivatedLoading ? <span className="source-pill">加载中</span> : null}
+        </div>
+        <form
+          className="filter-bar filter-bar--compact admin-tools"
+          onSubmit={handleUnactivatedSearch}
+        >
+          <label className="filter-field">
+            <span>所属账户ID/POI ID</span>
+            <input
+              onChange={(event) => setUnactivatedQuery(event.target.value)}
+              placeholder="输入门店账户ID或POI ID"
+              value={unactivatedQuery}
+            />
+          </label>
+          <button className="primary-button" disabled={unactivatedLoading} type="submit">
+            查询
+          </button>
+          <button
+            className="ghost-button"
+            disabled={unactivatedLoading}
+            onClick={resetUnactivatedSearch}
+            type="button"
+          >
+            重置
+          </button>
+        </form>
+        <DataTable
+          columns={unactivatedStoreColumns}
+          emptyText={unactivatedLoading ? "正在加载未激活门店..." : "暂无未激活门店"}
+          rows={unactivatedStores}
+          state={unactivatedLoading ? "loading" : "ready"}
+          tableClassName="account-table"
+        />
       </section>
     </div>
   );

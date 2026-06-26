@@ -50,6 +50,19 @@ export interface AccountListData {
   rows: AccountRow[];
 }
 
+export interface UnactivatedStoreAccountRow {
+  store_id: string;
+  store_name: string;
+  certified_subject_name: string;
+  account_ids: string[];
+  poi_ids: string[];
+  poi_names: string[];
+}
+
+export interface UnactivatedStoreAccountListData {
+  rows: UnactivatedStoreAccountRow[];
+}
+
 export interface AccountUpsertPayload {
   username: string;
   display_name: string;

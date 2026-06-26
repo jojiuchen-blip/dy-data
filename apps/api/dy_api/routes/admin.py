@@ -8,7 +8,15 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
 from sqlalchemy import delete, func, or_, select, text
 
-from apps.api.dy_api.models import DimStore, JobRun, User, UserFeedbackSubmission, UserStoreScope
+from apps.api.dy_api.models import (
+    DimAwemeAccount,
+    DimStore,
+    DimStorePoiMapping,
+    JobRun,
+    User,
+    UserFeedbackSubmission,
+    UserStoreScope,
+)
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
@@ -53,6 +61,8 @@ from dy_api.schemas import (
     SyncScheduleData,
     SyncWorkerStatusData,
     SyncWindowData,
+    UnactivatedStoreAccountListData,
+    UnactivatedStoreAccountRow,
     JobRun as JobRunData,
     dump_model,
 )
@@ -98,6 +108,22 @@ def list_accounts(
     store = _require_available_store(store)
     users = store.session.execute(select(User).order_by(User.created_at, User.username)).scalars().all()
     data = AccountListData(rows=[_account_row(store.session, user) for user in users])
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/accounts/unactivated-stores")
+def list_unactivated_store_accounts(
+    q: str | None = None,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = UnactivatedStoreAccountListData(
+        rows=_unactivated_store_account_rows(store.session, q=q)
+    )
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -605,6 +631,98 @@ def _account_row(session, user: User) -> AccountRow:
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
+
+
+def _unactivated_store_account_rows(
+    session,
+    *,
+    q: str | None = None,
+) -> list[UnactivatedStoreAccountRow]:
+    stores = (
+        session.execute(
+            select(DimStore)
+            .where(DimStore.is_active.is_(True))
+            .order_by(DimStore.store_name, DimStore.store_id)
+        )
+        .scalars()
+        .all()
+    )
+    store_ids = [store.store_id for store in stores if store.store_id]
+    if not store_ids:
+        return []
+
+    activated_store_ids = set(
+        session.execute(
+            select(UserStoreScope.store_id)
+            .join(User, User.user_id == UserStoreScope.user_id)
+            .where(User.role == "store")
+            .where(User.is_initialized.is_(True))
+            .where(UserStoreScope.store_id.in_(store_ids))
+        )
+        .scalars()
+        .all()
+    )
+    activated_store_ids.update(
+        session.execute(
+            select(User.external_account_id)
+            .where(User.role == "store")
+            .where(User.is_initialized.is_(True))
+            .where(User.external_account_id.in_(store_ids))
+        )
+        .scalars()
+        .all()
+    )
+
+    account_ids_by_store: dict[str, set[str]] = {
+        store_id: {store_id} for store_id in store_ids
+    }
+    for account_id, store_id in session.execute(
+        select(DimAwemeAccount.account_id, DimAwemeAccount.store_id).where(
+            DimAwemeAccount.store_id.in_(store_ids)
+        )
+    ).all():
+        if account_id and store_id:
+            account_ids_by_store.setdefault(store_id, {store_id}).add(account_id)
+
+    poi_ids_by_store: dict[str, set[str]] = {store_id: set() for store_id in store_ids}
+    poi_names_by_store: dict[str, set[str]] = {store_id: set() for store_id in store_ids}
+    for store_id, poi_id, poi_name in session.execute(
+        select(
+            DimStorePoiMapping.store_id,
+            DimStorePoiMapping.poi_id,
+            DimStorePoiMapping.poi_name,
+        ).where(DimStorePoiMapping.store_id.in_(store_ids))
+    ).all():
+        if store_id and poi_id:
+            poi_ids_by_store.setdefault(store_id, set()).add(poi_id)
+        if store_id and poi_name:
+            poi_names_by_store.setdefault(store_id, set()).add(poi_name)
+
+    normalized_query = normalize_account_value(q).lower()
+    rows: list[UnactivatedStoreAccountRow] = []
+    for store in stores:
+        if store.store_id in activated_store_ids:
+            continue
+
+        account_ids = sorted(account_ids_by_store.get(store.store_id, {store.store_id}))
+        poi_ids = sorted(poi_ids_by_store.get(store.store_id, set()))
+        poi_names = sorted(poi_names_by_store.get(store.store_id, set()))
+        if normalized_query:
+            haystack = [store.store_id, *account_ids, *poi_ids]
+            if not any(normalized_query in value.lower() for value in haystack if value):
+                continue
+
+        rows.append(
+            UnactivatedStoreAccountRow(
+                store_id=store.store_id,
+                store_name=store.store_name or "",
+                certified_subject_name=store.certified_subject_name or "",
+                account_ids=account_ids,
+                poi_ids=poi_ids,
+                poi_names=poi_names,
+            )
+        )
+    return rows
 
 
 def _feedback_conditions(

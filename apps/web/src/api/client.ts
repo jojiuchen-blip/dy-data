@@ -54,6 +54,7 @@ import type {
   SyncAdminData,
   SyncConfigUpdate,
   StoreRankingData,
+  UnactivatedStoreAccountListData,
 } from "../types/dashboard";
 import {
   filterOrderDetails,
@@ -879,6 +880,18 @@ export async function updateFeedbackStatus(
 export async function fetchAccounts(): Promise<ApiLoadResult<AccountListData>> {
   return {
     ...(await requestJson<AccountListData>("/admin/accounts")),
+    usingMock: false,
+  };
+}
+
+export async function fetchUnactivatedAccountStores(
+  q?: string,
+): Promise<ApiLoadResult<UnactivatedStoreAccountListData>> {
+  return {
+    ...(await requestJson<UnactivatedStoreAccountListData>(
+      "/admin/accounts/unactivated-stores",
+      { q },
+    )),
     usingMock: false,
   };
 }
