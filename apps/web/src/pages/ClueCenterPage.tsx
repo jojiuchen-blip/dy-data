@@ -27,6 +27,7 @@ import {
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { SolarIcon } from "../components/SolarIcon";
+import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueAssignmentRound,
@@ -55,7 +56,8 @@ type StoreClueStatus =
   | "已退款"
   | "不可跟进";
 
-const PAGE_SIZE = 20;
+const CLUE_PAGE_SIZE_OPTIONS = [20, 50, 100];
+const DEFAULT_CLUE_PAGE_SIZE = 20;
 
 type ClueFilterKey =
   | "province"
@@ -277,12 +279,12 @@ function currentDetailRound(
   );
 }
 
-function roundForRecord(
+function recordsForRound(
   detail: ClueOrderDetail,
-  record: ClueFollowUpRecord,
-): ClueAssignmentRound | undefined {
-  return detail.rounds.find(
-    (round) => round.assignment_round_id === record.assignment_round_id,
+  assignmentRoundId: string,
+): ClueFollowUpRecord[] {
+  return detail.follow_up_records.filter(
+    (record) => record.assignment_round_id === assignmentRoundId,
   );
 }
 
@@ -324,6 +326,7 @@ export function ClueCenterPage({
     searchParams.get("verification_status") ?? "",
   );
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DEFAULT_CLUE_PAGE_SIZE);
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [selectedRound, setSelectedRound] = useState<ClueAssignmentRound | null>(
     null,
@@ -451,7 +454,7 @@ export function ClueCenterPage({
     { enabled: !isDetailsView },
   );
   const roundsResource = useApiResource(
-    () => fetchClueAssignmentRounds({ filters, page, pageSize: PAGE_SIZE }),
+    () => fetchClueAssignmentRounds({ filters, page, pageSize }),
     [
       assignedStoreId,
       assignedDateEnd,
@@ -459,6 +462,7 @@ export function ClueCenterPage({
       city,
       leadStatus,
       page,
+      pageSize,
       productType,
       province,
       showStoreLocationFilters,
@@ -500,9 +504,6 @@ export function ClueCenterPage({
     ? canViewFullPhone(activeDetailRound)
     : false;
   const canEditFollowUp = canShowActiveDetailPhone;
-  const historicalDetailRounds =
-    detail?.rounds.filter((round) => !round.is_current_round) ?? [];
-
   const openClueDetail = (
     row: ClueAssignmentRound,
     triggerElement?: HTMLElement | null,
@@ -828,6 +829,7 @@ export function ClueCenterPage({
     {
       key: "product_name",
       title: "商品名称",
+      align: "left",
       minWidth: 230,
       render: (row) => (
         <span className="clue-product-name">
@@ -856,8 +858,18 @@ export function ClueCenterPage({
   ];
 
   return (
-    <div className="page-stack">
-      <div className="clue-page-content">
+    <div
+      className={
+        isDetailsView ? "page-stack page-stack--data-workspace" : "page-stack"
+      }
+    >
+      <div
+        className={
+          isDetailsView
+            ? "clue-page-content clue-page-content--details"
+            : "clue-page-content"
+        }
+      >
       <section className="page-heading">
         <div>
           <h1>{pageHeadingTitle}</h1>
@@ -1066,7 +1078,7 @@ export function ClueCenterPage({
       ) : null}
 
       {isDetailsView ? (
-        <section className="content-section">
+        <section className="content-section content-section--data-workspace">
           <div className="section-title">
             <div>
               <h2>当前筛选结果</h2>
@@ -1146,34 +1158,22 @@ export function ClueCenterPage({
             </>
           )}
 
-          <div className="pagination-controls">
-            <span className="pagination-controls__summary">
-              第 {formatInteger(pagination?.page ?? page)} /{" "}
-              {formatInteger(pagination?.total_pages ?? 1)} 页
-            </span>
-            <div className="pagination-controls__actions">
-              <button
-                className="ghost-button"
-                disabled={page <= 1}
-                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                type="button"
-              >
-                上一页
-              </button>
-              <button
-                className="ghost-button"
-                disabled={pagination ? page >= pagination.total_pages : true}
-                onClick={() =>
-                  setPage((current) =>
-                    Math.min(pagination?.total_pages ?? current, current + 1),
-                  )
-                }
-                type="button"
-              >
-                下一页
-              </button>
-            </div>
-          </div>
+          {pagination ? (
+            <TablePagination
+              loading={roundsResource.loading}
+              onPageChange={setPage}
+              onPageSizeChange={(nextPageSize) => {
+                setPageSize(nextPageSize);
+                setPage(1);
+              }}
+              page={pagination.page}
+              pageSize={pageSize}
+              pageSizeOptions={CLUE_PAGE_SIZE_OPTIONS}
+              rowsOnPage={rows.length}
+              total={pagination.total}
+              totalPages={pagination.total_pages}
+            />
+          ) : null}
         </section>
       ) : null}
       </div>
@@ -1268,60 +1268,21 @@ export function ClueCenterPage({
                       <div className="clue-followup-section-title">
                         <h3>跟进历史</h3>
                       </div>
-                      {detail.follow_up_records.length ? (
+                      {detail.rounds.length ? (
                         <ol className="clue-followup-timeline">
-                          {detail.follow_up_records.map((record) => {
-                            const round = roundForRecord(detail, record);
-                            return (
-                              <li
-                                className="clue-followup-timeline__item"
-                                key={record.follow_up_record_id}
-                              >
-                                <div className="clue-followup-timeline__head">
-                                  <div>
-                                    <span>
-                                      {roundLabel(record.round_no)} ·{" "}
-                                      {storeScopeLabel(
-                                        record.assigned_store_id,
-                                        selectedStoreId,
-                                      )}
-                                    </span>
-                                    <strong>{labelFor(record.follow_result, followResultLabels)}</strong>
-                                  </div>
-                                </div>
-                                <dl className="clue-followup-history-fields">
-                                  <div>
-                                    <dt>本轮跟进时间</dt>
-                                    <dd>{formatDateTime(record.created_at)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>跟进结果</dt>
-                                    <dd>{labelFor(record.follow_result, followResultLabels)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>本次跟进结论/备注</dt>
-                                    <dd>{displayValue(record.note)}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>本轮失效时间</dt>
-                                    <dd>{round ? displayValue(formatInvalidatedAt(round)) : "-"}</dd>
-                                  </div>
-                                  <div>
-                                    <dt>失效原因</dt>
-                                    <dd>{round ? invalidationReason(round) : "-"}</dd>
-                                  </div>
-                                </dl>
-                              </li>
-                            );
-                          })}
-                        </ol>
-                      ) : historicalDetailRounds.length ? (
-                        <ol className="clue-followup-timeline">
-                          {historicalDetailRounds.map((round) => {
+                          {detail.rounds.map((round) => {
                             const status = getStoreDisplayStatus(round);
+                            const roundRecords = recordsForRound(
+                              detail,
+                              round.assignment_round_id,
+                            );
                             return (
                               <li
-                                className="clue-followup-timeline__item"
+                                className={
+                                  round.is_current_round
+                                    ? "clue-followup-timeline__item clue-followup-round-card is-current"
+                                    : "clue-followup-timeline__item clue-followup-round-card"
+                                }
                                 key={round.assignment_round_id}
                               >
                                 <div className="clue-followup-timeline__head">
@@ -1335,10 +1296,30 @@ export function ClueCenterPage({
                                     </span>
                                     <strong>{status}</strong>
                                   </div>
+                                  {round.is_current_round ? (
+                                    <StatusChip tone="green">当前</StatusChip>
+                                  ) : null}
                                 </div>
                                 <dl className="clue-followup-history-fields">
                                   <div>
-                                    <dt>本轮跟进时间</dt>
+                                    <dt>分配时间</dt>
+                                    <dd>{formatDateTime(round.assigned_at)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>处理范围</dt>
+                                    <dd>
+                                      {storeScopeLabel(
+                                        round.assigned_store_id,
+                                        selectedStoreId,
+                                      )}
+                                    </dd>
+                                  </div>
+                                  <div>
+                                    <dt>再分配原因</dt>
+                                    <dd>{invalidationReason(round)}</dd>
+                                  </div>
+                                  <div>
+                                    <dt>跟进时间</dt>
                                     <dd>{formatDateTime(round.followed_at)}</dd>
                                   </div>
                                   <div>
@@ -1346,24 +1327,39 @@ export function ClueCenterPage({
                                     <dd>{labelFor(round.follow_result, followResultLabels)}</dd>
                                   </div>
                                   <div>
-                                    <dt>本次跟进结论/备注</dt>
-                                    <dd>-</dd>
-                                  </div>
-                                  <div>
                                     <dt>本轮失效时间</dt>
                                     <dd>{displayValue(formatInvalidatedAt(round))}</dd>
                                   </div>
-                                  <div>
-                                    <dt>失效原因</dt>
-                                    <dd>{invalidationReason(round)}</dd>
-                                  </div>
                                 </dl>
+                                <div className="clue-followup-round-records">
+                                  <h4>本轮跟进记录</h4>
+                                  {roundRecords.length ? (
+                                    <ol>
+                                      {roundRecords.map((record) => (
+                                        <li key={record.follow_up_record_id}>
+                                          <div>
+                                            <strong>
+                                              {labelFor(
+                                                record.follow_result,
+                                                followResultLabels,
+                                              )}
+                                            </strong>
+                                            <span>{formatDateTime(record.created_at)}</span>
+                                          </div>
+                                          <p>{displayValue(record.note)}</p>
+                                        </li>
+                                      ))}
+                                    </ol>
+                                  ) : (
+                                    <p>暂无本轮跟进记录</p>
+                                  )}
+                                </div>
                               </li>
                             );
                           })}
                         </ol>
                       ) : (
-                        <ResourcePanel>暂无线索跟进历史。</ResourcePanel>
+                        <ResourcePanel>暂无跟进历史。</ResourcePanel>
                       )}
                     </section>
                   </main>

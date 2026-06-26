@@ -73,7 +73,7 @@ function columnStyle<T>(column: PreparedColumn<T>): CSSProperties {
 
 function columnClass<T>(column: PreparedColumn<T>): string {
   return [
-    `is-${column.align ?? "left"}`,
+    `is-${column.align ?? "center"}`,
     column.sticky ? "is-sticky-column" : "",
     column.stickyLast ? "is-sticky-column-last" : "",
   ]

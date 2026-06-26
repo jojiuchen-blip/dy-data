@@ -7,6 +7,7 @@ import { SelectField } from "./FormControls";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
+const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const adminPaths = new Set([
   "/admin",
   "/admin/accounts",
@@ -146,6 +147,12 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
   const sectionNavItems = secondaryNav(section);
+  const pageFrameClassName = [
+    "page-frame",
+    dataWorkspacePaths.has(currentPath) ? "page-frame--data-workspace" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const visibleModuleItems = moduleNavItems.filter(
     (item) => item.section !== "admin" || currentUser?.role === "admin",
   );
@@ -328,7 +335,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
 
         {renderSecondaryNav("workspace-subnav--mobile")}
 
-        <main className="page-frame">{children}</main>
+        <main className={pageFrameClassName}>{children}</main>
       </div>
 
       <nav className="mobile-bottom-nav" aria-label="一级导航">

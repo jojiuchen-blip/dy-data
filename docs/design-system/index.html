@@ -1169,6 +1169,258 @@
         background: #fbfdf9;
       }
 
+      .data-workspace-demo {
+        display: grid;
+        height: 520px;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 10px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: linear-gradient(180deg, var(--surface-subtle) 0%, var(--bg) 100%);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .data-workspace-demo__top {
+        display: grid;
+        gap: 10px;
+      }
+
+      .data-workspace-demo__heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .data-workspace-demo__heading strong {
+        color: var(--ink);
+        font-size: 18px;
+      }
+
+      .data-workspace-demo__heading span {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-full);
+        padding: 5px 9px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+      }
+
+      .data-workspace-demo__filters {
+        display: grid;
+        grid-template-columns:
+          minmax(110px, 0.8fr) minmax(110px, 0.8fr)
+          minmax(140px, 1fr) minmax(130px, 0.95fr)
+          minmax(130px, 0.95fr) minmax(96px, 0.7fr);
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px;
+        background: var(--surface);
+      }
+
+      .data-workspace-demo__filters span {
+        display: flex;
+        min-height: 36px;
+        align-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface-warm);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 750;
+      }
+
+      .data-workspace-demo__result {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+      }
+
+      .data-workspace-demo__result-head,
+      .data-workspace-demo__pagination {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .data-workspace-demo__result-head strong {
+        color: var(--ink);
+        font-size: 15px;
+      }
+
+      .data-workspace-demo__result-head span,
+      .data-workspace-demo__pagination span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .data-workspace-demo__scroll {
+        min-height: 0;
+        flex: 1 1 auto;
+        margin: 10px 0;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        scrollbar-gutter: stable;
+      }
+
+      .data-workspace-demo__pagination {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .data-workspace-demo__pagination .table-pagination-demo__controls {
+        display: flex;
+        gap: 8px;
+      }
+
+      .table-pagination-spec {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow-soft);
+      }
+
+      .table-pagination-demo {
+        display: flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 8px 10px;
+        background: var(--surface-subtle);
+      }
+
+      .table-pagination-demo__info {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .table-pagination-demo__info strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .table-pagination-demo__info span,
+      .table-pagination-demo__note {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
+      }
+
+      .table-pagination-demo__controls {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .table-pagination-demo__size,
+      .table-pagination-demo__page,
+      .table-pagination-demo__page-group {
+        display: inline-flex;
+        min-height: 32px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: 800;
+        white-space: nowrap;
+      }
+
+      .table-pagination-demo__page-group {
+        gap: 6px;
+      }
+
+      .table-pagination-demo__page-input {
+        width: 46px;
+        height: 24px;
+        min-height: 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 0 5px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: 850;
+        line-height: 1;
+        text-align: center;
+        outline: none;
+      }
+
+      .table-pagination-demo__page-input:focus {
+        border-color: var(--green);
+        box-shadow: var(--focus-ring);
+      }
+
+      .table-pagination-demo__error {
+        color: var(--danger);
+        font-size: 12px;
+        font-weight: 750;
+        line-height: 1.45;
+      }
+
+      .table-pagination-demo__size::after {
+        width: 7px;
+        height: 7px;
+        margin-left: 8px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        color: var(--green);
+        content: "";
+        transform: translateY(-25%) rotate(45deg);
+      }
+
+      .table-pagination-demo__button {
+        height: 32px;
+        min-height: 32px;
+        max-height: 32px;
+        padding-inline: 10px;
+        font-size: 12px;
+      }
+
+      .table-pagination-demo--mobile {
+        display: grid;
+        gap: 8px;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__controls {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__page {
+        flex: 1 1 auto;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__page-group {
+        flex: 1 1 auto;
+      }
+
       .table-state-grid {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -1586,6 +1838,28 @@
 
         .dialog-actions .button-like {
           flex: 1 1 auto;
+        }
+
+        .table-pagination-demo {
+          display: grid;
+          align-items: stretch;
+        }
+
+        .table-pagination-demo__controls {
+          width: 100%;
+          flex-wrap: wrap;
+          justify-content: space-between;
+        }
+
+        .table-pagination-demo__size {
+          display: none;
+        }
+
+        .table-pagination-demo__button {
+          min-width: 72px;
+          height: 44px;
+          min-height: 44px;
+          max-height: 44px;
         }
       }
     </style>
@@ -2281,13 +2555,13 @@
         <div class="section-head">
           <div>
             <h2>线索表格冻结表头</h2>
-            <p>桌面表头冻结时避开顶部操作栏，并保留 8px 间隙；移动端二级菜单单独固定在顶部。</p>
+            <p>桌面表头冻结时由表格容器承接滚动；明细工作台中外层页面不滚动，表格区内部滚动。</p>
           </div>
           <code>--table-sticky-gap: 8px</code>
         </div>
         <div class="sticky-demo-shell">
           <div class="sticky-offset-demo">
-            <span>产品页桌面端使用顶部栏避让：action bar 58px + gap 8px；移动端 top subnav 单独计算。</span>
+            <span>产品页桌面端使用顶部栏避让：action bar 58px + gap 8px；明细工作台把滚动限制在结果表格容器内，移动端 top subnav 单独计算。</span>
             <strong>表格容器内部：thead top 0</strong>
           </div>
           <div
@@ -2425,6 +2699,47 @@
               <p>字段不能横向塞进手机宽表，必须映射为可扫描的记录卡片。</p>
             </div>
           </div>
+          <div class="table-pagination-spec">
+            <h3>TablePagination / DataPager</h3>
+            <div class="table-pagination-demo" aria-label="桌面表格分页组件示意">
+              <div class="table-pagination-demo__info">
+                <strong>显示 1-50 / 共 22,332 条</strong>
+                <span>分页固定在结果区底部，表格内容滚动时保持可见。</span>
+              </div>
+              <div class="table-pagination-demo__controls">
+                <span class="table-pagination-demo__size">每页 50 条</span>
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>首页</button>
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                <label class="table-pagination-demo__page-group">
+                  <span>第</span>
+                  <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="447" inputmode="numeric" aria-label="输入页码" />
+                  <span>/ 447 页</span>
+                </label>
+                <button class="button-like table-pagination-demo__button" type="button">跳转</button>
+                <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+                <button class="button-like table-pagination-demo__button" type="button">末页</button>
+              </div>
+            </div>
+            <span class="table-pagination-demo__error" role="alert">错误态示例：请输入 1-447 之间的页码。</span>
+            <div class="table-pagination-demo table-pagination-demo--mobile" aria-label="移动端表格分页组件示意">
+              <div class="table-pagination-demo__info">
+                <strong>显示 1-20 / 共 22,332 条</strong>
+                <span>移动端保留页码输入，按 Enter 跳转，不额外放跳转按钮。</span>
+              </div>
+              <div class="table-pagination-demo__controls">
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                <label class="table-pagination-demo__page-group">
+                  <span>第</span>
+                  <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="1117" inputmode="numeric" aria-label="输入移动端页码" />
+                  <span>/ 1117 页</span>
+                </label>
+                <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+              </div>
+            </div>
+            <p class="table-pagination-demo__note">
+              分页属于结果区，不放进表格滚动容器；页码输入只允许 1 到总页数之间的正整数，Enter 或“跳转”执行；按钮使用统一 Button 状态，禁用、加载和焦点态必须完整。
+            </p>
+          </div>
         </div>
       </section>
 
@@ -2546,6 +2861,123 @@
               <span>结算</span><span class="active">线索</span><span>后台</span>
             </div>
           </div>
+          <div class="data-workspace-demo">
+            <div class="data-workspace-demo__top">
+              <div class="data-workspace-demo__heading">
+                <strong>明细工作台页面模板</strong>
+                <span>page-frame--data-workspace</span>
+              </div>
+              <div class="data-workspace-demo__filters" aria-label="桌面明细筛选器示意">
+                <span>省份 / 全部</span>
+                <span>城市 / 全部</span>
+                <span>门店 / 可检索</span>
+                <span>日期起</span>
+                <span>日期止</span>
+                <span>清空筛选</span>
+              </div>
+            </div>
+            <div class="data-workspace-demo__result">
+              <div class="data-workspace-demo__result-head">
+                <div>
+                  <strong>当前筛选结果</strong>
+                  <span>桌面一屏内保留标题、筛选、结果和分页</span>
+                </div>
+                <span>共 22,525 条</span>
+              </div>
+              <div class="data-workspace-demo__scroll" tabindex="0" aria-label="明细工作台内部滚动表格示意">
+                <table class="table-preview">
+                  <thead>
+                    <tr>
+                      <th>联系方式</th>
+                      <th>线索状态</th>
+                      <th>分配轮次</th>
+                      <th>本轮跟进时间</th>
+                      <th>商品名称</th>
+                      <th>线索生成时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>173****8502</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>小保养+机油滤芯等5个项目</td>
+                      <td>2026-06-25 22:14</td>
+                    </tr>
+                    <tr>
+                      <td>159****0695</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>无骨雨刮赠送2副胶条</td>
+                      <td>2026-06-25 22:11</td>
+                    </tr>
+                    <tr>
+                      <td>150****2310</td>
+                      <td><span class="status-chip success">已跟进</span></td>
+                      <td>第1轮</td>
+                      <td>2026-06-25 22:09</td>
+                      <td>多效抗菌空调滤芯</td>
+                      <td>2026-06-25 22:09</td>
+                    </tr>
+                    <tr>
+                      <td>135****6152</td>
+                      <td><span class="status-chip warning">主动战败</span></td>
+                      <td>第1轮</td>
+                      <td>2026-06-25 22:08</td>
+                      <td>全车打蜡洗美套餐</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                    <tr>
+                      <td>139****5182</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>认证单面喷漆服务</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                    <tr>
+                      <td>157****2739</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>168全合成机油保养</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="data-workspace-demo__pagination">
+                <div class="table-pagination-demo__info">
+                  <strong>显示 1-50 / 共 22,525 条</strong>
+                  <span>分页始终在结果区底部可见</span>
+                </div>
+                <div class="table-pagination-demo__controls">
+                  <span class="table-pagination-demo__size">每页 50 条</span>
+                  <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>首页</button>
+                  <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                  <label class="table-pagination-demo__page-group">
+                    <span>第</span>
+                    <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="451" inputmode="numeric" aria-label="输入明细工作台页码" />
+                    <span>/ 451 页</span>
+                  </label>
+                  <button class="button-like table-pagination-demo__button" type="button">跳转</button>
+                  <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+                  <button class="button-like table-pagination-demo__button" type="button">末页</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>明细工作台规则</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>桌面端：</strong>用于线索明细、订单明细这类高密度长表；页面框架宽度为 100%，高度为 <code>calc(100vh - topbar)</code>。</li>
+              <li><strong>滚动归属：</strong>外层页面不纵向滚动，结果区使用 <code>content-section--data-workspace</code>，只有结果表格区域上下滚动；分页固定在结果区底部可见。</li>
+              <li><strong>筛选区：</strong>桌面优先单行密度，避免占用表格高度；移动端可折叠筛选并恢复自然页面滚动。</li>
+              <li><strong>适用边界：</strong>看板、后台表单、解释型页面不套该模板，继续使用普通页面容器。</li>
+            </ul>
+          </div>
         </div>
       </section>
 
@@ -2576,9 +3008,15 @@
               </tr>
               <tr>
                 <td>表头冻结</td>
-                <td>桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
+                <td>容器内 thead top 0；桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
                 <td><span class="status-chip success">已落地</span></td>
-                <td>扩大到其他桌面长表，避免每个表单独写 sticky top。</td>
+                <td>长表优先放入明细工作台，避免外层页面和表格同时滚动。</td>
+              </tr>
+              <tr>
+                <td>明细工作台</td>
+                <td>桌面宽度 100%，高度 calc(100vh - topbar)，分页可见，表格区内部滚动</td>
+                <td><span class="status-chip success">已落地</span></td>
+                <td>适用于线索明细、订单明细；移动端恢复自然滚动和卡片/列表。</td>
               </tr>
               <tr>
                 <td>控件高度</td>
@@ -2615,6 +3053,7 @@
           <li><strong>新增颜色：</strong>除非同步更新 <code>tokens.json</code> 和预览 HTML，否则不要在组件里直接写新的 hex。</li>
           <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
           <li><strong>新增长列表：</strong>桌面优先表格，移动端必须设计卡片或摘要，不把宽表直接塞进手机。</li>
+          <li><strong>新增明细长表：</strong>如果用户主要任务是筛选后逐行处理记录，桌面端使用明细工作台模板，保证分页可见且只让结果表格滚动。</li>
           <li><strong>新增 sticky/fixed：</strong>必须声明对应 z-index 层级和导航避让间距，避免层叠互相遮挡。</li>
           <li><strong>规范变更：</strong>先改 HTML 预览让人确认，再把值迁移到产品 CSS 和测试。</li>
         </ul>

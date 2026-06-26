@@ -312,3 +312,65 @@ def test_detail_filter_bars_fit_one_desktop_row(
         assert metrics["scrollWidth"] - metrics["clientWidth"] <= 2
     finally:
         context.close()
+
+
+@pytest.mark.parametrize(
+    ("url_path", "expected_text"),
+    [
+        ("/clues/details", "线索跟进列表"),
+        ("/details", "门店月度数据明细表"),
+    ],
+)
+def test_desktop_detail_pages_keep_pagination_visible_and_scroll_table_region(
+    browser: Browser,
+    vite_base_url: str,
+    url_path: str,
+    expected_text: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+
+        metrics = page.evaluate(
+            """() => {
+              const frame = document.querySelector(".page-frame--data-workspace");
+              const section = document.querySelector(".content-section--data-workspace");
+              const tableWrap = document.querySelector(
+                ".content-section--data-workspace .table-wrap--contained-sticky",
+              );
+              const pagination = document.querySelector(
+                ".content-section--data-workspace .table-pagination",
+              );
+              if (!frame || !section || !tableWrap || !pagination) {
+                return null;
+              }
+              const frameRect = frame.getBoundingClientRect();
+              const sectionRect = section.getBoundingClientRect();
+              const tableRect = tableWrap.getBoundingClientRect();
+              const paginationRect = pagination.getBoundingClientRect();
+              return {
+                frameWidth: frameRect.width,
+                rootVerticalOverflow:
+                  Math.max(document.documentElement.scrollHeight, document.body.scrollHeight) -
+                  window.innerHeight,
+                sectionBottom: sectionRect.bottom,
+                tableHeight: tableRect.height,
+                paginationBottom: paginationRect.bottom,
+                viewportWidth: window.innerWidth,
+                viewportHeight: window.innerHeight,
+              };
+            }""",
+        )
+
+        assert metrics is not None
+        assert metrics["frameWidth"] >= metrics["viewportWidth"] - 120
+        assert metrics["rootVerticalOverflow"] <= 2
+        assert metrics["tableHeight"] >= 180
+        assert metrics["paginationBottom"] <= metrics["viewportHeight"]
+        assert metrics["sectionBottom"] <= metrics["viewportHeight"]
+    finally:
+        context.close()

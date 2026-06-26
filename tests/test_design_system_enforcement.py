@@ -56,6 +56,10 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "不在业务代码里直接导入 `@iconify/react`",
         "apps/web/src/components/SolarIcon.tsx",
         "不绕过 `apps/web/src/design-tokens.css`",
+        "明细工作台模板",
+        "外层视口固定",
+        "结果表格内部滚动",
+        "分页保持可见",
         "npm --prefix apps/web run build",
     ]
 
@@ -67,9 +71,24 @@ def test_tokens_declare_current_enforcement_scope() -> None:
     tokens = json.loads(read_text(TOKENS_PATH))
     current_rules = "\n".join(tokens["enforcement"]["current"])
     next_rules = "\n".join(tokens["enforcement"]["next"])
+    layout_tokens = tokens["tokens"]["layout"]
+    data_table_tokens = tokens["components"]["dataTable"]
+    detail_workspace = tokens["pageTemplates"]["detailDataWorkspace"]
 
     assert tokens["meta"]["colorMode"] == "light-only"
     assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.1"
+    assert layout_tokens["dataWorkspaceWidth"]["value"] == "100%"
+    assert (
+        layout_tokens["dataWorkspaceHeight"]["value"]
+        == "calc(100vh - var(--workspace-topbar-height))"
+    )
+    assert "page frame does not scroll" in data_table_tokens["workspaceRule"]
+    assert "editable page number with a jump action" in data_table_tokens["paginationRule"]
+    assert "Mobile keeps previous, editable page number and next" in data_table_tokens["paginationRule"]
+    assert "positive integers from 1 to totalPages" in data_table_tokens["paginationValidation"]
+    assert detail_workspace["appliesTo"] == ["/clues/details", "/details"]
+    assert "fixed viewport workspace" in detail_workspace["desktopRule"]
+    assert "natural page scroll" in detail_workspace["mobileRule"]
 
     current_required = [
         "docs/design-system/README.md",
@@ -77,6 +96,7 @@ def test_tokens_declare_current_enforcement_scope() -> None:
         "tests/test_design_system_enforcement.py",
         "SolarIcon.tsx",
         "design-tokens.css",
+        "page-frame--data-workspace",
         "unauthorized hex",
         "legacy status-chip",
         "div or span click handlers",

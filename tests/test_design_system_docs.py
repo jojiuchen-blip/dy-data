@@ -135,6 +135,23 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "--table-sticky-gap: 8px" in html
     assert "action bar 58px + gap 8px" in html
     assert "移动端 top subnav 单独计算" in html
+    assert "明细工作台页面模板" in html
+    assert "page-frame--data-workspace" in html
+    assert "content-section--data-workspace" in html
+    assert "外层页面不纵向滚动" in html
+    assert "分页固定在结果区底部可见" in html
+    assert "TablePagination / DataPager" in html
+    assert "显示 1-50 / 共 22,332 条" in html
+    assert "每页 50 条" in html
+    assert 'aria-label="输入页码"' in html
+    assert 'max="447"' in html
+    assert "跳转</button>" in html
+    assert "请输入 1-447 之间的页码" in html
+    assert "移动端保留页码输入，按 Enter 跳转" in html
+    assert "分页属于结果区，不放进表格滚动容器" in html
+    assert "页码输入只允许 1 到总页数之间的正整数" in html
+    assert "移动端可折叠筛选并恢复自然页面滚动" in html
+    assert "新增明细长表" in html
     assert "action bar 58px + subnav 51px + gap 8px" not in html
     assert 'class="sticky-demo-shell"' in html
     assert 'class="sticky-offset-demo"' in html

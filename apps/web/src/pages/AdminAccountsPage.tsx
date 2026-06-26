@@ -142,6 +142,7 @@ export function AdminAccountsPage() {
     {
       key: "account",
       title: "账号名",
+      align: "left",
       render: (account) => (
         <>
           <strong>{account.display_name || account.username}</strong>
@@ -153,6 +154,7 @@ export function AdminAccountsPage() {
     {
       key: "external",
       title: "所属账户ID",
+      align: "left",
       render: (account) => (
         <span className="mono-cell">{account.external_account_id || "-"}</span>
       ),
@@ -167,7 +169,7 @@ export function AdminAccountsPage() {
         </StatusChip>
       ),
     },
-    { key: "stores", title: "门店范围", render: storesLabel },
+    { key: "stores", title: "门店范围", align: "left", render: storesLabel },
     {
       key: "initialized",
       title: "激活状态",

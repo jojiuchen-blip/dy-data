@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import re
 
 
 WEB_SRC = Path(__file__).resolve().parents[1] / "apps" / "web" / "src"
@@ -15,6 +16,16 @@ def assert_in_order(source: str, values: list[str]) -> None:
         next_position = source.find(value, position + 1)
         assert next_position > position, f"{value!r} should appear after prior field"
         position = next_position
+
+
+def assert_column_align(source: str, key: str, align: str) -> None:
+    match = re.search(
+        rf'\{{\s+key: "{re.escape(key)}",(?P<body>.*?)\n    \}},',
+        source,
+        re.DOTALL,
+    )
+    assert match, f"Column {key!r} should be declared as a multiline column"
+    assert f'align: "{align}"' in match.group("body")
 
 
 def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
@@ -64,6 +75,9 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "clue-followup-detail__side" in source
     assert "号码操作" in source
     assert "跟进历史" in source
+    assert "clue-followup-round-card" in source
+    assert "clue-followup-round-records" in source
+    assert "recordsForRound" in source
     assert "跟进操作" in source
     assert 'value="unreachable"' in source
     assert "未接通" in source
@@ -78,11 +92,47 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     history_start = source.index("跟进历史")
     side_start = source.index("clue-followup-detail__side")
     assert summary_start < history_start < side_start
+    history_section = source[
+        source.index("clue-followup-history") :
+        source.index("clue-followup-detail__side")
+    ]
+    assert "detail.rounds.map" in history_section
+    assert "const roundRecords = recordsForRound(" in history_section
+    assert "round.assignment_round_id" in history_section
+    assert "roundRecords.map" in history_section
+    assert "暂无本轮跟进记录" in history_section
+    assert "跟进轮次历史" not in history_section
     summary_end = source.index("</section>", summary_start)
     summary = source[summary_start:summary_end]
     assert "联系方式" not in summary
     assert "detailPhoneValue" not in source
-    assert "historicalDetailRounds" in source
+
+
+def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
+    styles_source = read_source("styles.css")
+
+    modal_rules = styles_source[
+        styles_source.index(".clue-followup-detail {") :
+        styles_source.index(".clue-followup-detail .ui-dialog__body {")
+    ]
+    body_rules = styles_source[
+        styles_source.index(".clue-followup-detail .ui-dialog__body {") :
+        styles_source.index(".clue-detail-body")
+    ]
+    mobile_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
+    mobile_detail_rules = mobile_rules[
+        mobile_rules.index(".clue-followup-detail {") :
+        mobile_rules.index(".clue-detail-modal__header")
+    ]
+
+    assert "grid-template-rows: auto minmax(0, 1fr);" in modal_rules
+    assert "max-height: min(92dvh, calc(100dvh - 32px));" in modal_rules
+    assert "min-height: 0;" in body_rules
+    assert "overflow-y: auto;" in body_rules
+    assert "overscroll-behavior: contain;" in body_rules
+    assert "-webkit-overflow-scrolling: touch;" in body_rules
+    assert "height: calc(100dvh - 24px);" in mobile_detail_rules
+    assert "max-height: calc(100dvh - 24px);" in mobile_detail_rules
 
 
 def test_clue_center_filters_follow_store_scope_spec() -> None:
@@ -185,6 +235,9 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
 
     assert "sectionLabels[section]" in shell_source
     assert "const renderSecondaryNav" in shell_source
+    assert "dataWorkspacePaths" in shell_source
+    assert '"/clues/details", "/details"' in shell_source
+    assert "page-frame--data-workspace" in shell_source
     assert 'renderSecondaryNav("workspace-subnav--desktop")' in topbar_source
     assert topbar_source.index('workspace-subnav--desktop') < topbar_source.index(
         'className="workspace-actions"'
@@ -339,6 +392,76 @@ def test_shell_data_table_header_uses_container_sticky_contract() -> None:
     assert "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg)" not in styles_source
     assert ".workspace-shell .page-frame .data-table th" not in styles_source
     assert "top: var(--table-sticky-top);" not in mobile_shell_rules
+
+
+def test_detail_pages_use_fixed_data_workspace_with_inner_table_scroll() -> None:
+    shell_source = read_source("components/Shell.tsx")
+    styles_source = read_source("styles.css")
+    clue_page_source = read_source("pages/ClueCenterPage.tsx")
+    order_details_source = read_source("pages/OrderDetailsPage.tsx")
+
+    desktop_frame_rules = styles_source[
+        styles_source.index(".workspace-shell .page-frame--data-workspace {") :
+        styles_source.index("\n.topbar {")
+    ]
+    data_stack_rules = styles_source[
+        styles_source.index(".page-stack--data-workspace {") :
+        styles_source.index(".clue-page-content {")
+    ]
+    data_section_rules = styles_source[
+        styles_source.index(".content-section--data-workspace {") :
+        styles_source.index(".table-wrap {")
+    ]
+    mobile_rules = styles_source[
+        styles_source.index("@media (max-width: 920px)") :
+        styles_source.index("@media (max-width: 640px)")
+    ]
+
+    assert "dataWorkspacePaths.has(currentPath)" in shell_source
+    assert "className={pageFrameClassName}" in shell_source
+    assert "width: 100%;" in desktop_frame_rules
+    assert "height: calc(100vh - var(--workspace-topbar-height));" in desktop_frame_rules
+    assert "overflow: hidden;" in desktop_frame_rules
+    assert "display: flex;" in data_stack_rules
+    assert "height: 100%;" in data_stack_rules
+    assert "min-height: 0;" in data_stack_rules
+    assert "flex: 1 1 auto;" in data_section_rules
+    assert "overflow: hidden;" in data_section_rules
+    assert ".content-section--data-workspace .table-wrap--contained-sticky" in data_section_rules
+    assert ".content-section--data-workspace .table-pagination" in data_section_rules
+    assert "max-height: none;" in data_section_rules
+    assert "height: auto;" in mobile_rules
+    assert "overflow: visible;" in mobile_rules
+
+    assert "page-stack page-stack--data-workspace" in clue_page_source
+    assert "clue-page-content clue-page-content--details" in clue_page_source
+    assert "content-section content-section--data-workspace" in clue_page_source
+    assert "<TablePagination" in clue_page_source
+    assert "page-stack page-stack--data-workspace" in order_details_source
+    assert "content-section content-section--data-workspace" in order_details_source
+    assert "<TablePagination" in order_details_source
+
+
+def test_data_table_alignment_defaults_center_but_keeps_long_text_left() -> None:
+    data_table_source = read_source("components/DataTable.tsx")
+    styles_source = read_source("styles.css")
+    clue_page_source = read_source("pages/ClueCenterPage.tsx")
+    order_details_source = read_source("pages/OrderDetailsPage.tsx")
+    ranking_source = read_source("pages/StoreRankingPage.tsx")
+
+    assert '`is-${column.align ?? "center"}`' in data_table_source
+    assert ".data-table .is-left" in styles_source
+    assert ".data-table .is-center" in styles_source
+    assert ".data-table .is-right" in styles_source
+    assert ".data-table .is-center .table-action-row" in styles_source
+
+    assert_column_align(clue_page_source, "product_name", "left")
+    assert_column_align(order_details_source, "order", "left")
+    assert_column_align(order_details_source, "coupon", "left")
+    assert_column_align(order_details_source, "productName", "left")
+    assert_column_align(order_details_source, "saleStore", "left")
+    assert_column_align(order_details_source, "verifyStore", "left")
+    assert_column_align(ranking_source, "store", "left")
 
 
 def test_detail_filters_use_compact_single_row_desktop_contract() -> None:

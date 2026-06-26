@@ -324,6 +324,14 @@ a {
   padding: 24px 28px 34px;
 }
 
+.workspace-shell .page-frame--data-workspace {
+  width: 100%;
+  height: calc(100vh - var(--workspace-topbar-height));
+  max-width: none;
+  overflow: hidden;
+  padding: 18px 28px 20px;
+}
+
 .topbar {
   position: sticky;
   top: 0;
@@ -715,10 +723,24 @@ a {
   min-width: 0;
 }
 
+.page-stack--data-workspace {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+}
+
 .clue-page-content {
   display: grid;
   gap: 18px;
   min-width: 0;
+}
+
+.clue-page-content--details {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .page-heading,
@@ -1647,6 +1669,33 @@ a.metric-card:hover,
   min-width: 0;
 }
 
+.content-section--data-workspace {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 10px;
+  overflow: hidden;
+  padding: 14px;
+}
+
+.content-section--data-workspace .section-title,
+.content-section--data-workspace .pagination-controls,
+.content-section--data-workspace .table-pagination {
+  flex: 0 0 auto;
+}
+
+.content-section--data-workspace .clue-table-view,
+.content-section--data-workspace > .table-wrap--contained-sticky {
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.content-section--data-workspace .table-wrap--contained-sticky {
+  height: 100%;
+  max-height: none;
+}
+
 .table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -1875,12 +1924,28 @@ a.metric-card:hover,
   width: 100%;
 }
 
-.data-table .is-right {
-  text-align: right;
+.data-table .is-left {
+  text-align: left;
 }
 
 .data-table .is-center {
   text-align: center;
+}
+
+.data-table .is-right {
+  text-align: right;
+}
+
+.data-table .is-center .table-action-row {
+  justify-content: center;
+}
+
+.data-table .is-right .table-action-row {
+  justify-content: flex-end;
+}
+
+.data-table .is-center .clue-detail-trigger {
+  justify-self: center;
 }
 
 .empty-cell {
@@ -2183,6 +2248,19 @@ a.metric-card:hover,
   padding: 0;
 }
 
+.clue-followup-detail {
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: min(92dvh, calc(100dvh - 32px));
+  overflow: hidden;
+}
+
+.clue-followup-detail .ui-dialog__body {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .ui-dialog__actions {
   justify-content: flex-end;
   border-top: 1px solid var(--line);
@@ -2406,6 +2484,12 @@ a.metric-card:hover,
   background: var(--surface);
 }
 
+.clue-followup-timeline__item.is-current {
+  border-color: var(--green-accent-30);
+  border-left-color: var(--green);
+  background: var(--green-soft);
+}
+
 .clue-followup-timeline__head {
   display: flex;
   align-items: flex-start;
@@ -2442,6 +2526,61 @@ a.metric-card:hover,
   align-content: start;
   gap: 4px;
   min-width: 0;
+}
+
+.clue-followup-round-records {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.clue-followup-round-records h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.clue-followup-round-records ol {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.clue-followup-round-records li {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  background: var(--surface-warm);
+}
+
+.clue-followup-round-records li > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.clue-followup-round-records strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.clue-followup-round-records span,
+.clue-followup-round-records p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.clue-followup-round-records p {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .clue-followup-side-section {
@@ -3089,6 +3228,132 @@ a.metric-card:hover,
   font-size: 12px;
 }
 
+.table-pagination {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px 14px;
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
+}
+
+.table-pagination > * {
+  min-width: 0;
+}
+
+.table-pagination__info {
+  display: grid;
+  gap: 2px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.table-pagination__info strong {
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.table-pagination__controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin: 0;
+}
+
+.table-pagination__size {
+  position: relative;
+  width: 126px;
+}
+
+.table-pagination__size .ui-field__label-row {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.table-pagination__size .ui-select__trigger {
+  min-height: 32px;
+  padding: 5px 9px;
+}
+
+.table-pagination__size .ui-select__trigger span,
+.table-pagination__page {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.table-pagination__size .ui-select__menu {
+  top: auto;
+  bottom: calc(100% + 4px);
+}
+
+.table-pagination__button {
+  min-width: 58px;
+  white-space: nowrap;
+}
+
+.table-pagination__page {
+  display: inline-flex;
+  min-height: 32px;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--control-radius);
+  padding: 4px 9px;
+  background: var(--surface-warm);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.table-pagination__page-input {
+  width: 48px;
+  min-height: 22px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 850;
+  text-align: center;
+  outline: none;
+  appearance: textfield;
+}
+
+.table-pagination__page-input::-webkit-outer-spin-button,
+.table-pagination__page-input::-webkit-inner-spin-button {
+  margin: 0;
+  appearance: none;
+}
+
+.table-pagination__page:focus-within {
+  border-color: var(--green);
+  outline: 2px solid var(--green-ring);
+  outline-offset: 2px;
+}
+
+.table-pagination__page:has(.table-pagination__page-input[aria-invalid="true"]) {
+  border-color: var(--danger);
+  background: var(--surface-danger);
+}
+
+.table-pagination__error {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--danger);
+  font-size: 12px;
+  font-weight: 750;
+  text-align: right;
+}
+
 .pagination-controls {
   display: flex;
   align-items: center;
@@ -3274,6 +3539,12 @@ a.metric-card:hover,
     padding: 18px 16px 28px;
   }
 
+  .workspace-shell .page-frame--data-workspace {
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
   .topbar {
     position: static;
     align-items: flex-start;
@@ -3362,6 +3633,18 @@ a.metric-card:hover,
   .clue-table-view,
   .table-wrap--mobile-cards {
     display: none;
+  }
+
+  .page-stack--data-workspace,
+  .clue-page-content--details {
+    display: grid;
+    height: auto;
+    min-height: 0;
+  }
+
+  .content-section--data-workspace {
+    display: grid;
+    overflow: visible;
   }
 
   .data-table-mobile-list,
@@ -3603,6 +3886,11 @@ a.metric-card:hover,
     max-height: calc(100vh - 24px);
   }
 
+  .clue-followup-detail {
+    height: calc(100dvh - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
   .clue-detail-modal__header,
   .clue-flow-item__header {
     align-items: flex-start;
@@ -3647,6 +3935,43 @@ a.metric-card:hover,
 
   .pagination-controls__actions {
     justify-content: flex-start;
+  }
+
+  .table-pagination {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .table-pagination__controls {
+    display: grid;
+    grid-template-columns: minmax(78px, auto) minmax(0, 1fr) minmax(78px, auto);
+    justify-content: stretch;
+    gap: 8px;
+  }
+
+  .table-pagination__size,
+  .table-pagination__first,
+  .table-pagination__last,
+  .table-pagination__jump {
+    display: none;
+  }
+
+  .table-pagination__button {
+    min-height: var(--touch-target);
+    min-width: 0;
+  }
+
+  .table-pagination__page {
+    min-height: var(--touch-target);
+    justify-content: center;
+  }
+
+  .table-pagination__page-input {
+    width: 52px;
+  }
+
+  .table-pagination__error {
+    text-align: left;
   }
 
   .admin-page {

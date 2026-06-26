@@ -578,11 +578,13 @@ export function AdminSkuRulesPage() {
     {
       key: "sku",
       title: "SKU ID",
+      align: "left",
       render: (row) => <span className="mono-cell">{row.sku_id}</span>,
     },
     {
       key: "name",
       title: "商品名称",
+      align: "left",
       render: (row) => row.product_name || "-",
     },
     {

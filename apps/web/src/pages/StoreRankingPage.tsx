@@ -60,6 +60,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
     {
       key: "store",
       title: "门店",
+      align: "left",
       render: (row) => (
         <span className="store-name">
           {row.store_name}

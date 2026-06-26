@@ -158,12 +158,14 @@ export function AdminFeedbackPage() {
       key: "content",
       minWidth: 360,
       title: "建议内容",
+      align: "left",
       render: (row) => <p className="feedback-content-cell">{row.content}</p>,
     },
     {
       key: "user",
       minWidth: 140,
       title: "提交账号",
+      align: "left",
       render: (row) => (
         <span>
           {row.username || "-"}
@@ -175,12 +177,14 @@ export function AdminFeedbackPage() {
       key: "contact",
       minWidth: 150,
       title: "联系方式",
+      align: "left",
       render: (row) => row.contact || "-",
     },
     {
       key: "page_path",
       minWidth: 120,
       title: "页面",
+      align: "left",
       render: (row) => <span className="mono-cell">{row.page_path || "-"}</span>,
     },
     {

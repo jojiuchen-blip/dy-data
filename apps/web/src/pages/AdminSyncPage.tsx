@@ -223,9 +223,10 @@ export function AdminSyncPage() {
     {
       key: "job_id",
       title: "任务 ID",
+      align: "left",
       render: (job) => <span className="mono-cell">{job.job_id}</span>,
     },
-    { key: "type", title: "类型", render: (job) => job.job_name },
+    { key: "type", title: "类型", align: "left", render: (job) => job.job_name },
     {
       key: "status",
       title: "状态",
@@ -262,6 +263,7 @@ export function AdminSyncPage() {
     {
       key: "detail",
       title: "明细",
+      align: "left",
       render: (job) => job.error_message || phaseSummary(job),
     },
   ];

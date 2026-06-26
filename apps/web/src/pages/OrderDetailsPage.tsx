@@ -14,12 +14,12 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   DetailFilters,
   FilterMetaData,
   OrderDetail,
-  Pagination,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime, labelForBoolean } from "../utils/format";
 import {
@@ -41,10 +41,6 @@ const booleanOptions = [
 ];
 
 const pageSizeOptions = [25, 50, 100, 200, 500];
-const pageSizeSelectOptions = pageSizeOptions.map((option) => ({
-  label: String(option),
-  value: String(option),
-}));
 
 function BooleanStatusChip({ value }: { value: boolean | null | undefined }) {
   if (typeof value !== "boolean") {
@@ -147,61 +143,6 @@ function selectedStoreOption(
   };
 }
 
-function PaginationControls({
-  loading,
-  onPageChange,
-  onPageSizeChange,
-  pageSize,
-  pagination,
-}: {
-  loading: boolean;
-  onPageChange: (page: number) => void;
-  onPageSizeChange: (pageSize: number) => void;
-  pageSize: number;
-  pagination: Pagination | undefined;
-}) {
-  if (!pagination) {
-    return null;
-  }
-
-  const totalPages = Math.max(1, pagination.total_pages);
-  const currentPage = Math.min(Math.max(1, pagination.page), totalPages);
-
-  return (
-    <div className="pagination-controls">
-      <div className="pagination-controls__summary">
-        第 {currentPage} / {totalPages} 页，共 {pagination.total} 条
-      </div>
-      <div className="pagination-controls__actions">
-        <button
-          className="ghost-button"
-          disabled={loading || currentPage <= 1}
-          onClick={() => onPageChange(currentPage - 1)}
-          type="button"
-        >
-          上一页
-        </button>
-        <button
-          className="ghost-button"
-          disabled={loading || currentPage >= totalPages}
-          onClick={() => onPageChange(currentPage + 1)}
-          type="button"
-        >
-          下一页
-        </button>
-        <div className="pagination-controls__size">
-          <SelectField
-            label="每页"
-            onChange={(value) => onPageSizeChange(Number(value))}
-            options={pageSizeSelectOptions}
-            value={String(pageSize)}
-          />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const searchKey = searchParams.toString();
   const [filters, setFilters] = useState<DetailFilters>(() =>
@@ -256,6 +197,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "order",
       title: "订单编号",
+      align: "left",
       sticky: true,
       width: 150,
       render: (row) => row.order_id,
@@ -263,6 +205,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "coupon",
       title: "券码",
+      align: "left",
       sticky: true,
       width: 154,
       render: (row) => row.coupon_id,
@@ -270,12 +213,14 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "productName",
       title: "商品名称",
+      align: "left",
       minWidth: 240,
       render: (row) => row.product_name || "-",
     },
     {
       key: "sku",
       title: "商品编码",
+      align: "left",
       minWidth: 138,
       render: (row) => row.sku_id,
     },
@@ -288,18 +233,21 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "ownerAccount",
       title: "订单归属账号",
+      align: "left",
       minWidth: 150,
       render: (row) => row.owner_account_name || "-",
     },
     {
       key: "saleStore",
       title: "销售归属门店",
+      align: "left",
       minWidth: 190,
       render: (row) => row.sale_store_name,
     },
     {
       key: "saleStoreSubject",
       title: "销售店认证主体",
+      align: "left",
       minWidth: 210,
       render: (row) => row.sale_store_subject_name || "-",
     },
@@ -318,12 +266,14 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     {
       key: "verifyStore",
       title: "实际核销门店",
+      align: "left",
       minWidth: 190,
       render: (row) => row.verify_store_name || "-",
     },
     {
       key: "verifyStoreSubject",
       title: "核销店认证主体",
+      align: "left",
       minWidth: 210,
       render: (row) => row.verify_store_subject_name || "-",
     },
@@ -368,7 +318,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   ];
 
   return (
-    <div className="page-stack">
+    <div className="page-stack page-stack--data-workspace">
       <section className="page-heading">
         <div>
           <h1>门店月度数据明细表</h1>
@@ -464,7 +414,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         </div>
       ) : null}
 
-      <section className="content-section">
+      <section className="content-section content-section--data-workspace">
         <div className="section-title">
           <div>
             <h2>明细记录</h2>
@@ -488,16 +438,22 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
               stickyHeader="container"
               tableClassName="data-table--details"
             />
-            <PaginationControls
-              loading={detailsResource.loading}
-              onPageChange={setPage}
-              onPageSizeChange={(nextPageSize) => {
-                setPageSize(nextPageSize);
-                setPage(1);
-              }}
-              pageSize={pageSize}
-              pagination={pagination}
-            />
+            {pagination ? (
+              <TablePagination
+                loading={detailsResource.loading}
+                onPageChange={setPage}
+                onPageSizeChange={(nextPageSize) => {
+                  setPageSize(nextPageSize);
+                  setPage(1);
+                }}
+                page={pagination.page}
+                pageSize={pageSize}
+                pageSizeOptions={pageSizeOptions}
+                rowsOnPage={rows.length}
+                total={pagination.total}
+                totalPages={pagination.total_pages}
+              />
+            ) : null}
           </>
         )}
       </section>
