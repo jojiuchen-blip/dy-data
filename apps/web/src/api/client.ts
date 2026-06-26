@@ -41,6 +41,8 @@ import type {
   NonCommissionOwnerAccountListData,
   NonCommissionOwnerAccountUpdateResult,
   OrderDetailsData,
+  ProductTypeVisibilityData,
+  ProductTypeVisibilityUpdate,
   SelectOption,
   SettlementViewData,
   ManualSyncResult,
@@ -324,9 +326,76 @@ function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {
   };
 }
 
-function mockClueOverviewResponse(): ApiResponse<ClueOverviewMetrics> {
+function mockStoreDisplayStatus(row: ClueAssignmentRoundData["rows"][number]): string {
+  if (row.store_display_status) {
+    return row.store_display_status;
+  }
+  if (row.lead_status === "converted") {
+    return "已核销";
+  }
+  if (row.lead_status === "refunded" || row.order_current_status === "refunded") {
+    return "已退款";
+  }
+  if (row.round_status === "expired_pending_reassign") {
+    return "超期失效";
+  }
+  if (
+    row.round_status === "failed_pending_reassign" ||
+    row.follow_result === "lost" ||
+    row.follow_result === "failed"
+  ) {
+    return "主动战败";
+  }
+  if (row.lead_status === "active" && row.round_status === "active_followed") {
+    return "已跟进";
+  }
+  if (row.lead_status === "active" && row.round_status === "active_unfollowed") {
+    return "待跟进";
+  }
+  return "不可跟进";
+}
+
+function mockFilterClueRounds(
+  filters: ClueOverviewFilters,
+): ClueAssignmentRoundData["rows"] {
+  return clueCenterResponses.assignment_rounds.data.rows.filter((row) => {
+    if (
+      filters.store_display_status &&
+      mockStoreDisplayStatus(row) !== filters.store_display_status
+    ) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function mockClueOverviewResponse(
+  filters: ClueOverviewFilters = {},
+): ApiResponse<ClueOverviewMetrics> {
+  const rows = mockFilterClueRounds(filters);
+  const total = rows.length;
+  const followed = rows.filter((row) => row.followed_at).length;
+  const successful = rows.filter((row) => row.follow_result === "success").length;
+  const verified = rows.filter((row) => row.is_self_store_verified).length;
+
   return {
-    ...clueCenterResponses.overview,
+    data: {
+      total_clues: total,
+      active_clues: rows.filter(
+        (row) =>
+          row.is_current_round &&
+          ["active_unfollowed", "active_followed"].includes(row.round_status),
+      ).length,
+      follow_rate: total ? followed / total : 0,
+      follow_success_rate: total ? successful / total : 0,
+      verified_count: verified,
+      self_store_verify_rate: total ? verified / total : 0,
+      pending_reassign_count: rows.filter((row) =>
+        ["failed_pending_reassign", "expired_pending_reassign"].includes(
+          row.round_status,
+        ),
+      ).length,
+    },
     meta: {
       ...clueCenterResponses.overview.meta,
       generated_at: generatedAt(),
@@ -336,10 +405,11 @@ function mockClueOverviewResponse(): ApiResponse<ClueOverviewMetrics> {
 }
 
 function mockClueAssignmentRoundsResponse({
+  filters,
   page,
   pageSize,
 }: ClueRoundQuery): ApiResponse<ClueAssignmentRoundData> {
-  const rows = clueCenterResponses.assignment_rounds.data.rows;
+  const rows = mockFilterClueRounds(filters);
   const safePageSize =
     Number.isFinite(pageSize) && pageSize > 0
       ? Math.min(Math.floor(pageSize), 100)
@@ -624,7 +694,7 @@ export function fetchClueOverview(
 ): Promise<ApiLoadResult<ClueOverviewMetrics>> {
   return withMockFallback(
     () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
-    mockClueOverviewResponse,
+    () => mockClueOverviewResponse(filters),
   );
 }
 
@@ -992,6 +1062,27 @@ export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
       },
     }),
   );
+}
+
+export async function fetchProductTypeVisibility(): Promise<
+  ApiLoadResult<ProductTypeVisibilityData>
+> {
+  return {
+    ...(await requestJson<ProductTypeVisibilityData>("/admin/product-type-visibility")),
+    usingMock: false,
+  };
+}
+
+export async function saveProductTypeVisibility(
+  payload: ProductTypeVisibilityUpdate,
+): Promise<ApiLoadResult<ProductTypeVisibilityData>> {
+  return {
+    ...(await sendJson<ProductTypeVisibilityData>("/admin/product-type-visibility", {
+      body: payload,
+      method: "PUT",
+    })),
+    usingMock: false,
+  };
 }
 
 export { defaultMonth, defaultStore, DEFAULT_DETAIL_PAGE_SIZE };

@@ -67,7 +67,7 @@ type ClueFilterKey =
   | "assignedStoreId"
   | "assignedDateStart"
   | "assignedDateEnd"
-  | "leadStatus"
+  | "storeDisplayStatus"
   | "productType";
 
 interface ActiveClueFilter {
@@ -76,13 +76,15 @@ interface ActiveClueFilter {
   value: string;
 }
 
-const leadStatusLabels: Record<string, string> = {
-  active: "可跟进",
-  pending_reassign: "待处理",
-  converted: "已核销",
-  refunded: "已退款",
-  closed: "不可跟进",
-};
+const storeDisplayStatusOptions: StoreClueStatus[] = [
+  "待跟进",
+  "已跟进",
+  "超期失效",
+  "主动战败",
+  "已核销",
+  "已退款",
+  "不可跟进",
+];
 
 const verificationStatusLabels: Record<string, string> = {
   unverified: "未核销",
@@ -330,7 +332,9 @@ export function ClueCenterPage({
   const [assignedDateEnd, setAssignedDateEnd] = useState(
     searchParams.get("assigned_date_end") ?? "",
   );
-  const [leadStatus, setLeadStatus] = useState(searchParams.get("lead_status") ?? "");
+  const [storeDisplayStatus, setStoreDisplayStatus] = useState(
+    searchParams.get("store_display_status") ?? "",
+  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
@@ -367,7 +371,7 @@ export function ClueCenterPage({
       assigned_store_id: showStoreLocationFilters ? assignedStoreId : "",
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
-      lead_status: leadStatus,
+      store_display_status: storeDisplayStatus,
       product_type: productType,
       province: showStoreLocationFilters ? province : "",
       city: showStoreLocationFilters ? city : "",
@@ -377,10 +381,10 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       city,
-      leadStatus,
       productType,
       province,
       showStoreLocationFilters,
+      storeDisplayStatus,
     ],
   );
 
@@ -416,11 +420,11 @@ export function ClueCenterPage({
         value: assignedDateEnd,
       });
     }
-    if (leadStatus) {
+    if (storeDisplayStatus) {
       chips.push({
-        key: "leadStatus",
+        key: "storeDisplayStatus",
         label: "状态",
-        value: labelFor(leadStatus, leadStatusLabels),
+        value: storeDisplayStatus,
       });
     }
     if (productType) {
@@ -432,11 +436,11 @@ export function ClueCenterPage({
     assignedDateStart,
     assignedStoreId,
     city,
-    leadStatus,
     meta?.assigned_stores,
     productType,
     province,
     showStoreLocationFilters,
+    storeDisplayStatus,
   ]);
 
   const overviewResource = useApiResource(
@@ -446,10 +450,10 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       city,
-      leadStatus,
       productType,
       province,
       showStoreLocationFilters,
+      storeDisplayStatus,
     ],
     { enabled: !isDetailsView },
   );
@@ -460,13 +464,13 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       city,
-      leadStatus,
       page,
       pageSize,
       productType,
       province,
       showStoreLocationFilters,
       isDetailsView,
+      storeDisplayStatus,
     ],
     { enabled: isDetailsView },
   );
@@ -781,7 +785,7 @@ export function ClueCenterPage({
     setAssignedStoreId("");
     setAssignedDateStart("");
     setAssignedDateEnd("");
-    setLeadStatus("");
+    setStoreDisplayStatus("");
     setProductType("");
     setPage(1);
   };
@@ -798,8 +802,8 @@ export function ClueCenterPage({
       setAssignedDateStart("");
     } else if (key === "assignedDateEnd") {
       setAssignedDateEnd("");
-    } else if (key === "leadStatus") {
-      setLeadStatus("");
+    } else if (key === "storeDisplayStatus") {
+      setStoreDisplayStatus("");
     } else if (key === "productType") {
       setProductType("");
     }
@@ -1078,13 +1082,16 @@ export function ClueCenterPage({
           label="线索状态"
           onChange={(value) => {
             setPage(1);
-            setLeadStatus(value);
+            setStoreDisplayStatus(value);
           }}
           options={[
             { value: "", label: "全部" },
-            ...optionList(meta?.lead_statuses, leadStatusLabels),
+            ...storeDisplayStatusOptions.map((status) => ({
+              value: status,
+              label: status,
+            })),
           ]}
-          value={leadStatus}
+          value={storeDisplayStatus}
         />
         <SelectField
           label="商品类型"

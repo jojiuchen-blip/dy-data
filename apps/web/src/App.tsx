@@ -4,6 +4,7 @@ import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminClueRulePage } from "./pages/AdminClueRulePage";
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
+import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
 import { AdminAccountsPage } from "./pages/AdminAccountsPage";
 import { AuthPage, type AuthMode } from "./pages/AuthPage";
 import { Shell } from "./components/Shell";
@@ -172,6 +173,8 @@ export function App() {
             <AdminClueRulePage />
           ) : location.pathname === "/admin/feedback" ? (
             <AdminFeedbackPage />
+          ) : location.pathname === "/admin/product-types" ? (
+            <AdminProductTypeVisibilityPage />
           ) : null;
 
         if (adminPage) {

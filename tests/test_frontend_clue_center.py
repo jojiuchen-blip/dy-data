@@ -279,7 +279,24 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
 
     assert "assigned_provinces: string[];" in types_source
     assert "verification_statuses: string[];" in types_source
+    assert "store_display_status?: string;" in types_source
     assert "province?: string;" in types_source
+    assert "lead_status: leadStatus" not in source
+    assert "store_display_status: storeDisplayStatus" in source
+    assert "meta?.lead_statuses" not in filter_bar
+    assert "storeDisplayStatusOptions.map" in filter_bar
+    assert_in_order(
+        source,
+        [
+            '"待跟进"',
+            '"已跟进"',
+            '"超期失效"',
+            '"主动战败"',
+            '"已核销"',
+            '"已退款"',
+            '"不可跟进"',
+        ],
+    )
 
 
 def test_clue_dashboard_metrics_use_current_business_labels() -> None:
@@ -646,6 +663,7 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
         "pages/AdminClueRulePage.tsx",
         "pages/AdminFeedbackPage.tsx",
         "pages/AdminSyncPage.tsx",
+        "pages/AdminProductTypeVisibilityPage.tsx",
         "pages/AdminAccountsPage.tsx",
     ]
 

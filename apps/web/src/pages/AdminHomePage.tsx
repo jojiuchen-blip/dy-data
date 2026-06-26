@@ -18,6 +18,12 @@ const adminModules = [
     meta: "线索规则",
   },
   {
+    href: "/admin/product-types",
+    title: "商品口径控制",
+    description: "限制线索中心和结算中心展示的商品类型，例如上线初期只开放精诚养车类数据。",
+    meta: "展示口径",
+  },
+  {
     href: "/admin/feedback",
     title: "用户建议",
     description: "查看用户提交的体验反馈、数据问题和功能建议，并标记处理状态。",

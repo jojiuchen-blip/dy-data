@@ -429,6 +429,7 @@ export interface ClueOverviewFilters {
   assigned_date_start?: string;
   assigned_date_end?: string;
   lead_status?: string;
+  store_display_status?: string;
   round_status?: string;
   product_type?: string;
   province?: string;
@@ -551,4 +552,17 @@ export interface ClueRebuildResult {
   status?: "queued" | "running" | "success" | "failed";
   rebuilt_order_count?: number | null;
   rebuilt_round_count?: number | null;
+}
+
+export interface ProductTypeVisibilityData {
+  enabled: boolean;
+  visible_product_types: string[];
+  available_product_types: string[];
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+export interface ProductTypeVisibilityUpdate {
+  enabled: boolean;
+  visible_product_types: string[];
 }

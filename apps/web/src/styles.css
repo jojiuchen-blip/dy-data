@@ -2906,6 +2906,134 @@ a.metric-card:hover,
   gap: 12px;
 }
 
+.product-visibility-panel {
+  max-width: 1120px;
+}
+
+.product-visibility-summary {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(220px, 0.45fr);
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.product-visibility-summary > div,
+.product-visibility-toggle {
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  min-height: 82px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 14px;
+  background: var(--surface-muted);
+}
+
+.product-visibility-summary span,
+.product-visibility-summary small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.product-visibility-summary strong {
+  font-size: 22px;
+  line-height: 1.15;
+}
+
+.product-visibility-toolbar,
+.product-visibility-save-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.product-visibility-toolbar {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 14px;
+}
+
+.product-visibility-toolbar > div:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.product-visibility-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.product-type-option-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.product-type-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 48px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 100ms ease;
+}
+
+.product-type-option:hover {
+  border-color: var(--green-accent-30);
+  background: var(--green-soft);
+  transform: translateY(-1px);
+}
+
+.product-type-option.is-selected {
+  border-color: var(--green-accent-32);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.product-type-option input {
+  width: 16px;
+  min-height: 16px;
+  margin: 0;
+}
+
+.product-type-option span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.product-visibility-save-row {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-top: 16px;
+}
+
+.product-visibility-save-row p {
+  max-width: 720px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
 .feedback-summary-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -3773,6 +3901,16 @@ a.metric-card:hover,
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   }
 
+  .product-visibility-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .product-visibility-toolbar,
+  .product-visibility-save-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .feedback-summary-row {
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   }
@@ -3943,6 +4081,15 @@ a.metric-card:hover,
   .clue-filter-bar,
   .clue-rule-grid {
     grid-template-columns: 1fr;
+  }
+
+  .product-type-option-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .product-visibility-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
   }
 
   .feedback-summary-row,

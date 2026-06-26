@@ -15,6 +15,7 @@ const adminPaths = new Set([
   "/admin/sync",
   "/admin/clues/rules",
   "/admin/feedback",
+  "/admin/product-types",
   "/rule-admin",
   "/sync-admin",
 ]);
@@ -73,6 +74,7 @@ const adminNavItems: NavItem[] = [
   { href: "/admin", label: "后台首页", icon: "home" },
   { href: "/admin/accounts", label: "账号管理", icon: "accounts" },
   { href: "/admin/rules", label: "分佣规则", icon: "rules" },
+  { href: "/admin/product-types", label: "商品口径", icon: "filter" },
   { href: "/admin/clues/rules", label: "线索规则", icon: "cluesLine" },
   { href: "/admin/feedback", label: "用户建议", icon: "feedback" },
   { href: "/admin/sync", label: "数据同步", icon: "sync" },
