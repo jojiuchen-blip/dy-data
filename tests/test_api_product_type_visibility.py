@@ -267,6 +267,7 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
     assert initial.status_code == 200
     assert initial.json()["data"]["enabled"] is False
     assert initial.json()["data"]["visible_product_types"] == []
+    assert initial.json()["data"]["default_product_type"] == "all"
     assert set(initial.json()["data"]["available_product_types"]) == {
         JINGCHENG_PRODUCT,
         HIDDEN_PRODUCT,
@@ -274,15 +275,21 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
 
     saved = client.put(
         "/api/v1/admin/product-type-visibility",
-        json={"enabled": True, "visible_product_types": [JINGCHENG_PRODUCT]},
+        json={
+            "enabled": True,
+            "visible_product_types": [JINGCHENG_PRODUCT],
+            "default_product_type": JINGCHENG_PRODUCT,
+        },
     )
     assert saved.status_code == 200
     assert saved.json()["data"]["enabled"] is True
     assert saved.json()["data"]["visible_product_types"] == [JINGCHENG_PRODUCT]
+    assert saved.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
 
     meta = client.get("/api/v1/meta/filters")
     assert meta.status_code == 200
     assert meta.json()["data"]["product_types"] == ["all", JINGCHENG_PRODUCT]
+    assert meta.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
 
     ranking = client.get(
         "/api/v1/dashboard/store-ranking",
@@ -310,6 +317,7 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
     clue_filters = client.get("/api/v1/clues/filters")
     assert clue_filters.status_code == 200
     assert clue_filters.json()["data"]["product_types"] == [JINGCHENG_PRODUCT]
+    assert clue_filters.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
 
     clue_overview = client.get("/api/v1/clues/overview")
     assert clue_overview.status_code == 200
@@ -358,3 +366,21 @@ def test_product_type_visibility_requires_admin(
         json={"enabled": True, "visible_product_types": [JINGCHENG_PRODUCT]},
     )
     assert response.status_code == 403
+
+
+def test_product_type_visibility_rejects_hidden_default_product_type(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_product_visibility_data(db_session)
+    _login_admin(client)
+
+    response = client.put(
+        "/api/v1/admin/product-type-visibility",
+        json={
+            "enabled": True,
+            "visible_product_types": [JINGCHENG_PRODUCT],
+            "default_product_type": HIDDEN_PRODUCT,
+        },
+    )
+
+    assert response.status_code == 422

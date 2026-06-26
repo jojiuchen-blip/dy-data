@@ -334,6 +334,7 @@ class ProductTypeVisibilitySetting(Base):
     setting_key: Mapped[str] = mapped_column(Text, primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     visible_product_types: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    default_product_type: Mapped[str] = mapped_column(Text, default="all")
     updated_by: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

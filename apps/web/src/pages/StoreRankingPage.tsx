@@ -18,7 +18,7 @@ import { TooltipLabel } from "../components/TooltipLabel";
 import { useApiResource } from "../hooks/useApiResource";
 import type { StoreRankingRow } from "../types/dashboard";
 import { formatCurrency, formatInteger } from "../utils/format";
-import { productOptions, saleMonthOptions } from "../utils/options";
+import { defaultProductType, productOptions, saleMonthOptions } from "../utils/options";
 
 interface StoreRankingPageProps {
   searchParams: URLSearchParams;
@@ -27,15 +27,16 @@ interface StoreRankingPageProps {
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [productType, setProductType] = useState(
-    searchParams.get("product_type") ?? "all",
+    searchParams.get("product_type") ?? "",
   );
 
   const metaResource = useApiResource(fetchFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.sale_months[0] || defaultMonth;
+  const activeProductType = productType || defaultProductType(meta);
   const rankingResource = useApiResource(
-    () => fetchStoreRanking({ month: activeMonth, productType, limit: 20 }),
-    [activeMonth, productType],
+    () => fetchStoreRanking({ month: activeMonth, productType: activeProductType, limit: 20 }),
+    [activeMonth, activeProductType],
   );
 
   const ranking = rankingResource.data?.data;
@@ -164,8 +165,8 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         <SelectField
           label="产品范围"
           onChange={setProductType}
-          options={productOptions(meta, productType)}
-          value={productType}
+          options={productOptions(meta, activeProductType)}
+          value={activeProductType}
         />
       </FilterBar>
 
@@ -202,7 +203,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
             <div className="section-title">
               <div>
                 <h2>前 20 门店榜单</h2>
-                <p>{activeMonth} · {productType === "all" ? "全部产品" : productType}</p>
+                <p>{activeMonth} · {activeProductType === "all" ? "全部产品" : activeProductType}</p>
               </div>
             </div>
             <DataTable
@@ -210,7 +211,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
               rows={rows}
               rowHref={(row) =>
                 `/settlement?store_id=${row.store_id}&month=${activeMonth}&product_type=${encodeURIComponent(
-                  productType,
+                  activeProductType,
                 )}`
               }
             />

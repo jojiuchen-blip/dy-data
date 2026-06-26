@@ -32,6 +32,7 @@ import { SolarIcon } from "../components/SolarIcon";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
+  ClueFilterMetadata,
   ClueAssignmentRound,
   ClueFollowUpRecord,
   ClueFollowUpResult,
@@ -150,6 +151,10 @@ function optionList(values: string[] | undefined, labels?: Record<string, string
     value,
     label: labels?.[value] ?? value,
   }));
+}
+
+function clueDefaultProductType(meta: ClueFilterMetadata | undefined): string {
+  return meta?.default_product_type?.trim() || "all";
 }
 
 function normalizeStoreStatus(value: string | null | undefined) {
@@ -365,6 +370,7 @@ export function ClueCenterPage({
 
   const filterResource = useApiResource(fetchClueFilters, []);
   const meta = filterResource.data?.data;
+  const activeProductType = productType || clueDefaultProductType(meta);
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
@@ -372,7 +378,7 @@ export function ClueCenterPage({
       assigned_date_start: assignedDateStart,
       assigned_date_end: assignedDateEnd,
       store_display_status: storeDisplayStatus,
-      product_type: productType,
+      product_type: activeProductType,
       province: showStoreLocationFilters ? province : "",
       city: showStoreLocationFilters ? city : "",
     }),
@@ -380,8 +386,8 @@ export function ClueCenterPage({
       assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
+      activeProductType,
       city,
-      productType,
       province,
       showStoreLocationFilters,
       storeDisplayStatus,
@@ -427,17 +433,17 @@ export function ClueCenterPage({
         value: storeDisplayStatus,
       });
     }
-    if (productType) {
-      chips.push({ key: "productType", label: "商品", value: productType });
+    if (activeProductType && activeProductType !== "all") {
+      chips.push({ key: "productType", label: "商品", value: activeProductType });
     }
     return chips;
   }, [
+    activeProductType,
     assignedDateEnd,
     assignedDateStart,
     assignedStoreId,
     city,
     meta?.assigned_stores,
-    productType,
     province,
     showStoreLocationFilters,
     storeDisplayStatus,
@@ -449,8 +455,8 @@ export function ClueCenterPage({
       assignedStoreId,
       assignedDateEnd,
       assignedDateStart,
+      activeProductType,
       city,
-      productType,
       province,
       showStoreLocationFilters,
       storeDisplayStatus,
@@ -466,7 +472,7 @@ export function ClueCenterPage({
       city,
       page,
       pageSize,
-      productType,
+      activeProductType,
       province,
       showStoreLocationFilters,
       isDetailsView,
@@ -805,7 +811,7 @@ export function ClueCenterPage({
     } else if (key === "storeDisplayStatus") {
       setStoreDisplayStatus("");
     } else if (key === "productType") {
-      setProductType("");
+      setProductType("all");
     }
   };
 
@@ -1099,8 +1105,8 @@ export function ClueCenterPage({
             setPage(1);
             setProductType(value);
           }}
-          options={[{ value: "", label: "全部" }, ...optionList(meta?.product_types)]}
-          value={productType}
+          options={[{ value: "all", label: "全部" }, ...optionList(meta?.product_types)]}
+          value={activeProductType}
         />
         <button className="ghost-button" onClick={resetFilters} type="button">
           清空筛选

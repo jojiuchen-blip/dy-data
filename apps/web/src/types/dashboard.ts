@@ -235,6 +235,7 @@ export interface SelectOption {
 export interface FilterMetaData {
   stores: StoreOption[];
   product_types: string[];
+  default_product_type: string;
   sale_months: string[];
   verify_months: string[];
 }
@@ -441,6 +442,7 @@ export interface ClueFilterMetadata {
   assigned_provinces: string[];
   assigned_cities: string[];
   product_types: string[];
+  default_product_type: string;
   lead_statuses: string[];
   round_statuses: string[];
   verification_statuses: string[];
@@ -557,6 +559,7 @@ export interface ClueRebuildResult {
 export interface ProductTypeVisibilityData {
   enabled: boolean;
   visible_product_types: string[];
+  default_product_type: string;
   available_product_types: string[];
   updated_at: string | null;
   updated_by: string | null;
@@ -565,4 +568,5 @@ export interface ProductTypeVisibilityData {
 export interface ProductTypeVisibilityUpdate {
   enabled: boolean;
   visible_product_types: string[];
+  default_product_type: string;
 }

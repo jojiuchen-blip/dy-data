@@ -478,10 +478,20 @@ def update_product_type_visibility(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="At least one product type is required when visibility control is enabled",
         )
+    if (
+        payload.enabled
+        and payload.default_product_type != "all"
+        and payload.default_product_type not in set(payload.visible_product_types)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Default product type must be visible when visibility control is enabled",
+        )
     data = ProductTypeVisibilityData(
         **store.save_product_type_visibility(
             enabled=payload.enabled,
             visible_product_types=payload.visible_product_types,
+            default_product_type=payload.default_product_type,
             updated_by=username,
         )
     )

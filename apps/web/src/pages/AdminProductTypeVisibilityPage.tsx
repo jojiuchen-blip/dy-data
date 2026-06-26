@@ -4,6 +4,7 @@ import {
   fetchProductTypeVisibility,
   saveProductTypeVisibility,
 } from "../api/client";
+import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
 import type { ProductTypeVisibilityData } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
@@ -35,6 +36,7 @@ export function AdminProductTypeVisibilityPage() {
   const [data, setData] = useState<ProductTypeVisibilityData | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [selectedProductTypes, setSelectedProductTypes] = useState<string[]>([]);
+  const [defaultProductType, setDefaultProductType] = useState("all");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusText, setStatusText] = useState("");
@@ -48,7 +50,19 @@ export function AdminProductTypeVisibilityPage() {
     [data],
   );
   const selectedCount = selectedProductTypes.length;
-  const canSave = !enabled || selectedCount > 0;
+  const defaultProductTypeHidden =
+    enabled && defaultProductType !== "all" && !selectedSet.has(defaultProductType);
+  const canSave = (!enabled || selectedCount > 0) && !defaultProductTypeHidden;
+  const defaultProductTypeOptions = useMemo(
+    () => [
+      { value: "all", label: "全部产品" },
+      ...availableProductTypes.map((productType) => ({
+        value: productType,
+        label: productType,
+      })),
+    ],
+    [availableProductTypes],
+  );
 
   const loadData = () => {
     setLoading(true);
@@ -59,6 +73,7 @@ export function AdminProductTypeVisibilityPage() {
         setSelectedProductTypes(
           normalizeProductTypes(response.data.visible_product_types),
         );
+        setDefaultProductType(response.data.default_product_type || "all");
         setStatusText("");
       })
       .catch((error) => {
@@ -78,6 +93,9 @@ export function AdminProductTypeVisibilityPage() {
   const toggleProductType = (productType: string) => {
     setSelectedProductTypes((current) => {
       if (current.includes(productType)) {
+        if (defaultProductType === productType) {
+          setDefaultProductType("all");
+        }
         return current.filter((value) => value !== productType);
       }
       return normalizeProductTypes([...current, productType]);
@@ -86,7 +104,11 @@ export function AdminProductTypeVisibilityPage() {
 
   const handleSave = async () => {
     if (!canSave) {
-      setStatusText("启用商品口径限制时，至少选择一个商品类型。");
+      setStatusText(
+        defaultProductTypeHidden
+          ? "默认显示范围必须属于已选择的可见商品类型。"
+          : "启用商品口径限制时，至少选择一个商品类型。",
+      );
       return;
     }
     setSaving(true);
@@ -95,12 +117,14 @@ export function AdminProductTypeVisibilityPage() {
       const response = await saveProductTypeVisibility({
         enabled,
         visible_product_types: selectedProductTypes,
+        default_product_type: defaultProductType,
       });
       setData(response.data);
       setEnabled(response.data.enabled);
       setSelectedProductTypes(
         normalizeProductTypes(response.data.visible_product_types),
       );
+      setDefaultProductType(response.data.default_product_type || "all");
       setStatusText(
         response.data.enabled
           ? "商品口径已保存，线索中心和结算中心会立即按所选商品类型展示。"
@@ -108,7 +132,7 @@ export function AdminProductTypeVisibilityPage() {
       );
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 422) {
-        setStatusText("启用商品口径限制时，至少选择一个商品类型。");
+        setStatusText("商品口径保存失败，请确认默认显示范围属于可见商品类型。");
       } else if (error instanceof ApiRequestError && error.status === 401) {
         setStatusText("登录已过期，请重新登录后再保存。");
       } else {
@@ -190,13 +214,25 @@ export function AdminProductTypeVisibilityPage() {
             <button
               className="ghost-button"
               disabled={!selectedCount}
-              onClick={() => setSelectedProductTypes([])}
+              onClick={() => {
+                setSelectedProductTypes([]);
+                setDefaultProductType("all");
+              }}
               type="button"
             >
               清空选择
             </button>
           </div>
         </div>
+
+        <SelectField
+          className="product-visibility-default"
+          helperText="用户进入所有商品类型筛选器时，默认先展示这个范围；用户仍可手动切换。"
+          label="默认显示范围"
+          onChange={setDefaultProductType}
+          options={defaultProductTypeOptions}
+          value={defaultProductType}
+        />
 
         {availableProductTypes.length ? (
           <div

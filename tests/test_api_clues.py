@@ -231,6 +231,74 @@ def test_clue_filters_include_store_location_and_verification_status(
     ]
 
 
+def test_clue_date_end_filter_includes_selected_calendar_day(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add_all(
+        [
+            ClueCenterOrder(
+                order_id="order-3",
+                source_clue_ids=["clue-3"],
+                source_clue_count=1,
+                canonical_clue_id="clue-3",
+                lead_status="active",
+                current_assignment_round_id="order-3-1",
+                current_round_no=1,
+                current_round_status="active_unfollowed",
+                assigned_at=_dt(2, 9),
+                assigned_at_source="clue_create_time_detail",
+                assigned_store_id="store-1",
+                assigned_store_name="Store One",
+                assigned_city="Shanghai",
+                assigned_province="Shanghai",
+                phone_plain="13712345678",
+                phone_masked="137****5678",
+                phone_source="telephone",
+                product_id="sku-3",
+                product_name="Calendar Day Product",
+                product_type="Car Service",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                is_self_store_verified=False,
+                created_at=_dt(2, 9),
+                updated_at=_dt(2, 9),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="order-3-1",
+                order_id="order-3",
+                round_no=1,
+                assigned_at=_dt(2, 9),
+                assigned_at_source="clue_create_time_detail",
+                assigned_store_id="store-1",
+                assigned_store_name="Store One",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                is_self_store_verified=False,
+                created_at=_dt(2, 9),
+                updated_at=_dt(2, 9),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login(client)
+
+    response = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={
+            "assigned_date_start": "2026-06-01",
+            "assigned_date_end": "2026-06-02",
+        },
+    )
+
+    assert response.status_code == 200
+    order_ids = {row["order_id"] for row in response.json()["data"]["rows"]}
+    assert order_ids == {"order-1", "order-2", "order-3"}
+
+
 def test_clue_rounds_can_filter_by_location_store_and_verification_status(
     client: TestClient, db_session: Session
 ) -> None:

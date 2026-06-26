@@ -214,6 +214,7 @@ function mockMetaResponse(): ApiResponse<FilterMetaData> {
         store_name: option.label,
       })),
       product_types: optionValues(getProductOptions()),
+      default_product_type: "all",
       sale_months: months,
       verify_months: months,
     },
@@ -317,7 +318,11 @@ function mockOrderDetailsResponse({
 
 function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {
   return {
-    ...clueCenterResponses.filters,
+    data: {
+      ...clueCenterResponses.filters.data,
+      default_product_type: "all",
+    },
+    definitions: clueCenterResponses.filters.definitions,
     meta: {
       ...clueCenterResponses.filters.meta,
       generated_at: generatedAt(),

@@ -25,6 +25,7 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
 
     assert "商品口径控制" in page_source
     assert "启用商品类型限制" in page_source
+    assert "默认显示范围" in page_source
     assert "全部选择" in page_source
     assert "清空选择" in page_source
     assert "保存口径" in page_source
@@ -34,6 +35,7 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
 
     assert "export interface ProductTypeVisibilityData" in types_source
     assert "export interface ProductTypeVisibilityUpdate" in types_source
+    assert "default_product_type" in types_source
     assert "export async function fetchProductTypeVisibility" in client_source
     assert 'requestJson<ProductTypeVisibilityData>("/admin/product-type-visibility")' in client_source
     assert "export async function saveProductTypeVisibility" in client_source
@@ -42,3 +44,18 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert ".product-visibility-panel" in styles_source
     assert ".product-type-option-grid" in styles_source
     assert ".product-type-option.is-selected" in styles_source
+
+
+def test_business_product_filters_use_metadata_default_product_type() -> None:
+    options_source = read_source("utils/options.ts")
+    ranking_source = read_source("pages/StoreRankingPage.tsx")
+    settlement_source = read_source("pages/StoreSettlementPage.tsx")
+    details_source = read_source("pages/OrderDetailsPage.tsx")
+    clues_source = read_source("pages/ClueCenterPage.tsx")
+
+    assert "defaultProductType" in options_source
+    assert "defaultProductType(meta)" in ranking_source
+    assert "defaultProductType(meta)" in settlement_source
+    assert "effectiveFilters" in details_source
+    assert "defaultProductType(meta)" in details_source
+    assert "clueDefaultProductType(meta)" in clues_source

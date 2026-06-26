@@ -358,6 +358,7 @@ class ManualSyncResult(BaseModel):
 class FilterMetadata(BaseModel):
     stores: list[StoreOption]
     product_types: list[str]
+    default_product_type: str = "all"
     sale_months: list[str]
     verify_months: list[str]
 
@@ -367,6 +368,7 @@ class ClueFilterMetadata(BaseModel):
     assigned_provinces: list[str]
     assigned_cities: list[str]
     product_types: list[str]
+    default_product_type: str = "all"
     lead_statuses: list[str]
     round_statuses: list[str]
     verification_statuses: list[str]
@@ -505,6 +507,7 @@ class ClueRebuildResult(BaseModel):
 class ProductTypeVisibilityData(BaseModel):
     enabled: bool = False
     visible_product_types: list[str] = Field(default_factory=list)
+    default_product_type: str = "all"
     available_product_types: list[str] = Field(default_factory=list)
     updated_at: datetime | None = None
     updated_by: str | None = None
@@ -513,6 +516,7 @@ class ProductTypeVisibilityData(BaseModel):
 class ProductTypeVisibilityUpdate(BaseModel):
     enabled: bool = False
     visible_product_types: list[str] = Field(default_factory=list, max_length=100)
+    default_product_type: str = "all"
 
     @field_validator("visible_product_types")
     def normalize_product_types(cls, values: list[str]) -> list[str]:
@@ -525,6 +529,11 @@ class ProductTypeVisibilityUpdate(BaseModel):
             normalized.append(product_type)
             seen.add(product_type)
         return normalized
+
+    @field_validator("default_product_type")
+    def normalize_default_product_type(cls, value: str) -> str:
+        product_type = " ".join(str(value).strip().split())
+        return product_type or "all"
 
 
 class StoreRankingRow(BaseModel):

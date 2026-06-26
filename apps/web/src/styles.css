@@ -2971,6 +2971,17 @@ a.metric-card:hover,
   flex-wrap: wrap;
 }
 
+.product-visibility-default {
+  max-width: 420px;
+  margin-bottom: 14px;
+}
+
+.product-visibility-default small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .product-type-option-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

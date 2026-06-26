@@ -16,9 +16,11 @@ def filters(
     store=Depends(get_data_store),
 ):
     scope_store_ids = None if current_user.has_global_data_access else current_user.store_ids
+    default_product_type = getattr(store, "default_product_type", lambda: "all")()
     data = FilterMetadata(
         stores=store.list_stores(scope_store_ids=scope_store_ids),
         product_types=store.list_product_types(),
+        default_product_type=default_product_type,
         sale_months=store.list_sale_months(),
         verify_months=store.list_verify_months(),
     )

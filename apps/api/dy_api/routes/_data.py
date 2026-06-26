@@ -7,7 +7,7 @@ import math
 import os
 import re
 from collections.abc import Generator, Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -284,6 +284,11 @@ def _normalize_product_type_list(values: Iterable[Any]) -> list[str]:
     return normalized
 
 
+def _normalize_product_type_value(value: Any) -> str:
+    product_type = " ".join(_to_str(value, "all").strip().split())
+    return product_type or "all"
+
+
 def _parse_filter_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value.astimezone(SHANGHAI_TZ) if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
@@ -298,6 +303,18 @@ def _parse_filter_datetime(value: Any) -> datetime | None:
     except ValueError:
         return None
     return parsed.astimezone(SHANGHAI_TZ) if parsed.tzinfo else parsed.replace(tzinfo=SHANGHAI_TZ)
+
+
+def _parse_filter_date_end(value: Any) -> datetime | None:
+    parsed = _parse_filter_datetime(value)
+    if parsed is None:
+        return None
+    if isinstance(value, datetime):
+        return parsed
+    raw = _to_str(value).strip()
+    if len(raw) == 10:
+        return parsed + timedelta(days=1)
+    return parsed
 
 
 def _remaining_reassign_seconds(expires_at: Any) -> int | None:
@@ -429,9 +446,21 @@ class DashboardDataStore:
             product_types = [product_type for product_type in product_types if product_type in allowed]
         return ["all", *product_types]
 
+    def default_product_type(self) -> str:
+        setting = self._product_type_visibility_setting()
+        default_product_type = _normalize_product_type_value(
+            getattr(setting, "default_product_type", "all") if setting is not None else "all"
+        )
+        if default_product_type == "all":
+            return "all"
+        if not self._is_product_type_visible(default_product_type):
+            return "all"
+        return default_product_type
+
     def product_type_visibility(self) -> dict[str, Any]:
         setting = self._product_type_visibility_setting()
         visible_product_types: list[str] = []
+        default_product_type = "all"
         enabled = False
         updated_at = None
         updated_by = None
@@ -446,12 +475,24 @@ class DashboardDataStore:
             if not isinstance(raw_values, list):
                 raw_values = []
             visible_product_types = _normalize_product_type_list(raw_values)
+            default_product_type = _normalize_product_type_value(
+                getattr(setting, "default_product_type", "all")
+            )
             updated_at = setting.updated_at
             updated_by = setting.updated_by
         available = sorted(set(self._all_product_types()) | set(visible_product_types))
+        if default_product_type != "all" and default_product_type not in available:
+            default_product_type = "all"
+        if (
+            enabled
+            and default_product_type != "all"
+            and default_product_type not in set(visible_product_types)
+        ):
+            default_product_type = "all"
         return {
             "enabled": enabled,
             "visible_product_types": visible_product_types,
+            "default_product_type": default_product_type,
             "available_product_types": available,
             "updated_at": updated_at,
             "updated_by": updated_by,
@@ -462,11 +503,19 @@ class DashboardDataStore:
         *,
         enabled: bool,
         visible_product_types: list[str],
+        default_product_type: str,
         updated_by: str,
     ) -> dict[str, Any]:
         if self.session is None or ProductTypeVisibilitySetting is None:
             return self.product_type_visibility()
         visible_product_types = _normalize_product_type_list(visible_product_types)
+        default_product_type = _normalize_product_type_value(default_product_type)
+        if (
+            enabled
+            and default_product_type != "all"
+            and default_product_type not in set(visible_product_types)
+        ):
+            default_product_type = "all"
         now = generated_at()
         setting = self.session.get(ProductTypeVisibilitySetting, "global")
         if setting is None:
@@ -474,6 +523,7 @@ class DashboardDataStore:
                 setting_key="global",
                 enabled=enabled,
                 visible_product_types=visible_product_types,
+                default_product_type=default_product_type,
                 updated_by=updated_by,
                 updated_at=now,
             )
@@ -481,6 +531,7 @@ class DashboardDataStore:
         else:
             setting.enabled = enabled
             setting.visible_product_types = visible_product_types
+            setting.default_product_type = default_product_type
             setting.updated_by = updated_by
             setting.updated_at = now
         self.session.flush()
@@ -1187,6 +1238,7 @@ class DashboardDataStore:
             "assigned_provinces": assigned_provinces,
             "assigned_cities": assigned_cities,
             "product_types": product_types,
+            "default_product_type": self.default_product_type(),
             "lead_statuses": lead_statuses,
             "round_statuses": round_statuses,
             "verification_statuses": CLUE_VERIFICATION_STATUSES,
@@ -2332,7 +2384,7 @@ class DashboardDataStore:
             clauses.append(f"{column} >= :assigned_date_start")
             params["assigned_date_start"] = assigned_start
 
-        assigned_end = _parse_filter_datetime(filters.get("assigned_date_end"))
+        assigned_end = _parse_filter_date_end(filters.get("assigned_date_end"))
         if assigned_end is not None:
             column = "r.assigned_at" if include_round else "c.assigned_at"
             clauses.append(f"{column} < :assigned_date_end")

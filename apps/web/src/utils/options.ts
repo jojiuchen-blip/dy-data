@@ -17,6 +17,10 @@ function productLabel(value: string): string {
   return value === ALL_PRODUCTS ? "全部产品" : value;
 }
 
+export function defaultProductType(meta: FilterMetaData | undefined): string {
+  return meta?.default_product_type?.trim() || ALL_PRODUCTS;
+}
+
 export function productOptions(
   meta: FilterMetaData | undefined,
   currentValue = ALL_PRODUCTS,

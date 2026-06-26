@@ -23,6 +23,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime, labelForBoolean } from "../utils/format";
 import {
+  defaultProductType,
   productOptions,
   saleMonthOptions,
   storeOptions,
@@ -100,7 +101,11 @@ function detailsSearchString(
 ): string {
   const search = new URLSearchParams();
   Object.entries(filters).forEach(([key, value]) => {
-    if (value !== undefined && value !== "" && value !== "all") {
+    if (
+      value !== undefined &&
+      value !== "" &&
+      (value !== "all" || key === "product_type")
+    ) {
       search.set(key, value);
     }
   });
@@ -165,16 +170,27 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   }, [searchKey]);
 
   const metaResource = useApiResource(fetchFilterMeta, []);
+  const meta = metaResource.data?.data;
+  const activeProductType = filters.product_type ?? defaultProductType(meta);
+  const effectiveFilters = useMemo(
+    () => ({
+      ...filters,
+      product_type: activeProductType,
+    }),
+    [filters, activeProductType],
+  );
   const detailsResource = useApiResource(
-    () => fetchOrderDetails({ filters, page, pageSize }),
-    [filters, page, pageSize],
+    () => fetchOrderDetails({ filters: effectiveFilters, page, pageSize }),
+    [effectiveFilters, page, pageSize],
   );
 
-  const meta = metaResource.data?.data;
   const details = detailsResource.data?.data;
   const rows = details?.rows ?? [];
   const pagination = details?.pagination;
-  const chips = useMemo(() => activeChips(filters, meta), [filters, meta]);
+  const chips = useMemo(
+    () => activeChips(effectiveFilters, meta),
+    [effectiveFilters, meta],
+  );
 
   useEffect(() => {
     replaceDetailsUrl(filters, page, pageSize);
@@ -358,8 +374,8 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           <SelectField
             label="产品范围"
             onChange={(value) => updateFilter("product_type", value)}
-            options={productOptions(meta, filters.product_type ?? "all")}
-            value={filters.product_type ?? "all"}
+            options={productOptions(meta, activeProductType)}
+            value={activeProductType}
           />
           <FilterField label="订单 / 券搜索">
             <input

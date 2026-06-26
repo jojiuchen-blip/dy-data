@@ -90,6 +90,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     for column_name in (
         "enabled",
         "visible_product_types",
+        "default_product_type",
         "updated_by",
         "updated_at",
     ):

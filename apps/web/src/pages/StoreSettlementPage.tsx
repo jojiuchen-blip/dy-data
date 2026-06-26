@@ -25,6 +25,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatInteger, formatPercent } from "../utils/format";
 import {
+  defaultProductType,
   productOptions,
   storeOptions,
   verifyMonthOptions,
@@ -39,16 +40,22 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [storeId, setStoreId] = useState(searchParams.get("store_id") ?? "");
   const [productType, setProductType] = useState(
-    searchParams.get("product_type") ?? "all",
+    searchParams.get("product_type") ?? "",
   );
 
   const metaResource = useApiResource(fetchFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.verify_months[0] || defaultMonth;
   const activeStoreId = storeId || meta?.stores[0]?.store_id || defaultStore.store_id;
+  const activeProductType = productType || defaultProductType(meta);
   const settlementResource = useApiResource(
-    () => fetchMonthlySettlement({ storeId: activeStoreId, month: activeMonth, productType }),
-    [activeStoreId, activeMonth, productType],
+    () =>
+      fetchMonthlySettlement({
+        storeId: activeStoreId,
+        month: activeMonth,
+        productType: activeProductType,
+      }),
+    [activeStoreId, activeMonth, activeProductType],
   );
 
   const view = settlementResource.data?.data;
@@ -62,7 +69,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     (activeStoreId
       ? { store_id: activeStoreId, store_name: "当前门店" }
       : defaultStore);
-  const baseProduct = productType === "all" ? "all" : productType;
+  const baseProduct = activeProductType === "all" ? "all" : activeProductType;
 
   const receivableHref = detailsHref({
     product_type: baseProduct,
@@ -191,8 +198,8 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
         <SelectField
           label="产品范围"
           onChange={setProductType}
-          options={productOptions(meta, productType)}
-          value={productType}
+          options={productOptions(meta, activeProductType)}
+          value={activeProductType}
         />
       </FilterBar>
 
