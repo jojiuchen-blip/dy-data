@@ -56,6 +56,35 @@ def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
         assert removed_label not in source
 
 
+def test_clue_contact_actions_stay_on_one_row() -> None:
+    styles_source = read_source("styles.css")
+
+    contact_cell_rules = re.search(
+        r"\.clue-contact-cell \{(?P<body>.*?)\n\}",
+        styles_source,
+        re.DOTALL,
+    )
+    detail_trigger_rules = re.findall(
+        r"\.clue-detail-trigger \{(?P<body>.*?)\n\}",
+        styles_source,
+        re.DOTALL,
+    )
+    table_phone_rules = re.search(
+        r"\.phone-reveal--table \{(?P<body>.*?)\n\}",
+        styles_source,
+        re.DOTALL,
+    )
+
+    assert contact_cell_rules
+    assert detail_trigger_rules
+    assert table_phone_rules
+    assert "display: inline-flex;" in contact_cell_rules.group("body")
+    assert "align-items: center;" in contact_cell_rules.group("body")
+    assert "flex-wrap: nowrap;" in contact_cell_rules.group("body")
+    assert "flex-wrap: nowrap;" in table_phone_rules.group("body")
+    assert any("white-space: nowrap;" in rule for rule in detail_trigger_rules)
+
+
 def test_clue_center_does_not_display_douyin_follow_store_as_our_assignment() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 

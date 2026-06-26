@@ -2045,6 +2045,10 @@ a.metric-card:hover,
   min-width: 0;
 }
 
+.phone-reveal--table {
+  flex-wrap: nowrap;
+}
+
 .phone-action-button {
   display: inline-grid;
   min-width: 30px;
@@ -2084,13 +2088,16 @@ a.metric-card:hover,
 }
 
 .clue-contact-cell {
-  display: grid;
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: nowrap;
   min-width: 0;
-  gap: 7px;
+  gap: 10px;
 }
 
 .clue-detail-trigger {
-  justify-self: start;
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .clue-product-name {
