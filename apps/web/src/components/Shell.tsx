@@ -86,6 +86,9 @@ const sectionLabels: Record<NavSection, string> = {
   admin: "管理后台",
 };
 
+const settlementTrialNotice =
+  "提示：预计分佣比例、金额仅为试运行参考，不代表最终规则或最终到账金额。";
+
 const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
   { label: "使用体验", value: "experience" },
   { label: "数据问题", value: "data" },
@@ -303,6 +306,15 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
       <div className="workspace-shell">
         <header className="workspace-topbar">
           {renderSecondaryNav("workspace-subnav--desktop")}
+          {section === "settlement" ? (
+            <div
+              aria-label={settlementTrialNotice}
+              className="settlement-trial-notice"
+              role="note"
+            >
+              {settlementTrialNotice}
+            </div>
+          ) : null}
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (
@@ -336,6 +348,11 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         </header>
 
         {renderSecondaryNav("workspace-subnav--mobile")}
+        {section === "settlement" ? (
+          <div className="settlement-trial-notice settlement-trial-notice--mobile">
+            {settlementTrialNotice}
+          </div>
+        ) : null}
 
         <main className={pageFrameClassName}>{children}</main>
       </div>
