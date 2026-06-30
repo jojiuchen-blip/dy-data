@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import get_data_store, generated_at
@@ -156,6 +158,50 @@ def clue_order_detail(
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
+
+
+@router.get("/clues/assignment-rounds/export")
+def clue_assignment_rounds_export(
+    assigned_store_id: str | None = None,
+    assigned_date_start: str | None = None,
+    assigned_date_end: str | None = None,
+    lead_status: str | None = None,
+    store_display_status: str | None = None,
+    round_status: str | None = None,
+    product_type: str | None = None,
+    province: str | None = None,
+    city: str | None = None,
+    verification_status: str | None = None,
+    q: str | None = None,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    filters = {
+        "assigned_store_id": assigned_store_id,
+        "assigned_date_start": assigned_date_start,
+        "assigned_date_end": assigned_date_end,
+        "lead_status": lead_status,
+        "store_display_status": store_display_status,
+        "round_status": round_status,
+        "product_type": product_type,
+        "province": province,
+        "city": city,
+        "verification_status": verification_status,
+        "q": q,
+        "scope_store_ids": _scope_store_ids(current_user),
+    }
+    generated = generated_at().isoformat()
+    filename = quote(f"clue-assignment-rounds-{generated[:10]}.csv")
+    return Response(
+        content=store.clue_assignment_rounds_export_csv(filters),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "X-Export-Generated-At": generated,
+            "X-Export-Filters": store.export_filter_header(filters),
+        },
+    )
 
 
 @router.post("/clues/orders/{order_id}/follow-up")

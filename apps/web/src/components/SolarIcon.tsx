@@ -12,6 +12,7 @@ import closeCircleLinear from "@iconify-icons/solar/close-circle-linear";
 import copyLinear from "@iconify-icons/solar/copy-linear";
 import eyeClosedLinear from "@iconify-icons/solar/eye-closed-linear";
 import eyeLinear from "@iconify-icons/solar/eye-linear";
+import fileDownloadLinear from "@iconify-icons/solar/file-download-linear";
 import filterLinear from "@iconify-icons/solar/filter-linear";
 import graphNewUpBoldDuotone from "@iconify-icons/solar/graph-new-up-bold-duotone";
 import home2Linear from "@iconify-icons/solar/home-2-linear";
@@ -36,6 +37,7 @@ const solarIcons = {
   eyeClosed: eyeClosedLinear,
   eye: eyeLinear,
   feedback: chatRoundDotsLinear,
+  fileDownload: fileDownloadLinear,
   filter: filterLinear,
   home: home2Linear,
   key: keyMinimalisticSquareLinear,

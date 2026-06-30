@@ -1361,6 +1361,78 @@ class DashboardDataStore:
             },
         }
 
+    def clue_assignment_rounds_export_csv(self, filters: dict[str, Any]) -> str:
+        where_sql, params = self._clue_where(filters, include_round=True)
+        rows = self._execute(
+            f"""
+            SELECT r.assignment_round_id,
+                   r.order_id,
+                   r.round_no,
+                   c.lead_status,
+                   c.current_assignment_round_id,
+                   c.current_round_no,
+                   c.current_round_status,
+                   c.assigned_store_id AS current_assigned_store_id,
+                   c.assigned_store_name AS current_assigned_store_name,
+                   r.round_status,
+                   r.assigned_at,
+                   r.expires_at,
+                   r.assigned_store_id,
+                   r.assigned_store_name,
+                   COALESCE(c.phone_plain, '') AS phone_plain,
+                   COALESCE(c.phone_masked, '') AS phone_masked,
+                   c.product_name,
+                   c.product_type,
+                   c.author_nickname,
+                   r.followed_at,
+                   r.follow_result,
+                   r.reassign_reason,
+                   r.reassigned_at,
+                   r.verified_store_id,
+                   r.verified_store_name,
+                   r.verified_at,
+                   r.is_self_store_verified
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            {where_sql}
+            ORDER BY r.assigned_at DESC, r.assignment_round_id DESC
+            """,
+            params,
+        )
+        fieldnames = [
+            "assignment_round_id",
+            "order_id",
+            "round_no",
+            "store_display_status",
+            "lead_status",
+            "round_status",
+            "assigned_at",
+            "expires_at",
+            "assigned_store_id",
+            "assigned_store_name",
+            "phone_plain",
+            "phone_masked",
+            "product_name",
+            "product_type",
+            "author_nickname",
+            "followed_at",
+            "follow_result",
+            "reassign_reason",
+            "reassigned_at",
+            "verified_store_id",
+            "verified_store_name",
+            "verified_at",
+            "is_self_store_verified",
+        ]
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        for row in rows:
+            cleaned = self._clean_clue_round_row(row)
+            cleaned["phone_plain"] = _to_str(row.get("phone_plain"))
+            writer.writerow(cleaned)
+        return buffer.getvalue()
+
     def clue_order_detail(
         self,
         order_id: str,
@@ -2067,7 +2139,7 @@ class DashboardDataStore:
             for key, value in filters.items()
             if value not in (None, "", "all") and key not in {"page", "page_size"}
         }
-        return json.dumps(clean_filters, ensure_ascii=False, sort_keys=True)
+        return json.dumps(clean_filters, ensure_ascii=True, sort_keys=True)
 
     def _product_type_clause(
         self, product_type: str, params: dict[str, Any]

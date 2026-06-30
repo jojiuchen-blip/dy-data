@@ -146,6 +146,44 @@ async function requestJson<T>(
   return response.json() as Promise<ApiResponse<T>>;
 }
 
+function filenameFromContentDisposition(disposition: string | null): string | null {
+  if (!disposition) {
+    return null;
+  }
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeURIComponent(utf8Match[1]);
+  }
+  const asciiMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return asciiMatch?.[1] ?? null;
+}
+
+async function requestDownload(
+  path: string,
+  params?: QueryParams,
+): Promise<void> {
+  const response = await fetch(apiUrl(path, params), {
+    credentials: "include",
+    headers: { Accept: "text/csv" },
+  });
+
+  if (!response.ok) {
+    throw new ApiRequestError(response.status);
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download =
+    filenameFromContentDisposition(response.headers.get("Content-Disposition")) ??
+    "export.csv";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+}
+
 async function sendJson<T>(
   path: string,
   {
@@ -704,6 +742,10 @@ export function fetchClueOverview(
   );
 }
 
+export function exportOrderDetails(filters: DetailFilters): Promise<void> {
+  return requestDownload("/order-details/export", { ...filters });
+}
+
 export function fetchClueAssignmentRounds(
   query: ClueRoundQuery,
 ): Promise<ApiLoadResult<ClueAssignmentRoundData>> {
@@ -728,6 +770,12 @@ export function fetchClueOrderDetail(
       ),
     () => mockClueOrderDetailResponse(orderId),
   );
+}
+
+export function exportClueAssignmentRounds(
+  filters: ClueOverviewFilters,
+): Promise<void> {
+  return requestDownload("/clues/assignment-rounds/export", { ...filters });
 }
 
 export function fetchClueOrderPhone(

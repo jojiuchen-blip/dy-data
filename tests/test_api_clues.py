@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import csv
+import io
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -211,6 +213,66 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["store_display_status"] in {"待跟进", "已核销"}
     assert "telephone" not in row
     assert row["remaining_reassign_seconds"] is None
+
+
+def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        ClueAssignmentRound(
+            assignment_round_id="order-2-2",
+            order_id="order-2",
+            round_no=2,
+            assigned_at=_dt(2, 9),
+            assigned_at_source="manual_reassign",
+            assigned_store_id="store-2",
+            assigned_store_name="Store Two",
+            follow_result="pending",
+            is_followed=False,
+            is_follow_success=False,
+            round_status="active_unfollowed",
+            is_self_store_verified=False,
+            created_at=_dt(2, 9),
+            updated_at=_dt(2, 9),
+        )
+    )
+    db_session.add_all(
+        [
+            User(
+                user_id="user-store-1",
+                username="store-user",
+                external_account_id="store-1",
+                display_name="Store User",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            UserStoreScope(user_id="user-store-1", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "store-user", "secret")
+
+    response = client.get(
+        "/api/v1/clues/assignment-rounds/export",
+        params={"assigned_store_id": "store-1", "store_display_status": "待跟进"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/csv")
+    assert "attachment;" in response.headers["content-disposition"]
+    assert json.loads(response.headers["x-export-filters"]) == {
+        "assigned_store_id": "store-1",
+        "scope_store_ids": ["store-1"],
+        "store_display_status": "待跟进",
+    }
+    rows = list(csv.DictReader(io.StringIO(response.text)))
+    assert [row["assignment_round_id"] for row in rows] == ["order-2-1"]
+    assert rows[0]["phone_plain"] == "13912345678"
+    assert rows[0]["phone_masked"] == "139****5678"
+    assert "order-2-2" not in response.text
 
 
 def test_clue_filters_include_store_location_and_verification_status(

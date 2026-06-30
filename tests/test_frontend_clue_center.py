@@ -299,6 +299,44 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
     )
 
 
+def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
+    clue_source = read_source("pages/ClueCenterPage.tsx")
+    order_source = read_source("pages/OrderDetailsPage.tsx")
+    client_source = read_source("api/client.ts")
+    icon_source = read_source("components/SolarIcon.tsx")
+    styles_source = read_source("styles.css")
+
+    assert "fileDownload" in icon_source
+    assert "file-download-linear" in icon_source
+    assert "exportClueAssignmentRounds" in client_source
+    assert 'requestDownload("/clues/assignment-rounds/export"' in client_source
+    assert "exportOrderDetails" in client_source
+    assert 'requestDownload("/order-details/export"' in client_source
+
+    clue_section = clue_source[
+        clue_source.index('<h2>当前筛选结果</h2>') :
+        clue_source.index("<DataTable", clue_source.index('<h2>当前筛选结果</h2>'))
+    ]
+    assert 'className="section-title-actions"' in clue_section
+    assert '<SolarIcon name="fileDownload"' in clue_section
+    assert "导出" in clue_section
+    assert "handleExportClues" in clue_section
+    assert "当前账号可见范围与当前筛选条件" in clue_section
+    assert "未加密明文" in clue_section
+
+    order_section = order_source[
+        order_source.index("<h2>明细记录</h2>") :
+        order_source.index("<DataTable", order_source.index("<h2>明细记录</h2>"))
+    ]
+    assert 'className="section-title-actions"' in order_section
+    assert '<SolarIcon name="fileDownload"' in order_section
+    assert "导出" in order_section
+    assert "handleExportOrders" in order_section
+
+    assert ".export-button" in styles_source
+    assert ".section-title-actions" in styles_source
+
+
 def test_clue_dashboard_metrics_use_current_business_labels() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
     types_source = read_source("types/dashboard.ts")

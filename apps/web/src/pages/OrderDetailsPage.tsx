@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_DETAIL_PAGE_SIZE,
+  exportOrderDetails,
   fetchFilterMeta,
   fetchOrderDetails,
 } from "../api/client";
@@ -14,6 +15,7 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { SolarIcon } from "../components/SolarIcon";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -159,6 +161,8 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const [pageSize, setPageSize] = useState(() =>
     positiveInteger(searchParams.get("page_size"), DEFAULT_DETAIL_PAGE_SIZE),
   );
+  const [exportingOrders, setExportingOrders] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   useEffect(() => {
     const nextSearchParams = new URLSearchParams(searchKey);
@@ -191,6 +195,18 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     () => activeChips(effectiveFilters, meta),
     [effectiveFilters, meta],
   );
+
+  const handleExportOrders = async () => {
+    setExportingOrders(true);
+    setExportError(null);
+    try {
+      await exportOrderDetails(effectiveFilters);
+    } catch (error: unknown) {
+      setExportError(error instanceof Error ? error.message : "订单明细导出失败");
+    } finally {
+      setExportingOrders(false);
+    }
+  };
 
   useEffect(() => {
     replaceDetailsUrl(filters, page, pageSize);
@@ -440,7 +456,23 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
                 : "正在读取记录"}
             </p>
           </div>
+          <div className="section-title-actions">
+            <button
+              className="export-button"
+              disabled={exportingOrders || !pagination?.total}
+              onClick={handleExportOrders}
+              type="button"
+            >
+              <SolarIcon name="fileDownload" size={16} />
+              {exportingOrders ? "导出中" : "导出"}
+            </button>
+          </div>
         </div>
+        {exportError ? (
+          <p className="export-error" role="status">
+            导出失败：{exportError}
+          </p>
+        ) : null}
 
         {!details && detailsResource.loading ? (
           <ResourcePanel>正在加载明细数据...</ResourcePanel>

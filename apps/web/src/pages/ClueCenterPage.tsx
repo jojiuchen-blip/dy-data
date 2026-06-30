@@ -9,6 +9,7 @@ import {
 } from "react";
 import {
   deleteClueFollowUpRecord,
+  exportClueAssignmentRounds,
   fetchClueAssignmentRounds,
   fetchClueFilters,
   fetchClueOrderDetail,
@@ -358,6 +359,8 @@ export function ClueCenterPage({
   const [copyingOrderId, setCopyingOrderId] = useState<string | null>(null);
   const [phoneRevealError, setPhoneRevealError] = useState<string | null>(null);
   const [phoneActionMessage, setPhoneActionMessage] = useState<string | null>(null);
+  const [exportingClues, setExportingClues] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [followResult, setFollowResult] =
     useState<ClueFollowUpResult>("unreachable");
   const [followNote, setFollowNote] = useState("");
@@ -531,6 +534,17 @@ export function ClueCenterPage({
     : false;
   const canEditFollowUp = canShowActiveDetailPhone;
   const canDeleteFollowUpRecords = currentUser.role === "admin";
+  const handleExportClues = async () => {
+    setExportingClues(true);
+    setExportError(null);
+    try {
+      await exportClueAssignmentRounds(filters);
+    } catch (error: unknown) {
+      setExportError(error instanceof Error ? error.message : "线索明细导出失败");
+    } finally {
+      setExportingClues(false);
+    }
+  };
   const openClueDetail = (
     row: ClueAssignmentRound,
     triggerElement?: HTMLElement | null,
@@ -1170,14 +1184,32 @@ export function ClueCenterPage({
           <div className="section-title">
             <div>
               <h2>当前筛选结果</h2>
-              <p>店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</p>
+              <p>
+                店端只展示可判断、可操作的线索信息；导出按当前账号可见范围与当前筛选条件，联系方式为未加密明文。
+              </p>
             </div>
-            {pagination ? (
-              <span className="result-count">
-                共 {formatInteger(pagination.total)} 条
-              </span>
-            ) : null}
+            <div className="section-title-actions">
+              {pagination ? (
+                <span className="result-count">
+                  共 {formatInteger(pagination.total)} 条
+                </span>
+              ) : null}
+              <button
+                className="export-button"
+                disabled={exportingClues || !pagination?.total}
+                onClick={handleExportClues}
+                type="button"
+              >
+                <SolarIcon name="fileDownload" size={16} />
+                {exportingClues ? "导出中" : "导出"}
+              </button>
+            </div>
           </div>
+          {exportError ? (
+            <p className="export-error" role="status">
+              导出失败：{exportError}
+            </p>
+          ) : null}
 
           {!rows.length && roundsResource.loading ? (
             <ResourcePanel>正在加载线索明细...</ResourcePanel>
