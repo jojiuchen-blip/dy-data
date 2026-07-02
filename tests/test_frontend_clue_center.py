@@ -337,6 +337,15 @@ def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
     assert ".section-title-actions" in styles_source
 
 
+def test_spa_router_does_not_intercept_download_links() -> None:
+    app_source = read_source("App.tsx")
+    client_source = read_source("api/client.ts")
+
+    assert 'anchor.hasAttribute("download")' in app_source
+    assert "URL.createObjectURL(blob)" in client_source
+    assert "link.download =" in client_source
+
+
 def test_clue_dashboard_metrics_use_current_business_labels() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
     types_source = read_source("types/dashboard.ts")

@@ -131,6 +131,14 @@ export function App() {
         return;
       }
 
+      if (
+        anchor.hasAttribute("download") ||
+        anchor.target ||
+        anchor.href.startsWith("blob:")
+      ) {
+        return;
+      }
+
       const url = new URL(anchor.href);
       if (url.origin !== window.location.origin) {
         return;
