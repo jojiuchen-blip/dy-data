@@ -5,7 +5,7 @@ from urllib.parse import quote
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from dy_api.auth import AuthContext, get_current_user
-from dy_api.routes._data import get_data_store, generated_at
+from dy_api.routes._data import get_data_store, generated_at, with_utf8_bom
 from dy_api.schemas import (
     ClueAssignmentRoundData,
     ClueFilterMetadata,
@@ -194,7 +194,7 @@ def clue_assignment_rounds_export(
     generated = generated_at().isoformat()
     filename = quote(f"clue-assignment-rounds-{generated[:10]}.csv")
     return Response(
-        content=store.clue_assignment_rounds_export_csv(filters),
+        content=with_utf8_bom(store.clue_assignment_rounds_export_csv(filters)),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",

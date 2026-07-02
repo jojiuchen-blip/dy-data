@@ -254,6 +254,7 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
     assert response.headers["content-type"].startswith("text/csv")
     assert response.headers["x-export-filters"] == '{"sale_store_id":"store_001"}'
     assert "attachment;" in response.headers["content-disposition"]
+    assert response.content.startswith(b"\xef\xbb\xbf")
     assert "order_id,coupon_id" in response.text
     assert deferred_field("invoice", "status") not in response.text
     assert deferred_field("refund", "amount", "cent") not in response.text

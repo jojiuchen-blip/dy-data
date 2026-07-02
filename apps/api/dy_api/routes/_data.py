@@ -57,10 +57,15 @@ CLUE_VERIFICATION_STATUSES = [
     "self_store_verified",
     "other_store_verified",
 ]
+UTF8_BOM = "\ufeff"
 
 
 def generated_at() -> datetime:
     return datetime.now(SHANGHAI_TZ)
+
+
+def with_utf8_bom(csv_text: str) -> str:
+    return csv_text if csv_text.startswith(UTF8_BOM) else f"{UTF8_BOM}{csv_text}"
 
 
 def sanitize_error_message(message: str | None) -> str | None:
@@ -1425,6 +1430,7 @@ class DashboardDataStore:
             "is_self_store_verified",
         ]
         buffer = io.StringIO()
+        buffer.write("\ufeff")
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
@@ -2101,6 +2107,7 @@ class DashboardDataStore:
             params,
         )
         output = io.StringIO()
+        output.write("\ufeff")
         writer = csv.DictWriter(
             output,
             fieldnames=[

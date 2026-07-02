@@ -263,12 +263,13 @@ def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/csv")
     assert "attachment;" in response.headers["content-disposition"]
+    assert response.content.startswith(b"\xef\xbb\xbf")
     assert json.loads(response.headers["x-export-filters"]) == {
         "assigned_store_id": "store-1",
         "scope_store_ids": ["store-1"],
         "store_display_status": "待跟进",
     }
-    rows = list(csv.DictReader(io.StringIO(response.text)))
+    rows = list(csv.DictReader(io.StringIO(response.content.decode("utf-8-sig"))))
     assert [row["assignment_round_id"] for row in rows] == ["order-2-1"]
     assert rows[0]["phone_plain"] == "13912345678"
     assert rows[0]["phone_masked"] == "139****5678"

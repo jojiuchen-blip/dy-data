@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 
 from dy_api.auth import AuthContext, get_current_user
-from dy_api.routes._data import get_data_store, generated_at
+from dy_api.routes._data import get_data_store, generated_at, with_utf8_bom
 from dy_api.schemas import (
     CommissionRulesSummaryData,
     MonthlySettlementData,
@@ -234,7 +234,7 @@ def order_details_export(
     generated = generated_at().isoformat()
     filename = quote(f"order-details-{generated[:10]}.csv")
     return Response(
-        content=store.order_details_export_csv(filters),
+        content=with_utf8_bom(store.order_details_export_csv(filters)),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
