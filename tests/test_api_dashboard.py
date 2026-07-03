@@ -128,6 +128,7 @@ class FakeStore:
                     "verify_time": datetime(2026, 5, 4, 8, tzinfo=timezone.utc),
                     "relation_type": "cross_store",
                     "is_commissionable": True,
+                    "is_refund_excluded": False,
                     "paid_amount_cent": 16800,
                     "commission_rate": 0.1,
                     "receivable_commission_cent": 1680,
@@ -148,11 +149,11 @@ class FakeStore:
             "product_type,sale_store_id,sale_store_name,sale_store_subject_name,"
             "sale_time,is_verified,verify_store_id,verify_store_name,"
             "verify_store_subject_name,verify_time,relation_type,"
-            "is_commissionable,paid_amount_cent,commission_rate,"
+            "is_commissionable,is_refund_excluded,paid_amount_cent,commission_rate,"
             "receivable_commission_cent,payable_commission_cent\r\n"
             "order_001,coupon_001,sku_001,acct_001,Owner,basic_service,"
             "store_001,Store One,Subject One,2026-05-01T08:00:00+00:00,True,store_002,"
-            "Store Two,Subject Two,2026-05-04T08:00:00+00:00,cross_store,True,16800,"
+            "Store Two,Subject Two,2026-05-04T08:00:00+00:00,cross_store,True,False,16800,"
             "0.1,1680,0\r\n"
         )
 
@@ -241,6 +242,7 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert detail_row["coupon_id"] == "coupon_001"
     assert detail_row["sale_store_subject_name"] == "Subject One"
     assert detail_row["verify_store_subject_name"] == "Subject Two"
+    assert detail_row["is_refund_excluded"] is False
     assert deferred_field("invoice", "status") not in detail_row
     assert deferred_field("refund", "status") not in detail_row
     assert deferred_field("refund", "amount", "cent") not in detail_row
@@ -256,6 +258,7 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
     assert "attachment;" in response.headers["content-disposition"]
     assert response.content.startswith(b"\xef\xbb\xbf")
     assert "order_id,coupon_id" in response.text
+    assert "is_refund_excluded" in response.text
     assert deferred_field("invoice", "status") not in response.text
     assert deferred_field("refund", "amount", "cent") not in response.text
 
@@ -377,6 +380,8 @@ def test_order_details_export_includes_all_matching_rows(db_session: Session):
     assert len(first_page["rows"]) == 500
     assert first_page["rows"][0]["sale_store_subject_name"] == "Subject One"
     assert first_page["rows"][0]["verify_store_subject_name"] == "Subject Two"
+    assert first_page["rows"][0]["is_refund_excluded"] is False
     assert len(export_rows) == 501
     assert export_rows[0]["sale_store_subject_name"] == "Subject One"
     assert export_rows[0]["verify_store_subject_name"] == "Subject Two"
+    assert export_rows[0]["is_refund_excluded"] == "False"

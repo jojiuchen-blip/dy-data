@@ -350,10 +350,60 @@ export interface OrderDetail {
   verify_time: string;
   relation_type: "same_store" | "cross_store" | "unverified" | "unknown" | "";
   is_commissionable: boolean | null;
+  is_refund_excluded: boolean;
   paid_amount_cent: number;
   commission_rate: number;
   receivable_commission_cent: number;
   payable_commission_cent: number;
+}
+
+export interface SalesDashboardMetrics {
+  total_sales_order_count: number;
+  self_verify_order_count: number;
+  self_verify_rate: number;
+  total_verify_order_count: number;
+  actual_verify_amount_cent: number;
+  avg_verify_cycle_days: number | null;
+}
+
+export interface SalesMetricRow extends SalesDashboardMetrics {
+  product_type: string;
+}
+
+export interface SalesTrendRow {
+  month: string;
+  order_count: number;
+  verify_order_count: number;
+}
+
+export interface SalesCyclePoint {
+  order_id: string;
+  cycle_days: number;
+  sale_time: string;
+  verify_time: string;
+}
+
+export interface SalesCycleDistributionRow {
+  product_type: string;
+  count: number;
+  min_days: number | null;
+  q1_days: number | null;
+  median_days: number | null;
+  q3_days: number | null;
+  max_days: number | null;
+  avg_days: number | null;
+  sample_points: SalesCyclePoint[];
+}
+
+export interface SalesDashboardData {
+  store: StoreOption;
+  month: string;
+  product_type: string;
+  metrics: SalesDashboardMetrics;
+  product_rows: SalesMetricRow[];
+  trend_rows: SalesTrendRow[];
+  cycle_rows: SalesCycleDistributionRow[];
+  source_row_count: number;
 }
 
 export interface DetailFilters {

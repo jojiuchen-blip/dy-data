@@ -44,6 +44,7 @@ import type {
   ProductTypeVisibilityData,
   ProductTypeVisibilityUpdate,
   SelectOption,
+  SalesDashboardData,
   SettlementViewData,
   ManualSyncResult,
   ManualSyncTarget,
@@ -57,6 +58,7 @@ import type {
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
 import {
+  buildSalesDashboardView,
   filterOrderDetails,
   getMonthOptions,
   getProductOptions,
@@ -69,6 +71,7 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
+const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
 
 type QueryParams = Record<
@@ -85,6 +88,13 @@ interface DetailQuery {
   filters: DetailFilters;
   page: number;
   pageSize: number;
+}
+
+interface SalesDashboardQuery {
+  store: { store_id: string; store_name: string };
+  month: string;
+  productType: string;
+  trendMonths?: string[];
 }
 
 interface ClueRoundQuery {
@@ -321,6 +331,79 @@ function mockSettlementResponse(
   };
 }
 
+const SALES_DASHBOARD_DEFINITIONS = [
+  {
+    key: "total_sales_order_count",
+    label: "总销售订单量",
+    description:
+      "销售归属门店在所选期间卖出的有效订单数，按 order_id 去重，剔除 is_refund_excluded=true 的记录。",
+  },
+  {
+    key: "self_verify_order_count",
+    label: "自店核销数",
+    description:
+      "销售归属门店和实际核销门店都是当前门店的订单数，按 order_id 去重，剔除退款剔除记录。",
+  },
+  {
+    key: "self_verify_rate",
+    label: "自店核销率",
+    description: "自店核销数 / 总销售订单量；总销售订单量为 0 时显示 0。",
+  },
+  {
+    key: "total_verify_order_count",
+    label: "实际核销总数",
+    description:
+      "不管销售归属门店，只要在当前门店于所选期间完成核销即计入，按 order_id 去重；一单核销多券也只算一单。",
+  },
+  {
+    key: "actual_verify_amount_cent",
+    label: "实际核销金额",
+    description:
+      "当前门店产生核销后的实收金额合计，剔除 is_refund_excluded=true 的记录。",
+  },
+  {
+    key: "avg_verify_cycle_days",
+    label: "平均核销周期",
+    description:
+      "当前门店已核销订单从 sale_time 到 verify_time 的平均天数，按订单去重。",
+  },
+  {
+    key: "cycle_distribution",
+    label: "核销周期分布",
+    description:
+      "按商品类型展示当前门店核销订单从 sale_time 到 verify_time 的周期，箱线图展示四分位，散点展示订单样本。",
+  },
+];
+
+function salesTrendMonths(month: string, trendMonths: string[] = []): string[] {
+  const months = [
+    ...new Set([month, ...trendMonths].filter((value) => value && value !== ALL_MONTHS)),
+  ];
+  return months.length > 0 ? months : [month];
+}
+
+function mockSalesDashboardResponse({
+  store,
+  month,
+  productType,
+  trendMonths = [],
+}: SalesDashboardQuery): ApiResponse<SalesDashboardData> {
+  return {
+    data: buildSalesDashboardView({
+      rows: orderDetails,
+      store,
+      month,
+      productType,
+      trendMonths: salesTrendMonths(month, trendMonths),
+    }),
+    definitions: SALES_DASHBOARD_DEFINITIONS,
+    meta: {
+      generated_at: generatedAt(),
+      source: "mock:order-details",
+    },
+  };
+}
+
 function mockOrderDetailsResponse({
   filters,
   page,
@@ -351,6 +434,77 @@ function mockOrderDetailsResponse({
     meta: {
       generated_at: generatedAt(),
       source: "mock",
+    },
+  };
+}
+
+async function requestAllOrderDetails(
+  filters: DetailFilters,
+): Promise<OrderDetailsData["rows"]> {
+  const rows: OrderDetailsData["rows"] = [];
+  let page = 1;
+  let totalPages = 1;
+
+  do {
+    const response = await requestJson<OrderDetailsData>("/order-details", {
+      ...filters,
+      page,
+      page_size: 500,
+    });
+    rows.push(...response.data.rows);
+    totalPages = response.data.pagination.total_pages;
+    page += 1;
+  } while (page <= totalPages);
+
+  return rows;
+}
+
+async function requestSalesDashboard({
+  store,
+  month,
+  productType,
+  trendMonths = [],
+}: SalesDashboardQuery): Promise<ApiResponse<SalesDashboardData>> {
+  const isAllPeriod = !month || month === ALL_MONTHS;
+  const months = salesTrendMonths(month, trendMonths);
+  const rowBatches = isAllPeriod
+    ? await Promise.all([
+      requestAllOrderDetails({
+        product_type: productType,
+        sale_store_id: store.store_id,
+      }),
+      requestAllOrderDetails({
+        product_type: productType,
+        verify_store_id: store.store_id,
+        is_verified: "true",
+      }),
+    ])
+    : await Promise.all([
+      requestAllOrderDetails({
+        product_type: productType,
+        sale_store_id: store.store_id,
+        sale_month: month,
+      }),
+      requestAllOrderDetails({
+        product_type: productType,
+        verify_store_id: store.store_id,
+        verify_month: month,
+        is_verified: "true",
+      }),
+    ]);
+
+  return {
+    data: buildSalesDashboardView({
+      rows: rowBatches.flat(),
+      store,
+      month,
+      productType,
+      trendMonths: months,
+    }),
+    definitions: SALES_DASHBOARD_DEFINITIONS,
+    meta: {
+      generated_at: generatedAt(),
+      source: "order-details",
     },
   };
 }
@@ -723,6 +877,15 @@ export function fetchOrderDetails(
         page_size: query.pageSize,
       }),
     () => mockOrderDetailsResponse(query),
+  );
+}
+
+export function fetchSalesDashboard(
+  query: SalesDashboardQuery,
+): Promise<ApiLoadResult<SalesDashboardData>> {
+  return withMockFallback(
+    () => requestSalesDashboard(query),
+    () => mockSalesDashboardResponse(query),
   );
 }
 

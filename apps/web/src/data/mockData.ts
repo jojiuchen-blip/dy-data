@@ -79,6 +79,7 @@ export const orderDetails: OrderDetail[] = parseCsv(orderDetailCsv).map(
       verify_time: row.verify_time,
       relation_type: row.relation_type as OrderDetail["relation_type"],
       is_commissionable: parseBoolean(row.is_commissionable),
+      is_refund_excluded: parseBoolean(row.is_refund_excluded) === true,
       paid_amount_cent: parseNumber(row.paid_amount_cent),
       commission_rate: rule?.commission_rate ?? 0,
       receivable_commission_cent: parseNumber(row.receivable_commission_cent),

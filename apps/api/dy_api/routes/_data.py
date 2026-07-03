@@ -1104,7 +1104,7 @@ class DashboardDataStore:
                    sale_time, is_verified, verify_store_id,
                    verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
                    verify_time, relation_type,
-                   is_commissionable, paid_amount_cent, commission_rate,
+                   is_commissionable, is_refund_excluded, paid_amount_cent, commission_rate,
                    receivable_commission_cent, payable_commission_cent
             FROM settlement_order_details
             LEFT JOIN dim_stores sale_store ON sale_store.store_id = settlement_order_details.sale_store_id
@@ -2096,7 +2096,7 @@ class DashboardDataStore:
                    sale_time, is_verified, verify_store_id,
                    verify_store_name, verify_store.certified_subject_name AS verify_store_subject_name,
                    verify_time, relation_type,
-                   is_commissionable, paid_amount_cent, commission_rate,
+                   is_commissionable, is_refund_excluded, paid_amount_cent, commission_rate,
                    receivable_commission_cent, payable_commission_cent
             FROM settlement_order_details
             LEFT JOIN dim_stores sale_store ON sale_store.store_id = settlement_order_details.sale_store_id
@@ -2129,6 +2129,7 @@ class DashboardDataStore:
                 "verify_time",
                 "relation_type",
                 "is_commissionable",
+                "is_refund_excluded",
                 "paid_amount_cent",
                 "commission_rate",
                 "receivable_commission_cent",
@@ -2715,6 +2716,7 @@ class DashboardDataStore:
             "verify_time": row.get("verify_time"),
             "relation_type": _to_str(row.get("relation_type")),
             "is_commissionable": _optional_bool(row.get("is_commissionable")),
+            "is_refund_excluded": _to_bool(row.get("is_refund_excluded")),
             "paid_amount_cent": _to_int(row.get("paid_amount_cent")),
             "commission_rate": _to_float(row.get("commission_rate")),
             "receivable_commission_cent": _to_int(

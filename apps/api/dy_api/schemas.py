@@ -637,6 +637,7 @@ class OrderDetailRow(BaseModel):
     verify_time: datetime | None = None
     relation_type: Literal["same_store", "cross_store", "unverified", "unknown", ""]
     is_commissionable: bool | None = None
+    is_refund_excluded: bool = False
     paid_amount_cent: int = 0
     commission_rate: float = 0
     receivable_commission_cent: int = 0

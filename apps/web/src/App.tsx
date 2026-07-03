@@ -13,6 +13,7 @@ import { AdminSyncPage } from "./pages/AdminSyncPage";
 import { ClueCenterPage } from "./pages/ClueCenterPage";
 import { HomePage } from "./pages/HomePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
+import { SalesDashboardPage } from "./pages/SalesDashboardPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
 import { StoreSettlementPage } from "./pages/StoreSettlementPage";
 
@@ -218,6 +219,8 @@ export function App() {
             />
           ) : location.pathname === "/details" ? (
             <OrderDetailsPage searchParams={searchParams} />
+          ) : location.pathname === "/sales" ? (
+            <SalesDashboardPage searchParams={searchParams} />
           ) : (
             <StoreRankingPage searchParams={searchParams} />
           );
