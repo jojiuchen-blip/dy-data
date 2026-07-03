@@ -60,7 +60,10 @@ log "running migrations"
 compose run --rm migrate
 
 log "starting runtime services without worker"
-compose up -d --no-deps api web browser proxy
+compose up -d --no-deps api web browser
+
+log "recreating proxy so nginx resolves fresh upstream container addresses"
+compose up -d --no-deps --force-recreate proxy
 
 if [ "$START_WORKER" = "true" ]; then
   log "starting worker because TENCENT_START_WORKER=true"
