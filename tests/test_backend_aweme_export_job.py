@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import DimAwemeAccount, DimStore, DimStorePoiMapping, RawAwemeBinding
 from apps.worker.browser_exports.backend_aweme import (
     BrowserExportError,
+    backend_aweme_api_binding_status,
     export_workbook_search_dirs,
     extract_completed_download_info,
     find_recent_workbook,
@@ -21,6 +22,7 @@ from apps.worker.browser_exports.backend_aweme import (
     normalize_cdp_websocket_url,
     redact_url,
     resolve_playwright_cdp_url,
+    records_from_backend_aweme_api_items,
     run_backend_aweme_export,
     upsert_backend_aweme_records,
     workbook_filename,
@@ -130,6 +132,49 @@ def test_backend_aweme_export_extracts_completed_download_file_url():
     assert workbook_filename("", "https://example.test/files/backend_aweme.xlsx?token=redacted") == "backend_aweme.xlsx"
     assert is_valid_poi_id("poi-1") is True
     assert is_valid_poi_id("0") is False
+
+
+def test_backend_aweme_export_maps_bind_list_api_items():
+    records = records_from_backend_aweme_api_items(
+        [
+            {
+                "account_id": "account-1",
+                "scene_id": "account-1",
+                "scene_name": "Store One",
+                "status": 1,
+                "integration_content": {
+                    "user_info": {
+                        "aweme_id": "dy-1",
+                        "nickname": "Owner One",
+                        "account_name": "Store One Account",
+                    },
+                    "subject_info": {"company_name": "Subject One"},
+                },
+            },
+            {
+                "account_id": "account-2",
+                "scene_id": "poi-2",
+                "scene_name": "Store Two",
+                "status": 6,
+                "integration_content": {
+                    "user_info": {
+                        "aweme_id": "dy-2",
+                        "nickname": "Owner Two",
+                    },
+                    "subject_info": {"company_name": "Subject Two"},
+                },
+            },
+        ]
+    )
+
+    assert records[0]["douyin_id"] == "dy-1"
+    assert records[0]["account_id"] == "account-1"
+    assert records[0]["poi_id"] is None
+    assert records[0]["binding_status"] == "active"
+    assert records[0]["certified_subject_name"] == "Subject One"
+    assert records[1]["poi_id"] == "poi-2"
+    assert records[1]["binding_status"] == "rejected"
+    assert backend_aweme_api_binding_status({"status": 2}, {}) == "inactive"
 
 
 def test_backend_aweme_export_finds_recent_workbook(tmp_path: Path):

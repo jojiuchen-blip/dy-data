@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 from urllib.request import urlopen
 
 from sqlalchemy import select
@@ -27,13 +27,17 @@ from apps.worker.repositories import (
 
 DEFAULT_EXPORT_URL = "https://life.douyin.com/"
 DEFAULT_EXPORT_SELECTOR = "div.lifep-container-header button.byted-btn"
+BACKEND_AWEME_BIND_LIST_PATH = "/life/merchant/v1/integration-user/bind/list"
+BIND_LIST_PAGE_SIZE = 100
 WORKBOOK_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 INACTIVE_BINDING_STATUSES = {
     "inactive",
     "unbound",
     "unbind",
     "failed",
+    "pending",
     "rejected",
+    "reviewing",
     "\u5df2\u89e3\u7ed1",
     "\u7ed1\u5b9a\u5931\u6548",
     "\u5ba1\u6838\u5931\u8d25",
@@ -54,13 +58,30 @@ def run_backend_aweme_export(
     export_url: str | None = None,
     run_dir: str | Path | None = None,
 ) -> PhaseStats:
-    resolved_workbook = Path(workbook_path) if workbook_path else export_workbook_via_browser(
-        cdp_url=cdp_url,
-        export_url=export_url,
-        run_dir=run_dir,
-    )
-    records = parse_backend_aweme_workbook(resolved_workbook)
+    if workbook_path:
+        records = parse_backend_aweme_workbook(Path(workbook_path))
+    else:
+        records = export_backend_aweme_records_via_browser(
+            cdp_url=cdp_url,
+            export_url=export_url,
+            run_dir=run_dir,
+        )
     return upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+
+
+def export_backend_aweme_records_via_browser(
+    *,
+    cdp_url: str | None = None,
+    export_url: str | None = None,
+    run_dir: str | Path | None = None,
+) -> list[dict[str, Any]]:
+    try:
+        workbook = export_workbook_via_browser(cdp_url=cdp_url, export_url=export_url, run_dir=run_dir)
+    except BrowserExportError as exc:
+        if "Timed out waiting for backend aweme workbook download" not in str(exc):
+            raise
+        return fetch_backend_aweme_records_via_bind_list_api(cdp_url=cdp_url)
+    return parse_backend_aweme_workbook(workbook)
 
 
 def upsert_backend_aweme_records(
@@ -230,6 +251,150 @@ def export_workbook_via_browser(
             )
     except PlaywrightTimeoutError as exc:
         raise BrowserExportError("Timed out waiting for backend aweme workbook download.") from exc
+
+
+def fetch_backend_aweme_records_via_bind_list_api(*, cdp_url: str | None = None) -> list[dict[str, Any]]:
+    resolved_cdp_url = (cdp_url if cdp_url is not None else os.getenv("BROWSER_CDP_URL", "")).strip()
+    if not resolved_cdp_url:
+        raise BrowserExportError("BROWSER_CDP_URL is required when workbook_path is not provided.")
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as exc:
+        raise BrowserExportError("Install playwright before running browser exports.") from exc
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
+        context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
+        page = context.pages[0] if context.pages else context.new_page()
+        bind_list_url = discover_backend_aweme_bind_list_url(page)
+        if not bind_list_url:
+            raise BrowserExportError("Backend aweme bind list API URL was not observed after export download timeout.")
+        records = fetch_backend_aweme_bind_list_records(page, bind_list_url)
+        print(
+            f"[backend-aweme-export] bind_list_api_fallback fetched={len(records)}",
+            flush=True,
+        )
+        return records
+
+
+def discover_backend_aweme_bind_list_url(page: Any) -> str | None:
+    urls = page.evaluate(
+        """
+        () => performance.getEntriesByType('resource')
+          .map((entry) => entry.name || '')
+          .filter((url) => url.includes('/life/merchant/v1/integration-user/bind/list'))
+          .slice(-5)
+        """
+    )
+    if not isinstance(urls, list):
+        return None
+    for url in reversed(urls):
+        if isinstance(url, str) and BACKEND_AWEME_BIND_LIST_PATH in url:
+            return url
+    return None
+
+
+def fetch_backend_aweme_bind_list_records(page: Any, bind_list_url: str) -> list[dict[str, Any]]:
+    parsed = urlparse(bind_list_url)
+    params = {
+        key: values[-1] if values else ""
+        for key, values in parse_qs(parsed.query, keep_blank_values=True).items()
+    }
+    params["page"] = "1"
+    params["size"] = str(BIND_LIST_PAGE_SIZE)
+    base_url = urlunparse(parsed._replace(query=""))
+
+    first = fetch_backend_aweme_bind_list_page(page, base_url, params)
+    total = _safe_int(first.get("Total"), 0)
+    items = list(first.get("integration_info") or [])
+    page_count = max(1, (total + BIND_LIST_PAGE_SIZE - 1) // BIND_LIST_PAGE_SIZE) if total else 1
+    max_pages = _safe_int(os.getenv("BACKEND_AWEME_BIND_LIST_MAX_PAGES"), 100)
+    if page_count > max_pages:
+        raise BrowserExportError(f"Backend aweme bind list page count {page_count} exceeds limit {max_pages}.")
+
+    for page_number in range(2, page_count + 1):
+        params["page"] = str(page_number)
+        payload = fetch_backend_aweme_bind_list_page(page, base_url, params)
+        items.extend(payload.get("integration_info") or [])
+
+    return records_from_backend_aweme_api_items(items)
+
+
+def fetch_backend_aweme_bind_list_page(page: Any, base_url: str, params: dict[str, str]) -> dict[str, Any]:
+    url = f"{base_url}?{urlencode(params)}"
+    payload = page.evaluate(
+        """
+        async (url) => {
+          const response = await fetch(url, { credentials: 'include' });
+          const text = await response.text();
+          let json = {};
+          try {
+            json = text ? JSON.parse(text) : {};
+          } catch (error) {
+            return { __http_status: response.status, __parse_error: String(error), __body: text.slice(0, 300) };
+          }
+          json.__http_status = response.status;
+          return json;
+        }
+        """,
+        url,
+    )
+    if not isinstance(payload, dict):
+        raise BrowserExportError("Backend aweme bind list API returned a non-object payload.")
+    if payload.get("__http_status") != 200:
+        raise BrowserExportError(f"Backend aweme bind list API failed with HTTP {payload.get('__http_status')}.")
+    status_code = payload.get("status_code")
+    if status_code not in {0, "0", None}:
+        raise BrowserExportError(f"Backend aweme bind list API returned status_code={status_code}.")
+    return payload
+
+
+def records_from_backend_aweme_api_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for item in items:
+        content = item.get("integration_content") or {}
+        user_info = content.get("user_info") or {}
+        subject_info = content.get("subject_info") or {}
+        bind_form = content.get("bind_form") or {}
+        account_id = _text(item.get("account_id") or user_info.get("user_id"))
+        scene_id = _text(item.get("scene_id"))
+        record = {
+            "douyin_nickname": _text(user_info.get("nickname") or bind_form.get("nick_name")),
+            "douyin_id": _text(user_info.get("aweme_id")),
+            "account_id": account_id,
+            "account_name": _text(user_info.get("account_name") or item.get("scene_name") or bind_form.get("nick_name")),
+            "poi_id": scene_id if scene_id and scene_id != account_id else None,
+            "certified_subject_name": _text(subject_info.get("company_name")),
+            "binding_status": backend_aweme_api_binding_status(item, user_info),
+            "raw_payload": item,
+        }
+        if any(record[key] for key in ("douyin_nickname", "douyin_id", "account_id", "poi_id")):
+            records.append(record)
+    return records
+
+
+def backend_aweme_api_binding_status(item: dict[str, Any], user_info: dict[str, Any]) -> str:
+    status = item.get("status", user_info.get("integration_status"))
+    if str(status) == "1":
+        return "active"
+    if str(status) == "6":
+        return "rejected"
+    return "inactive"
+
+
+def _text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _safe_int(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def click_backend_export(page: Any, *, export_selector: str, export_text: str, timeout_ms: int) -> None:
