@@ -116,6 +116,17 @@ jobs:
           cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
           set -euo pipefail
           target_sha="$1"
+          fetch_origin() {
+            for attempt in 1 2 3 4 5; do
+              if git -c http.version=HTTP/1.1 fetch --prune origin; then
+                return 0
+              fi
+              echo "git fetch failed on attempt=$attempt; retrying"
+              sleep $((attempt * 5))
+            done
+            echo "git fetch failed after retries" >&2
+            return 1
+          }
           cd /opt/dy-dashboard/repo
           mkdir -p /opt/dy-dashboard/logs
           if ! git diff --quiet || ! git diff --cached --quiet; then
@@ -123,7 +134,7 @@ jobs:
             git status --short > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.status"
             git diff > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.patch"
           fi
-          git fetch --prune origin
+          fetch_origin
           git checkout main
           git reset --hard "$target_sha"
           bash deploy/tencent/deploy.sh "$target_sha"

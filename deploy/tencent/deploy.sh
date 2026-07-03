@@ -17,6 +17,18 @@ log() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
 }
 
+fetch_origin() {
+  for attempt in 1 2 3 4 5; do
+    if git -c http.version=HTTP/1.1 fetch --prune origin; then
+      return 0
+    fi
+    log "git fetch failed on attempt=$attempt; retrying"
+    sleep $((attempt * 5))
+  done
+  log "git fetch failed after retries"
+  return 1
+}
+
 on_error() {
   status=$?
   log "deployment failed with status=$status"
@@ -43,7 +55,7 @@ if ! git diff --quiet || ! git diff --cached --quiet; then
 fi
 
 log "fetching target $TARGET_SHA"
-git fetch --prune origin
+fetch_origin
 git checkout main
 git reset --hard "$TARGET_SHA"
 
