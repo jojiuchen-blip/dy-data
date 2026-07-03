@@ -1,10 +1,22 @@
 FROM python:3.12-slim
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app:/app/apps/api
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 WORKDIR /app
+
+RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i \
+            -e 's|http://deb.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' \
+            -e 's|http://deb.debian.org/debian|http://mirrors.tuna.tsinghua.edu.cn/debian|g' \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -23,4 +35,4 @@ COPY apps/worker ./apps/worker
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn dy_api.main:app --host :: --port ${PORT:-8000}"]
+CMD ["sh", "-c", "alembic upgrade head && uvicorn dy_api.main:app --host ${UVICORN_HOST:-0.0.0.0} --port ${PORT:-8000}"]

@@ -1,0 +1,58 @@
+# Tencent Lighthouse CI/CD
+
+This is the deployment path for the Tencent Cloud Lighthouse server used during
+the Railway-to-Tencent migration.
+
+## Workflow
+
+The workflow is `.github/workflows/tencent-lighthouse-deploy.yml`.
+
+- `workflow_dispatch`: verify the repository, then deploy to Tencent Lighthouse.
+- `push` to `main`: runs only when repository variable `TENCENT_DEPLOY_ON_PUSH`
+  is set to `true`.
+
+The default is intentionally manual so a normal push does not accidentally
+change the Tencent server before DNS and ICP cutover are ready.
+
+## GitHub variables
+
+- `TENCENT_HOST`: public server IP, for example `124.222.59.236`.
+- `TENCENT_SSH_PORT`: SSH port, usually `22`.
+- `TENCENT_SSH_USER`: SSH user, usually `ubuntu`.
+- `TENCENT_DEPLOY_ON_PUSH`: set to `true` only after automatic deploys on every
+  `main` push are desired.
+
+## GitHub secrets
+
+- `TENCENT_SSH_KEY`: private SSH key allowed to log in to the server.
+- `TENCENT_KNOWN_HOSTS`: pinned server SSH host key entries.
+
+Do not store application runtime secrets in GitHub. They remain in
+`/opt/dy-dashboard/env/production.env` on the server.
+
+## Server layout
+
+- Repo: `/opt/dy-dashboard/repo`
+- Runtime env: `/opt/dy-dashboard/env/production.env`
+- Backups: `/opt/dy-dashboard/backups`
+- Logs: `/opt/dy-dashboard/logs`
+
+## Deployment behavior
+
+The server script is `deploy/tencent/deploy.sh`.
+
+It performs:
+
+1. Save any server-side dirty diff to `/opt/dy-dashboard/logs`.
+2. Fetch and reset to the target Git commit.
+3. Validate Docker Compose configuration.
+4. Build `api`, `web`, and `browser` images.
+5. Start PostgreSQL.
+6. Run Alembic migrations.
+7. Start `api`, `web`, `browser`, and `proxy`.
+8. Keep `worker` stopped unless `TENCENT_START_WORKER=true` is present in the
+   workflow/server environment.
+9. Smoke test `/` and `/api/v1/auth/me`.
+
+Until final cutover, keep `TENCENT_START_WORKER` unset so the Tencent server does
+not start independent data collection.

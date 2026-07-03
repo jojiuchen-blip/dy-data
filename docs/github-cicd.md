@@ -1,13 +1,18 @@
 # GitHub CI/CD
 
-This repository deploys the Railway production services from GitHub Actions.
+This repository has two deployment paths from GitHub Actions.
+
+- Railway production: `.github/workflows/ci-cd.yml`
+- Tencent Lighthouse migration target: `.github/workflows/tencent-lighthouse-deploy.yml`
+
+The Tencent workflow is documented in `docs/tencent-lighthouse-cicd.md`.
 
 ## Workflow
 
 The workflow is `.github/workflows/ci-cd.yml`.
 
 - Pull requests to `main`: run backend tests, frontend build, and API/Worker/Web Docker builds.
-- Pushes to `main`: run the same verification, then deploy Railway `api`, `worker`, and `web`.
+- Pushes to `main`: run the same verification, then deploy Railway `api`, `worker`, and `web` only when `RAILWAY_DEPLOY_ENABLED=true`.
 - Railway `Postgres` is managed as a Railway database service and is not deployed by GitHub.
 
 ## GitHub variables
@@ -21,6 +26,11 @@ Repository variables used by the workflow:
 - `RAILWAY_BROWSER_SERVICE_ID` (optional)
 - `RAILWAY_WEB_SERVICE_ID`
 - `RAILWAY_WEB_URL`
+- `RAILWAY_DEPLOY_ENABLED`
+
+Set `RAILWAY_DEPLOY_ENABLED=true` only when this repository should still deploy
+Railway on every `main` push. Leave it unset or set it to `false` during the
+Tencent migration window to avoid changing Railway production unintentionally.
 
 ## GitHub secrets
 

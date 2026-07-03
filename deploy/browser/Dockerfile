@@ -1,6 +1,11 @@
 FROM debian:bookworm-slim
 
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+
 ENV DEBIAN_FRONTEND=noninteractive
+ENV PIP_INDEX_URL=${PIP_INDEX_URL}
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN sed -i \
     -e 's|http://deb.debian.org/debian-security|http://mirrors.tuna.tsinghua.edu.cn/debian-security|g' \
