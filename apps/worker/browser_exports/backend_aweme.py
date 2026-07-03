@@ -699,9 +699,9 @@ def _binding_key(
     douyin_id: str | None,
     poi_id: str | None,
     binding_status: str | None,
-    account_type: str | None,
+    account_type: Any,
 ) -> str:
-    return ":".join(part or "-" for part in (account_id, douyin_id, poi_id, binding_status, account_type))
+    return ":".join(str(part) if part not in {None, ""} else "-" for part in (account_id, douyin_id, poi_id, binding_status, account_type))
 
 
 def is_active_binding_status(status: str | None) -> bool:

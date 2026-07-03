@@ -177,6 +177,35 @@ def test_backend_aweme_export_maps_bind_list_api_items():
     assert backend_aweme_api_binding_status({"status": 2}, {}) == "inactive"
 
 
+def test_backend_aweme_export_upserts_api_rows_with_numeric_account_type(db_session: Session):
+    records = records_from_backend_aweme_api_items(
+        [
+            {
+                "account_id": "account-1",
+                "scene_id": "account-1",
+                "scene_name": "Store One",
+                "status": 1,
+                "account_type": 20,
+                "integration_content": {
+                    "user_info": {
+                        "aweme_id": "dy-1",
+                        "nickname": "Owner One",
+                        "account_name": "Store One Account",
+                    }
+                },
+            }
+        ]
+    )
+
+    stats = upsert_backend_aweme_records(db_session, records, source_run_id="api-run")
+
+    assert stats.fetched == 1
+    assert stats.upserted == 3
+    binding = db_session.scalar(select(RawAwemeBinding).where(RawAwemeBinding.douyin_id == "dy-1"))
+    assert binding is not None
+    assert binding.binding_key.endswith(":20")
+
+
 def test_backend_aweme_export_finds_recent_workbook(tmp_path: Path):
     old_workbook = tmp_path / "old.xlsx"
     old_workbook.write_bytes(b"old")
