@@ -113,9 +113,24 @@ jobs:
       - name: Deploy on server
         run: |
           port="${TENCENT_SSH_PORT:-22}"
+          cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
+          set -euo pipefail
+          target_sha="$1"
+          cd /opt/dy-dashboard/repo
+          mkdir -p /opt/dy-dashboard/logs
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+            git status --short > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.status"
+            git diff > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.patch"
+          fi
+          git fetch --prune origin
+          git checkout main
+          git reset --hard "$target_sha"
+          bash deploy/tencent/deploy.sh "$target_sha"
+          REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "cd /opt/dy-dashboard/repo && bash deploy/tencent/deploy.sh '$GITHUB_SHA'"
+            "bash -s -- '$GITHUB_SHA'" < /tmp/tencent-deploy-bootstrap.sh
