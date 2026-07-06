@@ -8,6 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.yaml}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080}"
 START_WORKER="${TENCENT_START_WORKER:-false}"
 LOG_DIR="${LOG_DIR:-/opt/dy-dashboard/logs}"
+SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
 
 compose() {
   sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -47,17 +48,21 @@ if [ ! -f "$ENV_FILE" ]; then
   exit 1
 fi
 
-if ! git diff --quiet || ! git diff --cached --quiet; then
+if [ "$SKIP_GIT_SYNC" != "true" ] && (! git diff --quiet || ! git diff --cached --quiet); then
   dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
   log "server worktree has local changes; saving diff before reset"
   git status --short > "$LOG_DIR/pre-deploy-dirty-$dirty_stamp.status"
   git diff > "$LOG_DIR/pre-deploy-dirty-$dirty_stamp.patch"
 fi
 
-log "fetching target $TARGET_SHA"
-fetch_origin
-git checkout main
-git reset --hard "$TARGET_SHA"
+if [ "$SKIP_GIT_SYNC" = "true" ]; then
+  log "skipping git sync because SKIP_GIT_SYNC=true"
+else
+  log "fetching target $TARGET_SHA"
+  fetch_origin
+  git checkout main
+  git reset --hard "$TARGET_SHA"
+fi
 
 log "validating compose configuration"
 compose config >/dev/null
@@ -100,7 +105,11 @@ for attempt in $(seq 1 30); do
   sleep 2
 done
 
-deployed_sha="$(git rev-parse HEAD)"
+if [ "$SKIP_GIT_SYNC" = "true" ]; then
+  deployed_sha="$TARGET_SHA"
+else
+  deployed_sha="$(git rev-parse HEAD)"
+fi
 cat > "$LOG_DIR/last-deploy.json" <<JSON
 {"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","worker_started":$([ "$START_WORKER" = "true" ] && echo true || echo false)}
 JSON

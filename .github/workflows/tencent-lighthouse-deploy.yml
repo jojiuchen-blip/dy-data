@@ -87,6 +87,9 @@ jobs:
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
 
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
       - name: Check required Tencent deployment settings
         run: |
           required=(
@@ -113,35 +116,40 @@ jobs:
       - name: Deploy on server
         run: |
           port="${TENCENT_SSH_PORT:-22}"
+          archive="/tmp/dy-dashboard-${GITHUB_SHA}.tar.gz"
+
+          git archive --format=tar "$GITHUB_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
+          scp -i ~/.ssh/tencent_lighthouse \
+            -P "$port" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            /tmp/dy-dashboard-source.tar.gz \
+            "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
+
           cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
           set -euo pipefail
           target_sha="$1"
-          fetch_origin() {
-            for attempt in 1 2 3 4 5; do
-              if git -c http.version=HTTP/1.1 fetch --prune origin; then
-                return 0
-              fi
-              echo "git fetch failed on attempt=$attempt; retrying"
-              sleep $((attempt * 5))
-            done
-            echo "git fetch failed after retries" >&2
-            return 1
-          }
-          cd /opt/dy-dashboard/repo
-          mkdir -p /opt/dy-dashboard/logs
-          if ! git diff --quiet || ! git diff --cached --quiet; then
+          archive_path="$2"
+          app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
+          log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
+
+          mkdir -p "$app_dir" "$log_dir"
+          cd "$app_dir"
+          if [ -d .git ] && (! git diff --quiet || ! git diff --cached --quiet); then
             dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-            git status --short > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.status"
-            git diff > "/opt/dy-dashboard/logs/pre-bootstrap-dirty-$dirty_stamp.patch"
+            git status --short > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.status"
+            git diff > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.patch"
           fi
-          fetch_origin
-          git checkout main
-          git reset --hard "$target_sha"
-          bash deploy/tencent/deploy.sh "$target_sha"
+
+          find "$app_dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          tar -xzf "$archive_path" -C "$app_dir"
+          rm -f "$archive_path"
+
+          SKIP_GIT_SYNC=true bash deploy/tencent/deploy.sh "$target_sha"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA'" < /tmp/tencent-deploy-bootstrap.sh
+            "bash -s -- '$GITHUB_SHA' '$archive'" < /tmp/tencent-deploy-bootstrap.sh

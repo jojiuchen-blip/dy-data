@@ -69,3 +69,22 @@ def test_docker_builds_do_not_force_ci_to_use_regional_apt_mirror():
         assert "mirrors.tuna.tsinghua.edu.cn/debian" not in source
 
     assert "APT_MIRROR: ${APT_MIRROR:-}" in compose
+
+
+def test_tencent_deploy_uploads_source_from_actions_runner():
+    workflow = (ROOT / ".github" / "workflows" / "tencent-lighthouse-deploy.yml").read_text(
+        encoding="utf-8"
+    )
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(encoding="utf-8")
+    deploy_step = workflow.split("- name: Deploy on server", 1)[1]
+
+    assert "uses: actions/checkout@v4" in workflow
+    assert 'git archive --format=tar "$GITHUB_SHA"' in workflow
+    assert 'scp -i ~/.ssh/tencent_lighthouse' in workflow
+    assert "SKIP_GIT_SYNC=true bash deploy/tencent/deploy.sh" in workflow
+    assert "fetch_origin" not in deploy_step
+    assert "git reset --hard" not in deploy_step
+
+    assert 'SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"' in deploy_script
+    assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
+    assert 'deployed_sha="$TARGET_SHA"' in deploy_script
