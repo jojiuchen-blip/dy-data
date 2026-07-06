@@ -107,6 +107,7 @@ SALES_DASHBOARD_DEFINITIONS = [
 
 def _filters_from_query(
     *,
+    product_scope: str,
     product_type: str,
     sale_store_id: str | None,
     exclude_sale_store_id: str | None,
@@ -122,6 +123,7 @@ def _filters_from_query(
     page_size: int,
 ) -> dict:
     return {
+        "product_scope": product_scope,
         "product_type": product_type,
         "sale_store_id": sale_store_id,
         "exclude_sale_store_id": exclude_sale_store_id,
@@ -141,6 +143,7 @@ def _filters_from_query(
 @router.get("/dashboard/store-ranking")
 def store_ranking(
     month: str,
+    product_scope: str = "all",
     product_type: str = "all",
     limit: int = Query(default=20, ge=1, le=500),
     _current_user: AuthContext = Depends(get_current_user),
@@ -148,10 +151,18 @@ def store_ranking(
 ):
     data = StoreRankingData(
         month=month,
+        product_scope=product_scope,
         product_type=product_type,
         limit=limit,
-        totals=store.store_ranking_totals(month=month, product_type=product_type),
-        rows=store.store_ranking(month=month, product_type=product_type, limit=limit),
+        totals=store.store_ranking_totals(
+            month=month, product_scope=product_scope, product_type=product_type
+        ),
+        rows=store.store_ranking(
+            month=month,
+            product_scope=product_scope,
+            product_type=product_type,
+            limit=limit,
+        ),
     )
     return {
         "data": dump_model(data),
@@ -176,6 +187,7 @@ def commission_rules_summary(
 def monthly_settlement(
     store_id: str,
     month: str,
+    product_scope: str = "all",
     product_type: str = "all",
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
@@ -183,7 +195,10 @@ def monthly_settlement(
     _require_store_scope(current_user, store_id)
     data = MonthlySettlementData(
         **store.monthly_settlement(
-            store_id=store_id, month=month, product_type=product_type
+            store_id=store_id,
+            month=month,
+            product_scope=product_scope,
+            product_type=product_type,
         )
     )
     return {
@@ -197,6 +212,7 @@ def monthly_settlement(
 def sales_dashboard(
     store_id: str | None = None,
     month: str = "all",
+    product_scope: str = "all",
     product_type: str = "all",
     trend_months: list[str] | None = Query(default=None),
     current_user: AuthContext = Depends(get_current_user),
@@ -207,6 +223,7 @@ def sales_dashboard(
         **store.sales_dashboard(
             store_id=scoped_store_id,
             month=month,
+            product_scope=product_scope,
             product_type=product_type,
             trend_months=trend_months or [],
         )
@@ -220,6 +237,7 @@ def sales_dashboard(
 
 @router.get("/order-details")
 def order_details(
+    product_scope: str = "all",
     product_type: str = "all",
     sale_store_id: str | None = None,
     exclude_sale_store_id: str | None = None,
@@ -237,6 +255,7 @@ def order_details(
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
+        product_scope=product_scope,
         product_type=product_type,
         sale_store_id=sale_store_id,
         exclude_sale_store_id=exclude_sale_store_id,
@@ -262,6 +281,7 @@ def order_details(
 
 @router.get("/order-details/export")
 def order_details_export(
+    product_scope: str = "all",
     product_type: str = "all",
     sale_store_id: str | None = None,
     exclude_sale_store_id: str | None = None,
@@ -279,6 +299,7 @@ def order_details_export(
     store=Depends(get_data_store),
 ):
     filters = _filters_from_query(
+        product_scope=product_scope,
         product_type=product_type,
         sale_store_id=sale_store_id,
         exclude_sale_store_id=exclude_sale_store_id,

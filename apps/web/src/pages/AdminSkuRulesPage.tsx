@@ -23,6 +23,7 @@ type DraftRule = Required<
     SkuProductCommissionRule,
     | "sku_id"
     | "product_name"
+    | "product_scope"
     | "product_type"
     | "commission_rate"
     | "is_service_product"
@@ -35,6 +36,7 @@ function normalizeRule(row: SkuProductCommissionRule): DraftRule {
   return {
     sku_id: row.sku_id,
     product_name: row.product_name ?? "",
+    product_scope: row.product_scope ?? "",
     product_type: row.product_type ?? "",
     commission_rate: row.commission_rate ?? 0,
     is_service_product: row.is_service_product ?? true,
@@ -91,11 +93,13 @@ export function AdminSkuRulesPage() {
   const [rows, setRows] = useState<DraftRule[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
+  const [productScopeQuery, setProductScopeQuery] = useState("");
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [loadingRows, setLoadingRows] = useState(false);
   const [saving, setSaving] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [bulkProductScope, setBulkProductScope] = useState("");
   const [bulkProductType, setBulkProductType] = useState("");
   const [bulkRate, setBulkRate] = useState("10");
   const [bulkIsServiceProduct, setBulkIsServiceProduct] = useState(true);
@@ -141,7 +145,12 @@ export function AdminSkuRulesPage() {
     }
     let cancelled = false;
     setLoadingRows(true);
-    fetchSkuRules({ page, pageSize: PAGE_SIZE, q: query.trim() })
+    fetchSkuRules({
+      page,
+      pageSize: PAGE_SIZE,
+      productScope: productScopeQuery.trim(),
+      q: query.trim(),
+    })
       .then((response) => {
         if (cancelled) {
           return;
@@ -170,7 +179,7 @@ export function AdminSkuRulesPage() {
     return () => {
       cancelled = true;
     };
-  }, [authenticated, page, query]);
+  }, [authenticated, page, productScopeQuery, query]);
 
   useEffect(() => {
     if (!authenticated) {
@@ -267,6 +276,17 @@ export function AdminSkuRulesPage() {
   const lookupRows = useMemo(
     () => lookupResult?.rows.map(normalizeRule) ?? [],
     [lookupResult],
+  );
+  const productScopeOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...rows, ...selectedRules, ...lookupRows]
+            .map((row) => row.product_scope.trim())
+            .filter(Boolean),
+        ),
+      ).sort(),
+    [lookupRows, rows, selectedRules],
   );
   const productTypeOptions = useMemo(
     () =>
@@ -430,6 +450,7 @@ export function AdminSkuRulesPage() {
   };
 
   const applyBulk = () => {
+    const productScope = bulkProductScope.trim();
     const productType = bulkProductType.trim();
     if (!selectedSkuMap.size) {
       setStatusText("请先把 SKU 加入预选窗口。");
@@ -448,6 +469,7 @@ export function AdminSkuRulesPage() {
           ...currentRule,
           commission_rate: nextRate,
           is_service_product: bulkIsServiceProduct,
+          product_scope: productScope || currentRule.product_scope,
           product_type: productType,
         });
       }
@@ -588,6 +610,11 @@ export function AdminSkuRulesPage() {
       render: (row) => row.product_name || "-",
     },
     {
+      key: "scope",
+      title: "产品范围",
+      render: (row) => (draftMap.get(row.sku_id) ?? row).product_scope || "-",
+    },
+    {
       key: "type",
       title: "商品类型",
       render: (row) => (draftMap.get(row.sku_id) ?? row).product_type || "未配置",
@@ -704,6 +731,11 @@ export function AdminSkuRulesPage() {
       <datalist id="product-type-options">
         {productTypeOptions.map((productType) => (
           <option key={productType} value={productType} />
+        ))}
+      </datalist>
+      <datalist id="product-scope-options">
+        {productScopeOptions.map((productScope) => (
+          <option key={productScope} value={productScope} />
         ))}
       </datalist>
 
@@ -845,6 +877,18 @@ export function AdminSkuRulesPage() {
 
           <section className="content-section admin-tools">
             <label className="filter-field">
+              <span>产品范围</span>
+              <input
+                list="product-scope-options"
+                onChange={(event) => {
+                  setPage(1);
+                  setProductScopeQuery(event.target.value);
+                }}
+                placeholder="输入或选择产品范围"
+                value={productScopeQuery}
+              />
+            </label>
+            <label className="filter-field">
               <span>浏览搜索 SKU / 商品名称</span>
               <input
                 onChange={(event) => {
@@ -933,11 +977,20 @@ export function AdminSkuRulesPage() {
 
           <div className="sku-bulk-editor">
             <label className="filter-field">
-              <span>批量商品类型</span>
+              <span>产品范围</span>
+              <input
+                list="product-scope-options"
+                onChange={(event) => setBulkProductScope(event.target.value)}
+                placeholder="从 SKU 商品列表选择"
+                value={bulkProductScope}
+              />
+            </label>
+            <label className="filter-field">
+              <span>商品类型</span>
               <input
                 list="product-type-options"
                 onChange={(event) => setBulkProductType(event.target.value)}
-                placeholder="例如：养车服务"
+                placeholder="从 SKU 商品列表选择"
                 value={bulkProductType}
               />
             </label>
@@ -989,6 +1042,10 @@ export function AdminSkuRulesPage() {
                       <p>{row.product_name || "-"}</p>
                     </div>
                     <dl>
+                      <div>
+                        <dt>产品范围</dt>
+                        <dd>{row.product_scope || "-"}</dd>
+                      </div>
                       <div>
                         <dt>商品类型</dt>
                         <dd>{row.product_type || "未配置"}</dd>

@@ -29,12 +29,16 @@ function statusLabel(data: ProductTypeVisibilityData | null): string {
   if (!data.visible_product_types.length) {
     return "已启用，但尚未选择商品类型";
   }
+  if (data.visible_product_scopes.length) {
+    return `仅展示 ${data.visible_product_scopes.length} 个产品范围 / ${data.visible_product_types.length} 个商品类型`;
+  }
   return `仅展示 ${data.visible_product_types.length} 个商品类型`;
 }
 
 export function AdminProductTypeVisibilityPage() {
   const [data, setData] = useState<ProductTypeVisibilityData | null>(null);
   const [enabled, setEnabled] = useState(false);
+  const [selectedProductScopes, setSelectedProductScopes] = useState<string[]>([]);
   const [selectedProductTypes, setSelectedProductTypes] = useState<string[]>([]);
   const [defaultProductType, setDefaultProductType] = useState("all");
   const [loading, setLoading] = useState(false);
@@ -45,23 +49,45 @@ export function AdminProductTypeVisibilityPage() {
     () => new Set(selectedProductTypes),
     [selectedProductTypes],
   );
+  const selectedScopeSet = useMemo(
+    () => new Set(selectedProductScopes),
+    [selectedProductScopes],
+  );
+  const availableProductScopes = useMemo(
+    () => normalizeProductTypes(data?.available_product_scopes ?? []),
+    [data],
+  );
+  const productScopeTypeMap = useMemo(
+    () => data?.product_scope_type_map ?? {},
+    [data],
+  );
   const availableProductTypes = useMemo(
     () => normalizeProductTypes(data?.available_product_types ?? []),
     [data],
   );
+  const scopedAvailableProductTypes = useMemo(() => {
+    if (!selectedProductScopes.length) {
+      return availableProductTypes;
+    }
+    const allowedTypes = new Set(
+      selectedProductScopes.flatMap((productScope) => productScopeTypeMap[productScope] ?? []),
+    );
+    return availableProductTypes.filter((productType) => allowedTypes.has(productType));
+  }, [availableProductTypes, productScopeTypeMap, selectedProductScopes]);
   const selectedCount = selectedProductTypes.length;
+  const selectedScopeCount = selectedProductScopes.length;
   const defaultProductTypeHidden =
     enabled && defaultProductType !== "all" && !selectedSet.has(defaultProductType);
   const canSave = (!enabled || selectedCount > 0) && !defaultProductTypeHidden;
   const defaultProductTypeOptions = useMemo(
     () => [
       { value: "all", label: "全部产品" },
-      ...availableProductTypes.map((productType) => ({
+      ...scopedAvailableProductTypes.map((productType) => ({
         value: productType,
         label: productType,
       })),
     ],
-    [availableProductTypes],
+    [scopedAvailableProductTypes],
   );
 
   const loadData = () => {
@@ -70,6 +96,9 @@ export function AdminProductTypeVisibilityPage() {
       .then((response) => {
         setData(response.data);
         setEnabled(response.data.enabled);
+        setSelectedProductScopes(
+          normalizeProductTypes(response.data.visible_product_scopes),
+        );
         setSelectedProductTypes(
           normalizeProductTypes(response.data.visible_product_types),
         );
@@ -89,6 +118,37 @@ export function AdminProductTypeVisibilityPage() {
   useEffect(() => {
     loadData();
   }, []);
+
+  const pruneProductTypesForScopes = (
+    productScopes: string[],
+    productTypes: string[],
+  ): string[] => {
+    if (!productScopes.length) {
+      return normalizeProductTypes(productTypes);
+    }
+    const allowedTypes = new Set(
+      productScopes.flatMap((productScope) => productScopeTypeMap[productScope] ?? []),
+    );
+    return normalizeProductTypes(
+      productTypes.filter((productType) => allowedTypes.has(productType)),
+    );
+  };
+
+  const toggleProductScope = (productScope: string) => {
+    setSelectedProductScopes((current) => {
+      const nextScopes = current.includes(productScope)
+        ? current.filter((value) => value !== productScope)
+        : normalizeProductTypes([...current, productScope]);
+      setSelectedProductTypes((currentTypes) => {
+        const nextTypes = pruneProductTypesForScopes(nextScopes, currentTypes);
+        if (defaultProductType !== "all" && !nextTypes.includes(defaultProductType)) {
+          setDefaultProductType("all");
+        }
+        return nextTypes;
+      });
+      return nextScopes;
+    });
+  };
 
   const toggleProductType = (productType: string) => {
     setSelectedProductTypes((current) => {
@@ -116,11 +176,15 @@ export function AdminProductTypeVisibilityPage() {
     try {
       const response = await saveProductTypeVisibility({
         enabled,
+        visible_product_scopes: selectedProductScopes,
         visible_product_types: selectedProductTypes,
         default_product_type: defaultProductType,
       });
       setData(response.data);
       setEnabled(response.data.enabled);
+      setSelectedProductScopes(
+        normalizeProductTypes(response.data.visible_product_scopes),
+      );
       setSelectedProductTypes(
         normalizeProductTypes(response.data.visible_product_types),
       );
@@ -199,14 +263,14 @@ export function AdminProductTypeVisibilityPage() {
           <div>
             <SolarIcon name="filter" size={18} />
             <span>
-              已选择 {selectedCount} / {availableProductTypes.length}
+              已选择 {selectedCount} / {scopedAvailableProductTypes.length}
             </span>
           </div>
           <div className="product-visibility-actions">
             <button
               className="ghost-button"
-              disabled={!availableProductTypes.length}
-              onClick={() => setSelectedProductTypes(availableProductTypes)}
+              disabled={!scopedAvailableProductTypes.length}
+              onClick={() => setSelectedProductTypes(scopedAvailableProductTypes)}
               type="button"
             >
               全部选择
@@ -225,6 +289,43 @@ export function AdminProductTypeVisibilityPage() {
           </div>
         </div>
 
+        <div className="product-visibility-subsection">
+          <div className="product-visibility-subtitle">
+            <strong>产品范围</strong>
+            <span>
+              已选择 {selectedScopeCount} / {availableProductScopes.length}
+            </span>
+          </div>
+          {availableProductScopes.length ? (
+            <div
+              className="product-type-option-grid"
+              aria-label="可见产品范围"
+            >
+              {availableProductScopes.map((productScope) => {
+                const checked = selectedScopeSet.has(productScope);
+                return (
+                  <label
+                    className={`product-type-option ${checked ? "is-selected" : ""}`}
+                    key={productScope}
+                  >
+                    <input
+                      checked={checked}
+                      onChange={() => toggleProductScope(productScope)}
+                      type="checkbox"
+                    />
+                    <span>{productScope}</span>
+                    {checked ? <SolarIcon name="check" size={16} /> : null}
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="resource-panel">
+              暂无可配置产品范围。请先确认 SKU 商品列表已有产品范围数据。
+            </div>
+          )}
+        </div>
+
         <SelectField
           className="product-visibility-default"
           helperText="用户进入所有商品类型筛选器时，默认先展示这个范围；用户仍可手动切换。"
@@ -234,34 +335,40 @@ export function AdminProductTypeVisibilityPage() {
           value={defaultProductType}
         />
 
-        {availableProductTypes.length ? (
-          <div
-            className="product-type-option-grid"
-            aria-label="可见商品类型"
-          >
-            {availableProductTypes.map((productType) => {
-              const checked = selectedSet.has(productType);
-              return (
-                <label
-                  className={`product-type-option ${checked ? "is-selected" : ""}`}
-                  key={productType}
-                >
-                  <input
-                    checked={checked}
-                    onChange={() => toggleProductType(productType)}
-                    type="checkbox"
-                  />
-                  <span>{productType}</span>
-                  {checked ? <SolarIcon name="check" size={16} /> : null}
-                </label>
-              );
-            })}
+        <div className="product-visibility-subsection">
+          <div className="product-visibility-subtitle">
+            <strong>商品类型</strong>
+            {selectedScopeCount ? <span>已按产品范围筛选</span> : null}
           </div>
-        ) : (
-          <div className="resource-panel">
-            暂无可配置商品类型。请先确认商品规则、订单明细或线索中心已有商品类型数据。
-          </div>
-        )}
+          {scopedAvailableProductTypes.length ? (
+            <div
+              className="product-type-option-grid"
+              aria-label="可见商品类型"
+            >
+              {scopedAvailableProductTypes.map((productType) => {
+                const checked = selectedSet.has(productType);
+                return (
+                  <label
+                    className={`product-type-option ${checked ? "is-selected" : ""}`}
+                    key={productType}
+                  >
+                    <input
+                      checked={checked}
+                      onChange={() => toggleProductType(productType)}
+                      type="checkbox"
+                    />
+                    <span>{productType}</span>
+                    {checked ? <SolarIcon name="check" size={16} /> : null}
+                  </label>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="resource-panel">
+              暂无可配置商品类型。请先确认商品规则、订单明细或线索中心已有商品类型数据。
+            </div>
+          )}
+        </div>
 
         <div className="product-visibility-save-row">
           <p>

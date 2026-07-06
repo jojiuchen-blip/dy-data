@@ -89,6 +89,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     visibility_columns = tables["product_type_visibility_settings"].columns
     for column_name in (
         "enabled",
+        "visible_product_scopes",
         "visible_product_types",
         "default_product_type",
         "updated_by",

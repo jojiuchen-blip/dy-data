@@ -98,6 +98,7 @@ interface DetailQuery {
 interface SalesDashboardQuery {
   store: { store_id: string; store_name: string };
   month: string;
+  productScope: string;
   productType: string;
   trendMonths?: string[];
 }
@@ -266,13 +267,19 @@ function optionValues(options: SelectOption[]): string[] {
 }
 
 function mockMetaResponse(): ApiResponse<FilterMetaData> {
+  const productTypes = optionValues(getProductOptions());
+  const scopedProductTypes = productTypes.filter((value) => value !== ALL_MONTHS);
   return {
     data: {
       stores: getStoreOptions().map((option) => ({
         store_id: option.value,
         store_name: option.label,
       })),
-      product_types: optionValues(getProductOptions()),
+      product_scopes: ["all", "精诚养车"],
+      product_scope_type_map: {
+        精诚养车: scopedProductTypes,
+      },
+      product_types: productTypes,
       default_product_type: "all",
       sale_months: optionValues(getSaleMonthOptions()),
       verify_months: optionValues(getVerifyMonthOptions()),
@@ -305,16 +312,22 @@ function mockCommissionRulesSummaryResponse(): ApiResponse<CommissionRulesSummar
 
 function mockStoreRankingResponse(
   month: string,
+  productScope: string,
   productType: string,
   limit: number,
 ): ApiResponse<StoreRankingData> {
-  const rows = getRankingRows(month, productType).slice(0, limit);
+  const allowedProductTypes =
+    productScope && productScope !== "all"
+      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
+      : undefined;
+  const rows = getRankingRows(month, productType, allowedProductTypes).slice(0, limit);
   return {
     data: {
       month,
+      product_scope: productScope,
       product_type: productType,
       limit,
-      totals: getRankingTotals(month, productType),
+      totals: getRankingTotals(month, productType, allowedProductTypes),
       rows,
     },
     definitions: page1Definitions,
@@ -328,9 +341,20 @@ function mockStoreRankingResponse(
 function mockSettlementResponse(
   storeId: string,
   month: string,
+  productScope: string,
   productType: string,
 ): ApiResponse<SettlementViewData> {
-  const view = getSettlementView(storeId, month, productType);
+  const allowedProductTypes =
+    productScope && productScope !== "all"
+      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
+      : undefined;
+  const view = getSettlementView(
+    storeId,
+    month,
+    productType,
+    productScope,
+    allowedProductTypes,
+  );
   return {
     data: view,
     definitions: page2Definitions,
@@ -395,14 +419,22 @@ function salesTrendMonths(month: string, trendMonths: string[] = []): string[] {
 function mockSalesDashboardResponse({
   store,
   month,
+  productScope,
   productType,
   trendMonths = [],
 }: SalesDashboardQuery): ApiResponse<SalesDashboardData> {
+  const scopeProductTypes =
+    mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [];
+  const scopedRows =
+    productScope && productScope !== "all" && scopeProductTypes.length > 0
+      ? orderDetails.filter((row) => scopeProductTypes.includes(row.product_type))
+      : orderDetails;
   return {
     data: buildSalesDashboardView({
-      rows: orderDetails,
+      rows: scopedRows,
       store,
       month,
+      productScope,
       productType,
       trendMonths: salesTrendMonths(month, trendMonths),
     }),
@@ -419,7 +451,12 @@ function mockOrderDetailsResponse({
   page,
   pageSize,
 }: DetailQuery): ApiResponse<OrderDetailsData> {
-  const filteredRows = filterOrderDetails(orderDetails, filters);
+  const productScope = filters.product_scope ?? "all";
+  const allowedProductTypes =
+    productScope && productScope !== "all"
+      ? (mockMetaResponse().data.product_scope_type_map?.[productScope] ?? [])
+      : undefined;
+  const filteredRows = filterOrderDetails(orderDetails, filters, allowedProductTypes);
   const safePageSize =
     Number.isFinite(pageSize) && pageSize > 0
       ? Math.min(Math.floor(pageSize), 500)
@@ -451,12 +488,14 @@ function mockOrderDetailsResponse({
 async function requestSalesDashboard({
   store,
   month,
+  productScope,
   productType,
   trendMonths = [],
 }: SalesDashboardQuery): Promise<ApiResponse<SalesDashboardData>> {
   return requestJson<SalesDashboardData>("/dashboard/sales", {
     store_id: store.store_id,
     month,
+    product_scope: productScope,
     product_type: productType,
     trend_months: salesTrendMonths(month, trendMonths),
   });
@@ -779,10 +818,12 @@ export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
 
 export function fetchStoreRanking({
   month,
+  productScope,
   productType,
   limit = 20,
 }: {
   month: string;
+  productScope: string;
   productType: string;
   limit?: number;
 }): Promise<ApiLoadResult<StoreRankingData>> {
@@ -790,20 +831,23 @@ export function fetchStoreRanking({
     () =>
       requestJson<StoreRankingData>("/dashboard/store-ranking", {
         month,
+        product_scope: productScope,
         product_type: productType,
         limit,
       }),
-    () => mockStoreRankingResponse(month, productType, limit),
+    () => mockStoreRankingResponse(month, productScope, productType, limit),
   );
 }
 
 export function fetchMonthlySettlement({
   storeId,
   month,
+  productScope,
   productType,
 }: {
   storeId: string;
   month: string;
+  productScope: string;
   productType: string;
 }): Promise<ApiLoadResult<MonthlySettlementData>> {
   return withMockFallback(
@@ -812,10 +856,11 @@ export function fetchMonthlySettlement({
         `/stores/${encodeURIComponent(storeId)}/monthly-settlement`,
         {
           month,
+          product_scope: productScope,
           product_type: productType,
         },
       ),
-    () => mockSettlementResponse(storeId, month, productType),
+    () => mockSettlementResponse(storeId, month, productScope, productType),
   );
 }
 
@@ -1098,16 +1143,19 @@ export async function resetManagedAccountPassword(
 export async function fetchSkuRules({
   page,
   pageSize,
+  productScope,
   q,
 }: {
   page: number;
   pageSize: number;
+  productScope?: string;
   q?: string;
 }): Promise<ApiLoadResult<SkuRuleListData>> {
   return {
     ...(await requestJson<SkuRuleListData>("/admin/sku-rules", {
       page,
       page_size: pageSize,
+      product_scope: productScope,
       q,
     })),
     usingMock: false,

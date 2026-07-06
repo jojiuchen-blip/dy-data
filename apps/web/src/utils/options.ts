@@ -17,8 +17,27 @@ function productLabel(value: string): string {
   return value === ALL_PRODUCTS ? "全部产品" : value;
 }
 
+function productScopeLabel(value: string): string {
+  return value === ALL_PRODUCTS ? "全部" : value;
+}
+
 export function defaultProductType(meta: FilterMetaData | undefined): string {
   return meta?.default_product_type?.trim() || ALL_PRODUCTS;
+}
+
+export function productScopeOptions(
+  meta: FilterMetaData | undefined,
+  currentValue = ALL_PRODUCTS,
+): SelectOption[] {
+  const values = ensureValue(
+    unique([ALL_PRODUCTS, ...(meta?.product_scopes ?? [])]),
+    currentValue,
+  );
+
+  return values.map((value) => ({
+    value,
+    label: productScopeLabel(value),
+  }));
 }
 
 export function productOptions(
@@ -27,6 +46,28 @@ export function productOptions(
 ): SelectOption[] {
   const values = ensureValue(
     unique([ALL_PRODUCTS, ...(meta?.product_types ?? [])]),
+    currentValue,
+  );
+
+  return values.map((value) => ({
+    value,
+    label: productLabel(value),
+  }));
+}
+
+export function productOptionsForScope(
+  meta: FilterMetaData | undefined,
+  productScope = ALL_PRODUCTS,
+  currentValue = ALL_PRODUCTS,
+): SelectOption[] {
+  if (!productScope || productScope === ALL_PRODUCTS) {
+    return productOptions(meta, currentValue);
+  }
+  const values = ensureValue(
+    unique([
+      ALL_PRODUCTS,
+      ...(meta?.product_scope_type_map?.[productScope] ?? []),
+    ]),
     currentValue,
   );
 

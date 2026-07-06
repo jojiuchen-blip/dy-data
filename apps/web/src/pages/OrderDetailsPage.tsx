@@ -26,7 +26,8 @@ import type {
 import { formatCurrency, formatDateTime, labelForBoolean } from "../utils/format";
 import {
   defaultProductType,
-  productOptions,
+  productOptionsForScope,
+  productScopeOptions,
   saleMonthOptions,
   storeOptions,
   verifyMonthOptions,
@@ -44,6 +45,7 @@ const booleanOptions = [
 ];
 
 const pageSizeOptions = [25, 50, 100, 200, 500];
+const ALL_PRODUCTS = "all";
 
 function BooleanStatusChip({ value }: { value: boolean | null | undefined }) {
   if (typeof value !== "boolean") {
@@ -64,8 +66,11 @@ function activeChips(
   meta: FilterMetaData | undefined,
 ): string[] {
   const chips: string[] = [];
+  if (filters.product_scope && filters.product_scope !== "all") {
+    chips.push(`产品范围 ${filters.product_scope}`);
+  }
   if (filters.product_type && filters.product_type !== "all") {
-    chips.push(`产品 ${filters.product_type}`);
+    chips.push(`商品类型 ${filters.product_type}`);
   }
   if (filters.sale_store_id) {
     chips.push(`销售归属门店 ${storeName(meta, filters.sale_store_id)}`);
@@ -175,13 +180,17 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
 
   const metaResource = useApiResource(fetchFilterMeta, []);
   const meta = metaResource.data?.data;
-  const activeProductType = filters.product_type ?? defaultProductType(meta);
+  const activeProductScope = filters.product_scope ?? ALL_PRODUCTS;
+  const activeProductType =
+    filters.product_type ??
+    (activeProductScope === ALL_PRODUCTS ? defaultProductType(meta) : ALL_PRODUCTS);
   const effectiveFilters = useMemo(
     () => ({
       ...filters,
+      product_scope: activeProductScope,
       product_type: activeProductType,
     }),
-    [filters, activeProductType],
+    [filters, activeProductScope, activeProductType],
   );
   const detailsResource = useApiResource(
     () => fetchOrderDetails({ filters: effectiveFilters, page, pageSize }),
@@ -216,6 +225,15 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     setFilters((current) => ({
       ...current,
       [key]: value || undefined,
+    }));
+    setPage(1);
+  };
+
+  const updateProductScope = (value: string) => {
+    setFilters((current) => ({
+      ...current,
+      product_scope: value || undefined,
+      product_type: ALL_PRODUCTS,
     }));
     setPage(1);
   };
@@ -389,8 +407,18 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
           />
           <SelectField
             label="产品范围"
+            onChange={updateProductScope}
+            options={productScopeOptions(meta, activeProductScope)}
+            value={activeProductScope}
+          />
+          <SelectField
+            label="商品类型"
             onChange={(value) => updateFilter("product_type", value)}
-            options={productOptions(meta, activeProductType)}
+            options={productOptionsForScope(
+              meta,
+              activeProductScope,
+              activeProductType,
+            )}
             value={activeProductType}
           />
           <FilterField label="订单 / 券搜索">

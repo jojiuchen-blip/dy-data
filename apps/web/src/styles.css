@@ -3314,6 +3314,26 @@ a.metric-card:hover,
   line-height: 1.5;
 }
 
+.product-visibility-subsection {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.product-visibility-subtitle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.product-visibility-subtitle strong {
+  color: var(--ink);
+  font-size: 14px;
+}
+
 .product-type-option-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));

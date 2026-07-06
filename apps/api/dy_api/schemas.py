@@ -179,6 +179,7 @@ class FeedbackStatusUpdateRequest(BaseModel):
 class SkuRuleRow(BaseModel):
     sku_id: str
     product_name: str = ""
+    product_scope: str = ""
     product_type: str = ""
     commission_rate: float = 0
     is_service_product: bool = True
@@ -370,6 +371,8 @@ class ManualSyncResult(BaseModel):
 
 class FilterMetadata(BaseModel):
     stores: list[StoreOption]
+    product_scopes: list[str] = Field(default_factory=list)
+    product_scope_type_map: dict[str, list[str]] = Field(default_factory=dict)
     product_types: list[str]
     default_product_type: str = "all"
     sale_months: list[str]
@@ -519,28 +522,32 @@ class ClueRebuildResult(BaseModel):
 
 class ProductTypeVisibilityData(BaseModel):
     enabled: bool = False
+    visible_product_scopes: list[str] = Field(default_factory=list)
     visible_product_types: list[str] = Field(default_factory=list)
     default_product_type: str = "all"
+    available_product_scopes: list[str] = Field(default_factory=list)
     available_product_types: list[str] = Field(default_factory=list)
+    product_scope_type_map: dict[str, list[str]] = Field(default_factory=dict)
     updated_at: datetime | None = None
     updated_by: str | None = None
 
 
 class ProductTypeVisibilityUpdate(BaseModel):
     enabled: bool = False
+    visible_product_scopes: list[str] = Field(default_factory=list, max_length=100)
     visible_product_types: list[str] = Field(default_factory=list, max_length=100)
     default_product_type: str = "all"
 
-    @field_validator("visible_product_types")
-    def normalize_product_types(cls, values: list[str]) -> list[str]:
+    @field_validator("visible_product_scopes", "visible_product_types")
+    def normalize_product_values(cls, values: list[str]) -> list[str]:
         normalized: list[str] = []
         seen: set[str] = set()
         for value in values:
-            product_type = " ".join(str(value).strip().split())
-            if not product_type or product_type == "all" or product_type in seen:
+            product_value = " ".join(str(value).strip().split())
+            if not product_value or product_value == "all" or product_value in seen:
                 continue
-            normalized.append(product_type)
-            seen.add(product_type)
+            normalized.append(product_value)
+            seen.add(product_value)
         return normalized
 
     @field_validator("default_product_type")
@@ -569,6 +576,7 @@ class StoreRankingTotals(BaseModel):
 
 class StoreRankingData(BaseModel):
     month: str
+    product_scope: str = "all"
     product_type: str
     limit: int
     totals: StoreRankingTotals
@@ -613,6 +621,7 @@ class SettlementTables(BaseModel):
 class MonthlySettlementData(BaseModel):
     store: StoreOption
     month: str
+    product_scope: str = "all"
     product_type: str
     metrics: SettlementMetrics
     tables: SettlementTables
@@ -697,6 +706,7 @@ class SalesCycleDistributionRow(BaseModel):
 class SalesDashboardData(BaseModel):
     store: StoreOption
     month: str
+    product_scope: str = "all"
     product_type: str
     metrics: SalesDashboardMetrics
     product_rows: list[SalesMetricRow] = Field(default_factory=list)

@@ -16,7 +16,12 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_error_message  # noqa: E402
-from apps.api.dy_api.models import AggStoreRanking, DimStore, SettlementOrderDetail  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    AggStoreMonthlySettlement,
+    AggStoreRanking,
+    DimStore,
+    SettlementOrderDetail,
+)
 
 
 def deferred_field(*parts: str) -> str:
@@ -29,6 +34,12 @@ class FakeStore:
 
     def list_product_types(self):
         return ["all", "basic_service"]
+
+    def list_product_scopes(self):
+        return ["all", "精诚养车"]
+
+    def product_scope_type_map(self):
+        return {"精诚养车": ["basic_service"]}
 
     def list_sale_months(self):
         return ["2026-05"]
@@ -51,7 +62,9 @@ class FakeStore:
     def recent_jobs(self, limit: int):
         return [self.latest_job()][:limit]
 
-    def store_ranking(self, *, month: str, product_type: str, limit: int):
+    def store_ranking(
+        self, *, month: str, product_type: str, limit: int, product_scope: str = "all"
+    ):
         return [
             {
                 "rank": 1,
@@ -66,17 +79,27 @@ class FakeStore:
             }
         ][:limit]
 
-    def store_ranking_totals(self, *, month: str, product_type: str):
+    def store_ranking_totals(
+        self, *, month: str, product_type: str, product_scope: str = "all"
+    ):
         return {
             "sales_order_count": 30,
             "self_verify_income_cent": 25000,
             "effective_commission_income_cent": 4200,
         }
 
-    def monthly_settlement(self, *, store_id: str, month: str, product_type: str):
+    def monthly_settlement(
+        self,
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+        product_scope: str = "all",
+    ):
         return {
             "store": {"store_id": store_id, "store_name": "Store One"},
             "month": month,
+            "product_scope": product_scope,
             "product_type": product_type,
             "metrics": {
                 "estimated_receivable_commission_cent": 1680,
@@ -114,6 +137,7 @@ class FakeStore:
         month: str,
         product_type: str,
         trend_months: list[str],
+        product_scope: str = "all",
     ):
         store = (
             {"store_id": "", "store_name": "全部门店"}
@@ -123,6 +147,7 @@ class FakeStore:
         return {
             "store": store,
             "month": month,
+            "product_scope": product_scope,
             "product_type": product_type,
             "metrics": {
                 "total_sales_order_count": 2,
@@ -254,6 +279,8 @@ def test_filter_metadata_contract(client: TestClient):
     assert response.status_code == 200
     data = response.json()["data"]
     assert data["stores"] == [{"store_id": "store_001", "store_name": "Store One"}]
+    assert data["product_scopes"] == ["all", "精诚养车"]
+    assert data["product_scope_type_map"] == {"精诚养车": ["basic_service"]}
     assert data["product_types"] == ["all", "basic_service"]
     assert "latest_job" not in data
 
@@ -315,6 +342,7 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert sales_payload["data"]["trend_rows"] == [
         {"month": "2026-05", "order_count": 2, "verify_order_count": 1}
     ]
+    assert sales_payload["data"]["product_scope"] == "all"
     assert sales_definitions["total_verify_order_count"]["label"] == "实际核销总数"
     assert "is_refund_excluded=true" in sales_definitions["total_sales_order_count"]["description"]
     assert deferred_field("refund", "amount", "cent") not in sales.text
@@ -423,6 +451,132 @@ def test_store_ranking_totals_include_all_matching_rows(db_session: Session):
     }
 
 
+def test_product_scope_filters_ranking_settlement_and_details(db_session: Session):
+    timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store_scope",
+                store_name="Scope Store",
+                certified_subject_name="Scope Subject",
+            ),
+            DimStore(
+                store_id="store_other",
+                store_name="Other Store",
+                certified_subject_name="Other Subject",
+            ),
+            AggStoreRanking(
+                month="2026-05",
+                product_type="268保养",
+                store_id="store_scope",
+                store_name="Scope Store",
+                sales_order_count=3,
+                self_verify_income_cent=3000,
+                effective_commission_income_cent=300,
+                updated_at=timestamp,
+            ),
+            AggStoreRanking(
+                month="2026-05",
+                product_type="Other Service",
+                store_id="store_scope",
+                store_name="Scope Store",
+                sales_order_count=9,
+                self_verify_income_cent=9000,
+                effective_commission_income_cent=900,
+                updated_at=timestamp,
+            ),
+            AggStoreMonthlySettlement(
+                month="2026-05",
+                store_id="store_scope",
+                product_type="268保养",
+                estimated_receivable_commission_cent=300,
+                commissionable_total_cent=3000,
+                estimated_payable_commission_cent=30,
+                updated_at=timestamp,
+            ),
+            AggStoreMonthlySettlement(
+                month="2026-05",
+                store_id="store_scope",
+                product_type="Other Service",
+                estimated_receivable_commission_cent=900,
+                commissionable_total_cent=9000,
+                estimated_payable_commission_cent=90,
+                updated_at=timestamp,
+            ),
+        ]
+    )
+    for coupon_id, product_type, amount in [
+        ("coupon_scope", "268保养", 3000),
+        ("coupon_other", "Other Service", 9000),
+    ]:
+        db_session.add(
+            SettlementOrderDetail(
+                coupon_id=coupon_id,
+                order_id=coupon_id.replace("coupon", "order"),
+                sku_id="sku_001",
+                owner_account_id="acct_001",
+                owner_account_name="Owner",
+                product_type=product_type,
+                sale_store_id="store_scope",
+                sale_store_name="Scope Store",
+                sale_time=timestamp,
+                is_verified=True,
+                verify_store_id="store_other",
+                verify_store_name="Other Store",
+                verify_time=verify_time,
+                relation_type="cross_store",
+                is_commissionable=True,
+                is_refund_excluded=False,
+                paid_amount_cent=amount,
+                commission_rate=Decimal("0.1000"),
+                receivable_commission_cent=amount // 10,
+                payable_commission_cent=0,
+                source_run_id="test-run",
+                updated_at=timestamp,
+            )
+        )
+    db_session.commit()
+
+    store = DashboardDataStore(db_session)
+    ranking_rows = store.store_ranking(
+        month="2026-05",
+        product_scope="精诚养车",
+        product_type="all",
+        limit=10,
+    )
+    ranking_totals = store.store_ranking_totals(
+        month="2026-05",
+        product_scope="精诚养车",
+        product_type="all",
+    )
+    settlement = store.monthly_settlement(
+        store_id="store_scope",
+        month="2026-05",
+        product_scope="精诚养车",
+        product_type="all",
+    )
+    details = store.order_details(
+        {
+            "product_scope": "精诚养车",
+            "product_type": "all",
+            "page": 1,
+            "page_size": 50,
+        }
+    )
+
+    assert [row["store_id"] for row in ranking_rows] == ["store_scope"]
+    assert ranking_rows[0]["sales_order_count"] == 3
+    assert ranking_totals["sales_order_count"] == 3
+    assert settlement["product_scope"] == "精诚养车"
+    assert settlement["metrics"]["commissionable_total_cent"] == 3000
+    assert [
+        row["product_type"]
+        for row in settlement["tables"]["receivable_commissions"]
+    ] == ["268保养"]
+    assert [row["coupon_id"] for row in details["rows"]] == ["coupon_scope"]
+
+
 def test_sales_dashboard_trend_counts_actual_verify_store_orders(db_session: Session):
     sale_time = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
     verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
@@ -500,6 +654,77 @@ def test_sales_dashboard_trend_counts_actual_verify_store_orders(db_session: Ses
     assert all_store_dashboard["trend_rows"] == [
         {"month": "2026-05", "order_count": 3, "verify_order_count": 3}
     ]
+
+
+def test_sales_dashboard_product_scope_filters_mapped_product_types(
+    db_session: Session,
+):
+    sale_time = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
+    db_session.add(
+        DimStore(
+            store_id="store_scope",
+            store_name="Scope Store",
+            certified_subject_name="Scope Subject",
+        )
+    )
+    for coupon_id, order_id, product_type, amount in [
+        ("coupon_scope", "order_scope", "268保养", 10000),
+        ("coupon_other", "order_other", "Other Service", 20000),
+    ]:
+        db_session.add(
+            SettlementOrderDetail(
+                coupon_id=coupon_id,
+                order_id=order_id,
+                sku_id="sku_001",
+                owner_account_id="acct_001",
+                owner_account_name="Owner",
+                product_type=product_type,
+                sale_store_id="store_scope",
+                sale_store_name="Scope Store",
+                sale_time=sale_time,
+                is_verified=True,
+                verify_store_id="store_scope",
+                verify_store_name="Scope Store",
+                verify_time=verify_time,
+                relation_type="same_store",
+                is_commissionable=True,
+                is_refund_excluded=False,
+                paid_amount_cent=amount,
+                commission_rate=Decimal("0.1000"),
+                receivable_commission_cent=0,
+                payable_commission_cent=0,
+                source_run_id="test-run",
+                updated_at=sale_time,
+            )
+        )
+    db_session.commit()
+
+    store = DashboardDataStore(db_session)
+    scoped_dashboard = store.sales_dashboard(
+        store_id=None,
+        month="all",
+        product_scope="精诚养车",
+        product_type="all",
+        trend_months=["2026-05"],
+    )
+
+    assert scoped_dashboard["product_scope"] == "精诚养车"
+    assert scoped_dashboard["metrics"]["total_sales_order_count"] == 1
+    assert [row["product_type"] for row in scoped_dashboard["product_rows"]] == [
+        "268保养"
+    ]
+
+    mismatched_dashboard = store.sales_dashboard(
+        store_id=None,
+        month="all",
+        product_scope="精诚养车",
+        product_type="Other Service",
+        trend_months=["2026-05"],
+    )
+
+    assert mismatched_dashboard["metrics"]["total_sales_order_count"] == 0
+    assert mismatched_dashboard["product_rows"] == []
 
 
 def test_error_message_sanitizer_redacts_sensitive_values_and_paths():

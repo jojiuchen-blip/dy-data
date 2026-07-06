@@ -247,6 +247,8 @@ export interface SelectOption {
 
 export interface FilterMetaData {
   stores: StoreOption[];
+  product_scopes?: string[];
+  product_scope_type_map?: Record<string, string[]>;
   product_types: string[];
   default_product_type: string;
   sale_months: string[];
@@ -273,6 +275,7 @@ export interface StoreRankingTotals {
 
 export interface StoreRankingData {
   month: string;
+  product_scope?: string;
   product_type: string;
   limit: number;
   totals: StoreRankingTotals;
@@ -282,6 +285,7 @@ export interface StoreRankingData {
 export interface MonthlySummaryData {
   store: StoreOption;
   month: string;
+  product_scope?: string;
   product_type: string;
   metrics: {
     estimated_receivable_commission_cent: number;
@@ -316,6 +320,7 @@ export interface NonCommissionOrderRow {
 export interface CommissionTablesData {
   store: StoreOption;
   month: string;
+  product_scope?: string;
   product_type: string;
   tables: {
     receivable_commissions: ReceivableCommissionRow[];
@@ -398,6 +403,7 @@ export interface SalesCycleDistributionRow {
 export interface SalesDashboardData {
   store: StoreOption;
   month: string;
+  product_scope?: string;
   product_type: string;
   metrics: SalesDashboardMetrics;
   product_rows: SalesMetricRow[];
@@ -407,6 +413,7 @@ export interface SalesDashboardData {
 }
 
 export interface DetailFilters {
+  product_scope?: string;
   product_type?: string;
   sale_store_id?: string;
   exclude_sale_store_id?: string;
@@ -423,6 +430,7 @@ export interface DetailFilters {
 export interface SkuProductCommissionRule {
   sku_id: string;
   product_name?: string;
+  product_scope?: string;
   product_type: string;
   commission_rate: number;
   is_service_product?: boolean;
@@ -621,15 +629,19 @@ export interface ClueRebuildResult {
 
 export interface ProductTypeVisibilityData {
   enabled: boolean;
+  visible_product_scopes: string[];
   visible_product_types: string[];
   default_product_type: string;
+  available_product_scopes: string[];
   available_product_types: string[];
+  product_scope_type_map: Record<string, string[]>;
   updated_at: string | null;
   updated_by: string | null;
 }
 
 export interface ProductTypeVisibilityUpdate {
   enabled: boolean;
+  visible_product_scopes: string[];
   visible_product_types: string[];
   default_product_type: string;
 }

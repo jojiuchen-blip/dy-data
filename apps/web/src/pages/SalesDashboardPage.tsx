@@ -23,7 +23,12 @@ import {
   formatInteger,
   formatPercent,
 } from "../utils/format";
-import { defaultProductType, productOptions, storeOptions } from "../utils/options";
+import {
+  defaultProductType,
+  productOptionsForScope,
+  productScopeOptions,
+  storeOptions,
+} from "../utils/options";
 
 interface SalesDashboardPageProps {
   currentUser: AdminUser;
@@ -618,6 +623,9 @@ export function SalesDashboardPage({
 }: SalesDashboardPageProps) {
   const [storeId, setStoreId] = useState(searchParams.get("store_id") ?? "");
   const [month, setMonth] = useState(searchParams.get("month") ?? ALL_MONTHS);
+  const [productScope, setProductScope] = useState(
+    searchParams.get("product_scope") ?? "",
+  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
@@ -633,7 +641,14 @@ export function SalesDashboardPage({
       : undefined;
   const activeMonth = month || ALL_MONTHS;
   const periodLabel = activeMonth === ALL_MONTHS ? "全年" : activeMonth;
-  const activeProductType = productType || defaultProductType(meta);
+  const activeProductScope = productScope || ALL_MONTHS;
+  const activeProductType =
+    productType ||
+    (activeProductScope === ALL_MONTHS ? defaultProductType(meta) : ALL_MONTHS);
+  const handleProductScopeChange = (value: string) => {
+    setProductScope(value);
+    setProductType(ALL_MONTHS);
+  };
   const trendMonths = useMemo(
     () => trendMonthsForPeriod(meta, activeMonth),
     [meta, activeMonth],
@@ -643,10 +658,17 @@ export function SalesDashboardPage({
       fetchSalesDashboard({
         store: activeStore as StoreOption,
         month: activeMonth,
+        productScope: activeProductScope,
         productType: activeProductType,
         trendMonths,
       }),
-    [activeStore?.store_id, activeMonth, activeProductType, trendMonths.join("|")],
+    [
+      activeStore?.store_id,
+      activeMonth,
+      activeProductScope,
+      activeProductType,
+      trendMonths.join("|"),
+    ],
     { enabled: Boolean(activeStore) },
   );
 
@@ -703,9 +725,19 @@ export function SalesDashboardPage({
           value={activeMonth}
         />
         <SelectField
+          label="产品范围"
+          onChange={handleProductScopeChange}
+          options={productScopeOptions(meta, activeProductScope)}
+          value={activeProductScope}
+        />
+        <SelectField
           label="商品类型"
           onChange={setProductType}
-          options={productOptions(meta, activeProductType)}
+          options={productOptionsForScope(
+            meta,
+            activeProductScope,
+            activeProductType,
+          )}
           value={activeProductType}
         />
       </FilterBar>

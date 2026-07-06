@@ -133,6 +133,7 @@ def test_admin_can_list_sku_rules_from_raw_data(
         {
             "sku_id": "sku-admin",
             "product_name": "Admin Configurable Product",
+            "product_scope": "",
             "product_type": "",
             "commission_rate": 0.0,
             "is_service_product": True,
@@ -180,6 +181,7 @@ def test_admin_can_lookup_exact_sku_rules_in_input_order(
     assert payload["rows"][0] == {
         "sku_id": "sku-config-only",
         "product_name": "Configured Product",
+        "product_scope": "",
         "product_type": "Configured Type",
         "commission_rate": 0.25,
         "is_service_product": False,
@@ -188,6 +190,54 @@ def test_admin_can_lookup_exact_sku_rules_in_input_order(
     }
     assert payload["missing_sku_ids"] == ["missing-sku", "SKU-ADMIN"]
     assert payload["duplicate_sku_ids"] == ["sku-admin"]
+
+
+def test_admin_sku_rules_include_product_scope_from_csv(
+    client: TestClient, db_session: Session
+) -> None:
+    db_session.merge(
+        DimSkuProductRule(
+            sku_id="1834808062911500",
+            product_name="268 Maintenance",
+            product_type="268保养",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/admin/sku-rules?q=1834808062911500")
+
+    assert response.status_code == 200
+    row = response.json()["data"]["rows"][0]
+    assert row["product_scope"] == "精诚养车"
+    assert row["product_type"] == "268保养"
+
+
+def test_admin_sku_rules_can_filter_by_product_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    _load_unconfigured_cross_store_sku(db_session)
+    db_session.merge(
+        DimSkuProductRule(
+            sku_id="1834808062911500",
+            product_name="268 Maintenance",
+            product_type="268保养",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/admin/sku-rules?product_scope=精诚")
+
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["pagination"]["total"] == 1
+    assert payload["rows"][0]["sku_id"] == "1834808062911500"
+    assert payload["rows"][0]["product_scope"] == "精诚养车"
 
 
 def test_admin_sku_rule_lookup_rejects_more_than_500_sku_ids(

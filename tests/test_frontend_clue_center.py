@@ -729,6 +729,27 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     assert "新建账号" in accounts_source
 
 
+def test_admin_sku_preselection_keeps_product_scope_separate() -> None:
+    page_source = read_source("pages/AdminSkuRulesPage.tsx")
+    admin_tools_source = page_source[
+        page_source.index('<section className="content-section admin-tools">') :
+        page_source.index('<section className="content-section">', page_source.index('<section className="content-section admin-tools">'))
+    ]
+
+    assert 'const [bulkProductScope, setBulkProductScope] = useState("");' in page_source
+    assert 'const [productScopeQuery, setProductScopeQuery] = useState("");' in page_source
+    assert 'list="product-scope-options"' in page_source
+    assert '<span>产品范围</span>' in page_source
+    assert admin_tools_source.index("<span>产品范围</span>") < admin_tools_source.index(
+        "<span>浏览搜索 SKU / 商品名称</span>"
+    )
+    assert "productScope: productScopeQuery.trim()" in page_source
+    assert '<span>商品类型</span>' in page_source
+    assert "product_scope: productScope || currentRule.product_scope" in page_source
+    assert "product_type: row.product_type.trim()" in page_source
+    assert "product_scope: row.product_scope.trim()" not in page_source
+
+
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     types_source = read_source("types/dashboard.ts")
     client_source = read_source("api/client.ts")

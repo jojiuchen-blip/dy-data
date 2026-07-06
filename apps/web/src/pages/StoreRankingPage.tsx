@@ -18,14 +18,24 @@ import { TooltipLabel } from "../components/TooltipLabel";
 import { useApiResource } from "../hooks/useApiResource";
 import type { StoreRankingRow } from "../types/dashboard";
 import { formatCurrency, formatInteger } from "../utils/format";
-import { defaultProductType, productOptions, saleMonthOptions } from "../utils/options";
+import {
+  defaultProductType,
+  productOptionsForScope,
+  productScopeOptions,
+  saleMonthOptions,
+} from "../utils/options";
 
 interface StoreRankingPageProps {
   searchParams: URLSearchParams;
 }
 
+const ALL_PRODUCTS = "all";
+
 export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
+  const [productScope, setProductScope] = useState(
+    searchParams.get("product_scope") ?? "",
+  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
@@ -33,10 +43,23 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
   const metaResource = useApiResource(fetchFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.sale_months[0] || defaultMonth;
-  const activeProductType = productType || defaultProductType(meta);
+  const activeProductScope = productScope || ALL_PRODUCTS;
+  const activeProductType =
+    productType ||
+    (activeProductScope === ALL_PRODUCTS ? defaultProductType(meta) : ALL_PRODUCTS);
+  const handleProductScopeChange = (value: string) => {
+    setProductScope(value);
+    setProductType(ALL_PRODUCTS);
+  };
   const rankingResource = useApiResource(
-    () => fetchStoreRanking({ month: activeMonth, productType: activeProductType, limit: 20 }),
-    [activeMonth, activeProductType],
+    () =>
+      fetchStoreRanking({
+        month: activeMonth,
+        productScope: activeProductScope,
+        productType: activeProductType,
+        limit: 20,
+      }),
+    [activeMonth, activeProductScope, activeProductType],
   );
 
   const ranking = rankingResource.data?.data;
@@ -164,8 +187,18 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         />
         <SelectField
           label="产品范围"
+          onChange={handleProductScopeChange}
+          options={productScopeOptions(meta, activeProductScope)}
+          value={activeProductScope}
+        />
+        <SelectField
+          label="商品类型"
           onChange={setProductType}
-          options={productOptions(meta, activeProductType)}
+          options={productOptionsForScope(
+            meta,
+            activeProductScope,
+            activeProductType,
+          )}
           value={activeProductType}
         />
       </FilterBar>
@@ -210,9 +243,9 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
               columns={columns}
               rows={rows}
               rowHref={(row) =>
-                `/settlement?store_id=${row.store_id}&month=${activeMonth}&product_type=${encodeURIComponent(
-                  activeProductType,
-                )}`
+                `/settlement?store_id=${row.store_id}&month=${activeMonth}&product_scope=${encodeURIComponent(
+                  activeProductScope,
+                )}&product_type=${encodeURIComponent(activeProductType)}`
               }
             />
           </section>

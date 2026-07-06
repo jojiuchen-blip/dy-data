@@ -26,7 +26,8 @@ import type {
 import { formatCurrency, formatInteger, formatPercent } from "../utils/format";
 import {
   defaultProductType,
-  productOptions,
+  productOptionsForScope,
+  productScopeOptions,
   storeOptions,
   verifyMonthOptions,
 } from "../utils/options";
@@ -36,9 +37,14 @@ interface StoreSettlementPageProps {
   searchParams: URLSearchParams;
 }
 
+const ALL_PRODUCTS = "all";
+
 export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [storeId, setStoreId] = useState(searchParams.get("store_id") ?? "");
+  const [productScope, setProductScope] = useState(
+    searchParams.get("product_scope") ?? "",
+  );
   const [productType, setProductType] = useState(
     searchParams.get("product_type") ?? "",
   );
@@ -47,15 +53,23 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.verify_months[0] || defaultMonth;
   const activeStoreId = storeId || meta?.stores[0]?.store_id || defaultStore.store_id;
-  const activeProductType = productType || defaultProductType(meta);
+  const activeProductScope = productScope || ALL_PRODUCTS;
+  const activeProductType =
+    productType ||
+    (activeProductScope === ALL_PRODUCTS ? defaultProductType(meta) : ALL_PRODUCTS);
+  const handleProductScopeChange = (value: string) => {
+    setProductScope(value);
+    setProductType(ALL_PRODUCTS);
+  };
   const settlementResource = useApiResource(
     () =>
       fetchMonthlySettlement({
         storeId: activeStoreId,
         month: activeMonth,
+        productScope: activeProductScope,
         productType: activeProductType,
       }),
-    [activeStoreId, activeMonth, activeProductType],
+    [activeStoreId, activeMonth, activeProductScope, activeProductType],
   );
 
   const view = settlementResource.data?.data;
@@ -72,6 +86,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const baseProduct = activeProductType === "all" ? "all" : activeProductType;
 
   const receivableHref = detailsHref({
+    product_scope: activeProductScope,
     product_type: baseProduct,
     sale_store_id: activeStoreId,
     relation_type: "cross_store",
@@ -79,6 +94,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     verify_month: activeMonth,
   });
   const payableHref = detailsHref({
+    product_scope: activeProductScope,
     product_type: baseProduct,
     verify_store_id: activeStoreId,
     relation_type: "cross_store",
@@ -197,8 +213,18 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
         </FilterField>
         <SelectField
           label="产品范围"
+          onChange={handleProductScopeChange}
+          options={productScopeOptions(meta, activeProductScope)}
+          value={activeProductScope}
+        />
+        <SelectField
+          label="商品类型"
           onChange={setProductType}
-          options={productOptions(meta, activeProductType)}
+          options={productOptionsForScope(
+            meta,
+            activeProductScope,
+            activeProductType,
+          )}
           value={activeProductType}
         />
       </FilterBar>
@@ -243,6 +269,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rows={view.tables.receivable_commissions}
               rowHref={(row) =>
                 detailsHref({
+                  product_scope: activeProductScope,
                   product_type: row.product_type,
                   sale_store_id: activeStoreId,
                   relation_type: "cross_store",
@@ -265,6 +292,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rows={view.tables.payable_commissions}
               rowHref={(row) =>
                 detailsHref({
+                  product_scope: activeProductScope,
                   product_type: row.product_type,
                   verify_store_id: activeStoreId,
                   relation_type: "cross_store",
@@ -287,6 +315,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               rows={view.tables.non_commission_orders}
               rowHref={(row) =>
                 detailsHref({
+                  product_scope: activeProductScope,
                   product_type: row.product_type,
                   sale_store_id: activeStoreId,
                   verify_store_id: activeStoreId,

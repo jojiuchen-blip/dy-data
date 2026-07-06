@@ -34,6 +34,17 @@ function matchesProduct(product: string, selected: string): boolean {
   return selected === ALL_PRODUCTS || product === selected;
 }
 
+function matchesProductFilter(
+  product: string,
+  selected: string,
+  allowedProductTypes?: string[],
+): boolean {
+  if (allowedProductTypes && !allowedProductTypes.includes(product)) {
+    return false;
+  }
+  return matchesProduct(product, selected);
+}
+
 function isBlank(value: string | undefined): boolean {
   return value === undefined || value === "" || value === ALL_PRODUCTS;
 }
@@ -116,8 +127,10 @@ export function getMonthOptions(): SelectOption[] {
 export function getRankingRows(
   month: string,
   productType: string,
+  allowedProductTypes?: string[],
 ): StoreRankingRow[] {
   if (
+    !allowedProductTypes &&
     month === storeRankingResponse.data.month &&
     productType === storeRankingResponse.data.product_type
   ) {
@@ -126,7 +139,7 @@ export function getRankingRows(
       .map((row) => ({ ...row }));
   }
 
-  return buildRankingRows(month, productType)
+  return buildRankingRows(month, productType, allowedProductTypes)
     .slice(0, 20)
     .map((row, index) => ({ ...row, rank: index + 1 }));
 }
@@ -134,15 +147,17 @@ export function getRankingRows(
 export function getRankingTotals(
   month: string,
   productType: string,
+  allowedProductTypes?: string[],
 ): StoreRankingTotals {
   if (
+    !allowedProductTypes &&
     month === storeRankingResponse.data.month &&
     productType === storeRankingResponse.data.product_type
   ) {
     return { ...storeRankingResponse.data.totals };
   }
 
-  const rows = buildRankingRows(month, productType);
+  const rows = buildRankingRows(month, productType, allowedProductTypes);
   return {
     sales_order_count: sum(rows, (row) => row.sales_order_count),
     self_verify_income_cent: sum(rows, (row) => row.self_verify_income_cent),
@@ -156,6 +171,7 @@ export function getRankingTotals(
 function buildRankingRows(
   month: string,
   productType: string,
+  allowedProductTypes?: string[],
 ): StoreRankingRow[] {
   const rowsByStore = new Map<string, StoreRankingRow>();
 
@@ -180,7 +196,7 @@ function buildRankingRows(
   };
 
   orderDetails.forEach((detail) => {
-    if (!matchesProduct(detail.product_type, productType)) {
+    if (!matchesProductFilter(detail.product_type, productType, allowedProductTypes)) {
       return;
     }
 
@@ -223,10 +239,13 @@ function buildRankingRows(
 function filterByProduct<T extends { product_type: string }>(
   rows: T[],
   productType: string,
+  allowedProductTypes?: string[],
 ): T[] {
-  return productType === ALL_PRODUCTS
-    ? rows.map((row) => ({ ...row }))
-    : rows.filter((row) => row.product_type === productType).map((row) => ({ ...row }));
+  return rows
+    .filter((row) =>
+      matchesProductFilter(row.product_type, productType, allowedProductTypes),
+    )
+    .map((row) => ({ ...row }));
 }
 
 function sum<T>(rows: T[], selector: (row: T) => number): number {
@@ -237,6 +256,8 @@ export function getSettlementView(
   storeId: string,
   month: string,
   productType: string,
+  productScope = ALL_PRODUCTS,
+  allowedProductTypes?: string[],
 ): SettlementViewData {
   const isDefaultStore = storeId === defaultStore.store_id;
   const canUseContractMock =
@@ -247,14 +268,17 @@ export function getSettlementView(
       receivable_commissions: filterByProduct(
         commissionTablesResponse.data.tables.receivable_commissions,
         productType,
+        allowedProductTypes,
       ),
       payable_commissions: filterByProduct(
         commissionTablesResponse.data.tables.payable_commissions,
         productType,
+        allowedProductTypes,
       ),
       non_commission_orders: filterByProduct(
         commissionTablesResponse.data.tables.non_commission_orders,
         productType,
+        allowedProductTypes,
       ),
     };
 
@@ -279,6 +303,7 @@ export function getSettlementView(
     return {
       store: defaultStore,
       month,
+      product_scope: productScope,
       product_type: productType,
       metrics,
       tables,
@@ -286,7 +311,13 @@ export function getSettlementView(
     };
   }
 
-  return deriveSettlementFromDetails(storeId, month, productType);
+  return deriveSettlementFromDetails(
+    storeId,
+    month,
+    productType,
+    productScope,
+    allowedProductTypes,
+  );
 }
 
 function makeReceivableRow(productType: string): ReceivableCommissionRow {
@@ -322,6 +353,8 @@ function deriveSettlementFromDetails(
   storeId: string,
   month: string,
   productType: string,
+  productScope = ALL_PRODUCTS,
+  allowedProductTypes?: string[],
 ): SettlementViewData {
   const receivable = new Map<string, ReceivableCommissionRow>();
   const payable = new Map<string, PayableCommissionRow>();
@@ -344,7 +377,10 @@ function deriveSettlementFromDetails(
   };
 
   orderDetails.forEach((detail) => {
-    if (!matchesProduct(detail.product_type, productType) || !detail.is_verified) {
+    if (
+      !matchesProductFilter(detail.product_type, productType, allowedProductTypes) ||
+      !detail.is_verified
+    ) {
       return;
     }
 
@@ -410,6 +446,7 @@ function deriveSettlementFromDetails(
       store_name: getStoreName(storeId),
     },
     month,
+    product_scope: productScope,
     product_type: productType,
     metrics: {
       estimated_receivable_commission_cent: sum(
@@ -437,10 +474,14 @@ function deriveSettlementFromDetails(
 export function filterOrderDetails(
   rows: OrderDetail[],
   filters: DetailFilters,
+  allowedProductTypes?: string[],
 ): OrderDetail[] {
   const query = filters.q?.trim().toLowerCase();
 
   return rows.filter((row) => {
+    if (allowedProductTypes && !allowedProductTypes.includes(row.product_type)) {
+      return false;
+    }
     if (!isBlank(filters.product_type) && row.product_type !== filters.product_type) {
       return false;
     }
@@ -506,6 +547,7 @@ export function detailFiltersFromSearch(
 ): DetailFilters {
   const filters: DetailFilters = {};
   [
+    "product_scope",
     "product_type",
     "sale_store_id",
     "exclude_sale_store_id",
@@ -530,6 +572,7 @@ interface SalesDashboardBuildInput {
   rows: OrderDetail[];
   store: StoreOption;
   month: string;
+  productScope?: string;
   productType: string;
   trendMonths?: string[];
 }
@@ -844,6 +887,7 @@ export function buildSalesDashboardView({
   rows,
   store,
   month,
+  productScope = ALL_PRODUCTS,
   productType,
   trendMonths = [month],
 }: SalesDashboardBuildInput): SalesDashboardData {
@@ -862,6 +906,7 @@ export function buildSalesDashboardView({
   return {
     store,
     month,
+    product_scope: productScope,
     product_type: productType,
     metrics: salesMetricsFor(uniqueRows, store.store_id, month, productType),
     product_rows: salesMetricRows(uniqueRows, store.store_id, month, productType),

@@ -9,6 +9,7 @@ import re
 from collections.abc import Generator, Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
@@ -58,6 +59,82 @@ CLUE_VERIFICATION_STATUSES = [
     "other_store_verified",
 ]
 UTF8_BOM = "\ufeff"
+SKU_PRODUCT_CATEGORIES_CSV = Path(__file__).resolve().parents[4] / "sku_product_categories.csv"
+_SKU_PRODUCT_CATEGORY_ROWS_CACHE: list[dict[str, str]] | None = None
+_SKU_PRODUCT_SCOPE_CACHE: dict[str, str] | None = None
+_PRODUCT_SCOPE_TYPE_MAP_CACHE: dict[str, list[str]] | None = None
+
+
+def _sku_product_category_rows() -> list[dict[str, str]]:
+    global _SKU_PRODUCT_CATEGORY_ROWS_CACHE
+    if _SKU_PRODUCT_CATEGORY_ROWS_CACHE is not None:
+        return _SKU_PRODUCT_CATEGORY_ROWS_CACHE
+
+    rows: list[dict[str, str]] = []
+    try:
+        with SKU_PRODUCT_CATEGORIES_CSV.open("r", encoding="utf-8-sig", newline="") as file:
+            for row in csv.DictReader(file):
+                sku_id = _to_str(row.get("SKU_ID") or row.get("sku_id")).strip()
+                product_scope = _to_str(row.get("产品范围")).strip()
+                product_type = _to_str(row.get("商品类型") or row.get("商品分类")).strip()
+                if sku_id:
+                    rows.append(
+                        {
+                            "sku_id": sku_id,
+                            "product_scope": product_scope,
+                            "product_type": product_type,
+                        }
+                    )
+    except OSError:
+        rows = []
+
+    _SKU_PRODUCT_CATEGORY_ROWS_CACHE = rows
+    return rows
+
+
+def _sku_product_scope_map() -> dict[str, str]:
+    global _SKU_PRODUCT_SCOPE_CACHE
+    if _SKU_PRODUCT_SCOPE_CACHE is not None:
+        return _SKU_PRODUCT_SCOPE_CACHE
+
+    scopes = {
+        row["sku_id"]: row["product_scope"]
+        for row in _sku_product_category_rows()
+        if row["sku_id"] and row["product_scope"]
+    }
+
+    _SKU_PRODUCT_SCOPE_CACHE = scopes
+    return scopes
+
+
+def _product_scope_type_map() -> dict[str, list[str]]:
+    global _PRODUCT_SCOPE_TYPE_MAP_CACHE
+    if _PRODUCT_SCOPE_TYPE_MAP_CACHE is not None:
+        return _PRODUCT_SCOPE_TYPE_MAP_CACHE
+
+    scope_types: dict[str, set[str]] = {}
+    for row in _sku_product_category_rows():
+        product_scope = row["product_scope"]
+        product_type = row["product_type"]
+        if not product_scope or not product_type:
+            continue
+        scope_types.setdefault(product_scope, set()).add(product_type)
+
+    _PRODUCT_SCOPE_TYPE_MAP_CACHE = {
+        product_scope: sorted(product_types)
+        for product_scope, product_types in scope_types.items()
+    }
+    return _PRODUCT_SCOPE_TYPE_MAP_CACHE
+
+
+def _product_scope_for_sku(sku_id: str) -> str:
+    return _sku_product_scope_map().get(sku_id, "")
+
+
+def _all_product_scopes() -> list[str]:
+    return sorted(_product_scope_type_map())
+
+
 ALL_MONTHS = "all"
 ALL_STORES_OPTION = {"store_id": "", "store_name": "全部门店"}
 MAX_SALES_CYCLE_SAMPLE_POINTS = 90
@@ -292,9 +369,18 @@ def _normalize_product_type_list(values: Iterable[Any]) -> list[str]:
     return normalized
 
 
+def _normalize_product_scope_list(values: Iterable[Any]) -> list[str]:
+    return _normalize_product_type_list(values)
+
+
 def _normalize_product_type_value(value: Any) -> str:
     product_type = " ".join(_to_str(value, "all").strip().split())
     return product_type or "all"
+
+
+def _normalize_product_scope_value(value: Any) -> str:
+    product_scope = " ".join(_to_str(value, "all").strip().split())
+    return product_scope or "all"
 
 
 def _parse_filter_datetime(value: Any) -> datetime | None:
@@ -515,6 +601,81 @@ class DashboardDataStore:
             product_types = [product_type for product_type in product_types if product_type in allowed]
         return ["all", *product_types]
 
+    def product_scope_type_map(self) -> dict[str, list[str]]:
+        available_product_types = {
+            product_type
+            for product_type in self.list_product_types()
+            if product_type != "all"
+        }
+        if not available_product_types:
+            return {}
+        return {
+            product_scope: [
+                product_type
+                for product_type in product_types
+                if product_type in available_product_types
+            ]
+            for product_scope, product_types in _product_scope_type_map().items()
+            if any(product_type in available_product_types for product_type in product_types)
+        }
+
+    def list_product_scopes(self) -> list[str]:
+        return ["all", *sorted(self.product_scope_type_map())]
+
+    def _product_types_for_scope(self, product_scope: str) -> tuple[str, ...] | None:
+        requested_product_scope = _normalize_product_scope_value(product_scope)
+        if requested_product_scope == "all":
+            return None
+        return tuple(self.product_scope_type_map().get(requested_product_scope, []))
+
+    def _product_type_filter_values(
+        self, *, product_scope: str = "all", product_type: str = "all"
+    ) -> tuple[str, ...] | None:
+        requested_product_type = _normalize_product_type_value(product_type)
+        scope_product_types = self._product_types_for_scope(product_scope)
+        visible_product_types = self._visible_product_types()
+
+        if requested_product_type != "all":
+            if scope_product_types is not None and requested_product_type not in set(
+                scope_product_types
+            ):
+                return ()
+            if not self._is_product_type_visible(requested_product_type):
+                return ()
+            return (requested_product_type,)
+
+        if scope_product_types is not None:
+            if visible_product_types is None:
+                return scope_product_types
+            visible_set = set(visible_product_types)
+            return tuple(
+                product_type
+                for product_type in scope_product_types
+                if product_type in visible_set
+            )
+
+        return visible_product_types
+
+    def _product_filter_condition(
+        self,
+        column: str,
+        params: dict[str, Any],
+        *,
+        product_scope: str = "all",
+        product_type: str = "all",
+        prefix: str = "product_filter",
+    ) -> str:
+        values = self._product_type_filter_values(
+            product_scope=product_scope, product_type=product_type
+        )
+        if values is None:
+            return ""
+        placeholders, product_params = _in_clause_params(prefix, values)
+        if not placeholders:
+            return "1 = 0"
+        params.update(product_params)
+        return f"{column} IN ({placeholders})"
+
     def default_product_type(self) -> str:
         setting = self._product_type_visibility_setting()
         default_product_type = _normalize_product_type_value(
@@ -528,6 +689,7 @@ class DashboardDataStore:
 
     def product_type_visibility(self) -> dict[str, Any]:
         setting = self._product_type_visibility_setting()
+        visible_product_scopes: list[str] = []
         visible_product_types: list[str] = []
         default_product_type = "all"
         enabled = False
@@ -535,6 +697,15 @@ class DashboardDataStore:
         updated_by = None
         if setting is not None:
             enabled = bool(setting.enabled)
+            raw_scopes = getattr(setting, "visible_product_scopes", [])
+            if isinstance(raw_scopes, str):
+                try:
+                    raw_scopes = json.loads(raw_scopes)
+                except json.JSONDecodeError:
+                    raw_scopes = []
+            if not isinstance(raw_scopes, list):
+                raw_scopes = []
+            visible_product_scopes = _normalize_product_scope_list(raw_scopes)
             raw_values = setting.visible_product_types
             if isinstance(raw_values, str):
                 try:
@@ -550,6 +721,25 @@ class DashboardDataStore:
             updated_at = setting.updated_at
             updated_by = setting.updated_by
         available = sorted(set(self._all_product_types()) | set(visible_product_types))
+        available_set = set(available)
+        product_scope_type_map = {
+            product_scope: [
+                product_type
+                for product_type in product_types
+                if product_type in available_set
+            ]
+            for product_scope, product_types in _product_scope_type_map().items()
+        }
+        product_scope_type_map = {
+            product_scope: product_types
+            for product_scope, product_types in product_scope_type_map.items()
+            if product_types
+        }
+        available_product_scopes = sorted(
+            set(product_scope_type_map) | set(visible_product_scopes)
+        )
+        for product_scope in visible_product_scopes:
+            product_scope_type_map.setdefault(product_scope, [])
         if default_product_type != "all" and default_product_type not in available:
             default_product_type = "all"
         if (
@@ -560,9 +750,12 @@ class DashboardDataStore:
             default_product_type = "all"
         return {
             "enabled": enabled,
+            "visible_product_scopes": visible_product_scopes,
             "visible_product_types": visible_product_types,
             "default_product_type": default_product_type,
+            "available_product_scopes": available_product_scopes,
             "available_product_types": available,
+            "product_scope_type_map": product_scope_type_map,
             "updated_at": updated_at,
             "updated_by": updated_by,
         }
@@ -571,12 +764,14 @@ class DashboardDataStore:
         self,
         *,
         enabled: bool,
+        visible_product_scopes: list[str],
         visible_product_types: list[str],
         default_product_type: str,
         updated_by: str,
     ) -> dict[str, Any]:
         if self.session is None or ProductTypeVisibilitySetting is None:
             return self.product_type_visibility()
+        visible_product_scopes = _normalize_product_scope_list(visible_product_scopes)
         visible_product_types = _normalize_product_type_list(visible_product_types)
         default_product_type = _normalize_product_type_value(default_product_type)
         if (
@@ -591,6 +786,7 @@ class DashboardDataStore:
             setting = ProductTypeVisibilitySetting(
                 setting_key="global",
                 enabled=enabled,
+                visible_product_scopes=visible_product_scopes,
                 visible_product_types=visible_product_types,
                 default_product_type=default_product_type,
                 updated_by=updated_by,
@@ -599,6 +795,7 @@ class DashboardDataStore:
             self.session.add(setting)
         else:
             setting.enabled = enabled
+            setting.visible_product_scopes = visible_product_scopes
             setting.visible_product_types = visible_product_types
             setting.default_product_type = default_product_type
             setting.updated_by = updated_by
@@ -665,22 +862,62 @@ class DashboardDataStore:
         """
 
     def list_sku_rules(
-        self, *, page: int, page_size: int, q: str | None = None
+        self,
+        *,
+        page: int,
+        page_size: int,
+        q: str | None = None,
+        product_scope: str | None = None,
     ) -> dict[str, Any]:
         page = max(1, page)
         page_size = max(1, min(page_size, 1000))
         offset = (page - 1) * page_size
         params: dict[str, Any] = {"limit": page_size, "offset": offset}
-        count_where_sql = ""
-        row_where_sql = ""
+        count_clauses: list[str] = []
+        row_clauses: list[str] = []
         query = _to_str(q).strip().lower()
         if query:
-            count_where_sql = "WHERE lower(sku_id) LIKE :q OR lower(product_name) LIKE :q"
-            row_where_sql = (
-                "WHERE lower(sku_rows.sku_id) LIKE :q "
-                "OR lower(sku_rows.product_name) LIKE :q"
+            count_clauses.append("lower(sku_id) LIKE :q OR lower(product_name) LIKE :q")
+            row_clauses.append(
+                "lower(sku_rows.sku_id) LIKE :q OR lower(sku_rows.product_name) LIKE :q"
             )
             params["q"] = f"%{query}%"
+        product_scope_query = _to_str(product_scope).strip().lower()
+        if product_scope_query:
+            scope_sku_ids = [
+                sku_id
+                for sku_id, scope in _sku_product_scope_map().items()
+                if product_scope_query in scope.lower()
+            ]
+            if not scope_sku_ids:
+                return {
+                    "rows": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total": 0,
+                        "total_pages": 1,
+                    },
+                }
+            placeholders: list[str] = []
+            for index, sku_id in enumerate(scope_sku_ids):
+                key = f"product_scope_sku_{index}"
+                placeholders.append(f":{key}")
+                params[key] = sku_id
+            sku_scope_clause = f"sku_id IN ({', '.join(placeholders)})"
+            count_clauses.append(sku_scope_clause)
+            row_clauses.append(f"sku_rows.{sku_scope_clause}")
+
+        count_where_sql = (
+            "WHERE " + " AND ".join(f"({clause})" for clause in count_clauses)
+            if count_clauses
+            else ""
+        )
+        row_where_sql = (
+            "WHERE " + " AND ".join(f"({clause})" for clause in row_clauses)
+            if row_clauses
+            else ""
+        )
 
         source_cte = self._sku_rule_source_cte()
         total_rows = self._execute(
@@ -914,42 +1151,17 @@ class DashboardDataStore:
         return [self._clean_job(row) for row in rows]
 
     def store_ranking(
-        self, *, month: str, product_type: str, limit: int
+        self, *, month: str, product_type: str, limit: int, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
-        visible_product_types = self._visible_product_types()
-        requested_product_type = _to_str(product_type).strip() or "all"
         params: dict[str, Any] = {"month": month, "limit": limit}
-        if requested_product_type != "all":
-            if not self._is_product_type_visible(requested_product_type):
-                return []
-            product_sql = "product_type = :product_type"
-            params["product_type"] = requested_product_type
-            rows = self._execute(
-                f"""
-                SELECT store_id, store_name, sales_order_count,
-                       self_sold_self_verified_count,
-                       self_sold_other_verified_count,
-                       other_sold_self_verified_count,
-                       self_verify_income_cent,
-                       effective_commission_income_cent
-                FROM agg_store_ranking
-                WHERE month = :month AND {product_sql}
-                ORDER BY sales_order_count DESC,
-                         effective_commission_income_cent DESC,
-                         store_id
-                LIMIT :limit
-                """,
-                params,
-            )
-            return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
-
-        if visible_product_types is not None:
-            placeholders, product_params = _in_clause_params(
-                "ranking_visible_product", visible_product_types
-            )
-            if not placeholders:
-                return []
-            params.update(product_params)
+        product_sql = self._product_filter_condition(
+            "product_type",
+            params,
+            product_scope=product_scope,
+            product_type=product_type,
+            prefix="ranking_product",
+        )
+        if product_sql:
             rows = self._execute(
                 f"""
                 SELECT store_id,
@@ -965,8 +1177,7 @@ class DashboardDataStore:
                        COALESCE(SUM(effective_commission_income_cent), 0)
                            AS effective_commission_income_cent
                 FROM agg_store_ranking
-                WHERE month = :month
-                  AND product_type IN ({placeholders})
+                WHERE month = :month AND {product_sql}
                 GROUP BY store_id
                 ORDER BY sales_order_count DESC,
                          effective_commission_income_cent DESC,
@@ -996,32 +1207,18 @@ class DashboardDataStore:
         )
         return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(rows)]
 
-    def store_ranking_totals(self, *, month: str, product_type: str) -> dict[str, Any]:
-        visible_product_types = self._visible_product_types()
-        requested_product_type = _to_str(product_type).strip() or "all"
+    def store_ranking_totals(
+        self, *, month: str, product_type: str, product_scope: str = "all"
+    ) -> dict[str, Any]:
         params: dict[str, Any] = {"month": month}
-        if requested_product_type != "all":
-            if not self._is_product_type_visible(requested_product_type):
-                return {
-                    "sales_order_count": 0,
-                    "self_verify_income_cent": 0,
-                    "effective_commission_income_cent": 0,
-                }
-            product_sql = "product_type = :product_type"
-            params["product_type"] = requested_product_type
-        elif visible_product_types is not None:
-            placeholders, product_params = _in_clause_params(
-                "ranking_total_visible_product", visible_product_types
-            )
-            if not placeholders:
-                return {
-                    "sales_order_count": 0,
-                    "self_verify_income_cent": 0,
-                    "effective_commission_income_cent": 0,
-                }
-            params.update(product_params)
-            product_sql = f"product_type IN ({placeholders})"
-        else:
+        product_sql = self._product_filter_condition(
+            "product_type",
+            params,
+            product_scope=product_scope,
+            product_type=product_type,
+            prefix="ranking_total_product",
+        )
+        if not product_sql:
             product_sql = "product_type = :product_type"
             params["product_type"] = "all"
 
@@ -1063,27 +1260,24 @@ class DashboardDataStore:
         return {"store_id": store_id, "store_name": store_id}
 
     def monthly_settlement(
-        self, *, store_id: str, month: str, product_type: str
+        self,
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+        product_scope: str = "all",
     ) -> dict[str, Any]:
-        requested_product_type = _to_str(product_type).strip() or "all"
-        visible_product_types = self._visible_product_types()
+        requested_product_type = _normalize_product_type_value(product_type)
+        requested_product_scope = _normalize_product_scope_value(product_scope)
         summary_params: dict[str, Any] = {"store_id": store_id, "month": month}
-        if requested_product_type != "all":
-            if not self._is_product_type_visible(requested_product_type):
-                summary_product_sql = "1 = 0"
-            else:
-                summary_product_sql = "product_type = :product_type"
-                summary_params["product_type"] = requested_product_type
-        elif visible_product_types is not None:
-            placeholders, product_params = _in_clause_params(
-                "monthly_visible_product", visible_product_types
-            )
-            if placeholders:
-                summary_product_sql = f"product_type IN ({placeholders})"
-                summary_params.update(product_params)
-            else:
-                summary_product_sql = "1 = 0"
-        else:
+        summary_product_sql = self._product_filter_condition(
+            "product_type",
+            summary_params,
+            product_scope=requested_product_scope,
+            product_type=requested_product_type,
+            prefix="monthly_product",
+        )
+        if not summary_product_sql:
             summary_product_sql = "product_type = :product_type"
             summary_params["product_type"] = "all"
 
@@ -1115,17 +1309,18 @@ class DashboardDataStore:
         return {
             "store": self.get_store(store_id),
             "month": month,
+            "product_scope": requested_product_scope,
             "product_type": requested_product_type,
             "metrics": metrics,
             "tables": {
                 "receivable_commissions": self._receivable_rows(
-                    store_id, month, requested_product_type
+                    store_id, month, requested_product_type, requested_product_scope
                 ),
                 "payable_commissions": self._payable_rows(
-                    store_id, month, requested_product_type
+                    store_id, month, requested_product_type, requested_product_scope
                 ),
                 "non_commission_orders": self._non_commission_rows(
-                    store_id, month, requested_product_type
+                    store_id, month, requested_product_type, requested_product_scope
                 ),
             },
         }
@@ -1195,15 +1390,18 @@ class DashboardDataStore:
         store_id: str | None,
         month: str,
         product_type: str,
+        product_scope: str = "all",
         trend_months: Iterable[str] = (),
     ) -> dict[str, Any]:
         scoped_store_id = _to_str(store_id).strip() or None
         requested_product_type = _normalize_product_type_value(product_type)
+        requested_product_scope = _normalize_product_scope_value(product_scope)
         period = _to_str(month, ALL_MONTHS).strip() or ALL_MONTHS
         rows = self._sales_dashboard_source_rows(
             store_id=scoped_store_id,
             month=period,
             product_type=requested_product_type,
+            product_scope=requested_product_scope,
         )
         cleaned_rows = [self._clean_sales_dashboard_row(row) for row in rows]
         ordered_trend_months = [
@@ -1226,6 +1424,7 @@ class DashboardDataStore:
         return {
             "store": self.get_store(scoped_store_id) if scoped_store_id else ALL_STORES_OPTION,
             "month": period,
+            "product_scope": requested_product_scope,
             "product_type": requested_product_type,
             "metrics": self._sales_dashboard_metrics(
                 cleaned_rows,
@@ -1255,7 +1454,12 @@ class DashboardDataStore:
         }
 
     def _sales_dashboard_source_rows(
-        self, *, store_id: str | None, month: str, product_type: str
+        self,
+        *,
+        store_id: str | None,
+        month: str,
+        product_type: str,
+        product_scope: str = "all",
     ) -> list[dict[str, Any]]:
         params: dict[str, Any] = {}
         clauses = [
@@ -1267,17 +1471,34 @@ class DashboardDataStore:
                 "(settlement_order_details.sale_store_id = :store_id OR settlement_order_details.verify_store_id = :store_id)"
             )
 
+        scope_product_types = self._product_types_for_scope(product_scope)
         if product_type != "all":
-            if not self._is_product_type_visible(product_type):
+            if scope_product_types is not None and product_type not in set(scope_product_types):
+                clauses.append("1 = 0")
+            elif not self._is_product_type_visible(product_type):
                 clauses.append("1 = 0")
             else:
                 clauses.append("settlement_order_details.product_type = :product_type")
                 params["product_type"] = product_type
         else:
             visible_product_types = self._visible_product_types()
-            if visible_product_types is not None:
+            product_filter_values: tuple[str, ...] | None = None
+            if scope_product_types is not None:
+                if visible_product_types is not None:
+                    visible_set = set(visible_product_types)
+                    product_filter_values = tuple(
+                        product_type
+                        for product_type in scope_product_types
+                        if product_type in visible_set
+                    )
+                else:
+                    product_filter_values = scope_product_types
+            elif visible_product_types is not None:
+                product_filter_values = visible_product_types
+
+            if product_filter_values is not None:
                 placeholders, product_params = _in_clause_params(
-                    "sales_visible_product", visible_product_types
+                    "sales_visible_product", product_filter_values
                 )
                 if placeholders:
                     clauses.append(
@@ -2575,21 +2796,25 @@ class DashboardDataStore:
         return json.dumps(clean_filters, ensure_ascii=True, sort_keys=True)
 
     def _product_type_clause(
-        self, product_type: str, params: dict[str, Any]
+        self,
+        product_type: str,
+        params: dict[str, Any],
+        product_scope: str = "all",
     ) -> str:
-        product_type = _to_str(product_type).strip()
-        if product_type and product_type != "all":
-            if not self._is_product_type_visible(product_type):
-                return " AND 1 = 0"
-            params["product_type"] = product_type
-            return " AND product_type = :product_type"
-        return self._visible_product_type_clause("product_type", params)
+        product_sql = self._product_filter_condition(
+            "product_type",
+            params,
+            product_scope=product_scope,
+            product_type=product_type,
+            prefix="monthly_table_product",
+        )
+        return f" AND {product_sql}" if product_sql else ""
 
     def _receivable_rows(
-        self, store_id: str, month: str, product_type: str
+        self, store_id: str, month: str, product_type: str, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
         params = {"store_id": store_id, "month": month}
-        product_clause = self._product_type_clause(product_type, params)
+        product_clause = self._product_type_clause(product_type, params, product_scope)
         month_expr = self._month_expr("verify_time")
         rows = self._execute(
             f"""
@@ -2615,10 +2840,10 @@ class DashboardDataStore:
         return [self._clean_receivable_row(row) for row in rows]
 
     def _payable_rows(
-        self, store_id: str, month: str, product_type: str
+        self, store_id: str, month: str, product_type: str, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
         params = {"store_id": store_id, "month": month}
-        product_clause = self._product_type_clause(product_type, params)
+        product_clause = self._product_type_clause(product_type, params, product_scope)
         month_expr = self._month_expr("verify_time")
         rows = self._execute(
             f"""
@@ -2643,10 +2868,10 @@ class DashboardDataStore:
         return [self._clean_payable_row(row) for row in rows]
 
     def _non_commission_rows(
-        self, store_id: str, month: str, product_type: str
+        self, store_id: str, month: str, product_type: str, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
         params = {"store_id": store_id, "month": month}
-        product_clause = self._product_type_clause(product_type, params)
+        product_clause = self._product_type_clause(product_type, params, product_scope)
         month_expr = self._month_expr("verify_time")
         rows = self._execute(
             f"""
@@ -2755,22 +2980,15 @@ class DashboardDataStore:
         clauses: list[str] = []
         params: dict[str, Any] = {}
 
-        product_type = _to_str(filters.get("product_type"))
-        if product_type and product_type != "all":
-            clauses.append("settlement_order_details.product_type = :product_type")
-            params["product_type"] = product_type
-        visible_product_types = self._visible_product_types()
-        if visible_product_types is not None:
-            placeholders, visible_params = _in_clause_params(
-                "detail_visible_product", visible_product_types
-            )
-            if placeholders:
-                clauses.append(
-                    f"settlement_order_details.product_type IN ({placeholders})"
-                )
-                params.update(visible_params)
-            else:
-                clauses.append("1 = 0")
+        product_sql = self._product_filter_condition(
+            "settlement_order_details.product_type",
+            params,
+            product_scope=_to_str(filters.get("product_scope"), "all"),
+            product_type=_to_str(filters.get("product_type"), "all"),
+            prefix="detail_product",
+        )
+        if product_sql:
+            clauses.append(product_sql)
 
         for key in ("sale_store_id", "verify_store_id", "relation_type"):
             value = filters.get(key)
@@ -3038,9 +3256,11 @@ class DashboardDataStore:
         }
 
     def _clean_sku_rule_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        sku_id = _to_str(row.get("sku_id"))
         return {
-            "sku_id": _to_str(row.get("sku_id")),
+            "sku_id": sku_id,
             "product_name": _to_str(row.get("product_name")),
+            "product_scope": _product_scope_for_sku(sku_id),
             "product_type": _to_str(row.get("product_type")),
             "commission_rate": _to_float(row.get("commission_rate")),
             "is_service_product": _to_bool(row.get("is_service_product")),

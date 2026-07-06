@@ -17,6 +17,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     AggStoreRanking,
     ClueAssignmentRound,
     ClueCenterOrder,
+    DimSkuProductRule,
     DimStore,
     SettlementOrderDetail,
     User,
@@ -266,6 +267,7 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
     initial = client.get("/api/v1/admin/product-type-visibility")
     assert initial.status_code == 200
     assert initial.json()["data"]["enabled"] is False
+    assert initial.json()["data"]["visible_product_scopes"] == []
     assert initial.json()["data"]["visible_product_types"] == []
     assert initial.json()["data"]["default_product_type"] == "all"
     assert set(initial.json()["data"]["available_product_types"]) == {
@@ -283,6 +285,7 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
     )
     assert saved.status_code == 200
     assert saved.json()["data"]["enabled"] is True
+    assert saved.json()["data"]["visible_product_scopes"] == []
     assert saved.json()["data"]["visible_product_types"] == [JINGCHENG_PRODUCT]
     assert saved.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
 
@@ -331,6 +334,45 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
 
     hidden_detail = client.get("/api/v1/clues/orders/clue-hidden")
     assert hidden_detail.status_code == 404
+
+
+def test_product_type_visibility_returns_and_saves_product_scopes(
+    client: TestClient, db_session: Session
+) -> None:
+    db_session.merge(
+        DimSkuProductRule(
+            sku_id="1834808062911500",
+            product_name="268 Maintenance",
+            product_type="268保养",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
+        )
+    )
+    db_session.commit()
+    _login_admin(client)
+
+    initial = client.get("/api/v1/admin/product-type-visibility")
+
+    assert initial.status_code == 200
+    data = initial.json()["data"]
+    assert "精诚养车" in data["available_product_scopes"]
+    assert data["product_scope_type_map"]["精诚养车"] == ["268保养"]
+
+    saved = client.put(
+        "/api/v1/admin/product-type-visibility",
+        json={
+            "enabled": True,
+            "visible_product_scopes": ["精诚养车"],
+            "visible_product_types": ["268保养"],
+            "default_product_type": "268保养",
+        },
+    )
+
+    assert saved.status_code == 200
+    saved_data = saved.json()["data"]
+    assert saved_data["visible_product_scopes"] == ["精诚养车"]
+    assert saved_data["visible_product_types"] == ["268保养"]
+    assert saved_data["default_product_type"] == "268保养"
 
 
 def test_product_type_visibility_requires_admin(

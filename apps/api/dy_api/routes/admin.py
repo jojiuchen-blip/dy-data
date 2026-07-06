@@ -310,12 +310,18 @@ def list_sku_rules(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=500, ge=1, le=1000),
     q: str | None = None,
+    product_scope: str | None = None,
     _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
     data = SkuRuleListData(
-        **store.list_sku_rules(page=page, page_size=page_size, q=q)
+        **store.list_sku_rules(
+            page=page,
+            page_size=page_size,
+            q=q,
+            product_scope=product_scope,
+        )
     )
     return {
         "data": dump_model(data),
@@ -516,6 +522,7 @@ def update_product_type_visibility(
     data = ProductTypeVisibilityData(
         **store.save_product_type_visibility(
             enabled=payload.enabled,
+            visible_product_scopes=payload.visible_product_scopes,
             visible_product_types=payload.visible_product_types,
             default_product_type=payload.default_product_type,
             updated_by=username,
