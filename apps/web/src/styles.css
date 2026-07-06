@@ -1652,6 +1652,10 @@ h2 {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.metric-grid--sales {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
 .metric-grid--two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1761,6 +1765,151 @@ a.metric-card:hover,
 .content-section--data-workspace .table-wrap--contained-sticky {
   height: 100%;
   max-height: none;
+}
+
+.sales-monthly-chart__legend {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.sales-monthly-chart__legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.sales-monthly-chart__legend-item::before {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  content: "";
+}
+
+.sales-monthly-chart__legend-item--orders::before {
+  background: var(--blue);
+}
+
+.sales-monthly-chart__legend-item--verified::before {
+  background: var(--green);
+}
+
+.sales-monthly-chart-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.sales-monthly-chart {
+  display: block;
+  min-width: 760px;
+  width: 100%;
+  height: auto;
+}
+
+.sales-monthly-chart__grid {
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.sales-monthly-chart__area {
+  opacity: 0.12;
+}
+
+.sales-monthly-chart__area--orders {
+  fill: var(--blue);
+}
+
+.sales-monthly-chart__area--verified {
+  fill: var(--green);
+}
+
+.sales-monthly-chart__line {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 3;
+}
+
+.sales-monthly-chart__line--orders {
+  stroke: var(--blue);
+}
+
+.sales-monthly-chart__line--verified {
+  stroke: var(--green);
+}
+
+.sales-monthly-chart__dot--orders {
+  fill: var(--blue);
+}
+
+.sales-monthly-chart__dot--verified {
+  fill: var(--green);
+}
+
+.sales-monthly-chart__month,
+.sales-monthly-chart__tick {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sales-cycle-chart-wrap {
+  width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.sales-cycle-chart {
+  display: block;
+  min-width: 760px;
+  width: 100%;
+  height: auto;
+}
+
+.sales-cycle-chart__axis,
+.sales-cycle-chart__grid {
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.sales-cycle-chart__grid {
+  opacity: 0.6;
+}
+
+.sales-cycle-chart__range {
+  stroke: var(--green);
+  stroke-linecap: round;
+  stroke-width: 2;
+}
+
+.sales-cycle-chart__box {
+  fill: var(--green-soft);
+  stroke: var(--green);
+  stroke-width: 1.5;
+}
+
+.sales-cycle-chart__median {
+  stroke: var(--amber);
+  stroke-linecap: round;
+  stroke-width: 3;
+}
+
+.sales-cycle-chart__point {
+  fill: var(--blue);
+  opacity: 0.58;
+}
+
+.sales-cycle-chart__label,
+.sales-cycle-chart__count,
+.sales-cycle-chart__tick {
+  fill: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .table-wrap {
@@ -3948,7 +4097,8 @@ a.metric-card:hover,
 
   .metric-grid--two,
   .metric-grid--three,
-  .metric-grid--four {
+  .metric-grid--four,
+  .metric-grid--sales {
     grid-template-columns: 1fr;
   }
 

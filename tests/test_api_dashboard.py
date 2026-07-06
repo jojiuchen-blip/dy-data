@@ -107,6 +107,68 @@ class FakeStore:
             },
         }
 
+    def sales_dashboard(
+        self,
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+        trend_months: list[str],
+    ):
+        return {
+            "store": {"store_id": store_id, "store_name": "Store One"},
+            "month": month,
+            "product_type": product_type,
+            "metrics": {
+                "total_sales_order_count": 2,
+                "self_verify_order_count": 1,
+                "self_verify_rate": 0.5,
+                "total_verify_order_count": 1,
+                "actual_verify_amount_cent": 16800,
+                "avg_verify_cycle_days": 3,
+            },
+            "product_rows": [
+                {
+                    "product_type": "basic_service",
+                    "total_sales_order_count": 2,
+                    "self_verify_order_count": 1,
+                    "self_verify_rate": 0.5,
+                    "total_verify_order_count": 1,
+                    "actual_verify_amount_cent": 16800,
+                    "avg_verify_cycle_days": 3,
+                }
+            ],
+            "trend_rows": [
+                {
+                    "month": item,
+                    "order_count": 2,
+                    "verify_order_count": 1,
+                }
+                for item in trend_months
+            ],
+            "cycle_rows": [
+                {
+                    "product_type": "basic_service",
+                    "count": 1,
+                    "min_days": 3,
+                    "q1_days": 3,
+                    "median_days": 3,
+                    "q3_days": 3,
+                    "max_days": 3,
+                    "avg_days": 3,
+                    "sample_points": [
+                        {
+                            "order_id": "order_001",
+                            "cycle_days": 3,
+                            "sale_time": datetime(2026, 5, 1, 8, tzinfo=timezone.utc),
+                            "verify_time": datetime(2026, 5, 4, 8, tzinfo=timezone.utc),
+                        }
+                    ],
+                }
+            ],
+            "source_row_count": 1,
+        }
+
     def order_details(self, filters: dict):
         return {
             "rows": [
@@ -128,6 +190,7 @@ class FakeStore:
                     "verify_time": datetime(2026, 5, 4, 8, tzinfo=timezone.utc),
                     "relation_type": "cross_store",
                     "is_commissionable": True,
+                    "is_refund_excluded": False,
                     "paid_amount_cent": 16800,
                     "commission_rate": 0.1,
                     "receivable_commission_cent": 1680,
@@ -148,11 +211,11 @@ class FakeStore:
             "product_type,sale_store_id,sale_store_name,sale_store_subject_name,"
             "sale_time,is_verified,verify_store_id,verify_store_name,"
             "verify_store_subject_name,verify_time,relation_type,"
-            "is_commissionable,paid_amount_cent,commission_rate,"
+            "is_commissionable,is_refund_excluded,paid_amount_cent,commission_rate,"
             "receivable_commission_cent,payable_commission_cent\r\n"
             "order_001,coupon_001,sku_001,acct_001,Owner,basic_service,"
             "store_001,Store One,Subject One,2026-05-01T08:00:00+00:00,True,store_002,"
-            "Store Two,Subject Two,2026-05-04T08:00:00+00:00,cross_store,True,16800,"
+            "Store Two,Subject Two,2026-05-04T08:00:00+00:00,cross_store,True,False,16800,"
             "0.1,1680,0\r\n"
         )
 
@@ -198,6 +261,9 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     settlement = client.get(
         "/api/v1/stores/store_001/monthly-settlement?month=2026-05"
     )
+    sales = client.get(
+        "/api/v1/dashboard/sales?store_id=store_001&month=all&trend_months=2026-05"
+    )
     details = client.get("/api/v1/order-details?page=1&page_size=50")
 
     assert ranking.status_code == 200
@@ -236,11 +302,24 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert deferred_field("invoiced", "coupon", "count") not in settlement_text
     assert deferred_field("pending", "invoice", "commission", "cent") not in settlement_text
 
+    assert sales.status_code == 200
+    sales_payload = sales.json()
+    sales_definitions = {
+        definition["key"]: definition for definition in sales_payload["definitions"]
+    }
+    assert sales_payload["data"]["trend_rows"] == [
+        {"month": "2026-05", "order_count": 2, "verify_order_count": 1}
+    ]
+    assert sales_definitions["total_verify_order_count"]["label"] == "实际核销总数"
+    assert "is_refund_excluded=true" in sales_definitions["total_sales_order_count"]["description"]
+    assert deferred_field("refund", "amount", "cent") not in sales.text
+
     assert details.status_code == 200
     detail_row = details.json()["data"]["rows"][0]
     assert detail_row["coupon_id"] == "coupon_001"
     assert detail_row["sale_store_subject_name"] == "Subject One"
     assert detail_row["verify_store_subject_name"] == "Subject Two"
+    assert detail_row["is_refund_excluded"] is False
     assert deferred_field("invoice", "status") not in detail_row
     assert deferred_field("refund", "status") not in detail_row
     assert deferred_field("refund", "amount", "cent") not in detail_row
@@ -256,6 +335,7 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
     assert "attachment;" in response.headers["content-disposition"]
     assert response.content.startswith(b"\xef\xbb\xbf")
     assert "order_id,coupon_id" in response.text
+    assert "is_refund_excluded" in response.text
     assert deferred_field("invoice", "status") not in response.text
     assert deferred_field("refund", "amount", "cent") not in response.text
 
@@ -324,6 +404,66 @@ def test_store_ranking_totals_include_all_matching_rows(db_session: Session):
     }
 
 
+def test_sales_dashboard_trend_counts_actual_verify_store_orders(db_session: Session):
+    sale_time = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
+    verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            DimStore(store_id="store_a", store_name="Store A", certified_subject_name="Subject A"),
+            DimStore(store_id="store_b", store_name="Store B", certified_subject_name="Subject B"),
+        ]
+    )
+
+    rows = [
+        ("coupon_self", "order_self", "store_a", "Store A", "store_a", "Store A", 10000),
+        ("coupon_cross_out", "order_cross_out", "store_a", "Store A", "store_b", "Store B", 20000),
+        ("coupon_cross_in", "order_cross_in", "store_b", "Store B", "store_a", "Store A", 30000),
+    ]
+    for coupon_id, order_id, sale_store_id, sale_store_name, verify_store_id, verify_store_name, amount in rows:
+        db_session.add(
+            SettlementOrderDetail(
+                coupon_id=coupon_id,
+                order_id=order_id,
+                sku_id="sku_001",
+                owner_account_id="acct_001",
+                owner_account_name="Owner",
+                product_type="basic_service",
+                sale_store_id=sale_store_id,
+                sale_store_name=sale_store_name,
+                sale_time=sale_time,
+                is_verified=True,
+                verify_store_id=verify_store_id,
+                verify_store_name=verify_store_name,
+                verify_time=verify_time,
+                relation_type="same_store" if sale_store_id == verify_store_id else "cross_store",
+                is_commissionable=True,
+                is_refund_excluded=False,
+                paid_amount_cent=amount,
+                commission_rate=Decimal("0.1000"),
+                receivable_commission_cent=0,
+                payable_commission_cent=0,
+                source_run_id="test-run",
+                updated_at=sale_time,
+            )
+        )
+    db_session.commit()
+
+    dashboard = DashboardDataStore(db_session).sales_dashboard(
+        store_id="store_a",
+        month="all",
+        product_type="all",
+        trend_months=["2026-05"],
+    )
+
+    assert dashboard["metrics"]["total_sales_order_count"] == 2
+    assert dashboard["metrics"]["self_verify_order_count"] == 1
+    assert dashboard["metrics"]["total_verify_order_count"] == 2
+    assert dashboard["metrics"]["actual_verify_amount_cent"] == 40000
+    assert dashboard["trend_rows"] == [
+        {"month": "2026-05", "order_count": 2, "verify_order_count": 2}
+    ]
+
+
 def test_error_message_sanitizer_redacts_sensitive_values_and_paths():
     assert sanitize_error_message("cookie=abc123") == "[redacted sensitive error]"
     assert (
@@ -377,6 +517,8 @@ def test_order_details_export_includes_all_matching_rows(db_session: Session):
     assert len(first_page["rows"]) == 500
     assert first_page["rows"][0]["sale_store_subject_name"] == "Subject One"
     assert first_page["rows"][0]["verify_store_subject_name"] == "Subject Two"
+    assert first_page["rows"][0]["is_refund_excluded"] is False
     assert len(export_rows) == 501
     assert export_rows[0]["sale_store_subject_name"] == "Subject One"
     assert export_rows[0]["verify_store_subject_name"] == "Subject Two"
+    assert export_rows[0]["is_refund_excluded"] == "False"

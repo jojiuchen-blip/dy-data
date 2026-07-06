@@ -7,6 +7,7 @@ import { SelectField } from "./FormControls";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
+const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const adminPaths = new Set([
   "/admin",
@@ -20,7 +21,7 @@ const adminPaths = new Set([
   "/sync-admin",
 ]);
 
-type NavSection = "settlement" | "clues" | "admin";
+type NavSection = "settlement" | "verification" | "clues" | "admin";
 
 interface NavItem {
   href: string;
@@ -41,6 +42,13 @@ const moduleNavItems: ModuleNavItem[] = [
     label: "线索中心",
     section: "clues",
     description: "经营线索",
+  },
+  {
+    href: "/sales",
+    icon: "chart",
+    label: "核销表现",
+    section: "verification",
+    description: "核销分析",
   },
   {
     href: "/ranking",
@@ -82,6 +90,7 @@ const adminNavItems: NavItem[] = [
 
 const sectionLabels: Record<NavSection, string> = {
   settlement: "订单分佣结算中心",
+  verification: "核销表现",
   clues: "线索中心",
   admin: "管理后台",
 };
@@ -107,8 +116,14 @@ function activeSection(currentPath: string): NavSection {
   if (adminPaths.has(currentPath)) {
     return "admin";
   }
+  if (verificationPaths.has(currentPath)) {
+    return "verification";
+  }
   if (currentPath === "/clues" || currentPath.startsWith("/clues/")) {
     return "clues";
+  }
+  if (settlementPaths.has(currentPath)) {
+    return "settlement";
   }
   return "settlement";
 }
@@ -119,6 +134,9 @@ function secondaryNav(section: NavSection): NavItem[] {
   }
   if (section === "clues") {
     return clueNavItems;
+  }
+  if (section === "verification") {
+    return [];
   }
   return settlementNavItems;
 }
@@ -191,27 +209,29 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         : "全部数据";
 
   const renderSecondaryNav = (className: string) => (
-    <nav
-      className={`workspace-subnav ${className}`}
-      aria-label={`${sectionLabels[section]}导航`}
-    >
-      {sectionNavItems.map((item) => {
-        const active =
-          currentPath === item.href ||
-          (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
-          (item.href === "/admin/sync" && currentPath === "/sync-admin");
-        return (
-          <a
-            aria-current={active ? "page" : undefined}
-            href={item.href}
-            key={item.href}
-          >
-            {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
-            {item.label}
-          </a>
-        );
-      })}
-    </nav>
+    sectionNavItems.length > 0 ? (
+      <nav
+        className={`workspace-subnav ${className}`}
+        aria-label={`${sectionLabels[section]}导航`}
+      >
+        {sectionNavItems.map((item) => {
+          const active =
+            currentPath === item.href ||
+            (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
+            (item.href === "/admin/sync" && currentPath === "/sync-admin");
+          return (
+            <a
+              aria-current={active ? "page" : undefined}
+              href={item.href}
+              key={item.href}
+            >
+              {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
+              {item.label}
+            </a>
+          );
+        })}
+      </nav>
+    ) : null
   );
 
   const handleFeedbackSubmit = async (event: FormEvent<HTMLFormElement>) => {

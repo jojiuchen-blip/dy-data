@@ -12,6 +12,12 @@ import type {
   OrderDetail,
   PayableCommissionRow,
   ReceivableCommissionRow,
+  SalesCycleDistributionRow,
+  SalesCyclePoint,
+  SalesDashboardData,
+  SalesDashboardMetrics,
+  SalesMetricRow,
+  SalesTrendRow,
   SelectOption,
   SettlementViewData,
   StoreOption,
@@ -20,6 +26,9 @@ import type {
 } from "../types/dashboard";
 
 const ALL_PRODUCTS = "all";
+const ALL_MONTHS = "all";
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const MAX_CYCLE_SAMPLE_POINTS = 90;
 
 function matchesProduct(product: string, selected: string): boolean {
   return selected === ALL_PRODUCTS || product === selected;
@@ -505,4 +514,333 @@ export function detailFiltersFromSearch(
     }
   });
   return filters;
+}
+
+interface SalesDashboardBuildInput {
+  rows: OrderDetail[];
+  store: StoreOption;
+  month: string;
+  productType: string;
+  trendMonths?: string[];
+}
+
+function monthFromDateTime(value: string | null | undefined): string {
+  return value ? value.slice(0, 7) : "";
+}
+
+function matchesMonth(value: string | null | undefined, selected: string): boolean {
+  return selected === ALL_MONTHS || !selected || monthFromDateTime(value) === selected;
+}
+
+function orderIdentity(row: OrderDetail): string {
+  return row.order_id || row.coupon_id;
+}
+
+function validSalesRow(row: OrderDetail, productType: string): boolean {
+  return matchesProduct(row.product_type, productType) && !row.is_refund_excluded;
+}
+
+function daysBetween(
+  startValue: string | null | undefined,
+  endValue: string | null | undefined,
+): number | null {
+  if (!startValue || !endValue) {
+    return null;
+  }
+  const start = new Date(startValue);
+  const end = new Date(endValue);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return null;
+  }
+  return Math.max((end.getTime() - start.getTime()) / MS_PER_DAY, 0);
+}
+
+function roundMetric(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function percentile(sortedValues: number[], ratio: number): number | null {
+  if (sortedValues.length === 0) {
+    return null;
+  }
+  const position = (sortedValues.length - 1) * ratio;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  if (lower === upper) {
+    return sortedValues[lower];
+  }
+  const weight = position - lower;
+  return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
+}
+
+function sampleCyclePoints(points: SalesCyclePoint[]): SalesCyclePoint[] {
+  if (points.length <= MAX_CYCLE_SAMPLE_POINTS) {
+    return points;
+  }
+  const lastIndex = points.length - 1;
+  return Array.from({ length: MAX_CYCLE_SAMPLE_POINTS }, (_, index) => {
+    const sourceIndex = Math.round((index * lastIndex) / (MAX_CYCLE_SAMPLE_POINTS - 1));
+    return points[sourceIndex];
+  });
+}
+
+function salesMetricsFor(
+  rows: OrderDetail[],
+  storeId: string,
+  month: string,
+  productType: string,
+): SalesDashboardMetrics {
+  const salesOrders = new Set<string>();
+  const selfVerifyOrders = new Set<string>();
+  const verifyOrders = new Set<string>();
+  const amountRows = new Set<string>();
+  const cycleDaysByOrder = new Map<string, number>();
+  let actualVerifyAmountCent = 0;
+
+  rows.forEach((row) => {
+    if (!validSalesRow(row, productType)) {
+      return;
+    }
+    const orderId = orderIdentity(row);
+    const isSaleMonth = matchesMonth(row.sale_time, month);
+    const isVerifyMonth = matchesMonth(row.verify_time, month);
+
+    if (row.sale_store_id === storeId && isSaleMonth) {
+      salesOrders.add(orderId);
+      if (row.is_verified && row.verify_store_id === storeId) {
+        selfVerifyOrders.add(orderId);
+      }
+    }
+
+    if (row.is_verified && row.verify_store_id === storeId && isVerifyMonth) {
+      verifyOrders.add(orderId);
+      const amountKey = row.coupon_id || `${orderId}:${row.verify_time}`;
+      if (!amountRows.has(amountKey)) {
+        amountRows.add(amountKey);
+        actualVerifyAmountCent += row.paid_amount_cent;
+      }
+
+      const cycleDays = daysBetween(row.sale_time, row.verify_time);
+      if (cycleDays !== null) {
+        const current = cycleDaysByOrder.get(orderId);
+        if (current === undefined || cycleDays < current) {
+          cycleDaysByOrder.set(orderId, cycleDays);
+        }
+      }
+    }
+  });
+
+  const cycleValues = [...cycleDaysByOrder.values()];
+  return {
+    total_sales_order_count: salesOrders.size,
+    self_verify_order_count: selfVerifyOrders.size,
+    self_verify_rate:
+      salesOrders.size > 0 ? selfVerifyOrders.size / salesOrders.size : 0,
+    total_verify_order_count: verifyOrders.size,
+    actual_verify_amount_cent: actualVerifyAmountCent,
+    avg_verify_cycle_days:
+      cycleValues.length > 0
+        ? roundMetric(sum(cycleValues, (value) => value) / cycleValues.length)
+        : null,
+  };
+}
+
+function productTypesForSalesView(
+  rows: OrderDetail[],
+  storeId: string,
+  month: string,
+  productType: string,
+): string[] {
+  const products = new Set<string>();
+  rows.forEach((row) => {
+    if (!validSalesRow(row, productType)) {
+      return;
+    }
+    const inSaleMonth =
+      row.sale_store_id === storeId && matchesMonth(row.sale_time, month);
+    const inVerifyMonth =
+      row.is_verified &&
+      row.verify_store_id === storeId &&
+      matchesMonth(row.verify_time, month);
+    if (inSaleMonth || inVerifyMonth) {
+      products.add(row.product_type);
+    }
+  });
+  return [...products].sort((a, b) => a.localeCompare(b, "zh-CN"));
+}
+
+function salesMetricRows(
+  rows: OrderDetail[],
+  storeId: string,
+  month: string,
+  productType: string,
+): SalesMetricRow[] {
+  return productTypesForSalesView(rows, storeId, month, productType).map(
+    (type) => ({
+      product_type: type,
+      ...salesMetricsFor(rows, storeId, month, type),
+    }),
+  );
+}
+
+function salesTrendRows(
+  rows: OrderDetail[],
+  storeId: string,
+  productType: string,
+  months: string[],
+): SalesTrendRow[] {
+  return months.map((month) => {
+    const orders = new Set<string>();
+    const verifiedOrders = new Set<string>();
+
+    rows.forEach((row) => {
+      if (
+        !validSalesRow(row, productType) ||
+        monthFromDateTime(row.sale_time) !== month
+      ) {
+        return;
+      }
+      const orderId = orderIdentity(row);
+      if (row.sale_store_id === storeId) {
+        orders.add(orderId);
+      }
+      if (row.is_verified && row.verify_store_id === storeId) {
+        verifiedOrders.add(orderId);
+      }
+    });
+
+    return {
+      month,
+      order_count: orders.size,
+      verify_order_count: verifiedOrders.size,
+    };
+  });
+}
+
+function salesCycleRows(
+  rows: OrderDetail[],
+  storeId: string,
+  month: string,
+  productType: string,
+): SalesCycleDistributionRow[] {
+  const byProduct = new Map<string, SalesCyclePoint[]>();
+  const bestByOrder = new Map<string, SalesCyclePoint>();
+
+  rows.forEach((row) => {
+    if (
+      !validSalesRow(row, productType) ||
+      !row.is_verified ||
+      row.verify_store_id !== storeId ||
+      !matchesMonth(row.verify_time, month)
+    ) {
+      return;
+    }
+
+    const cycleDays = daysBetween(row.sale_time, row.verify_time);
+    if (cycleDays === null) {
+      return;
+    }
+
+    const orderId = orderIdentity(row);
+    const point: SalesCyclePoint = {
+      order_id: orderId,
+      cycle_days: roundMetric(cycleDays),
+      sale_time: row.sale_time,
+      verify_time: row.verify_time,
+    };
+    const key = `${row.product_type}:${orderId}`;
+    const current = bestByOrder.get(key);
+    if (current === undefined || point.cycle_days < current.cycle_days) {
+      bestByOrder.set(key, point);
+    }
+  });
+
+  bestByOrder.forEach((point, key) => {
+    const productTypeKey = key.split(":")[0] || "未映射";
+    const points = byProduct.get(productTypeKey) ?? [];
+    points.push(point);
+    byProduct.set(productTypeKey, points);
+  });
+
+  return [...byProduct.entries()]
+    .map(([type, points]) => {
+      const sortedPoints = [...points].sort(
+        (a, b) => a.cycle_days - b.cycle_days || a.order_id.localeCompare(b.order_id),
+      );
+      const values = sortedPoints.map((point) => point.cycle_days);
+      return {
+        product_type: type,
+        count: values.length,
+        min_days: roundMetric(values[0]),
+        q1_days: roundMetric(percentile(values, 0.25) ?? values[0]),
+        median_days: roundMetric(percentile(values, 0.5) ?? values[0]),
+        q3_days: roundMetric(percentile(values, 0.75) ?? values[0]),
+        max_days: roundMetric(values[values.length - 1]),
+        avg_days: roundMetric(sum(values, (value) => value) / values.length),
+        sample_points: sampleCyclePoints(sortedPoints),
+      };
+    })
+    .sort((a, b) => b.count - a.count || a.product_type.localeCompare(b.product_type, "zh-CN"));
+}
+
+function uniqueOrderDetailRows(rows: OrderDetail[]): OrderDetail[] {
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    const key = row.coupon_id || `${row.order_id}:${row.sale_time}:${row.verify_time}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+}
+
+function monthsFromSalesRows(rows: OrderDetail[], storeId: string, productType: string): string[] {
+  const months = new Set<string>();
+  rows.forEach((row) => {
+    if (!validSalesRow(row, productType) || row.sale_store_id !== storeId) {
+      return;
+    }
+    const month = monthFromDateTime(row.sale_time);
+    if (month) {
+      months.add(month);
+    }
+  });
+  return [...months].sort();
+}
+
+export function buildSalesDashboardView({
+  rows,
+  store,
+  month,
+  productType,
+  trendMonths = [month],
+}: SalesDashboardBuildInput): SalesDashboardData {
+  const uniqueRows = uniqueOrderDetailRows(rows);
+  const orderedTrendMonths = [
+    ...new Set(trendMonths.filter((value) => value && value !== ALL_MONTHS)),
+  ].sort();
+  if (month !== ALL_MONTHS && month && !orderedTrendMonths.includes(month)) {
+    orderedTrendMonths.unshift(month);
+  }
+  const effectiveTrendMonths =
+    orderedTrendMonths.length > 0
+      ? orderedTrendMonths
+      : monthsFromSalesRows(uniqueRows, store.store_id, productType);
+
+  return {
+    store,
+    month,
+    product_type: productType,
+    metrics: salesMetricsFor(uniqueRows, store.store_id, month, productType),
+    product_rows: salesMetricRows(uniqueRows, store.store_id, month, productType),
+    trend_rows: salesTrendRows(
+      uniqueRows,
+      store.store_id,
+      productType,
+      effectiveTrendMonths,
+    ),
+    cycle_rows: salesCycleRows(uniqueRows, store.store_id, month, productType),
+    source_row_count: uniqueRows.length,
+  };
 }

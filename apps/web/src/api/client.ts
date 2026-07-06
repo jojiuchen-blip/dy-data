@@ -44,6 +44,7 @@ import type {
   ProductTypeVisibilityData,
   ProductTypeVisibilityUpdate,
   SelectOption,
+  SalesDashboardData,
   SettlementViewData,
   ManualSyncResult,
   ManualSyncTarget,
@@ -57,6 +58,7 @@ import type {
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
 import {
+  buildSalesDashboardView,
   filterOrderDetails,
   getMonthOptions,
   getProductOptions,
@@ -69,12 +71,17 @@ import {
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
+const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
 
-type QueryParams = Record<
-  string,
-  string | number | boolean | null | undefined
->;
+type QueryParamValue =
+  | string
+  | number
+  | boolean
+  | Array<string | number | boolean>
+  | null
+  | undefined;
+type QueryParams = Record<string, QueryParamValue>;
 
 export interface ApiLoadResult<T> extends ApiResponse<T> {
   usingMock: boolean;
@@ -85,6 +92,13 @@ interface DetailQuery {
   filters: DetailFilters;
   page: number;
   pageSize: number;
+}
+
+interface SalesDashboardQuery {
+  store: { store_id: string; store_name: string };
+  month: string;
+  productType: string;
+  trendMonths?: string[];
 }
 
 interface ClueRoundQuery {
@@ -118,6 +132,12 @@ function apiUrl(path: string, params: QueryParams = {}): string {
   const url = new URL(`${base.replace(/\/$/, "")}${path}`);
 
   Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        url.searchParams.append(key, String(item));
+      });
+      return;
+    }
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));
     }
@@ -321,6 +341,79 @@ function mockSettlementResponse(
   };
 }
 
+const SALES_DASHBOARD_DEFINITIONS = [
+  {
+    key: "total_sales_order_count",
+    label: "总销售订单量",
+    description:
+      "销售归属门店在所选期间卖出的有效订单数，按 order_id 去重，剔除 is_refund_excluded=true 的记录。",
+  },
+  {
+    key: "self_verify_order_count",
+    label: "自店核销数",
+    description:
+      "销售归属门店和实际核销门店都是当前门店的订单数，按 order_id 去重，剔除退款剔除记录。",
+  },
+  {
+    key: "self_verify_rate",
+    label: "自店核销率",
+    description: "自店核销数 / 总销售订单量；总销售订单量为 0 时显示 0。",
+  },
+  {
+    key: "total_verify_order_count",
+    label: "实际核销总数",
+    description:
+      "不管销售归属门店，只要在当前门店于所选期间完成核销即计入，按 order_id 去重；一单核销多券也只算一单。",
+  },
+  {
+    key: "actual_verify_amount_cent",
+    label: "实际核销金额",
+    description:
+      "当前门店产生核销后的实收金额合计，剔除 is_refund_excluded=true 的记录。",
+  },
+  {
+    key: "avg_verify_cycle_days",
+    label: "平均核销周期",
+    description:
+      "当前门店已核销订单从 sale_time 到 verify_time 的平均天数，按订单去重。",
+  },
+  {
+    key: "cycle_distribution",
+    label: "核销周期分布",
+    description:
+      "按商品类型展示当前门店核销订单从 sale_time 到 verify_time 的周期，箱线图展示四分位，散点展示订单样本。",
+  },
+];
+
+function salesTrendMonths(month: string, trendMonths: string[] = []): string[] {
+  const months = [
+    ...new Set([month, ...trendMonths].filter((value) => value && value !== ALL_MONTHS)),
+  ];
+  return months.length > 0 ? months : [month];
+}
+
+function mockSalesDashboardResponse({
+  store,
+  month,
+  productType,
+  trendMonths = [],
+}: SalesDashboardQuery): ApiResponse<SalesDashboardData> {
+  return {
+    data: buildSalesDashboardView({
+      rows: orderDetails,
+      store,
+      month,
+      productType,
+      trendMonths: salesTrendMonths(month, trendMonths),
+    }),
+    definitions: SALES_DASHBOARD_DEFINITIONS,
+    meta: {
+      generated_at: generatedAt(),
+      source: "mock:order-details",
+    },
+  };
+}
+
 function mockOrderDetailsResponse({
   filters,
   page,
@@ -353,6 +446,20 @@ function mockOrderDetailsResponse({
       source: "mock",
     },
   };
+}
+
+async function requestSalesDashboard({
+  store,
+  month,
+  productType,
+  trendMonths = [],
+}: SalesDashboardQuery): Promise<ApiResponse<SalesDashboardData>> {
+  return requestJson<SalesDashboardData>("/dashboard/sales", {
+    store_id: store.store_id,
+    month,
+    product_type: productType,
+    trend_months: salesTrendMonths(month, trendMonths),
+  });
 }
 
 function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {
@@ -723,6 +830,15 @@ export function fetchOrderDetails(
         page_size: query.pageSize,
       }),
     () => mockOrderDetailsResponse(query),
+  );
+}
+
+export function fetchSalesDashboard(
+  query: SalesDashboardQuery,
+): Promise<ApiLoadResult<SalesDashboardData>> {
+  return withMockFallback(
+    () => requestSalesDashboard(query),
+    () => mockSalesDashboardResponse(query),
   );
 }
 
