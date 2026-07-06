@@ -53,3 +53,19 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "return 302 /browser/vnc.html;" in nginx
     assert "location /websockify" in nginx
     assert "absolute_redirect off;" in nginx
+
+
+def test_docker_builds_do_not_force_ci_to_use_regional_apt_mirror():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    dockerfiles = [
+        ROOT / "apps" / "api" / "Dockerfile",
+        ROOT / "apps" / "worker" / "Dockerfile",
+        ROOT / "deploy" / "browser" / "Dockerfile",
+    ]
+
+    for dockerfile in dockerfiles:
+        source = dockerfile.read_text(encoding="utf-8")
+        assert "ARG APT_MIRROR=" in source
+        assert "mirrors.tuna.tsinghua.edu.cn/debian" not in source
+
+    assert "APT_MIRROR: ${APT_MIRROR:-}" in compose

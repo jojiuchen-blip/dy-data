@@ -23,6 +23,8 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
     image: ${API_IMAGE:-dy-dashboard-api:local}
     restart: unless-stopped
     depends_on:
@@ -46,6 +48,8 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
     image: ${API_IMAGE:-dy-dashboard-api:local}
     restart: "no"
     depends_on:
@@ -62,6 +66,8 @@ services:
     build:
       context: ..
       dockerfile: apps/api/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
     image: ${WORKER_IMAGE:-dy-dashboard-worker:local}
     restart: unless-stopped
     depends_on:
@@ -108,6 +114,8 @@ services:
     build:
       context: ..
       dockerfile: deploy/browser/Dockerfile
+      args:
+        APT_MIRROR: ${APT_MIRROR:-}
     image: ${BROWSER_IMAGE:-dy-dashboard-browser:local}
     restart: unless-stopped
     shm_size: "2gb"
