@@ -60,12 +60,13 @@ import type {
 import {
   buildSalesDashboardView,
   filterOrderDetails,
-  getMonthOptions,
   getProductOptions,
   getRankingRows,
   getRankingTotals,
+  getSaleMonthOptions,
   getSettlementView,
   getStoreOptions,
+  getVerifyMonthOptions,
 } from "../utils/settlement";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
@@ -265,7 +266,6 @@ function optionValues(options: SelectOption[]): string[] {
 }
 
 function mockMetaResponse(): ApiResponse<FilterMetaData> {
-  const months = optionValues(getMonthOptions());
   return {
     data: {
       stores: getStoreOptions().map((option) => ({
@@ -274,8 +274,8 @@ function mockMetaResponse(): ApiResponse<FilterMetaData> {
       })),
       product_types: optionValues(getProductOptions()),
       default_product_type: "all",
-      sale_months: months,
-      verify_months: months,
+      sale_months: optionValues(getSaleMonthOptions()),
+      verify_months: optionValues(getVerifyMonthOptions()),
     },
     meta: {
       generated_at: generatedAt(),

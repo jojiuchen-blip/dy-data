@@ -220,7 +220,7 @@ export function App() {
           ) : location.pathname === "/details" ? (
             <OrderDetailsPage searchParams={searchParams} />
           ) : location.pathname === "/sales" ? (
-            <SalesDashboardPage searchParams={searchParams} />
+            <SalesDashboardPage currentUser={user} searchParams={searchParams} />
           ) : (
             <StoreRankingPage searchParams={searchParams} />
           );

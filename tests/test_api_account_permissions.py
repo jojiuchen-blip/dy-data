@@ -159,6 +159,15 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
     assert other_store.status_code == 403
 
+    sales_without_store = client.get("/api/v1/dashboard/sales?month=2026-05")
+    assert sales_without_store.status_code == 403
+
+    own_sales = client.get(
+        "/api/v1/dashboard/sales?store_id=store-1&month=2026-05&trend_months=2026-05"
+    )
+    assert own_sales.status_code == 200
+    assert own_sales.json()["data"]["store"]["store_id"] == "store-1"
+
     details = client.get("/api/v1/order-details?page=1&page_size=50")
     assert details.status_code == 200
     rows = details.json()["data"]["rows"]
@@ -176,6 +185,15 @@ def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> N
     assert {row["order_id"] for row in details.json()["data"]["rows"]} == {
         "order-sale",
         "order-other",
+    }
+
+    sales_all_stores = client.get(
+        "/api/v1/dashboard/sales?month=2026-05&trend_months=2026-05"
+    )
+    assert sales_all_stores.status_code == 200
+    assert sales_all_stores.json()["data"]["store"] == {
+        "store_id": "",
+        "store_name": "全部门店",
     }
 
     admin_accounts = client.get("/api/v1/admin/accounts")

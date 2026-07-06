@@ -195,17 +195,17 @@ def monthly_settlement(
 
 @router.get("/dashboard/sales")
 def sales_dashboard(
-    store_id: str,
+    store_id: str | None = None,
     month: str = "all",
     product_type: str = "all",
     trend_months: list[str] | None = Query(default=None),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    _require_store_scope(current_user, store_id)
+    scoped_store_id = _resolve_sales_dashboard_store_id(current_user, store_id)
     data = SalesDashboardData(
         **store.sales_dashboard(
-            store_id=store_id,
+            store_id=scoped_store_id,
             month=month,
             product_type=product_type,
             trend_months=trend_months or [],
@@ -316,3 +316,18 @@ def _require_store_scope(current_user: AuthContext, store_id: str) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Store is outside current account scope",
         )
+
+
+def _resolve_sales_dashboard_store_id(
+    current_user: AuthContext, store_id: str | None
+) -> str | None:
+    normalized_store_id = (store_id or "").strip()
+    if normalized_store_id:
+        _require_store_scope(current_user, normalized_store_id)
+        return normalized_store_id
+    if current_user.has_global_data_access:
+        return None
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Store is required for current account scope",
+    )

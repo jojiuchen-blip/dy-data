@@ -59,6 +59,7 @@ CLUE_VERIFICATION_STATUSES = [
 ]
 UTF8_BOM = "\ufeff"
 ALL_MONTHS = "all"
+ALL_STORES_OPTION = {"store_id": "", "store_name": "全部门店"}
 MAX_SALES_CYCLE_SAMPLE_POINTS = 90
 
 
@@ -335,6 +336,20 @@ def _matches_dashboard_month(value: Any, month: str) -> bool:
 
 def _order_identity(row: dict[str, Any]) -> str:
     return _to_str(row.get("order_id")) or _to_str(row.get("coupon_id"))
+
+
+def _sales_store_matches(row_store_id: str, store_id: str | None) -> bool:
+    return store_id is None or row_store_id == store_id
+
+
+def _is_self_verified_for_store(row: dict[str, Any], store_id: str | None) -> bool:
+    sale_store_id = _to_str(row.get("sale_store_id"))
+    return (
+        bool(row.get("is_verified"))
+        and bool(sale_store_id)
+        and sale_store_id == _to_str(row.get("verify_store_id"))
+        and _sales_store_matches(sale_store_id, store_id)
+    )
 
 
 def _round_metric(value: float) -> float:
@@ -1177,15 +1192,16 @@ class DashboardDataStore:
     def sales_dashboard(
         self,
         *,
-        store_id: str,
+        store_id: str | None,
         month: str,
         product_type: str,
         trend_months: Iterable[str] = (),
     ) -> dict[str, Any]:
+        scoped_store_id = _to_str(store_id).strip() or None
         requested_product_type = _normalize_product_type_value(product_type)
         period = _to_str(month, ALL_MONTHS).strip() or ALL_MONTHS
         rows = self._sales_dashboard_source_rows(
-            store_id=store_id,
+            store_id=scoped_store_id,
             month=period,
             product_type=requested_product_type,
         )
@@ -1203,35 +1219,35 @@ class DashboardDataStore:
         if not ordered_trend_months:
             ordered_trend_months = self._sales_trend_months(
                 cleaned_rows,
-                store_id=store_id,
+                store_id=scoped_store_id,
                 product_type=requested_product_type,
             )
 
         return {
-            "store": self.get_store(store_id),
+            "store": self.get_store(scoped_store_id) if scoped_store_id else ALL_STORES_OPTION,
             "month": period,
             "product_type": requested_product_type,
             "metrics": self._sales_dashboard_metrics(
                 cleaned_rows,
-                store_id=store_id,
+                store_id=scoped_store_id,
                 month=period,
                 product_type=requested_product_type,
             ),
             "product_rows": self._sales_product_rows(
                 cleaned_rows,
-                store_id=store_id,
+                store_id=scoped_store_id,
                 month=period,
                 product_type=requested_product_type,
             ),
             "trend_rows": self._sales_trend_rows(
                 cleaned_rows,
-                store_id=store_id,
+                store_id=scoped_store_id,
                 product_type=requested_product_type,
                 months=ordered_trend_months,
             ),
             "cycle_rows": self._sales_cycle_rows(
                 cleaned_rows,
-                store_id=store_id,
+                store_id=scoped_store_id,
                 month=period,
                 product_type=requested_product_type,
             ),
@@ -1239,13 +1255,17 @@ class DashboardDataStore:
         }
 
     def _sales_dashboard_source_rows(
-        self, *, store_id: str, month: str, product_type: str
+        self, *, store_id: str | None, month: str, product_type: str
     ) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"store_id": store_id}
+        params: dict[str, Any] = {}
         clauses = [
             "COALESCE(settlement_order_details.is_refund_excluded, false) = false",
-            "(settlement_order_details.sale_store_id = :store_id OR settlement_order_details.verify_store_id = :store_id)",
         ]
+        if store_id is not None:
+            params["store_id"] = store_id
+            clauses.append(
+                "(settlement_order_details.sale_store_id = :store_id OR settlement_order_details.verify_store_id = :store_id)"
+            )
 
         if product_type != "all":
             if not self._is_product_type_visible(product_type):
@@ -1270,19 +1290,32 @@ class DashboardDataStore:
         if month and month != ALL_MONTHS:
             sale_month_expr = self._month_expr("settlement_order_details.sale_time")
             verify_month_expr = self._month_expr("settlement_order_details.verify_time")
-            clauses.append(
-                f"""
-                (
-                    (settlement_order_details.sale_store_id = :store_id
-                     AND settlement_order_details.sale_time IS NOT NULL
-                     AND {sale_month_expr} = :sales_dashboard_month)
-                    OR
-                    (settlement_order_details.verify_store_id = :store_id
-                     AND settlement_order_details.verify_time IS NOT NULL
-                     AND {verify_month_expr} = :sales_dashboard_month)
+            if store_id is not None:
+                clauses.append(
+                    f"""
+                    (
+                        (settlement_order_details.sale_store_id = :store_id
+                         AND settlement_order_details.sale_time IS NOT NULL
+                         AND {sale_month_expr} = :sales_dashboard_month)
+                        OR
+                        (settlement_order_details.verify_store_id = :store_id
+                         AND settlement_order_details.verify_time IS NOT NULL
+                         AND {verify_month_expr} = :sales_dashboard_month)
+                    )
+                    """
                 )
-                """
-            )
+            else:
+                clauses.append(
+                    f"""
+                    (
+                        (settlement_order_details.sale_time IS NOT NULL
+                         AND {sale_month_expr} = :sales_dashboard_month)
+                        OR
+                        (settlement_order_details.verify_time IS NOT NULL
+                         AND {verify_month_expr} = :sales_dashboard_month)
+                    )
+                    """
+                )
             params["sales_dashboard_month"] = month
 
         where_sql = "WHERE " + " AND ".join(f"({clause})" for clause in clauses)
@@ -1321,7 +1354,7 @@ class DashboardDataStore:
         self,
         rows: list[dict[str, Any]],
         *,
-        store_id: str,
+        store_id: str | None,
         month: str,
         product_type: str,
     ) -> dict[str, Any]:
@@ -1337,16 +1370,16 @@ class DashboardDataStore:
                 continue
             order_id = _order_identity(row)
             if (
-                row["sale_store_id"] == store_id
+                _sales_store_matches(row["sale_store_id"], store_id)
                 and _matches_dashboard_month(row["sale_time"], month)
             ):
                 sales_orders.add(order_id)
-                if row["is_verified"] and row["verify_store_id"] == store_id:
+                if _is_self_verified_for_store(row, store_id):
                     self_verify_orders.add(order_id)
 
             if (
                 row["is_verified"]
-                and row["verify_store_id"] == store_id
+                and _sales_store_matches(row["verify_store_id"], store_id)
                 and _matches_dashboard_month(row["verify_time"], month)
             ):
                 verify_orders.add(order_id)
@@ -1379,7 +1412,7 @@ class DashboardDataStore:
         self,
         rows: list[dict[str, Any]],
         *,
-        store_id: str,
+        store_id: str | None,
         month: str,
         product_type: str,
     ) -> list[dict[str, Any]]:
@@ -1387,12 +1420,12 @@ class DashboardDataStore:
         for row in rows:
             if not self._sales_row_matches_product(row, product_type):
                 continue
-            in_sale_period = row["sale_store_id"] == store_id and _matches_dashboard_month(
-                row["sale_time"], month
-            )
+            in_sale_period = _sales_store_matches(
+                row["sale_store_id"], store_id
+            ) and _matches_dashboard_month(row["sale_time"], month)
             in_verify_period = (
                 row["is_verified"]
-                and row["verify_store_id"] == store_id
+                and _sales_store_matches(row["verify_store_id"], store_id)
                 and _matches_dashboard_month(row["verify_time"], month)
             )
             if in_sale_period or in_verify_period:
@@ -1412,7 +1445,7 @@ class DashboardDataStore:
         self,
         rows: list[dict[str, Any]],
         *,
-        store_id: str,
+        store_id: str | None,
         product_type: str,
         months: list[str],
     ) -> list[dict[str, Any]]:
@@ -1427,9 +1460,11 @@ class DashboardDataStore:
                 ):
                     continue
                 order_id = _order_identity(row)
-                if row["sale_store_id"] == store_id:
+                if _sales_store_matches(row["sale_store_id"], store_id):
                     orders.add(order_id)
-                if row["is_verified"] and row["verify_store_id"] == store_id:
+                if row["is_verified"] and _sales_store_matches(
+                    row["verify_store_id"], store_id
+                ):
                     verified_orders.add(order_id)
             trend_rows.append(
                 {
@@ -1444,7 +1479,7 @@ class DashboardDataStore:
         self,
         rows: list[dict[str, Any]],
         *,
-        store_id: str,
+        store_id: str | None,
         month: str,
         product_type: str,
     ) -> list[dict[str, Any]]:
@@ -1453,7 +1488,7 @@ class DashboardDataStore:
             if (
                 not self._sales_row_matches_product(row, product_type)
                 or not row["is_verified"]
-                or row["verify_store_id"] != store_id
+                or not _sales_store_matches(row["verify_store_id"], store_id)
                 or not _matches_dashboard_month(row["verify_time"], month)
             ):
                 continue
@@ -1498,13 +1533,15 @@ class DashboardDataStore:
         return sorted(cycle_rows, key=lambda item: (-item["count"], item["product_type"]))
 
     def _sales_trend_months(
-        self, rows: list[dict[str, Any]], *, store_id: str, product_type: str
+        self, rows: list[dict[str, Any]], *, store_id: str | None, product_type: str
     ) -> list[str]:
         months: set[str] = set()
         for row in rows:
             if not self._sales_row_matches_product(row, product_type):
                 continue
-            if row["sale_store_id"] == store_id or row["verify_store_id"] == store_id:
+            if _sales_store_matches(
+                row["sale_store_id"], store_id
+            ) or _sales_store_matches(row["verify_store_id"], store_id):
                 month = _month_from_datetime(row["sale_time"])
                 if month:
                     months.add(month)

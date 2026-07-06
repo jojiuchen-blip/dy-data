@@ -20,5 +20,8 @@ def test_sales_dashboard_uses_backend_aggregate_endpoint() -> None:
 def test_sales_dashboard_fallback_trend_uses_actual_verify_store() -> None:
     settlement_source = read_source("utils/settlement.ts")
 
-    assert "row.is_verified && row.verify_store_id === storeId" in settlement_source
+    assert "function matchesSalesStore(rowStoreId: string, storeId: string)" in settlement_source
+    assert "function isSelfVerifiedForStore(row: OrderDetail, storeId: string)" in settlement_source
+    assert "matchesSalesStore(row.verify_store_id, storeId)" in settlement_source
+    assert "row.sale_store_id === row.verify_store_id" in settlement_source
     assert "row.sale_store_id !== storeId ||" not in settlement_source

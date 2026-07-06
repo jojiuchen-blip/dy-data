@@ -110,13 +110,18 @@ class FakeStore:
     def sales_dashboard(
         self,
         *,
-        store_id: str,
+        store_id: str | None,
         month: str,
         product_type: str,
         trend_months: list[str],
     ):
+        store = (
+            {"store_id": "", "store_name": "全部门店"}
+            if store_id is None
+            else {"store_id": store_id, "store_name": "Store One"}
+        )
         return {
-            "store": {"store_id": store_id, "store_name": "Store One"},
+            "store": store,
             "month": month,
             "product_type": product_type,
             "metrics": {
@@ -325,6 +330,20 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert deferred_field("refund", "amount", "cent") not in detail_row
 
 
+def test_sales_dashboard_all_stores_default_for_global_account(client: TestClient):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/dashboard/sales?month=all&trend_months=2026-05"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["store"] == {
+        "store_id": "",
+        "store_name": "全部门店",
+    }
+
+
 def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClient):
     _login(client)
     response = client.get("/api/v1/order-details/export?sale_store_id=store_001")
@@ -461,6 +480,25 @@ def test_sales_dashboard_trend_counts_actual_verify_store_orders(db_session: Ses
     assert dashboard["metrics"]["actual_verify_amount_cent"] == 40000
     assert dashboard["trend_rows"] == [
         {"month": "2026-05", "order_count": 2, "verify_order_count": 2}
+    ]
+
+    all_store_dashboard = DashboardDataStore(db_session).sales_dashboard(
+        store_id=None,
+        month="all",
+        product_type="all",
+        trend_months=["2026-05"],
+    )
+
+    assert all_store_dashboard["store"] == {
+        "store_id": "",
+        "store_name": "全部门店",
+    }
+    assert all_store_dashboard["metrics"]["total_sales_order_count"] == 3
+    assert all_store_dashboard["metrics"]["self_verify_order_count"] == 1
+    assert all_store_dashboard["metrics"]["total_verify_order_count"] == 3
+    assert all_store_dashboard["metrics"]["actual_verify_amount_cent"] == 60000
+    assert all_store_dashboard["trend_rows"] == [
+        {"month": "2026-05", "order_count": 3, "verify_order_count": 3}
     ]
 
 

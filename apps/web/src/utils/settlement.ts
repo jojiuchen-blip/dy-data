@@ -89,18 +89,28 @@ export function getProductOptions(): SelectOption[] {
   ];
 }
 
-export function getMonthOptions(): SelectOption[] {
-  const months = new Set<string>([
-    defaultMonth,
-    monthlySummaryResponse.data.month,
-    ...orderDetails.flatMap((row) => [row.sale_month, row.verify_month]),
-  ]);
-
-  return [...months]
+function monthOptionsFrom(months: Iterable<string>): SelectOption[] {
+  return [...new Set(months)]
     .filter(Boolean)
     .sort()
     .reverse()
     .map((month) => ({ value: month, label: month }));
+}
+
+export function getSaleMonthOptions(): SelectOption[] {
+  return monthOptionsFrom(orderDetails.map((row) => row.sale_month));
+}
+
+export function getVerifyMonthOptions(): SelectOption[] {
+  return monthOptionsFrom(orderDetails.map((row) => row.verify_month));
+}
+
+export function getMonthOptions(): SelectOption[] {
+  return monthOptionsFrom([
+    defaultMonth,
+    monthlySummaryResponse.data.month,
+    ...orderDetails.flatMap((row) => [row.sale_month, row.verify_month]),
+  ]);
 }
 
 export function getRankingRows(
@@ -540,6 +550,19 @@ function validSalesRow(row: OrderDetail, productType: string): boolean {
   return matchesProduct(row.product_type, productType) && !row.is_refund_excluded;
 }
 
+function matchesSalesStore(rowStoreId: string, storeId: string): boolean {
+  return !storeId || rowStoreId === storeId;
+}
+
+function isSelfVerifiedForStore(row: OrderDetail, storeId: string): boolean {
+  return (
+    row.is_verified &&
+    row.sale_store_id !== "" &&
+    row.sale_store_id === row.verify_store_id &&
+    matchesSalesStore(row.sale_store_id, storeId)
+  );
+}
+
 function daysBetween(
   startValue: string | null | undefined,
   endValue: string | null | undefined,
@@ -605,14 +628,18 @@ function salesMetricsFor(
     const isSaleMonth = matchesMonth(row.sale_time, month);
     const isVerifyMonth = matchesMonth(row.verify_time, month);
 
-    if (row.sale_store_id === storeId && isSaleMonth) {
+    if (matchesSalesStore(row.sale_store_id, storeId) && isSaleMonth) {
       salesOrders.add(orderId);
-      if (row.is_verified && row.verify_store_id === storeId) {
+      if (isSelfVerifiedForStore(row, storeId)) {
         selfVerifyOrders.add(orderId);
       }
     }
 
-    if (row.is_verified && row.verify_store_id === storeId && isVerifyMonth) {
+    if (
+      row.is_verified &&
+      matchesSalesStore(row.verify_store_id, storeId) &&
+      isVerifyMonth
+    ) {
       verifyOrders.add(orderId);
       const amountKey = row.coupon_id || `${orderId}:${row.verify_time}`;
       if (!amountRows.has(amountKey)) {
@@ -657,10 +684,11 @@ function productTypesForSalesView(
       return;
     }
     const inSaleMonth =
-      row.sale_store_id === storeId && matchesMonth(row.sale_time, month);
+      matchesSalesStore(row.sale_store_id, storeId) &&
+      matchesMonth(row.sale_time, month);
     const inVerifyMonth =
       row.is_verified &&
-      row.verify_store_id === storeId &&
+      matchesSalesStore(row.verify_store_id, storeId) &&
       matchesMonth(row.verify_time, month);
     if (inSaleMonth || inVerifyMonth) {
       products.add(row.product_type);
@@ -701,10 +729,10 @@ function salesTrendRows(
         return;
       }
       const orderId = orderIdentity(row);
-      if (row.sale_store_id === storeId) {
+      if (matchesSalesStore(row.sale_store_id, storeId)) {
         orders.add(orderId);
       }
-      if (row.is_verified && row.verify_store_id === storeId) {
+      if (row.is_verified && matchesSalesStore(row.verify_store_id, storeId)) {
         verifiedOrders.add(orderId);
       }
     });
@@ -730,7 +758,7 @@ function salesCycleRows(
     if (
       !validSalesRow(row, productType) ||
       !row.is_verified ||
-      row.verify_store_id !== storeId ||
+      !matchesSalesStore(row.verify_store_id, storeId) ||
       !matchesMonth(row.verify_time, month)
     ) {
       return;
@@ -798,7 +826,10 @@ function uniqueOrderDetailRows(rows: OrderDetail[]): OrderDetail[] {
 function monthsFromSalesRows(rows: OrderDetail[], storeId: string, productType: string): string[] {
   const months = new Set<string>();
   rows.forEach((row) => {
-    if (!validSalesRow(row, productType) || row.sale_store_id !== storeId) {
+    if (
+      !validSalesRow(row, productType) ||
+      !matchesSalesStore(row.sale_store_id, storeId)
+    ) {
       return;
     }
     const month = monthFromDateTime(row.sale_time);
