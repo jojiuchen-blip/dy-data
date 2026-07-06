@@ -991,11 +991,11 @@ h2 {
 
   .detail-filter-bar--single-line {
     grid-template-columns:
-      minmax(150px, 1.2fr) minmax(104px, 0.7fr)
-      minmax(112px, 0.75fr) minmax(136px, 0.95fr)
-      minmax(104px, 0.7fr) minmax(96px, 0.6fr)
-      minmax(150px, 1.2fr) minmax(96px, 0.6fr)
-      minmax(92px, 0.55fr);
+      minmax(142px, 1.15fr) minmax(96px, 0.62fr)
+      minmax(96px, 0.62fr) minmax(110px, 0.75fr)
+      minmax(132px, 1fr) minmax(96px, 0.62fr)
+      minmax(86px, 0.52fr) minmax(142px, 1.15fr)
+      minmax(86px, 0.52fr) minmax(88px, 0.52fr);
   }
 }
 
