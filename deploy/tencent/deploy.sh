@@ -13,7 +13,7 @@ APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
 export APT_MIRROR
 
 compose() {
-  sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  sudo APT_MIRROR="$APT_MIRROR" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 log() {

@@ -90,6 +90,7 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
 
     assert 'SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"' in deploy_script
     assert 'APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"' in deploy_script
+    assert 'sudo APT_MIRROR="$APT_MIRROR" docker compose' in deploy_script
     assert "compose build --progress=plain api web browser" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
