@@ -78,11 +78,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: verify
     if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
+    timeout-minutes: 30
 
     env:
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
+      TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
 
@@ -132,6 +134,7 @@ jobs:
           archive_path="$2"
           app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
           log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
+          apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
 
           mkdir -p "$app_dir" "$log_dir"
           cd "$app_dir"
@@ -145,7 +148,7 @@ jobs:
           tar -xzf "$archive_path" -C "$app_dir"
           rm -f "$archive_path"
 
-          SKIP_GIT_SYNC=true bash deploy/tencent/deploy.sh "$target_sha"
+          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" bash deploy/tencent/deploy.sh "$target_sha"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \

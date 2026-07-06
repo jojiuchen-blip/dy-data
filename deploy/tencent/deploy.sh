@@ -9,6 +9,8 @@ HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080}"
 START_WORKER="${TENCENT_START_WORKER:-false}"
 LOG_DIR="${LOG_DIR:-/opt/dy-dashboard/logs}"
 SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
+APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
+export APT_MIRROR
 
 compose() {
   sudo docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
@@ -65,10 +67,11 @@ else
 fi
 
 log "validating compose configuration"
+log "using apt mirror $APT_MIRROR"
 compose config >/dev/null
 
 log "building images"
-compose build api web browser
+compose build --progress=plain api web browser
 
 log "starting postgres"
 compose up -d postgres

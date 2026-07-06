@@ -79,12 +79,17 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     deploy_step = workflow.split("- name: Deploy on server", 1)[1]
 
     assert "uses: actions/checkout@v4" in workflow
+    assert "timeout-minutes: 30" in workflow
     assert 'git archive --format=tar "$GITHUB_SHA"' in workflow
     assert 'scp -i ~/.ssh/tencent_lighthouse' in workflow
-    assert "SKIP_GIT_SYNC=true bash deploy/tencent/deploy.sh" in workflow
+    assert "TENCENT_APT_MIRROR" in workflow
+    assert "http://mirrors.tencentyun.com" in workflow
+    assert 'SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" bash deploy/tencent/deploy.sh' in workflow
     assert "fetch_origin" not in deploy_step
     assert "git reset --hard" not in deploy_step
 
     assert 'SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"' in deploy_script
+    assert 'APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"' in deploy_script
+    assert "compose build --progress=plain api web browser" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
