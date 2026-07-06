@@ -58,6 +58,8 @@ CLUE_VERIFICATION_STATUSES = [
     "other_store_verified",
 ]
 UTF8_BOM = "\ufeff"
+ALL_MONTHS = "all"
+MAX_SALES_CYCLE_SAMPLE_POINTS = 90
 
 
 def generated_at() -> datetime:
@@ -320,6 +322,53 @@ def _parse_filter_date_end(value: Any) -> datetime | None:
     if len(raw) == 10:
         return parsed + timedelta(days=1)
     return parsed
+
+
+def _month_from_datetime(value: Any) -> str:
+    parsed = _parse_filter_datetime(value)
+    return parsed.strftime("%Y-%m") if parsed is not None else ""
+
+
+def _matches_dashboard_month(value: Any, month: str) -> bool:
+    return not month or month == ALL_MONTHS or _month_from_datetime(value) == month
+
+
+def _order_identity(row: dict[str, Any]) -> str:
+    return _to_str(row.get("order_id")) or _to_str(row.get("coupon_id"))
+
+
+def _round_metric(value: float) -> float:
+    return round(value, 2)
+
+
+def _cycle_days(row: dict[str, Any]) -> float | None:
+    sale_time = _parse_filter_datetime(row.get("sale_time"))
+    verify_time = _parse_filter_datetime(row.get("verify_time"))
+    if sale_time is None or verify_time is None:
+        return None
+    return max((verify_time - sale_time).total_seconds() / 86400, 0)
+
+
+def _percentile(sorted_values: list[float], ratio: float) -> float | None:
+    if not sorted_values:
+        return None
+    position = (len(sorted_values) - 1) * ratio
+    lower = math.floor(position)
+    upper = math.ceil(position)
+    if lower == upper:
+        return sorted_values[lower]
+    weight = position - lower
+    return sorted_values[lower] * (1 - weight) + sorted_values[upper] * weight
+
+
+def _sample_sales_cycle_points(points: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if len(points) <= MAX_SALES_CYCLE_SAMPLE_POINTS:
+        return points
+    last_index = len(points) - 1
+    return [
+        points[round((index * last_index) / (MAX_SALES_CYCLE_SAMPLE_POINTS - 1))]
+        for index in range(MAX_SALES_CYCLE_SAMPLE_POINTS)
+    ]
 
 
 def _remaining_reassign_seconds(expires_at: Any) -> int | None:
@@ -1124,6 +1173,345 @@ class DashboardDataStore:
                 "total_pages": _total_pages(total, page_size),
             },
         }
+
+    def sales_dashboard(
+        self,
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+        trend_months: Iterable[str] = (),
+    ) -> dict[str, Any]:
+        requested_product_type = _normalize_product_type_value(product_type)
+        period = _to_str(month, ALL_MONTHS).strip() or ALL_MONTHS
+        rows = self._sales_dashboard_source_rows(
+            store_id=store_id,
+            month=period,
+            product_type=requested_product_type,
+        )
+        cleaned_rows = [self._clean_sales_dashboard_row(row) for row in rows]
+        ordered_trend_months = [
+            value
+            for value in dict.fromkeys(
+                _to_str(value).strip()
+                for value in trend_months
+                if _to_str(value).strip() and _to_str(value).strip() != ALL_MONTHS
+            )
+        ]
+        if period != ALL_MONTHS and period not in ordered_trend_months:
+            ordered_trend_months.insert(0, period)
+        if not ordered_trend_months:
+            ordered_trend_months = self._sales_trend_months(
+                cleaned_rows,
+                store_id=store_id,
+                product_type=requested_product_type,
+            )
+
+        return {
+            "store": self.get_store(store_id),
+            "month": period,
+            "product_type": requested_product_type,
+            "metrics": self._sales_dashboard_metrics(
+                cleaned_rows,
+                store_id=store_id,
+                month=period,
+                product_type=requested_product_type,
+            ),
+            "product_rows": self._sales_product_rows(
+                cleaned_rows,
+                store_id=store_id,
+                month=period,
+                product_type=requested_product_type,
+            ),
+            "trend_rows": self._sales_trend_rows(
+                cleaned_rows,
+                store_id=store_id,
+                product_type=requested_product_type,
+                months=ordered_trend_months,
+            ),
+            "cycle_rows": self._sales_cycle_rows(
+                cleaned_rows,
+                store_id=store_id,
+                month=period,
+                product_type=requested_product_type,
+            ),
+            "source_row_count": len(cleaned_rows),
+        }
+
+    def _sales_dashboard_source_rows(
+        self, *, store_id: str, month: str, product_type: str
+    ) -> list[dict[str, Any]]:
+        params: dict[str, Any] = {"store_id": store_id}
+        clauses = [
+            "COALESCE(settlement_order_details.is_refund_excluded, false) = false",
+            "(settlement_order_details.sale_store_id = :store_id OR settlement_order_details.verify_store_id = :store_id)",
+        ]
+
+        if product_type != "all":
+            if not self._is_product_type_visible(product_type):
+                clauses.append("1 = 0")
+            else:
+                clauses.append("settlement_order_details.product_type = :product_type")
+                params["product_type"] = product_type
+        else:
+            visible_product_types = self._visible_product_types()
+            if visible_product_types is not None:
+                placeholders, product_params = _in_clause_params(
+                    "sales_visible_product", visible_product_types
+                )
+                if placeholders:
+                    clauses.append(
+                        f"settlement_order_details.product_type IN ({placeholders})"
+                    )
+                    params.update(product_params)
+                else:
+                    clauses.append("1 = 0")
+
+        if month and month != ALL_MONTHS:
+            sale_month_expr = self._month_expr("settlement_order_details.sale_time")
+            verify_month_expr = self._month_expr("settlement_order_details.verify_time")
+            clauses.append(
+                f"""
+                (
+                    (settlement_order_details.sale_store_id = :store_id
+                     AND settlement_order_details.sale_time IS NOT NULL
+                     AND {sale_month_expr} = :sales_dashboard_month)
+                    OR
+                    (settlement_order_details.verify_store_id = :store_id
+                     AND settlement_order_details.verify_time IS NOT NULL
+                     AND {verify_month_expr} = :sales_dashboard_month)
+                )
+                """
+            )
+            params["sales_dashboard_month"] = month
+
+        where_sql = "WHERE " + " AND ".join(f"({clause})" for clause in clauses)
+        return self._execute(
+            f"""
+            SELECT order_id,
+                   coupon_id,
+                   product_type,
+                   sale_store_id,
+                   sale_time,
+                   is_verified,
+                   verify_store_id,
+                   verify_time,
+                   paid_amount_cent
+            FROM settlement_order_details
+            {where_sql}
+            ORDER BY sale_time, order_id, coupon_id
+            """,
+            params,
+        )
+
+    def _clean_sales_dashboard_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "order_id": _to_str(row.get("order_id")),
+            "coupon_id": _to_str(row.get("coupon_id")),
+            "product_type": _to_str(row.get("product_type")),
+            "sale_store_id": _to_str(row.get("sale_store_id")),
+            "sale_time": row.get("sale_time"),
+            "is_verified": _to_bool(row.get("is_verified")),
+            "verify_store_id": _to_str(row.get("verify_store_id")),
+            "verify_time": row.get("verify_time"),
+            "paid_amount_cent": _to_int(row.get("paid_amount_cent")),
+        }
+
+    def _sales_dashboard_metrics(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+    ) -> dict[str, Any]:
+        sales_orders: set[str] = set()
+        self_verify_orders: set[str] = set()
+        verify_orders: set[str] = set()
+        amount_rows: set[str] = set()
+        cycle_days_by_order: dict[str, float] = {}
+        actual_verify_amount_cent = 0
+
+        for row in rows:
+            if not self._sales_row_matches_product(row, product_type):
+                continue
+            order_id = _order_identity(row)
+            if (
+                row["sale_store_id"] == store_id
+                and _matches_dashboard_month(row["sale_time"], month)
+            ):
+                sales_orders.add(order_id)
+                if row["is_verified"] and row["verify_store_id"] == store_id:
+                    self_verify_orders.add(order_id)
+
+            if (
+                row["is_verified"]
+                and row["verify_store_id"] == store_id
+                and _matches_dashboard_month(row["verify_time"], month)
+            ):
+                verify_orders.add(order_id)
+                amount_key = _to_str(row.get("coupon_id")) or f"{order_id}:{row.get('verify_time')}"
+                if amount_key not in amount_rows:
+                    amount_rows.add(amount_key)
+                    actual_verify_amount_cent += row["paid_amount_cent"]
+
+                cycle_days = _cycle_days(row)
+                if cycle_days is not None:
+                    existing = cycle_days_by_order.get(order_id)
+                    if existing is None or cycle_days < existing:
+                        cycle_days_by_order[order_id] = cycle_days
+
+        cycle_values = list(cycle_days_by_order.values())
+        return {
+            "total_sales_order_count": len(sales_orders),
+            "self_verify_order_count": len(self_verify_orders),
+            "self_verify_rate": _ratio(len(self_verify_orders), len(sales_orders)),
+            "total_verify_order_count": len(verify_orders),
+            "actual_verify_amount_cent": actual_verify_amount_cent,
+            "avg_verify_cycle_days": (
+                _round_metric(sum(cycle_values) / len(cycle_values))
+                if cycle_values
+                else None
+            ),
+        }
+
+    def _sales_product_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+    ) -> list[dict[str, Any]]:
+        product_types: set[str] = set()
+        for row in rows:
+            if not self._sales_row_matches_product(row, product_type):
+                continue
+            in_sale_period = row["sale_store_id"] == store_id and _matches_dashboard_month(
+                row["sale_time"], month
+            )
+            in_verify_period = (
+                row["is_verified"]
+                and row["verify_store_id"] == store_id
+                and _matches_dashboard_month(row["verify_time"], month)
+            )
+            if in_sale_period or in_verify_period:
+                product_types.add(row["product_type"])
+
+        return [
+            {
+                "product_type": item,
+                **self._sales_dashboard_metrics(
+                    rows, store_id=store_id, month=month, product_type=item
+                ),
+            }
+            for item in sorted(product_types)
+        ]
+
+    def _sales_trend_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        store_id: str,
+        product_type: str,
+        months: list[str],
+    ) -> list[dict[str, Any]]:
+        trend_rows: list[dict[str, Any]] = []
+        for month in months:
+            orders: set[str] = set()
+            verified_orders: set[str] = set()
+            for row in rows:
+                if (
+                    not self._sales_row_matches_product(row, product_type)
+                    or _month_from_datetime(row["sale_time"]) != month
+                ):
+                    continue
+                order_id = _order_identity(row)
+                if row["sale_store_id"] == store_id:
+                    orders.add(order_id)
+                if row["is_verified"] and row["verify_store_id"] == store_id:
+                    verified_orders.add(order_id)
+            trend_rows.append(
+                {
+                    "month": month,
+                    "order_count": len(orders),
+                    "verify_order_count": len(verified_orders),
+                }
+            )
+        return trend_rows
+
+    def _sales_cycle_rows(
+        self,
+        rows: list[dict[str, Any]],
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+    ) -> list[dict[str, Any]]:
+        best_by_order: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in rows:
+            if (
+                not self._sales_row_matches_product(row, product_type)
+                or not row["is_verified"]
+                or row["verify_store_id"] != store_id
+                or not _matches_dashboard_month(row["verify_time"], month)
+            ):
+                continue
+            cycle_days = _cycle_days(row)
+            if cycle_days is None:
+                continue
+            product = row["product_type"] or "未映射"
+            order_id = _order_identity(row)
+            point = {
+                "order_id": order_id,
+                "cycle_days": _round_metric(cycle_days),
+                "sale_time": row["sale_time"],
+                "verify_time": row["verify_time"],
+            }
+            key = (product, order_id)
+            existing = best_by_order.get(key)
+            if existing is None or point["cycle_days"] < existing["cycle_days"]:
+                best_by_order[key] = point
+
+        by_product: dict[str, list[dict[str, Any]]] = {}
+        for (product, _order_id), point in best_by_order.items():
+            by_product.setdefault(product, []).append(point)
+
+        cycle_rows: list[dict[str, Any]] = []
+        for product, points in by_product.items():
+            sorted_points = sorted(points, key=lambda item: (item["cycle_days"], item["order_id"]))
+            values = [point["cycle_days"] for point in sorted_points]
+            cycle_rows.append(
+                {
+                    "product_type": product,
+                    "count": len(values),
+                    "min_days": _round_metric(values[0]),
+                    "q1_days": _round_metric(_percentile(values, 0.25) or values[0]),
+                    "median_days": _round_metric(_percentile(values, 0.5) or values[0]),
+                    "q3_days": _round_metric(_percentile(values, 0.75) or values[0]),
+                    "max_days": _round_metric(values[-1]),
+                    "avg_days": _round_metric(sum(values) / len(values)),
+                    "sample_points": _sample_sales_cycle_points(sorted_points),
+                }
+            )
+
+        return sorted(cycle_rows, key=lambda item: (-item["count"], item["product_type"]))
+
+    def _sales_trend_months(
+        self, rows: list[dict[str, Any]], *, store_id: str, product_type: str
+    ) -> list[str]:
+        months: set[str] = set()
+        for row in rows:
+            if not self._sales_row_matches_product(row, product_type):
+                continue
+            if row["sale_store_id"] == store_id or row["verify_store_id"] == store_id:
+                month = _month_from_datetime(row["sale_time"])
+                if month:
+                    months.add(month)
+        return sorted(months)
+
+    def _sales_row_matches_product(self, row: dict[str, Any], product_type: str) -> bool:
+        return product_type == "all" or row["product_type"] == product_type
 
     def clue_filters(self, scope_store_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
         round_scope_sql, round_scope_params = self._store_scope_clause(

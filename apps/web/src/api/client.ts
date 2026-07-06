@@ -74,10 +74,14 @@ const DEFAULT_DETAIL_PAGE_SIZE = 50;
 const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
 
-type QueryParams = Record<
-  string,
-  string | number | boolean | null | undefined
->;
+type QueryParamValue =
+  | string
+  | number
+  | boolean
+  | Array<string | number | boolean>
+  | null
+  | undefined;
+type QueryParams = Record<string, QueryParamValue>;
 
 export interface ApiLoadResult<T> extends ApiResponse<T> {
   usingMock: boolean;
@@ -128,6 +132,12 @@ function apiUrl(path: string, params: QueryParams = {}): string {
   const url = new URL(`${base.replace(/\/$/, "")}${path}`);
 
   Object.entries(params).forEach(([key, value]) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => {
+        url.searchParams.append(key, String(item));
+      });
+      return;
+    }
     if (value !== undefined && value !== null && value !== "") {
       url.searchParams.set(key, String(value));
     }
@@ -438,75 +448,18 @@ function mockOrderDetailsResponse({
   };
 }
 
-async function requestAllOrderDetails(
-  filters: DetailFilters,
-): Promise<OrderDetailsData["rows"]> {
-  const rows: OrderDetailsData["rows"] = [];
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const response = await requestJson<OrderDetailsData>("/order-details", {
-      ...filters,
-      page,
-      page_size: 500,
-    });
-    rows.push(...response.data.rows);
-    totalPages = response.data.pagination.total_pages;
-    page += 1;
-  } while (page <= totalPages);
-
-  return rows;
-}
-
 async function requestSalesDashboard({
   store,
   month,
   productType,
   trendMonths = [],
 }: SalesDashboardQuery): Promise<ApiResponse<SalesDashboardData>> {
-  const isAllPeriod = !month || month === ALL_MONTHS;
-  const months = salesTrendMonths(month, trendMonths);
-  const rowBatches = isAllPeriod
-    ? await Promise.all([
-      requestAllOrderDetails({
-        product_type: productType,
-        sale_store_id: store.store_id,
-      }),
-      requestAllOrderDetails({
-        product_type: productType,
-        verify_store_id: store.store_id,
-        is_verified: "true",
-      }),
-    ])
-    : await Promise.all([
-      requestAllOrderDetails({
-        product_type: productType,
-        sale_store_id: store.store_id,
-        sale_month: month,
-      }),
-      requestAllOrderDetails({
-        product_type: productType,
-        verify_store_id: store.store_id,
-        verify_month: month,
-        is_verified: "true",
-      }),
-    ]);
-
-  return {
-    data: buildSalesDashboardView({
-      rows: rowBatches.flat(),
-      store,
-      month,
-      productType,
-      trendMonths: months,
-    }),
-    definitions: SALES_DASHBOARD_DEFINITIONS,
-    meta: {
-      generated_at: generatedAt(),
-      source: "order-details",
-    },
-  };
+  return requestJson<SalesDashboardData>("/dashboard/sales", {
+    store_id: store.store_id,
+    month,
+    product_type: productType,
+    trend_months: salesTrendMonths(month, trendMonths),
+  });
 }
 
 function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {

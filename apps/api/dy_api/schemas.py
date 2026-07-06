@@ -656,6 +656,55 @@ class OrderDetailsData(BaseModel):
     pagination: Pagination
 
 
+class SalesDashboardMetrics(BaseModel):
+    total_sales_order_count: int = 0
+    self_verify_order_count: int = 0
+    self_verify_rate: float = 0
+    total_verify_order_count: int = 0
+    actual_verify_amount_cent: int = 0
+    avg_verify_cycle_days: float | None = None
+
+
+class SalesMetricRow(SalesDashboardMetrics):
+    product_type: str
+
+
+class SalesTrendRow(BaseModel):
+    month: str
+    order_count: int = 0
+    verify_order_count: int = 0
+
+
+class SalesCyclePoint(BaseModel):
+    order_id: str
+    cycle_days: float
+    sale_time: datetime | None = None
+    verify_time: datetime | None = None
+
+
+class SalesCycleDistributionRow(BaseModel):
+    product_type: str
+    count: int = 0
+    min_days: float | None = None
+    q1_days: float | None = None
+    median_days: float | None = None
+    q3_days: float | None = None
+    max_days: float | None = None
+    avg_days: float | None = None
+    sample_points: list[SalesCyclePoint] = Field(default_factory=list)
+
+
+class SalesDashboardData(BaseModel):
+    store: StoreOption
+    month: str
+    product_type: str
+    metrics: SalesDashboardMetrics
+    product_rows: list[SalesMetricRow] = Field(default_factory=list)
+    trend_rows: list[SalesTrendRow] = Field(default_factory=list)
+    cycle_rows: list[SalesCycleDistributionRow] = Field(default_factory=list)
+    source_row_count: int = 0
+
+
 def dump_model(model: BaseModel) -> dict[str, Any]:
     if hasattr(model, "model_dump"):
         return model.model_dump(mode="json")

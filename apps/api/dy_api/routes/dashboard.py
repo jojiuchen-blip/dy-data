@@ -11,6 +11,7 @@ from dy_api.schemas import (
     CommissionRulesSummaryData,
     MonthlySettlementData,
     OrderDetailsData,
+    SalesDashboardData,
     StoreRankingData,
     dump_model,
 )
@@ -62,6 +63,44 @@ MONTHLY_SETTLEMENT_DEFINITIONS = [
         "key": "estimated_payable_commission_cent",
         "label": "本店预计分出分佣参考额",
         "description": "其他门店卖出的券在本店核销时，本店按分佣规则预计需要分给销售门店的金额。这是按当前规则测算的参考额。",
+    },
+]
+
+SALES_DASHBOARD_DEFINITIONS = [
+    {
+        "key": "total_sales_order_count",
+        "label": "总销售订单量",
+        "description": "销售归属门店在所选期间卖出的有效订单数，按 order_id 去重，剔除 is_refund_excluded=true 的记录。",
+    },
+    {
+        "key": "self_verify_order_count",
+        "label": "自店核销数",
+        "description": "销售归属门店和实际核销门店都是当前门店的订单数，按 order_id 去重，剔除退款剔除记录。",
+    },
+    {
+        "key": "self_verify_rate",
+        "label": "自店核销率",
+        "description": "自店核销数 / 总销售订单量；总销售订单量为 0 时显示 0。",
+    },
+    {
+        "key": "total_verify_order_count",
+        "label": "实际核销总数",
+        "description": "不管销售归属门店，只要在当前门店于所选期间完成核销即计入，按 order_id 去重；一单核销多券也只算一单。",
+    },
+    {
+        "key": "actual_verify_amount_cent",
+        "label": "实际核销金额",
+        "description": "当前门店产生核销后的实收金额合计，剔除 is_refund_excluded=true 的记录。",
+    },
+    {
+        "key": "avg_verify_cycle_days",
+        "label": "平均核销周期",
+        "description": "当前门店已核销订单从 sale_time 到 verify_time 的平均天数，按订单去重。",
+    },
+    {
+        "key": "cycle_distribution",
+        "label": "核销周期分布",
+        "description": "按商品类型展示当前门店核销订单从 sale_time 到 verify_time 的周期，箱线图展示四分位，散点展示订单样本。",
     },
 ]
 
@@ -150,6 +189,31 @@ def monthly_settlement(
     return {
         "data": dump_model(data),
         "definitions": MONTHLY_SETTLEMENT_DEFINITIONS,
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/dashboard/sales")
+def sales_dashboard(
+    store_id: str,
+    month: str = "all",
+    product_type: str = "all",
+    trend_months: list[str] | None = Query(default=None),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    _require_store_scope(current_user, store_id)
+    data = SalesDashboardData(
+        **store.sales_dashboard(
+            store_id=store_id,
+            month=month,
+            product_type=product_type,
+            trend_months=trend_months or [],
+        )
+    )
+    return {
+        "data": dump_model(data),
+        "definitions": SALES_DASHBOARD_DEFINITIONS,
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
 

@@ -696,14 +696,15 @@ function salesTrendRows(
     rows.forEach((row) => {
       if (
         !validSalesRow(row, productType) ||
-        row.sale_store_id !== storeId ||
         monthFromDateTime(row.sale_time) !== month
       ) {
         return;
       }
       const orderId = orderIdentity(row);
-      orders.add(orderId);
-      if (row.is_verified) {
+      if (row.sale_store_id === storeId) {
+        orders.add(orderId);
+      }
+      if (row.is_verified && row.verify_store_id === storeId) {
         verifiedOrders.add(orderId);
       }
     });
