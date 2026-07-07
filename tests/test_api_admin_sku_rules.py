@@ -151,6 +151,7 @@ def test_admin_can_lookup_exact_sku_rules_in_input_order(
         DimSkuProductRule(
             sku_id="sku-config-only",
             product_name="Configured Product",
+            product_scope="",
             product_type="Configured Type",
             commission_rate=Decimal("0.2500"),
             is_service_product=False,
@@ -192,13 +193,14 @@ def test_admin_can_lookup_exact_sku_rules_in_input_order(
     assert payload["duplicate_sku_ids"] == ["sku-admin"]
 
 
-def test_admin_sku_rules_include_product_scope_from_csv(
+def test_admin_sku_rules_include_product_scope_from_rule_table(
     client: TestClient, db_session: Session
 ) -> None:
     db_session.merge(
         DimSkuProductRule(
             sku_id="1834808062911500",
             product_name="268 Maintenance",
+            product_scope="精诚养车",
             product_type="268保养",
             commission_rate=Decimal("0.1000"),
             is_service_product=True,
@@ -223,6 +225,7 @@ def test_admin_sku_rules_can_filter_by_product_scope(
         DimSkuProductRule(
             sku_id="1834808062911500",
             product_name="268 Maintenance",
+            product_scope="精诚养车",
             product_type="268保养",
             commission_rate=Decimal("0.1000"),
             is_service_product=True,
@@ -268,6 +271,7 @@ def test_admin_sku_rule_background_rebuild_materializes_settlement(
     db_session.merge(
         DimSkuProductRule(
             sku_id="sku-admin",
+            product_scope="精诚养车",
             product_type="养车服务",
             commission_rate=Decimal("0.1000"),
             is_service_product=True,
@@ -326,6 +330,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
             "rules": [
                 {
                     "sku_id": "sku-admin",
+                    "product_scope": "精诚养车",
                     "product_type": "养车服务",
                     "commission_rate": 0.1,
                     "is_service_product": True,
@@ -343,6 +348,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
 
     rule = db_session.get(DimSkuProductRule, "sku-admin")
     assert rule is not None
+    assert rule.product_scope == "精诚养车"
     assert rule.product_type == "养车服务"
 
     job = db_session.get(JobRun, payload["job_id"])
@@ -423,6 +429,7 @@ def test_commission_rules_summary_requires_login_and_filters_zero_rate_skus(
         DimSkuProductRule(
             sku_id="sku-commissionable",
             product_name="分佣商品",
+            product_scope="精诚养车",
             product_type="精诚养车",
             commission_rate=Decimal("0.1000"),
             is_service_product=True,
@@ -432,6 +439,7 @@ def test_commission_rules_summary_requires_login_and_filters_zero_rate_skus(
         DimSkuProductRule(
             sku_id="sku-zero",
             product_name="零比例商品",
+            product_scope="精诚养车",
             product_type="精诚养车",
             commission_rate=Decimal("0.0000"),
             is_service_product=True,

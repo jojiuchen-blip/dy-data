@@ -83,6 +83,14 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in tables["dim_non_commission_owner_accounts"].primary_key] == [
         "normalized_owner_account_name"
     ]
+    sku_rule_columns = tables["dim_sku_product_rules"].columns
+    assert "product_scope" in sku_rule_columns
+    sku_rule_indexes = {
+        tuple(index.columns.keys())
+        for index in tables["dim_sku_product_rules"].indexes
+    }
+    assert ("product_scope",) in sku_rule_indexes
+    assert ("product_type",) in sku_rule_indexes
     assert [column.name for column in tables["product_type_visibility_settings"].primary_key] == [
         "setting_key"
     ]

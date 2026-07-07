@@ -343,6 +343,7 @@ def test_product_type_visibility_returns_and_saves_product_scopes(
         DimSkuProductRule(
             sku_id="1834808062911500",
             product_name="268 Maintenance",
+            product_scope="精诚养车",
             product_type="268保养",
             commission_rate=Decimal("0.1000"),
             is_service_product=True,
