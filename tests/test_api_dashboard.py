@@ -19,6 +19,7 @@ from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_err
 from apps.api.dy_api.models import (  # noqa: E402
     AggStoreMonthlySettlement,
     AggStoreRanking,
+    DimSkuProductRule,
     DimStore,
     SettlementOrderDetail,
 )
@@ -466,6 +467,13 @@ def test_product_scope_filters_ranking_settlement_and_details(db_session: Sessio
                 store_name="Other Store",
                 certified_subject_name="Other Subject",
             ),
+            DimSkuProductRule(
+                sku_id="sku_scope",
+                product_scope="精诚养车",
+                product_type="268保养",
+                commission_rate=Decimal("0.1000"),
+                is_service_product=True,
+            ),
             AggStoreRanking(
                 month="2026-05",
                 product_type="268保养",
@@ -666,6 +674,15 @@ def test_sales_dashboard_product_scope_filters_mapped_product_types(
             store_id="store_scope",
             store_name="Scope Store",
             certified_subject_name="Scope Subject",
+        )
+    )
+    db_session.add(
+        DimSkuProductRule(
+            sku_id="sku_scope",
+            product_scope="精诚养车",
+            product_type="268保养",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
         )
     )
     for coupon_id, order_id, product_type, amount in [
