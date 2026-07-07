@@ -755,7 +755,7 @@ def test_admin_sku_preselection_keeps_product_scope_separate() -> None:
     assert '<span>商品类型</span>' in page_source
     assert "product_scope: productScope || currentRule.product_scope" in page_source
     assert "product_type: row.product_type.trim()" in page_source
-    assert "product_scope: row.product_scope.trim()" not in page_source
+    assert "product_scope: row.product_scope?.trim() ?? \"\"" in page_source
 
 
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:

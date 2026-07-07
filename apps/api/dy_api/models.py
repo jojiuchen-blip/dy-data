@@ -229,6 +229,7 @@ class DimSkuProductRule(Base):
     __tablename__ = "dim_sku_product_rules"
 
     sku_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    product_scope: Mapped[str] = mapped_column(Text, default="", index=True)
     product_type: Mapped[str] = mapped_column(Text, index=True)
     product_name: Mapped[str | None] = mapped_column(Text)
     commission_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0"))

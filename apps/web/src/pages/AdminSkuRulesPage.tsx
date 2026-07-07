@@ -549,6 +549,7 @@ export function AdminSkuRulesPage() {
         dirtyRows.map((row) => ({
           commission_rate: row.commission_rate,
           is_service_product: row.is_service_product,
+          product_scope: row.product_scope?.trim() ?? "",
           product_type: row.product_type.trim(),
           sku_id: row.sku_id,
         })),

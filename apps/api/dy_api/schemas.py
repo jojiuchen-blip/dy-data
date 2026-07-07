@@ -209,6 +209,7 @@ class SkuRuleLookupData(BaseModel):
 
 class SkuRuleInput(BaseModel):
     sku_id: str
+    product_scope: str = ""
     product_type: str
     commission_rate: float = Field(ge=0, le=1)
     is_service_product: bool = True

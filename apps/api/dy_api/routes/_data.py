@@ -9,7 +9,6 @@ import re
 from collections.abc import Generator, Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
-from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -74,82 +73,6 @@ CLUE_VERIFICATION_STATUSES = [
     "other_store_verified",
 ]
 UTF8_BOM = "\ufeff"
-SKU_PRODUCT_CATEGORIES_CSV = Path(__file__).resolve().parents[4] / "sku_product_categories.csv"
-_SKU_PRODUCT_CATEGORY_ROWS_CACHE: list[dict[str, str]] | None = None
-_SKU_PRODUCT_SCOPE_CACHE: dict[str, str] | None = None
-_PRODUCT_SCOPE_TYPE_MAP_CACHE: dict[str, list[str]] | None = None
-
-
-def _sku_product_category_rows() -> list[dict[str, str]]:
-    global _SKU_PRODUCT_CATEGORY_ROWS_CACHE
-    if _SKU_PRODUCT_CATEGORY_ROWS_CACHE is not None:
-        return _SKU_PRODUCT_CATEGORY_ROWS_CACHE
-
-    rows: list[dict[str, str]] = []
-    try:
-        with SKU_PRODUCT_CATEGORIES_CSV.open("r", encoding="utf-8-sig", newline="") as file:
-            for row in csv.DictReader(file):
-                sku_id = _to_str(row.get("SKU_ID") or row.get("sku_id")).strip()
-                product_scope = _to_str(row.get("产品范围")).strip()
-                product_type = _to_str(row.get("商品类型") or row.get("商品分类")).strip()
-                if sku_id:
-                    rows.append(
-                        {
-                            "sku_id": sku_id,
-                            "product_scope": product_scope,
-                            "product_type": product_type,
-                        }
-                    )
-    except OSError:
-        rows = []
-
-    _SKU_PRODUCT_CATEGORY_ROWS_CACHE = rows
-    return rows
-
-
-def _sku_product_scope_map() -> dict[str, str]:
-    global _SKU_PRODUCT_SCOPE_CACHE
-    if _SKU_PRODUCT_SCOPE_CACHE is not None:
-        return _SKU_PRODUCT_SCOPE_CACHE
-
-    scopes = {
-        row["sku_id"]: row["product_scope"]
-        for row in _sku_product_category_rows()
-        if row["sku_id"] and row["product_scope"]
-    }
-
-    _SKU_PRODUCT_SCOPE_CACHE = scopes
-    return scopes
-
-
-def _product_scope_type_map() -> dict[str, list[str]]:
-    global _PRODUCT_SCOPE_TYPE_MAP_CACHE
-    if _PRODUCT_SCOPE_TYPE_MAP_CACHE is not None:
-        return _PRODUCT_SCOPE_TYPE_MAP_CACHE
-
-    scope_types: dict[str, set[str]] = {}
-    for row in _sku_product_category_rows():
-        product_scope = row["product_scope"]
-        product_type = row["product_type"]
-        if not product_scope or not product_type:
-            continue
-        scope_types.setdefault(product_scope, set()).add(product_type)
-
-    _PRODUCT_SCOPE_TYPE_MAP_CACHE = {
-        product_scope: sorted(product_types)
-        for product_scope, product_types in scope_types.items()
-    }
-    return _PRODUCT_SCOPE_TYPE_MAP_CACHE
-
-
-def _product_scope_for_sku(sku_id: str) -> str:
-    return _sku_product_scope_map().get(sku_id, "")
-
-
-def _all_product_scopes() -> list[str]:
-    return sorted(_product_scope_type_map())
-
-
 ALL_MONTHS = "all"
 ALL_STORES_OPTION = {"store_id": "", "store_name": "全部门店"}
 MAX_SALES_CYCLE_SAMPLE_POINTS = 90
@@ -635,6 +558,31 @@ class DashboardDataStore:
             product_types = [product_type for product_type in product_types if product_type in allowed]
         return ["all", *product_types]
 
+    def _all_product_scope_type_map(self) -> dict[str, list[str]]:
+        scope_types: dict[str, set[str]] = {}
+        rows = self._execute(
+            """
+            SELECT DISTINCT product_scope, product_type
+            FROM dim_sku_product_rules
+            WHERE product_scope IS NOT NULL
+              AND product_scope != ''
+              AND product_type IS NOT NULL
+              AND product_type != ''
+              AND product_type != 'all'
+            ORDER BY product_scope, product_type
+            """
+        )
+        for row in rows:
+            product_scope = _to_str(row.get("product_scope")).strip()
+            product_type = _to_str(row.get("product_type")).strip()
+            if not product_scope or not product_type:
+                continue
+            scope_types.setdefault(product_scope, set()).add(product_type)
+        return {
+            product_scope: sorted(product_types)
+            for product_scope, product_types in scope_types.items()
+        }
+
     def product_scope_type_map(self) -> dict[str, list[str]]:
         available_product_types = {
             product_type
@@ -649,7 +597,7 @@ class DashboardDataStore:
                 for product_type in product_types
                 if product_type in available_product_types
             ]
-            for product_scope, product_types in _product_scope_type_map().items()
+            for product_scope, product_types in self._all_product_scope_type_map().items()
             if any(product_type in available_product_types for product_type in product_types)
         }
 
@@ -762,7 +710,7 @@ class DashboardDataStore:
                 for product_type in product_types
                 if product_type in available_set
             ]
-            for product_scope, product_types in _product_scope_type_map().items()
+            for product_scope, product_types in self._all_product_scope_type_map().items()
         }
         product_scope_type_map = {
             product_scope: product_types
@@ -907,49 +855,21 @@ class DashboardDataStore:
         page_size = max(1, min(page_size, 1000))
         offset = (page - 1) * page_size
         params: dict[str, Any] = {"limit": page_size, "offset": offset}
-        count_clauses: list[str] = []
-        row_clauses: list[str] = []
+        clauses: list[str] = []
         query = _to_str(q).strip().lower()
         if query:
-            count_clauses.append("lower(sku_id) LIKE :q OR lower(product_name) LIKE :q")
-            row_clauses.append(
+            clauses.append(
                 "lower(sku_rows.sku_id) LIKE :q OR lower(sku_rows.product_name) LIKE :q"
             )
             params["q"] = f"%{query}%"
         product_scope_query = _to_str(product_scope).strip().lower()
         if product_scope_query:
-            scope_sku_ids = [
-                sku_id
-                for sku_id, scope in _sku_product_scope_map().items()
-                if product_scope_query in scope.lower()
-            ]
-            if not scope_sku_ids:
-                return {
-                    "rows": [],
-                    "pagination": {
-                        "page": page,
-                        "page_size": page_size,
-                        "total": 0,
-                        "total_pages": 1,
-                    },
-                }
-            placeholders: list[str] = []
-            for index, sku_id in enumerate(scope_sku_ids):
-                key = f"product_scope_sku_{index}"
-                placeholders.append(f":{key}")
-                params[key] = sku_id
-            sku_scope_clause = f"sku_id IN ({', '.join(placeholders)})"
-            count_clauses.append(sku_scope_clause)
-            row_clauses.append(f"sku_rows.{sku_scope_clause}")
+            clauses.append("lower(COALESCE(rules.product_scope, '')) LIKE :product_scope")
+            params["product_scope"] = f"%{product_scope_query}%"
 
-        count_where_sql = (
-            "WHERE " + " AND ".join(f"({clause})" for clause in count_clauses)
-            if count_clauses
-            else ""
-        )
-        row_where_sql = (
-            "WHERE " + " AND ".join(f"({clause})" for clause in row_clauses)
-            if row_clauses
+        where_sql = (
+            "WHERE " + " AND ".join(f"({clause})" for clause in clauses)
+            if clauses
             else ""
         )
 
@@ -959,7 +879,8 @@ class DashboardDataStore:
             {source_cte}
             SELECT COUNT(*) AS total
             FROM sku_rows
-            {count_where_sql}
+            LEFT JOIN dim_sku_product_rules rules ON rules.sku_id = sku_rows.sku_id
+            {where_sql}
             """,
             params,
         )
@@ -968,6 +889,7 @@ class DashboardDataStore:
             {source_cte}
             SELECT sku_rows.sku_id,
                    COALESCE(NULLIF(rules.product_name, ''), sku_rows.product_name, '') AS product_name,
+                   COALESCE(rules.product_scope, '') AS product_scope,
                    COALESCE(rules.product_type, '') AS product_type,
                    COALESCE(rules.commission_rate, 0) AS commission_rate,
                    COALESCE(rules.is_service_product, true) AS is_service_product,
@@ -975,7 +897,7 @@ class DashboardDataStore:
                    sku_rows.verified_coupon_count
             FROM sku_rows
             LEFT JOIN dim_sku_product_rules rules ON rules.sku_id = sku_rows.sku_id
-            {row_where_sql}
+            {where_sql}
             ORDER BY sku_rows.sku_id
             LIMIT :limit OFFSET :offset
             """,
@@ -1019,6 +941,7 @@ class DashboardDataStore:
             {self._sku_rule_source_cte()}
             SELECT sku_rows.sku_id,
                    COALESCE(NULLIF(rules.product_name, ''), sku_rows.product_name, '') AS product_name,
+                   COALESCE(rules.product_scope, '') AS product_scope,
                    COALESCE(rules.product_type, '') AS product_type,
                    COALESCE(rules.commission_rate, 0) AS commission_rate,
                    COALESCE(rules.is_service_product, true) AS is_service_product,
@@ -1046,6 +969,7 @@ class DashboardDataStore:
         updated = 0
         for rule in rules:
             sku_id = _to_str(rule.get("sku_id")).strip()
+            product_scope = _to_str(rule.get("product_scope")).strip()
             product_type = _to_str(rule.get("product_type")).strip()
             if not sku_id or not product_type:
                 continue
@@ -1053,6 +977,7 @@ class DashboardDataStore:
             self.session.merge(
                 DimSkuProductRule(
                     sku_id=sku_id,
+                    product_scope=product_scope,
                     product_type=product_type,
                     product_name=existing_name,
                     commission_rate=Decimal(str(rule.get("commission_rate") or 0)),
@@ -3170,7 +3095,7 @@ class DashboardDataStore:
         return {
             "sku_id": sku_id,
             "product_name": _to_str(row.get("product_name")),
-            "product_scope": _product_scope_for_sku(sku_id),
+            "product_scope": _to_str(row.get("product_scope")),
             "product_type": _to_str(row.get("product_type")),
             "commission_rate": _to_float(row.get("commission_rate")),
             "is_service_product": _to_bool(row.get("is_service_product")),
