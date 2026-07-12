@@ -472,10 +472,10 @@ class ClueAssignmentRound(Base):
     __tablename__ = "clue_assignment_rounds"
     __table_args__ = (
         UniqueConstraint(
-            "order_id",
+            "lead_key",
             "execution_mode",
             "round_no",
-            name="uq_clue_assignment_rounds_order_execution_mode_round",
+            name="uq_clue_assignment_rounds_lead_execution_mode_round",
         ),
     )
 

@@ -137,7 +137,7 @@ def test_clue_allocation_engine_migration_preserves_legacy_rounds_and_has_an_emp
         "strategy_type",
         "allocation_decision_id",
     }.issubset({column["name"] for column in inspector.get_columns("clue_assignment_rounds")})
-    assert "uq_clue_assignment_rounds_order_execution_mode_round" in {
+    assert "uq_clue_assignment_rounds_lead_execution_mode_round" in {
         constraint["name"] for constraint in inspector.get_unique_constraints("clue_assignment_rounds")
     }
 

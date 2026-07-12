@@ -130,7 +130,7 @@ def allocate_lead(
                 lead=lead,
                 binding=None,
                 sale_store=_missing_sale_store_evidence(),
-                strategy_type="allocation_finalization",
+                strategy_type="rule_version_resolution",
                 enabled=False,
                 execution_order=None,
                 params={},
@@ -139,6 +139,7 @@ def allocate_lead(
                 candidates=[],
                 selected_store_id=None,
             ),
+            strategy_type="rule_version_resolution",
         )
         _project_headquarters(lead, executed_at)
         session.flush()
@@ -290,7 +291,7 @@ def allocate_lead(
             decision_ids.append(decision.decision_id)
             continue
 
-        round_no = _next_round_no(session, lead.order_id or "", normalized_mode)
+        round_no = _next_round_no(session, lead.lead_key, normalized_mode)
         assignment_round_id = _assignment_round_id(
             lead_key=lead.lead_key,
             execution_mode=normalized_mode,
@@ -468,7 +469,7 @@ def _strategy_candidates(
             lead=lead,
             score=scores.get(store.store_id),
             require_same_city=False,
-            exclude_history=False,
+            exclude_history=True,
             historical_store_ids=historical_store_ids,
             max_distance_km=max_distance_km,
             used_for_ranking=False,
@@ -476,6 +477,8 @@ def _strategy_candidates(
         if not candidate["eligible"]:
             if "distance_exceeds_max" in candidate["exclusion_reasons"]:
                 return [candidate], "sale_store_over_distance"
+            if "historically_self_owned" in candidate["exclusion_reasons"]:
+                return [candidate], "sale_store_previously_assigned"
             return [candidate], "sale_store_ineligible"
         candidate["rank"] = 1
         return [candidate], None
@@ -909,6 +912,20 @@ def _project_self_owned_assignment(
             updated_at=executed_at,
         )
         session.add(center_order)
+    existing_center_round = (
+        session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+        if center_order.current_assignment_round_id
+        else None
+    )
+    if (
+        existing_center_round is not None
+        and existing_center_round.execution_mode in SELF_OWNED_EXECUTION_MODES
+        and existing_center_round.lead_key != lead.lead_key
+    ):
+        # The legacy compatibility projection is still order-grain. Do not let
+        # a second contact-level lead silently overwrite the first self-owned view.
+        return
+
     center_order.lead_status = "active"
     center_order.current_assignment_round_id = round_row.assignment_round_id
     center_order.current_round_no = round_row.round_no
@@ -960,6 +977,7 @@ def _completed_headquarters_decision(
         .where(ClueAllocationDecision.lead_key == lead_key)
         .where(ClueAllocationDecision.execution_mode == execution_mode)
         .where(ClueAllocationDecision.decision_status == "headquarters")
+        .where(ClueAllocationDecision.reason != "rule_version_unavailable")
     )
     if allocation_cycle_id is None:
         statement = statement.where(ClueAllocationDecision.allocation_cycle_id.is_(None))
@@ -970,10 +988,10 @@ def _completed_headquarters_decision(
     )
 
 
-def _next_round_no(session: Session, order_id: str, execution_mode: str) -> int:
+def _next_round_no(session: Session, lead_key: str, execution_mode: str) -> int:
     current = session.scalar(
         select(func.max(ClueAssignmentRound.round_no))
-        .where(ClueAssignmentRound.order_id == order_id)
+        .where(ClueAssignmentRound.lead_key == lead_key)
         .where(ClueAssignmentRound.execution_mode == execution_mode)
     )
     return int(current or 0) + 1

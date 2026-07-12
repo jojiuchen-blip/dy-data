@@ -142,7 +142,7 @@ def upgrade() -> None:
     round_constraints = _unique_constraint_names("clue_assignment_rounds")
     round_foreign_keys = _foreign_key_names("clue_assignment_rounds")
     old_round_constraint = "uq_clue_assignment_rounds_order_round"
-    new_round_constraint = "uq_clue_assignment_rounds_order_execution_mode_round"
+    new_round_constraint = "uq_clue_assignment_rounds_lead_execution_mode_round"
     needs_round_rebuild = bool(
         {"lead_key", "rule_version_id", "strategy_type", "allocation_decision_id"}.difference(round_columns)
         or old_round_constraint in round_constraints
@@ -187,7 +187,7 @@ def upgrade() -> None:
             if new_round_constraint not in round_constraints:
                 batch_op.create_unique_constraint(
                     new_round_constraint,
-                    ["order_id", "execution_mode", "round_no"],
+                    ["lead_key", "execution_mode", "round_no"],
                 )
     for index_name, columns in (
         ("ix_clue_assignment_rounds_lead_key", ["lead_key"]),
@@ -217,8 +217,8 @@ def downgrade() -> None:
         round_constraints = _unique_constraint_names("clue_assignment_rounds")
         round_foreign_keys = _foreign_key_names("clue_assignment_rounds")
         with op.batch_alter_table("clue_assignment_rounds", recreate="always") as batch_op:
-            if "uq_clue_assignment_rounds_order_execution_mode_round" in round_constraints:
-                batch_op.drop_constraint("uq_clue_assignment_rounds_order_execution_mode_round", type_="unique")
+            if "uq_clue_assignment_rounds_lead_execution_mode_round" in round_constraints:
+                batch_op.drop_constraint("uq_clue_assignment_rounds_lead_execution_mode_round", type_="unique")
             if "uq_clue_assignment_rounds_order_round" not in round_constraints:
                 batch_op.create_unique_constraint("uq_clue_assignment_rounds_order_round", ["order_id", "round_no"])
             for foreign_key_name in (

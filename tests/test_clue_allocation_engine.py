@@ -357,6 +357,42 @@ def test_sales_store_invalid_missing_ambiguous_and_over_distance_are_auditable_s
     ) == 1
 
 
+def test_sales_store_priority_excludes_a_previously_assigned_store(db_session: Session) -> None:
+    lead = _lead()
+    historical = _active_round(
+        assignment_round_id="formal-history",
+        lead_key=lead.lead_key,
+        order_id=lead.order_id or "",
+        store_id="sale-store",
+    )
+    historical.round_status = "expired"
+    historical.matured_at = _dt(2)
+    db_session.add_all(
+        [
+            _store("anchor", candidate=False),
+            _store("sale-store"),
+            _store("nearby-store"),
+            lead,
+            historical,
+        ]
+    )
+    _add_sale_store(db_session, order_id=lead.order_id or "", store_id="sale-store", coupon_id="coupon-1")
+    _add_scores(db_session, {"nearby-store": Decimal("0.8")})
+    _publish_global_rule(db_session)
+    db_session.commit()
+
+    result = allocate_lead(db_session, lead.lead_key, actor="test-admin")
+
+    assert result.status == "assigned"
+    assert result.selected_store_id == "nearby-store"
+    decision = _decision(db_session, "sales_store_priority")
+    assert decision.reason == "sale_store_previously_assigned"
+    sale_candidate = next(
+        row for row in decision.decision_snapshot["candidates"] if row["store_id"] == "sale-store"
+    )
+    assert sale_candidate["exclusion_reasons"] == ["historically_self_owned"]
+
+
 def test_nearby_city_ranking_uses_score_then_distance_then_store_id_and_excludes_history(
     db_session: Session,
 ) -> None:
@@ -496,6 +532,26 @@ def test_no_candidate_routes_to_headquarters_with_final_audit_and_no_empty_round
     assert final.reason == "no_candidate"
 
 
+def test_rule_version_unavailable_is_retryable_after_a_global_rule_is_published(db_session: Session) -> None:
+    lead = _lead()
+    db_session.add_all([_store("anchor", candidate=False), _store("candidate"), lead])
+    _add_scores(db_session, {"candidate": Decimal("0.8")})
+    db_session.commit()
+
+    first = allocate_lead(db_session, lead.lead_key, actor="test-admin")
+
+    assert first.status == "headquarters"
+    assert first.reason == "rule_version_unavailable"
+    assert _decision(db_session, "rule_version_resolution").decision_status == "headquarters"
+
+    _publish_global_rule(db_session)
+    db_session.commit()
+    second = allocate_lead(db_session, lead.lead_key, actor="test-admin")
+
+    assert second.status == "assigned"
+    assert second.selected_store_id == "candidate"
+
+
 def test_bound_rule_snapshot_survives_future_rule_change_and_excludes_phone(db_session: Session) -> None:
     lead = _lead()
     db_session.add_all([_store("anchor", candidate=False), _store("candidate"), lead])
@@ -575,9 +631,32 @@ def test_round_namespace_allows_legacy_and_formal_round_one_for_one_order(db_ses
     db_session.flush()
 
     constraints = {constraint.name for constraint in Base.metadata.tables["clue_assignment_rounds"].constraints}
-    assert "uq_clue_assignment_rounds_order_execution_mode_round" in constraints
+    assert "uq_clue_assignment_rounds_lead_execution_mode_round" in constraints
     assert "uq_clue_assignment_rounds_order_round" not in constraints
     assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 2
+
+
+def test_contact_level_leads_for_one_order_each_start_at_round_one_without_overwriting_projection(
+    db_session: Session,
+) -> None:
+    first = _lead("lead-first", order_id="shared-order")
+    second = _lead("lead-second", order_id="shared-order")
+    db_session.add_all([_store("anchor", candidate=False), _store("candidate"), first, second])
+    _add_scores(db_session, {"candidate": Decimal("0.8")})
+    _publish_global_rule(db_session)
+    db_session.commit()
+
+    first_result = allocate_lead(db_session, first.lead_key, actor="test-admin")
+    second_result = allocate_lead(db_session, second.lead_key, actor="test-admin")
+
+    first_round = db_session.get(ClueAssignmentRound, first_result.assignment_round_id)
+    second_round = db_session.get(ClueAssignmentRound, second_result.assignment_round_id)
+    center_order = db_session.get(ClueCenterOrder, "shared-order")
+    assert first_round is not None and first_round.round_no == 1
+    assert second_round is not None and second_round.round_no == 1
+    assert first_round.lead_key != second_round.lead_key
+    assert center_order is not None
+    assert center_order.current_assignment_round_id == first_result.assignment_round_id
 
 
 def test_master_materialization_preserves_active_self_owned_state_and_closes_it_on_terminal_order(
