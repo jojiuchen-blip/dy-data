@@ -32,6 +32,8 @@
 - `scripts/settlement/build_monthly_settlement_dashboard_from_base.py`：从分账基础表生成支持月份筛选的分账看板。
 - `scripts/diagnostics/diagnose_unmatched_verify_cert_reasons.py`：诊断核销券未进入分账的原因。
 - `scripts/diagnostics/validate_settlement_data_availability.py`：检查分账所需字段的数据可用性。
+- `scripts/import_store_locations.py`：通过现有 POI 映射导入抖音适用门店经纬度和候选资格。
+- `scripts/refresh_store_scores.py`：手动生成一批不可变的门店评分快照。
 
 ## 本地配置
 
