@@ -20,7 +20,9 @@ from apps.api.dy_api.models import (  # noqa: E402
     DimStore,
     StoreScoreSnapshot,
     StoreScoreSnapshotRun,
+    User,
 )
+from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 
 
 def _dt(day: int, hour: int = 10) -> datetime:
@@ -46,6 +48,14 @@ def _login(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",
         json={"username": "system-admin", "password": "test-password"},
+    )
+    assert response.status_code == 200
+
+
+def _login_user(client: TestClient, username: str, password: str) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": username, "password": password},
     )
     assert response.status_code == 200
 
@@ -178,3 +188,34 @@ def test_admin_can_view_and_manually_refresh_m1_store_score_snapshots(
         f"/api/v1/admin/clue-allocation/store-scores?snapshot_run_id={refresh.json()['data']['snapshot_run_id']}"
     )
     assert refreshed_run.json()["data"]["run"]["triggered_by"] == "system-admin"
+
+
+def test_database_admin_cannot_access_highest_admin_m1_controls(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    _seed_m1_data(db_session)
+    db_session.add(
+        User(
+            user_id="database-admin",
+            username="database-admin",
+            display_name="Database Admin",
+            role="admin",
+            status="active",
+            is_initialized=True,
+            password_hash=hash_password_pbkdf2("database-admin-password"),
+        )
+    )
+    db_session.commit()
+
+    _login_user(client, "database-admin", "database-admin-password")
+
+    assert client.get("/api/v1/admin/clue-allocation/master-leads").status_code == 403
+    assert client.get("/api/v1/admin/clue-allocation/store-scores").status_code == 403
+    assert (
+        client.post(
+            "/api/v1/admin/clue-allocation/store-scores/refresh",
+            json={"lookback_days": 30, "min_samples": 20},
+        ).status_code
+        == 403
+    )

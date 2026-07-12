@@ -509,3 +509,15 @@ def get_current_admin(
             status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
         )
     return current_user.username
+
+
+def get_current_super_admin(
+    current_user: AuthContext = Depends(get_current_user),
+) -> str:
+    """Allow M1 allocation controls only for the environment-backed highest administrator."""
+    if current_user.auth_type != "env_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Highest administrator access required",
+        )
+    return current_user.username

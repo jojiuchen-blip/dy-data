@@ -31,7 +31,7 @@ from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
-from dy_api.auth import hash_password_pbkdf2, normalize_account_value, get_current_admin
+from dy_api.auth import hash_password_pbkdf2, normalize_account_value, get_current_admin, get_current_super_admin
 from dy_api.routes._data import get_data_store, generated_at, sanitize_error_message
 from dy_api.schemas import (
     AccountListData,
@@ -503,7 +503,7 @@ def list_clue_master_leads(
     allocation_state: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -537,7 +537,7 @@ def list_store_score_snapshots(
     run_mode: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -575,7 +575,7 @@ def list_store_score_snapshots(
 @router.post("/clue-allocation/store-scores/refresh")
 def refresh_store_scores(
     payload: StoreScoreRefreshRequest,
-    _username: str = Depends(get_current_admin),
+    _username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
