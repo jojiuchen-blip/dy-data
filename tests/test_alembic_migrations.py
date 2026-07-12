@@ -22,6 +22,12 @@ def test_clue_allocation_m1_migration_upgrades_existing_schema(tmp_path: Path) -
         inspector.get_table_names()
     )
     assert "store_score_snapshot_runs" in inspector.get_table_names()
+    assert "uq_clue_allocation_rule_versions_published" in {
+        index["name"] for index in inspector.get_indexes("clue_allocation_rule_versions")
+    }
+    assert "uq_clue_store_group_members_store_id" in {
+        constraint["name"] for constraint in inspector.get_unique_constraints("clue_store_group_members")
+    }
     assert {"follow_poi_id", "intention_poi_id"}.issubset(
         {column["name"] for column in inspector.get_columns("raw_douyin_clues")}
     )

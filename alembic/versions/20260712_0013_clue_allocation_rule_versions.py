@@ -117,6 +117,18 @@ def upgrade() -> None:
         ("ix_clue_allocation_rule_versions_rule_status", ["rule_id", "status"]),
     ):
         _create_index_if_missing(index_name, "clue_allocation_rule_versions", columns)
+    if (
+        _has_table("clue_allocation_rule_versions")
+        and "uq_clue_allocation_rule_versions_published" not in _index_names("clue_allocation_rule_versions")
+    ):
+        op.create_index(
+            "uq_clue_allocation_rule_versions_published",
+            "clue_allocation_rule_versions",
+            ["rule_id"],
+            unique=True,
+            sqlite_where=sa.text("status = 'published'"),
+            postgresql_where=sa.text("status = 'published'"),
+        )
 
     if not _has_table("clue_allocation_strategy_configs"):
         op.create_table(
@@ -157,6 +169,7 @@ def upgrade() -> None:
                 primary_key=True,
             ),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+            sa.UniqueConstraint("store_id", name="uq_clue_store_group_members_store_id"),
         )
     _create_index_if_missing("ix_clue_store_group_members_store_id", "clue_store_group_members", ["store_id"])
 

@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -598,7 +599,10 @@ class ClueStoreGroup(Base):
 
 class ClueStoreGroupMember(Base):
     __tablename__ = "clue_store_group_members"
-    __table_args__ = (Index("ix_clue_store_group_members_store_id", "store_id"),)
+    __table_args__ = (
+        UniqueConstraint("store_id", name="uq_clue_store_group_members_store_id"),
+        Index("ix_clue_store_group_members_store_id", "store_id"),
+    )
 
     store_group_id: Mapped[str] = mapped_column(
         Text,
@@ -637,6 +641,13 @@ class ClueAllocationRuleVersion(Base):
     __table_args__ = (
         UniqueConstraint("rule_id", "version_no", name="uq_clue_allocation_rule_versions_rule_version"),
         Index("ix_clue_allocation_rule_versions_rule_status", "rule_id", "status"),
+        Index(
+            "uq_clue_allocation_rule_versions_published",
+            "rule_id",
+            unique=True,
+            sqlite_where=text("status = 'published'"),
+            postgresql_where=text("status = 'published'"),
+        ),
     )
 
     rule_version_id: Mapped[str] = mapped_column(Text, primary_key=True)

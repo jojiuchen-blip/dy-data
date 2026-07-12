@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -69,6 +70,7 @@ def create_store_group(
 
     member_ids = _normalized_store_ids(member_store_ids)
     _validate_store_ids(session, member_ids)
+    _validate_store_group_members_available(session, member_ids)
     group = ClueStoreGroup(
         store_group_id=_new_id("store-group"),
         group_name=group_name,
@@ -94,6 +96,11 @@ def replace_store_group_members(
     group = _get_store_group(session, store_group_id)
     member_ids = _normalized_store_ids(member_store_ids)
     _validate_store_ids(session, member_ids)
+    _validate_store_group_members_available(
+        session,
+        member_ids,
+        excluding_store_group_id=group.store_group_id,
+    )
     session.execute(
         delete(ClueStoreGroupMember).where(ClueStoreGroupMember.store_group_id == group.store_group_id)
     )
@@ -249,6 +256,10 @@ def publish_rule_version(
         previous.retired_by = published_by
         previous.retired_at = now
         previous.updated_at = now
+    # The storage layer enforces one published version per logical rule. Persist
+    # retirements before publishing the replacement so SQLite and PostgreSQL see
+    # a valid state throughout the transition.
+    session.flush()
 
     version.status = "published"
     version.published_by = published_by
@@ -268,6 +279,9 @@ def retire_rule_version(
     version = _get_rule_version(session, rule_version_id)
     if version.status != "published":
         raise RuleImmutableError("only published versions can be retired")
+    rule = _get_rule(session, version.rule_id)
+    if rule.scope_type == "global":
+        raise RuleImmutableError("the current global default can only be replaced by publishing a new version")
     now = utcnow()
     version.status = "retired"
     version.retired_by = retired_by
@@ -356,8 +370,17 @@ def bind_lead_rule_version(
         },
         rule_version_snapshot=_rule_version_snapshot(session, match.rule_version),
     )
-    session.add(binding)
-    session.flush()
+    try:
+        with session.begin_nested():
+            session.add(binding)
+            session.flush()
+    except IntegrityError:
+        # A concurrent allocator may have bound the same lead first. Preserve
+        # that immutable winner instead of failing the allocation run.
+        winner = session.get(ClueLeadRuleVersionBinding, normalized_lead_key)
+        if winner is not None:
+            return winner
+        raise
     return binding
 
 
@@ -370,7 +393,7 @@ def _normalize_scope(
 ) -> dict[str, str | None]:
     if scope_type not in SCOPE_TYPES:
         raise RuleValidationError(f"scope_type must be one of: {', '.join(sorted(SCOPE_TYPES))}")
-    normalized_city = _optional_text(city_code)
+    normalized_city = _canonical_city_code(city_code)
     normalized_group = _optional_text(store_group_id)
     normalized_anchor = _optional_text(anchor_store_id)
     targets = {
@@ -455,7 +478,7 @@ def _validate_for_publish(
         raise RuleValidationError("auto_expiry_enabled must be explicit")
     if not isinstance(version.auto_expiry_enabled, bool):
         raise RuleValidationError("auto_expiry_enabled must be a boolean")
-    if version.auto_expiry_enabled:
+    if version.auto_expiry_enabled or version.first_follow_up_sla_hours is not None:
         _validate_integer_range(
             version.first_follow_up_sla_hours,
             "first_follow_up_sla_hours",
@@ -593,6 +616,24 @@ def _validate_store_ids(session: Session, store_ids: Sequence[str]) -> None:
         raise RuleValidationError(f"unknown store ids: {', '.join(missing)}")
 
 
+def _validate_store_group_members_available(
+    session: Session,
+    store_ids: Sequence[str],
+    *,
+    excluding_store_group_id: str | None = None,
+) -> None:
+    if not store_ids:
+        return
+    statement = select(ClueStoreGroupMember.store_id).where(ClueStoreGroupMember.store_id.in_(store_ids))
+    if excluding_store_group_id:
+        statement = statement.where(ClueStoreGroupMember.store_group_id != excluding_store_group_id)
+    occupied_store_ids = sorted(set(session.scalars(statement).all()))
+    if occupied_store_ids:
+        raise RuleValidationError(
+            f"stores can belong to only one allocation store group: {', '.join(occupied_store_ids)}"
+        )
+
+
 def _get_rule(session: Session, rule_id: str) -> ClueAllocationRule:
     rule = session.get(ClueAllocationRule, rule_id)
     if rule is None:
@@ -631,6 +672,13 @@ def _optional_text(value: Any) -> str | None:
         return None
     normalized = str(value).strip()
     return normalized or None
+
+
+def _canonical_city_code(value: str | None) -> str | None:
+    city_code = _optional_text(value)
+    if not city_code:
+        return None
+    return city_code[:-1] if city_code.endswith("市") else city_code
 
 
 def _as_decimal_or_none(value: Decimal | float | int | None, name: str) -> Decimal | None:

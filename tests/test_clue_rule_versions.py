@@ -104,6 +104,9 @@ def test_rule_version_schema_keeps_bindings_independent_from_legacy_orders() -> 
     assert "scope_resolution_snapshot" in binding_columns
     assert "rule_version_snapshot" in binding_columns
     assert "order_id" not in binding_columns
+    assert "uq_clue_allocation_rule_versions_published" in {
+        index.name for index in tables["clue_allocation_rule_versions"].indexes
+    }
 
 
 def test_scope_resolution_prefers_anchor_store_group_city_then_global(db_session: Session) -> None:
@@ -351,6 +354,53 @@ def test_auto_expiry_disabled_does_not_require_an_sla(db_session: Session) -> No
     published = publish_rule_version(db_session, version.rule_version_id, published_by="system-admin")
 
     assert published.status == "published"
+
+
+def test_rule_scope_normalizes_city_codes_and_store_groups_are_non_overlapping(db_session: Session) -> None:
+    db_session.add(_store("anchor-store", city_code="上海"))
+    db_session.add(_store("other-store", city_code="上海"))
+    db_session.commit()
+
+    global_rule = create_rule(db_session, name="Global", scope_type="global", created_by="system-admin")
+    _published(db_session, global_rule)
+    city_rule = create_rule(
+        db_session,
+        name="Shanghai",
+        scope_type="city",
+        city_code="上海市",
+        created_by="system-admin",
+    )
+    city_version = _published(db_session, city_rule)
+
+    match = resolve_published_rule_version(
+        db_session,
+        anchor_store_id="other-store",
+        anchor_city_code="上海",
+    )
+    assert match is not None
+    assert match.rule_version.rule_version_id == city_version.rule_version_id
+
+    create_store_group(
+        db_session,
+        name="Primary group",
+        member_store_ids=["anchor-store"],
+        created_by="system-admin",
+    )
+    with pytest.raises(RuleValidationError, match="only one allocation store group"):
+        create_store_group(
+            db_session,
+            name="Overlapping group",
+            member_store_ids=["anchor-store"],
+            created_by="system-admin",
+        )
+
+
+def test_current_global_default_cannot_be_retired_without_replacement(db_session: Session) -> None:
+    global_rule = create_rule(db_session, name="Global", scope_type="global", created_by="system-admin")
+    global_version = _published(db_session, global_rule)
+
+    with pytest.raises(RuleImmutableError, match="global default"):
+        retire_rule_version(db_session, global_version.rule_version_id, retired_by="system-admin")
 
 
 def test_published_versions_are_immutable_and_replaced_by_new_drafts(db_session: Session) -> None:
