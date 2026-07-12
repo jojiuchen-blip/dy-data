@@ -558,7 +558,10 @@ def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
     payload = deleted.json()["data"]
     assert payload["follow_up_record_id"] == record_id
     assert payload["follow_result"] == "unreachable"
-    assert db_session.get(ClueFollowUpRecord, record_id) is None
+    stored_record = db_session.get(ClueFollowUpRecord, record_id)
+    assert stored_record is not None
+    assert stored_record.deleted_at is not None
+    assert stored_record.deleted_by_username == "system-admin"
     db_session.expire_all()
     order = db_session.get(ClueCenterOrder, "order-2")
     round_row = db_session.get(ClueAssignmentRound, "order-2-1")
@@ -622,6 +625,47 @@ def test_store_cannot_delete_follow_up_record(
     assert db_session.get(ClueFollowUpRecord, "record-store-delete-forbidden") is not None
 
 
+def test_database_admin_can_write_follow_up_but_cannot_soft_delete(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add_all(
+        [
+            User(
+                user_id="ordinary-admin",
+                username="ordinary-admin",
+                external_account_id="ordinary-admin",
+                display_name="Ordinary Admin",
+                role="admin",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("ordinary-admin-secret"),
+            ),
+            ClueFollowUpRecord(
+                follow_up_record_id="ordinary-admin-record",
+                order_id="order-2",
+                assignment_round_id="order-2-1",
+                round_no=1,
+                assigned_store_id="store-1",
+                follow_result="unreachable",
+                created_at=_dt(1, 14),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "ordinary-admin", "ordinary-admin-secret")
+
+    follow_up = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={"assignment_round_id": "order-2-1", "follow_result": "appointment"},
+    )
+    deleted = client.delete("/api/v1/clues/follow-up-records/ordinary-admin-record")
+
+    assert follow_up.status_code == 200
+    assert deleted.status_code == 403
+    assert db_session.get(ClueFollowUpRecord, "ordinary-admin-record").deleted_at is None
+
+
 def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(
     client: TestClient, db_session: Session
 ) -> None:
@@ -682,10 +726,10 @@ def test_follow_up_conflicts_if_current_round_changes_after_precheck(
         "order-2",
         {
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+                "follow_result": "appointment",
             "note": "stale follow-up",
         },
-        {"role": "admin", "username": "system-admin", "user_id": "admin"},
+        {"role": "admin", "username": "system-admin", "user_id": "admin", "auth_type": "env_admin", "is_highest_admin": True},
     )
 
     assert result_status == "conflict"
@@ -739,10 +783,10 @@ def test_follow_up_conflicts_if_same_round_is_followed_after_precheck(
         "order-2",
         {
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+                "follow_result": "appointment",
             "note": "stale success",
         },
-        {"role": "admin", "username": "system-admin", "user_id": "admin"},
+        {"role": "admin", "username": "system-admin", "user_id": "admin", "auth_type": "env_admin", "is_highest_admin": True},
     )
 
     assert result_status == "conflict"
@@ -793,7 +837,7 @@ def test_store_can_record_current_scoped_follow_up(
         "/api/v1/clues/orders/order-2/follow-up",
         json={
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Reached customer.",
         },
     )
@@ -806,8 +850,8 @@ def test_store_can_record_current_scoped_follow_up(
     round_row = db_session.get(ClueAssignmentRound, "order-2-1")
     assert order is not None
     assert round_row is not None
-    assert order.follow_result == "success"
-    assert order.is_follow_success is True
+    assert order.follow_result == "appointment"
+    assert order.is_follow_success is False
     assert order.lead_status == "active"
     assert round_row.round_status == "active_followed"
 
@@ -835,7 +879,7 @@ def test_viewer_cannot_record_follow_up(
         "/api/v1/clues/orders/order-2/follow-up",
         json={
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Viewer should not save.",
         },
     )
@@ -1161,7 +1205,7 @@ def test_store_account_sees_only_own_round_but_can_open_full_order_detail(
         "/api/v1/clues/orders/order-1/follow-up",
         json={
             "assignment_round_id": "order-1-2",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Historical store should not save current round.",
         },
     )

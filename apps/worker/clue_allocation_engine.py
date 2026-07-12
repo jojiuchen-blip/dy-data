@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
 from typing import Any, Mapping
@@ -55,6 +55,8 @@ def allocate_lead(
     allocation_cycle_id: str | None = None,
     actor: str | None = None,
     now: datetime | None = None,
+    start_after_strategy: str | None = None,
+    transition_key: str | None = None,
 ) -> AllocationResult:
     """Allocate one active M1 lead through its immutable bound rule snapshot.
 
@@ -69,6 +71,7 @@ def allocate_lead(
     executed_at = _aware(now or utcnow())
     normalized_cycle = _clean(allocation_cycle_id)
     normalized_actor = _clean(actor) or "manual"
+    normalized_transition_key = _clean(transition_key)
 
     lead = session.get(ClueMasterLead, normalized_lead_key)
     if lead is None:
@@ -98,6 +101,7 @@ def allocate_lead(
         lead_key=lead.lead_key,
         execution_mode=normalized_mode,
         allocation_cycle_id=normalized_cycle,
+        transition_key=normalized_transition_key,
     )
     if completed_decision is not None:
         return AllocationResult(
@@ -140,6 +144,7 @@ def allocate_lead(
                 selected_store_id=None,
             ),
             strategy_type="rule_version_resolution",
+            transition_key=normalized_transition_key,
         )
         _project_headquarters(lead, executed_at)
         session.flush()
@@ -172,6 +177,7 @@ def allocate_lead(
             snapshot=snapshot,
             strategy_type="anchor_validation",
             execution_order=0,
+            transition_key=normalized_transition_key,
         )
         _project_headquarters(lead, executed_at)
         session.flush()
@@ -201,6 +207,7 @@ def allocate_lead(
             executed_at=executed_at,
             reason="order_id_missing",
             snapshot=snapshot,
+            transition_key=normalized_transition_key,
         )
         _project_headquarters(lead, executed_at)
         session.flush()
@@ -208,6 +215,13 @@ def allocate_lead(
 
     rule_snapshot = dict(binding.rule_version_snapshot or {})
     strategy_configs = _strategy_configs(rule_snapshot)
+    start_after = _clean(start_after_strategy)
+    start_after_order: int | None = None
+    if start_after:
+        matched = next((config for config in strategy_configs if config["strategy_type"] == start_after), None)
+        if matched is None:
+            raise ValueError("start_after_strategy must be a configured strategy type")
+        start_after_order = int(matched["execution_order"])
     stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
     scores = _latest_scores(session, {store.store_id for store in stores})
     sale_store = _resolve_sale_store_evidence(session, lead.order_id or "")
@@ -220,6 +234,8 @@ def allocate_lead(
         execution_order = config["execution_order"]
         params = config["params"]
         max_distance_km = _strategy_distance(strategy_type, params)
+        if start_after_order is not None and execution_order <= start_after_order:
+            continue
 
         if not enabled:
             decision = _record_decision(
@@ -247,6 +263,7 @@ def allocate_lead(
                     candidates=[],
                     selected_store_id=None,
                 ),
+                transition_key=normalized_transition_key,
             )
             decision_ids.append(decision.decision_id)
             continue
@@ -287,6 +304,7 @@ def allocate_lead(
                     candidates=candidates,
                     selected_store_id=None,
                 ),
+                transition_key=normalized_transition_key,
             )
             decision_ids.append(decision.decision_id)
             continue
@@ -334,6 +352,7 @@ def allocate_lead(
             assignment_round_id=assignment_round_id,
             round_no=round_no,
             snapshot=snapshot,
+            transition_key=normalized_transition_key,
         )
         round_row = _ensure_selected_round(
             session,
@@ -378,6 +397,7 @@ def allocate_lead(
         executed_at=executed_at,
         reason="no_candidate",
         snapshot=final_snapshot,
+        transition_key=normalized_transition_key,
     )
     _project_headquarters(lead, executed_at)
     session.flush()
@@ -757,6 +777,7 @@ def _record_headquarters_decision(
     snapshot: dict[str, Any],
     strategy_type: str = "allocation_finalization",
     execution_order: int | None = None,
+    transition_key: str | None = None,
 ) -> ClueAllocationDecision:
     return _record_decision(
         session,
@@ -771,6 +792,7 @@ def _record_headquarters_decision(
         status="headquarters",
         reason=reason,
         snapshot=snapshot,
+        transition_key=transition_key,
     )
 
 
@@ -792,6 +814,7 @@ def _record_decision(
     selected_store_name: str | None = None,
     assignment_round_id: str | None = None,
     round_no: int | None = None,
+    transition_key: str | None = None,
 ) -> ClueAllocationDecision:
     attempt_key = _attempt_key(
         lead_key=lead.lead_key,
@@ -799,6 +822,7 @@ def _record_decision(
         allocation_cycle_id=allocation_cycle_id,
         strategy_type=strategy_type,
         execution_order=execution_order,
+        transition_key=transition_key,
     )
     existing = session.scalar(select(ClueAllocationDecision).where(ClueAllocationDecision.attempt_key == attempt_key))
     if existing is not None:
@@ -855,6 +879,9 @@ def _ensure_selected_round(
     if existing is not None:
         return existing
 
+    rule_snapshot = dict(binding.rule_version_snapshot or {})
+    first_follow_up_sla_hours = _positive_int(rule_snapshot.get("first_follow_up_sla_hours"), 24)
+    protection_days = _positive_int(rule_snapshot.get("protection_days"), 7)
     round_row = ClueAssignmentRound(
         assignment_round_id=decision.assignment_round_id,
         order_id=lead.order_id or "",
@@ -872,6 +899,11 @@ def _ensure_selected_round(
         is_follow_success=False,
         round_status="active_unfollowed",
         execution_mode=decision.execution_mode,
+        expires_at=executed_at + timedelta(hours=first_follow_up_sla_hours),
+        first_sla_expires_at=executed_at + timedelta(hours=first_follow_up_sla_hours),
+        auto_expiry_enabled=bool(rule_snapshot.get("auto_expiry_enabled", True)),
+        first_follow_up_sla_hours=first_follow_up_sla_hours,
+        protection_days=protection_days,
         created_at=executed_at,
         updated_at=executed_at,
     )
@@ -971,21 +1003,17 @@ def _completed_headquarters_decision(
     lead_key: str,
     execution_mode: str,
     allocation_cycle_id: str | None,
+    transition_key: str | None,
 ) -> ClueAllocationDecision | None:
-    statement = (
-        select(ClueAllocationDecision)
-        .where(ClueAllocationDecision.lead_key == lead_key)
-        .where(ClueAllocationDecision.execution_mode == execution_mode)
-        .where(ClueAllocationDecision.decision_status == "headquarters")
-        .where(ClueAllocationDecision.reason != "rule_version_unavailable")
+    attempt_key = _attempt_key(
+        lead_key=lead_key,
+        execution_mode=execution_mode,
+        allocation_cycle_id=allocation_cycle_id,
+        strategy_type="allocation_finalization",
+        execution_order=None,
+        transition_key=transition_key,
     )
-    if allocation_cycle_id is None:
-        statement = statement.where(ClueAllocationDecision.allocation_cycle_id.is_(None))
-    else:
-        statement = statement.where(ClueAllocationDecision.allocation_cycle_id == allocation_cycle_id)
-    return session.scalar(
-        statement.order_by(ClueAllocationDecision.executed_at.desc(), ClueAllocationDecision.decision_id.desc()).limit(1)
-    )
+    return session.scalar(select(ClueAllocationDecision).where(ClueAllocationDecision.attempt_key == attempt_key))
 
 
 def _next_round_no(session: Session, lead_key: str, execution_mode: str) -> int:
@@ -1015,6 +1043,7 @@ def _attempt_key(
     allocation_cycle_id: str | None,
     strategy_type: str,
     execution_order: int | None,
+    transition_key: str | None = None,
 ) -> str:
     value = "|".join(
         (
@@ -1023,6 +1052,7 @@ def _attempt_key(
             allocation_cycle_id or "",
             strategy_type,
             "" if execution_order is None else str(execution_order),
+            transition_key or "",
         )
     )
     return f"clue-allocation:{sha256(value.encode('utf-8')).hexdigest()}"
@@ -1036,6 +1066,14 @@ def _strategy_distance(strategy_type: str, params: Mapping[str, Any]) -> float |
         return float(Decimal(str(value)))
     except Exception:
         return DEFAULT_DISTANCE_KM[strategy_type]
+
+
+def _positive_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
 
 
 def _anchor_unavailable_reason(lead: ClueMasterLead) -> str | None:

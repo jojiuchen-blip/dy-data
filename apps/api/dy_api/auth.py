@@ -62,6 +62,10 @@ class AuthContext:
         return self.role == "admin"
 
     @property
+    def is_highest_admin(self) -> bool:
+        return self.auth_type == "env_admin"
+
+    @property
     def has_global_data_access(self) -> bool:
         return self.role in {"admin", "viewer"}
 

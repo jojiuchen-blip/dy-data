@@ -36,6 +36,7 @@ class AdminUser(BaseModel):
     status: str = "active"
     is_initialized: bool = True
     store_ids: list[str] = Field(default_factory=list)
+    is_highest_admin: bool = False
 
 
 class AccountInitializeRequest(BaseModel):
@@ -417,6 +418,12 @@ class ClueAssignmentRoundRow(BaseModel):
     round_status: str
     assigned_at: datetime | None = None
     expires_at: datetime | None = None
+    first_sla_expires_at: datetime | None = None
+    protection_started_at: datetime | None = None
+    protection_expires_at: datetime | None = None
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
     remaining_reassign_seconds: int | None = None
     assigned_store_id: str | None = None
     assigned_store_name: str | None = None
@@ -441,7 +448,7 @@ class ClueAssignmentRoundData(BaseModel):
 
 class ClueFollowUpRequest(BaseModel):
     assignment_round_id: str
-    follow_result: Literal["unreachable", "lost", "success"]
+    follow_result: Literal["appointment", "further_follow_up", "lost", "unreachable", "request_store_change"]
     note: str | None = None
 
     @field_validator("assignment_round_id")
@@ -465,7 +472,7 @@ class ClueFollowUpRecordRow(BaseModel):
     assignment_round_id: str
     round_no: int
     assigned_store_id: str | None = None
-    follow_result: Literal["unreachable", "lost", "success"]
+    follow_result: Literal["appointment", "further_follow_up", "lost", "unreachable", "request_store_change", "success", "failed"]
     note: str | None = None
     operator_user_id: str | None = None
     operator_username: str | None = None
@@ -843,6 +850,8 @@ class ClueAllocationRuleVersionData(BaseModel):
     min_samples: int | None = None
     strategy_configs: list[ClueAllocationStrategyConfigData] = Field(default_factory=list)
     created_at: datetime
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
     updated_at: datetime
     published_at: datetime | None = None
     retired_at: datetime | None = None

@@ -40,6 +40,8 @@ def _operation_actor(current_user: AuthContext) -> dict:
         "store_ids": current_user.store_ids,
         "user_id": current_user.user_id,
         "username": current_user.username,
+        "auth_type": current_user.auth_type,
+        "is_highest_admin": current_user.is_highest_admin,
     }
 
 
@@ -246,13 +248,16 @@ def delete_clue_follow_up_record(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    if current_user.role != "admin":
+    if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="Highest administrator access required",
         )
     store = _require_available_store(store)
-    result_status, record = store.delete_clue_follow_up_record(follow_up_record_id)
+    result_status, record = store.delete_clue_follow_up_record(
+        follow_up_record_id,
+        _operation_actor(current_user),
+    )
     if result_status == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

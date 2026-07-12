@@ -511,6 +511,12 @@ class ClueAssignmentRound(Base):
     matured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     terminal_reason: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    first_sla_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    protection_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    protection_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    auto_expiry_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    first_follow_up_sla_hours: Mapped[int | None] = mapped_column(Integer)
+    protection_days: Mapped[int | None] = mapped_column(Integer)
     reassign_reason: Mapped[str | None] = mapped_column(Text)
     reassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_store_id: Mapped[str | None] = mapped_column(Text, index=True)
@@ -540,6 +546,10 @@ class ClueFollowUpRecord(Base):
     operator_user_id: Mapped[str | None] = mapped_column(Text)
     operator_username: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    deleted_by_user_id: Mapped[str | None] = mapped_column(Text)
+    deleted_by_username: Mapped[str | None] = mapped_column(Text)
+    deletion_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class ClueReassignRuleSetting(Base):

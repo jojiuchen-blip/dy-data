@@ -24,6 +24,8 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
 
 try:
     from apps.api.dy_api.models import (
+        ClueAssignmentRound,
+        ClueFollowUpRecord,
         ClueReassignRuleSetting,
         DimNonCommissionOwnerAccount,
         DimSkuProductRule,
@@ -32,6 +34,8 @@ try:
     from apps.api.dy_api.rule_utils import normalize_owner_account_name
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     ClueReassignRuleSetting = None  # type: ignore[assignment]
+    ClueAssignmentRound = None  # type: ignore[assignment]
+    ClueFollowUpRecord = None  # type: ignore[assignment]
     DimNonCommissionOwnerAccount = None  # type: ignore[assignment]
     DimSkuProductRule = None  # type: ignore[assignment]
     ProductTypeVisibilitySetting = None  # type: ignore[assignment]
@@ -42,6 +46,13 @@ try:
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     build_douyin_client_from_env = None  # type: ignore[assignment]
 
+from apps.worker.clue_follow_up_state import (
+    SELF_OWNED_EXECUTION_MODES,
+    apply_follow_up_action,
+    can_reveal_current_order_phone,
+    soft_delete_follow_up_record,
+)
+
 
 SENSITIVE_ERROR_RE = re.compile(
     r"(?i)(cookie|token|secret|password|passwd|authorization|credential)"
@@ -51,7 +62,14 @@ FILE_PATH_RE = re.compile(
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _SESSION_FACTORY: Any | None = None
-FOLLOW_UP_RESULTS = {"unreachable", "lost", "success"}
+FOLLOW_UP_RESULTS = {
+    "appointment",
+    "further_follow_up",
+    "lost",
+    "unreachable",
+    "request_store_change",
+    "success",  # legacy history only
+}
 CURRENT_OPERABLE_ROUND_STATUSES = {"active_unfollowed", "active_followed"}
 CLUE_VERIFICATION_STATUSES = [
     "unverified",
@@ -247,6 +265,25 @@ def _to_bool(value: Any) -> bool:
     if isinstance(value, int):
         return value != 0
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _follow_up_record_payload(record: Any) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {
+        "follow_up_record_id": record.follow_up_record_id,
+        "order_id": record.order_id,
+        "assignment_round_id": record.assignment_round_id,
+        "round_no": record.round_no,
+        "assigned_store_id": record.assigned_store_id,
+        "follow_result": record.follow_result,
+        "note": record.note,
+        "operator_user_id": record.operator_user_id,
+        "operator_username": record.operator_username,
+        "created_at": record.created_at,
+        "is_deleted": record.deleted_at is not None,
+        "deleted_at": record.deleted_at,
+    }
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -1969,6 +2006,12 @@ class DashboardDataStore:
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
+                   r.first_sla_expires_at,
+                   r.protection_started_at,
+                   r.protection_expires_at,
+                   r.auto_expiry_enabled,
+                   r.first_follow_up_sla_hours,
+                   r.protection_days,
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
@@ -2164,6 +2207,7 @@ class DashboardDataStore:
                    created_at
             FROM clue_follow_up_records
             WHERE order_id = :order_id
+              AND deleted_at IS NULL
             ORDER BY created_at, follow_up_record_id
             """,
             {"order_id": order_id},
@@ -2370,6 +2414,18 @@ class DashboardDataStore:
             return "conflict", None
         if not self._clue_order_product_visible(order_id):
             return "not_found", None
+        formal_round = self.session.get(ClueAssignmentRound, assignment_round_id) if ClueAssignmentRound is not None else None
+        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+            result = apply_follow_up_action(
+                self.session,
+                order_id=order_id,
+                assignment_round_id=assignment_round_id,
+                follow_result=follow_result,
+                actor=actor,
+                note=note,
+                now=generated_at(),
+            )
+            return result.status, _follow_up_record_payload(result.record)
 
         row = self._requested_operation_round(order_id, assignment_round_id)
         if row is None:
@@ -2511,10 +2567,21 @@ class DashboardDataStore:
     def delete_clue_follow_up_record(
         self,
         follow_up_record_id: str,
+        actor: dict[str, Any],
     ) -> tuple[str, dict[str, Any] | None]:
         follow_up_record_id = _to_str(follow_up_record_id).strip()
         if not follow_up_record_id:
             return "not_found", None
+        result = soft_delete_follow_up_record(
+            self.session,
+            follow_up_record_id=follow_up_record_id,
+            actor=actor,
+            reason="reversed_by_highest_admin",
+            now=generated_at(),
+        )
+        return result.status, _follow_up_record_payload(result.record)
+
+        # Legacy implementation retained below for historical reference only.
         rows = self._execute(
             """
             SELECT follow_up_record_id,
@@ -2659,6 +2726,10 @@ class DashboardDataStore:
             return None
         if not self._is_current_effective_round(row):
             return None
+        formal_round = self.session.get(ClueAssignmentRound, _to_str(row.get("assignment_round_id"))) if ClueAssignmentRound is not None else None
+        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+            if not can_reveal_current_order_phone(self.session, order_id=order_id, actor=actor):
+                return None
 
         phone = (
             self._clue_order_cached_phone(order_id)
@@ -3166,6 +3237,12 @@ class DashboardDataStore:
             "round_status": _to_str(row.get("round_status")),
             "assigned_at": row.get("assigned_at"),
             "expires_at": expires_at,
+            "first_sla_expires_at": row.get("first_sla_expires_at"),
+            "protection_started_at": row.get("protection_started_at"),
+            "protection_expires_at": row.get("protection_expires_at"),
+            "auto_expiry_enabled": row.get("auto_expiry_enabled"),
+            "first_follow_up_sla_hours": row.get("first_follow_up_sla_hours"),
+            "protection_days": row.get("protection_days"),
             "remaining_reassign_seconds": _remaining_reassign_seconds(expires_at),
             "assigned_store_id": row.get("assigned_store_id"),
             "assigned_store_name": row.get("assigned_store_name"),

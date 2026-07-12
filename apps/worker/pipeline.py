@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from apps.worker.clue_allocation import materialize_clue_master_leads, refresh_due_store_score_snapshots
 from apps.worker.clue_center import rebuild_clue_center
+from apps.worker.clue_follow_up_state import process_due_transitions
 from apps.worker.collectors.aweme_bindings import collect_aweme_bindings
 from apps.worker.collectors.clues import collect_clues
 from apps.worker.collectors.orders import collect_orders
@@ -197,6 +198,7 @@ def _run_job(
             stats.add_phase(_coerce_settlement_phase(settlement_runner(session, source_run_id)))
             if include_clue_center_rebuild:
                 stats.add_phase(_run_clue_master_rebuild_phase(session, source_run_id))
+                stats.add_phase(_run_clue_follow_up_due_phase(session, source_run_id))
                 stats.add_phase(_run_store_score_snapshot_phase(session, source_run_id))
 
         _set_job_metadata(session, source_run_id, stats.as_metadata())
@@ -244,6 +246,13 @@ def _run_clue_master_rebuild_phase(session: Session, source_run_id: str) -> Phas
     _ = source_run_id
     result = materialize_clue_master_leads(session)
     return PhaseStats(name="clue_master_rebuild", fetched=0, upserted=int(result.get("master_leads", 0) or 0))
+
+
+def _run_clue_follow_up_due_phase(session: Session, source_run_id: str) -> PhaseStats:
+    _ = source_run_id
+    result = process_due_transitions(session)
+    transitioned = sum(int(result.get(key, 0) or 0) for key in ("sla_expired", "protection_expired", "terminal_closed"))
+    return PhaseStats(name="clue_follow_up_due", fetched=0, upserted=transitioned)
 
 
 def _run_store_score_snapshot_phase(session: Session, source_run_id: str) -> PhaseStats:
