@@ -9,7 +9,12 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import delete, func, or_, select, text
 
 from apps.api.dy_api.models import (
+    ClueAllocationRule,
+    ClueAllocationRuleVersion,
+    ClueAllocationStrategyConfig,
     ClueMasterLead,
+    ClueStoreGroup,
+    ClueStoreGroupMember,
     DimAwemeAccount,
     DimStore,
     DimStorePoiMapping,
@@ -27,6 +32,19 @@ from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.clue_allocation import refresh_store_score_snapshots
 from apps.worker.manual_sync import run_manual_sync_job
+from apps.worker.clue_rule_versions import (
+    RuleImmutableError,
+    RuleNotFoundError,
+    RuleVersionError,
+    create_rule as create_clue_allocation_rule,
+    create_rule_version,
+    create_store_group,
+    delete_rule_version,
+    publish_rule_version,
+    replace_store_group_members,
+    retire_rule_version,
+    update_rule_version,
+)
 from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
@@ -46,6 +64,17 @@ from dy_api.schemas import (
     ClueRebuildResult,
     ClueMasterLeadData,
     ClueMasterLeadRow,
+    ClueAllocationRuleCreateRequest,
+    ClueAllocationRuleData,
+    ClueAllocationRuleDetailData,
+    ClueAllocationRuleListData,
+    ClueAllocationRuleVersionData,
+    ClueAllocationRuleVersionDeleteData,
+    ClueAllocationRuleVersionWrite,
+    ClueStoreGroupCreateRequest,
+    ClueStoreGroupData,
+    ClueStoreGroupListData,
+    ClueStoreGroupMembersUpdate,
     FeedbackListData,
     FeedbackRow,
     FeedbackStatusUpdateRequest,
@@ -109,6 +138,14 @@ def _require_available_store(store):
             detail="Database is not available",
         )
     return store
+
+
+def _rule_version_http_error(error: RuleVersionError) -> HTTPException:
+    if isinstance(error, RuleNotFoundError):
+        return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
+    if isinstance(error, RuleImmutableError):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
 
 
 @router.get("/accounts")
@@ -591,6 +628,259 @@ def refresh_store_scores(
         snapshot_run_id=str(result["snapshot_run_id"]),
         snapshot_count=int(result["snapshots"]),
     )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/rules")
+def list_clue_allocation_rules(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueAllocationRule)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(ClueAllocationRule.scope_type, ClueAllocationRule.scope_key)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueAllocationRuleListData(
+        rows=[ClueAllocationRuleData(**_clue_allocation_rule_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/rules/{rule_id}")
+def get_clue_allocation_rule(
+    rule_id: str,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    rule = store.session.get(ClueAllocationRule, rule_id)
+    if rule is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Clue allocation rule was not found")
+    versions = store.session.scalars(
+        select(ClueAllocationRuleVersion)
+        .where(ClueAllocationRuleVersion.rule_id == rule.rule_id)
+        .order_by(ClueAllocationRuleVersion.version_no.desc())
+    ).all()
+    data = ClueAllocationRuleDetailData(
+        rule=ClueAllocationRuleData(**_clue_allocation_rule_payload(rule)),
+        versions=[
+            ClueAllocationRuleVersionData(**_clue_allocation_rule_version_payload(store.session, version))
+            for version in versions
+        ],
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/rules", status_code=status.HTTP_201_CREATED)
+def create_clue_allocation_rule_route(
+    payload: ClueAllocationRuleCreateRequest,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        rule = create_clue_allocation_rule(
+            store.session,
+            name=payload.name,
+            scope_type=payload.scope.scope_type,
+            city_code=payload.scope.city_code,
+            store_group_id=payload.scope.store_group_id,
+            anchor_store_id=payload.scope.anchor_store_id,
+            created_by=username,
+        )
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleData(**_clue_allocation_rule_payload(rule))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/rules/{rule_id}/versions", status_code=status.HTTP_201_CREATED)
+def create_clue_allocation_rule_version_route(
+    rule_id: str,
+    payload: ClueAllocationRuleVersionWrite,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        version = create_rule_version(
+            store.session,
+            rule_id,
+            created_by=username,
+            **payload.model_dump(),
+        )
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleVersionData(**_clue_allocation_rule_version_payload(store.session, version))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/clue-allocation/rule-versions/{rule_version_id}")
+def update_clue_allocation_rule_version_route(
+    rule_version_id: str,
+    payload: ClueAllocationRuleVersionWrite,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        version = update_rule_version(
+            store.session,
+            rule_version_id,
+            updated_by=username,
+            **payload.model_dump(),
+        )
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleVersionData(**_clue_allocation_rule_version_payload(store.session, version))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.delete("/clue-allocation/rule-versions/{rule_version_id}")
+def delete_clue_allocation_rule_version_route(
+    rule_version_id: str,
+    _username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        delete_rule_version(store.session, rule_version_id)
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleVersionDeleteData(rule_version_id=rule_version_id, deleted=True)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/rule-versions/{rule_version_id}/publish")
+def publish_clue_allocation_rule_version_route(
+    rule_version_id: str,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        version = publish_rule_version(store.session, rule_version_id, published_by=username)
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleVersionData(**_clue_allocation_rule_version_payload(store.session, version))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/rule-versions/{rule_version_id}/retire")
+def retire_clue_allocation_rule_version_route(
+    rule_version_id: str,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        version = retire_rule_version(store.session, rule_version_id, retired_by=username)
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueAllocationRuleVersionData(**_clue_allocation_rule_version_payload(store.session, version))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/store-groups")
+def list_clue_store_groups(
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    groups = store.session.scalars(
+        select(ClueStoreGroup).order_by(ClueStoreGroup.group_name, ClueStoreGroup.store_group_id)
+    ).all()
+    data = ClueStoreGroupListData(
+        rows=[ClueStoreGroupData(**_clue_store_group_payload(store.session, group)) for group in groups]
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/store-groups", status_code=status.HTTP_201_CREATED)
+def create_clue_store_group_route(
+    payload: ClueStoreGroupCreateRequest,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        group = create_store_group(
+            store.session,
+            name=payload.name,
+            member_store_ids=payload.member_store_ids,
+            created_by=username,
+        )
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueStoreGroupData(**_clue_store_group_payload(store.session, group))
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/clue-allocation/store-groups/{store_group_id}/members")
+def replace_clue_store_group_members_route(
+    store_group_id: str,
+    payload: ClueStoreGroupMembersUpdate,
+    _username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        group = replace_store_group_members(
+            store.session,
+            store_group_id,
+            member_store_ids=payload.member_store_ids,
+        )
+    except RuleVersionError as exc:
+        raise _rule_version_http_error(exc) from exc
+    store.session.commit()
+    data = ClueStoreGroupData(**_clue_store_group_payload(store.session, group))
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -1149,6 +1439,70 @@ def _store_score_snapshot_payload(row: StoreScoreSnapshot) -> dict:
         "follow_24h_value_source": row.follow_24h_value_source,
         "store_weight": float(row.store_weight),
         "composite_score": float(row.composite_score),
+    }
+
+
+def _clue_allocation_rule_payload(row: ClueAllocationRule) -> dict:
+    return {
+        "rule_id": row.rule_id,
+        "name": row.rule_name,
+        "scope": {
+            "scope_type": row.scope_type,
+            "city_code": row.scope_city_code,
+            "store_group_id": row.scope_store_group_id,
+            "anchor_store_id": row.scope_anchor_store_id,
+        },
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _clue_allocation_rule_version_payload(session, row: ClueAllocationRuleVersion) -> dict:
+    configs = session.scalars(
+        select(ClueAllocationStrategyConfig)
+        .where(ClueAllocationStrategyConfig.rule_version_id == row.rule_version_id)
+        .order_by(ClueAllocationStrategyConfig.execution_order, ClueAllocationStrategyConfig.strategy_config_id)
+    ).all()
+    return {
+        "rule_version_id": row.rule_version_id,
+        "rule_id": row.rule_id,
+        "version_no": row.version_no,
+        "status": row.status,
+        "auto_expiry_enabled": row.auto_expiry_enabled,
+        "first_follow_up_sla_hours": row.first_follow_up_sla_hours,
+        "protection_days": row.protection_days,
+        "conversion_weight": float(row.conversion_weight) if row.conversion_weight is not None else None,
+        "follow_24h_weight": float(row.follow_24h_weight) if row.follow_24h_weight is not None else None,
+        "lookback_days": row.lookback_days,
+        "min_samples": row.min_samples,
+        "strategy_configs": [
+            {
+                "strategy_type": config.strategy_type,
+                "enabled": config.enabled,
+                "execution_order": config.execution_order,
+                "params": dict(config.params_json or {}),
+            }
+            for config in configs
+        ],
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+        "published_at": row.published_at,
+        "retired_at": row.retired_at,
+    }
+
+
+def _clue_store_group_payload(session, group: ClueStoreGroup) -> dict:
+    member_store_ids = session.scalars(
+        select(ClueStoreGroupMember.store_id)
+        .where(ClueStoreGroupMember.store_group_id == group.store_group_id)
+        .order_by(ClueStoreGroupMember.store_id)
+    ).all()
+    return {
+        "store_group_id": group.store_group_id,
+        "name": group.group_name,
+        "member_store_ids": member_store_ids,
+        "created_at": group.created_at,
+        "updated_at": group.updated_at,
     }
 
 

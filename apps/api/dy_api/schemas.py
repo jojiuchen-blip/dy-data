@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ApiMeta(BaseModel):
@@ -730,6 +730,145 @@ class StoreScoreRefreshRequest(BaseModel):
 class StoreScoreRefreshResult(BaseModel):
     snapshot_run_id: str
     snapshot_count: int = 0
+
+
+class ClueAllocationRuleScopeInput(BaseModel):
+    scope_type: Literal["global", "city", "store_group", "anchor_store"]
+    city_code: str | None = Field(default=None, max_length=128)
+    store_group_id: str | None = Field(default=None, max_length=256)
+    anchor_store_id: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_scope_target(self) -> "ClueAllocationRuleScopeInput":
+        targets = {
+            "city": self.city_code,
+            "store_group": self.store_group_id,
+            "anchor_store": self.anchor_store_id,
+        }
+        if self.scope_type == "global":
+            if any(target.strip() for target in targets.values() if target):
+                raise ValueError("global scope cannot include a target")
+            return self
+        selected_target = targets[self.scope_type]
+        if not selected_target or not selected_target.strip():
+            raise ValueError(f"{self.scope_type} scope requires its target identifier")
+        if any(target.strip() for name, target in targets.items() if name != self.scope_type and target):
+            raise ValueError("a logical rule scope can only declare one target")
+        return self
+
+
+class ClueAllocationRuleScopeData(BaseModel):
+    scope_type: Literal["global", "city", "store_group", "anchor_store"]
+    city_code: str | None = None
+    store_group_id: str | None = None
+    anchor_store_id: str | None = None
+
+
+class ClueAllocationRuleCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    scope: ClueAllocationRuleScopeInput
+
+    @field_validator("name")
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name is required")
+        return normalized
+
+
+class ClueAllocationStrategyConfigInput(BaseModel):
+    strategy_type: Literal["sales_store_priority", "nearby_city_optimization", "city_fallback"]
+    enabled: bool
+    execution_order: int
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClueAllocationStrategyConfigData(BaseModel):
+    strategy_type: Literal["sales_store_priority", "nearby_city_optimization", "city_fallback"]
+    enabled: bool
+    execution_order: int
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClueAllocationRuleVersionWrite(BaseModel):
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
+    conversion_weight: float | None = None
+    follow_24h_weight: float | None = None
+    lookback_days: int | None = None
+    min_samples: int | None = None
+    strategy_configs: list[ClueAllocationStrategyConfigInput] = Field(default_factory=list, max_length=10)
+
+
+class ClueAllocationRuleVersionData(BaseModel):
+    rule_version_id: str
+    rule_id: str
+    version_no: int
+    status: Literal["draft", "published", "retired"]
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
+    conversion_weight: float | None = None
+    follow_24h_weight: float | None = None
+    lookback_days: int | None = None
+    min_samples: int | None = None
+    strategy_configs: list[ClueAllocationStrategyConfigData] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None = None
+    retired_at: datetime | None = None
+
+
+class ClueAllocationRuleData(BaseModel):
+    rule_id: str
+    name: str
+    scope: ClueAllocationRuleScopeData
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClueAllocationRuleListData(BaseModel):
+    rows: list[ClueAllocationRuleData] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationRuleDetailData(BaseModel):
+    rule: ClueAllocationRuleData
+    versions: list[ClueAllocationRuleVersionData] = Field(default_factory=list)
+
+
+class ClueAllocationRuleVersionDeleteData(BaseModel):
+    rule_version_id: str
+    deleted: bool
+
+
+class ClueStoreGroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    member_store_ids: list[str] = Field(default_factory=list, max_length=500)
+
+    @field_validator("name")
+    def normalize_group_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name is required")
+        return normalized
+
+
+class ClueStoreGroupMembersUpdate(BaseModel):
+    member_store_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class ClueStoreGroupData(BaseModel):
+    store_group_id: str
+    name: str
+    member_store_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClueStoreGroupListData(BaseModel):
+    rows: list[ClueStoreGroupData] = Field(default_factory=list)
 
 
 class OrderDetailsData(BaseModel):
