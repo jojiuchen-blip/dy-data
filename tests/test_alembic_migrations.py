@@ -218,3 +218,83 @@ def test_clue_follow_up_state_machine_migration_is_reversible(tmp_path: Path) ->
     downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
     assert "first_sla_expires_at" not in {column["name"] for column in downgraded.get_columns("clue_assignment_rounds")}
     assert "deleted_at" not in {column["name"] for column in downgraded.get_columns("clue_follow_up_records")}
+
+
+def test_clue_allocation_cycle_and_headquarters_pool_migration_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "allocation-cycles.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260712_0015")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    now = datetime(2026, 7, 12, tzinfo=timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    normalized_order_status, status_source, lifecycle_status,
+                    pool_location, allocation_state, ended_without_assignment,
+                    created_at, updated_at
+                ) VALUES (
+                    :lead_key, :source_clue_row_key, :source_identity_key,
+                    :normalized_order_status, :status_source, :lifecycle_status,
+                    :pool_location, :allocation_state, :ended_without_assignment,
+                    :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "lead_key": "legacy-headquarters-lead",
+                "source_clue_row_key": "legacy-headquarters-raw",
+                "source_identity_key": "legacy-headquarters-identity",
+                "normalized_order_status": "active",
+                "status_source": "test",
+                "lifecycle_status": "active",
+                "pool_location": "headquarters_pool",
+                "allocation_state": "headquarters",
+                "ended_without_assignment": False,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+    command.upgrade(config, "head")
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {
+        "clue_allocation_cycles",
+        "clue_headquarters_pool_entries",
+        "clue_allocation_audit_logs",
+    }.issubset(upgraded.get_table_names())
+    assert "uq_clue_headquarters_pool_entries_active_lead" in {
+        index["name"] for index in upgraded.get_indexes("clue_headquarters_pool_entries")
+    }
+    assert "preview_token_hash" in {
+        column["name"] for column in upgraded.get_columns("clue_allocation_cycles")
+    }
+    with create_engine(f"sqlite:///{database_path.as_posix()}").connect() as connection:
+        entries = connection.execute(
+            text(
+                "SELECT lead_key, status, reason FROM clue_headquarters_pool_entries "
+                "WHERE lead_key = 'legacy-headquarters-lead'"
+            )
+        ).mappings().all()
+    assert entries == [
+        {
+            "lead_key": "legacy-headquarters-lead",
+            "status": "active",
+            "reason": "legacy_headquarters_pool",
+        }
+    ]
+
+    command.downgrade(config, "20260712_0015")
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert not {
+        "clue_allocation_cycles",
+        "clue_headquarters_pool_entries",
+        "clue_allocation_audit_logs",
+    }.intersection(downgraded.get_table_names())

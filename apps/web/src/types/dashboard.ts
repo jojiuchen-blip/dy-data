@@ -642,6 +642,268 @@ export interface ClueReassignRuleData {
   updated_by: string | null;
 }
 
+export interface ClueAllocationEligibleLead {
+  lead_key: string;
+  canonical_clue_id: string | null;
+  order_id: string | null;
+  allocation_state: string;
+  pool_location: string | null;
+  anchor_store_id: string | null;
+  anchor_city: string | null;
+  anchor_city_code: string | null;
+  updated_at: string;
+}
+
+export interface ClueAllocationEligibleLeadData {
+  rows: ClueAllocationEligibleLead[];
+  pagination: Pagination;
+}
+
+export interface ClueHeadquartersPoolEntry {
+  headquarters_pool_entry_id: string;
+  lead_key: string;
+  canonical_clue_id: string | null;
+  order_id: string | null;
+  status: string;
+  reason: string;
+  entered_at: string;
+  closed_at: string | null;
+  close_reason: string | null;
+  anchor_store_id: string | null;
+  anchor_city: string | null;
+  anchor_city_code: string | null;
+  source_assignment_round_id: string | null;
+  source_decision_id: string | null;
+  source_rule_version_id: string | null;
+  allocation_cycle_id: string | null;
+}
+
+export interface ClueHeadquartersPoolData {
+  rows: ClueHeadquartersPoolEntry[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationCycle {
+  allocation_cycle_id: string;
+  cycle_type: string;
+  execution_mode: string;
+  status: string;
+  parent_cycle_id: string | null;
+  selected_lead_keys: string[];
+  requested_lead_count: number;
+  active_lead_count: number;
+  planned_impact: Record<string, unknown>;
+  actual_impact: Record<string, unknown>;
+  actor: string | null;
+  privileged_confirmation: boolean;
+  created_at: string;
+  executed_at: string | null;
+  completed_at: string | null;
+}
+
+export interface ClueAllocationCycleData {
+  rows: ClueAllocationCycle[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationAuditLog {
+  audit_log_id: string;
+  event_type: string;
+  allocation_cycle_id: string | null;
+  actor: string | null;
+  privileged_confirmation: boolean;
+  before_snapshot: Record<string, unknown>;
+  after_snapshot: Record<string, unknown>;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface ClueAllocationAuditLogData {
+  rows: ClueAllocationAuditLog[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationCycleRequest {
+  lead_keys: string[];
+  preview_token?: string;
+  confirm?: boolean;
+  privileged_confirmation?: boolean;
+}
+
+export interface ClueAllocationCyclePreviewRequest {
+  operation?: "trial" | "rebuild";
+  lead_keys?: string[];
+  source_cycle_id?: string;
+  privileged_confirmation?: boolean;
+}
+
+export interface ClueAllocationCycleRebuildRequest {
+  source_cycle_id: string;
+  preview_token: string;
+  confirm?: boolean;
+  privileged_confirmation?: boolean;
+}
+
+export interface ClueAllocationCyclePreview {
+  requested_lead_count: number;
+  active_lead_count: number;
+  lead_keys: string[];
+  summary: Record<string, number>;
+  operation: string;
+  source_cycle_id: string | null;
+  preview_token: string;
+  preview_expires_at: string;
+}
+
+export interface ClueAllocationCycleExecution {
+  allocation_cycle_id: string;
+  cycle_type: string;
+  execution_mode: string;
+  status: string;
+  requested_lead_count: number;
+  active_lead_count: number;
+  privileged_confirmation: boolean;
+  parent_cycle_id: string | null;
+  summary: Record<string, number>;
+}
+
+export type ClueAllocationScopeType =
+  | "global"
+  | "city"
+  | "store_group"
+  | "anchor_store";
+
+export interface ClueAllocationRuleScope {
+  scope_type: ClueAllocationScopeType;
+  city_code: string | null;
+  store_group_id: string | null;
+  anchor_store_id: string | null;
+}
+
+export interface ClueAllocationStrategyConfig {
+  strategy_type:
+    | "sales_store_priority"
+    | "nearby_city_optimization"
+    | "city_fallback";
+  enabled: boolean;
+  execution_order: number;
+  params: Record<string, unknown>;
+}
+
+export interface ClueAllocationRuleVersion {
+  rule_version_id: string;
+  rule_id: string;
+  version_no: number;
+  status: "draft" | "published" | "retired";
+  auto_expiry_enabled: boolean | null;
+  first_follow_up_sla_hours: number | null;
+  protection_days: number | null;
+  conversion_weight: number | null;
+  follow_24h_weight: number | null;
+  lookback_days: number | null;
+  min_samples: number | null;
+  strategy_configs: ClueAllocationStrategyConfig[];
+  created_at: string;
+  updated_at: string;
+  published_at: string | null;
+  retired_at: string | null;
+}
+
+export interface ClueAllocationRule {
+  rule_id: string;
+  name: string;
+  scope: ClueAllocationRuleScope;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClueAllocationRuleListData {
+  rows: ClueAllocationRule[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationRuleDetailData {
+  rule: ClueAllocationRule;
+  versions: ClueAllocationRuleVersion[];
+}
+
+export interface ClueAllocationRuleCreate {
+  name: string;
+  scope: ClueAllocationRuleScope;
+}
+
+export interface ClueAllocationRuleVersionWrite {
+  auto_expiry_enabled: boolean;
+  first_follow_up_sla_hours: number;
+  protection_days: number;
+  conversion_weight: number;
+  follow_24h_weight: number;
+  lookback_days: number;
+  min_samples: number;
+  strategy_configs: ClueAllocationStrategyConfig[];
+}
+
+export interface ClueAllocationDecision {
+  decision_id: string;
+  lead_key: string;
+  order_id: string | null;
+  rule_id: string | null;
+  rule_version_id: string | null;
+  scope_type: string | null;
+  scope_key: string | null;
+  strategy_type: string;
+  execution_order: number | null;
+  allocation_cycle_id: string | null;
+  execution_mode: string;
+  assignment_round_id: string | null;
+  round_no: number | null;
+  selected_store_id: string | null;
+  selected_store_name: string | null;
+  decision_status: string;
+  reason: string | null;
+  payload: Record<string, unknown>;
+  actor: string | null;
+  executed_at: string;
+}
+
+export interface ClueAllocationDecisionData {
+  rows: ClueAllocationDecision[];
+  pagination: Pagination;
+}
+
+export interface StoreScoreSnapshotRun {
+  snapshot_run_id: string;
+  snapshot_date: string;
+  run_mode: string;
+  window_start: string;
+  window_end: string;
+  candidate_store_count: number;
+  snapshot_count: number;
+  triggered_by: string | null;
+  computed_at: string;
+}
+
+export interface StoreScoreSnapshot {
+  store_id: string;
+  city_code: string | null;
+  conversion_numerator: number;
+  conversion_denominator: number;
+  conversion_rate: number;
+  conversion_value_source: string;
+  follow_24h_numerator: number;
+  follow_24h_denominator: number;
+  follow_24h_rate: number;
+  follow_24h_value_source: string;
+  store_weight: number;
+  composite_score: number;
+}
+
+export interface StoreScoreSnapshotData {
+  run: StoreScoreSnapshotRun | null;
+  rows: StoreScoreSnapshot[];
+  pagination: Pagination;
+}
+
 export interface ClueReassignRuleUpdate {
   reassign_sla_hours: number | null;
 }

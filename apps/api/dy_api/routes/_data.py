@@ -2846,6 +2846,8 @@ class DashboardDataStore:
             return False
         if scope_store_ids is None:
             return True
+        if self._clue_order_has_active_headquarters_lead(order_id):
+            return False
         placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
         if not placeholders:
             return False
@@ -2858,6 +2860,20 @@ class DashboardDataStore:
             LIMIT 1
             """,
             {"order_id": order_id, **params},
+        )
+        return bool(rows)
+
+    def _clue_order_has_active_headquarters_lead(self, order_id: str) -> bool:
+        rows = self._execute(
+            """
+            SELECT 1
+            FROM clue_master_leads headquarters_lead
+            WHERE headquarters_lead.order_id = :order_id
+              AND headquarters_lead.lifecycle_status = 'active'
+              AND headquarters_lead.pool_location = 'headquarters_pool'
+            LIMIT 1
+            """,
+            {"order_id": order_id},
         )
         return bool(rows)
 
@@ -3025,6 +3041,15 @@ class DashboardDataStore:
 
         scope_store_ids = filters.get("scope_store_ids")
         if scope_store_ids is not None:
+            order_ref = "r.order_id" if include_round else "c.order_id"
+            clauses.append(
+                "NOT EXISTS ("
+                "SELECT 1 FROM clue_master_leads headquarters_lead "
+                f"WHERE headquarters_lead.order_id = {order_ref} "
+                "AND headquarters_lead.lifecycle_status = 'active' "
+                "AND headquarters_lead.pool_location = 'headquarters_pool'"
+                ")"
+            )
             if include_round:
                 placeholders, scope_params = _in_clause_params("clue_scope_store", scope_store_ids)
                 if placeholders:

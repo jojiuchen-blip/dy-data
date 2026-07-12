@@ -30,6 +30,11 @@ from apps.api.dy_api.models import (
     StoreScoreSnapshotRun,
     utcnow,
 )
+from apps.worker.clue_headquarters_pool import (
+    close_current_headquarters_pool_entry,
+    ensure_active_headquarters_pool_entry,
+    get_active_headquarters_pool_entry,
+)
 from apps.worker.repositories import upsert_data_quality_issue
 
 
@@ -156,12 +161,20 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
             )
 
         current_self_owned_round = _active_self_owned_current_round(session, existing)
+        active_headquarters_entry = (
+            existing is not None
+            and get_active_headquarters_pool_entry(session, existing.lead_key) is not None
+        )
         if lifecycle_status != "active":
             pool_location = "closed"
             allocation_state = "closed"
         elif current_self_owned_round is not None:
             pool_location = "store_follow_up_pool"
             allocation_state = "assigned"
+        elif active_headquarters_entry or existing.pool_location == "headquarters_pool":
+            # Re-entry to a store pool must be an explicit future operation.
+            pool_location = "headquarters_pool"
+            allocation_state = "headquarters"
         elif anchor.unavailable_reason:
             pool_location = "headquarters_pool"
             allocation_state = "headquarters"
@@ -208,6 +221,14 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         elif pool_location == "headquarters_pool":
             headquarters_pool_keys.add(existing.lead_key)
 
+        if lifecycle_status == "active" and pool_location == "headquarters_pool":
+            ensure_active_headquarters_pool_entry(
+                session,
+                lead=existing,
+                reason=existing.anchor_unavailable_reason or "headquarters_pool_retained",
+                entered_at=now,
+            )
+
         if status_changed:
             _record_status_event(
                 session,
@@ -220,6 +241,12 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         if anchor.unavailable_reason:
             _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
         if lifecycle_status != "active" and existing.order_id:
+            close_current_headquarters_pool_entry(
+                session,
+                existing.lead_key,
+                closed_at=resolution.closed_at or now,
+                close_reason=_closed_reason(resolution.normalized_status) or "order_closed",
+            )
             _close_current_assignment(
                 session,
                 existing.order_id,

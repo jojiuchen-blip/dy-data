@@ -350,6 +350,57 @@ def test_headquarters_lead_blocks_legacy_phone_reveal_and_plain_export(
     assert rows[0]["phone_plain"] == ""
 
 
+def test_store_cannot_list_view_or_export_a_lead_after_it_enters_headquarters_pool(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add_all(
+        [
+            ClueMasterLead(
+                lead_key="lead-order-2-headquarters-store-scope",
+                source_clue_row_key="raw-order-2-headquarters-store-scope",
+                source_identity_key="identity-order-2-headquarters-store-scope",
+                canonical_clue_id="clue-2",
+                order_id="order-2",
+                raw_order_status="履约中",
+                normalized_order_status="active",
+                status_source="test",
+                lifecycle_status="active",
+                pool_location="headquarters_pool",
+                allocation_state="headquarters",
+                first_seen_at=_dt(1),
+                last_seen_at=_dt(1),
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            User(
+                user_id="headquarters-scope-store-user",
+                username="headquarters-scope-store",
+                external_account_id="store-1",
+                display_name="Store One User",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("headquarters-scope-password"),
+            ),
+            UserStoreScope(user_id="headquarters-scope-store-user", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "headquarters-scope-store", "headquarters-scope-password")
+
+    rounds = client.get("/api/v1/clues/assignment-rounds")
+    detail = client.get("/api/v1/clues/orders/order-2")
+    exported = client.get("/api/v1/clues/assignment-rounds/export")
+
+    assert rounds.status_code == 200
+    assert {row["order_id"] for row in rounds.json()["data"]["rows"]} == {"order-1"}
+    assert detail.status_code == 404
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+    assert {row["order_id"] for row in rows} == {"order-1"}
+
+
 def test_clue_filters_include_store_location_and_verification_status(
     client: TestClient, db_session: Session
 ) -> None:

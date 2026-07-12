@@ -739,6 +739,157 @@ class ClueAllocationDecisionData(BaseModel):
     pagination: Pagination
 
 
+class ClueAllocationEligibleLeadRow(BaseModel):
+    lead_key: str
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    allocation_state: str
+    pool_location: str | None = None
+    anchor_store_id: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+    updated_at: datetime
+
+
+class ClueAllocationEligibleLeadData(BaseModel):
+    rows: list[ClueAllocationEligibleLeadRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueHeadquartersPoolEntryRow(BaseModel):
+    headquarters_pool_entry_id: str
+    lead_key: str
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    status: str
+    reason: str
+    entered_at: datetime
+    closed_at: datetime | None = None
+    close_reason: str | None = None
+    anchor_store_id: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+    source_assignment_round_id: str | None = None
+    source_decision_id: str | None = None
+    source_rule_version_id: str | None = None
+    allocation_cycle_id: str | None = None
+
+
+class ClueHeadquartersPoolData(BaseModel):
+    rows: list[ClueHeadquartersPoolEntryRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationCycleRow(BaseModel):
+    allocation_cycle_id: str
+    cycle_type: str
+    execution_mode: str
+    status: str
+    parent_cycle_id: str | None = None
+    selected_lead_keys: list[str] = Field(default_factory=list)
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    planned_impact: dict[str, Any] = Field(default_factory=dict)
+    actual_impact: dict[str, Any] = Field(default_factory=dict)
+    actor: str | None = None
+    privileged_confirmation: bool = False
+    created_at: datetime
+    executed_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class ClueAllocationCycleData(BaseModel):
+    rows: list[ClueAllocationCycleRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationAuditLogRow(BaseModel):
+    audit_log_id: str
+    event_type: str
+    allocation_cycle_id: str | None = None
+    actor: str | None = None
+    privileged_confirmation: bool = False
+    before_snapshot: dict[str, Any] = Field(default_factory=dict)
+    after_snapshot: dict[str, Any] = Field(default_factory=dict)
+    detail: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ClueAllocationAuditLogData(BaseModel):
+    rows: list[ClueAllocationAuditLogRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationCyclePreviewRequest(BaseModel):
+    operation: Literal["trial", "rebuild"] = "trial"
+    lead_keys: list[str] = Field(default_factory=list, max_length=500)
+    source_cycle_id: str | None = Field(default=None, max_length=256)
+    privileged_confirmation: bool = False
+
+    @field_validator("lead_keys")
+    def normalize_preview_lead_keys(cls, values: list[str]) -> list[str]:
+        return sorted({value.strip() for value in values if value.strip()})
+
+    @model_validator(mode="after")
+    def validate_preview_target(self) -> "ClueAllocationCyclePreviewRequest":
+        if self.operation == "trial" and not self.lead_keys:
+            raise ValueError("trial preview requires at least one lead key")
+        if self.operation == "rebuild" and not (self.source_cycle_id or "").strip():
+            raise ValueError("rebuild preview requires a source cycle")
+        return self
+
+
+class ClueAllocationCycleRequest(BaseModel):
+    lead_keys: list[str] = Field(min_length=1, max_length=500)
+    preview_token: str | None = Field(default=None, max_length=4096)
+    confirm: bool = False
+    privileged_confirmation: bool = False
+
+    @field_validator("lead_keys")
+    def normalize_lead_keys(cls, values: list[str]) -> list[str]:
+        normalized = sorted({value.strip() for value in values if value.strip()})
+        if not normalized:
+            raise ValueError("at least one lead key is required")
+        return normalized
+
+
+class ClueAllocationCycleRebuildRequest(BaseModel):
+    source_cycle_id: str = Field(min_length=1, max_length=256)
+    preview_token: str | None = Field(default=None, max_length=4096)
+    confirm: bool = False
+    privileged_confirmation: bool = False
+
+    @field_validator("source_cycle_id")
+    def normalize_source_cycle_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("source cycle is required")
+        return normalized
+
+
+class ClueAllocationCyclePreviewData(BaseModel):
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    lead_keys: list[str] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    operation: str = "trial"
+    source_cycle_id: str | None = None
+    preview_token: str
+    preview_expires_at: datetime
+
+
+class ClueAllocationCycleExecutionData(BaseModel):
+    allocation_cycle_id: str
+    cycle_type: str
+    execution_mode: str
+    status: str
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    privileged_confirmation: bool = False
+    parent_cycle_id: str | None = None
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
 class StoreScoreSnapshotRunData(BaseModel):
     snapshot_run_id: str
     snapshot_date: date

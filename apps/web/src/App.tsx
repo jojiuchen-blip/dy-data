@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
+import { AdminClueAllocationPage } from "./pages/AdminClueAllocationPage";
 import { AdminClueRulePage } from "./pages/AdminClueRulePage";
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
@@ -180,6 +181,8 @@ export function App() {
             <AdminSyncPage />
           ) : location.pathname === "/admin/clues/rules" ? (
             <AdminClueRulePage />
+          ) : location.pathname === "/admin/clue-allocation" ? (
+            <AdminClueAllocationPage isHighestAdmin={user.is_highest_admin === true} />
           ) : location.pathname === "/admin/feedback" ? (
             <AdminFeedbackPage />
           ) : location.pathname === "/admin/product-types" ? (
@@ -193,7 +196,11 @@ export function App() {
               currentUser={user}
               onLogout={onLogout}
             >
-              {user.role === "admin" ? adminPage : <AdminForbiddenPage />}
+              {user.role === "admin" ? (
+                adminPage
+              ) : (
+                <AdminForbiddenPage />
+              )}
             </Shell>
           );
         }

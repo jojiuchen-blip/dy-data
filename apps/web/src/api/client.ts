@@ -18,6 +18,21 @@ import type {
   AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
+  ClueAllocationAuditLogData,
+  ClueAllocationCycleData,
+  ClueAllocationCycleExecution,
+  ClueAllocationCyclePreview,
+  ClueAllocationCyclePreviewRequest,
+  ClueAllocationCycleRequest,
+  ClueAllocationCycleRebuildRequest,
+  ClueAllocationDecisionData,
+  ClueAllocationEligibleLeadData,
+  ClueAllocationRule,
+  ClueAllocationRuleCreate,
+  ClueAllocationRuleDetailData,
+  ClueAllocationRuleListData,
+  ClueAllocationRuleVersion,
+  ClueAllocationRuleVersionWrite,
   ClueFilterMetadata,
   ClueFollowUpPayload,
   ClueFollowUpRecord,
@@ -28,6 +43,7 @@ import type {
   ClueReassignRuleData,
   ClueReassignRuleUpdate,
   ClueRebuildResult,
+  ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
   FeedbackCategory,
@@ -55,6 +71,7 @@ import type {
   SyncAdminData,
   SyncConfigUpdate,
   StoreRankingData,
+  StoreScoreSnapshotData,
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
 import {
@@ -1311,6 +1328,173 @@ export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
       },
     }),
   );
+}
+
+export async function fetchClueAllocationEligibleLeads(): Promise<
+  ApiLoadResult<ClueAllocationEligibleLeadData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationEligibleLeadData>(
+      "/admin/clue-allocation/eligible-leads",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueHeadquartersPool(): Promise<
+  ApiLoadResult<ClueHeadquartersPoolData>
+> {
+  return {
+    ...(await requestJson<ClueHeadquartersPoolData>(
+      "/admin/clue-allocation/headquarters-pool",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationCycles(): Promise<
+  ApiLoadResult<ClueAllocationCycleData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationCycleData>(
+      "/admin/clue-allocation/cycles",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationAuditLogs(): Promise<
+  ApiLoadResult<ClueAllocationAuditLogData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationAuditLogData>(
+      "/admin/clue-allocation/audit-logs",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function previewClueAllocationCycle(
+  payload: ClueAllocationCyclePreviewRequest,
+): Promise<ApiLoadResult<ClueAllocationCyclePreview>> {
+  return {
+    ...(await sendJson<ClueAllocationCyclePreview>(
+      "/admin/clue-allocation/cycles/preview",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function runClueAllocationTrial(
+  payload: ClueAllocationCycleRequest,
+): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  return {
+    ...(await sendJson<ClueAllocationCycleExecution>(
+      "/admin/clue-allocation/cycles/trial",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function rebuildClueAllocationTrial(
+  payload: ClueAllocationCycleRebuildRequest,
+): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  return {
+    ...(await sendJson<ClueAllocationCycleExecution>(
+      "/admin/clue-allocation/cycles/rebuild",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationRules(): Promise<
+  ApiLoadResult<ClueAllocationRuleListData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationRuleListData>("/admin/clue-allocation/rules")),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationRuleDetail(
+  ruleId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleDetailData>> {
+  return {
+    ...(await requestJson<ClueAllocationRuleDetailData>(
+      `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}`,
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationDecisions(): Promise<
+  ApiLoadResult<ClueAllocationDecisionData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationDecisionData>("/admin/clue-allocation/decisions")),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationStoreScores(): Promise<
+  ApiLoadResult<StoreScoreSnapshotData>
+> {
+  return {
+    ...(await requestJson<StoreScoreSnapshotData>("/admin/clue-allocation/store-scores")),
+    usingMock: false,
+  };
+}
+
+export async function createClueAllocationRule(
+  payload: ClueAllocationRuleCreate,
+): Promise<ApiLoadResult<ClueAllocationRule>> {
+  return {
+    ...(await sendJson<ClueAllocationRule>("/admin/clue-allocation/rules", {
+      body: payload,
+      method: "POST",
+    })),
+    usingMock: false,
+  };
+}
+
+export async function createClueAllocationRuleVersion(
+  ruleId: string,
+  payload: ClueAllocationRuleVersionWrite,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}/versions`,
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function publishClueAllocationRuleVersion(
+  ruleVersionId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/publish`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function retireClueAllocationRuleVersion(
+  ruleVersionId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/retire`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
 }
 
 export async function fetchProductTypeVisibility(): Promise<

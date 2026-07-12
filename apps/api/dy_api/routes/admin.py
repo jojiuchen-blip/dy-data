@@ -9,11 +9,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import delete, func, or_, select, text
 
 from apps.api.dy_api.models import (
+    ClueAllocationAuditLog,
+    ClueAllocationCycle,
     ClueAllocationDecision,
     ClueAllocationRule,
     ClueAllocationRuleVersion,
     ClueAllocationStrategyConfig,
     ClueMasterLead,
+    ClueHeadquartersPoolEntry,
     ClueStoreGroup,
     ClueStoreGroupMember,
     DimAwemeAccount,
@@ -32,6 +35,14 @@ from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.clue_allocation import refresh_store_score_snapshots
+from apps.worker.clue_allocation_cycles import (
+    AllocationCycleError,
+    preview_rebuild_trial_allocation_cycle,
+    preview_trial_allocation_cycle,
+    rebuild_trial_allocation_cycle,
+    run_trial_allocation_cycle,
+    validate_allocation_preview_grant,
+)
 from apps.worker.manual_sync import run_manual_sync_job
 from apps.worker.clue_rule_versions import (
     RuleImmutableError,
@@ -65,6 +76,19 @@ from dy_api.schemas import (
     ClueRebuildResult,
     ClueAllocationDecisionData,
     ClueAllocationDecisionRow,
+    ClueAllocationAuditLogData,
+    ClueAllocationAuditLogRow,
+    ClueAllocationCycleData,
+    ClueAllocationCycleExecutionData,
+    ClueAllocationCyclePreviewData,
+    ClueAllocationCyclePreviewRequest,
+    ClueAllocationCycleRequest,
+    ClueAllocationCycleRebuildRequest,
+    ClueAllocationCycleRow,
+    ClueAllocationEligibleLeadData,
+    ClueAllocationEligibleLeadRow,
+    ClueHeadquartersPoolData,
+    ClueHeadquartersPoolEntryRow,
     ClueMasterLeadData,
     ClueMasterLeadRow,
     ClueAllocationRuleCreateRequest,
@@ -149,6 +173,13 @@ def _rule_version_http_error(error: RuleVersionError) -> HTTPException:
     if isinstance(error, RuleImmutableError):
         return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(error))
     return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(error))
+
+
+def _allocation_cycle_http_error(error: AllocationCycleError) -> HTTPException:
+    detail = str(error)
+    if detail.startswith(("active_round_exists:", "rebuild_blocked_by_follow_up:")):
+        return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
+    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail)
 
 
 @router.get("/accounts")
@@ -595,6 +626,247 @@ def list_clue_allocation_decisions(
         rows=[ClueAllocationDecisionRow(**_clue_allocation_decision_payload(row)) for row in rows],
         pagination=_pagination(page, page_size, total),
     )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/eligible-leads")
+def list_clue_allocation_eligible_leads(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = (
+        select(ClueMasterLead)
+        .where(ClueMasterLead.lifecycle_status == "active")
+        .where(ClueMasterLead.normalized_order_status == "active")
+        .where(ClueMasterLead.current_assignment_round_id.is_(None))
+        .where(
+            ClueMasterLead.allocation_state.in_(
+                ("pending_allocation", "pending_reassign")
+            )
+        )
+    )
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(ClueMasterLead.updated_at.desc(), ClueMasterLead.lead_key)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueAllocationEligibleLeadData(
+        rows=[ClueAllocationEligibleLeadRow(**_clue_allocation_eligible_lead_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/headquarters-pool")
+def list_clue_headquarters_pool(
+    pool_status: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueHeadquartersPoolEntry)
+    if pool_status:
+        statement = statement.where(ClueHeadquartersPoolEntry.status == pool_status)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(
+            ClueHeadquartersPoolEntry.entered_at.desc(),
+            ClueHeadquartersPoolEntry.headquarters_pool_entry_id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueHeadquartersPoolData(
+        rows=[
+            ClueHeadquartersPoolEntryRow(
+                **_clue_headquarters_pool_entry_payload(store.session, row)
+            )
+            for row in rows
+        ],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/cycles")
+def list_clue_allocation_cycles(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueAllocationCycle)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(
+            ClueAllocationCycle.created_at.desc(),
+            ClueAllocationCycle.allocation_cycle_id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueAllocationCycleData(
+        rows=[ClueAllocationCycleRow(**_clue_allocation_cycle_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/audit-logs")
+def list_clue_allocation_audit_logs(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueAllocationAuditLog)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(
+            ClueAllocationAuditLog.created_at.desc(),
+            ClueAllocationAuditLog.audit_log_id.desc(),
+        )
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueAllocationAuditLogData(
+        rows=[ClueAllocationAuditLogRow(**_clue_allocation_audit_log_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/cycles/preview")
+def preview_clue_allocation_cycle(
+    payload: ClueAllocationCyclePreviewRequest,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        if payload.operation == "rebuild":
+            result = preview_rebuild_trial_allocation_cycle(
+                store.session,
+                source_cycle_id=payload.source_cycle_id or "",
+                actor=username,
+                privileged_confirmation=payload.privileged_confirmation,
+            )
+        else:
+            result = preview_trial_allocation_cycle(
+                store.session,
+                lead_keys=payload.lead_keys,
+                actor=username,
+            )
+    except AllocationCycleError as error:
+        raise _allocation_cycle_http_error(error) from error
+    data = ClueAllocationCyclePreviewData(**result)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/cycles/trial")
+def execute_clue_allocation_trial(
+    payload: ClueAllocationCycleRequest,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="explicit confirmation is required before running a trial allocation cycle",
+        )
+    store = _require_available_store(store)
+    try:
+        preview_grant = validate_allocation_preview_grant(
+            payload.preview_token,
+            operation="trial",
+            actor=username,
+            lead_keys=payload.lead_keys,
+            privileged_confirmation=payload.privileged_confirmation,
+        )
+        result = run_trial_allocation_cycle(
+            store.session,
+            lead_keys=payload.lead_keys,
+            actor=username,
+            privileged_confirmation=payload.privileged_confirmation,
+            preview_token_hash=preview_grant.token_hash,
+            expected_lead_keys=preview_grant.lead_keys,
+        )
+        store.session.commit()
+    except AllocationCycleError as error:
+        store.session.rollback()
+        raise _allocation_cycle_http_error(error) from error
+    except Exception:
+        store.session.rollback()
+        raise
+    data = ClueAllocationCycleExecutionData(**result)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/cycles/rebuild")
+def rebuild_clue_allocation_trial(
+    payload: ClueAllocationCycleRebuildRequest,
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    if not payload.confirm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="explicit confirmation is required before rebuilding a trial allocation cycle",
+        )
+    store = _require_available_store(store)
+    try:
+        preview_grant = validate_allocation_preview_grant(
+            payload.preview_token,
+            operation="rebuild",
+            actor=username,
+            source_cycle_id=payload.source_cycle_id,
+            privileged_confirmation=payload.privileged_confirmation,
+        )
+        result = rebuild_trial_allocation_cycle(
+            store.session,
+            source_cycle_id=payload.source_cycle_id,
+            actor=username,
+            privileged_confirmation=payload.privileged_confirmation,
+            preview_token_hash=preview_grant.token_hash,
+            expected_lead_keys=preview_grant.lead_keys,
+        )
+        store.session.commit()
+    except AllocationCycleError as error:
+        store.session.rollback()
+        raise _allocation_cycle_http_error(error) from error
+    except Exception:
+        store.session.rollback()
+        raise
+    data = ClueAllocationCycleExecutionData(**result)
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -1467,6 +1739,76 @@ def _clue_allocation_decision_payload(row: ClueAllocationDecision) -> dict:
         "payload": _without_phone_fields(row.decision_snapshot or {}),
         "actor": row.actor,
         "executed_at": row.executed_at,
+    }
+
+
+def _clue_allocation_eligible_lead_payload(row: ClueMasterLead) -> dict:
+    return {
+        "lead_key": row.lead_key,
+        "canonical_clue_id": row.canonical_clue_id,
+        "order_id": row.order_id,
+        "allocation_state": row.allocation_state,
+        "pool_location": row.pool_location,
+        "anchor_store_id": row.anchor_store_id,
+        "anchor_city": row.anchor_city,
+        "anchor_city_code": row.anchor_city_code,
+        "updated_at": row.updated_at,
+    }
+
+
+def _clue_headquarters_pool_entry_payload(session, row: ClueHeadquartersPoolEntry) -> dict:
+    lead = session.get(ClueMasterLead, row.lead_key)
+    return {
+        "headquarters_pool_entry_id": row.headquarters_pool_entry_id,
+        "lead_key": row.lead_key,
+        "canonical_clue_id": lead.canonical_clue_id if lead is not None else None,
+        "order_id": lead.order_id if lead is not None else None,
+        "status": row.status,
+        "reason": row.reason,
+        "entered_at": row.entered_at,
+        "closed_at": row.closed_at,
+        "close_reason": row.close_reason,
+        "anchor_store_id": lead.anchor_store_id if lead is not None else None,
+        "anchor_city": lead.anchor_city if lead is not None else None,
+        "anchor_city_code": lead.anchor_city_code if lead is not None else None,
+        "source_assignment_round_id": row.source_assignment_round_id,
+        "source_decision_id": row.source_decision_id,
+        "source_rule_version_id": row.source_rule_version_id,
+        "allocation_cycle_id": row.allocation_cycle_id,
+    }
+
+
+def _clue_allocation_cycle_payload(row: ClueAllocationCycle) -> dict:
+    return {
+        "allocation_cycle_id": row.allocation_cycle_id,
+        "cycle_type": row.cycle_type,
+        "execution_mode": row.execution_mode,
+        "status": row.status,
+        "parent_cycle_id": row.parent_cycle_id,
+        "selected_lead_keys": list(row.selected_lead_keys or []),
+        "requested_lead_count": row.requested_lead_count,
+        "active_lead_count": row.active_lead_count,
+        "planned_impact": _without_phone_fields(row.planned_impact_json or {}),
+        "actual_impact": _without_phone_fields(row.actual_impact_json or {}),
+        "actor": row.actor,
+        "privileged_confirmation": row.privileged_confirmation,
+        "created_at": row.created_at,
+        "executed_at": row.executed_at,
+        "completed_at": row.completed_at,
+    }
+
+
+def _clue_allocation_audit_log_payload(row: ClueAllocationAuditLog) -> dict:
+    return {
+        "audit_log_id": row.audit_log_id,
+        "event_type": row.event_type,
+        "allocation_cycle_id": row.allocation_cycle_id,
+        "actor": row.actor,
+        "privileged_confirmation": row.privileged_confirmation,
+        "before_snapshot": _without_phone_fields(row.before_snapshot or {}),
+        "after_snapshot": _without_phone_fields(row.after_snapshot or {}),
+        "detail": _without_phone_fields(row.detail_json or {}),
+        "created_at": row.created_at,
     }
 
 

@@ -14,6 +14,7 @@ from apps.api.dy_api.models import (
     ClueAllocationDecision,
     ClueAssignmentRound,
     ClueCenterOrder,
+    ClueHeadquartersPoolEntry,
     ClueLeadRuleVersionBinding,
     ClueMasterLead,
     DimStore,
@@ -22,6 +23,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.clue_allocation import haversine_km, normalize_city_code
+from apps.worker.clue_headquarters_pool import close_current_headquarters_pool_entry, enter_headquarters_pool
 from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
 
 
@@ -57,6 +59,7 @@ def allocate_lead(
     now: datetime | None = None,
     start_after_strategy: str | None = None,
     transition_key: str | None = None,
+    auto_expiry_enabled_override: bool | None = None,
 ) -> AllocationResult:
     """Allocate one active M1 lead through its immutable bound rule snapshot.
 
@@ -84,6 +87,10 @@ def allocate_lead(
             selected_store_id=None,
             assignment_round_id=None,
         )
+    if lead.pool_location == "headquarters_pool" and not _is_retriable_rule_version_unavailable(
+        session, lead.lead_key
+    ):
+        raise ValueError("headquarters_reentry_not_supported")
 
     current_round = _current_self_owned_round(session, lead)
     if current_round is not None:
@@ -104,6 +111,8 @@ def allocate_lead(
         transition_key=normalized_transition_key,
     )
     if completed_decision is not None:
+        _project_headquarters(lead, executed_at, session, decision=completed_decision)
+        session.flush()
         return AllocationResult(
             lead_key=lead.lead_key,
             status="headquarters",
@@ -146,7 +155,7 @@ def allocate_lead(
             strategy_type="rule_version_resolution",
             transition_key=normalized_transition_key,
         )
-        _project_headquarters(lead, executed_at)
+        _project_headquarters(lead, executed_at, session, decision=decision)
         session.flush()
         return AllocationResult(lead.lead_key, "headquarters", decision.reason, None, None, (decision.decision_id,))
 
@@ -179,7 +188,7 @@ def allocate_lead(
             execution_order=0,
             transition_key=normalized_transition_key,
         )
-        _project_headquarters(lead, executed_at)
+        _project_headquarters(lead, executed_at, session, decision=decision)
         session.flush()
         return AllocationResult(lead.lead_key, "headquarters", decision.reason, None, None, (decision.decision_id,))
 
@@ -209,7 +218,7 @@ def allocate_lead(
             snapshot=snapshot,
             transition_key=normalized_transition_key,
         )
-        _project_headquarters(lead, executed_at)
+        _project_headquarters(lead, executed_at, session, decision=decision)
         session.flush()
         return AllocationResult(lead.lead_key, "headquarters", decision.reason, None, None, (decision.decision_id,))
 
@@ -335,6 +344,14 @@ def allocate_lead(
             "execution_mode": normalized_mode,
             "allocation_cycle_id": normalized_cycle,
         }
+        snapshot["execution_timing"] = {
+            "auto_expiry_enabled": (
+                bool(auto_expiry_enabled_override)
+                if auto_expiry_enabled_override is not None
+                else bool(rule_snapshot.get("auto_expiry_enabled", True))
+            ),
+            "source": "cycle_override" if auto_expiry_enabled_override is not None else "rule_version",
+        }
         decision = _record_decision(
             session,
             lead=lead,
@@ -361,6 +378,7 @@ def allocate_lead(
             decision=decision,
             selected=selected,
             executed_at=executed_at,
+            auto_expiry_enabled_override=auto_expiry_enabled_override,
         )
         _project_self_owned_assignment(lead, round_row, selected, normalized_cycle, executed_at, session)
         session.flush()
@@ -399,7 +417,7 @@ def allocate_lead(
         snapshot=final_snapshot,
         transition_key=normalized_transition_key,
     )
-    _project_headquarters(lead, executed_at)
+    _project_headquarters(lead, executed_at, session, decision=final)
     session.flush()
     decision_ids.append(final.decision_id)
     return AllocationResult(
@@ -420,6 +438,7 @@ def allocate_leads(
     allocation_cycle_id: str | None = None,
     actor: str | None = None,
     now: datetime | None = None,
+    auto_expiry_enabled_override: bool | None = None,
 ) -> list[AllocationResult]:
     """Explicit batch helper for a caller that has already selected M1 leads."""
 
@@ -431,6 +450,7 @@ def allocate_leads(
             allocation_cycle_id=allocation_cycle_id,
             actor=actor,
             now=now,
+            auto_expiry_enabled_override=auto_expiry_enabled_override,
         )
         for lead_key in lead_keys
     ]
@@ -872,6 +892,7 @@ def _ensure_selected_round(
     decision: ClueAllocationDecision,
     selected: dict[str, Any],
     executed_at: datetime,
+    auto_expiry_enabled_override: bool | None = None,
 ) -> ClueAssignmentRound:
     if not decision.assignment_round_id or decision.round_no is None:
         raise RuntimeError("selected allocation decision must contain its round identity")
@@ -889,6 +910,7 @@ def _ensure_selected_round(
         rule_version_id=binding.rule_version_id,
         strategy_type=decision.strategy_type,
         allocation_decision_id=decision.decision_id,
+        allocation_cycle_id=decision.allocation_cycle_id,
         round_no=decision.round_no,
         assigned_at=executed_at,
         assigned_at_source="clue_allocation_engine",
@@ -901,7 +923,11 @@ def _ensure_selected_round(
         execution_mode=decision.execution_mode,
         expires_at=executed_at + timedelta(hours=first_follow_up_sla_hours),
         first_sla_expires_at=executed_at + timedelta(hours=first_follow_up_sla_hours),
-        auto_expiry_enabled=bool(rule_snapshot.get("auto_expiry_enabled", True)),
+        auto_expiry_enabled=(
+            bool(auto_expiry_enabled_override)
+            if auto_expiry_enabled_override is not None
+            else bool(rule_snapshot.get("auto_expiry_enabled", True))
+        ),
         first_follow_up_sla_hours=first_follow_up_sla_hours,
         protection_days=protection_days,
         created_at=executed_at,
@@ -927,6 +953,12 @@ def _project_self_owned_assignment(
     executed_at: datetime,
     session: Session,
 ) -> None:
+    close_current_headquarters_pool_entry(
+        session,
+        lead.lead_key,
+        closed_at=executed_at,
+        close_reason="allocated_to_store",
+    )
     lead.pool_location = "store_follow_up_pool"
     lead.allocation_state = "assigned"
     lead.current_assignment_round_id = round_row.assignment_round_id
@@ -980,12 +1012,56 @@ def _project_self_owned_assignment(
     center_order.updated_at = executed_at
 
 
-def _project_headquarters(lead: ClueMasterLead, executed_at: datetime) -> None:
+def _project_headquarters(
+    lead: ClueMasterLead,
+    executed_at: datetime,
+    session: Session,
+    *,
+    decision: ClueAllocationDecision,
+) -> None:
     lead.pool_location = "headquarters_pool"
     lead.allocation_state = "headquarters"
     lead.current_assignment_round_id = None
+    lead.allocation_cycle_id = decision.allocation_cycle_id
     lead.ended_without_assignment = False
     lead.updated_at = executed_at
+    enter_headquarters_pool(
+        session,
+        lead=lead,
+        reason=decision.reason or "headquarters",
+        entered_at=executed_at,
+        source_decision=decision,
+    )
+    center_order = session.get(ClueCenterOrder, lead.order_id) if lead.order_id else None
+    if center_order is None or not center_order.current_assignment_round_id:
+        return
+    center_round = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+    if center_round is None or center_round.lead_key != lead.lead_key:
+        return
+    center_order.current_assignment_round_id = None
+    center_order.current_round_no = 0
+    center_order.current_round_status = "headquarters"
+    center_order.assigned_at = None
+    center_order.assigned_store_id = None
+    center_order.assigned_store_name = None
+    center_order.assigned_city = None
+    center_order.assigned_province = None
+    center_order.expires_at = None
+    center_order.reassign_reason = "headquarters_pool"
+    center_order.updated_at = executed_at
+
+
+def _is_retriable_rule_version_unavailable(session: Session, lead_key: str) -> bool:
+    return (
+        session.scalar(
+            select(ClueHeadquartersPoolEntry.headquarters_pool_entry_id)
+            .where(ClueHeadquartersPoolEntry.lead_key == lead_key)
+            .where(ClueHeadquartersPoolEntry.status == "active")
+            .where(ClueHeadquartersPoolEntry.reason == "rule_version_unavailable")
+            .limit(1)
+        )
+        is not None
+    )
 
 
 def _current_self_owned_round(session: Session, lead: ClueMasterLead) -> ClueAssignmentRound | None:
