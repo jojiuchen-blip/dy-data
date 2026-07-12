@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
@@ -9,10 +9,13 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import delete, func, or_, select, text
 
 from apps.api.dy_api.models import (
+    ClueMasterLead,
     DimAwemeAccount,
     DimStore,
     DimStorePoiMapping,
     JobRun,
+    StoreScoreSnapshot,
+    StoreScoreSnapshotRun,
     User,
     UserFeedbackSubmission,
     UserStoreScope,
@@ -22,6 +25,7 @@ from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
+from apps.worker.clue_allocation import refresh_store_score_snapshots
 from apps.worker.manual_sync import run_manual_sync_job
 from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.repositories import finish_job_run, queue_job_run
@@ -40,6 +44,8 @@ from dy_api.schemas import (
     ClueReassignRuleData,
     ClueReassignRuleUpdate,
     ClueRebuildResult,
+    ClueMasterLeadData,
+    ClueMasterLeadRow,
     FeedbackListData,
     FeedbackRow,
     FeedbackStatusUpdateRequest,
@@ -54,6 +60,11 @@ from dy_api.schemas import (
     SkuRuleListData,
     SkuRuleLookupData,
     SkuRuleLookupRequest,
+    StoreScoreRefreshRequest,
+    StoreScoreRefreshResult,
+    StoreScoreSnapshotData,
+    StoreScoreSnapshotRow,
+    StoreScoreSnapshotRunData,
     SyncAdminData,
     SyncConfigData,
     SyncConfigUpdate,
@@ -478,6 +489,107 @@ def rebuild_clues(
     data = ClueRebuildResult(
         rebuilt_order_count=stats.get("eligible_orders", 0),
         rebuilt_round_count=stats.get("assignment_rounds", 0),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/master-leads")
+def list_clue_master_leads(
+    lifecycle_status: str | None = None,
+    pool_location: str | None = None,
+    allocation_state: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueMasterLead)
+    if lifecycle_status:
+        statement = statement.where(ClueMasterLead.lifecycle_status == lifecycle_status)
+    if pool_location:
+        statement = statement.where(ClueMasterLead.pool_location == pool_location)
+    if allocation_state:
+        statement = statement.where(ClueMasterLead.allocation_state == allocation_state)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(ClueMasterLead.updated_at.desc(), ClueMasterLead.lead_key)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueMasterLeadData(
+        rows=[ClueMasterLeadRow(**_clue_master_lead_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/store-scores")
+def list_store_score_snapshots(
+    snapshot_run_id: str | None = None,
+    snapshot_date: date | None = None,
+    run_mode: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    run_statement = select(StoreScoreSnapshotRun)
+    if snapshot_run_id:
+        run_statement = run_statement.where(StoreScoreSnapshotRun.snapshot_run_id == snapshot_run_id)
+    elif snapshot_date:
+        run_statement = run_statement.where(StoreScoreSnapshotRun.snapshot_date == snapshot_date)
+    if run_mode:
+        run_statement = run_statement.where(StoreScoreSnapshotRun.run_mode == run_mode)
+    run = store.session.scalar(
+        run_statement.order_by(StoreScoreSnapshotRun.computed_at.desc(), StoreScoreSnapshotRun.snapshot_run_id.desc()).limit(1)
+    )
+    if run is None:
+        data = StoreScoreSnapshotData(run=None, rows=[], pagination=_pagination(page, page_size, 0))
+    else:
+        snapshot_statement = select(StoreScoreSnapshot).where(StoreScoreSnapshot.snapshot_run_id == run.snapshot_run_id)
+        total = int(store.session.scalar(select(func.count()).select_from(snapshot_statement.subquery())) or 0)
+        snapshots = store.session.scalars(
+            snapshot_statement.order_by(StoreScoreSnapshot.composite_score.desc(), StoreScoreSnapshot.store_id)
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        ).all()
+        data = StoreScoreSnapshotData(
+            run=StoreScoreSnapshotRunData(**_store_score_run_payload(run)),
+            rows=[StoreScoreSnapshotRow(**_store_score_snapshot_payload(row)) for row in snapshots],
+            pagination=_pagination(page, page_size, total),
+        )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/clue-allocation/store-scores/refresh")
+def refresh_store_scores(
+    payload: StoreScoreRefreshRequest,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    result = refresh_store_score_snapshots(
+        store.session,
+        run_mode="manual",
+        lookback_days=payload.lookback_days,
+        min_samples=payload.min_samples,
+        triggered_by=_username,
+    )
+    store.session.commit()
+    data = StoreScoreRefreshResult(
+        snapshot_run_id=str(result["snapshot_run_id"]),
+        snapshot_count=int(result["snapshots"]),
     )
     return {
         "data": dump_model(data),
@@ -972,6 +1084,73 @@ def run_admin_sku_rule_rebuild_job(*, job_id: str) -> None:
             except ValueError:
                 pass
             raise
+
+
+def _pagination(page: int, page_size: int, total: int) -> Pagination:
+    return Pagination(
+        page=page,
+        page_size=page_size,
+        total=total,
+        total_pages=max(1, (total + page_size - 1) // page_size),
+    )
+
+
+def _clue_master_lead_payload(row: ClueMasterLead) -> dict:
+    return {
+        "lead_key": row.lead_key,
+        "canonical_clue_id": row.canonical_clue_id,
+        "order_id": row.order_id,
+        "raw_order_status": row.raw_order_status,
+        "normalized_order_status": row.normalized_order_status,
+        "lifecycle_status": row.lifecycle_status,
+        "pool_location": row.pool_location,
+        "allocation_state": row.allocation_state,
+        "current_assignment_round_id": row.current_assignment_round_id,
+        "allocation_cycle_id": row.allocation_cycle_id,
+        "ended_without_assignment": row.ended_without_assignment,
+        "closed_at": row.closed_at,
+        "closed_reason": row.closed_reason,
+        "first_seen_at": row.first_seen_at,
+        "last_seen_at": row.last_seen_at,
+        "anchor_poi_id": row.anchor_poi_id,
+        "anchor_store_id": row.anchor_store_id,
+        "anchor_source": row.anchor_source,
+        "anchor_unavailable_reason": row.anchor_unavailable_reason,
+        "anchor_province": row.anchor_province,
+        "anchor_city": row.anchor_city,
+        "anchor_city_code": row.anchor_city_code,
+    }
+
+
+def _store_score_run_payload(row: StoreScoreSnapshotRun) -> dict:
+    return {
+        "snapshot_run_id": row.snapshot_run_id,
+        "snapshot_date": row.snapshot_date,
+        "run_mode": row.run_mode,
+        "window_start": row.window_start,
+        "window_end": row.window_end,
+        "candidate_store_count": row.candidate_store_count,
+        "snapshot_count": row.snapshot_count,
+        "triggered_by": row.triggered_by,
+        "computed_at": row.computed_at,
+    }
+
+
+def _store_score_snapshot_payload(row: StoreScoreSnapshot) -> dict:
+    return {
+        "store_id": row.store_id,
+        "city_code": row.city_code,
+        "conversion_numerator": row.conversion_numerator,
+        "conversion_denominator": row.conversion_denominator,
+        "conversion_rate": float(row.conversion_rate),
+        "conversion_value_source": row.conversion_value_source,
+        "follow_24h_numerator": row.follow_24h_numerator,
+        "follow_24h_denominator": row.follow_24h_denominator,
+        "follow_24h_rate": float(row.follow_24h_rate),
+        "follow_24h_value_source": row.follow_24h_value_source,
+        "store_weight": float(row.store_weight),
+        "composite_score": float(row.composite_score),
+    }
 
 
 def _sync_progress(session, config: dict) -> SyncProgressData:

@@ -122,6 +122,8 @@ class RawDouyinClue(Base):
     order_status: Mapped[str | None] = mapped_column(Text, index=True)
     follow_life_account_id: Mapped[str | None] = mapped_column(Text, index=True)
     follow_life_account_name: Mapped[str | None] = mapped_column(Text)
+    follow_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
+    intention_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
     auto_city_name: Mapped[str | None] = mapped_column(Text, index=True)
     auto_province_name: Mapped[str | None] = mapped_column(Text)
     author_nickname: Mapped[str | None] = mapped_column(Text)
@@ -139,6 +141,17 @@ class DimStore(Base):
     certified_subject_name: Mapped[str | None] = mapped_column(Text)
     region: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    standard_province: Mapped[str | None] = mapped_column(Text)
+    standard_city: Mapped[str | None] = mapped_column(Text)
+    city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    is_douyin_clue_applicable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    participates_in_clue_allocation: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    location_source: Mapped[str | None] = mapped_column(Text)
+    location_status: Mapped[str] = mapped_column(String(32), default="missing", index=True)
+    location_status_note: Mapped[str | None] = mapped_column(Text)
+    location_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -358,6 +371,65 @@ class DataQualityIssue(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ClueMasterLead(Base):
+    __tablename__ = "clue_master_leads"
+    __table_args__ = (
+        UniqueConstraint("source_clue_row_key", name="uq_clue_master_leads_source_clue_row_key"),
+        UniqueConstraint("source_identity_key", name="uq_clue_master_leads_source_identity_key"),
+        Index("ix_clue_master_leads_order_location", "order_id", "pool_location"),
+        Index("ix_clue_master_leads_lifecycle_location", "lifecycle_status", "pool_location"),
+        Index("ix_clue_master_leads_anchor_store", "anchor_store_id"),
+    )
+
+    lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_clue_row_key: Mapped[str] = mapped_column(Text)
+    source_identity_key: Mapped[str] = mapped_column(Text)
+    canonical_clue_id: Mapped[str | None] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    raw_order_status: Mapped[str | None] = mapped_column(Text)
+    normalized_order_status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
+    status_source: Mapped[str] = mapped_column(String(32), default="clue")
+    lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    pool_location: Mapped[str | None] = mapped_column(String(32), index=True)
+    allocation_state: Mapped[str] = mapped_column(String(32), default="pending_allocation", index=True)
+    current_assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    allocation_cycle_id: Mapped[str | None] = mapped_column(Text, index=True)
+    ended_without_assignment: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    closed_reason: Mapped[str | None] = mapped_column(Text)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    anchor_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_source: Mapped[str | None] = mapped_column(Text)
+    anchor_unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    anchor_province: Mapped[str | None] = mapped_column(Text)
+    anchor_city: Mapped[str | None] = mapped_column(Text)
+    anchor_city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    anchor_latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueOrderStatusEvent(Base):
+    __tablename__ = "clue_order_status_events"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="uq_clue_order_status_events_event_key"),
+        Index("ix_clue_order_status_events_lead_observed", "lead_key", "observed_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_key: Mapped[str] = mapped_column(Text, nullable=False)
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    raw_status: Mapped[str | None] = mapped_column(Text)
+    normalized_status: Mapped[str] = mapped_column(String(32), index=True)
+    status_source: Mapped[str] = mapped_column(String(32))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ClueCenterOrder(Base):
     __tablename__ = "clue_center_orders"
 
@@ -413,6 +485,9 @@ class ClueAssignmentRound(Base):
     is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
     round_status: Mapped[str] = mapped_column(String(32), index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="legacy", index=True)
+    matured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    terminal_reason: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     reassign_reason: Mapped[str | None] = mapped_column(Text)
     reassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -452,3 +527,59 @@ class ClueReassignRuleSetting(Base):
     reassign_sla_hours: Mapped[int | None] = mapped_column(Integer)
     updated_by: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class StoreScoreSnapshotRun(Base):
+    __tablename__ = "store_score_snapshot_runs"
+    __table_args__ = (
+        UniqueConstraint("scheduled_key", name="uq_store_score_snapshot_runs_scheduled_key"),
+        Index("ix_store_score_snapshot_runs_date_mode", "snapshot_date", "run_mode"),
+    )
+
+    snapshot_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    run_mode: Mapped[str] = mapped_column(String(32), default="scheduled", index=True)
+    scheduled_key: Mapped[str | None] = mapped_column(Text)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    candidate_store_count: Mapped[int] = mapped_column(Integer, default=0)
+    snapshot_count: Mapped[int] = mapped_column(Integer, default=0)
+    triggered_by: Mapped[str | None] = mapped_column(Text)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StoreScoreSnapshot(Base):
+    __tablename__ = "store_score_snapshots"
+    __table_args__ = (
+        UniqueConstraint("snapshot_run_id", "store_id", name="uq_store_score_snapshots_run_store"),
+        Index("ix_store_score_snapshots_date_store", "snapshot_date", "store_id"),
+        Index("ix_store_score_snapshots_city_date", "city_code", "snapshot_date"),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_run_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("store_score_snapshot_runs.snapshot_run_id", ondelete="CASCADE"),
+        index=True,
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    run_mode: Mapped[str] = mapped_column(String(32), default="scheduled")
+    store_id: Mapped[str] = mapped_column(Text, ForeignKey("dim_stores.store_id", ondelete="CASCADE"), index=True)
+    city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    conversion_numerator: Mapped[int] = mapped_column(Integer, default=0)
+    conversion_denominator: Mapped[int] = mapped_column(Integer, default=0)
+    conversion_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0"))
+    conversion_value_source: Mapped[str] = mapped_column(String(32), default="cold_start_empty")
+    follow_24h_numerator: Mapped[int] = mapped_column(Integer, default=0)
+    follow_24h_denominator: Mapped[int] = mapped_column(Integer, default=0)
+    follow_24h_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0"))
+    follow_24h_value_source: Mapped[str] = mapped_column(String(32), default="cold_start_empty")
+    conversion_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0.7"))
+    follow_24h_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0.3"))
+    store_weight: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("1"))
+    composite_score: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"), index=True)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from apps.worker.clue_allocation import materialize_clue_master_leads, refresh_due_store_score_snapshots
 from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.collectors.aweme_bindings import collect_aweme_bindings
 from apps.worker.collectors.clues import collect_clues
@@ -194,6 +195,9 @@ def _run_job(
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
         if settlement_runner is not None:
             stats.add_phase(_coerce_settlement_phase(settlement_runner(session, source_run_id)))
+            if include_clue_center_rebuild:
+                stats.add_phase(_run_clue_master_rebuild_phase(session, source_run_id))
+                stats.add_phase(_run_store_score_snapshot_phase(session, source_run_id))
 
         _set_job_metadata(session, source_run_id, stats.as_metadata())
         finish_job_run(
@@ -234,6 +238,18 @@ def _run_clue_center_rebuild_phase(
         phone_plain_resolver=resolver if callable(resolver) else None,
     )
     return PhaseStats(name="clue_center_rebuild", fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
+
+
+def _run_clue_master_rebuild_phase(session: Session, source_run_id: str) -> PhaseStats:
+    _ = source_run_id
+    result = materialize_clue_master_leads(session)
+    return PhaseStats(name="clue_master_rebuild", fetched=0, upserted=int(result.get("master_leads", 0) or 0))
+
+
+def _run_store_score_snapshot_phase(session: Session, source_run_id: str) -> PhaseStats:
+    _ = source_run_id
+    result = refresh_due_store_score_snapshots(session)
+    return PhaseStats(name="store_score_snapshot", fetched=0, upserted=int(result.get("snapshots", 0) or 0))
 
 
 def _run_browser_export_phase(session: Session, source_run_id: str) -> PhaseStats:

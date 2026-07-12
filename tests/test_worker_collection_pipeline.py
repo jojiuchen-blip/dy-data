@@ -151,6 +151,8 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     phase_names = [phase.name for phase in stats.phases]
     assert "clues" in phase_names
     assert "clue_center_rebuild" in phase_names
+    assert "clue_master_rebuild" in phase_names
+    assert "store_score_snapshot" in phase_names
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
@@ -161,6 +163,7 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     assert job is not None
     assert job.metadata_json["phases"]["clues"]["upserted"] == 1
     assert job.metadata_json["phases"]["clue_center_rebuild"]["upserted"] == 1
+    assert job.metadata_json["phases"]["clue_master_rebuild"]["upserted"] == 1
 
 
 def test_run_collect_and_settle_marks_failed_and_skips_settlement(db_session: Session):

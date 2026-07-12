@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
@@ -658,6 +658,79 @@ class Pagination(BaseModel):
     page_size: int
     total: int
     total_pages: int
+
+
+class ClueMasterLeadRow(BaseModel):
+    lead_key: str
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    raw_order_status: str | None = None
+    normalized_order_status: str
+    lifecycle_status: str
+    pool_location: str | None = None
+    allocation_state: str
+    current_assignment_round_id: str | None = None
+    allocation_cycle_id: str | None = None
+    ended_without_assignment: bool = False
+    closed_at: datetime | None = None
+    closed_reason: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    anchor_poi_id: str | None = None
+    anchor_store_id: str | None = None
+    anchor_source: str | None = None
+    anchor_unavailable_reason: str | None = None
+    anchor_province: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+
+
+class ClueMasterLeadData(BaseModel):
+    rows: list[ClueMasterLeadRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class StoreScoreSnapshotRunData(BaseModel):
+    snapshot_run_id: str
+    snapshot_date: date
+    run_mode: str
+    window_start: datetime
+    window_end: datetime
+    candidate_store_count: int = 0
+    snapshot_count: int = 0
+    triggered_by: str | None = None
+    computed_at: datetime
+
+
+class StoreScoreSnapshotRow(BaseModel):
+    store_id: str
+    city_code: str | None = None
+    conversion_numerator: int = 0
+    conversion_denominator: int = 0
+    conversion_rate: float = 0
+    conversion_value_source: str
+    follow_24h_numerator: int = 0
+    follow_24h_denominator: int = 0
+    follow_24h_rate: float = 0
+    follow_24h_value_source: str
+    store_weight: float = 1
+    composite_score: float = 0
+
+
+class StoreScoreSnapshotData(BaseModel):
+    run: StoreScoreSnapshotRunData | None = None
+    rows: list[StoreScoreSnapshotRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class StoreScoreRefreshRequest(BaseModel):
+    lookback_days: int = Field(default=30, ge=1, le=365)
+    min_samples: int = Field(default=20, ge=1, le=10000)
+
+
+class StoreScoreRefreshResult(BaseModel):
+    snapshot_run_id: str
+    snapshot_count: int = 0
 
 
 class OrderDetailsData(BaseModel):
