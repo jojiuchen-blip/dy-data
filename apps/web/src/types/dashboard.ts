@@ -26,6 +26,7 @@ export interface AdminUser {
   status: UserStatus;
   is_initialized: boolean;
   store_ids: string[];
+  is_highest_admin?: boolean;
 }
 
 export interface AccountStoreScope {
@@ -543,6 +544,9 @@ export interface ClueAssignmentRound {
   current_assigned_store_name: string | null;
   is_current_round: boolean;
   round_effective_status: "active" | "inactive";
+  can_operate_current_round?: boolean;
+  timing_state?: string | null;
+  status_reason?: string | null;
   round_status: string;
   assigned_at: string | null;
   expires_at: string | null;
@@ -568,7 +572,21 @@ export interface ClueAssignmentRoundData {
   pagination: Pagination;
 }
 
-export type ClueFollowUpResult = "unreachable" | "lost" | "success";
+export type ClueFollowUpAction =
+  | "appointment"
+  | "further_follow_up"
+  | "lost"
+  | "unreachable"
+  | "request_store_change";
+
+export type ClueFollowUpLegacyResult =
+  | "success"
+  | "failed"
+  | "continue_following";
+
+export type ClueFollowUpResult =
+  | ClueFollowUpAction
+  | ClueFollowUpLegacyResult;
 
 export interface ClueFollowUpRecord {
   follow_up_record_id: string;
@@ -576,8 +594,12 @@ export interface ClueFollowUpRecord {
   assignment_round_id: string;
   round_no: number;
   assigned_store_id: string | null;
-  follow_result: "unreachable" | "lost" | "success";
+  assigned_store_name?: string | null;
+  follow_result: ClueFollowUpResult;
   note: string | null;
+  timing_state?: string | null;
+  status_reason?: string | null;
+  soft_deleted_at?: string | null;
   operator_user_id: string | null;
   operator_username: string | null;
   created_at: string;
@@ -585,7 +607,7 @@ export interface ClueFollowUpRecord {
 
 export interface ClueFollowUpPayload {
   assignment_round_id: string;
-  follow_result: "unreachable" | "lost" | "success";
+  follow_result: ClueFollowUpAction;
   note: string | null;
 }
 

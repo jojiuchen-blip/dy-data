@@ -693,8 +693,11 @@ function mockClueFollowUpResponse(
     assignment_round_id: payload.assignment_round_id,
     round_no: row?.round_no ?? 1,
     assigned_store_id: row?.assigned_store_id ?? null,
+    assigned_store_name: row?.assigned_store_name ?? null,
     follow_result: payload.follow_result,
     note: payload.note,
+    timing_state:
+      payload.follow_result === "appointment" ? "protected" : "active",
     operator_user_id: "mock-store-user",
     operator_username: "本店账号",
     created_at: createdAt,
@@ -709,14 +712,22 @@ function mockClueFollowUpResponse(
     row.followed_at = createdAt;
     row.follow_result = payload.follow_result;
     row.round_status =
-      payload.follow_result === "lost"
+      payload.follow_result === "lost" ||
+      payload.follow_result === "request_store_change"
         ? "failed_pending_reassign"
         : "active_followed";
-    if (payload.follow_result === "lost") {
+    if (
+      payload.follow_result === "lost" ||
+      payload.follow_result === "request_store_change"
+    ) {
       row.lead_status = "pending_reassign";
       row.expires_at = createdAt;
       row.remaining_reassign_seconds = 0;
-      row.reassign_reason = "follow_lost";
+      row.reassign_reason =
+        payload.follow_result === "request_store_change"
+          ? "request_store_change"
+          : "follow_lost";
+      row.can_operate_current_round = false;
     }
   }
 
@@ -737,7 +748,8 @@ function mockDeleteClueFollowUpRecordResponse(
       (record) => record.follow_up_record_id === followUpRecordId,
     );
     if (index >= 0) {
-      const [record] = records.splice(index, 1);
+      const record = records[index];
+      record.soft_deleted_at = generatedAt();
       return {
         data: record,
         meta: {
@@ -754,7 +766,8 @@ function mockDeleteClueFollowUpRecordResponse(
       (record) => record.follow_up_record_id === followUpRecordId,
     );
     if (index >= 0) {
-      const [record] = records.splice(index, 1);
+      const record = records[index];
+      record.soft_deleted_at = generatedAt();
       return {
         data: record,
         meta: {
@@ -776,7 +789,7 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
       (row) => row.order_id === orderId,
     )?.phone_masked ??
     "";
-  const phone = phoneMasked.replace("****", "0000") || "";
+  const phone = phoneMasked ? "MOCK_PHONE_REDACTED" : "";
   return {
     data: {
       order_id: orderId,

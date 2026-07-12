@@ -35,8 +35,8 @@ import { useApiResource } from "../hooks/useApiResource";
 import type {
   ClueFilterMetadata,
   ClueAssignmentRound,
+  ClueFollowUpAction,
   ClueFollowUpRecord,
-  ClueFollowUpResult,
   ClueOrderDetail,
   ClueOverviewFilters,
   AdminUser,
@@ -56,6 +56,7 @@ type StoreClueStatus =
   | "已跟进"
   | "超期失效"
   | "主动战败"
+  | "客户要求换门店"
   | "已核销"
   | "已退款"
   | "不可跟进";
@@ -105,15 +106,19 @@ const followResultLabels: Record<string, string> = {
   pending: "-",
   unreachable: "未接通",
   lost: "线索战败",
-  failed: "线索战败",
-  success: "跟进成功",
-  continue_following: "继续跟进",
+  request_store_change: "客户要求换门店",
+  appointment: "已预约",
+  further_follow_up: "待进一步跟进",
+  failed: "历史旧值：线索战败",
+  success: "历史旧值：跟进成功（已迁移为已预约）",
+  continue_following: "历史旧值：待进一步跟进",
 };
 
 const reassignReasonLabels: Record<string, string> = {
   timeout: "超期失效",
   follow_failed: "线索战败",
   "follow_lost": "线索战败",
+  request_store_change: "客户要求换门店",
   manual: "人工调整",
   "线索战败": "线索战败",
 };
@@ -125,12 +130,17 @@ const storeStatusAliases: Record<string, StoreClueStatus> = {
   failed_pending_reassign: "主动战败",
   lost: "主动战败",
   failed: "主动战败",
+  request_store_change: "客户要求换门店",
   converted: "已核销",
   refunded: "已退款",
 };
 
 const editableStatuses = new Set<StoreClueStatus>(["待跟进", "已跟进"]);
-const invalidStatuses = new Set<StoreClueStatus>(["超期失效", "主动战败"]);
+const invalidStatuses = new Set<StoreClueStatus>([
+  "超期失效",
+  "主动战败",
+  "客户要求换门店",
+]);
 
 function labelFor(value: string | null | undefined, labels: Record<string, string>) {
   if (!value) {
@@ -192,6 +202,9 @@ function getStoreDisplayStatus(row: ClueAssignmentRound): StoreClueStatus {
   if (row.round_status === "expired_pending_reassign") {
     return "超期失效";
   }
+  if (row.reassign_reason === "request_store_change") {
+    return "客户要求换门店";
+  }
   if (
     row.round_status === "failed_pending_reassign" ||
     row.follow_result === "lost" ||
@@ -211,12 +224,19 @@ function getStoreDisplayStatus(row: ClueAssignmentRound): StoreClueStatus {
   return "不可跟进";
 }
 
-function canViewFullPhone(row: ClueAssignmentRound): boolean {
+function canOperateCurrentRound(row: ClueAssignmentRound): boolean {
+  if (typeof row.can_operate_current_round === "boolean") {
+    return row.can_operate_current_round;
+  }
   return (
     row.is_current_round &&
     row.round_effective_status === "active" &&
     editableStatuses.has(getStoreDisplayStatus(row))
   );
+}
+
+function canViewFullPhone(row: ClueAssignmentRound): boolean {
+  return canOperateCurrentRound(row);
 }
 
 function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
@@ -227,10 +247,13 @@ function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "主动战败") {
     return "已主动战败，不可跟进";
   }
+  if (status === "客户要求换门店") {
+    return "客户要求换门店，本轮不可跟进";
+  }
   if (status === "已核销") {
     return "订单已完成";
   }
-  return "不可跟进";
+  return row.status_reason ?? "此线索不可操作";
 }
 
 function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
@@ -241,13 +264,16 @@ function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "主动战败") {
     return "线索已战败，不可继续跟进";
   }
+  if (status === "客户要求换门店") {
+    return "客户要求换门店，本轮不可继续跟进";
+  }
   if (status === "已核销") {
     return "订单已完成";
   }
   if (status === "已退款") {
     return "订单已退款，不可跟进";
   }
-  return "不可跟进";
+  return row.status_reason ?? "此线索不可操作";
 }
 
 function verificationStatusText(row: ClueAssignmentRound): string {
@@ -313,9 +339,12 @@ function recordsForRound(
   detail: ClueOrderDetail,
   assignmentRoundId: string,
 ): ClueFollowUpRecord[] {
-  return detail.follow_up_records.filter(
-    (record) => record.assignment_round_id === assignmentRoundId,
-  );
+  return detail.follow_up_records
+    .filter(
+      (record) =>
+        record.assignment_round_id === assignmentRoundId && !record.soft_deleted_at,
+    )
+    .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }
 
 export function ClueCenterPage({
@@ -362,7 +391,7 @@ export function ClueCenterPage({
   const [exportingClues, setExportingClues] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [followResult, setFollowResult] =
-    useState<ClueFollowUpResult>("unreachable");
+    useState<ClueFollowUpAction>("further_follow_up");
   const [followNote, setFollowNote] = useState("");
   const [followUpError, setFollowUpError] = useState<string | null>(null);
   const [deletingFollowUpRecordId, setDeletingFollowUpRecordId] =
@@ -532,8 +561,10 @@ export function ClueCenterPage({
   const canShowActiveDetailPhone = activeDetailRound
     ? canViewFullPhone(activeDetailRound)
     : false;
-  const canEditFollowUp = canShowActiveDetailPhone;
-  const canDeleteFollowUpRecords = currentUser.role === "admin";
+  const canEditFollowUp = activeDetailRound
+    ? canOperateCurrentRound(activeDetailRound)
+    : false;
+  const canDeleteFollowUpRecords = currentUser.is_highest_admin === true;
   const handleExportClues = async () => {
     setExportingClues(true);
     setExportError(null);
@@ -782,7 +813,7 @@ export function ClueCenterPage({
   }, [selectedOrderId, detailReloadIndex]);
 
   useEffect(() => {
-    setFollowResult("unreachable");
+    setFollowResult("further_follow_up");
     setFollowNote("");
     setFollowUpError(null);
     setPhoneRevealError(null);
@@ -1377,16 +1408,29 @@ export function ClueCenterPage({
                             <legend>跟进结果</legend>
                             <label>
                               <input
-                                checked={followResult === "unreachable"}
+                                aria-label="已预约"
+                                checked={followResult === "appointment"}
                                 name="follow_result"
-                                onChange={() => setFollowResult("unreachable")}
+                                onChange={() => setFollowResult("appointment")}
                                 type="radio"
-                                value="unreachable"
+                                value="appointment"
                               />
-                              未接通
+                              已预约
                             </label>
                             <label>
                               <input
+                                aria-label="待进一步跟进"
+                                checked={followResult === "further_follow_up"}
+                                name="follow_result"
+                                onChange={() => setFollowResult("further_follow_up")}
+                                type="radio"
+                                value="further_follow_up"
+                              />
+                              待进一步跟进
+                            </label>
+                            <label>
+                              <input
+                                aria-label="线索战败"
                                 checked={followResult === "lost"}
                                 name="follow_result"
                                 onChange={() => setFollowResult("lost")}
@@ -1397,13 +1441,25 @@ export function ClueCenterPage({
                             </label>
                             <label>
                               <input
-                                checked={followResult === "success"}
+                                aria-label="未联系上"
+                                checked={followResult === "unreachable"}
                                 name="follow_result"
-                                onChange={() => setFollowResult("success")}
+                                onChange={() => setFollowResult("unreachable")}
                                 type="radio"
-                                value="success"
+                                value="unreachable"
                               />
-                              跟进成功
+                              未联系上
+                            </label>
+                            <label>
+                              <input
+                                aria-label="客户要求换门店"
+                                checked={followResult === "request_store_change"}
+                                name="follow_result"
+                                onChange={() => setFollowResult("request_store_change")}
+                                type="radio"
+                                value="request_store_change"
+                              />
+                              客户要求换门店
                             </label>
                           </fieldset>
                           <label className="clue-followup-note">
@@ -1505,8 +1561,7 @@ export function ClueCenterPage({
                                     <dt>跟进门店</dt>
                                     <dd>
                                       {displayValue(
-                                        round.assigned_store_name ??
-                                          round.assigned_store_id,
+                                        round.assigned_store_name,
                                       )}
                                     </dd>
                                   </div>
@@ -1539,7 +1594,14 @@ export function ClueCenterPage({
                                             )}
                                           </span>
                                           <p>{displayValue(record.note)}</p>
-                                          {canDeleteFollowUpRecords ? (
+                                          {record.timing_state || record.status_reason ? (
+                                            <p>
+                                              {[record.timing_state, record.status_reason]
+                                                .filter(Boolean)
+                                                .join(" · ")}
+                                            </p>
+                                          ) : null}
+                                          {canDeleteFollowUpRecords && !record.soft_deleted_at ? (
                                             <button
                                               aria-label="删除跟进历史"
                                               className="clue-followup-delete-record"
