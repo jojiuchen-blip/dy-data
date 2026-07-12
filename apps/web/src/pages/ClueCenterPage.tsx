@@ -338,11 +338,13 @@ function currentDetailRound(
 function recordsForRound(
   detail: ClueOrderDetail,
   assignmentRoundId: string,
+  includeDeleted = false,
 ): ClueFollowUpRecord[] {
   return detail.follow_up_records
     .filter(
       (record) =>
-        record.assignment_round_id === assignmentRoundId && !record.soft_deleted_at,
+        record.assignment_round_id === assignmentRoundId &&
+        (includeDeleted || !record.is_deleted),
     )
     .sort((left, right) => left.created_at.localeCompare(right.created_at));
 }
@@ -618,10 +620,6 @@ export function ClueCenterPage({
       setPhoneRevealError(getPhoneUnavailableReason(row));
       return null;
     }
-    if (revealedPhones[row.order_id]) {
-      return revealedPhones[row.order_id];
-    }
-
     setPhoneRevealError(null);
     setPhoneActionMessage(null);
     setRevealingOrderId(row.order_id);
@@ -634,6 +632,14 @@ export function ClueCenterPage({
       }));
       return fullPhone;
     } catch {
+      setRevealedPhones((current) => {
+        if (!current[row.order_id]) {
+          return current;
+        }
+        const next = { ...current };
+        delete next[row.order_id];
+        return next;
+      });
       setPhoneRevealError("完整手机号暂不可查看");
       return null;
     } finally {
@@ -793,6 +799,19 @@ export function ClueCenterPage({
         if (cancelled) {
           return;
         }
+        const reloadedRound = result.data.rounds.find(
+          (round) => round.assignment_round_id === selectedRoundId,
+        );
+        if (reloadedRound && !canViewFullPhone(reloadedRound)) {
+          setRevealedPhones((current) => {
+            if (!current[selectedOrderId]) {
+              return current;
+            }
+            const next = { ...current };
+            delete next[selectedOrderId];
+            return next;
+          });
+        }
         setDetail(result.data);
       })
       .catch((error: unknown) => {
@@ -875,7 +894,7 @@ export function ClueCenterPage({
         follow_result: followResult,
         note: followNote.trim() || null,
       });
-      if (followResult === "lost") {
+      if (followResult === "lost" || followResult === "request_store_change") {
         setRevealedPhones((current) => {
           if (!current[detail.order_id]) {
             return current;
@@ -1533,6 +1552,7 @@ export function ClueCenterPage({
                             const roundRecords = recordsForRound(
                               detail,
                               round.assignment_round_id,
+                              canDeleteFollowUpRecords,
                             );
                             return (
                               <li
@@ -1594,6 +1614,14 @@ export function ClueCenterPage({
                                             )}
                                           </span>
                                           <p>{displayValue(record.note)}</p>
+                                          {record.is_deleted ? (
+                                            <p>
+                                              已删除
+                                              {record.deleted_by_username
+                                                ? ` · ${record.deleted_by_username}`
+                                                : ""}
+                                            </p>
+                                          ) : null}
                                           {record.timing_state || record.status_reason ? (
                                             <p>
                                               {[record.timing_state, record.status_reason]
@@ -1601,7 +1629,7 @@ export function ClueCenterPage({
                                                 .join(" · ")}
                                             </p>
                                           ) : null}
-                                          {canDeleteFollowUpRecords && !record.soft_deleted_at ? (
+                                          {canDeleteFollowUpRecords && !record.is_deleted ? (
                                             <button
                                               aria-label="删除跟进历史"
                                               className="clue-followup-delete-record"

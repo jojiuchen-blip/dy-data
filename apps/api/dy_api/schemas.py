@@ -414,6 +414,7 @@ class ClueAssignmentRoundRow(BaseModel):
     current_assigned_store_id: str | None = None
     current_assigned_store_name: str | None = None
     is_current_round: bool = False
+    can_operate_current_round: bool = False
     round_effective_status: Literal["active", "inactive"] = "inactive"
     round_status: str
     assigned_at: datetime | None = None
@@ -472,11 +473,25 @@ class ClueFollowUpRecordRow(BaseModel):
     assignment_round_id: str
     round_no: int
     assigned_store_id: str | None = None
-    follow_result: Literal["appointment", "further_follow_up", "lost", "unreachable", "request_store_change", "success", "failed"]
+    follow_result: Literal[
+        "appointment",
+        "further_follow_up",
+        "lost",
+        "unreachable",
+        "request_store_change",
+        "continue_following",
+        "success",
+        "failed",
+    ]
     note: str | None = None
     operator_user_id: str | None = None
     operator_username: str | None = None
     created_at: datetime
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    deleted_by_user_id: str | None = None
+    deleted_by_username: str | None = None
+    deletion_reason: str | None = None
 
 
 class ClueFollowUpResponseData(ClueFollowUpRecordRow):
@@ -850,8 +865,6 @@ class ClueAllocationRuleVersionData(BaseModel):
     min_samples: int | None = None
     strategy_configs: list[ClueAllocationStrategyConfigData] = Field(default_factory=list)
     created_at: datetime
-    is_deleted: bool = False
-    deleted_at: datetime | None = None
     updated_at: datetime
     published_at: datetime | None = None
     retired_at: datetime | None = None

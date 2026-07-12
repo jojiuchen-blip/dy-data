@@ -807,6 +807,11 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     assert "writeText(phoneMasked)" not in source
     assert "writeText(row.phone_masked)" not in source
     assert "fetchClueOrderPhone" in source
+    fetch_phone_body = source[
+        source.index("const fetchFullPhone") : source.index("const revealPhone")
+    ]
+    assert "if (revealedPhones[row.order_id])" not in fetch_phone_body
+    assert "setRevealedPhones((current) =>" in fetch_phone_body
     render_body = source[
         source.index("const renderPhoneContact") : source.index("useEffect(() => {")
     ]
@@ -916,16 +921,18 @@ def test_p3_follow_up_actions_and_permissions_are_frontend_gated() -> None:
     assert "canOperateCurrentRound" in page_source
     assert "currentUser.is_highest_admin === true" in page_source
     assert 'title="删除跟进历史"' in page_source
-    assert "canDeleteFollowUpRecords && !record.soft_deleted_at" in page_source
+    assert "canDeleteFollowUpRecords && !record.is_deleted" in page_source
+    assert "已删除" in page_source
 
     assert "is_highest_admin?: boolean;" in types_source
     assert "can_operate_current_round?: boolean;" in types_source
     assert '"appointment"' in types_source
     assert '"request_store_change"' in types_source
     assert "历史旧值：跟进成功" in page_source
-    assert "soft_deleted_at" in types_source
-    assert "soft_deleted_at" in client_source
-    assert "record.soft_deleted_at = generatedAt();" in client_source
+    assert "is_deleted?: boolean;" in types_source
+    assert "deleted_by_username?: string | null;" in types_source
+    assert "record.is_deleted = true;" in client_source
+    assert "record.deleted_at = generatedAt();" in client_source
 
     mock_rows = mock["assignment_rounds"]["data"]["rows"]
     assert any(row.get("can_operate_current_round") is True for row in mock_rows)

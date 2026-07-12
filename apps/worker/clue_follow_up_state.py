@@ -50,16 +50,19 @@ def apply_follow_up_action(
     if round_row is None or round_row.order_id != order_id:
         return FollowUpStateResult("not_found")
     lead = session.get(ClueMasterLead, round_row.lead_key) if round_row.lead_key else None
-    if lead is None or not _is_current_active_round(lead, round_row):
+    if lead is None:
         return FollowUpStateResult("conflict")
-    if not _actor_can_operate_round(round_row, actor):
-        return FollowUpStateResult("forbidden")
-
     executed_at = _aware(now)
     if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
+        if not _is_current_self_owned_round(lead, round_row):
+            return FollowUpStateResult("conflict")
         _close_for_terminal_order(lead, round_row, executed_at, session)
         session.flush()
         return FollowUpStateResult("conflict")
+    if not _is_current_active_round(lead, round_row):
+        return FollowUpStateResult("conflict")
+    if not _actor_can_operate_round(round_row, actor):
+        return FollowUpStateResult("forbidden")
 
     record = ClueFollowUpRecord(
         follow_up_record_id=uuid4().hex,
@@ -200,7 +203,7 @@ def _recalculate_active_round_summary(
         round_row.followed_at = latest.created_at
         round_row.follow_result = latest.follow_result
         round_row.is_followed = True
-        round_row.is_follow_success = False
+        round_row.is_follow_success = latest.follow_result in PROTECTION_ACTIONS
         round_row.round_status = "active_followed"
         first_protection = next((item for item in records if item.follow_result in PROTECTION_ACTIONS), None)
         if first_protection is None:
@@ -239,9 +242,16 @@ def _recalculate_legacy_active_round_summary(
         round_row.followed_at = latest.created_at
         round_row.follow_result = latest.follow_result
         round_row.is_followed = True
-        round_row.is_follow_success = latest.follow_result == "success"
-        round_row.round_status = "failed_pending_reassign" if latest.follow_result == "lost" else "active_followed"
-        reassign_reason = "follow_lost" if latest.follow_result == "lost" else None
+        round_row.is_follow_success = latest.follow_result in (PROTECTION_ACTIONS | {"success"})
+        should_reassign = latest.follow_result in {"lost", "request_store_change"}
+        round_row.round_status = "failed_pending_reassign" if should_reassign else "active_followed"
+        reassign_reason = (
+            "follow_lost"
+            if latest.follow_result == "lost"
+            else "request_store_change"
+            if latest.follow_result == "request_store_change"
+            else None
+        )
     round_row.reassign_reason = reassign_reason
     round_row.updated_at = now
     center = session.get(ClueCenterOrder, round_row.order_id)
@@ -318,7 +328,7 @@ def _apply_visible_summary(round_row: ClueAssignmentRound, action: str, now: dat
     round_row.followed_at = now
     round_row.follow_result = action
     round_row.is_followed = True
-    round_row.is_follow_success = False
+    round_row.is_follow_success = action in PROTECTION_ACTIONS
     round_row.round_status = "active_followed"
     round_row.updated_at = now
     if action in PROTECTION_ACTIONS and round_row.protection_started_at is None:
@@ -373,12 +383,18 @@ def _close_for_terminal_order(
 
 def _is_current_active_round(lead: ClueMasterLead, round_row: ClueAssignmentRound) -> bool:
     return bool(
-        round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
-        and lead.current_assignment_round_id == round_row.assignment_round_id
+        _is_current_self_owned_round(lead, round_row)
         and lead.lifecycle_status == "active"
         and lead.normalized_order_status == "active"
         and lead.pool_location == "store_follow_up_pool"
         and round_row.round_status in ACTIVE_ROUND_STATUSES
+    )
+
+
+def _is_current_self_owned_round(lead: ClueMasterLead, round_row: ClueAssignmentRound) -> bool:
+    return bool(
+        round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
+        and lead.current_assignment_round_id == round_row.assignment_round_id
     )
 
 

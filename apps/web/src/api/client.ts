@@ -749,7 +749,10 @@ function mockDeleteClueFollowUpRecordResponse(
     );
     if (index >= 0) {
       const record = records[index];
-      record.soft_deleted_at = generatedAt();
+      record.is_deleted = true;
+      record.deleted_at = generatedAt();
+      record.deleted_by_username = "最高管理员";
+      record.deletion_reason = "reversed_by_highest_admin";
       return {
         data: record,
         meta: {
@@ -767,7 +770,10 @@ function mockDeleteClueFollowUpRecordResponse(
     );
     if (index >= 0) {
       const record = records[index];
-      record.soft_deleted_at = generatedAt();
+      record.is_deleted = true;
+      record.deleted_at = generatedAt();
+      record.deleted_by_username = "最高管理员";
+      record.deletion_reason = "reversed_by_highest_admin";
       return {
         data: record,
         meta: {

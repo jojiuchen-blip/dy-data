@@ -359,3 +359,26 @@ def test_due_transition_respects_auto_expiry_but_terminal_order_still_wins(db_se
 
     assert stats["terminal_closed"] == 1
     assert disabled_round.round_status == "closed_order_verified"
+
+
+def test_terminal_order_action_closes_current_round_before_returning_conflict(
+    db_session: Session,
+) -> None:
+    lead, round_row = _active_formal_round()
+    lead.normalized_order_status = "verified"
+    db_session.add_all([lead, round_row])
+    db_session.commit()
+
+    result = apply_follow_up_action(
+        db_session,
+        order_id="order-1",
+        assignment_round_id="round-1",
+        follow_result="appointment",
+        actor={"username": "system-admin", "role": "admin", "is_highest_admin": True},
+        now=_dt(2),
+    )
+
+    assert result.status == "conflict"
+    assert round_row.round_status == "closed_order_verified"
+    assert lead.lifecycle_status == "closed_verified"
+    assert lead.current_assignment_round_id is None

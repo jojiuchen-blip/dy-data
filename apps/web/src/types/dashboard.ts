@@ -599,7 +599,11 @@ export interface ClueFollowUpRecord {
   note: string | null;
   timing_state?: string | null;
   status_reason?: string | null;
-  soft_deleted_at?: string | null;
+  is_deleted?: boolean;
+  deleted_at?: string | null;
+  deleted_by_user_id?: string | null;
+  deleted_by_username?: string | null;
+  deletion_reason?: string | null;
   operator_user_id: string | null;
   operator_username: string | null;
   created_at: string;
