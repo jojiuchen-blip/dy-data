@@ -661,7 +661,6 @@ class Pagination(BaseModel):
 
 
 class ClueMasterLeadRow(BaseModel):
-    lead_key: str
     canonical_clue_id: str | None = None
     order_id: str | None = None
     raw_order_status: str | None = None

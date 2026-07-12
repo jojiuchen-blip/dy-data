@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from unittest.mock import Mock
 
 import pytest
 from openpyxl import Workbook
@@ -15,6 +16,7 @@ from apps.api.dy_api.models import (
     ClueFollowUpRecord,
     ClueMasterLead,
     ClueOrderStatusEvent,
+    DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
     RawDouyinClue,
@@ -23,6 +25,7 @@ from apps.api.dy_api.models import (
     StoreScoreSnapshotRun,
 )
 from apps.worker import clue_allocation
+from apps.worker.repositories import upsert_data_quality_issue
 
 
 def _dt(day: int, hour: int = 9) -> datetime:
@@ -136,6 +139,38 @@ def test_m1_score_schema_is_declared_without_reusing_legacy_rounds_as_formal_dat
         "follow_24h_value_source",
         "composite_score",
     }.issubset(tables["store_score_snapshots"].columns.keys())
+
+
+def test_data_quality_issue_upsert_can_defer_flush() -> None:
+    session = Mock(spec=Session)
+    session.new = ()
+
+    upsert_data_quality_issue(
+        session,
+        "deferred-quality-issue",
+        issue_type="clue_anchor_unavailable",
+        message="anchor unavailable",
+        raw_context_json={"reason": "follow_poi_missing"},
+        flush=False,
+    )
+
+    session.flush.assert_not_called()
+
+
+def test_data_quality_issue_upsert_deduplicates_pending_issue_before_flush(db_session: Session) -> None:
+    for _ in range(2):
+        upsert_data_quality_issue(
+            db_session,
+            "deferred-duplicate-quality-issue",
+            issue_type="clue_anchor_unavailable",
+            message="anchor unavailable",
+            raw_context_json={"reason": "follow_poi_missing"},
+            flush=False,
+        )
+
+    db_session.flush()
+
+    assert db_session.scalar(select(func.count()).select_from(DataQualityIssue)) == 1
 
 
 def test_materialize_master_leads_keeps_terminal_clues_without_assignment_rounds(
@@ -660,3 +695,40 @@ def test_scheduled_score_refresh_records_an_empty_run_once_per_day(db_session: S
     assert first["snapshots"] == 0
     assert db_session.get(StoreScoreSnapshotRun, first["snapshot_run_id"]) is not None
     assert repeat == {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
+
+
+def test_master_materialization_skips_when_its_transaction_lock_is_unavailable(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.add_all(
+        [
+            _store("locked-anchor", city_code="上海"),
+            DimStorePoiMapping(store_id="locked-anchor", poi_id="locked-poi", mapping_source="test"),
+            _raw_clue("locked-raw", clue_id="locked-clue", order_id="locked-order", follow_poi_id="locked-poi"),
+        ]
+    )
+    db_session.commit()
+    monkeypatch.setattr(clue_allocation, "_try_transaction_lock", lambda *args, **kwargs: False, raising=False)
+
+    result = clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    assert result == {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0, "skipped": "locked"}
+    assert db_session.scalar(select(func.count()).select_from(ClueMasterLead)) == 0
+
+
+def test_scheduled_score_refresh_skips_when_its_transaction_lock_is_unavailable(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.add(_store("locked-score-store", city_code="上海"))
+    db_session.commit()
+    monkeypatch.setattr(clue_allocation, "_try_transaction_lock", lambda *args, **kwargs: False, raising=False)
+
+    result = clue_allocation.refresh_due_store_score_snapshots(
+        db_session,
+        now=datetime(2026, 7, 10, 19, 1, tzinfo=timezone.utc),
+    )
+
+    assert result == {"snapshot_run_id": None, "snapshots": 0, "skipped": "locked"}
+    assert db_session.scalar(select(func.count()).select_from(StoreScoreSnapshotRun)) == 0

@@ -24,10 +24,18 @@ from apps.api.dy_api.models import (
 ModelT = TypeVar("ModelT")
 
 
-def _merge(session: Session, model: type[ModelT], keys: Mapping[str, Any], values: Mapping[str, Any]) -> ModelT:
+def _merge(
+    session: Session,
+    model: type[ModelT],
+    keys: Mapping[str, Any],
+    values: Mapping[str, Any],
+    *,
+    flush: bool = True,
+) -> ModelT:
     payload = {**keys, **values}
     row = session.merge(model(**payload))
-    session.flush()
+    if flush:
+        session.flush()
     return row
 
 
@@ -165,18 +173,34 @@ def upsert_data_quality_issue(
     severity: str = "warning",
     raw_context_json: dict[str, Any] | None = None,
     source_run_id: str | None = None,
+    flush: bool = True,
 ) -> DataQualityIssue:
+    values = {
+        "issue_type": issue_type,
+        "order_id": order_id,
+        "coupon_id": coupon_id,
+        "severity": severity,
+        "message": message,
+        "raw_context_json": raw_context_json or {},
+        "source_run_id": source_run_id,
+    }
+    if not flush:
+        pending_issue = next(
+            (
+                row
+                for row in session.new
+                if isinstance(row, DataQualityIssue) and row.issue_id == issue_id
+            ),
+            None,
+        )
+        if pending_issue is not None:
+            for field, value in values.items():
+                setattr(pending_issue, field, value)
+            return pending_issue
     return _merge(
         session,
         DataQualityIssue,
         {"issue_id": issue_id},
-        {
-            "issue_type": issue_type,
-            "order_id": order_id,
-            "coupon_id": coupon_id,
-            "severity": severity,
-            "message": message,
-            "raw_context_json": raw_context_json or {},
-            "source_run_id": source_run_id,
-        },
+        values,
+        flush=flush,
     )

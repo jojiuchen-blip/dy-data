@@ -11,7 +11,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -20,6 +20,7 @@ from apps.api.dy_api.models import (
     ClueFollowUpRecord,
     ClueMasterLead,
     ClueOrderStatusEvent,
+    DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
     RawDouyinClue,
@@ -39,6 +40,8 @@ DEFAULT_CONVERSION_WEIGHT = Decimal("0.7")
 DEFAULT_FOLLOW_WEIGHT = Decimal("0.3")
 DEFAULT_STORE_WEIGHT = Decimal("1")
 SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
+MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
+SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 
 
 @dataclass(frozen=True)
@@ -78,9 +81,11 @@ class StoreMetrics:
             self.follow_24h_numerator += 1
 
 
-def materialize_clue_master_leads(session: Session, *, now: datetime | None = None) -> dict[str, int]:
+def materialize_clue_master_leads(session: Session, *, now: datetime | None = None) -> dict[str, object]:
     """Build the new full clue master ledger without mutating raw Douyin rows."""
     now = _aware(now or utcnow())
+    if not _try_transaction_lock(session, lock_name=MASTER_MATERIALIZATION_LOCK):
+        return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0, "skipped": "locked"}
     raw_clues = session.scalars(select(RawDouyinClue)).all()
     if not raw_clues:
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0}
@@ -104,6 +109,11 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     existing_by_canonical_clue_id = {
         row.canonical_clue_id: row for row in existing_rows if row.canonical_clue_id
     }
+    anchor_issue_ids = set(
+        session.scalars(
+            select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
+        ).all()
+    )
 
     materialized_lead_keys: set[str] = set()
     closed_lead_keys: set[str] = set()
@@ -202,7 +212,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
                 created_at=now,
             )
         if anchor.unavailable_reason:
-            _record_anchor_quality_issue(session, existing.lead_key, anchor, now)
+            _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
         if lifecycle_status != "active" and existing.order_id:
             _close_legacy_assignment(session, existing.order_id, lifecycle_status, resolution.closed_at or now)
 
@@ -414,8 +424,20 @@ def refresh_store_score_snapshots(
     if conversion_weight + follow_weight != Decimal("1"):
         raise ValueError("conversion_weight and follow_weight must add up to 1")
 
-    snapshot_run_id = f"score-{now.strftime('%Y%m%dT%H%M%S%f')}-{uuid4().hex[:8]}"
     snapshot_date = now.astimezone(SHANGHAI).date()
+    if run_mode == "scheduled":
+        if not _try_transaction_lock(session, lock_name=SCHEDULED_SCORE_REFRESH_LOCK):
+            return {"snapshot_run_id": None, "snapshots": 0, "skipped": "locked"}
+        existing = session.scalar(
+            select(StoreScoreSnapshotRun.snapshot_run_id)
+            .where(StoreScoreSnapshotRun.snapshot_date == snapshot_date)
+            .where(StoreScoreSnapshotRun.run_mode == "scheduled")
+            .limit(1)
+        )
+        if existing:
+            return {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
+
+    snapshot_run_id = f"score-{now.strftime('%Y%m%dT%H%M%S%f')}-{uuid4().hex[:8]}"
     window_end = now
     window_start = now - timedelta(days=lookback_days)
     stores = eligible_candidate_stores(session)
@@ -511,14 +533,6 @@ def refresh_due_store_score_snapshots(
     local_now = now.astimezone(SHANGHAI)
     if local_now.time() < SCHEDULED_SCORE_REFRESH_TIME:
         return {"snapshot_run_id": None, "snapshots": 0, "skipped": "before_schedule"}
-    existing = session.scalar(
-        select(StoreScoreSnapshotRun.snapshot_run_id)
-        .where(StoreScoreSnapshotRun.snapshot_date == local_now.date())
-        .where(StoreScoreSnapshotRun.run_mode == "scheduled")
-        .limit(1)
-    )
-    if existing:
-        return {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
     return refresh_store_score_snapshots(session, now=now, run_mode="scheduled")
 
 
@@ -537,6 +551,14 @@ def _source_identity_key(raw_clue: RawDouyinClue) -> str:
 
 def _lead_key(source_identity_key: str) -> str:
     return f"lead-{source_identity_key.removeprefix('identity-')}"
+
+
+def _try_transaction_lock(session: Session, *, lock_name: str) -> bool:
+    """Prevent parallel PostgreSQL workers from materializing the same M1 state."""
+    if session.get_bind().dialect.name != "postgresql":
+        return True
+    lock_key = int.from_bytes(sha256(lock_name.encode("utf-8")).digest()[:8], byteorder="big", signed=True)
+    return bool(session.scalar(select(func.pg_try_advisory_xact_lock(lock_key))))
 
 
 def _raw_orders_by_id(session: Session, order_ids: set[str]) -> dict[str, RawDouyinOrder]:
@@ -687,17 +709,29 @@ def _record_status_event(
     )
 
 
-def _record_anchor_quality_issue(session: Session, lead_key: str, anchor: AnchorSnapshot, now: datetime) -> None:
+def _record_anchor_quality_issue(
+    session: Session,
+    lead_key: str,
+    anchor: AnchorSnapshot,
+    now: datetime,
+    known_issue_ids: set[str],
+) -> None:
     if not anchor.unavailable_reason:
         return
-    upsert_data_quality_issue(
-        session,
-        f"clue-anchor:{lead_key}:{anchor.unavailable_reason}",
-        issue_type="clue_anchor_unavailable",
-        message="clue anchor is unavailable for allocation",
-        severity="warning",
-        raw_context_json={"anchor_poi_id": anchor.poi_id, "reason": anchor.unavailable_reason},
-        source_run_id=None,
+    issue_id = f"clue-anchor:{lead_key}:{anchor.unavailable_reason}"
+    if issue_id in known_issue_ids:
+        return
+    known_issue_ids.add(issue_id)
+    session.add(
+        DataQualityIssue(
+            issue_id=issue_id,
+            issue_type="clue_anchor_unavailable",
+            message="clue anchor is unavailable for allocation",
+            severity="warning",
+            raw_context_json={"anchor_poi_id": anchor.poi_id, "reason": anchor.unavailable_reason},
+            source_run_id=None,
+            created_at=now,
+        )
     )
 
 
@@ -711,6 +745,7 @@ def _record_store_location_issue(session: Session, poi_id: str, reason: str, now
         severity="warning",
         raw_context_json={"poi_id": poi_id, "reason": reason},
         source_run_id=None,
+        flush=False,
     )
 
 

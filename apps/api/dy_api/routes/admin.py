@@ -1097,7 +1097,6 @@ def _pagination(page: int, page_size: int, total: int) -> Pagination:
 
 def _clue_master_lead_payload(row: ClueMasterLead) -> dict:
     return {
-        "lead_key": row.lead_key,
         "canonical_clue_id": row.canonical_clue_id,
         "order_id": row.order_id,
         "raw_order_status": row.raw_order_status,

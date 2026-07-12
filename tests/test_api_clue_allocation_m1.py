@@ -162,6 +162,7 @@ def test_admin_m1_master_pool_contract_is_protected_and_excludes_source_identity
     assert row["canonical_clue_id"] == "clue-test"
     assert row["pool_location"] is None
     assert row["allocation_state"] == "pending_allocation"
+    assert "lead_key" not in row
     assert "source_identity_key" not in row
     assert "source_clue_row_key" not in row
 
