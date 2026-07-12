@@ -42,6 +42,7 @@ DEFAULT_STORE_WEIGHT = Decimal("1")
 SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
 MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
+SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 
 
 @dataclass(frozen=True)
@@ -134,16 +135,6 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         )
         anchor = _resolve_anchor(raw_clue, mappings_by_poi, stores_by_id)
         lifecycle_status = _lifecycle_status(resolution.normalized_status)
-        if lifecycle_status != "active":
-            pool_location = "closed"
-            allocation_state = "closed"
-        elif anchor.unavailable_reason:
-            pool_location = "headquarters_pool"
-            allocation_state = "headquarters"
-        else:
-            # M2 creates the first self-owned store assignment. This is not a business pool yet.
-            pool_location = None
-            allocation_state = "pending_allocation"
 
         observed_at = _observed_at(raw_clue, now)
         if existing is None:
@@ -163,6 +154,21 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
                 or existing.normalized_order_status != resolution.normalized_status
                 or existing.status_source != resolution.status_source
             )
+
+        current_self_owned_round = _active_self_owned_current_round(session, existing)
+        if lifecycle_status != "active":
+            pool_location = "closed"
+            allocation_state = "closed"
+        elif current_self_owned_round is not None:
+            pool_location = "store_follow_up_pool"
+            allocation_state = "assigned"
+        elif anchor.unavailable_reason:
+            pool_location = "headquarters_pool"
+            allocation_state = "headquarters"
+        else:
+            # M2 creates the first self-owned store assignment. This is not a business pool yet.
+            pool_location = None
+            allocation_state = "pending_allocation"
 
         existing.source_identity_key = source_identity_key
         existing.canonical_clue_id = canonical_clue_id or existing.canonical_clue_id
@@ -214,7 +220,13 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         if anchor.unavailable_reason:
             _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
         if lifecycle_status != "active" and existing.order_id:
-            _close_legacy_assignment(session, existing.order_id, lifecycle_status, resolution.closed_at or now)
+            _close_current_assignment(
+                session,
+                existing.order_id,
+                lifecycle_status,
+                resolution.closed_at or now,
+                current_assignment_round_id=existing.current_assignment_round_id,
+            )
 
     session.flush()
     return {
@@ -749,10 +761,26 @@ def _record_store_location_issue(session: Session, poi_id: str, reason: str, now
     )
 
 
-def _close_legacy_assignment(session: Session, order_id: str, lifecycle_status: str, closed_at: datetime) -> None:
+def _active_self_owned_current_round(session: Session, lead: ClueMasterLead) -> ClueAssignmentRound | None:
+    if not lead.current_assignment_round_id:
+        return None
+    round_row = session.get(ClueAssignmentRound, lead.current_assignment_round_id)
+    if round_row is None or round_row.execution_mode not in SELF_OWNED_EXECUTION_MODES:
+        return None
+    if round_row.round_status not in {"active_unfollowed", "active_followed"}:
+        return None
+    return round_row
+
+
+def _close_current_assignment(
+    session: Session,
+    order_id: str,
+    lifecycle_status: str,
+    closed_at: datetime,
+    *,
+    current_assignment_round_id: str | None = None,
+) -> None:
     center_order = session.get(ClueCenterOrder, order_id)
-    if center_order is None:
-        return
     if lifecycle_status == "closed_verified":
         round_status = "closed_order_verified"
         terminal_reason = "order_verified"
@@ -761,18 +789,23 @@ def _close_legacy_assignment(session: Session, order_id: str, lifecycle_status: 
         round_status = "closed_order_refunded"
         terminal_reason = "order_refunded"
         lead_status = "refunded"
-    round_row = None
-    if center_order.current_assignment_round_id:
-        round_row = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+    round_id = current_assignment_round_id or (
+        center_order.current_assignment_round_id if center_order is not None else None
+    )
+    round_row = session.get(ClueAssignmentRound, round_id) if round_id else None
     if round_row is not None:
         round_row.round_status = round_status
         round_row.terminal_reason = terminal_reason
         round_row.matured_at = closed_at
         round_row.updated_at = closed_at
-    center_order.lead_status = lead_status
-    center_order.current_round_status = round_status
-    center_order.reassign_reason = terminal_reason
-    center_order.updated_at = closed_at
+    if center_order is not None and (
+        current_assignment_round_id is None
+        or center_order.current_assignment_round_id == current_assignment_round_id
+    ):
+        center_order.lead_status = lead_status
+        center_order.current_round_status = round_status
+        center_order.reassign_reason = terminal_reason
+        center_order.updated_at = closed_at
 
 
 def _is_candidate_eligible(store: DimStore) -> bool:

@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, s
 from sqlalchemy import delete, func, or_, select, text
 
 from apps.api.dy_api.models import (
+    ClueAllocationDecision,
     ClueAllocationRule,
     ClueAllocationRuleVersion,
     ClueAllocationStrategyConfig,
@@ -62,6 +63,8 @@ from dy_api.schemas import (
     ClueReassignRuleData,
     ClueReassignRuleUpdate,
     ClueRebuildResult,
+    ClueAllocationDecisionData,
+    ClueAllocationDecisionRow,
     ClueMasterLeadData,
     ClueMasterLeadRow,
     ClueAllocationRuleCreateRequest,
@@ -559,6 +562,37 @@ def list_clue_master_leads(
     ).all()
     data = ClueMasterLeadData(
         rows=[ClueMasterLeadRow(**_clue_master_lead_payload(row)) for row in rows],
+        pagination=_pagination(page, page_size, total),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clue-allocation/decisions")
+def list_clue_allocation_decisions(
+    lead_key: str | None = None,
+    order_id: str | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    statement = select(ClueAllocationDecision)
+    if lead_key:
+        statement = statement.where(ClueAllocationDecision.lead_key == lead_key)
+    if order_id:
+        statement = statement.where(ClueAllocationDecision.order_id == order_id)
+    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
+    rows = store.session.scalars(
+        statement.order_by(ClueAllocationDecision.executed_at.desc(), ClueAllocationDecision.decision_id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
+    data = ClueAllocationDecisionData(
+        rows=[ClueAllocationDecisionRow(**_clue_allocation_decision_payload(row)) for row in rows],
         pagination=_pagination(page, page_size, total),
     )
     return {
@@ -1409,6 +1443,49 @@ def _clue_master_lead_payload(row: ClueMasterLead) -> dict:
         "anchor_city": row.anchor_city,
         "anchor_city_code": row.anchor_city_code,
     }
+
+
+def _clue_allocation_decision_payload(row: ClueAllocationDecision) -> dict:
+    return {
+        "decision_id": row.decision_id,
+        "lead_key": row.lead_key,
+        "order_id": row.order_id,
+        "rule_id": row.rule_id,
+        "rule_version_id": row.rule_version_id,
+        "scope_type": row.scope_type,
+        "scope_key": row.scope_key,
+        "strategy_type": row.strategy_type,
+        "execution_order": row.execution_order,
+        "allocation_cycle_id": row.allocation_cycle_id,
+        "execution_mode": row.execution_mode,
+        "assignment_round_id": row.assignment_round_id,
+        "round_no": row.round_no,
+        "selected_store_id": row.selected_store_id,
+        "selected_store_name": row.selected_store_name,
+        "decision_status": row.decision_status,
+        "reason": row.reason,
+        "payload": _without_phone_fields(row.decision_snapshot or {}),
+        "actor": row.actor,
+        "executed_at": row.executed_at,
+    }
+
+
+def _without_phone_fields(value):
+    if isinstance(value, dict):
+        return {
+            key: _without_phone_fields(item)
+            for key, item in value.items()
+            if not _is_phone_field(key)
+        }
+    if isinstance(value, list):
+        return [_without_phone_fields(item) for item in value]
+    return value
+
+
+def _is_phone_field(key: object) -> bool:
+    normalized = str(key).strip().lower().replace("-", "_")
+    parts = {part for part in normalized.split("_") if part}
+    return "phone" in normalized or "telephone" in normalized or "mobile" in normalized or "tel" in parts
 
 
 def _store_score_run_payload(row: StoreScoreSnapshotRun) -> dict:

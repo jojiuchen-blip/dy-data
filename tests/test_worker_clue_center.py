@@ -374,3 +374,92 @@ def test_successful_follow_self_store_verification_counts_as_converted(db_sessio
     assert round_row.is_self_store_verified is True
     assert order.verified_store_id == "store-1"
     _assert_same_instant(order.verified_at, _dt(2))
+
+
+def test_legacy_rebuild_preserves_current_self_owned_projection_while_refreshing_source_data(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        DimSkuProductRule(
+            sku_id="sku-1",
+            product_type="Car Service",
+            product_name="Service Product",
+            commission_rate=Decimal("0"),
+            is_service_product=True,
+        )
+    )
+    db_session.add_all(
+        [
+            _raw_clue(
+                "raw-1",
+                order_id="order-1",
+                clue_id="clue-1",
+                create_time=_dt(1),
+                store_id="douyin-store",
+                store_name="Douyin Store",
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="formal-order-1-1",
+                order_id="order-1",
+                lead_key="lead-1",
+                round_no=1,
+                assigned_at=_dt(1),
+                assigned_at_source="clue_allocation_engine",
+                assigned_store_id="self-owned-store",
+                assigned_store_name="Self Owned Store",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                execution_mode="formal",
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            ClueCenterOrder(
+                order_id="order-1",
+                lead_status="active",
+                current_assignment_round_id="formal-order-1-1",
+                current_round_no=1,
+                current_round_status="active_unfollowed",
+                assigned_at=_dt(1),
+                assigned_at_source="clue_allocation_engine",
+                assigned_store_id="self-owned-store",
+                assigned_store_name="Self Owned Store",
+                assigned_city="Self City",
+                assigned_province="Self Province",
+                phone_plain="13812345678",
+                phone_masked="138****5678",
+                phone_source="telephone",
+                product_id="old-sku",
+                product_name="Old Product",
+                product_type="Old Type",
+                author_nickname="Old Author",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    rebuild_clue_center(db_session, now=_dt(2))
+
+    formal = db_session.get(ClueAssignmentRound, "formal-order-1-1")
+    legacy = db_session.get(ClueAssignmentRound, "order-1-1")
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert formal is not None
+    assert formal.execution_mode == "formal"
+    assert formal.assigned_store_id == "self-owned-store"
+    assert legacy is not None
+    assert legacy.execution_mode == "legacy"
+    assert legacy.assigned_store_id == "douyin-store"
+    assert order is not None
+    assert order.current_assignment_round_id == "formal-order-1-1"
+    assert order.assigned_store_id == "self-owned-store"
+    assert order.assigned_store_name == "Self Owned Store"
+    assert order.assigned_city == "Self City"
+    assert order.phone_plain == "13812345678"
+    assert order.product_id == "sku-1"
+    assert order.product_type == "Car Service"

@@ -471,11 +471,32 @@ class ClueCenterOrder(Base):
 class ClueAssignmentRound(Base):
     __tablename__ = "clue_assignment_rounds"
     __table_args__ = (
-        UniqueConstraint("order_id", "round_no", name="uq_clue_assignment_rounds_order_round"),
+        UniqueConstraint(
+            "order_id",
+            "execution_mode",
+            "round_no",
+            name="uq_clue_assignment_rounds_order_execution_mode_round",
+        ),
     )
 
     assignment_round_id: Mapped[str] = mapped_column(Text, primary_key=True)
     order_id: Mapped[str] = mapped_column(Text, index=True)
+    lead_key: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    rule_version_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    strategy_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    allocation_decision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_decisions.decision_id", ondelete="RESTRICT"),
+        index=True,
+    )
     round_no: Mapped[int] = mapped_column(Integer, default=1)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     assigned_at_source: Mapped[str] = mapped_column(Text, default="clue_create_time_detail")
@@ -707,3 +728,46 @@ class ClueLeadRuleVersionBinding(Base):
     scope_resolution_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     rule_version_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueAllocationDecision(Base):
+    """Append-only audit event emitted for each allocation strategy evaluation."""
+
+    __tablename__ = "clue_allocation_decisions"
+    __table_args__ = (
+        UniqueConstraint("attempt_key", name="uq_clue_allocation_decisions_attempt_key"),
+        Index("ix_clue_allocation_decisions_lead_executed", "lead_key", "executed_at"),
+        Index("ix_clue_allocation_decisions_order_executed", "order_id", "executed_at"),
+        Index("ix_clue_allocation_decisions_rule_version", "rule_version_id"),
+        Index("ix_clue_allocation_decisions_status", "decision_status"),
+    )
+
+    decision_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(Text)
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    rule_id: Mapped[str | None] = mapped_column(Text, index=True)
+    rule_version_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    scope_type: Mapped[str | None] = mapped_column(String(32), index=True)
+    scope_key: Mapped[str | None] = mapped_column(Text)
+    strategy_type: Mapped[str] = mapped_column(String(64), index=True)
+    execution_order: Mapped[int | None] = mapped_column(Integer)
+    allocation_cycle_id: Mapped[str | None] = mapped_column(Text, index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="formal", index=True)
+    assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    round_no: Mapped[int | None] = mapped_column(Integer)
+    selected_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    selected_store_name: Mapped[str | None] = mapped_column(Text)
+    decision_status: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+    decision_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    actor: Mapped[str | None] = mapped_column(Text)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

@@ -689,6 +689,34 @@ class ClueMasterLeadData(BaseModel):
     pagination: Pagination
 
 
+class ClueAllocationDecisionRow(BaseModel):
+    decision_id: str
+    lead_key: str
+    order_id: str | None = None
+    rule_id: str | None = None
+    rule_version_id: str | None = None
+    scope_type: str | None = None
+    scope_key: str | None = None
+    strategy_type: str
+    execution_order: int | None = None
+    allocation_cycle_id: str | None = None
+    execution_mode: str
+    assignment_round_id: str | None = None
+    round_no: int | None = None
+    selected_store_id: str | None = None
+    selected_store_name: str | None = None
+    decision_status: str
+    reason: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str | None = None
+    executed_at: datetime
+
+
+class ClueAllocationDecisionData(BaseModel):
+    rows: list[ClueAllocationDecisionRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
 class StoreScoreSnapshotRunData(BaseModel):
     snapshot_run_id: str
     snapshot_date: date
