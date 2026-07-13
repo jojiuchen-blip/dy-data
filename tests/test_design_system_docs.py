@@ -671,6 +671,43 @@ def test_candidate_tertiary_navigation_contract_is_route_based_and_responsive() 
     assert template["stickyRule"] == "Do not add an independent sticky layer or change table sticky offsets."
 
 
+def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() -> None:
+    html = read_text(CANDIDATE_HTML_PATH)
+
+    assert "TertiaryNav / 三级导航" in html
+    assert 'class="tertiary-nav-showcase"' in html
+    assert 'aria-label="结算数据子页面"' in html
+    assert 'aria-label="账号详情子页面"' in html
+    assert 'class="tertiary-nav tertiary-nav--mobile"' in html
+    assert 'href="#settlement-ranking" aria-current="page"' in html
+    assert 'href="#account-profile" aria-current="page"' in html
+    assert 'class="tertiary-nav__item is-hover"' in html
+    assert 'class="tertiary-nav__item is-focus"' in html
+    assert 'class="tertiary-nav__item is-disabled" aria-disabled="true"' in html
+    assert 'role="tablist"' not in html
+
+    base = re.search(
+        r"\.tertiary-nav__item \{(?P<css>.*?)\n\s*\}", html, re.DOTALL
+    )
+    current = re.search(
+        r"\.tertiary-nav__item\[aria-current=\"page\"\] \{(?P<css>.*?)\n\s*\}",
+        html,
+        re.DOTALL,
+    )
+    mobile = re.search(
+        r"@media \(max-width: 920px\).*?\.tertiary-nav__item \{(?P<css>.*?)\n\s*\}",
+        html,
+        re.DOTALL,
+    )
+    assert base is not None
+    assert "min-height: 38px;" in base.group("css")
+    assert current is not None
+    assert "border-bottom-color: var(--brand-accent);" in current.group("css")
+    assert "color: var(--brand-primary);" in current.group("css")
+    assert mobile is not None
+    assert "min-height: var(--touch-target);" in mobile.group("css")
+
+
 def test_candidate_polish_uses_natural_gallery_typography_and_restraint() -> None:
     html = read_text(CANDIDATE_HTML_PATH)
     candidate = json.loads(read_text(CANDIDATE_TOKENS_PATH))
