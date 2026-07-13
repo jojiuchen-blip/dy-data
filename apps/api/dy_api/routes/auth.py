@@ -44,6 +44,7 @@ def _session_response(auth: AuthContext) -> dict:
         status="active",
         is_initialized=True,
         store_ids=list(auth.store_ids),
+        is_highest_admin=auth.is_highest_admin,
     )
     return {
         "data": dump_model(data),

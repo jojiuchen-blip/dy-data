@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends
@@ -24,6 +23,8 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
 
 try:
     from apps.api.dy_api.models import (
+        ClueAssignmentRound,
+        ClueFollowUpRecord,
         ClueReassignRuleSetting,
         DimNonCommissionOwnerAccount,
         DimSkuProductRule,
@@ -32,6 +33,8 @@ try:
     from apps.api.dy_api.rule_utils import normalize_owner_account_name
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     ClueReassignRuleSetting = None  # type: ignore[assignment]
+    ClueAssignmentRound = None  # type: ignore[assignment]
+    ClueFollowUpRecord = None  # type: ignore[assignment]
     DimNonCommissionOwnerAccount = None  # type: ignore[assignment]
     DimSkuProductRule = None  # type: ignore[assignment]
     ProductTypeVisibilitySetting = None  # type: ignore[assignment]
@@ -42,6 +45,13 @@ try:
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
     build_douyin_client_from_env = None  # type: ignore[assignment]
 
+from apps.worker.clue_follow_up_state import (
+    SELF_OWNED_EXECUTION_MODES,
+    apply_follow_up_action,
+    can_reveal_current_order_phone,
+    soft_delete_follow_up_record,
+)
+
 
 SENSITIVE_ERROR_RE = re.compile(
     r"(?i)(cookie|token|secret|password|passwd|authorization|credential)"
@@ -51,7 +61,14 @@ FILE_PATH_RE = re.compile(
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 _SESSION_FACTORY: Any | None = None
-FOLLOW_UP_RESULTS = {"unreachable", "lost", "success"}
+FOLLOW_UP_RESULTS = {
+    "appointment",
+    "further_follow_up",
+    "lost",
+    "unreachable",
+    "request_store_change",
+    "success",  # legacy history only
+}
 CURRENT_OPERABLE_ROUND_STATUSES = {"active_unfollowed", "active_followed"}
 CLUE_VERIFICATION_STATUSES = [
     "unverified",
@@ -247,6 +264,25 @@ def _to_bool(value: Any) -> bool:
     if isinstance(value, int):
         return value != 0
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _follow_up_record_payload(record: Any) -> dict[str, Any] | None:
+    if record is None:
+        return None
+    return {
+        "follow_up_record_id": record.follow_up_record_id,
+        "order_id": record.order_id,
+        "assignment_round_id": record.assignment_round_id,
+        "round_no": record.round_no,
+        "assigned_store_id": record.assigned_store_id,
+        "follow_result": record.follow_result,
+        "note": record.note,
+        "operator_user_id": record.operator_user_id,
+        "operator_username": record.operator_username,
+        "created_at": record.created_at,
+        "is_deleted": record.deleted_at is not None,
+        "deleted_at": record.deleted_at,
+    }
 
 
 def _json_object(value: Any) -> dict[str, Any]:
@@ -1940,7 +1976,11 @@ class DashboardDataStore:
             "pending_reassign_count": _to_int(row.get("pending_reassign_count")),
         }
 
-    def clue_assignment_rounds(self, filters: dict[str, Any]) -> dict[str, Any]:
+    def clue_assignment_rounds(
+        self,
+        filters: dict[str, Any],
+        actor: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         page = max(1, _to_int(filters.get("page"), 1))
         page_size = max(1, min(_to_int(filters.get("page_size"), 20), 100))
         offset = (page - 1) * page_size
@@ -1966,9 +2006,28 @@ class DashboardDataStore:
                    c.current_round_status,
                    c.assigned_store_id AS current_assigned_store_id,
                    c.assigned_store_name AS current_assigned_store_name,
-                   r.round_status,
+                    r.execution_mode,
+                    r.lead_key,
+                    lead.current_assignment_round_id AS master_current_assignment_round_id,
+                    lead.lifecycle_status AS master_lifecycle_status,
+                    lead.normalized_order_status AS master_normalized_order_status,
+                    lead.pool_location AS master_pool_location,
+                    EXISTS (
+                        SELECT 1
+                        FROM clue_master_leads headquarters_lead
+                        WHERE headquarters_lead.order_id = r.order_id
+                          AND headquarters_lead.lifecycle_status = 'active'
+                          AND headquarters_lead.pool_location = 'headquarters_pool'
+                    ) AS has_headquarters_lead,
+                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
+                   r.first_sla_expires_at,
+                   r.protection_started_at,
+                   r.protection_expires_at,
+                   r.auto_expiry_enabled,
+                   r.first_follow_up_sla_hours,
+                   r.protection_days,
                    r.assigned_store_id,
                    r.assigned_store_name,
                    COALESCE(c.phone_masked, '') AS phone_masked,
@@ -1984,7 +2043,8 @@ class DashboardDataStore:
                    r.verified_at,
                    r.is_self_store_verified
             FROM clue_assignment_rounds r
-            JOIN clue_center_orders c ON c.order_id = r.order_id
+             JOIN clue_center_orders c ON c.order_id = r.order_id
+             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             {where_sql}
             ORDER BY r.assigned_at DESC, r.assignment_round_id DESC
             LIMIT :limit OFFSET :offset
@@ -1994,7 +2054,7 @@ class DashboardDataStore:
         cleaned_rows = []
         phone_mask_cache: dict[str, str] = {}
         for row in rows:
-            cleaned = self._clean_clue_round_row(row)
+            cleaned = self._clean_clue_round_row(row, actor=actor)
             if not cleaned["phone_masked"]:
                 row_order_id = cleaned["order_id"]
                 if row_order_id not in phone_mask_cache:
@@ -2012,7 +2072,11 @@ class DashboardDataStore:
             },
         }
 
-    def clue_assignment_rounds_export_csv(self, filters: dict[str, Any]) -> str:
+    def clue_assignment_rounds_export_csv(
+        self,
+        filters: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> str:
         where_sql, params = self._clue_where(filters, include_round=True)
         rows = self._execute(
             f"""
@@ -2025,6 +2089,19 @@ class DashboardDataStore:
                    c.current_round_status,
                    c.assigned_store_id AS current_assigned_store_id,
                    c.assigned_store_name AS current_assigned_store_name,
+                   r.execution_mode,
+                   r.lead_key,
+                   lead.current_assignment_round_id AS master_current_assignment_round_id,
+                   lead.lifecycle_status AS master_lifecycle_status,
+                   lead.normalized_order_status AS master_normalized_order_status,
+                   lead.pool_location AS master_pool_location,
+                   EXISTS (
+                       SELECT 1
+                       FROM clue_master_leads headquarters_lead
+                       WHERE headquarters_lead.order_id = r.order_id
+                         AND headquarters_lead.lifecycle_status = 'active'
+                         AND headquarters_lead.pool_location = 'headquarters_pool'
+                   ) AS has_headquarters_lead,
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
@@ -2044,7 +2121,8 @@ class DashboardDataStore:
                    r.verified_at,
                    r.is_self_store_verified
             FROM clue_assignment_rounds r
-            JOIN clue_center_orders c ON c.order_id = r.order_id
+             JOIN clue_center_orders c ON c.order_id = r.order_id
+             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             {where_sql}
             ORDER BY r.assigned_at DESC, r.assignment_round_id DESC
             """,
@@ -2080,8 +2158,12 @@ class DashboardDataStore:
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
-            cleaned = self._clean_clue_round_row(row)
-            cleaned["phone_plain"] = _to_str(row.get("phone_plain"))
+            cleaned = self._clean_clue_round_row(row, actor=actor)
+            cleaned["phone_plain"] = (
+                _to_str(row.get("phone_plain"))
+                if self._actor_can_reveal_round_phone(row, actor)
+                else ""
+            )
             writer.writerow(cleaned)
         return buffer.getvalue()
 
@@ -2089,6 +2171,7 @@ class DashboardDataStore:
         self,
         order_id: str,
         scope_store_ids: tuple[str, ...] | None = None,
+        actor: dict[str, Any] | None = None,
     ) -> dict[str, Any] | None:
         order_id = _to_str(order_id).strip()
         if not order_id:
@@ -2127,6 +2210,19 @@ class DashboardDataStore:
                    c.current_round_status,
                    c.assigned_store_id AS current_assigned_store_id,
                    c.assigned_store_name AS current_assigned_store_name,
+                   r.execution_mode,
+                   r.lead_key,
+                   lead.current_assignment_round_id AS master_current_assignment_round_id,
+                   lead.lifecycle_status AS master_lifecycle_status,
+                   lead.normalized_order_status AS master_normalized_order_status,
+                   lead.pool_location AS master_pool_location,
+                   EXISTS (
+                       SELECT 1
+                       FROM clue_master_leads headquarters_lead
+                       WHERE headquarters_lead.order_id = r.order_id
+                         AND headquarters_lead.lifecycle_status = 'active'
+                         AND headquarters_lead.pool_location = 'headquarters_pool'
+                   ) AS has_headquarters_lead,
                    r.round_status,
                    r.assigned_at,
                    r.expires_at,
@@ -2144,7 +2240,8 @@ class DashboardDataStore:
                    r.verified_at,
                    r.is_self_store_verified
             FROM clue_assignment_rounds r
-            JOIN clue_center_orders c ON c.order_id = r.order_id
+             JOIN clue_center_orders c ON c.order_id = r.order_id
+             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE r.order_id = :order_id
             ORDER BY r.round_no, r.assigned_at, r.assignment_round_id
             """,
@@ -2161,18 +2258,26 @@ class DashboardDataStore:
                    note,
                    operator_user_id,
                    operator_username,
-                   created_at
+                   created_at,
+                   deleted_at,
+                   deleted_by_user_id,
+                   deleted_by_username,
+                   deletion_reason
             FROM clue_follow_up_records
             WHERE order_id = :order_id
+              AND (:include_deleted = true OR deleted_at IS NULL)
             ORDER BY created_at, follow_up_record_id
             """,
-            {"order_id": order_id},
+            {
+                "order_id": order_id,
+                "include_deleted": bool(actor and actor.get("is_highest_admin")),
+            },
         )
         order = orders[0]
         phone_masked = _to_str(order.get("phone_masked")) or self._clue_order_masked_phone(order_id)
         cleaned_rounds = []
         for row in rows:
-            cleaned = self._clean_clue_round_row(row)
+            cleaned = self._clean_clue_round_row(row, actor=actor)
             if not cleaned["phone_masked"]:
                 cleaned["phone_masked"] = phone_masked
             cleaned_rounds.append(cleaned)
@@ -2279,46 +2384,29 @@ class DashboardDataStore:
                    r.assignment_round_id,
                    r.round_no,
                    r.assigned_store_id,
-                   r.round_status
+                   r.round_status,
+                   r.execution_mode,
+                   r.lead_key,
+                   lead.current_assignment_round_id AS master_current_assignment_round_id,
+                   lead.lifecycle_status AS master_lifecycle_status,
+                   lead.normalized_order_status AS master_normalized_order_status,
+                   lead.pool_location AS master_pool_location,
+                   EXISTS (
+                       SELECT 1
+                       FROM clue_master_leads headquarters_lead
+                       WHERE headquarters_lead.order_id = r.order_id
+                         AND headquarters_lead.lifecycle_status = 'active'
+                         AND headquarters_lead.pool_location = 'headquarters_pool'
+                   ) AS has_headquarters_lead
             FROM clue_center_orders c
             JOIN clue_assignment_rounds r
               ON r.order_id = c.order_id
              AND r.assignment_round_id = c.current_assignment_round_id
+            LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE c.order_id = :order_id
             LIMIT 1
             """,
             {"order_id": order_id},
-        )
-        return rows[0] if rows else None
-
-    def _requested_operation_round(
-        self,
-        order_id: str,
-        assignment_round_id: str,
-    ) -> dict[str, Any] | None:
-        rows = self._execute(
-            """
-            SELECT c.order_id,
-                   c.lead_status,
-                   c.current_assignment_round_id,
-                   c.current_round_no,
-                   c.current_round_status,
-                   c.assigned_store_id AS current_assigned_store_id,
-                   r.assignment_round_id,
-                   r.round_no,
-                   r.assigned_store_id,
-                   r.round_status
-            FROM clue_center_orders c
-            JOIN clue_assignment_rounds r
-              ON r.order_id = c.order_id
-             AND r.assignment_round_id = :assignment_round_id
-            WHERE c.order_id = :order_id
-            LIMIT 1
-            """,
-            {
-                "order_id": order_id,
-                "assignment_round_id": assignment_round_id,
-            },
         )
         return rows[0] if rows else None
 
@@ -2344,6 +2432,21 @@ class DashboardDataStore:
         row: dict[str, Any],
         actor: dict[str, Any],
     ) -> bool:
+        assignment_round_id = _to_str(row.get("assignment_round_id")).strip()
+        if not assignment_round_id:
+            return False
+        if _to_str(row.get("execution_mode")) not in SELF_OWNED_EXECUTION_MODES:
+            return False
+        if assignment_round_id != _to_str(row.get("master_current_assignment_round_id")):
+            return False
+        if _to_str(row.get("master_lifecycle_status")) != "active":
+            return False
+        if _to_str(row.get("master_normalized_order_status")) != "active":
+            return False
+        if _to_str(row.get("master_pool_location")) != "store_follow_up_pool":
+            return False
+        if _to_str(row.get("round_status")) not in CURRENT_OPERABLE_ROUND_STATUSES:
+            return False
         role = _to_str(actor.get("role"))
         if role == "admin":
             return True
@@ -2370,277 +2473,75 @@ class DashboardDataStore:
             return "conflict", None
         if not self._clue_order_product_visible(order_id):
             return "not_found", None
-
-        row = self._requested_operation_round(order_id, assignment_round_id)
-        if row is None:
-            return "not_found", None
-        if not self._actor_can_operate_current_round(row, actor):
+        if _to_str(actor.get("role")) not in {"admin", "store"}:
             return "forbidden", None
-        if not self._is_current_effective_round(row):
-            return "conflict", None
-
-        is_follow_success = follow_result == "success"
-        round_status = "active_followed"
-        lead_status = "active"
-        reassign_reason = None
-        if follow_result == "lost":
-            round_status = "failed_pending_reassign"
-            lead_status = "pending_reassign"
-            reassign_reason = "follow_lost"
-
-        now = generated_at()
-        record = {
-            "follow_up_record_id": uuid4().hex,
-            "order_id": order_id,
-            "assignment_round_id": assignment_round_id,
-            "round_no": _to_int(row.get("round_no"), 1),
-            "assigned_store_id": row.get("assigned_store_id"),
-            "follow_result": follow_result,
-            "note": note,
-            "operator_user_id": actor.get("user_id"),
-            "operator_username": actor.get("username"),
-            "created_at": now,
-        }
-        assert text is not None
-        update_params = {
-            "now": now,
-            "follow_result": follow_result,
-            "is_follow_success": is_follow_success,
-            "round_status": round_status,
-            "lead_status": lead_status,
-            "reassign_reason": reassign_reason,
-            "order_id": order_id,
-            "assignment_round_id": assignment_round_id,
-            "expected_lead_status": _to_str(row.get("lead_status")),
-            "expected_current_round_status": _to_str(row.get("current_round_status")),
-            "expected_round_status": _to_str(row.get("round_status")),
-        }
-        savepoint = self.session.begin_nested()
-        try:
-            order_result = self.session.execute(
-                text(
-                    """
-                    UPDATE clue_center_orders
-                    SET follow_result = :follow_result,
-                        is_followed = true,
-                        is_follow_success = :is_follow_success,
-                        current_round_status = :round_status,
-                        lead_status = :lead_status,
-                        reassign_reason = :reassign_reason,
-                        updated_at = :now
-                    WHERE order_id = :order_id
-                      AND current_assignment_round_id = :assignment_round_id
-                      AND lead_status = :expected_lead_status
-                      AND current_round_status = :expected_current_round_status
-                      AND EXISTS (
-                          SELECT 1
-                          FROM clue_assignment_rounds r
-                          WHERE r.assignment_round_id = :assignment_round_id
-                            AND r.order_id = clue_center_orders.order_id
-                            AND r.round_status = :expected_round_status
-                      )
-                    """
-                ),
-                update_params,
+        formal_round = self.session.get(ClueAssignmentRound, assignment_round_id) if ClueAssignmentRound is not None else None
+        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+            result = apply_follow_up_action(
+                self.session,
+                order_id=order_id,
+                assignment_round_id=assignment_round_id,
+                follow_result=follow_result,
+                actor=actor,
+                note=note,
+                now=generated_at(),
             )
-            if order_result.rowcount != 1:
-                savepoint.rollback()
-                return "conflict", None
-
-            round_result = self.session.execute(
-                text(
-                    """
-                    UPDATE clue_assignment_rounds
-                    SET followed_at = :now,
-                        follow_result = :follow_result,
-                        is_followed = true,
-                        is_follow_success = :is_follow_success,
-                        round_status = :round_status,
-                        reassign_reason = :reassign_reason,
-                        updated_at = :now
-                    WHERE assignment_round_id = :assignment_round_id
-                      AND order_id = :order_id
-                      AND round_status = :expected_round_status
-                    """
-                ),
-                update_params,
-            )
-            if round_result.rowcount != 1:
-                savepoint.rollback()
-                return "conflict", None
-
-            self.session.execute(
-                text(
-                    """
-                    INSERT INTO clue_follow_up_records (
-                        follow_up_record_id,
-                        order_id,
-                        assignment_round_id,
-                        round_no,
-                        assigned_store_id,
-                        follow_result,
-                        note,
-                        operator_user_id,
-                        operator_username,
-                        created_at
-                    )
-                    VALUES (
-                        :follow_up_record_id,
-                        :order_id,
-                        :assignment_round_id,
-                        :round_no,
-                        :assigned_store_id,
-                        :follow_result,
-                        :note,
-                        :operator_user_id,
-                        :operator_username,
-                        :created_at
-                    )
-                    """
-                ),
-                record,
-            )
-        except Exception:
-            savepoint.rollback()
-            raise
-        else:
-            savepoint.commit()
-        self.session.flush()
-        return "ok", record
+            return result.status, _follow_up_record_payload(result.record)
+        # Legacy rounds remain visible for historical reconciliation, but cannot
+        # run the M2 state machine without an authoritative master lead.
+        return "conflict", None
 
     def delete_clue_follow_up_record(
         self,
         follow_up_record_id: str,
+        actor: dict[str, Any],
     ) -> tuple[str, dict[str, Any] | None]:
         follow_up_record_id = _to_str(follow_up_record_id).strip()
         if not follow_up_record_id:
             return "not_found", None
-        rows = self._execute(
-            """
-            SELECT follow_up_record_id,
-                   order_id,
-                   assignment_round_id,
-                   round_no,
-                   assigned_store_id,
-                   follow_result,
-                   note,
-                   operator_user_id,
-                   operator_username,
-                   created_at
-            FROM clue_follow_up_records
-            WHERE follow_up_record_id = :follow_up_record_id
-            LIMIT 1
-            """,
-            {"follow_up_record_id": follow_up_record_id},
+        result = soft_delete_follow_up_record(
+            self.session,
+            follow_up_record_id=follow_up_record_id,
+            actor=actor,
+            reason="reversed_by_highest_admin",
+            now=generated_at(),
         )
-        if not rows:
-            return "not_found", None
-        deleted_record = dict(rows[0])
-        order_id = _to_str(deleted_record.get("order_id"))
-        assignment_round_id = _to_str(deleted_record.get("assignment_round_id"))
+        return result.status, _follow_up_record_payload(result.record)
 
-        savepoint = self.session.begin_nested()
-        try:
-            self.session.execute(
-                text(
-                    """
-                    DELETE FROM clue_follow_up_records
-                    WHERE follow_up_record_id = :follow_up_record_id
-                    """
-                ),
-                {"follow_up_record_id": follow_up_record_id},
+    def _actor_can_reveal_round_phone(
+        self,
+        row: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> bool:
+        if _to_bool(row.get("has_headquarters_lead")):
+            return False
+        if _to_str(row.get("execution_mode")) in SELF_OWNED_EXECUTION_MODES:
+            return bool(
+                self._actor_can_operate_current_round(row, actor)
+                and _to_str(row.get("assignment_round_id"))
+                == _to_str(row.get("current_assignment_round_id"))
             )
-            latest_rows = self._execute(
-                """
-                SELECT follow_result, created_at
-                FROM clue_follow_up_records
-                WHERE assignment_round_id = :assignment_round_id
-                ORDER BY created_at DESC, follow_up_record_id DESC
-                LIMIT 1
-                """,
-                {"assignment_round_id": assignment_round_id},
-            )
-            latest = latest_rows[0] if latest_rows else None
-            if latest:
-                follow_result = _to_str(latest.get("follow_result"))
-                followed_at = latest.get("created_at")
-                is_followed = True
-                is_follow_success = follow_result == "success"
-                round_status = (
-                    "failed_pending_reassign"
-                    if follow_result == "lost"
-                    else "active_followed"
-                )
-                lead_status = (
-                    "pending_reassign" if follow_result == "lost" else "active"
-                )
-                reassign_reason = "follow_lost" if follow_result == "lost" else None
-            else:
-                follow_result = "pending"
-                followed_at = None
-                is_followed = False
-                is_follow_success = False
-                round_status = "active_unfollowed"
-                lead_status = "active"
-                reassign_reason = None
+        if _to_str(row.get("lead_key")).strip():
+            return False
+        return bool(
+            self._is_current_effective_round(row)
+            and self._actor_can_legacy_current_round(row, actor)
+        )
 
-            now = generated_at()
-            summary_params = {
-                "order_id": order_id,
-                "assignment_round_id": assignment_round_id,
-                "follow_result": follow_result,
-                "followed_at": followed_at,
-                "is_followed": is_followed,
-                "is_follow_success": is_follow_success,
-                "round_status": round_status,
-                "lead_status": lead_status,
-                "reassign_reason": reassign_reason,
-                "now": now,
-            }
-            self.session.execute(
-                text(
-                    """
-                    UPDATE clue_assignment_rounds
-                    SET followed_at = :followed_at,
-                        follow_result = :follow_result,
-                        is_followed = :is_followed,
-                        is_follow_success = :is_follow_success,
-                        round_status = :round_status,
-                        reassign_reason = :reassign_reason,
-                        updated_at = :now
-                    WHERE assignment_round_id = :assignment_round_id
-                    """
-                ),
-                summary_params,
-            )
-            self.session.execute(
-                text(
-                    """
-                    UPDATE clue_center_orders
-                    SET follow_result = :follow_result,
-                        is_followed = :is_followed,
-                        is_follow_success = :is_follow_success,
-                        current_round_status = :round_status,
-                        lead_status = CASE
-                            WHEN lead_status IN ('converted', 'refunded', 'closed')
-                            THEN lead_status
-                            ELSE :lead_status
-                        END,
-                        reassign_reason = :reassign_reason,
-                        updated_at = :now
-                    WHERE order_id = :order_id
-                      AND current_assignment_round_id = :assignment_round_id
-                    """
-                ),
-                summary_params,
-            )
-        except Exception:
-            savepoint.rollback()
-            raise
-        else:
-            savepoint.commit()
-        self.session.flush()
-        return "ok", deleted_record
+    def _actor_can_legacy_current_round(
+        self,
+        row: dict[str, Any],
+        actor: dict[str, Any],
+    ) -> bool:
+        role = _to_str(actor.get("role"))
+        if role == "admin":
+            return True
+        if role != "store":
+            return False
+        assigned_store_id = _to_str(
+            row.get("current_assigned_store_id") or row.get("assigned_store_id")
+        ).strip()
+        return bool(assigned_store_id and assigned_store_id in self._actor_store_ids(actor))
 
     def clue_order_phone(
         self,
@@ -2655,10 +2556,12 @@ class DashboardDataStore:
         row = self._current_operation_round(order_id)
         if row is None:
             return None
-        if not self._actor_can_operate_current_round(row, actor):
+        if not self._actor_can_reveal_round_phone(row, actor):
             return None
-        if not self._is_current_effective_round(row):
-            return None
+        formal_round = self.session.get(ClueAssignmentRound, _to_str(row.get("assignment_round_id"))) if ClueAssignmentRound is not None else None
+        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+            if not can_reveal_current_order_phone(self.session, order_id=order_id, actor=actor):
+                return None
 
         phone = (
             self._clue_order_cached_phone(order_id)
@@ -2943,6 +2846,8 @@ class DashboardDataStore:
             return False
         if scope_store_ids is None:
             return True
+        if self._clue_order_has_active_headquarters_lead(order_id):
+            return False
         placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
         if not placeholders:
             return False
@@ -2955,6 +2860,20 @@ class DashboardDataStore:
             LIMIT 1
             """,
             {"order_id": order_id, **params},
+        )
+        return bool(rows)
+
+    def _clue_order_has_active_headquarters_lead(self, order_id: str) -> bool:
+        rows = self._execute(
+            """
+            SELECT 1
+            FROM clue_master_leads headquarters_lead
+            WHERE headquarters_lead.order_id = :order_id
+              AND headquarters_lead.lifecycle_status = 'active'
+              AND headquarters_lead.pool_location = 'headquarters_pool'
+            LIMIT 1
+            """,
+            {"order_id": order_id},
         )
         return bool(rows)
 
@@ -3122,6 +3041,15 @@ class DashboardDataStore:
 
         scope_store_ids = filters.get("scope_store_ids")
         if scope_store_ids is not None:
+            order_ref = "r.order_id" if include_round else "c.order_id"
+            clauses.append(
+                "NOT EXISTS ("
+                "SELECT 1 FROM clue_master_leads headquarters_lead "
+                f"WHERE headquarters_lead.order_id = {order_ref} "
+                "AND headquarters_lead.lifecycle_status = 'active' "
+                "AND headquarters_lead.pool_location = 'headquarters_pool'"
+                ")"
+            )
             if include_round:
                 placeholders, scope_params = _in_clause_params("clue_scope_store", scope_store_ids)
                 if placeholders:
@@ -3140,7 +3068,12 @@ class DashboardDataStore:
             return "", params
         return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
 
-    def _clean_clue_round_row(self, row: dict[str, Any]) -> dict[str, Any]:
+    def _clean_clue_round_row(
+        self,
+        row: dict[str, Any],
+        *,
+        actor: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         expires_at = row.get("expires_at")
         assignment_round_id = _to_str(row.get("assignment_round_id"))
         current_assignment_round_id = _to_str(row.get("current_assignment_round_id"))
@@ -3162,10 +3095,19 @@ class DashboardDataStore:
             "current_assigned_store_id": row.get("current_assigned_store_id"),
             "current_assigned_store_name": row.get("current_assigned_store_name"),
             "is_current_round": is_current_round,
+            "can_operate_current_round": bool(
+                actor and self._actor_can_operate_current_round(row, actor)
+            ),
             "round_effective_status": "active" if is_current_round else "inactive",
             "round_status": _to_str(row.get("round_status")),
             "assigned_at": row.get("assigned_at"),
             "expires_at": expires_at,
+            "first_sla_expires_at": row.get("first_sla_expires_at"),
+            "protection_started_at": row.get("protection_started_at"),
+            "protection_expires_at": row.get("protection_expires_at"),
+            "auto_expiry_enabled": row.get("auto_expiry_enabled"),
+            "first_follow_up_sla_hours": row.get("first_follow_up_sla_hours"),
+            "protection_days": row.get("protection_days"),
             "remaining_reassign_seconds": _remaining_reassign_seconds(expires_at),
             "assigned_store_id": row.get("assigned_store_id"),
             "assigned_store_name": row.get("assigned_store_name"),
@@ -3193,6 +3135,8 @@ class DashboardDataStore:
             return "已退款"
         if round_status == "expired_pending_reassign":
             return "超期失效"
+        if follow_result == "request_store_change":
+            return "客户要求换门店"
         if round_status == "failed_pending_reassign" or follow_result in {"lost", "failed"}:
             return "主动战败"
         if lead_status == "active" and round_status == "active_followed":
@@ -3209,6 +3153,8 @@ class DashboardDataStore:
                 WHEN c.lead_status = 'converted' THEN '已核销'
                 WHEN c.lead_status = 'refunded' THEN '已退款'
                 WHEN {round_status_column} = 'expired_pending_reassign' THEN '超期失效'
+                WHEN COALESCE({follow_result_column}, 'pending') = 'request_store_change'
+                THEN '客户要求换门店'
                 WHEN {round_status_column} = 'failed_pending_reassign'
                   OR COALESCE({follow_result_column}, 'pending') IN ('lost', 'failed')
                 THEN '主动战败'
@@ -3234,6 +3180,11 @@ class DashboardDataStore:
             "operator_user_id": row.get("operator_user_id"),
             "operator_username": row.get("operator_username"),
             "created_at": row.get("created_at"),
+            "is_deleted": row.get("deleted_at") is not None,
+            "deleted_at": row.get("deleted_at"),
+            "deleted_by_user_id": row.get("deleted_by_user_id"),
+            "deleted_by_username": row.get("deleted_by_username"),
+            "deletion_reason": row.get("deletion_reason"),
         }
 
     def _clean_job(self, row: dict[str, Any]) -> dict[str, Any]:

@@ -18,6 +18,12 @@ const adminModules = [
     meta: "线索规则",
   },
   {
+    href: "/admin/clue-allocation",
+    title: "线索分配试运行",
+    description: "预览和执行选定线索的试运行分配，查看总部池、批次与审计记录。",
+    meta: "最高管理员",
+  },
+  {
     href: "/admin/product-types",
     title: "商品口径控制",
     description: "限制线索中心和结算中心展示的商品类型，例如上线初期只开放精诚养车类数据。",

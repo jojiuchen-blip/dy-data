@@ -18,6 +18,21 @@ import type {
   AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
+  ClueAllocationAuditLogData,
+  ClueAllocationCycleData,
+  ClueAllocationCycleExecution,
+  ClueAllocationCyclePreview,
+  ClueAllocationCyclePreviewRequest,
+  ClueAllocationCycleRequest,
+  ClueAllocationCycleRebuildRequest,
+  ClueAllocationDecisionData,
+  ClueAllocationEligibleLeadData,
+  ClueAllocationRule,
+  ClueAllocationRuleCreate,
+  ClueAllocationRuleDetailData,
+  ClueAllocationRuleListData,
+  ClueAllocationRuleVersion,
+  ClueAllocationRuleVersionWrite,
   ClueFilterMetadata,
   ClueFollowUpPayload,
   ClueFollowUpRecord,
@@ -28,6 +43,7 @@ import type {
   ClueReassignRuleData,
   ClueReassignRuleUpdate,
   ClueRebuildResult,
+  ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
   FeedbackCategory,
@@ -55,6 +71,7 @@ import type {
   SyncAdminData,
   SyncConfigUpdate,
   StoreRankingData,
+  StoreScoreSnapshotData,
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
 import {
@@ -693,8 +710,11 @@ function mockClueFollowUpResponse(
     assignment_round_id: payload.assignment_round_id,
     round_no: row?.round_no ?? 1,
     assigned_store_id: row?.assigned_store_id ?? null,
+    assigned_store_name: row?.assigned_store_name ?? null,
     follow_result: payload.follow_result,
     note: payload.note,
+    timing_state:
+      payload.follow_result === "appointment" ? "protected" : "active",
     operator_user_id: "mock-store-user",
     operator_username: "本店账号",
     created_at: createdAt,
@@ -709,14 +729,22 @@ function mockClueFollowUpResponse(
     row.followed_at = createdAt;
     row.follow_result = payload.follow_result;
     row.round_status =
-      payload.follow_result === "lost"
+      payload.follow_result === "lost" ||
+      payload.follow_result === "request_store_change"
         ? "failed_pending_reassign"
         : "active_followed";
-    if (payload.follow_result === "lost") {
+    if (
+      payload.follow_result === "lost" ||
+      payload.follow_result === "request_store_change"
+    ) {
       row.lead_status = "pending_reassign";
       row.expires_at = createdAt;
       row.remaining_reassign_seconds = 0;
-      row.reassign_reason = "follow_lost";
+      row.reassign_reason =
+        payload.follow_result === "request_store_change"
+          ? "request_store_change"
+          : "follow_lost";
+      row.can_operate_current_round = false;
     }
   }
 
@@ -737,7 +765,11 @@ function mockDeleteClueFollowUpRecordResponse(
       (record) => record.follow_up_record_id === followUpRecordId,
     );
     if (index >= 0) {
-      const [record] = records.splice(index, 1);
+      const record = records[index];
+      record.is_deleted = true;
+      record.deleted_at = generatedAt();
+      record.deleted_by_username = "最高管理员";
+      record.deletion_reason = "reversed_by_highest_admin";
       return {
         data: record,
         meta: {
@@ -754,7 +786,11 @@ function mockDeleteClueFollowUpRecordResponse(
       (record) => record.follow_up_record_id === followUpRecordId,
     );
     if (index >= 0) {
-      const [record] = records.splice(index, 1);
+      const record = records[index];
+      record.is_deleted = true;
+      record.deleted_at = generatedAt();
+      record.deleted_by_username = "最高管理员";
+      record.deletion_reason = "reversed_by_highest_admin";
       return {
         data: record,
         meta: {
@@ -776,7 +812,7 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
       (row) => row.order_id === orderId,
     )?.phone_masked ??
     "";
-  const phone = phoneMasked.replace("****", "0000") || "";
+  const phone = phoneMasked ? "MOCK_PHONE_REDACTED" : "";
   return {
     data: {
       order_id: orderId,
@@ -1292,6 +1328,173 @@ export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
       },
     }),
   );
+}
+
+export async function fetchClueAllocationEligibleLeads(): Promise<
+  ApiLoadResult<ClueAllocationEligibleLeadData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationEligibleLeadData>(
+      "/admin/clue-allocation/eligible-leads",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueHeadquartersPool(): Promise<
+  ApiLoadResult<ClueHeadquartersPoolData>
+> {
+  return {
+    ...(await requestJson<ClueHeadquartersPoolData>(
+      "/admin/clue-allocation/headquarters-pool",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationCycles(): Promise<
+  ApiLoadResult<ClueAllocationCycleData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationCycleData>(
+      "/admin/clue-allocation/cycles",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationAuditLogs(): Promise<
+  ApiLoadResult<ClueAllocationAuditLogData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationAuditLogData>(
+      "/admin/clue-allocation/audit-logs",
+    )),
+    usingMock: false,
+  };
+}
+
+export async function previewClueAllocationCycle(
+  payload: ClueAllocationCyclePreviewRequest,
+): Promise<ApiLoadResult<ClueAllocationCyclePreview>> {
+  return {
+    ...(await sendJson<ClueAllocationCyclePreview>(
+      "/admin/clue-allocation/cycles/preview",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function runClueAllocationTrial(
+  payload: ClueAllocationCycleRequest,
+): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  return {
+    ...(await sendJson<ClueAllocationCycleExecution>(
+      "/admin/clue-allocation/cycles/trial",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function rebuildClueAllocationTrial(
+  payload: ClueAllocationCycleRebuildRequest,
+): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  return {
+    ...(await sendJson<ClueAllocationCycleExecution>(
+      "/admin/clue-allocation/cycles/rebuild",
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationRules(): Promise<
+  ApiLoadResult<ClueAllocationRuleListData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationRuleListData>("/admin/clue-allocation/rules")),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationRuleDetail(
+  ruleId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleDetailData>> {
+  return {
+    ...(await requestJson<ClueAllocationRuleDetailData>(
+      `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}`,
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationDecisions(): Promise<
+  ApiLoadResult<ClueAllocationDecisionData>
+> {
+  return {
+    ...(await requestJson<ClueAllocationDecisionData>("/admin/clue-allocation/decisions")),
+    usingMock: false,
+  };
+}
+
+export async function fetchClueAllocationStoreScores(): Promise<
+  ApiLoadResult<StoreScoreSnapshotData>
+> {
+  return {
+    ...(await requestJson<StoreScoreSnapshotData>("/admin/clue-allocation/store-scores")),
+    usingMock: false,
+  };
+}
+
+export async function createClueAllocationRule(
+  payload: ClueAllocationRuleCreate,
+): Promise<ApiLoadResult<ClueAllocationRule>> {
+  return {
+    ...(await sendJson<ClueAllocationRule>("/admin/clue-allocation/rules", {
+      body: payload,
+      method: "POST",
+    })),
+    usingMock: false,
+  };
+}
+
+export async function createClueAllocationRuleVersion(
+  ruleId: string,
+  payload: ClueAllocationRuleVersionWrite,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}/versions`,
+      { body: payload, method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function publishClueAllocationRuleVersion(
+  ruleVersionId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/publish`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function retireClueAllocationRuleVersion(
+  ruleVersionId: string,
+): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  return {
+    ...(await sendJson<ClueAllocationRuleVersion>(
+      `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/retire`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
 }
 
 export async function fetchProductTypeVisibility(): Promise<

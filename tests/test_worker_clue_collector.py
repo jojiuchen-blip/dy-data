@@ -57,6 +57,8 @@ def test_collect_clues_upserts_raw_rows_and_parses_phone_fields(
                     "order_status": "履约中",
                     "follow_life_account_id": "store-1",
                     "follow_life_account_name": "Store One",
+                    "follow_poi_id": "poi-anchor-1",
+                    "intention_poi_id": "poi-intention-1",
                     "auto_city_name": "Shanghai",
                     "auto_province_name": "Shanghai",
                     "author_nickname": "Author One",
@@ -96,7 +98,8 @@ def test_collect_clues_upserts_raw_rows_and_parses_phone_fields(
     assert clue.order_id == "order-1"
     assert clue.order_status == "履约中"
     assert clue.follow_life_account_id == "store-1"
+    assert clue.follow_poi_id == "poi-anchor-1"
+    assert clue.intention_poi_id == "poi-intention-1"
     assert clue.raw_payload["tel_addr"] == "13812345678"
     assert clue.source_file is None
     assert clue.fetched_at is not None
-

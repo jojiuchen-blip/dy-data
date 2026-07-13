@@ -3158,6 +3158,196 @@ a.metric-card:hover,
   gap: 18px;
 }
 
+.clue-allocation-control__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.clue-allocation-control__actions button,
+.clue-allocation-preview__body > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.clue-allocation-admin-table-wrap {
+  max-height: min(420px, calc(100vh - 260px));
+}
+
+.clue-allocation-preview__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 0.42fr) auto;
+  align-items: end;
+  gap: 14px;
+}
+
+.clue-allocation-preview__body > div {
+  display: grid;
+  gap: 5px;
+}
+
+.clue-allocation-preview__body span,
+.clue-allocation-preview__body small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.clue-allocation-preview__body strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.clue-allocation-management-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.clue-allocation-rule-readonly,
+.clue-allocation-rule-editor,
+.clue-allocation-rule-versions {
+  display: grid;
+  gap: 14px;
+}
+
+.clue-allocation-rule-editor {
+  padding-left: 20px;
+  border-left: 1px solid var(--line);
+}
+
+.clue-allocation-rule-editor h3,
+.clue-allocation-strategy-list h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.clue-allocation-rule-editor p,
+.clue-allocation-rule-summary span,
+.clue-allocation-strategy-list span {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.clue-allocation-rule-editor__fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.clue-allocation-rule-editor__fields--dense {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.clue-allocation-rule-editor__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--line);
+}
+
+.clue-allocation-rule-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.clue-allocation-rule-summary strong {
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.clue-allocation-rule-version {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+}
+
+.clue-allocation-rule-version__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--ink);
+}
+
+.clue-allocation-version-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.clue-allocation-version-status.is-published {
+  border-color: var(--green-token-28);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.clue-allocation-version-status.is-draft {
+  border-color: var(--amber-token-28);
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.clue-allocation-version-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.clue-allocation-version-metrics div {
+  min-width: 0;
+}
+
+.clue-allocation-version-metrics dt {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.clue-allocation-version-metrics dd {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.clue-allocation-strategy-list {
+  display: grid;
+  gap: 7px;
+}
+
+.clue-allocation-strategy-list p {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  padding-top: 7px;
+  border-top: 1px solid var(--line);
+}
+
+.clue-allocation-strategy-list strong {
+  color: var(--ink);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
 .admin-page--centered {
   width: min(520px, 100%);
   min-height: calc(100vh - 150px);
@@ -4350,6 +4540,45 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
+  .clue-allocation-control__actions,
+  .clue-allocation-preview__body {
+    grid-template-columns: 1fr;
+  }
+
+  .clue-allocation-management-grid,
+  .clue-allocation-rule-editor__fields,
+  .clue-allocation-rule-editor__fields--dense,
+  .clue-allocation-version-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .clue-allocation-rule-editor {
+    padding-top: 16px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .clue-allocation-strategy-list p {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .clue-allocation-control__actions {
+    display: grid;
+  }
+
+  .clue-allocation-control__actions button,
+  .clue-allocation-preview__body > button {
+    min-height: var(--touch-target);
+    width: 100%;
+  }
+
+  .clue-allocation-admin-table-wrap {
+    max-height: min(360px, calc(100dvh - 220px));
+  }
+
   .app-rail {
     grid-template-columns: 1fr;
   }

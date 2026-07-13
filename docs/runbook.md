@@ -154,6 +154,44 @@ python scripts/exports/auto_export_backend_aweme_chromium.py \
 
 适配器会写入 `running` 状态，校验 Chromium CDP 可达，执行具体采集命令；失败时记录 `failed`，成功后清理单次临时下载目录。具体采集命令会收到 `JOB_RUN_ID`、`BROWSER_CDP_URL`、`BROWSER_EXPORT_RUN_DIR`、`BROWSER_EXPORT_DOWNLOAD_DIR` 和 `BROWSER_EXPORT_ARTIFACT_DIR`。
 
+### 5.1 线索分配 M1 数据基础
+
+`alembic upgrade head` 会创建线索主池、状态事件、评分快照运行批次和门店评分快照表，并扩展原始线索与门店主数据。M1 保留既有 `clue_center_orders` / `clue_assignment_rounds` 作为旧投影；新主池不会把抖音 `follow_life_account_id/name` 当作我方实际分配结果。
+
+业务提供的适用门店坐标文件只能作为一次性导入输入，不能提交到仓库或在 worker 运行时直接读取。先在受控数据库执行 dry run：
+
+```bash
+python scripts/import_store_locations.py \
+  --input /secure/input/store-locations.xlsx \
+  --dry-run
+```
+
+核对未映射 POI、无效坐标和关闭门店后，再显式开启有效门店的分配参与资格：
+
+```bash
+python scripts/import_store_locations.py \
+  --input /secure/input/store-locations.xlsx \
+  --enable-participation
+```
+
+坐标文件中的“门店ID”按 POI 处理，必须先通过 `dim_store_poi_mappings` 映射到内部 `dim_stores.store_id`；脚本不会直接用它创建内部门店。文件可选提供“门店所在省份”；若省份缺失，worker 只会在同一 `follow_poi_id` 的原始 `auto_province_name/auto_city_name` 证据唯一且城市一致时补齐。省、市、规范城市键或坐标不完整的门店不会成为候选门店。
+
+缺失 `follow_poi_id`、映射失败或锚点的省市/坐标不完整时，线索会在主池记录原因并进入总部池；不会回退到 `intention_poi_id`。锚点有效但尚未由 M2 策略分配的线索不会伪装成总部或门店任务：`pool_location` 为空，`allocation_state=pending_allocation`。`pool_location` 只保存 `store_follow_up_pool`、`headquarters_pool`、`closed` 三种业务池语义。
+
+每次完成 `collect_and_settle` 后，worker 会刷新全量线索主池；上海时区 `03:00` 后首次成功任务会尝试生成当日门店评分快照。评分只读取 `execution_mode=formal` 的成熟轮次，旧抖音分配轮次默认标记为 `legacy`，不污染正式评分。手动导入或评分刷新前后应检查 `data_quality_issues` 与 `job_runs`，不要从日志、导出或截图中传播完整联系方式。
+
+需要在受控环境手动重算时，可生成一个新的不可变评分批次；此命令不输出数据库连接串或联系方式：
+
+```bash
+python scripts/refresh_store_scores.py --lookback-days 30 --min-samples 20 --dry-run
+```
+
+最高管理员还可调用以下 API 查看不含联系方式的主池/评分数据，或手动创建新的不可变评分批次：
+
+- `GET /api/v1/admin/clue-allocation/master-leads`
+- `GET /api/v1/admin/clue-allocation/store-scores`
+- `POST /api/v1/admin/clue-allocation/store-scores/refresh`
+
 ## 6. noVNC 浏览器
 
 通过看板同域名访问 `/browser/`。Nginx 使用 `auth_request` 调用 `/api/v1/auth/me`，因此 noVNC 入口必须先完成后台管理员登录。

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from apps.api.dy_api.models import Base
+from apps.api.dy_api.schemas import ClueAllocationRuleVersionData, ClueFollowUpRecordRow
 
 
 def test_production_mvp_tables_are_declared() -> None:
@@ -121,3 +122,9 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert ("status",) in feedback_indexes
     assert ("user_id",) in feedback_indexes
     assert ("created_at",) in feedback_indexes
+
+
+def test_follow_up_response_owns_soft_delete_fields() -> None:
+    assert {"is_deleted", "deleted_at"}.issubset(ClueFollowUpRecordRow.model_fields)
+    assert "is_deleted" not in ClueAllocationRuleVersionData.model_fields
+    assert "deleted_at" not in ClueAllocationRuleVersionData.model_fields

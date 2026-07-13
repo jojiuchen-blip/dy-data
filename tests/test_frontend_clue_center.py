@@ -112,16 +112,21 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "clue-followup-round-record" in source
     assert "recordsForRound" in source
     assert "跟进操作" in source
-    assert 'value="unreachable"' in source
-    assert "未接通" in source
-    assert 'value="lost"' in source
-    assert "线索战败" in source
-    assert 'value="success"' in source
-    assert "跟进成功" in source
+    for action, label in [
+        ("appointment", "已预约"),
+        ("further_follow_up", "待进一步跟进"),
+        ("lost", "线索战败"),
+        ("unreachable", "未联系上"),
+        ("request_store_change", "客户要求换门店"),
+    ]:
+        assert f'value="{action}"' in source
+        assert label in source
+    assert 'value="success"' not in source
+    assert 'value="failed"' not in source
     assert "本次跟进结论/备注" in source
     assert "保存本次跟进" in source
     assert "canDeleteFollowUpRecords" in source
-    assert 'currentUser.role === "admin"' in source
+    assert "currentUser.is_highest_admin === true" in source
     assert "handleDeleteFollowUpRecord" in source
     assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
     assert 'aria-label="删除跟进历史"' in source
@@ -758,7 +763,8 @@ def test_clue_follow_up_types_and_api_client_are_declared() -> None:
     assert "export interface ClueFollowUpRecord" in types_source
     assert "follow_up_record_id: string;" in types_source
     assert "follow_up_records: ClueFollowUpRecord[];" in types_source
-    assert 'follow_result: "unreachable" | "lost" | "success";' in types_source
+    assert "export type ClueFollowUpAction" in types_source
+    assert 'follow_result: ClueFollowUpAction;' in types_source
     assert "export interface ClueFollowUpPayload" in types_source
     assert "assignment_round_id: string;" in types_source
     assert "note: string | null;" in types_source
@@ -784,8 +790,15 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
             "function getPhoneUnavailableReason"
         )
     ]
-    assert "row.is_current_round" in can_view_body
-    assert 'row.round_effective_status === "active"' in can_view_body
+    assert "return canOperateCurrentRound(row);" in can_view_body
+    can_operate_body = source[
+        source.index("function canOperateCurrentRound") : source.index(
+            "function canViewFullPhone"
+        )
+    ]
+    assert "row.is_current_round" in can_operate_body
+    assert 'row.round_effective_status === "active"' in can_operate_body
+    assert "row.can_operate_current_round" in can_operate_body
     assert "getPhoneUnavailableReason" in source
     assert "已失效不可跟进" in source
     assert "订单已完成" in source
@@ -794,6 +807,11 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     assert "writeText(phoneMasked)" not in source
     assert "writeText(row.phone_masked)" not in source
     assert "fetchClueOrderPhone" in source
+    fetch_phone_body = source[
+        source.index("const fetchFullPhone") : source.index("const revealPhone")
+    ]
+    assert "if (revealedPhones[row.order_id])" not in fetch_phone_body
+    assert "setRevealedPhones((current) =>" in fetch_phone_body
     render_body = source[
         source.index("const renderPhoneContact") : source.index("useEffect(() => {")
     ]
@@ -868,5 +886,66 @@ def test_follow_lost_reason_has_store_label() -> None:
 
     assert "follow_lost" in source
     assert '"follow_lost": "线索战败"' in source
-    assert 'row.reassign_reason = "follow_lost"' in client_source
+    assert ': "follow_lost";' in client_source
     assert '"reassign_reason": "follow_lost"' in mock_source
+
+
+def test_p3_follow_up_actions_and_permissions_are_frontend_gated() -> None:
+    page_source = read_source("pages/ClueCenterPage.tsx")
+    types_source = read_source("types/dashboard.ts")
+    client_source = read_source("api/client.ts")
+    mock = json.loads(
+        (WEB_SRC / "data" / "mock" / "clue_center.json").read_text(
+            encoding="utf-8",
+        )
+    )
+
+    for action, label in [
+        ("appointment", "已预约"),
+        ("further_follow_up", "待进一步跟进"),
+        ("lost", "线索战败"),
+        ("unreachable", "未联系上"),
+        ("request_store_change", "客户要求换门店"),
+    ]:
+        assert f'value="{action}"' in page_source
+        assert label in page_source
+
+    action_form = page_source[
+        page_source.index('className="clue-followup-form"') : page_source.index(
+            'className="clue-followup-note"'
+        )
+    ]
+    assert 'value="success"' not in action_form
+    assert 'value="failed"' not in action_form
+    assert "保存本次跟进" in page_source
+    assert "canOperateCurrentRound" in page_source
+    assert "currentUser.is_highest_admin === true" in page_source
+    assert 'title="删除跟进历史"' in page_source
+    assert "canDeleteFollowUpRecords && !record.is_deleted" in page_source
+    assert "已删除" in page_source
+
+    assert "is_highest_admin?: boolean;" in types_source
+    assert "can_operate_current_round?: boolean;" in types_source
+    assert '"appointment"' in types_source
+    assert '"request_store_change"' in types_source
+    assert "历史旧值：跟进成功" in page_source
+    assert "is_deleted?: boolean;" in types_source
+    assert "deleted_by_username?: string | null;" in types_source
+    assert "record.is_deleted = true;" in client_source
+    assert "record.deleted_at = generatedAt();" in client_source
+
+    mock_rows = mock["assignment_rounds"]["data"]["rows"]
+    assert any(row.get("can_operate_current_round") is True for row in mock_rows)
+    assert any(row.get("can_operate_current_round") is False for row in mock_rows)
+    mock_results = {
+        record["follow_result"]
+        for detail in mock["order_details"].values()
+        for record in detail["data"]["follow_up_records"]
+    }
+    assert {
+        "appointment",
+        "further_follow_up",
+        "lost",
+        "unreachable",
+        "request_store_change",
+    } <= mock_results
