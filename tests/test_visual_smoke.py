@@ -117,6 +117,22 @@ def api_payload(data: object) -> str:
     )
 
 
+def record_console_error(message: object, errors: list[str]) -> None:
+    message_type = getattr(message, "type", "")
+    message_text = str(getattr(message, "text", ""))
+    if message_type == "error" and not message_text.startswith(
+        "Failed to load resource:",
+    ):
+        errors.append(message_text)
+
+
+def record_unexpected_http_failure(response: object, errors: list[str]) -> None:
+    status = int(getattr(response, "status", 0))
+    url = str(getattr(response, "url", ""))
+    if status >= 400 and "/api/v1/" not in url:
+        errors.append(f"{status} {url}")
+
+
 def install_api_routes(page: Page) -> None:
     admin_user = {
         "username": "visual-admin",
@@ -251,15 +267,28 @@ def install_api_routes(page: Page) -> None:
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
-            "抖音经营数据引擎 UI 设计规范",
-            "text",
+            "dy-data UI 设计规范 V0.2",
+            "heading",
         ),
+        ("home", "/", "抖音经营数据引擎", "heading"),
+        ("ranking", "/ranking", "全国门店销售情况榜单", "heading"),
+        ("sales", "/sales", "核销表现", "heading"),
         ("clues", "/clues", "经营线索概览", "text"),
         ("clue-details", "/clues/details", "线索跟进列表", "text"),
         ("settlement", "/settlement", "单店月度分账看板", "text"),
         ("order-details", "/details", "门店月度数据明细表", "text"),
+        ("admin-home", "/admin", "抖音经营中枢后台", "heading"),
+        ("admin-accounts", "/admin/accounts", "账号管理", "heading"),
+        ("admin-rules", "/admin/rules", "商品分账规则管理", "heading"),
         ("admin-sync", "/admin/sync", "数据同步管理", "text"),
         ("admin-clue-allocation", "/admin/clue-allocation", "线索分配", "heading"),
+        ("admin-feedback", "/admin/feedback", "用户建议", "heading"),
+        (
+            "admin-product-types",
+            "/admin/product-types",
+            "商品口径控制",
+            "heading",
+        ),
     ],
 )
 def test_key_ui_surfaces_render_without_layout_smoke_failures(
@@ -276,11 +305,13 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
     context = browser.new_context(viewport={"width": width, "height": height})
     page = context.new_page()
     console_errors: list[str] = []
+    page_errors: list[str] = []
+    http_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     page.on(
-        "console",
-        lambda message: console_errors.append(message.text)
-        if message.type == "error"
-        else None,
+        "response",
+        lambda response: record_unexpected_http_failure(response, http_errors),
     )
 
     try:
@@ -300,7 +331,89 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
 
         assert text_length > 20
         assert horizontal_overflow <= 2
+        assert page.locator("h1").count() == 1
         assert console_errors == []
+        assert page_errors == []
+        assert http_errors == []
+
+        if width == 390:
+            mobile_targets = page.locator(
+                ".mobile-bottom-nav a, .mobile-bottom-nav button",
+            )
+            for index in range(mobile_targets.count()):
+                box = mobile_targets.nth(index).bounding_box()
+                assert box is not None
+                assert box["height"] >= 44
+
+            shared_buttons = page.locator(
+                ".ui-button:visible, .ui-icon-button:visible",
+            )
+            for index in range(shared_buttons.count()):
+                target = shared_buttons.nth(index)
+                box = target.bounding_box()
+                assert box is not None
+                assert box["height"] >= 44
+                if "ui-icon-button" in (target.get_attribute("class") or ""):
+                    assert box["width"] >= 44
+    finally:
+        context.close()
+
+
+def install_unauthenticated_route(page: Page) -> None:
+    page.route(
+        "**/api/v1/auth/me",
+        lambda route: route.fulfill(
+            status=401,
+            content_type="application/json",
+            body=json.dumps({"detail": "Not authenticated"}),
+        ),
+    )
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+@pytest.mark.parametrize(
+    ("url_path", "expected_heading"),
+    [
+        ("/login", "账号登录"),
+        ("/auth/activate", "账号激活"),
+        ("/auth/reset-password", "重置密码"),
+    ],
+)
+def test_auth_surfaces_follow_the_v02_visual_contract(
+    browser: Browser,
+    vite_base_url: str,
+    url_path: str,
+    expected_heading: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    http_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on(
+        "response",
+        lambda response: record_unexpected_http_failure(response, http_errors),
+    )
+
+    try:
+        install_unauthenticated_route(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_role("heading", name=expected_heading, exact=True).wait_for(
+            timeout=10000,
+        )
+
+        horizontal_overflow = page.evaluate(
+            "() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth",
+        )
+        assert page.locator("h1").count() == 1
+        assert horizontal_overflow <= 2
+        assert console_errors == []
+        assert page_errors == []
+        assert http_errors == []
     finally:
         context.close()
 

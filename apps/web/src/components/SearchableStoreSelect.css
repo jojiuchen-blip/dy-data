@@ -1,4 +1,4 @@
-﻿.searchable-store-select {
+.searchable-store-select {
   position: relative;
   min-width: 0;
 }
@@ -7,17 +7,12 @@
   padding-right: 34px;
 }
 
-.searchable-store-select::after {
+.searchable-store-select__indicator {
   position: absolute;
-  top: 17px;
+  top: 10px;
   right: 12px;
-  width: 8px;
-  height: 8px;
-  border-right: 1.5px solid var(--muted);
-  border-bottom: 1.5px solid var(--muted);
-  content: "";
+  color: var(--muted);
   pointer-events: none;
-  transform: rotate(45deg);
 }
 
 .searchable-store-select__menu {
@@ -30,15 +25,22 @@
   overflow-y: auto;
   border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: var(--surface-warm);
-  box-shadow: 0 18px 40px var(--ink-shadow-16);
+  background: var(--surface);
+  box-shadow: var(--shadow-popover);
 }
 
 .searchable-store-select__option {
   display: grid;
+  width: 100%;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 2px;
+  border: 0;
   padding: 9px 10px;
+  background: transparent;
+  color: var(--ink);
   cursor: pointer;
+  text-align: left;
 }
 
 .searchable-store-select__option:hover,
@@ -46,10 +48,15 @@
   background: var(--surface-muted);
 }
 
+.searchable-store-select__option[aria-selected="true"] {
+  background: var(--brand-orange-soft);
+  color: var(--brand-orange-ink);
+}
+
 .searchable-store-select__option strong {
   color: var(--ink);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 1.35;
   overflow-wrap: anywhere;
   white-space: normal;

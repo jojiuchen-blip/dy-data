@@ -1,4 +1,5 @@
 import type { CSSProperties, MouseEvent, ReactNode } from "react";
+import { Button } from "./Button";
 
 export interface Column<T> {
   key: string;
@@ -117,13 +118,14 @@ export function DataTable<T>({
           ))}
         </dl>
         {href ? (
-          <button
-            className="primary-button data-table-mobile-card__action"
+          <Button
+            className="data-table-mobile-card__action"
             onClick={() => openInternalHref(href)}
             type="button"
+            variant="primary"
           >
             查看详情
-          </button>
+          </Button>
         ) : null}
       </>
     );

@@ -1,25 +1,42 @@
 :root {
-  color: #15221d;
-  background: #f7f8f5;
+  color: #181818;
+  background: #f6f6f3;
   font-family:
     "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
-  --bg: #f7f8f5;
+
+  /* Neutral foundation */
+  --bg: #f6f6f3;
   --surface: #ffffff;
-  --surface-muted: #f1f5f1;
-  --surface-subtle: #fafbf8;
-  --ink: #15221d;
-  --muted: #53625b;
-  --line: #dde4dd;
-  --line-strong: #c4cec6;
+  --surface-muted: #f2f2ee;
+  --surface-subtle: #fafaf8;
+  --ink: #181818;
+  --muted: #686a66;
+  --line: #e3e3df;
+  --line-strong: #c9cbc6;
+
+  /* Brand and interaction */
+  --brand-deep-orange: #d63b00;
+  --brand-deep-orange-hover: #c73700;
+  --brand-deep-orange-active: #ad3000;
+  --brand-orange: #fe5205;
+  --brand-orange-soft: #fff4ef;
+  --brand-orange-ink: #7a2600;
+  --disabled-bg: #dadbd6;
+  --disabled-text: #8a8c87;
+
+  /* Semantic status colors stay independent from the brand palette. */
   --green: #0f5b4b;
   --green-soft: #e1efe9;
+  --green-hover: #0b473b;
   --blue: #2f5f95;
   --blue-soft: #dce7f3;
   --amber: #76470f;
   --amber-soft: #f0e5d6;
   --danger: #a0443e;
+
+  /* Sizing and layers */
   --target-min: 24px;
   --touch-target: 44px;
   --workspace-topbar-height: 58px;
@@ -31,74 +48,95 @@
   --control-height: 38px;
   --control-height-touch: 44px;
   --control-radius: 6px;
+  --radius-lg: 8px;
   --z-dropdown: 45;
   --z-table-sticky-column: 2;
   --z-table-header: 3;
   --z-table-header-corner: 5;
-  --z-modal: 80;
-  --focus-ring: 0 0 0 3px rgb(15 91 75 / 22%);
-  --shadow: 0 14px 42px rgb(31 43 36 / 7%);
-  --shadow-soft: 0 1px 2px rgb(31 43 36 / 5%), 0 10px 26px rgb(31 43 36 / 6%);
-  --surface-page-top: #fbfcf9;
-  --surface-page-end: #f5f7f2;
-  --surface-warm: #fffefa;
-  --surface-cream: #fffdf8;
-  --surface-hover: #fbfff9;
-  --surface-row: #fbfdf9;
-  --surface-table-head: #f4f7f3;
-  --surface-subtle-strong: #f5f8f4;
-  --surface-rail-muted: #f1f0ea;
-  --surface-control-muted: #eef3ef;
-  --surface-active: #d5e7df;
+  --z-modal: 100;
+
+  /* Elevation */
+  --shadow-none: none;
+  --shadow-card: 0 2px 10px rgb(24 24 24 / 4%), 0 12px 28px rgb(24 24 24 / 4%);
+  --shadow-popover: 0 10px 28px rgb(24 24 24 / 9%), 0 2px 8px rgb(24 24 24 / 5%);
+  --shadow-dialog: 0 18px 48px rgb(24 24 24 / 14%), 0 4px 14px rgb(24 24 24 / 7%);
+  --shadow-workbench: 0 30px 80px rgb(24 24 24 / 18%), 0 8px 24px rgb(24 24 24 / 9%);
+  --focus-ring: 0 0 0 3px rgb(254 82 5 / 22%);
+
+  /* Runtime surface roles */
+  --surface-page-top: #fafaf8;
+  --surface-page-end: #f2f2ee;
+  --surface-warm: #ffffff;
+  --surface-cream: #ffffff;
+  --surface-hover: #fffaf7;
+  --surface-row: #fafaf8;
+  --surface-table-head: #f2f2ee;
+  --surface-subtle-strong: #f6f6f3;
+  --surface-rail-muted: #f2f2ee;
+  --surface-control-muted: #f2f2ee;
+  --surface-active: #fff4ef;
   --surface-danger: #f8e9e7;
   --surface-warning: #fff9ef;
-  --green-hover: #0b473b;
-  --green-accent: #126957;
-  --green-vivid: #176b5b;
-  --ink-deep: #17211c;
-  --ink-subtle: #334039;
-  --green-accent-12: rgb(18 105 87 / 12%);
-  --green-accent-18: rgb(18 105 87 / 18%);
-  --green-accent-22: rgb(18 105 87 / 22%);
-  --green-accent-24: rgb(18 105 87 / 24%);
-  --green-accent-30: rgb(18 105 87 / 30%);
-  --green-accent-32: rgb(18 105 87 / 32%);
-  --green-vivid-8: rgb(23 107 91 / 8%);
-  --green-vivid-10: rgb(23 107 91 / 10%);
-  --green-vivid-14: rgb(23 107 91 / 14%);
-  --green-vivid-16: rgb(23 107 91 / 16%);
-  --green-vivid-18: rgb(23 107 91 / 18%);
-  --green-vivid-22: rgb(23 107 91 / 22%);
+  --ink-deep: #181818;
+  --ink-subtle: #343532;
+
+  /* Brand alpha roles */
+  --brand-orange-8: rgb(254 82 5 / 8%);
+  --brand-orange-10: rgb(254 82 5 / 10%);
+  --brand-orange-12: rgb(254 82 5 / 12%);
+  --brand-orange-14: rgb(254 82 5 / 14%);
+  --brand-orange-16: rgb(254 82 5 / 16%);
+  --brand-orange-18: rgb(254 82 5 / 18%);
+  --brand-orange-22: rgb(254 82 5 / 22%);
+  --brand-orange-24: rgb(254 82 5 / 24%);
+  --brand-orange-28: rgb(254 82 5 / 28%);
+  --brand-orange-30: rgb(254 82 5 / 30%);
+  --brand-orange-32: rgb(254 82 5 / 32%);
+  --brand-deep-orange-10: rgb(214 59 0 / 10%);
+  --brand-deep-orange-14: rgb(214 59 0 / 14%);
+  --brand-deep-orange-18: rgb(214 59 0 / 18%);
+
+  /* Semantic alpha roles */
+  --green-accent-12: rgb(15 91 75 / 12%);
+  --green-accent-18: rgb(15 91 75 / 18%);
+  --green-accent-22: rgb(15 91 75 / 22%);
+  --green-accent-24: rgb(15 91 75 / 24%);
+  --green-accent-30: rgb(15 91 75 / 30%);
+  --green-accent-32: rgb(15 91 75 / 32%);
+  --green-vivid-8: rgb(15 91 75 / 8%);
+  --green-vivid-10: rgb(15 91 75 / 10%);
+  --green-vivid-14: rgb(15 91 75 / 14%);
+  --green-vivid-16: rgb(15 91 75 / 16%);
+  --green-vivid-18: rgb(15 91 75 / 18%);
+  --green-vivid-22: rgb(15 91 75 / 22%);
   --green-token-28: rgb(15 91 75 / 28%);
   --green-token-30: rgb(15 91 75 / 30%);
   --green-shadow-10: rgb(15 91 75 / 10%);
   --blue-shadow-16: rgb(47 95 149 / 16%);
   --blue-shadow-18: rgb(47 95 149 / 18%);
   --blue-token-24: rgb(47 95 149 / 24%);
-  --amber-token-8: rgb(147 98 37 / 8%);
-  --amber-token-13: rgb(147 98 37 / 13%);
-  --amber-token-24: rgb(147 98 37 / 24%);
-  --amber-token-28: rgb(147 98 37 / 28%);
-  --amber-token-35: rgb(147 98 37 / 35%);
-  --amber-token-45: rgb(147 98 37 / 45%);
+  --amber-token-8: rgb(118 71 15 / 8%);
+  --amber-token-13: rgb(118 71 15 / 13%);
+  --amber-token-24: rgb(118 71 15 / 24%);
+  --amber-token-28: rgb(118 71 15 / 28%);
+  --amber-token-35: rgb(118 71 15 / 35%);
+  --amber-token-45: rgb(118 71 15 / 45%);
   --danger-token-28: rgb(160 68 62 / 28%);
   --danger-token-35: rgb(160 68 62 / 35%);
   --danger-token-36: rgb(160 68 62 / 36%);
   --danger-token-40: rgb(160 68 62 / 40%);
-  --muted-token-28: rgb(104 117 111 / 28%);
-  --ink-shadow-16: rgb(23 33 28 / 16%);
-  --ink-shadow-24: rgb(23 33 28 / 24%);
-  --ink-shadow-45: rgb(23 33 28 / 45%);
-  --ink-shadow-48: rgb(23 33 28 / 48%);
-  --ink-shadow-55: rgb(23 33 28 / 55%);
-  --surface-subtle-94: rgb(250 251 248 / 94%);
-  --surface-cream-70: rgb(255 253 248 / 70%);
-  --surface-cream-76: rgb(255 253 248 / 76%);
-  --surface-cream-94: rgb(255 253 248 / 94%);
-  --surface-cream-96: rgb(255 253 248 / 96%);
+
+  /* Neutral alpha roles */
+  --muted-token-28: rgb(104 106 102 / 28%);
+  --ink-shadow-45: rgb(24 24 24 / 45%);
+  --ink-shadow-48: rgb(24 24 24 / 48%);
+  --ink-shadow-55: rgb(24 24 24 / 55%);
+  --surface-subtle-94: rgb(250 250 248 / 94%);
+  --surface-cream-70: rgb(255 255 255 / 70%);
+  --surface-cream-76: rgb(255 255 255 / 76%);
+  --surface-cream-94: rgb(255 255 255 / 94%);
+  --surface-cream-96: rgb(255 255 255 / 96%);
   --surface-white-70: rgb(255 255 255 / 70%);
   --surface-white-92: rgb(255 255 255 / 92%);
   --surface-white-96: rgb(255 255 255 / 96%);
-  --panel-shadow-4: rgb(31 43 36 / 4%);
-  --panel-shadow-10: rgb(31 43 36 / 10%);
 }

@@ -129,9 +129,9 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "currentUser.is_highest_admin === true" in source
     assert "handleDeleteFollowUpRecord" in source
     assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
-    assert 'aria-label="删除跟进历史"' in source
+    assert 'label="删除跟进历史"' in source
     assert 'title="删除跟进历史"' in source
-    assert 'name="trash"' in source
+    assert 'icon="trash"' in source
     assert "clue-followup-detail__pager" in source
     assert 'aria-label="切换线索"' in source
     assert "上一条线索" in source
@@ -279,7 +279,8 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             "收起筛选",
         ],
     )
-    assert 'className="ghost-button clue-filter-collapse-mobile"' in filter_bar
+    assert 'className="clue-filter-collapse-mobile"' in filter_bar
+    assert 'variant="secondary"' in filter_bar
     assert "setMobileFiltersOpen(false)" in filter_bar
 
     assert "assigned_provinces: string[];" in types_source
@@ -323,7 +324,8 @@ def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
         clue_source.index("<DataTable", clue_source.index('<h2>当前筛选结果</h2>'))
     ]
     assert 'className="section-title-actions"' in clue_section
-    assert '<SolarIcon name="fileDownload"' in clue_section
+    assert '<Button' in clue_section
+    assert 'icon="fileDownload"' in clue_section
     assert "导出" in clue_section
     assert "handleExportClues" in clue_section
     assert "当前账号可见范围与当前筛选条件" in clue_section
@@ -334,7 +336,8 @@ def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
         order_source.index("<DataTable", order_source.index("<h2>明细记录</h2>"))
     ]
     assert 'className="section-title-actions"' in order_section
-    assert '<SolarIcon name="fileDownload"' in order_section
+    assert '<Button' in order_section
+    assert 'icon="fileDownload"' in order_section
     assert "导出" in order_section
     assert "handleExportOrders" in order_section
 
@@ -818,7 +821,7 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     assert "mayRevealFullPhone ? revealedPhones[row.order_id] : undefined" in render_body
     assert "const phoneVisible = Boolean(revealedPhone)" in render_body
     assert 'phoneVisible ? "隐藏完整手机号" : "查看完整手机号"' in render_body
-    assert 'name={phoneVisible ? "eyeClosed" : "eye"}' in render_body
+    assert 'icon={phoneVisible ? "eyeClosed" : "eye"}' in render_body
     assert "hidePhone(row)" in render_body
     assert "const hidePhone" in source
     assert "delete next[row.order_id]" in source

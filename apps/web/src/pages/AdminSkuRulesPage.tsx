@@ -10,6 +10,7 @@ import {
   saveNonCommissionOwnerAccounts,
   saveSkuRules,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
@@ -657,7 +658,7 @@ export function AdminSkuRulesPage() {
             : row.product_type
               ? "已配置"
               : "未配置";
-        const tone = dirty ? "amber" : selected || row.product_type ? "green" : "neutral";
+        const tone = dirty ? "warning" : selected || row.product_type ? "brand" : "neutral";
         return (
           <StatusChip tone={tone}>
             {label}
@@ -698,9 +699,9 @@ export function AdminSkuRulesPage() {
               {loginError}
             </p>
           ) : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit" variant="primary">
             进入管理页
-          </button>
+          </Button>
         </form>
       </div>
     );
@@ -764,14 +765,14 @@ export function AdminSkuRulesPage() {
           />
         </label>
         <div className="admin-header-actions sku-action-row">
-          <button
-            className="primary-button"
+          <Button
             disabled={savingNonCommissionAccounts}
             onClick={handleSaveNonCommissionAccounts}
             type="button"
+            variant="primary"
           >
             保存账号规则并重建
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -796,29 +797,27 @@ export function AdminSkuRulesPage() {
               />
             </label>
             <div className="admin-header-actions sku-action-row">
-              <button
-                className="primary-button"
+              <Button
                 disabled={lookingUp}
                 onClick={handleLookup}
                 type="button"
+                variant="primary"
               >
                 精确查询 SKU
-              </button>
-              <button
-                className="ghost-button"
+              </Button>
+              <Button
                 onClick={() => setLookupInput("")}
                 type="button"
               >
                 清空输入
-              </button>
-              <button
-                className="ghost-button"
+              </Button>
+              <Button
                 disabled={lookupSelectedIds.size === 0}
                 onClick={addLookupSelection}
                 type="button"
               >
                 加入预选
-              </button>
+              </Button>
             </div>
 
             {lookupResult ? (
@@ -899,14 +898,13 @@ export function AdminSkuRulesPage() {
                 value={query}
               />
             </label>
-            <button
-              className="ghost-button"
+            <Button
               disabled={selectedIds.size === 0}
               onClick={addPageSelection}
               type="button"
             >
               加入当前选中
-            </button>
+            </Button>
           </section>
 
           <section className="content-section">
@@ -933,16 +931,14 @@ export function AdminSkuRulesPage() {
                 第 {formatInteger(page)} / {formatInteger(totalPages)} 页
               </span>
               <div className="pagination-controls__actions">
-                <button
-                  className="ghost-button"
+                <Button
                   disabled={page <= 1}
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   type="button"
                 >
                   上一页
-                </button>
-                <button
-                  className="ghost-button"
+                </Button>
+                <Button
                   disabled={page >= totalPages}
                   onClick={() =>
                     setPage((current) => Math.min(totalPages, current + 1))
@@ -950,7 +946,7 @@ export function AdminSkuRulesPage() {
                   type="button"
                 >
                   下一页
-                </button>
+                </Button>
               </div>
             </div>
           </section>
@@ -965,14 +961,13 @@ export function AdminSkuRulesPage() {
                 {formatInteger(dirtyRows.length)} 个
               </p>
             </div>
-            <button
-              className="ghost-button"
+            <Button
               disabled={selectedSkuMap.size === 0}
               onClick={clearPreselection}
               type="button"
             >
               清空
-            </button>
+            </Button>
           </div>
 
           <div className="sku-bulk-editor">
@@ -1010,22 +1005,21 @@ export function AdminSkuRulesPage() {
                 type="checkbox"
               />
             </label>
-            <button
-              className="ghost-button"
+            <Button
               disabled={selectedSkuMap.size === 0}
               onClick={applyBulk}
               type="button"
             >
               应用到预选 SKU
-            </button>
-            <button
-              className="primary-button"
+            </Button>
+            <Button
               disabled={dirtyRows.length === 0 || saving}
               onClick={handleSave}
               type="button"
+              variant="primary"
             >
               保存预选规则并重建
-            </button>
+            </Button>
           </div>
 
           <div className="sku-selected-list">
@@ -1060,16 +1054,15 @@ export function AdminSkuRulesPage() {
                       </div>
                     </dl>
                     <div className="sku-selected-item__footer">
-                      <StatusChip tone={dirty ? "amber" : "green"}>
+                      <StatusChip tone={dirty ? "warning" : "brand"}>
                         {dirty ? "待保存" : "已预选"}
                       </StatusChip>
-                      <button
-                        className="ghost-button"
+                      <Button
                         onClick={() => removeSelectedSku(row.sku_id)}
                         type="button"
                       >
                         移除
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 );

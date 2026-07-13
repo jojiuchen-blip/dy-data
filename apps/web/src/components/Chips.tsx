@@ -1,7 +1,13 @@
 import type { ButtonHTMLAttributes, ReactNode } from "react";
 import { SolarIcon } from "./SolarIcon";
 
-type ChipTone = "neutral" | "green" | "blue" | "amber" | "danger";
+export type ChipTone =
+  | "neutral"
+  | "brand"
+  | "success"
+  | "info"
+  | "warning"
+  | "danger";
 
 interface BaseChipProps {
   children: ReactNode;

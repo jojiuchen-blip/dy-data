@@ -4,6 +4,7 @@ import type { AdminUser, FeedbackCategory } from "../types/dashboard";
 import { CommissionRulesButton } from "./CommissionRulesButton";
 import { Dialog } from "./Dialog";
 import { SelectField } from "./FormControls";
+import { Button } from "./Button";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
@@ -344,23 +345,25 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                   <span>{currentUser.display_name || currentUser.username}</span>
                   <em>{roleLabel(currentUser)}</em>
                 </div>
-                <button
-                  className="ghost-button utility-button"
+                <Button
+                  className="utility-button"
+                  icon="key"
                   onClick={() => setSettingsOpen(true)}
                   type="button"
+                  variant="secondary"
                 >
-                  <SolarIcon name="key" size={15} />
                   个人设置
-                </button>
+                </Button>
                 {onLogout ? (
-                  <button
-                    className="ghost-button utility-button"
+                  <Button
+                    className="utility-button"
+                    icon="logout"
                     onClick={onLogout}
                     type="button"
+                    variant="secondary"
                   >
-                    <SolarIcon name="logout" size={15} />
                     退出
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ) : null}
@@ -441,31 +444,34 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
             </div>
           </dl>
           <div className="mine-panel__actions" aria-label="我的操作">
-            <button
-              className="ghost-button mine-panel__action"
+            <Button
+              className="mine-panel__action"
+              icon="key"
               onClick={openSettingsFromMine}
               type="button"
+              variant="secondary"
             >
-              <SolarIcon name="key" size={18} />
-              <span>修改密码</span>
-            </button>
-            <button
-              className="ghost-button mine-panel__action"
+              修改密码
+            </Button>
+            <Button
+              className="mine-panel__action"
+              icon="feedback"
               onClick={openFeedbackFromMine}
               type="button"
+              variant="secondary"
             >
-              <SolarIcon name="feedback" size={18} />
-              <span>提交建议</span>
-            </button>
+              提交建议
+            </Button>
             {onLogout ? (
-              <button
-                className="ghost-button mine-panel__action mine-panel__action--danger"
+              <Button
+                className="mine-panel__action"
+                icon="logout"
                 onClick={handleMineLogout}
                 type="button"
+                variant="danger"
               >
-                <SolarIcon name="logout" size={18} />
-                <span>退出登录</span>
-              </button>
+                退出登录
+              </Button>
             ) : null}
           </div>
         </Dialog>
@@ -518,21 +524,22 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               </p>
             ) : null}
             <div className="feedback-form__actions">
-              <button
-                className="ghost-button"
+              <Button
                 disabled={submittingFeedback}
                 onClick={() => setFeedbackOpen(false)}
                 type="button"
+                variant="secondary"
               >
                 取消
-              </button>
-              <button
-                className="primary-button"
-                disabled={submittingFeedback || !feedbackContent.trim()}
+              </Button>
+              <Button
+                disabled={!feedbackContent.trim()}
+                loading={submittingFeedback}
                 type="submit"
+                variant="primary"
               >
                 {submittingFeedback ? "提交中..." : "提交建议"}
-              </button>
+              </Button>
             </div>
           </form>
         </Dialog>
@@ -572,9 +579,9 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                 {settingsMessage}
               </p>
             ) : null}
-            <button className="primary-button" disabled={savingPassword} type="submit">
+            <Button loading={savingPassword} type="submit" variant="primary">
               保存密码
-            </button>
+            </Button>
           </form>
         </Dialog>
       ) : null}

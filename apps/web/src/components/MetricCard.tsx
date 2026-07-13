@@ -7,7 +7,8 @@ interface MetricCardProps {
   description?: string;
   meta?: ReactNode;
   href?: string;
-  tone?: "green" | "blue" | "amber";
+  loading?: boolean;
+  tone?: "standard" | "primary" | "success" | "info" | "warning" | "danger";
 }
 
 export function MetricCard({
@@ -16,25 +17,46 @@ export function MetricCard({
   description,
   meta,
   href,
-  tone = "green",
+  loading = false,
+  tone = "standard",
 }: MetricCardProps) {
   const content = (
     <>
       <div className="metric-card__label">
         <TooltipLabel label={label} description={description} />
       </div>
-      <div className="metric-card__value">{value}</div>
-      {meta ? <div className="metric-card__meta">{meta}</div> : null}
+      {loading ? (
+        <>
+          <span aria-hidden="true" className="metric-card__skeleton metric-card__skeleton--value" />
+          <span aria-hidden="true" className="metric-card__skeleton metric-card__skeleton--meta" />
+        </>
+      ) : (
+        <>
+          <div className="metric-card__value">{value}</div>
+          {meta ? <div className="metric-card__meta">{meta}</div> : null}
+        </>
+      )}
     </>
   );
 
   if (href) {
     return (
-      <a className={`metric-card metric-card--${tone}`} href={href}>
+      <a
+        aria-busy={loading || undefined}
+        className={`metric-card metric-card--${tone}`}
+        href={href}
+      >
         {content}
       </a>
     );
   }
 
-  return <div className={`metric-card metric-card--${tone}`}>{content}</div>;
+  return (
+    <div
+      aria-busy={loading || undefined}
+      className={`metric-card metric-card--${tone}`}
+    >
+      {content}
+    </div>
+  );
 }

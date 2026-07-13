@@ -17,6 +17,7 @@ import {
   retireClueAllocationRuleVersion,
   runClueAllocationTrial,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -851,15 +852,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
           <p className="admin-muted">统一管理规则版本、试运行、分配记录和总部池。</p>
         </div>
         <div className="admin-header-actions">
-          <button
-            className="secondary-button"
+          <Button
+            icon="sync"
             disabled={loading || action !== null}
             onClick={() => void load()}
             type="button"
           >
-            <SolarIcon name="sync" size={16} />
             刷新
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -911,23 +911,22 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </div>
         {isWritable ? (
           <div className="clue-allocation-control__actions">
-            <button className="secondary-button" onClick={selectAllEligible} type="button">
+            <Button onClick={selectAllEligible} type="button">
               全选当前页
-            </button>
-            <button className="secondary-button" onClick={clearSelection} type="button">
+            </Button>
+            <Button onClick={clearSelection} type="button">
               清空选择
-            </button>
-            <button
-              className="secondary-button"
+            </Button>
+            <Button
+              icon="eye"
               disabled={action !== null || !selectedKeys.length}
               onClick={() => void handlePreview("trial")}
               type="button"
             >
-              <SolarIcon name="eye" size={16} />
               {action === "preview" ? "预览中" : "预览结果"}
-            </button>
-            <button
-              className="primary-button"
+            </Button>
+            <Button
+              icon="check"
               disabled={
                 action !== null ||
                 !selectedKeys.length ||
@@ -936,10 +935,10 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               }
               onClick={() => void runTrial()}
               type="button"
+              variant="primary"
             >
-              <SolarIcon name="check" size={16} />
               {action === "trial" ? "试运行中" : "启动试运行"}
-            </button>
+            </Button>
           </div>
         ) : null}
         <DataTable
@@ -992,17 +991,16 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                 type="checkbox"
               />
             </label>
-            <button
-              className="secondary-button"
+            <Button
+              icon="eye"
               disabled={action !== null || !selectedRebuildCycleId}
               onClick={() => void handlePreview("rebuild")}
               type="button"
             >
-              <SolarIcon name="eye" size={16} />
               {action === "preview" ? "预览中" : "预览重建"}
-            </button>
-            <button
-              className="secondary-button"
+            </Button>
+            <Button
+              icon="sync"
               disabled={
                 action !== null ||
                 !selectedRebuildCycleId ||
@@ -1012,9 +1010,8 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               onClick={() => void runRebuild()}
               type="button"
             >
-              <SolarIcon name="sync" size={16} />
               {action === "rebuild" ? "重建中" : "重建试运行"}
-            </button>
+            </Button>
           </div>
         </section>
       ) : null}
@@ -1086,26 +1083,24 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                       ))}
                     </div>
                     {isWritable && version.status === "draft" ? (
-                      <button
-                        className="secondary-button"
+                      <Button
+                        icon="check"
                         disabled={action !== null}
                         onClick={() => void handlePublishRuleVersion(version)}
                         type="button"
                       >
-                        <SolarIcon name="check" size={16} />
                         发布版本
-                      </button>
+                      </Button>
                     ) : null}
                     {isWritable && version.status === "published" ? (
-                      <button
-                        className="secondary-button"
+                      <Button
+                        icon="close"
                         disabled={action !== null}
                         onClick={() => void handleRetireRuleVersion(version)}
                         type="button"
                       >
-                        <SolarIcon name="close" size={16} />
                         退役版本
-                      </button>
+                      </Button>
                     ) : null}
                   </article>
                 ))}
@@ -1163,15 +1158,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   </label>
                 ) : null}
               </div>
-              <button
-                className="secondary-button"
+              <Button
+                icon="rules"
                 disabled={action !== null}
                 onClick={() => void handleCreateRule()}
                 type="button"
               >
-                <SolarIcon name="rules" size={16} />
                 创建规则
-              </button>
+              </Button>
 
               <div className="clue-allocation-rule-editor__divider" />
               <div>
@@ -1350,15 +1344,15 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   />
                 </label>
               </div>
-              <button
-                className="primary-button"
+              <Button
+                icon="rules"
                 disabled={action !== null || !selectedRuleId}
                 onClick={() => void handleCreateRuleVersion()}
                 type="button"
+                variant="primary"
               >
-                <SolarIcon name="rules" size={16} />
                 新建草案版本
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>

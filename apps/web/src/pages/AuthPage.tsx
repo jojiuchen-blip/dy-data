@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { initializeAccount, loginAdmin, resetAccountPassword } from "../api/client";
+import { Button } from "../components/Button";
 import { SolarIcon } from "../components/SolarIcon";
 import type { AccountSelfServicePayload, AdminUser } from "../types/dashboard";
 
@@ -176,7 +177,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
 
         {mode === "reset" ? (
           <div className="auth-return-row">
-            <a className="link-button" href="/login">
+            <a href="/login">
               返回账号登录
             </a>
           </div>
@@ -221,10 +222,10 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </label>
             {message ? <p className="admin-error">{message}</p> : null}
             <div className="auth-form-actions">
-              <button className="primary-button" disabled={submitting} type="submit">
+              <Button loading={submitting} type="submit" variant="primary">
                 登录
-              </button>
-              <a className="link-button" href="/auth/reset-password">
+              </Button>
+              <a href="/auth/reset-password">
                 忘记密码
               </a>
             </div>
@@ -302,9 +303,9 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               />
             </label>
             {message ? <p className="admin-error">{message}</p> : null}
-            <button className="primary-button" disabled={submitting} type="submit">
+            <Button loading={submitting} type="submit" variant="primary">
               {selfServiceSubmitLabels[mode]}
-            </button>
+            </Button>
           </form>
         )}
       </section>

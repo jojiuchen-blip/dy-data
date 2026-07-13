@@ -8,6 +8,7 @@ import {
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
@@ -61,11 +62,11 @@ function statusLabel(status: JobRun["status"]): string {
   return "已排队";
 }
 
-function statusTone(status: JobRun["status"]): "amber" | "blue" | "danger" | "green" {
-  if (status === "success") return "green";
+function statusTone(status: JobRun["status"]): "warning" | "info" | "danger" | "success" {
+  if (status === "success") return "success";
   if (status === "failed") return "danger";
-  if (status === "running") return "blue";
-  return "amber";
+  if (status === "running") return "info";
+  return "warning";
 }
 
 function phaseSummary(job: JobRun): string {
@@ -416,9 +417,9 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               {loginError}
             </p>
           ) : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit" variant="primary">
             进入管理页
-          </button>
+          </Button>
         </form>
       </div>
     );
@@ -453,15 +454,16 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           role="status"
         >
           <span>服务器配置已更新，本地草稿暂未覆盖。</span>
-          <button className="ghost-button" onClick={discardDraftAndRefresh} type="button">
+          <Button onClick={discardDraftAndRefresh} type="button">
             放弃草稿并刷新
-          </button>
+          </Button>
         </div>
       ) : null}
 
       <section className="metric-grid metric-grid--four">
         <MetricCard
           label="历史回填进度"
+          tone="primary"
           value={`${progressPercent}%`}
           meta={
             <>
@@ -472,12 +474,13 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         />
         <MetricCard
           label="当前运行任务"
-          tone="blue"
+          tone="info"
           value={formatInteger(data?.progress.running_jobs ?? 0)}
           meta="正在写入数据库的任务数"
         />
         <MetricCard
           label="自动同步"
+          tone={data?.schedule.auto_sync_enabled ? "success" : "warning"}
           value={data ? (data.schedule.auto_sync_enabled ? "开启" : "暂停") : "-"}
           meta={
             <>
@@ -488,7 +491,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         />
         <MetricCard
           label="同步间隔"
-          tone="amber"
           value={data ? intervalText(data.config.interval_seconds) : "-"}
           meta={
             <>
@@ -506,9 +508,9 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               根据后台配置和最近任务日志判断采集进度，用于确认是否正在跑、跑到哪段、失败原因是什么。
             </p>
           </div>
-          <button className="ghost-button" onClick={loadData} type="button">
+          <Button onClick={loadData} type="button">
             刷新状态
-          </button>
+          </Button>
         </div>
         {workerStatus ? (
           <dl className="worker-status-grid">
@@ -664,14 +666,14 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 type="checkbox"
               />
             </label>
-            <button
-              className="primary-button"
+            <Button
               disabled={saving}
               onClick={handleSave}
               type="button"
+              variant="primary"
             >
               保存配置
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="resource-panel">暂无配置数据</div>
@@ -702,17 +704,17 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               value={manualDays}
             />
           </label>
-          <button
-            className="primary-button"
+          <Button
             disabled={runningManual}
             onClick={handleManualRun}
             type="button"
+            variant="primary"
           >
             立即补拉
-          </button>
-          <button className="ghost-button" onClick={loadData} type="button">
+          </Button>
+          <Button onClick={loadData} type="button">
             刷新日志
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -732,14 +734,13 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 : "当前账号为只读权限，可查看同步与线索分配数据，但不能触发维护。"}
             </p>
           </div>
-          <button
-            className="secondary-button"
+          <Button
             disabled={!isHighestAdmin || rebuildingClueCenter}
             onClick={() => void handleClueCenterMaintenance()}
             type="button"
           >
             {rebuildingClueCenter ? "维护中" : "执行线索中心维护"}
-          </button>
+          </Button>
         </div>
       </section>
 

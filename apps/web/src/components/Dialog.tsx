@@ -6,7 +6,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { IconButton } from "./Button";
+import { Button, IconButton } from "./Button";
 
 interface DialogProps {
   actions?: ReactNode;
@@ -82,7 +82,9 @@ export function Dialog({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
-        onClose();
+        if (!closeDisabled) {
+          onClose();
+        }
         return;
       }
       if (event.key !== "Tab" || !panelRef.current) {
@@ -114,7 +116,7 @@ export function Dialog({
       const returnTarget = returnFocusRef?.current ?? previousFocusRef.current;
       returnTarget?.focus?.();
     };
-  }, [initialFocusRef, onClose, open, returnFocusRef]);
+  }, [closeDisabled, initialFocusRef, onClose, open, returnFocusRef]);
 
   if (!open) {
     return null;
@@ -186,16 +188,16 @@ export function ConfirmDialog({
       {...props}
       actions={
         <>
-          <button className="ghost-button" onClick={onClose} type="button">
+          <Button onClick={onClose} type="button" variant="secondary">
             {cancelLabel}
-          </button>
-          <button
-            className={danger ? "ui-button ui-button--danger" : "primary-button"}
+          </Button>
+          <Button
             onClick={onConfirm}
             type="button"
+            variant={danger ? "danger" : "primary"}
           >
             {confirmLabel}
-          </button>
+          </Button>
         </>
       }
       onClose={onClose}

@@ -4,6 +4,7 @@ import {
   fetchProductTypeVisibility,
   saveProductTypeVisibility,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
 import type { ProductTypeVisibilityData } from "../types/dashboard";
@@ -267,16 +268,14 @@ export function AdminProductTypeVisibilityPage() {
             </span>
           </div>
           <div className="product-visibility-actions">
-            <button
-              className="ghost-button"
+            <Button
               disabled={!scopedAvailableProductTypes.length}
               onClick={() => setSelectedProductTypes(scopedAvailableProductTypes)}
               type="button"
             >
               全部选择
-            </button>
-            <button
-              className="ghost-button"
+            </Button>
+            <Button
               disabled={!selectedCount}
               onClick={() => {
                 setSelectedProductTypes([]);
@@ -285,7 +284,7 @@ export function AdminProductTypeVisibilityPage() {
               type="button"
             >
               清空选择
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -374,14 +373,14 @@ export function AdminProductTypeVisibilityPage() {
           <p>
             该配置保存后立即生效；排行榜、单店结算、订单明细、线索筛选和线索列表都会按此口径收口。
           </p>
-          <button
-            className="primary-button"
+          <Button
             disabled={saving || loading || !canSave}
             onClick={handleSave}
             type="button"
+            variant="primary"
           >
             保存口径
-          </button>
+          </Button>
         </div>
       </section>
     </div>

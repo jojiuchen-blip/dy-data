@@ -3,6 +3,7 @@ import {
   fetchAdminSession,
   loginAdmin,
 } from "../api/client";
+import { Button } from "../components/Button";
 
 const adminModules = [
   {
@@ -115,9 +116,9 @@ export function AdminHomePage() {
               {loginError}
             </p>
           ) : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit" variant="primary">
             进入后台
-          </button>
+          </Button>
         </form>
       </div>
     );

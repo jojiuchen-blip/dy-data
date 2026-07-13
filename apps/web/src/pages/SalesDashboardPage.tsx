@@ -755,27 +755,28 @@ export function SalesDashboardPage({
               description={definitionFor("total_sales_order_count")}
               label="总销售订单量"
               meta={`${dashboard.store.store_name} · ${periodLabel}`}
+              tone="primary"
               value={formatInteger(metrics.total_sales_order_count)}
             />
             <MetricCard
               description={definitionFor("self_verify_order_count")}
               label="自店核销数"
               meta="销售门店与核销门店一致"
-              tone="blue"
+              tone="info"
               value={formatInteger(metrics.self_verify_order_count)}
             />
             <MetricCard
               description={definitionFor("self_verify_rate")}
               label="自店核销率"
               meta="自店核销数 / 总销售订单量"
-              tone="amber"
+              tone="warning"
               value={formatPercent(metrics.self_verify_rate)}
             />
             <MetricCard
               description={definitionFor("total_verify_order_count")}
               label="实际核销总数"
               meta={`${dashboard.store.store_name} · ${periodLabel}`}
-              tone="blue"
+              tone="info"
               value={formatInteger(metrics.total_verify_order_count)}
             />
             <MetricCard
@@ -788,7 +789,7 @@ export function SalesDashboardPage({
               description={definitionFor("avg_verify_cycle_days")}
               label="平均核销周期"
               meta="sale_time 到 verify_time"
-              tone="amber"
+              tone="warning"
               value={formatDays(metrics.avg_verify_cycle_days)}
             />
           </section>
