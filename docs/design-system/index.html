@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
     <title>抖音经营数据引擎 UI 设计规范 V0.1</title>
     <style>
       :root {
@@ -164,6 +165,46 @@
         padding: 16px;
         background: var(--surface);
         box-shadow: var(--shadow-soft);
+      }
+
+      .candidate-callout {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-lg);
+        padding: 18px 20px;
+        background: var(--surface-muted);
+      }
+
+      .candidate-callout__copy {
+        display: grid;
+        gap: 6px;
+      }
+
+      .candidate-callout__link {
+        display: inline-flex;
+        min-height: var(--touch-target);
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--green);
+        border-radius: var(--radius-md);
+        padding: 0 18px;
+        background: var(--green);
+        color: var(--surface);
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .candidate-callout__link:hover {
+        filter: brightness(0.9);
+      }
+
+      .candidate-callout__link:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
       }
 
       .pill-row {
@@ -488,12 +529,24 @@
         font-weight: 850;
       }
 
-      .icon-svg {
+      .solar-icon-sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .icon-svg,
+      .solar-icon-sample {
         display: inline-block;
         flex: 0 0 auto;
         width: 18px;
         height: 18px;
         color: currentColor;
+      }
+
+      .solar-icon-sample--up {
+        transform: rotate(180deg);
       }
 
       .icon-button-demo {
@@ -651,13 +704,15 @@
         position: absolute;
         top: 50%;
         right: 14px;
-        width: 9px;
-        height: 9px;
-        border-right: 2px solid currentColor;
-        border-bottom: 2px solid currentColor;
+        width: 16px;
+        height: 16px;
         pointer-events: none;
         color: var(--muted);
-        transform: translateY(-65%) rotate(45deg);
+        transform: translateY(-50%);
+      }
+
+      .field-control--open .select-indicator {
+        transform: translateY(-50%) rotate(180deg);
       }
 
       .field-control--focus .select-indicator {
@@ -858,10 +913,10 @@
         color: var(--green);
       }
 
-      .filter-chip::after {
+      .filter-chip .icon-svg {
+        width: 14px;
+        height: 14px;
         margin-left: 6px;
-        color: currentColor;
-        content: "×";
       }
 
       .role-badge {
@@ -2457,6 +2512,15 @@
       }
 
       @media (max-width: 640px) {
+        .candidate-callout {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .candidate-callout__link {
+          width: 100%;
+        }
+
         h1 {
           font-size: 26px;
         }
@@ -2549,6 +2613,28 @@
     </style>
   </head>
   <body>
+    <svg class="solar-icon-sprite" aria-hidden="true">
+          <defs>
+            <symbol id="solar-icon-brand" viewBox="0 0 24 24"><g fill="currentColor"><path d="M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2c4.714 0 7.071 0 8.535 1.464C22 4.93 22 7.286 22 12c0 4.714 0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z" opacity=".5"/><path d="M22 5a3 3 0 1 1-6 0a3 3 0 0 1 6 0Zm-7.5 5.75a.75.75 0 0 1 0-1.5H17a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-.69l-2.013 2.013a1.75 1.75 0 0 1-2.474 0l-1.586-1.586a.25.25 0 0 0-.354 0L7.53 14.53a.75.75 0 0 1-1.06-1.06l2.293-2.293a1.75 1.75 0 0 1 2.474 0l1.586 1.586a.25.25 0 0 0 .354 0l2.012-2.013H14.5Z"/></g></symbol>
+            <symbol id="solar-icon-details" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.755 2h-9.51c-1.159 0-1.738 0-2.206.163a3.046 3.046 0 0 0-1.881 1.936C3 4.581 3 5.177 3 6.37v14.004c0 .858.985 1.314 1.608.744a.946.946 0 0 1 1.284 0l.483.442a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0l.483-.442a.946.946 0 0 1 1.284 0c.623.57 1.608.114 1.608-.744V6.37c0-1.193 0-1.79-.158-2.27a3.045 3.045 0 0 0-1.881-1.937C18.493 2 17.914 2 16.755 2Z"/><path stroke-linecap="round" d="M10.5 11H17M7 11h.5M7 7.5h.5m-.5 7h.5m3-7H17m-6.5 7H17"/></g></symbol>
+            <symbol id="solar-icon-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></symbol>
+            <symbol id="solar-icon-eyeClosed" viewBox="0 0 24 24"><path fill="currentColor" d="M2.69 6.705a.75.75 0 0 0-1.38.59l1.38-.59Zm12.897 6.624l-.274-.698l.274.698Zm-6.546.409a.75.75 0 1 0-1.257-.818l1.257.818Zm-2.67 1.353a.75.75 0 1 0 1.258.818l-1.258-.818ZM22.69 7.295a.75.75 0 0 0-1.378-.59l1.378.59ZM19 11.13l-.513-.547l.513.547Zm.97 2.03a.75.75 0 1 0 1.06-1.06l-1.06 1.06Zm-8.72 3.34a.75.75 0 0 0 1.5 0h-1.5Zm5.121-.591a.75.75 0 1 0 1.258-.818l-1.258.818Zm-10.84-4.25A.75.75 0 0 0 4.47 10.6l1.06 1.06Zm-2.561.44a.75.75 0 0 0 1.06 1.06L2.97 12.1ZM12 13.25c-3.224 0-5.539-1.605-7.075-3.26a13.637 13.637 0 0 1-1.702-2.28a11.707 11.707 0 0 1-.507-.946a3.903 3.903 0 0 1-.022-.049l-.004-.01l-.001-.001L2 7a76 76 0 0 0-.69.296h.001l.001.003l.003.006a3.837 3.837 0 0 0 .04.088a13.202 13.202 0 0 0 .58 1.084c.41.69 1.034 1.61 1.89 2.533C5.54 12.855 8.224 14.75 12 14.75v-1.5Zm3.313-.62c-.97.383-2.071.62-3.313.62v1.5c1.438 0 2.725-.276 3.862-.723l-.55-1.396Zm-7.529.29l-1.413 2.17l1.258.818l1.412-2.171l-1.257-.818ZM22 7l-.69-.296h.001v.002l-.007.013a8.017 8.017 0 0 1-.151.313a13.298 13.298 0 0 1-2.666 3.55l1.026 1.094a14.802 14.802 0 0 0 3.122-4.26l.039-.085l.01-.024l.004-.007v-.003h.001v-.001L22 7Zm-3.513 3.582c-.86.806-1.913 1.552-3.174 2.049l.549 1.396c1.473-.58 2.685-1.444 3.651-2.351l-1.026-1.094Zm-.017 1.077l1.5 1.5l1.06-1.06l-1.5-1.5l-1.06 1.06ZM11.25 14v2.5h1.5V14h-1.5Zm3.709-.262l1.412 2.171l1.258-.818l-1.413-2.171l-1.257.818Zm-10.49-3.14l-1.5 1.5L4.03 13.16l1.5-1.5l-1.06-1.06Z"/></symbol>
+            <symbol id="solar-icon-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z"/><path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3"/></g></symbol>
+            <symbol id="solar-icon-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M9.17 4a3.001 3.001 0 0 1 5.66 0m5.67 2h-17m15.333 2.5l-.46 6.9c-.177 2.654-.265 3.981-1.13 4.79c-.865.81-2.196.81-4.856.81h-.774c-2.66 0-3.991 0-4.856-.81c-.865-.809-.954-2.136-1.13-4.79l-.46-6.9M9.5 11l.5 5m4.5-5l-.5 5"/></symbol>
+            <symbol id="solar-icon-filter" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M19 3H5c-1.414 0-2.121 0-2.56.412C2 3.824 2 4.488 2 5.815v.69c0 1.037 0 1.556.26 1.986c.26.43.733.698 1.682 1.232l2.913 1.64c.636.358.955.537 1.183.735c.474.411.766.895.898 1.49c.064.284.064.618.064 1.285v2.67c0 .909 0 1.364.252 1.718c.252.355.7.53 1.594.88c1.879.734 2.818 1.101 3.486.683c.668-.417.668-1.372.668-3.282v-2.67c0-.666 0-1 .064-1.285a2.68 2.68 0 0 1 .899-1.49c.227-.197.546-.376 1.182-.735l2.913-1.64c.948-.533 1.423-.8 1.682-1.23c.26-.43.26-.95.26-1.988v-.69c0-1.326 0-1.99-.44-2.402C21.122 3 20.415 3 19 3Z"/></symbol>
+            <symbol id="solar-icon-chevronDown" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m19 9l-7 6l-7-6"/></symbol>
+            <symbol id="solar-icon-rules" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7.843 3.802C9.872 2.601 10.886 2 12 2c1.114 0 2.128.6 4.157 1.802l.686.406c2.029 1.202 3.043 1.803 3.6 2.792c.557.99.557 2.19.557 4.594v.812c0 2.403 0 3.605-.557 4.594c-.557.99-1.571 1.59-3.6 2.791l-.686.407C14.128 21.399 13.114 22 12 22c-1.114 0-2.128-.6-4.157-1.802l-.686-.407c-2.029-1.2-3.043-1.802-3.6-2.791C3 16.01 3 14.81 3 12.406v-.812C3 9.19 3 7.989 3.557 7c.557-.99 1.571-1.59 3.6-2.792l.686-.406Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+            <symbol id="solar-icon-logout" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" d="M8.002 7c.012-2.175.109-3.353.877-4.121C9.758 2 11.172 2 14 2h1c2.829 0 4.243 0 5.122.879C21 3.757 21 5.172 21 8v8c0 2.828 0 4.243-.878 5.121C19.242 22 17.829 22 15 22h-1c-2.828 0-4.242 0-5.121-.879c-.768-.768-.865-1.946-.877-4.121"/><path d="M8 19.5c-2.357 0-3.536 0-4.268-.732C3 18.035 3 16.857 3 14.5v-5c0-2.357 0-3.536.732-4.268C4.464 4.5 5.643 4.5 8 4.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12H6m0 0l2 2m-2-2l2-2"/></g></symbol>
+            <symbol id="solar-icon-ranking" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 22h18"/><path d="M3 11c0-.943 0-1.414.293-1.707C3.586 9 4.057 9 5 9c.943 0 1.414 0 1.707.293C7 9.586 7 10.057 7 11v6c0 .943 0 1.414-.293 1.707C6.414 19 5.943 19 5 19c-.943 0-1.414 0-1.707-.293C3 18.414 3 17.943 3 17v-6Zm7-4c0-.943 0-1.414.293-1.707C10.586 5 11.057 5 12 5c.943 0 1.414 0 1.707.293C14 5.586 14 6.057 14 7v10c0 .943 0 1.414-.293 1.707C13.414 19 12.943 19 12 19c-.943 0-1.414 0-1.707-.293C10 18.414 10 17.943 10 17V7Zm7-3c0-.943 0-1.414.293-1.707C17.586 2 18.057 2 19 2c.943 0 1.414 0 1.707.293C21 2.586 21 3.057 21 4v13c0 .943 0 1.414-.293 1.707C20.414 19 19.943 19 19 19c-.943 0-1.414 0-1.707-.293C17 18.414 17 17.943 17 17V4Z"/></g></symbol>
+            <symbol id="solar-icon-chart" viewBox="0 0 24 24"><g fill="currentColor"><path d="M3.293 9.293C3 9.586 3 10.057 3 11v6c0 .943 0 1.414.293 1.707C3.586 19 4.057 19 5 19c.943 0 1.414 0 1.707-.293C7 18.414 7 17.943 7 17v-6c0-.943 0-1.414-.293-1.707C6.414 9 5.943 9 5 9c-.943 0-1.414 0-1.707.293Z"/><path d="M17.293 2.293C17 2.586 17 3.057 17 4v13c0 .943 0 1.414.293 1.707c.293.293.764.293 1.707.293c.943 0 1.414 0 1.707-.293C21 18.414 21 17.943 21 17V4c0-.943 0-1.414-.293-1.707C20.414 2 19.943 2 19 2c-.943 0-1.414 0-1.707.293Z" opacity=".4"/><path d="M10 7c0-.943 0-1.414.293-1.707C10.586 5 11.057 5 12 5c.943 0 1.414 0 1.707.293C14 5.586 14 6.057 14 7v10c0 .943 0 1.414-.293 1.707C13.414 19 12.943 19 12 19c-.943 0-1.414 0-1.707-.293C10 18.414 10 17.943 10 17V7Z" opacity=".7"/><path d="M3 21.25a.75.75 0 0 0 0 1.5h18a.75.75 0 0 0 0-1.5H3Z"/></g></symbol>
+            <symbol id="solar-icon-settlement" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" d="M22 22H2"/><path d="M17 22V6c0-1.886 0-2.828-.586-3.414C15.828 2 14.886 2 13 2h-2c-1.886 0-2.828 0-3.414.586C7 3.172 7 4.114 7 6v16m14 0V11.5c0-1.405 0-2.107-.337-2.611a2 2 0 0 0-.552-.552C19.607 8 18.904 8 17.5 8M3 22V11.5c0-1.405 0-2.107.337-2.611a2 2 0 0 1 .552-.552C4.393 8 5.096 8 6.5 8"/><path stroke-linecap="round" d="M12 22v-3M10 5h4m-4 3h4m-4 3h4m-4 3h4"/></g></symbol>
+            <symbol id="solar-icon-cluesLine" viewBox="0 0 24 24"><g fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.009m3.982 0H12m3.991 0H16"/><path stroke-width="1.5" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.591l2.226-.595a1.634 1.634 0 0 1 1.149.133A9.958 9.958 0 0 0 12 22Z"/></g></symbol>
+            <symbol id="solar-icon-clues" viewBox="0 0 24 24"><g fill="currentColor"><path d="M12 23c6.075 0 11-4.925 11-11S18.075 1 12 1S1 5.925 1 12c0 1.76.413 3.423 1.148 4.898c.195.392.26.84.147 1.263l-.655 2.448a1.43 1.43 0 0 0 1.75 1.751l2.45-.655a1.797 1.797 0 0 1 1.262.147A10.955 10.955 0 0 0 12 23Z" opacity=".5"/><path d="M10.9 12a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Zm-4.4 0a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Zm8.8 0a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Z"/></g></symbol>
+            <symbol id="solar-icon-admin" viewBox="0 0 24 24"><g fill="currentColor"><path d="M3.378 5.082C3 5.62 3 7.22 3 10.417v1.574c0 5.638 4.239 8.375 6.899 9.536c.721.315 1.082.473 2.101.473c1.02 0 1.38-.158 2.101-.473C16.761 20.365 21 17.63 21 11.991v-1.574c0-3.198 0-4.797-.378-5.335c-.377-.537-1.88-1.052-4.887-2.081l-.573-.196C13.595 2.268 12.812 2 12 2c-.811 0-1.595.268-3.162.805L8.265 3c-3.007 1.03-4.51 1.545-4.887 2.082Z" opacity=".5"/><path d="M15.06 10.5a.75.75 0 0 0-1.12-1l-3.011 3.374l-.87-.974a.75.75 0 0 0-1.118 1l1.428 1.6a.75.75 0 0 0 1.119 0l3.572-4Z"/></g></symbol>
+            <symbol id="solar-icon-close" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="m14.5 9.5l-5 5m0-5l5 5"/></g></symbol>
+            <symbol id="solar-icon-fileDownload" viewBox="0 0 24 24"><g fill="none"><path fill="currentColor" d="m15.393 4.054l-.502.557l.502-.557Zm3.959 3.563l-.502.557l.502-.557Zm2.302 2.537l-.685.305l.685-.305ZM3.172 20.828l.53-.53l-.53.53Zm17.656 0l-.53-.53l.53.53ZM14 21.25h-4v1.5h4v-1.5ZM2.75 14v-4h-1.5v4h1.5Zm18.5-.437V14h1.5v-.437h-1.5ZM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563l-1.004 1.115Zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104h1.5Zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79L18.85 8.174ZM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316v1.5Zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645l1.004-1.115ZM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153v-1.5ZM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289h-1.5ZM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14v1.5ZM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489h-1.5Zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10h1.5Zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14v-1.5Z"/><path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268C14.464 10 15.643 10 18 10h4"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.5 13.5v5m0 0l2-1.875m-2 1.875l-2-1.875"/></g></symbol>
+          </defs>
+        </svg>
     <main class="spec-shell">
       <header class="spec-header">
         <div class="header-copy">
@@ -2579,6 +2665,19 @@
           </p>
         </aside>
       </header>
+
+      <section class="candidate-callout" aria-labelledby="candidate-v02-title">
+        <div class="candidate-callout__copy">
+          <p class="eyebrow">DYDATA-3 · 待人工确认 · PREVIEW ONLY</p>
+          <h2 id="candidate-v02-title">V0.2 候选视觉规范已可预览</h2>
+          <p class="summary">
+            候选版只用于颜色和组件状态决策，当前业务 UI 与运行时 token 仍保持 V0.1。
+          </p>
+        </div>
+        <a class="candidate-callout__link" href="candidate-v0.2.html">
+          查看 V0.2 候选版
+        </a>
+      </section>
 
       <section class="section" id="workflow">
         <div class="section-head">
@@ -2776,12 +2875,7 @@
               <span class="component-demo-title">文字按钮状态</span>
               <div class="button-row">
                 <button class="button-like primary" type="button">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M16.755 2h-9.51c-1.159 0-1.738 0-2.206.163a3.046 3.046 0 0 0-1.881 1.936C3 4.581 3 5.177 3 6.37v14.004c0 .858.985 1.314 1.608.744a.946.946 0 0 1 1.284 0l.483.442a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0l.483-.442a.946.946 0 0 1 1.284 0c.623.57 1.608.114 1.608-.744V6.37c0-1.193 0-1.79-.158-2.27a3.045 3.045 0 0 0-1.881-1.937C18.493 2 17.914 2 16.755 2Z" />
-                      <path stroke-linecap="round" d="M10.5 11H17M7 11h.5M7 7.5h.5m-.5 7h.5m3-7H17m-6.5 7H17" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="details" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-details"></use></svg>
                   查看详情
                 </button>
                 <button class="button-like" type="button">清空筛选</button>
@@ -2796,44 +2890,19 @@
               <span class="component-demo-title">IconButton 尺寸</span>
               <div class="button-row">
                 <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
-                      <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 </button>
                 <button class="icon-button-demo active" type="button" aria-label="隐藏完整号码">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                      <path d="m3 3l18 18" />
-                      <path d="M10.58 10.58A2 2 0 0 0 13.42 13.4" />
-                      <path d="M9.9 4.24A9.9 9.9 0 0 1 12 4c4.18 0 7.03 2.5 8.73 4.7C21.58 9.81 22 10.36 22 12c0 .72-.08 1.2-.25 1.62M6.6 6.55A16.1 16.1 0 0 0 3.28 8.7C2.42 9.81 2 10.36 2 12c0 1.64.42 2.19 1.28 3.3C4.97 17.5 7.82 20 12 20c1.48 0 2.8-.31 3.95-.8" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eyeClosed" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eyeClosed"></use></svg>
                 </button>
                 <button class="icon-button-demo" type="button" aria-label="复制号码">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
-                      <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 </button>
                 <button class="icon-button-demo danger" type="button" aria-label="移除">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                      <path d="M4 7h16M10 11v6m4-6v6M6 7l.7 11.2c.1 1.7.97 2.8 2.7 2.8h5.2c1.73 0 2.6-1.1 2.7-2.8L18 7" />
-                      <path d="M9 7V5.8C9 4.8 9.8 4 10.8 4h2.4C14.2 4 15 4.8 15 5.8V7" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="trash" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-trash"></use></svg>
                 </button>
                 <button class="icon-button-demo mobile" type="button" aria-label="移动端筛选">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                      <path d="M4 7h16M7 12h10M10 17h4" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
                 </button>
               </div>
             </div>
@@ -2858,7 +2927,7 @@
                   >
                     全部
                   </button>
-                  <span class="select-indicator" aria-hidden="true"></span>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 </div>
                 <div id="demo-province-menu" class="select-menu-demo" role="listbox" aria-label="省份选项">
                   <div class="select-option-demo active" role="option" aria-selected="true"><span>全部</span><strong>默认</strong></div>
@@ -2882,7 +2951,7 @@
                   >
                     待跟进
                   </button>
-                  <span class="select-indicator" aria-hidden="true"></span>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 </div>
                 <p class="field-helper">聚焦态只改变边框和 ring，不改变控件尺寸。</p>
               </div>
@@ -2922,7 +2991,7 @@
                   >
                     全部
                   </button>
-                  <span class="select-indicator" aria-hidden="true"></span>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 </div>
                 <p class="field-helper">禁用态降低对比和交互感，不改变控件高度。</p>
               </div>
@@ -2974,8 +3043,8 @@
               <div class="chip-family-block">
                 <strong>FilterChip</strong>
                 <div class="chip-line">
-                  <span class="filter-chip">省份：浙江</span>
-                  <span class="filter-chip">状态：待跟进</span>
+                  <button class="filter-chip" type="button">省份：浙江<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                  <button class="filter-chip" type="button">状态：待跟进<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
                 </div>
               </div>
               <div class="chip-family-block">
@@ -3014,7 +3083,7 @@
             <div class="dialog-preview-grid">
               <div class="dialog-backdrop-demo">
                 <div class="dialog-demo" role="dialog" aria-modal="true" aria-labelledby="dialog-demo-title">
-                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭弹层">×</button>
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭弹层"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
                   <div class="dialog-title">
                     <strong id="dialog-demo-title">线索详情</strong>
                     <span>打开后先聚焦关闭按钮或标题，关闭后回到触发行。</span>
@@ -3028,7 +3097,7 @@
               </div>
               <div class="dialog-backdrop-demo">
                 <div class="dialog-demo confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-demo-title">
-                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭确认弹层">×</button>
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭确认弹层"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
                   <div class="dialog-title">
                     <strong id="confirm-demo-title">删除分佣规则？</strong>
                     <span>危险操作标题必须说清楚对象和后果。</span>
@@ -3067,57 +3136,29 @@
               <li><code>bold-duotone</code> 只用于移动底部导航激活态、一级导航强调、品牌或模块入口。</li>
               <li>同一语义有普通态和强调态时，在 <code>SolarIcon.tsx</code> 中拆成 <code>cluesLine</code> / <code>clues</code> 这类明确名称。</li>
               <li>icon-only 控件必须提供可访问名称；装饰图标用 <code>aria-hidden</code>。</li>
+              <li>规范页示例也必须引用与 <code>SolarIcon.tsx</code> 同名的 Solar symbol，不允许文本字形、CSS 箭头或重复手写 path。</li>
             </ul>
           </article>
           <article class="component-card">
             <h3>尺寸和用法</h3>
             <div class="icon-spec-grid">
               <div class="icon-spec-item" style="--icon-size: 16px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path
-                      d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z"
-                    />
-                    <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 <strong>16px</strong>
                 <span>表格小动作</span>
               </div>
               <div class="icon-spec-item" style="--icon-size: 18px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path
-                      d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z"
-                    />
-                    <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 <strong>18px</strong>
                 <span>按钮内图标</span>
               </div>
               <div class="icon-spec-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 22h18" />
-                    <path
-                      d="M3 11c0-.943 0-1.414.293-1.707C3.586 9 4.057 9 5 9c.943 0 1.414 0 1.707.293C7 9.586 7 10.057 7 11v6c0 .943 0 1.414-.293 1.707C6.414 19 5.943 19 5 19c-.943 0-1.414 0-1.707-.293C3 18.414 3 17.943 3 17v-6Zm7-4c0-.943 0-1.414.293-1.707C10.586 5 11.057 5 12 5c.943 0 1.414 0 1.707.293C14 5.586 14 6.057 14 7v10c0 .943 0 1.414-.293 1.707C13.414 19 12.943 19 12 19c-.943 0-1.414 0-1.707-.293C10 18.414 10 17.943 10 17V7Zm7-3c0-.943 0-1.414.293-1.707C17.586 2 18.057 2 19 2c.943 0 1.414 0 1.707.293C21 2.586 21 3.057 21 4v13c0 .943 0 1.414-.293 1.707C20.414 19 19.943 19 19 19c-.943 0-1.414 0-1.707-.293C17 18.414 17 17.943 17 17V4Z"
-                    />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
                 <strong>20px</strong>
                 <span>导航/标签页</span>
               </div>
               <div class="icon-spec-item" style="--icon-size: 24px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.009m3.982 0H12m3.991 0H16" />
-                    <path
-                      stroke-width="1.5"
-                      d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.591l2.226-.595a1.634 1.634 0 0 1 1.149.133A9.958 9.958 0 0 0 12 22Z"
-                    />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
                 <strong>24px</strong>
                 <span>移动主导航</span>
               </div>
@@ -3132,100 +3173,52 @@
             </div>
             <div class="icon-choice-grid">
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
-                    <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 <strong>查看</strong>
                 <span>linear · 表格动作</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                    <path d="m3 3l18 18" />
-                    <path d="M9.9 4.24A9.9 9.9 0 0 1 12 4c4.18 0 7.03 2.5 8.73 4.7C21.58 9.81 22 10.36 22 12c0 .72-.08 1.2-.25 1.62M6.6 6.55A16.1 16.1 0 0 0 3.28 8.7C2.42 9.81 2 10.36 2 12c0 1.64.42 2.19 1.28 3.3C4.97 17.5 7.82 20 12 20c1.48 0 2.8-.31 3.95-.8" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eyeClosed" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eyeClosed"></use></svg>
                 <strong>隐藏</strong>
                 <span>linear · 显隐切换</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
-                    <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 <strong>复制</strong>
                 <span>linear · 快捷动作</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                    <path d="M4 7h16M7 12h10M10 17h4" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
                 <strong>筛选</strong>
                 <span>linear · 面板开关</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5">
-                    <path d="m6 15l6-6l6 6" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample solar-icon-sample--up" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 <strong>收起</strong>
                 <span>linear · 展开区底部</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M12 15.5A3.5 3.5 0 1 0 12 8.5a3.5 3.5 0 0 0 0 7Z" />
-                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33a1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 8.92 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg>
                 <strong>设置</strong>
                 <span>linear · 用户操作</span>
               </div>
-              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="currentColor">
-                    <path opacity=".35" d="M4 6.5C4 4.57 5.57 3 7.5 3h9C18.43 3 20 4.57 20 6.5v11c0 1.93-1.57 3.5-3.5 3.5h-9A3.5 3.5 0 0 1 4 17.5v-11Z" />
-                    <path d="M8 14.5a1 1 0 0 1 1-1h6.6l-2.3-2.3a1 1 0 1 1 1.4-1.4l4 4a1 1 0 0 1 0 1.4l-4 4a1 1 0 1 1-1.4-1.4l2.3-2.3H9a1 1 0 0 1-1-1Z" />
-                  </g>
-                </svg>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="logout" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-logout"></use></svg>
                 <strong>退出</strong>
-                <span>duotone 仅限强调</span>
+                <span>linear · 用户操作</span>
               </div>
               <div class="icon-choice-item emphasis" style="--icon-size: 24px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="currentColor">
-                    <path opacity=".35" d="M12 22c5.52 0 10-4.48 10-10S17.52 2 12 2S2 6.48 2 12s4.48 10 10 10Z" />
-                    <path d="M8.5 12.2a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Zm3.5 0a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Zm3.5 0a1.7 1.7 0 1 0 0-3.4a1.7 1.7 0 0 0 0 3.4Z" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
                 <strong>线索</strong>
                 <span>duotone · 激活导航</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5">
-                    <path d="M3 22h18" />
-                    <path d="M5 18V9m7 9V5m7 13v-7" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
                 <strong>看板</strong>
                 <span>linear · 二级标签</span>
               </div>
               <div class="icon-choice-item emphasis" style="--icon-size: 24px">
-                <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                  <g fill="currentColor">
-                    <path opacity=".35" d="M12 2l7 3v6c0 4.55-2.92 8.47-7 10c-4.08-1.53-7-5.45-7-10V5l7-3Z" />
-                    <path d="m10.6 13.8l5-5a1 1 0 0 1 1.4 1.4l-5.7 5.7a1 1 0 0 1-1.4 0l-2.7-2.7a1 1 0 1 1 1.4-1.4l2 2Z" />
-                  </g>
-                </svg>
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="admin" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-admin"></use></svg>
                 <strong>后台</strong>
                 <span>duotone · 一级导航</span>
               </div>
@@ -3336,20 +3329,10 @@
               <p>桌面长列表优先使用 DataTable：表头、行高、单元格 padding、行 hover 和行操作统一。</p>
               <div class="table-action-group">
                 <button class="icon-button-demo compact" type="button" aria-label="查看详情">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
-                      <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 </button>
                 <button class="icon-button-demo compact" type="button" aria-label="复制">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
-                      <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 </button>
                 <button class="button-like text" type="button">查看详情</button>
               </div>
@@ -3445,24 +3428,10 @@
               <strong>139****2401</strong>
               <div class="button-row">
                 <button class="icon-button-demo" type="button" aria-label="查看完整号码">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path
-                        d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z"
-                      />
-                      <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 </button>
                 <button class="icon-button-demo" type="button" aria-label="复制号码">
-                  <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                    <g fill="none" stroke="currentColor" stroke-width="1.5">
-                      <path
-                        d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z"
-                      />
-                      <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                    </g>
-                  </svg>
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 </button>
               </div>
             </div>
@@ -3501,7 +3470,7 @@
               <div class="clue-workbench-title">
                 <h3 id="clue-workbench-title">线索跟进详情</h3>
               </div>
-              <button class="icon-button-demo mobile" type="button" aria-label="关闭线索跟进详情">×</button>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭线索跟进详情"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
             </header>
             <div class="clue-workbench-body">
               <div class="clue-workbench-main">
@@ -3512,20 +3481,10 @@
                       <strong>178****6163</strong>
                       <div class="button-row">
                         <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
-                          <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                            <g fill="none" stroke="currentColor" stroke-width="1.5">
-                              <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
-                              <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                            </g>
-                          </svg>
+                          <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                         </button>
                         <button class="icon-button-demo compact" type="button" aria-label="复制完整号码">
-                          <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                            <g fill="none" stroke="currentColor" stroke-width="1.5">
-                              <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
-                              <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                            </g>
-                          </svg>
+                          <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                         </button>
                       </div>
                     </div>
@@ -3686,7 +3645,7 @@
           <article class="mobile-clue-detail-demo" aria-label="移动端线索详情样张">
             <header class="mobile-clue-detail-demo__top">
               <h3>线索跟进详情</h3>
-              <button class="icon-button-demo mobile" type="button" aria-label="关闭移动端线索详情">×</button>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭移动端线索详情"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
             </header>
             <div class="mobile-clue-detail-demo__scroll">
               <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-phone-status-title">
@@ -3698,20 +3657,10 @@
                   <strong>178****6163</strong>
                   <div class="mobile-clue-detail-demo__icon-actions">
                     <button class="mobile-clue-detail-demo__icon" type="button" aria-label="查看完整手机号">
-                      <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                        <g fill="none" stroke="currentColor" stroke-width="1.5">
-                          <path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z" />
-                          <path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z" />
-                        </g>
-                      </svg>
+                      <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                     </button>
                     <button class="mobile-clue-detail-demo__icon" type="button" aria-label="复制完整手机号">
-                      <svg class="icon-svg" aria-hidden="true" viewBox="0 0 24 24">
-                        <g fill="none" stroke="currentColor" stroke-width="1.5">
-                          <path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z" />
-                          <path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3" />
-                        </g>
-                      </svg>
+                      <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                     </button>
                   </div>
                 </div>
@@ -3886,13 +3835,7 @@
                 <div class="data-workspace-demo__result-actions">
                   <span>共 22,525 条</span>
                   <button class="data-workspace-demo__export" type="button" aria-label="导出当前筛选线索明细">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <g fill="none">
-                        <path fill="currentColor" d="m15.393 4.054l-.502.557l.502-.557Zm3.959 3.563l-.502.557l.502-.557Zm2.302 2.537l-.685.305l.685-.305ZM3.172 20.828l.53-.53l-.53.53Zm17.656 0l-.53-.53l.53.53ZM14 21.25h-4v1.5h4v-1.5ZM2.75 14v-4h-1.5v4h1.5Zm18.5-.437V14h1.5v-.437h-1.5ZM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563l-1.004 1.115Zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104h1.5Zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79L18.85 8.174ZM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316v1.5Zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645l1.004-1.115ZM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153v-1.5ZM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289h-1.5ZM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14v1.5ZM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489h-1.5Zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10h1.5Zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14v-1.5Z" />
-                        <path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268C14.464 10 15.643 10 18 10h4" />
-                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.5 13.5v5m0 0l2-1.875m-2 1.875l-2-1.875" />
-                      </g>
-                    </svg>
+                    <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="fileDownload" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-fileDownload"></use></svg>
                     导出
                   </button>
                 </div>
@@ -4007,13 +3950,7 @@
                 <div class="data-workspace-demo__result-actions">
                   <span>共 18,304 条</span>
                   <button class="data-workspace-demo__export" type="button" aria-label="导出当前筛选订单明细">
-                    <svg viewBox="0 0 24 24" aria-hidden="true">
-                      <g fill="none">
-                        <path fill="currentColor" d="m15.393 4.054l-.502.557l.502-.557Zm3.959 3.563l-.502.557l.502-.557Zm2.302 2.537l-.685.305l.685-.305ZM3.172 20.828l.53-.53l-.53.53Zm17.656 0l-.53-.53l.53.53ZM14 21.25h-4v1.5h4v-1.5ZM2.75 14v-4h-1.5v4h1.5Zm18.5-.437V14h1.5v-.437h-1.5ZM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563l-1.004 1.115Zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104h1.5Zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79L18.85 8.174ZM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316v1.5Zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645l1.004-1.115ZM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153v-1.5ZM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289h-1.5ZM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14v1.5ZM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489h-1.5Zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10h1.5Zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14v-1.5Z" />
-                        <path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268C14.464 10 15.643 10 18 10h4" />
-                        <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.5 13.5v5m0 0l2-1.875m-2 1.875l-2-1.875" />
-                      </g>
-                    </svg>
+                    <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="fileDownload" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-fileDownload"></use></svg>
                     导出
                   </button>
                 </div>
