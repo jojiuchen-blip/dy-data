@@ -721,9 +721,12 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
         re.DOTALL,
     )
     assert container is not None
+    assert "min-width: 0;" in container.group("css")
+    assert "overflow-x: auto;" in container.group("css")
     assert "padding-block: 3px;" in container.group("css")
     assert base is not None
     assert "min-height: 38px;" in base.group("css")
+    assert "flex: 0 0 auto;" in base.group("css")
     assert "border-bottom: 2px solid transparent;" in base.group("css")
     assert "white-space: nowrap;" in base.group("css")
     assert hover is not None
