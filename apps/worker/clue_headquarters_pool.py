@@ -40,6 +40,8 @@ def enter_headquarters_pool(
     source_snapshot: Mapping[str, Any] | None = None,
 ) -> ClueHeadquartersPoolEntry:
     occurred_at = _aware(entered_at or utcnow())
+    # A new master lead can enter the headquarters pool during the same materialization pass.
+    session.flush([lead])
     decision_id = source_decision.decision_id if source_decision is not None else None
     active = get_active_headquarters_pool_entry(session, lead.lead_key)
     if active is not None and active.source_decision_id == decision_id:

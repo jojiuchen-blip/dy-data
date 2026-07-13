@@ -6,7 +6,7 @@ from unittest.mock import Mock
 
 import pytest
 from openpyxl import Workbook
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -20,6 +20,7 @@ from apps.api.dy_api.models import (
     DimStore,
     DimStorePoiMapping,
     RawDouyinClue,
+    RawDouyinOrder,
     SettlementOrderDetail,
     StoreScoreSnapshot,
     StoreScoreSnapshotRun,
@@ -232,6 +233,50 @@ def test_master_lead_uses_follow_poi_only_and_routes_invalid_anchor_to_headquart
     assert master.pool_location == "headquarters_pool"
     assert master.allocation_state == "headquarters"
     assert master.anchor_unavailable_reason == "follow_poi_missing"
+
+
+def test_materialization_maps_order_api_waiting_use_status_to_active(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            _store("store-anchor", city_code="上海"),
+            DimStorePoiMapping(store_id="store-anchor", poi_id="poi-anchor", mapping_source="test"),
+            _raw_clue(
+                "waiting-use-row",
+                clue_id="waiting-use-clue",
+                order_id="waiting-use-order",
+                order_status="交易关闭",
+            ),
+            RawDouyinOrder(
+                order_id="waiting-use-order",
+                order_status="201",
+                raw_payload={"order_status": "201"},
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    master = _master_by_clue_id(db_session, "waiting-use-clue")
+    assert master is not None
+    assert master.normalized_order_status == "active"
+    assert master.lifecycle_status == "active"
+    assert master.allocation_state == "pending_allocation"
+
+
+def test_materialization_persists_new_master_before_creating_headquarters_entry(
+    db_session: Session,
+) -> None:
+    db_session.execute(text("PRAGMA foreign_keys = ON"))
+    db_session.commit()
+    db_session.add(_raw_clue("fk-anchor", clue_id="fk-anchor", order_id="fk-order", follow_poi_id=None))
+    db_session.commit()
+
+    stats = clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    assert stats == {"master_leads": 1, "closed_leads": 0, "headquarters_pool": 1}
 
 
 def test_master_lead_merges_missing_clue_id_when_contact_and_order_are_later_available(

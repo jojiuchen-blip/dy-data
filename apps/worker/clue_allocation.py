@@ -647,7 +647,8 @@ def _resolve_status(
         return StatusResolution(raw_status, "refunded", source, _status_observed_at(raw_clue, raw_order, now))
     if raw_status and "核销" in raw_status:
         return StatusResolution(raw_status, "verified", source, _status_observed_at(raw_clue, raw_order, now))
-    if raw_status == "履约中":
+    # The order-query API uses 201 for 待使用, the same allocatable state as 履约中.
+    if raw_status in {"履约中", "201"}:
         return StatusResolution(raw_status, "active", source, None)
     return StatusResolution(raw_status, "unknown", source, None)
 
