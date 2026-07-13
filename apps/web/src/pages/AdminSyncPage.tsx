@@ -4,6 +4,7 @@ import {
   fetchAdminSession,
   fetchSyncAdmin,
   loginAdmin,
+  rebuildClueCenterMaterialization,
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
@@ -113,7 +114,11 @@ function jobStatusLine(job: JobRun | null | undefined): string {
   return `${statusLabel(job.status)}，${finishedAt}`;
 }
 
-export function AdminSyncPage() {
+interface AdminSyncPageProps {
+  isHighestAdmin: boolean;
+}
+
+export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
@@ -129,6 +134,7 @@ export function AdminSyncPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runningManual, setRunningManual] = useState(false);
+  const [rebuildingClueCenter, setRebuildingClueCenter] = useState(false);
   const [statusText, setStatusText] = useState("");
   const draftDirtyRef = useRef(false);
   const configBaselineRef = useRef("");
@@ -334,6 +340,48 @@ export function AdminSyncPage() {
       }
     } finally {
       setRunningManual(false);
+    }
+  };
+
+  const handleClueCenterMaintenance = async () => {
+    if (!isHighestAdmin) {
+      setStatusText("当前账号为只读权限，不能执行线索中心数据维护。");
+      return;
+    }
+    if (
+      !window.confirm(
+        "确认执行线索中心数据维护？该操作会重建线索中心物化和联系方式解析，不会重建任何分配试运行批次。",
+      )
+    ) {
+      return;
+    }
+    setRebuildingClueCenter(true);
+    setStatusText("正在执行线索中心数据维护...");
+    try {
+      const response = await rebuildClueCenterMaterialization();
+      const result = response.data;
+      const rebuilt = [
+        result.rebuilt_order_count == null
+          ? null
+          : `订单 ${formatInteger(result.rebuilt_order_count)} 条`,
+        result.rebuilt_round_count == null
+          ? null
+          : `分配轮次 ${formatInteger(result.rebuilt_round_count)} 条`,
+      ].filter((value): value is string => Boolean(value));
+      setStatusText(
+        rebuilt.length
+          ? `线索中心数据维护已完成：${rebuilt.join("，")}。不会重建任何分配试运行批次。`
+          : "线索中心数据维护已完成。不会重建任何分配试运行批次。",
+      );
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        setAuthenticated(false);
+        setStatusText("登录已过期，请重新输入管理密码。");
+      } else {
+        setStatusText(error instanceof Error ? error.message : "数据维护执行失败，请稍后重试。");
+      }
+    } finally {
+      setRebuildingClueCenter(false);
     }
   };
 
@@ -664,6 +712,33 @@ export function AdminSyncPage() {
           </button>
           <button className="ghost-button" onClick={loadData} type="button">
             刷新日志
+          </button>
+        </div>
+      </section>
+
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <h2>线索中心数据维护</h2>
+            <p>用于重建线索中心物化和联系方式解析，不会重建任何分配试运行批次。</p>
+          </div>
+        </div>
+        <div className="clue-center-maintenance__body">
+          <div>
+            <h3>线索中心物化重建</h3>
+            <p className="admin-muted">
+              {isHighestAdmin
+                ? "该操作仅影响线索中心数据，不会创建或重建分配试运行批次。"
+                : "当前账号为只读权限，可查看同步与线索分配数据，但不能触发维护。"}
+            </p>
+          </div>
+          <button
+            className="secondary-button"
+            disabled={!isHighestAdmin || rebuildingClueCenter}
+            onClick={() => void handleClueCenterMaintenance()}
+            type="button"
+          >
+            {rebuildingClueCenter ? "维护中" : "执行线索中心维护"}
           </button>
         </div>
       </section>

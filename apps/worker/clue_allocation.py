@@ -15,9 +15,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
+    ClueAllocationRuleVersion,
     ClueAssignmentRound,
     ClueCenterOrder,
     ClueFollowUpRecord,
+    ClueLeadRuleVersionBinding,
     ClueMasterLead,
     ClueOrderStatusEvent,
     DataQualityIssue,
@@ -39,10 +41,6 @@ from apps.worker.repositories import upsert_data_quality_issue
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
-DEFAULT_LOOKBACK_DAYS = 30
-DEFAULT_MIN_SAMPLES = 20
-DEFAULT_CONVERSION_WEIGHT = Decimal("0.7")
-DEFAULT_FOLLOW_WEIGHT = Decimal("0.3")
 DEFAULT_STORE_WEIGHT = Decimal("1")
 SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
 MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
@@ -85,6 +83,16 @@ class StoreMetrics:
             self.follow_24h_denominator += 1
         if has_full_follow_up_opportunity and followed_within_24h:
             self.follow_24h_numerator += 1
+
+
+@dataclass(frozen=True)
+class StoreScoreConfig:
+    rule_version_id: str | None
+    lookback_days: int
+    min_samples: int
+    conversion_weight: Decimal
+    follow_weight: Decimal
+    store_weight: Decimal
 
 
 def materialize_clue_master_leads(session: Session, *, now: datetime | None = None) -> dict[str, object]:
@@ -444,33 +452,33 @@ def haversine_km(latitude_a: float, longitude_a: float, latitude_b: float, longi
 def refresh_store_score_snapshots(
     session: Session,
     *,
+    rule_version_id: str,
     now: datetime | None = None,
     run_mode: str = "scheduled",
-    min_samples: int = DEFAULT_MIN_SAMPLES,
-    lookback_days: int = DEFAULT_LOOKBACK_DAYS,
-    conversion_weight: Decimal = DEFAULT_CONVERSION_WEIGHT,
-    follow_weight: Decimal = DEFAULT_FOLLOW_WEIGHT,
     triggered_by: str | None = None,
+    _scheduled_lock_acquired: bool = False,
 ) -> dict[str, object]:
-    """Create an immutable score run for eligible stores using only formal, mature rounds."""
+    """Create an immutable score run for eligible stores using only formal, mature rounds.
+
+    A version-bound run takes every scoring setting from that immutable rule
+    version. The unbound configuration remains only for legacy/manual callers;
+    allocation never selects those snapshots for a bound lead.
+    """
     now = _aware(now or utcnow())
-    if min_samples <= 0:
-        raise ValueError("min_samples must be positive")
-    if lookback_days <= 0:
-        raise ValueError("lookback_days must be positive")
-    conversion_weight = Decimal(str(conversion_weight))
-    follow_weight = Decimal(str(follow_weight))
-    if conversion_weight + follow_weight != Decimal("1"):
-        raise ValueError("conversion_weight and follow_weight must add up to 1")
+    score_config = _resolve_store_score_config(
+        session,
+        rule_version_id=rule_version_id,
+    )
 
     snapshot_date = now.astimezone(SHANGHAI).date()
+    scheduled_key: str | None = None
     if run_mode == "scheduled":
-        if not _try_transaction_lock(session, lock_name=SCHEDULED_SCORE_REFRESH_LOCK):
+        if not _scheduled_lock_acquired and not _try_transaction_lock(session, lock_name=SCHEDULED_SCORE_REFRESH_LOCK):
             return {"snapshot_run_id": None, "snapshots": 0, "skipped": "locked"}
+        scheduled_key = _scheduled_score_refresh_key(snapshot_date, score_config.rule_version_id)
         existing = session.scalar(
             select(StoreScoreSnapshotRun.snapshot_run_id)
-            .where(StoreScoreSnapshotRun.snapshot_date == snapshot_date)
-            .where(StoreScoreSnapshotRun.run_mode == "scheduled")
+            .where(StoreScoreSnapshotRun.scheduled_key == scheduled_key)
             .limit(1)
         )
         if existing:
@@ -478,28 +486,29 @@ def refresh_store_score_snapshots(
 
     snapshot_run_id = f"score-{now.strftime('%Y%m%dT%H%M%S%f')}-{uuid4().hex[:8]}"
     window_end = now
-    window_start = now - timedelta(days=lookback_days)
+    window_start = now - timedelta(days=score_config.lookback_days)
     stores = eligible_candidate_stores(session)
-    score_config = {
-        "lookback_days": lookback_days,
-        "min_samples": min_samples,
+    score_config_json = {
+        "rule_version_id": score_config.rule_version_id,
+        "lookback_days": score_config.lookback_days,
+        "min_samples": score_config.min_samples,
         "execution_mode": "formal",
-        "conversion_weight": str(conversion_weight),
-        "follow_24h_weight": str(follow_weight),
-        "store_weight": str(DEFAULT_STORE_WEIGHT),
+        "conversion_weight": str(score_config.conversion_weight),
+        "follow_24h_weight": str(score_config.follow_weight),
+        "store_weight": str(score_config.store_weight),
     }
     session.add(
         StoreScoreSnapshotRun(
             snapshot_run_id=snapshot_run_id,
             snapshot_date=snapshot_date,
             run_mode=run_mode,
-            scheduled_key=f"scheduled-{snapshot_date.isoformat()}" if run_mode == "scheduled" else None,
+            scheduled_key=scheduled_key,
             window_start=window_start,
             window_end=window_end,
             candidate_store_count=len(stores),
             snapshot_count=len(stores),
             triggered_by=_clean(triggered_by),
-            config_json=score_config,
+            config_json=score_config_json,
             computed_at=now,
         )
     )
@@ -520,7 +529,7 @@ def refresh_store_score_snapshots(
             city_metric.conversion_denominator,
             global_metrics.conversion_numerator,
             global_metrics.conversion_denominator,
-            min_samples,
+            score_config.min_samples,
         )
         follow_rate, follow_source = _resolved_rate(
             own_metrics.follow_24h_numerator,
@@ -529,9 +538,9 @@ def refresh_store_score_snapshots(
             city_metric.follow_24h_denominator,
             global_metrics.follow_24h_numerator,
             global_metrics.follow_24h_denominator,
-            min_samples,
+            score_config.min_samples,
         )
-        score = (conversion_rate * conversion_weight + follow_rate * follow_weight) * DEFAULT_STORE_WEIGHT
+        score = (conversion_rate * score_config.conversion_weight + follow_rate * score_config.follow_weight) * score_config.store_weight
         session.add(
             StoreScoreSnapshot(
                 snapshot_id=f"{snapshot_run_id}-{store.store_id}",
@@ -550,11 +559,11 @@ def refresh_store_score_snapshots(
                 follow_24h_denominator=own_metrics.follow_24h_denominator,
                 follow_24h_rate=follow_rate,
                 follow_24h_value_source=follow_source,
-                conversion_weight=conversion_weight,
-                follow_24h_weight=follow_weight,
-                store_weight=DEFAULT_STORE_WEIGHT,
+                conversion_weight=score_config.conversion_weight,
+                follow_24h_weight=score_config.follow_weight,
+                store_weight=score_config.store_weight,
                 composite_score=score,
-                config_json=score_config,
+                config_json=score_config_json,
                 computed_at=now,
             )
         )
@@ -572,7 +581,107 @@ def refresh_due_store_score_snapshots(
     local_now = now.astimezone(SHANGHAI)
     if local_now.time() < SCHEDULED_SCORE_REFRESH_TIME:
         return {"snapshot_run_id": None, "snapshots": 0, "skipped": "before_schedule"}
-    return refresh_store_score_snapshots(session, now=now, run_mode="scheduled")
+    if not _try_transaction_lock(session, lock_name=SCHEDULED_SCORE_REFRESH_LOCK):
+        return {"snapshot_run_id": None, "snapshots": 0, "skipped": "locked"}
+
+    rule_version_ids = _score_rule_version_ids_for_refresh(session)
+    if not rule_version_ids:
+        return {"snapshot_run_id": None, "snapshots": 0, "skipped": "no_rule_versions"}
+
+    results = [
+        refresh_store_score_snapshots(
+            session,
+            now=now,
+            run_mode="scheduled",
+            rule_version_id=rule_version_id,
+            _scheduled_lock_acquired=True,
+        )
+        for rule_version_id in rule_version_ids
+    ]
+    snapshot_run_ids = [str(result["snapshot_run_id"]) for result in results if result.get("snapshot_run_id")]
+    if not snapshot_run_ids:
+        return {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
+    return {
+        "snapshot_run_id": snapshot_run_ids[0],
+        "snapshot_run_ids": snapshot_run_ids,
+        "snapshots": sum(int(result.get("snapshots", 0) or 0) for result in results),
+    }
+
+
+def _resolve_store_score_config(
+    session: Session,
+    *,
+    rule_version_id: str,
+) -> StoreScoreConfig:
+    normalized_rule_version_id = rule_version_id.strip() if isinstance(rule_version_id, str) else ""
+    if not normalized_rule_version_id:
+        raise ValueError("rule_version_id is required")
+    version = session.get(ClueAllocationRuleVersion, normalized_rule_version_id)
+    if version is None:
+        raise ValueError("clue allocation rule version was not found")
+    if (
+        version.lookback_days is None
+        or version.min_samples is None
+        or version.conversion_weight is None
+        or version.follow_24h_weight is None
+    ):
+        raise ValueError("clue allocation rule version is missing score configuration")
+    return _validated_store_score_config(
+        rule_version_id=version.rule_version_id,
+        min_samples=version.min_samples,
+        lookback_days=version.lookback_days,
+        conversion_weight=version.conversion_weight,
+        follow_weight=version.follow_24h_weight,
+        store_weight=DEFAULT_STORE_WEIGHT,
+    )
+
+
+def _validated_store_score_config(
+    *,
+    rule_version_id: str | None,
+    min_samples: int,
+    lookback_days: int,
+    conversion_weight: Decimal,
+    follow_weight: Decimal,
+    store_weight: Decimal,
+) -> StoreScoreConfig:
+    if min_samples <= 0:
+        raise ValueError("min_samples must be positive")
+    if lookback_days <= 0:
+        raise ValueError("lookback_days must be positive")
+    conversion = Decimal(str(conversion_weight))
+    follow = Decimal(str(follow_weight))
+    if conversion + follow != Decimal("1"):
+        raise ValueError("conversion_weight and follow_weight must add up to 1")
+    return StoreScoreConfig(
+        rule_version_id=rule_version_id,
+        min_samples=min_samples,
+        lookback_days=lookback_days,
+        conversion_weight=conversion,
+        follow_weight=follow,
+        store_weight=Decimal(str(store_weight)),
+    )
+
+
+def _score_rule_version_ids_for_refresh(session: Session) -> list[str]:
+    published_version_ids = session.scalars(
+        select(ClueAllocationRuleVersion.rule_version_id)
+        .where(ClueAllocationRuleVersion.status == "published")
+        .order_by(ClueAllocationRuleVersion.rule_version_id)
+    ).all()
+    bound_version_ids = session.scalars(
+        select(ClueLeadRuleVersionBinding.rule_version_id)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueLeadRuleVersionBinding.lead_key)
+        .where(ClueMasterLead.lifecycle_status == "active")
+        .where(ClueMasterLead.normalized_order_status == "active")
+        .order_by(ClueLeadRuleVersionBinding.rule_version_id)
+    ).all()
+    return sorted(set(published_version_ids).union(bound_version_ids))
+
+
+def _scheduled_score_refresh_key(snapshot_date: date, rule_version_id: str | None) -> str:
+    target = rule_version_id or "legacy"
+    return f"scheduled-{snapshot_date.isoformat()}-{target}"
 
 
 def _source_identity_key(raw_clue: RawDouyinClue) -> str:

@@ -16,6 +16,8 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
+    ClueAllocationRule,
+    ClueAllocationRuleVersion,
     ClueMasterLead,
     DimStore,
     StoreScoreSnapshot,
@@ -146,6 +148,33 @@ def _seed_m1_data(session: Session) -> None:
     session.commit()
 
 
+def _seed_score_rule_version(session: Session) -> ClueAllocationRuleVersion:
+    rule = ClueAllocationRule(
+        rule_id="score-rule",
+        rule_name="Score Rule",
+        scope_type="global",
+        scope_key="global",
+        created_by="system-admin",
+    )
+    version = ClueAllocationRuleVersion(
+        rule_version_id="score-rule-v1",
+        rule_id=rule.rule_id,
+        version_no=1,
+        status="published",
+        auto_expiry_enabled=True,
+        first_follow_up_sla_hours=24,
+        protection_days=7,
+        conversion_weight=Decimal("0.7"),
+        follow_24h_weight=Decimal("0.3"),
+        lookback_days=30,
+        min_samples=20,
+        created_by="system-admin",
+    )
+    session.add_all([rule, version])
+    session.commit()
+    return version
+
+
 def test_admin_m1_master_pool_contract_is_protected_and_excludes_source_identity(
     client: TestClient,
     db_session: Session,
@@ -172,6 +201,7 @@ def test_admin_can_view_and_manually_refresh_m1_store_score_snapshots(
     db_session: Session,
 ) -> None:
     _seed_m1_data(db_session)
+    rule_version = _seed_score_rule_version(db_session)
     _login(client)
 
     view = client.get("/api/v1/admin/clue-allocation/store-scores?snapshot_run_id=score-run-test")
@@ -179,9 +209,25 @@ def test_admin_can_view_and_manually_refresh_m1_store_score_snapshots(
     assert view.json()["data"]["run"]["snapshot_run_id"] == "score-run-test"
     assert view.json()["data"]["rows"][0]["composite_score"] == 0.5
 
+    missing_rule_version = client.post(
+        "/api/v1/admin/clue-allocation/store-scores/refresh",
+        json={},
+    )
+    assert missing_rule_version.status_code == 422
+
+    extra_parameters = client.post(
+        "/api/v1/admin/clue-allocation/store-scores/refresh",
+        json={
+            "rule_version_id": rule_version.rule_version_id,
+            "lookback_days": 14,
+            "min_samples": 1,
+        },
+    )
+    assert extra_parameters.status_code == 422
+
     refresh = client.post(
         "/api/v1/admin/clue-allocation/store-scores/refresh",
-        json={"lookback_days": 30, "min_samples": 20},
+        json={"rule_version_id": rule_version.rule_version_id},
     )
     assert refresh.status_code == 200
     assert refresh.json()["data"]["snapshot_count"] == 1
@@ -189,9 +235,15 @@ def test_admin_can_view_and_manually_refresh_m1_store_score_snapshots(
         f"/api/v1/admin/clue-allocation/store-scores?snapshot_run_id={refresh.json()['data']['snapshot_run_id']}"
     )
     assert refreshed_run.json()["data"]["run"]["triggered_by"] == "system-admin"
+    refreshed_score_run = db_session.get(
+        StoreScoreSnapshotRun,
+        refresh.json()["data"]["snapshot_run_id"],
+    )
+    assert refreshed_score_run is not None
+    assert refreshed_score_run.config_json["rule_version_id"] == rule_version.rule_version_id
 
 
-def test_database_admin_cannot_access_highest_admin_m1_controls(
+def test_database_admin_can_read_store_scores_but_cannot_change_highest_admin_controls(
     client: TestClient,
     db_session: Session,
 ) -> None:
@@ -212,11 +264,44 @@ def test_database_admin_cannot_access_highest_admin_m1_controls(
     _login_user(client, "database-admin", "database-admin-password")
 
     assert client.get("/api/v1/admin/clue-allocation/master-leads").status_code == 403
+    scores = client.get("/api/v1/admin/clue-allocation/store-scores")
+    assert scores.status_code == 200
+    assert scores.json()["data"]["run"]["snapshot_run_id"] == "score-run-test"
+    assert scores.json()["data"]["rows"][0]["store_id"] == "score-store"
+    assert (
+        client.post(
+            "/api/v1/admin/clue-allocation/store-scores/refresh",
+            json={"rule_version_id": "score-rule-v1"},
+        ).status_code
+        == 403
+    )
+
+
+def test_store_account_cannot_read_or_refresh_store_scores(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    _seed_m1_data(db_session)
+    db_session.add(
+        User(
+            user_id="score-store-user",
+            username="score-store-user",
+            display_name="Score Store User",
+            role="store",
+            status="active",
+            is_initialized=True,
+            password_hash=hash_password_pbkdf2("score-store-user-password"),
+        )
+    )
+    db_session.commit()
+
+    _login_user(client, "score-store-user", "score-store-user-password")
+
     assert client.get("/api/v1/admin/clue-allocation/store-scores").status_code == 403
     assert (
         client.post(
             "/api/v1/admin/clue-allocation/store-scores/refresh",
-            json={"lookback_days": 30, "min_samples": 20},
+            json={"rule_version_id": "score-rule-v1"},
         ).status_code
         == 403
     )

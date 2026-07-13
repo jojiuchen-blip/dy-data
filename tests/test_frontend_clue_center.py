@@ -712,7 +712,6 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     admin_pages = [
         "pages/AdminHomePage.tsx",
         "pages/AdminSkuRulesPage.tsx",
-        "pages/AdminClueRulePage.tsx",
         "pages/AdminFeedbackPage.tsx",
         "pages/AdminSyncPage.tsx",
         "pages/AdminProductTypeVisibilityPage.tsx",

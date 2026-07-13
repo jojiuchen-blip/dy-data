@@ -14,7 +14,6 @@ const adminPaths = new Set([
   "/admin/accounts",
   "/admin/rules",
   "/admin/sync",
-  "/admin/clues/rules",
   "/admin/clue-allocation",
   "/admin/feedback",
   "/admin/product-types",
@@ -84,8 +83,7 @@ const adminNavItems: NavItem[] = [
   { href: "/admin/accounts", label: "账号管理", icon: "accounts" },
   { href: "/admin/rules", label: "分佣规则", icon: "rules" },
   { href: "/admin/product-types", label: "商品口径", icon: "filter" },
-  { href: "/admin/clues/rules", label: "线索规则", icon: "cluesLine" },
-  { href: "/admin/clue-allocation", label: "分配试运行", icon: "sync" },
+  { href: "/admin/clue-allocation", label: "线索分配", icon: "cluesLine" },
   { href: "/admin/feedback", label: "用户建议", icon: "feedback" },
   { href: "/admin/sync", label: "数据同步", icon: "sync" },
 ];
@@ -143,11 +141,11 @@ function secondaryNav(section: NavSection): NavItem[] {
   return settlementNavItems;
 }
 
-function roleLabel(role: AdminUser["role"]): string {
-  if (role === "admin") {
-    return "最高管理员";
+function roleLabel(user: AdminUser): string {
+  if (user.role === "admin") {
+    return user.is_highest_admin ? "最高管理员" : "管理员";
   }
-  if (role === "viewer") {
+  if (user.role === "viewer") {
     return "全局查看";
   }
   return "门店账号";
@@ -344,7 +342,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                 <div className="account-cluster__identity">
                   <SolarIcon name="accounts" size={18} />
                   <span>{currentUser.display_name || currentUser.username}</span>
-                  <em>{roleLabel(currentUser.role)}</em>
+                  <em>{roleLabel(currentUser)}</em>
                 </div>
                 <button
                   className="ghost-button utility-button"
@@ -427,7 +425,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           <dl className="mine-panel__meta">
             <div>
               <dt>角色</dt>
-              <dd>{roleLabel(currentUser.role)}</dd>
+              <dd>{roleLabel(currentUser)}</dd>
             </div>
             <div>
               <dt>账号状态</dt>

@@ -11,18 +11,22 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from apps.api.dy_api.db import make_engine, make_session_factory
+from apps.api.dy_api.models import ClueAllocationRuleVersion
 from apps.worker.clue_allocation import refresh_store_score_snapshots
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Create an immutable manual store score snapshot.")
+    parser = argparse.ArgumentParser(description="Refresh a published rule version's immutable store score snapshot.")
     parser.add_argument(
         "--database-url",
         default=None,
         help="Optional database URL. Defaults to DY_DATABASE_URL or DATABASE_URL.",
     )
-    parser.add_argument("--lookback-days", type=int, default=30, help="Rolling score window in days.")
-    parser.add_argument("--min-samples", type=int, default=20, help="Minimum samples before a rate is trusted.")
+    parser.add_argument(
+        "--rule-version-id",
+        required=True,
+        help="Published allocation rule version whose scoring configuration will be used.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -36,11 +40,17 @@ def main() -> int:
     engine = make_engine(args.database_url)
     factory = make_session_factory(engine)
     with factory() as session:
+        version = session.get(ClueAllocationRuleVersion, args.rule_version_id)
+        if version is None:
+            print(json.dumps({"error": "rule version not found"}, ensure_ascii=False), file=sys.stderr)
+            return 2
+        if version.status != "published":
+            print(json.dumps({"error": "rule version must be published"}, ensure_ascii=False), file=sys.stderr)
+            return 2
         result = refresh_store_score_snapshots(
             session,
+            rule_version_id=version.rule_version_id,
             run_mode="manual",
-            lookback_days=args.lookback_days,
-            min_samples=args.min_samples,
         )
         if args.dry_run:
             session.rollback()

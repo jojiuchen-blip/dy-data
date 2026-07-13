@@ -62,6 +62,15 @@ const decisionStatusLabels: Record<string, string> = {
   headquarters: "进入总部池",
 };
 
+type AllocationSubview = "rules" | "trial" | "records" | "headquarters";
+
+const allocationSubviewItems: Array<{ id: AllocationSubview; label: string }> = [
+  { id: "rules", label: "分配规则" },
+  { id: "trial", label: "分配试运行" },
+  { id: "records", label: "分配记录" },
+  { id: "headquarters", label: "总部线索池" },
+];
+
 interface RuleVersionDraft {
   auto_expiry_enabled: boolean;
   first_follow_up_sla_hours: number;
@@ -208,6 +217,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
   const [selectedRebuildCycleId, setSelectedRebuildCycleId] = useState("");
   const [preview, setPreview] = useState<ClueAllocationCyclePreview | null>(null);
   const [loading, setLoading] = useState(true);
+  const [activeSubview, setActiveSubview] = useState<AllocationSubview>("rules");
   const [action, setAction] = useState<
     "preview" | "trial" | "rebuild" | "rule" | "publish" | "retire" | null
   >(null);
@@ -243,7 +253,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         fetchClueAllocationAuditLogs(),
         fetchClueAllocationRules(),
         fetchClueAllocationDecisions(),
-        isHighestAdmin ? fetchClueAllocationStoreScores() : Promise.resolve(null),
+        fetchClueAllocationStoreScores(),
       ]);
       setEligibleLeads(eligible.data.rows);
       setHeadquartersEntries(headquarters.data.rows);
@@ -837,8 +847,8 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
     <div className="admin-page clue-allocation-admin-page">
       <section className="admin-header">
         <div>
-          <h1>线索分配试运行</h1>
-          <p className="admin-muted">预览、试运行和重建均限定在当前选择范围内。</p>
+          <h1>线索分配</h1>
+          <p className="admin-muted">统一管理规则版本、试运行、分配记录和总部池。</p>
         </div>
         <div className="admin-header-actions">
           <button
@@ -871,6 +881,24 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </div>
       ) : null}
 
+      <nav aria-label="线索分配功能" className="clue-allocation-subnav">
+        {allocationSubviewItems.map((item) => (
+          <button
+            aria-pressed={activeSubview === item.id}
+            className={`clue-allocation-subnav__item${
+              activeSubview === item.id ? " is-active" : ""
+            }`}
+            key={item.id}
+            onClick={() => setActiveSubview(item.id)}
+            type="button"
+          >
+            {item.label}
+          </button>
+        ))}
+      </nav>
+
+      {activeSubview === "trial" ? (
+        <>
       <section className="content-section clue-allocation-control">
         <div className="section-title">
           <div>
@@ -991,7 +1019,11 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </section>
       ) : null}
 
-      <section className="content-section clue-allocation-rule-management">
+        </>
+      ) : null}
+
+      {activeSubview === "rules" ? (
+        <section className="content-section clue-allocation-rule-management">
         <div className="section-title">
           <div>
             <h2>规则范围与版本</h2>
@@ -1330,92 +1362,96 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
             </div>
           ) : null}
         </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>最近分配决策</h2>
-            <p>保留策略、选择结果、失败原因和当时的执行批次，用于复核而不暴露联系方式。</p>
-          </div>
-          <span className="source-pill">{decisions.length} 条</span>
-        </div>
-        <DataTable
-          columns={decisionColumns}
-          emptyText={loading ? "正在加载分配决策..." : "暂无分配决策记录"}
-          rows={decisions}
-          stickyHeader="container"
-        />
-      </section>
+      {activeSubview === "records" ? (
+        <>
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>最近分配决策</h2>
+                <p>保留策略、选择结果、失败原因和当时的执行批次，用于复核而不暴露联系方式。</p>
+              </div>
+              <span className="source-pill">{decisions.length} 条</span>
+            </div>
+            <DataTable
+              columns={decisionColumns}
+              emptyText={loading ? "正在加载分配决策..." : "暂无分配决策记录"}
+              rows={decisions}
+              stickyHeader="container"
+            />
+          </section>
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>门店评分快照</h2>
-            <p>综合评分由已配置的核销转化能力、24 小时有效跟进率与门店权重计算，分配决策保留当时快照。</p>
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>门店评分快照</h2>
+                <p>综合评分由已配置的核销转化能力、24 小时有效跟进率与门店权重计算，分配决策保留当时快照。</p>
+              </div>
+              {scoreData?.run ? (
+                <span className="source-pill">{formatDateTime(scoreData.run.computed_at)}</span>
+              ) : null}
+            </div>
+            <DataTable
+              columns={scoreColumns}
+              emptyText={loading ? "正在加载门店评分快照..." : "暂无评分快照"}
+              rows={scoreData?.rows ?? []}
+              stickyHeader="container"
+            />
+          </section>
+
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>试运行记录</h2>
+                <p>记录每次批次执行范围、结果和操作人。</p>
+              </div>
+              <span className="source-pill">{cycles.length} 次</span>
+            </div>
+            <DataTable
+              columns={cycleColumns}
+              emptyText={loading ? "正在加载试运行记录..." : "暂无试运行记录"}
+              rows={cycles}
+              stickyHeader="container"
+            />
+          </section>
+
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>审计记录</h2>
+                <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+              </div>
+            </div>
+            <DataTable
+              columns={auditColumns}
+              emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
+              rows={auditLogs}
+              stickyHeader="container"
+            />
+          </section>
+        </>
+      ) : null}
+
+      {activeSubview === "headquarters" ? (
+        <section className="content-section">
+          <div className="section-title">
+            <div>
+              <h2>总部线索池</h2>
+              <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
+            </div>
+            <span className="source-pill">{headquartersEntries.length} 条</span>
           </div>
-          {isHighestAdmin && scoreData?.run ? (
-            <span className="source-pill">{formatDateTime(scoreData.run.computed_at)}</span>
-          ) : null}
-        </div>
-        {isHighestAdmin ? (
           <DataTable
-            columns={scoreColumns}
-            emptyText={loading ? "正在加载门店评分快照..." : "暂无评分快照"}
-            rows={scoreData?.rows ?? []}
+            columns={headquartersColumns}
+            emptyText={loading ? "正在加载总部线索池..." : "总部池暂无线索"}
+            rows={headquartersEntries}
             stickyHeader="container"
           />
-        ) : (
-          <p className="admin-muted">评分明细仅向最高管理员开放；普通管理员可查看规则版本、分配决策和批次审计。</p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>总部线索池</h2>
-            <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
-          </div>
-          <span className="source-pill">{headquartersEntries.length} 条</span>
-        </div>
-        <DataTable
-          columns={headquartersColumns}
-          emptyText={loading ? "正在加载总部线索池..." : "总部池暂无线索"}
-          rows={headquartersEntries}
-          stickyHeader="container"
-        />
-      </section>
-
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>试运行记录</h2>
-            <p>记录每次批次执行范围、结果和操作人。</p>
-          </div>
-          <span className="source-pill">{cycles.length} 次</span>
-        </div>
-        <DataTable
-          columns={cycleColumns}
-          emptyText={loading ? "正在加载试运行记录..." : "暂无试运行记录"}
-          rows={cycles}
-          stickyHeader="container"
-        />
-      </section>
-
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>审计记录</h2>
-            <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
-          </div>
-        </div>
-        <DataTable
-          columns={auditColumns}
-          emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
-          rows={auditLogs}
-          stickyHeader="container"
-        />
-      </section>
     </div>
   );
 }

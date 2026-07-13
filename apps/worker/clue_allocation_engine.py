@@ -232,7 +232,11 @@ def allocate_lead(
             raise ValueError("start_after_strategy must be a configured strategy type")
         start_after_order = int(matched["execution_order"])
     stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
-    scores = _latest_scores(session, {store.store_id for store in stores})
+    scores = _latest_scores(
+        session,
+        {store.store_id for store in stores},
+        rule_version_id=binding.rule_version_id,
+    )
     sale_store = _resolve_sale_store_evidence(session, lead.order_id or "")
     historical_store_ids = _historical_self_owned_store_ids(session, lead.lead_key)
     decision_ids: list[str] = []
@@ -637,6 +641,7 @@ def _score_snapshot_payload(snapshot: StoreScoreSnapshot | None, *, used_for_ran
             "used_for_ranking": used_for_ranking,
             "snapshot_id": None,
             "snapshot_run_id": None,
+            "rule_version_id": None,
             "snapshot_date": None,
             "computed_at": None,
             "composite_score": 0.0,
@@ -650,6 +655,7 @@ def _score_snapshot_payload(snapshot: StoreScoreSnapshot | None, *, used_for_ran
         "used_for_ranking": used_for_ranking,
         "snapshot_id": snapshot.snapshot_id,
         "snapshot_run_id": snapshot.snapshot_run_id,
+        "rule_version_id": _score_snapshot_rule_version_id(snapshot),
         "snapshot_date": snapshot.snapshot_date.isoformat() if snapshot.snapshot_date else None,
         "computed_at": _iso_datetime(snapshot.computed_at),
         "composite_score": float(snapshot.composite_score),
@@ -661,7 +667,12 @@ def _score_snapshot_payload(snapshot: StoreScoreSnapshot | None, *, used_for_ran
     }
 
 
-def _latest_scores(session: Session, store_ids: set[str]) -> dict[str, StoreScoreSnapshot]:
+def _latest_scores(
+    session: Session,
+    store_ids: set[str],
+    *,
+    rule_version_id: str,
+) -> dict[str, StoreScoreSnapshot]:
     if not store_ids:
         return {}
     rows = session.scalars(
@@ -671,8 +682,16 @@ def _latest_scores(session: Session, store_ids: set[str]) -> dict[str, StoreScor
     ).all()
     latest: dict[str, StoreScoreSnapshot] = {}
     for row in rows:
+        if _score_snapshot_rule_version_id(row) != rule_version_id:
+            continue
         latest.setdefault(row.store_id, row)
     return latest
+
+
+def _score_snapshot_rule_version_id(snapshot: StoreScoreSnapshot) -> str | None:
+    config = snapshot.config_json if isinstance(snapshot.config_json, dict) else {}
+    value = config.get("rule_version_id")
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _resolve_sale_store_evidence(session: Session, order_id: str) -> dict[str, Any]:

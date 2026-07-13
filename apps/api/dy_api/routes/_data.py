@@ -25,14 +25,12 @@ try:
     from apps.api.dy_api.models import (
         ClueAssignmentRound,
         ClueFollowUpRecord,
-        ClueReassignRuleSetting,
         DimNonCommissionOwnerAccount,
         DimSkuProductRule,
         ProductTypeVisibilitySetting,
     )
     from apps.api.dy_api.rule_utils import normalize_owner_account_name
 except ImportError:  # pragma: no cover - covered only in stripped runtime images.
-    ClueReassignRuleSetting = None  # type: ignore[assignment]
     ClueAssignmentRound = None  # type: ignore[assignment]
     ClueFollowUpRecord = None  # type: ignore[assignment]
     DimNonCommissionOwnerAccount = None  # type: ignore[assignment]
@@ -2575,45 +2573,6 @@ class DashboardDataStore:
                 "phone_masked": _masked_phone(phone),
             }
         return None
-
-    def get_clue_reassign_rule(self) -> dict[str, Any]:
-        if self.session is None or ClueReassignRuleSetting is None:
-            return {
-                "reassign_sla_hours": None,
-                "updated_at": None,
-                "updated_by": None,
-            }
-        setting = self.session.get(ClueReassignRuleSetting, "global")
-        if setting is None:
-            return {
-                "reassign_sla_hours": None,
-                "updated_at": None,
-                "updated_by": None,
-            }
-        return {
-            "reassign_sla_hours": setting.reassign_sla_hours,
-            "updated_at": setting.updated_at,
-            "updated_by": setting.updated_by,
-        }
-
-    def save_clue_reassign_rule(
-        self, *, reassign_sla_hours: int | None, updated_by: str
-    ) -> dict[str, Any]:
-        if self.session is None or ClueReassignRuleSetting is None:
-            return {
-                "reassign_sla_hours": None,
-                "updated_at": None,
-                "updated_by": None,
-            }
-        setting = self.session.get(ClueReassignRuleSetting, "global")
-        if setting is None:
-            setting = ClueReassignRuleSetting(setting_key="global")
-        setting.reassign_sla_hours = reassign_sla_hours
-        setting.updated_by = updated_by
-        setting.updated_at = generated_at()
-        self.session.merge(setting)
-        self.session.flush()
-        return self.get_clue_reassign_rule()
 
     def order_details_export_csv(self, filters: dict[str, Any]) -> str:
         where_sql, params = self._detail_where(filters)
