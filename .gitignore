@@ -23,6 +23,7 @@ venv/
 node_modules/
 dist/
 .vite/
+.playwright-cli/
 *.tsbuildinfo
 
 # OS/editor noise

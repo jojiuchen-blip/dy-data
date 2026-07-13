@@ -1,15 +1,21 @@
 {
   "meta": {
-    "name": "dy-data UI Design System",
-    "version": "0.1.0",
-    "status": "draft",
-    "lastUpdated": "2026-06-25",
+    "name": "dy-data UI Design System Candidate",
+    "version": "0.2.0-candidate",
+    "status": "pending-human-approval",
+    "lastUpdated": "2026-07-13",
     "language": "zh-CN",
     "colorMode": "light-only",
     "darkModeStatus": "not-supported-in-v0.1",
-    "sourceOfTruth": "docs/design-system/tokens.json",
-    "currentImplementationSource": "apps/web/src/styles.css",
-    "purpose": "Provide a visible and machine-readable baseline for dy-data product UI decisions."
+    "sourceOfTruth": "docs/design-system/tokens.v0.2-candidate.json",
+    "currentImplementationSource": "documentation-only",
+    "purpose": "Provide the complete V0.2 candidate design system for human review before runtime migration.",
+    "issue": "DYDATA-3",
+    "relatedIssues": [
+      "DYDATA-5"
+    ],
+    "stage": "design-system-preview-only",
+    "runtimeApplied": false
   },
   "principles": [
     {
@@ -31,49 +37,53 @@
     {
       "name": "规范需要校验",
       "description": "关键 token 与已实现 CSS 通过测试绑定，后续再扩展到 lint、视觉回归和 PR checklist。"
+    },
+    {
+      "name": "品牌色与语义色分离",
+      "description": "候选品牌橙只承担品牌、主操作、选中和聚焦；成功、警告、错误和信息继续使用各自语义色。"
     }
   ],
   "tokens": {
     "color": {
       "bg": {
-        "value": "#f7f8f5",
+        "value": "#f6f6f3",
         "cssVariable": "--bg",
-        "role": "Application background"
+        "role": "Candidate application background"
       },
       "surface": {
         "value": "#ffffff",
         "cssVariable": "--surface",
-        "role": "Main panel and card surface"
+        "role": "Candidate main content surface"
       },
       "surfaceMuted": {
-        "value": "#f1f5f1",
+        "value": "#f2f2ee",
         "cssVariable": "--surface-muted",
-        "role": "Secondary selected or recessed surface"
+        "role": "Candidate structural and recessed background"
       },
       "surfaceSubtle": {
-        "value": "#fafbf8",
+        "value": "#fafaf8",
         "cssVariable": "--surface-subtle",
-        "role": "Subtle form and utility surface"
+        "role": "Candidate subtle utility surface"
       },
       "ink": {
-        "value": "#15221d",
+        "value": "#181818",
         "cssVariable": "--ink",
-        "role": "Primary text"
+        "role": "Candidate primary text"
       },
       "muted": {
-        "value": "#53625b",
+        "value": "#686a66",
         "cssVariable": "--muted",
-        "role": "Secondary text"
+        "role": "Candidate secondary text"
       },
       "line": {
-        "value": "#dde4dd",
+        "value": "#e3e3df",
         "cssVariable": "--line",
-        "role": "Default divider and card border"
+        "role": "Candidate default divider"
       },
       "lineStrong": {
-        "value": "#c4cec6",
+        "value": "#c9cbc6",
         "cssVariable": "--line-strong",
-        "role": "Input and stronger control border"
+        "role": "Candidate control border"
       },
       "green": {
         "value": "#0f5b4b",
@@ -109,6 +119,46 @@
         "value": "#a0443e",
         "cssVariable": "--danger",
         "role": "Error and destructive state"
+      },
+      "brandDeepOrange": {
+        "value": "#d63b00",
+        "cssVariable": "--brand-deep-orange",
+        "role": "Primary action background with white text"
+      },
+      "brandDeepOrangeHover": {
+        "value": "#c73700",
+        "cssVariable": "--brand-deep-orange-hover",
+        "role": "Primary action hover background"
+      },
+      "brandDeepOrangeActive": {
+        "value": "#ad3000",
+        "cssVariable": "--brand-deep-orange-active",
+        "role": "Primary action active background"
+      },
+      "brandOrange": {
+        "value": "#fe5205",
+        "cssVariable": "--brand-orange",
+        "role": "Brand accent, focus and selected indicator"
+      },
+      "brandOrangeSoft": {
+        "value": "#fff4ef",
+        "cssVariable": "--brand-orange-soft",
+        "role": "Selected and highlighted background"
+      },
+      "brandOrangeInk": {
+        "value": "#7a2600",
+        "cssVariable": "--brand-orange-ink",
+        "role": "Text on soft orange background"
+      },
+      "disabledBackground": {
+        "value": "#dadbd6",
+        "cssVariable": "--disabled-bg",
+        "role": "Disabled control background"
+      },
+      "disabledText": {
+        "value": "#8a8c87",
+        "cssVariable": "--disabled-text",
+        "role": "Disabled control text"
       }
     },
     "typography": {
@@ -120,49 +170,49 @@
         "display": {
           "fontSize": "44px",
           "lineHeight": "1.1",
-          "fontWeight": 850,
+          "fontWeight": 800,
           "usage": "Home entry only"
         },
         "pageTitle": {
           "fontSize": "28px",
           "lineHeight": "1.2",
-          "fontWeight": 850,
+          "fontWeight": 800,
           "usage": "Desktop H1"
         },
         "mobilePageTitle": {
           "fontSize": "24px",
           "lineHeight": "1.2",
-          "fontWeight": 850,
+          "fontWeight": 800,
           "usage": "Mobile H1"
         },
         "sectionTitle": {
           "fontSize": "20px",
           "lineHeight": "1.25",
-          "fontWeight": 850,
+          "fontWeight": 700,
           "usage": "Section title"
         },
         "body": {
           "fontSize": "14px",
           "lineHeight": "1.55",
-          "fontWeight": 400,
+          "fontWeight": 500,
           "usage": "Default UI copy"
         },
         "table": {
           "fontSize": "13px",
           "lineHeight": "1.45",
-          "fontWeight": 400,
+          "fontWeight": 500,
           "usage": "Dense data rows"
         },
         "caption": {
           "fontSize": "12px",
           "lineHeight": "1.45",
-          "fontWeight": 700,
-          "usage": "Labels and metadata"
+          "fontWeight": 600,
+          "usage": "Metadata and compact code labels only"
         },
         "metricValue": {
           "fontSize": "30px",
           "lineHeight": "1.15",
-          "fontWeight": 850,
+          "fontWeight": 800,
           "usage": "KPI values"
         }
       }
@@ -407,23 +457,38 @@
       }
     },
     "shadow": {
-      "shadow": {
-        "value": "0 14px 42px rgb(31 43 36 / 7%)",
-        "cssVariable": "--shadow",
-        "usage": "Large cards and filter panels"
+      "shadowNone": {
+        "value": "none",
+        "cssVariable": "--shadow-none",
+        "usage": "Table cells, chips and inline controls keep hierarchy through borders instead of elevation."
       },
-      "shadowSoft": {
-        "value": "0 1px 2px rgb(31 43 36 / 5%), 0 10px 26px rgb(31 43 36 / 6%)",
-        "cssVariable": "--shadow-soft",
-        "usage": "Cards, content sections and mobile summaries"
+      "shadowCard": {
+        "value": "0 2px 10px rgb(24 24 24 / 4%), 0 12px 28px rgb(24 24 24 / 4%)",
+        "cssVariable": "--shadow-card",
+        "usage": "Cards, filter panels and regular content surfaces."
+      },
+      "shadowPopover": {
+        "value": "0 10px 28px rgb(24 24 24 / 9%), 0 2px 8px rgb(24 24 24 / 5%)",
+        "cssVariable": "--shadow-popover",
+        "usage": "Select menus, comboboxes and contextual floating panels."
+      },
+      "shadowDialog": {
+        "value": "0 18px 48px rgb(24 24 24 / 14%), 0 4px 14px rgb(24 24 24 / 7%)",
+        "cssVariable": "--shadow-dialog",
+        "usage": "Dialog and ConfirmDialog surfaces above page content."
+      },
+      "shadowWorkbench": {
+        "value": "0 30px 80px rgb(24 24 24 / 18%), 0 8px 24px rgb(24 24 24 / 9%)",
+        "cssVariable": "--shadow-workbench",
+        "usage": "Large operational workbenches such as clue follow-up."
       },
       "focusRing": {
-        "value": "0 0 0 3px rgb(15 91 75 / 22%)",
+        "value": "0 0 0 3px rgb(254 82 5 / 22%)",
         "cssVariable": "--focus-ring",
         "usage": "Keyboard focus ring"
       },
       "stickyTableHeader": {
-        "value": "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg), 0 1px 0 var(--line), 0 12px 20px -18px rgb(23 33 28 / 45%)",
+        "value": "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg), 0 1px 0 var(--line), 0 12px 20px -18px rgb(24 24 24 / 24%)",
         "usage": "Frozen table header separation"
       }
     }
@@ -433,8 +498,8 @@
       "radius": "6px",
       "height": "38px",
       "mobileHeight": "44px",
-      "primaryBackground": "#0f5b4b",
-      "primaryText": "#fffdf8",
+      "primaryBackground": "#d63b00",
+      "primaryText": "#ffffff",
       "secondaryBackground": "#ffffff",
       "secondaryBorder": "#c4cec6",
       "activeScale": "0.97",
@@ -455,14 +520,19 @@
         "disabled"
       ],
       "iconGap": "6px",
-      "usage": "Use primary for page or card main action; use danger only for destructive confirmation actions."
+      "usage": "Use primary for page or card main action; use danger only for destructive confirmation actions.",
+      "primaryHoverBackground": "#c73700",
+      "primaryActiveBackground": "#ad3000",
+      "focusColor": "#fe5205",
+      "disabledBackground": "#dadbd6",
+      "disabledText": "#8a8c87"
     },
     "field": {
       "height": "38px",
       "radius": "6px",
       "border": "#c4cec6",
-      "background": "#fffefa",
-      "focusBorder": "#0f5b4b",
+      "background": "#ffffff",
+      "focusBorder": "#fe5205",
       "selectIndicator": "CSS chevron, no native browser arrow and no text glyph.",
       "dropdownSurface": "Select and combobox expanded states share the same menu surface, option highlight and shadow.",
       "expandedPreview": "Use custom button or combobox triggers for Select previews in this document to avoid the browser native dropdown overlapping the designed menu.",
@@ -481,7 +551,8 @@
         "disabled",
         "readonly"
       ],
-      "errorMessageRole": "role=alert for blocking validation errors"
+      "errorMessageRole": "role=alert for blocking validation errors",
+      "focusRing": "0 0 0 3px rgb(254 82 5 / 22%)"
     },
     "iconButton": {
       "desktopSize": "38px",
@@ -515,14 +586,63 @@
       "padding": "15px",
       "gap": "12px",
       "desktopBehavior": "Always expanded on desktop.",
-      "mobileBehavior": "Collapsed by default, with a visible collapse action at the bottom when open."
+      "mobileBehavior": "Collapsed by default, with a visible collapse action at the bottom when open.",
+      "selectedIndicator": "#fe5205",
+      "selectedBackground": "#fff4ef"
     },
     "metricCard": {
       "radius": "8px",
       "padding": "18px",
       "minHeight": "132px",
       "topAccentHeight": "3px",
-      "rule": "Use metric cards only for at-a-glance monitoring values, not repeated page sections."
+      "states": [
+        "standard",
+        "primary",
+        "semantic",
+        "loading"
+      ],
+      "standard": "Neutral monitoring value with no top accent.",
+      "primary": "One page-level key value with a deep orange top accent.",
+      "semantic": "Operational state value using existing semantic green, blue, amber or danger accents.",
+      "loading": "Fixed-size skeleton that preserves the final card geometry.",
+      "rule": "Use metric cards only for at-a-glance monitoring values, not repeated page sections. One view has at most one primary card."
+    },
+    "navigation": {
+      "desktopRail": "Primary modules use Solar linear icons by default; the active module uses bold-duotone and a soft orange background.",
+      "desktopSubnav": "Secondary navigation stays compact with a 2px deep orange active underline.",
+      "mobileTopSubnav": "Current module sub-navigation remains horizontally scrollable at the top on small screens.",
+      "mobileBottomItems": [
+        "数据表现",
+        "结算",
+        "线索",
+        "后台"
+      ],
+      "mobileBottomHeight": "56px",
+      "mobileIconSize": "24px",
+      "mobileLabelSize": "12px",
+      "activeBackground": "#fff4ef",
+      "activeForeground": "#d63b00",
+      "rule": "The four-item mobile sample is an information architecture candidate only; it does not create runtime routes.",
+      "tertiary": {
+        "semanticRole": "local page navigation",
+        "structure": "nav > a",
+        "landmarkLabel": "required nav aria-label",
+        "currentState": "aria-current=page",
+        "focusVisible": "global focus ring",
+        "desktopItemHeight": "38px",
+        "mobileMinTarget": "44px",
+        "activeText": "#d63b00",
+        "activeIndicator": "2px solid #fe5205",
+        "hoverBackground": "#fff4ef",
+        "itemRange": "2-5",
+        "mobileOverflow": "horizontal scroll with current item visible",
+        "sticky": "not independently sticky",
+        "forbiddenUses": [
+          "filters",
+          "transient display modes",
+          "tablist"
+        ]
+      }
     },
     "dialog": {
       "radius": "12px",
@@ -572,7 +692,7 @@
     "dataTable": {
       "fontSize": "13px",
       "cellPadding": "12px 13px",
-      "headerBackground": "#f4f7f3",
+      "headerBackground": "#f2f2ee",
       "stickyHeaderTop": "calc(58px + 8px)",
       "minWidthDefault": "900px",
       "minWidthClues": "1320px",
@@ -632,6 +752,17 @@
       ],
       "rule": "Mobile uses bottom first-level navigation and top second-level navigation."
     },
+    "tertiaryNavigation": {
+      "appliesTo": [
+        "stable subpages inside one secondary workspace",
+        "entity detail subpages"
+      ],
+      "desktopPlacement": "after page heading and before filters or content",
+      "detailPlacement": "after entity heading and summary",
+      "mobilePlacement": "after page heading and before content",
+      "routingRule": "Every item has a stable URL and supports refresh, deep links, and browser history.",
+      "stickyRule": "Do not add an independent sticky layer or change table sticky offsets."
+    },
     "listPage": {
       "structure": [
         "H1",
@@ -659,6 +790,28 @@
       ],
       "desktopRule": "Authenticated workspace pages use a full-width page-frame by default. Desktop detail pages that are primarily dense tables additionally use a fixed viewport workspace: page-frame width 100%, height calc(100vh - topbar), no outer page scroll, and table region scrolls inside the result section.",
       "mobileRule": "Mobile does not use the fixed-height workspace; it returns to natural page scroll and card/list presentation."
+    },
+    "mobileDetailWorkspace": {
+      "appliesTo": [
+        "/clues/details",
+        "/details"
+      ],
+      "desktopOnlyBreakpoint": "920px",
+      "topNavigation": "module secondary navigation",
+      "filterBehavior": "collapsible filter panel with active filter chips and an explicit collapse action",
+      "recordPresentation": "record-cards",
+      "pagerControls": [
+        "previous",
+        "page-input",
+        "next"
+      ],
+      "bottomNavigation": [
+        "数据表现",
+        "结算",
+        "线索",
+        "后台"
+      ],
+      "scrollRule": "Use natural page scrolling; never compress the desktop wide table into the mobile viewport."
     },
     "clueFollowUpWorkbenchModal": {
       "appliesTo": [
@@ -715,5 +868,82 @@
       "Add a PR checklist for new pages and components.",
       "Generate apps/web/src/design-tokens.css from tokens.json instead of syncing it by hand."
     ]
+  },
+  "candidateDecision": {
+    "palette": {
+      "deepOrange": {
+        "value": "#d63b00",
+        "role": "Primary action background with white text",
+        "usage": "Critical submit actions, next-step actions and primary pagination"
+      },
+      "orange": {
+        "value": "#fe5205",
+        "role": "Brand accent and focus indicator",
+        "usage": "Brand marks, selected indicators, focus rings and high-attention accents"
+      },
+      "softOrange": {
+        "value": "#fff4ef",
+        "role": "Selected and highlighted background",
+        "usage": "Selected navigation, filter chips, current page and low-intensity notices"
+      },
+      "black": {
+        "value": "#181818",
+        "role": "Primary text",
+        "usage": "Headings, body text and text placed on the base orange"
+      },
+      "gray": {
+        "value": "#686a66",
+        "role": "Secondary text and inactive icon",
+        "usage": "Descriptions, metadata and inactive navigation"
+      },
+      "softGray": {
+        "value": "#f2f2ee",
+        "role": "Structural background",
+        "usage": "Table headers, recessed regions and alternating neutral backgrounds"
+      },
+      "white": {
+        "value": "#ffffff",
+        "role": "Primary content surface",
+        "usage": "Panels, cards, tables, inputs and dialogs"
+      }
+    },
+    "primaryButton": {
+      "rest": "#d63b00",
+      "hover": "#c73700",
+      "active": "#ad3000",
+      "focus": "#fe5205",
+      "focusRule": "2px solid outline with 2px offset",
+      "disabledBackground": "#dadbd6",
+      "disabledText": "#8a8c87",
+      "loadingRule": "Preserve width and prevent duplicate submission"
+    },
+    "brandMark": {
+      "outerTile": "#fff4ef",
+      "tileSize": "56px",
+      "primary": "#d63b00",
+      "accent": "#fe5205",
+      "rule": "Use the enlarged trend and status-node mark centered in a soft orange rounded square."
+    },
+    "semanticBoundary": {
+      "success": "Keep active V0.1 green tokens",
+      "warning": "Keep active V0.1 amber tokens",
+      "error": "Keep active V0.1 danger tokens",
+      "info": "Keep active V0.1 blue tokens"
+    },
+    "comparison": {
+      "default": "candidate-orange",
+      "alternate": "active-v0.1-green",
+      "persistence": "none",
+      "purpose": "Visual decision support only"
+    }
+  },
+  "approvalGate": {
+    "requiredLinearConfirmation": "确认进入阶段 2",
+    "blockedIssue": "DYDATA-4",
+    "runtimeFilesExcluded": [
+      "apps/web/src/design-tokens.css",
+      "apps/web/src"
+    ],
+    "rule": "Candidate tokens remain documentation-only until explicit human approval is recorded in Linear."
   }
 }
