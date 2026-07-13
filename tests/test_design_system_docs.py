@@ -686,6 +686,9 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     assert 'class="tertiary-nav__item is-disabled" aria-disabled="true"' in html
     assert 'role="tablist"' not in html
 
+    container = re.search(
+        r"\.tertiary-nav \{(?P<css>.*?)\n\s*\}", html, re.DOTALL
+    )
     base = re.search(
         r"\.tertiary-nav__item \{(?P<css>.*?)\n\s*\}", html, re.DOTALL
     )
@@ -711,9 +714,18 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
         html,
         re.DOTALL,
     )
+    mobile_sample = re.search(
+        r'<nav class="tertiary-nav tertiary-nav--mobile" '
+        r'aria-label="移动端结算数据子页面">(?P<html>.*?)</nav>',
+        html,
+        re.DOTALL,
+    )
+    assert container is not None
+    assert "padding-block: 3px;" in container.group("css")
     assert base is not None
     assert "min-height: 38px;" in base.group("css")
     assert "border-bottom: 2px solid transparent;" in base.group("css")
+    assert "white-space: nowrap;" in base.group("css")
     assert hover is not None
     assert "background: var(--brand-soft);" in hover.group("css")
     assert focus is not None
@@ -723,6 +735,15 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     assert "color: var(--brand-primary);" in current.group("css")
     assert mobile is not None
     assert "min-height: var(--touch-target);" in mobile.group("css")
+    assert mobile_sample is not None
+    mobile_links = mobile_sample.group("html")
+    assert mobile_links.count('<a class="tertiary-nav__item"') == 5
+    assert (
+        'href="#mobile-product-settlement">商品结算汇总</a>' in mobile_links
+    )
+    assert (
+        'href="#mobile-account-reconciliation">账号结算对账</a>' in mobile_links
+    )
 
 
 def test_candidate_polish_uses_natural_gallery_typography_and_restraint() -> None:
