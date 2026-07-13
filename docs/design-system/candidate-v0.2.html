@@ -1,0 +1,5246 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="data:," />
+    <title>dy-data UI 设计规范 V0.2 候选版</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f6f6f3;
+        --surface: #ffffff;
+        --surface-muted: #f2f2ee;
+        --surface-subtle: #fafaf8;
+        --ink: #181818;
+        --muted: #686a66;
+        --line: #e3e3df;
+        --line-strong: #c9cbc6;
+        --brand-primary: #d63b00;
+        --brand-primary-hover: #c73700;
+        --brand-primary-active: #ad3000;
+        --brand-accent: #fe5205;
+        --brand-soft: #fff4ef;
+        --brand-ink: #7a2600;
+        --disabled-bg: #dadbd6;
+        --disabled-text: #8a8c87;
+        --green: #0f5b4b;
+        --green-soft: #e1efe9;
+        --blue: #2f5f95;
+        --blue-soft: #dce7f3;
+        --amber: #76470f;
+        --amber-soft: #f0e5d6;
+        --danger: #a0443e;
+        --target-min: 24px;
+        --touch-target: 44px;
+        --workspace-topbar-height: 58px;
+        --workspace-subnav-height: 51px;
+        --table-sticky-gap: 8px;
+        --table-sticky-top: calc(
+          var(--workspace-topbar-height) + var(--table-sticky-gap)
+        );
+        --z-table-sticky-column: 2;
+        --z-table-header: 3;
+        --z-table-header-corner: 5;
+        --focus-ring: 0 0 0 3px rgb(254 82 5 / 22%);
+        --shadow-none: none;
+        --shadow-card: 0 2px 10px rgb(24 24 24 / 4%),
+          0 12px 28px rgb(24 24 24 / 4%);
+        --shadow-popover: 0 10px 28px rgb(24 24 24 / 9%),
+          0 2px 8px rgb(24 24 24 / 5%);
+        --shadow-dialog: 0 18px 48px rgb(24 24 24 / 14%),
+          0 4px 14px rgb(24 24 24 / 7%);
+        --shadow-workbench: 0 30px 80px rgb(24 24 24 / 18%),
+          0 8px 24px rgb(24 24 24 / 9%);
+        --shadow-navigation: 0 -8px 24px rgb(24 24 24 / 8%);
+        --shadow-sticky-header: 0 calc(var(--table-sticky-gap) * -1) 0 var(--bg),
+          0 1px 0 var(--line), 0 12px 20px -18px rgb(24 24 24 / 24%);
+        --radius-sm: 4px;
+        --radius-md: 6px;
+        --radius-lg: 8px;
+        --radius-xl: 12px;
+        --radius-full: 999px;
+        --preview-max: 1180px;
+        --font-meta: 12px;
+        --font-note: 13px;
+        --font-body: 14px;
+        --font-subtitle: 18px;
+        --font-section: 24px;
+        --font-page: 34px;
+        --weight-regular: 500;
+        --weight-medium: 600;
+        --weight-semibold: 700;
+        --weight-bold: 800;
+        font-family:
+          "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui,
+          sans-serif;
+        color: var(--ink);
+        background: var(--bg);
+        font-synthesis: none;
+        text-rendering: optimizeLegibility;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        overflow-x: clip;
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        min-width: 320px;
+        overflow-x: clip;
+        background:
+          linear-gradient(180deg, rgb(255 255 255 / 72%), transparent 280px),
+          var(--bg);
+        font-size: var(--font-body);
+        font-weight: var(--weight-regular);
+        line-height: 1.55;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      code {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        max-width: 100%;
+        padding: 1px 5px;
+        background: var(--surface-subtle);
+        color: var(--brand-primary);
+        font-family:
+          "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+        font-size: 0.92em;
+        overflow-wrap: anywhere;
+      }
+
+      .spec-shell {
+        width: min(var(--preview-max), 100%);
+        margin: 0 auto;
+        padding: 32px 28px 72px;
+      }
+
+      .spec-toc-wrap {
+        position: sticky;
+        top: 10px;
+        z-index: 40;
+        margin: 18px 0 30px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: rgb(255 255 255 / 96%);
+        box-shadow: var(--shadow-card);
+      }
+
+      .spec-toc {
+        display: flex;
+        width: 100%;
+        gap: 4px;
+        overflow-x: auto;
+        border-radius: inherit;
+        padding: 6px;
+        overscroll-behavior-inline: contain;
+        scrollbar-width: thin;
+      }
+
+      .spec-toc a {
+        display: inline-flex;
+        min-height: 36px;
+        flex: 0 0 auto;
+        align-items: center;
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+        text-decoration: none;
+        transition: background 160ms ease-out, color 160ms ease-out;
+      }
+
+      .spec-toc a:hover,
+      .spec-toc a[aria-current="true"] {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .section[id] {
+        scroll-margin-top: 78px;
+      }
+
+      .spec-header {
+        display: grid;
+        align-items: start;
+        gap: 16px;
+        padding: 24px 0 28px;
+      }
+
+      .brand-line {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .candidate-brand-mark {
+        width: 56px;
+        height: 56px;
+        flex: 0 0 auto;
+        padding: 9px;
+        border-radius: var(--radius-xl);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .eyebrow {
+        margin: 0 0 5px;
+        color: var(--amber);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-semibold);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin: 0;
+      }
+
+      h1 {
+        max-width: 820px;
+        font-size: var(--font-page);
+        font-weight: var(--weight-bold);
+        line-height: 1.15;
+        letter-spacing: 0;
+      }
+
+      h2 {
+        font-size: var(--font-section);
+        font-weight: var(--weight-bold);
+        line-height: 1.2;
+      }
+
+      h3 {
+        font-size: var(--font-subtitle);
+        font-weight: var(--weight-semibold);
+        line-height: 1.25;
+      }
+
+      .header-copy {
+        display: grid;
+        gap: 14px;
+      }
+
+      .summary {
+        max-width: 820px;
+        color: var(--muted);
+        font-size: var(--font-body);
+        line-height: 1.65;
+      }
+
+      .status-card {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      body[data-theme="current"] {
+        --bg: #f7f8f5;
+        --surface-muted: #f1f5f1;
+        --surface-subtle: #fafbf8;
+        --ink: #15221d;
+        --muted: #53625b;
+        --line: #dde4dd;
+        --line-strong: #c4cec6;
+        --brand-primary: #0f5b4b;
+        --brand-primary-hover: #0b473b;
+        --brand-primary-active: #07372f;
+        --brand-accent: #126957;
+        --brand-soft: #e1efe9;
+        --brand-ink: #0f5b4b;
+        --focus-ring: 0 0 0 3px rgb(15 91 75 / 22%);
+      }
+
+      .candidate-callout {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-lg);
+        padding: 18px 20px;
+        background: var(--surface-muted);
+      }
+
+      .candidate-callout__copy {
+        display: grid;
+        gap: 6px;
+      }
+
+      .candidate-callout__actions {
+        display: inline-flex;
+        flex: 0 0 auto;
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 4px;
+        background: var(--surface);
+      }
+
+      .theme-button {
+        display: inline-flex;
+        min-height: var(--touch-target);
+        align-items: center;
+        justify-content: center;
+        border: 0;
+        border-radius: var(--radius-md);
+        padding: 0 18px;
+        background: transparent;
+        color: var(--muted);
+        font-weight: var(--weight-medium);
+        cursor: pointer;
+      }
+
+      .theme-button[aria-pressed="true"] {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .theme-button:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill,
+      .badge {
+        display: inline-flex;
+        max-width: 100%;
+        min-height: var(--target-min);
+        align-items: center;
+        border-radius: var(--radius-full);
+        padding: 4px 10px;
+        font-size: 12px;
+        font-weight: var(--weight-semibold);
+        line-height: 1;
+        overflow-wrap: anywhere;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        background: var(--surface);
+        color: var(--muted);
+      }
+
+      .badge {
+        border: 1px solid rgb(254 82 5 / 20%);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .section {
+        display: grid;
+        gap: 16px;
+        margin-top: 22px;
+      }
+
+      .section-head {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: end;
+        gap: 18px;
+      }
+
+      .section-head p {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.55;
+      }
+
+      .panel,
+      .component-card,
+      .token-card {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .panel {
+        padding: 16px;
+      }
+
+      .grid {
+        display: grid;
+        gap: 12px;
+      }
+
+      .grid-2 {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .grid-3 {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .grid-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .component-gallery {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        align-items: start;
+        gap: 16px;
+      }
+
+      .component-card--wide {
+        grid-column: 1 / -1;
+      }
+
+      .button-showcase-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1.45fr) minmax(280px, 0.55fr);
+        align-items: start;
+        gap: 18px;
+      }
+
+      .flow-steps {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+
+      .step {
+        display: grid;
+        min-height: 108px;
+        align-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 14px;
+        background: var(--surface-subtle);
+      }
+
+      .step strong {
+        font-size: 15px;
+      }
+
+      .step span {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .token-card {
+        display: grid;
+        gap: 10px;
+        overflow: hidden;
+        padding: 12px;
+      }
+
+      .token-swatch {
+        min-height: 70px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--swatch);
+      }
+
+      .token-meta {
+        display: grid;
+        gap: 3px;
+      }
+
+      .token-meta strong {
+        font-size: 13px;
+      }
+
+      .token-meta span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .type-row {
+        display: grid;
+        grid-template-columns: 150px minmax(0, 1fr) 160px;
+        align-items: center;
+        gap: 16px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 0;
+      }
+
+      .type-row:last-child {
+        border-bottom: 0;
+      }
+
+      .type-label,
+      .type-size {
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .sample-display {
+        font-size: 44px;
+        font-weight: var(--weight-bold);
+        line-height: 1.1;
+      }
+
+      .sample-h1 {
+        font-size: 28px;
+        font-weight: var(--weight-bold);
+        line-height: 1.2;
+      }
+
+      .sample-h2 {
+        font-size: 20px;
+        font-weight: var(--weight-semibold);
+        line-height: 1.25;
+      }
+
+      .sample-body {
+        font-size: var(--font-body);
+        font-weight: var(--weight-regular);
+        line-height: 1.55;
+      }
+
+      .sample-table {
+        font-size: var(--font-note);
+        font-weight: var(--weight-regular);
+        line-height: 1.45;
+      }
+
+      .sample-caption {
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .scale-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: end;
+        gap: 12px;
+      }
+
+      .space-chip {
+        display: grid;
+        gap: 7px;
+        min-width: 72px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+      }
+
+      .space-bar {
+        width: var(--w);
+        height: 14px;
+        border-radius: 2px;
+        background: var(--brand-primary);
+      }
+
+      .radius-demo {
+        display: grid;
+        min-height: 72px;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--r);
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+      }
+
+      .button-row {
+        display: flex;
+        align-items: center;
+        align-content: flex-start;
+        flex-wrap: wrap;
+        gap: 10px;
+      }
+
+      button,
+      .button-like,
+      select,
+      input {
+        font: inherit;
+      }
+
+      .button-like {
+        flex: 0 0 auto;
+        height: 38px;
+        min-height: 38px;
+        max-height: 38px;
+        appearance: none;
+        border-radius: var(--radius-md);
+        padding: 0 13px;
+        font-weight: var(--weight-semibold);
+        line-height: 1;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+
+      .button-like {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 6px;
+        border: 1px solid var(--line-strong);
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .button-like.primary {
+        border-color: var(--brand-primary);
+        background: var(--brand-primary);
+        color: #fffdf8;
+        box-shadow: var(--shadow-none);
+      }
+
+      .button-like.primary:hover {
+        border-color: var(--brand-primary-hover);
+        background: var(--brand-primary-hover);
+      }
+
+      .button-like.primary:active {
+        border-color: var(--brand-primary-active);
+        background: var(--brand-primary-active);
+      }
+
+      .button-like.soft {
+        border-color: rgb(254 82 5 / 20%);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .button-like.is-disabled {
+        border-color: var(--line);
+        background: var(--surface-subtle);
+        color: var(--muted);
+        cursor: not-allowed;
+        opacity: 0.58;
+      }
+
+      .button-like.danger {
+        border-color: var(--danger);
+        background: var(--danger);
+        color: #fffdf8;
+      }
+
+      .button-like.text {
+        border-color: transparent;
+        background: transparent;
+        color: var(--brand-primary);
+        text-decoration: underline;
+        text-underline-offset: 3px;
+      }
+
+      .button-like.is-loading {
+        color: rgb(255 253 248 / 88%);
+        cursor: progress;
+      }
+
+      .button-like.is-loading::before {
+        width: 12px;
+        height: 12px;
+        border: 2px solid rgb(255 253 248 / 42%);
+        border-top-color: #fffdf8;
+        border-radius: var(--radius-full);
+        content: "";
+      }
+
+      .candidate-state-panel,
+      .candidate-semantic-panel {
+        display: grid;
+        gap: 16px;
+      }
+
+      .candidate-state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .candidate-state {
+        display: grid;
+        gap: 7px;
+      }
+
+      .candidate-state .button-like {
+        width: 100%;
+      }
+
+      .candidate-state > span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .candidate-state--hover .button-like.primary {
+        border-color: var(--brand-primary-hover);
+        background: var(--brand-primary-hover);
+      }
+
+      .candidate-state--active .button-like.primary {
+        border-color: var(--brand-primary-active);
+        background: var(--brand-primary-active);
+        transform: scale(0.98);
+      }
+
+      .candidate-state--focus .button-like.primary {
+        outline: 2px solid var(--brand-accent);
+        outline-offset: 2px;
+      }
+
+      .candidate-semantic-panel {
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+      }
+
+      .candidate-semantic-panel p {
+        margin-top: 6px;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .button-group-block,
+      .component-demo-block {
+        display: grid;
+        gap: 8px;
+      }
+
+      .component-demo-title {
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+      }
+
+      .solar-icon-sprite {
+        position: absolute;
+        width: 0;
+        height: 0;
+        overflow: hidden;
+      }
+
+      .icon-svg,
+      .solar-icon-sample {
+        display: inline-block;
+        flex: 0 0 auto;
+        width: 18px;
+        height: 18px;
+        color: currentColor;
+      }
+
+      .solar-icon-sample--up {
+        transform: rotate(180deg);
+      }
+
+      .icon-button-demo {
+        display: inline-flex;
+        flex: 0 0 auto;
+        width: 38px;
+        height: 38px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--brand-primary);
+        line-height: 1;
+      }
+
+      .icon-button-demo .icon-svg {
+        width: 18px;
+        height: 18px;
+      }
+
+      .icon-button-demo.compact .icon-svg {
+        width: 16px;
+        height: 16px;
+      }
+
+      .icon-button-demo.mobile {
+        width: 44px;
+        height: 44px;
+      }
+
+      .icon-button-demo.active {
+        border-color: rgb(254 82 5 / 20%);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .icon-button-demo.danger {
+        border-color: rgb(160 68 62 / 22%);
+        color: var(--danger);
+      }
+
+      .field-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-auto-flow: dense;
+        align-items: start;
+        gap: 14px;
+      }
+
+      .field-grid > .field-group:first-child {
+        grid-row: span 2;
+      }
+
+      .field-grid > .field-group:last-child {
+        grid-column: span 2;
+      }
+
+      .field-group {
+        display: grid;
+        gap: 7px;
+      }
+
+      .field-label-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .field-label-row label {
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+      }
+
+      .field-label-row span {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: var(--weight-medium);
+      }
+
+      .field-control {
+        position: relative;
+      }
+
+      .field {
+        width: 100%;
+        height: 38px;
+        min-height: 38px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 34px 0 11px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.35;
+        outline: none;
+        transition:
+          border-color 160ms ease,
+          background 160ms ease,
+          box-shadow 160ms ease;
+      }
+
+      select.field {
+        appearance: none;
+        -webkit-appearance: none;
+        background-image: none;
+        cursor: pointer;
+      }
+
+      button.field-trigger {
+        display: flex;
+        align-items: center;
+        appearance: none;
+        -webkit-appearance: none;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      select.field::-ms-expand {
+        display: none;
+      }
+
+      .field::placeholder {
+        color: rgb(83 98 91 / 70%);
+        font-weight: 500;
+      }
+
+      .field:focus,
+      .field-control--focus .field {
+        border-color: var(--brand-primary);
+        box-shadow: var(--focus-ring);
+      }
+
+      .field-control--open .field {
+        border-color: var(--brand-primary);
+        box-shadow: var(--focus-ring);
+      }
+
+      .field-control--error .field {
+        border-color: var(--danger);
+        background: #fff8f6;
+      }
+
+      .field-control--disabled .field {
+        border-color: var(--line);
+        background: var(--surface-subtle);
+        color: rgb(83 98 91 / 70%);
+        cursor: not-allowed;
+      }
+
+      .field-control--readonly .field {
+        background: var(--surface-subtle);
+        color: var(--ink);
+      }
+
+      .field-control--select .field {
+        padding-right: 36px;
+      }
+
+      .select-indicator {
+        position: absolute;
+        top: 50%;
+        right: 14px;
+        width: 16px;
+        height: 16px;
+        pointer-events: none;
+        color: var(--muted);
+        transform: translateY(-50%);
+      }
+
+      .field-control--open .select-indicator {
+        transform: translateY(-50%) rotate(180deg);
+      }
+
+      .field-control--focus .select-indicator {
+        color: var(--brand-primary);
+      }
+
+      .field-helper,
+      .field-error {
+        margin: 0;
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .field-helper {
+        color: var(--muted);
+      }
+
+      .field-error {
+        color: var(--danger);
+        font-weight: var(--weight-medium);
+      }
+
+      .select-menu-demo,
+      .combobox-menu-demo {
+        display: grid;
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 6px;
+        background: var(--surface);
+        box-shadow: var(--shadow-popover);
+      }
+
+      .select-option-demo,
+      .combobox-option-demo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border-radius: var(--radius-sm);
+        padding: 7px 8px;
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .select-option-demo.active,
+      .combobox-option-demo.active {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+        font-weight: var(--weight-semibold);
+      }
+
+      .metric-preview {
+        position: relative;
+        display: grid;
+        min-height: 132px;
+        align-content: space-between;
+        gap: 14px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        background: var(--surface);
+        box-shadow: var(--shadow-card);
+      }
+
+      .metric-preview::before {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 3px;
+        background: var(--metric-accent, transparent);
+        content: "";
+      }
+
+      .metric-preview.primary {
+        --metric-accent: var(--brand-primary);
+      }
+
+      .metric-preview.semantic {
+        --metric-accent: var(--semantic-accent, var(--green));
+      }
+
+      .metric-preview.loading {
+        --metric-accent: transparent;
+        gap: 12px;
+      }
+
+      .metric-preview.loading::after {
+        width: 68%;
+        height: 12px;
+        border-radius: var(--radius-sm);
+        background: linear-gradient(90deg, var(--surface-muted), var(--surface-subtle), var(--surface-muted));
+        content: "";
+      }
+
+      .metric-skeleton {
+        display: block;
+        width: 44%;
+        height: 28px;
+        border-radius: var(--radius-sm);
+        background: var(--surface-muted);
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 13px;
+        font-weight: var(--weight-medium);
+      }
+
+      .metric-value {
+        color: var(--ink);
+        font-size: 30px;
+        font-weight: var(--weight-bold);
+        line-height: 1.15;
+      }
+
+      .metric-meta {
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .status-row {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px;
+        background: var(--surface-subtle);
+      }
+
+      .status-chip {
+        display: inline-flex;
+        flex: 0 0 auto;
+        min-height: 26px;
+        align-items: center;
+        border: 1px solid transparent;
+        border-radius: var(--radius-full);
+        padding: 0 9px;
+        font-size: 12px;
+        font-weight: var(--weight-semibold);
+        line-height: 1;
+        white-space: nowrap;
+        box-shadow: var(--shadow-none);
+      }
+
+      .status-chip.pending {
+        border-color: rgb(47 95 149 / 20%);
+        background: var(--blue-soft);
+        color: var(--blue);
+      }
+
+      .status-chip.success {
+        border-color: rgb(15 91 75 / 18%);
+        background: var(--green-soft);
+        color: var(--green);
+      }
+
+      .elevation-scale {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .elevation-sample {
+        display: grid;
+        min-height: 126px;
+        align-content: space-between;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 14px;
+        background: var(--surface);
+      }
+
+      .elevation-sample strong {
+        color: var(--ink);
+        font-size: 14px;
+      }
+
+      .elevation-sample span {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .elevation-sample.level-0 { box-shadow: var(--shadow-none); }
+      .elevation-sample.level-1 { box-shadow: var(--shadow-card); }
+      .elevation-sample.level-2 { box-shadow: var(--shadow-popover); }
+      .elevation-sample.level-3 { box-shadow: var(--shadow-dialog); }
+      .elevation-sample.level-4 { box-shadow: var(--shadow-workbench); }
+
+      .status-chip.warning {
+        border-color: rgb(118 71 15 / 20%);
+        background: var(--amber-soft);
+        color: var(--amber);
+      }
+
+      .status-chip.danger {
+        border-color: rgb(160 68 62 / 20%);
+        background: #f4e4e1;
+        color: var(--danger);
+      }
+
+      .chip-family-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .chip-family-block {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px;
+        background: var(--surface-subtle);
+      }
+
+      .chip-family-block strong {
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+      }
+
+      .chip-line {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 7px;
+      }
+
+      .count-pill,
+      .filter-chip,
+      .role-badge {
+        display: inline-flex;
+        align-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-full);
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .count-pill {
+        min-height: 30px;
+        padding: 0 12px;
+        color: var(--ink);
+      }
+
+      .filter-chip {
+        min-height: 30px;
+        padding: 0 10px;
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .filter-chip .icon-svg {
+        width: 14px;
+        height: 14px;
+        margin-left: 6px;
+      }
+
+      .role-badge {
+        min-height: 24px;
+        border-radius: var(--radius-sm);
+        padding: 0 7px;
+        background: var(--surface);
+        color: var(--muted);
+      }
+
+      .role-badge.strong {
+        border-color: rgb(254 82 5 / 24%);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .dialog-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        gap: 12px;
+      }
+
+      .dialog-backdrop-demo {
+        display: grid;
+        min-height: 272px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 18px;
+        background:
+          linear-gradient(rgb(247 248 245 / 76%), rgb(247 248 245 / 76%)),
+          repeating-linear-gradient(0deg, transparent, transparent 28px, rgb(221 228 221 / 58%) 29px);
+      }
+
+      .dialog-demo {
+        position: relative;
+        display: grid;
+        width: min(360px, 100%);
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        padding: 18px;
+        background: var(--surface);
+        box-shadow: var(--shadow-dialog);
+      }
+
+      .dialog-demo.confirm {
+        border-color: rgb(160 68 62 / 26%);
+      }
+
+      .dialog-close-demo {
+        position: absolute;
+        top: 10px;
+        right: 10px;
+      }
+
+      .dialog-title {
+        display: grid;
+        gap: 5px;
+        padding-right: 42px;
+      }
+
+      .dialog-title strong {
+        color: var(--ink);
+        font-size: 17px;
+        line-height: 1.3;
+      }
+
+      .dialog-title span,
+      .dialog-demo p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.5;
+      }
+
+      .dialog-actions {
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+      }
+
+      .dialog-rule-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .dialog-rule-list li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .component-card {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+      }
+
+      .component-card > p {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.5;
+      }
+
+      .icon-spec-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .icon-spec-item {
+        display: grid;
+        min-height: 96px;
+        align-content: center;
+        justify-items: center;
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface-subtle);
+        color: var(--brand-primary);
+        text-align: center;
+      }
+
+      .icon-spec-item .icon-svg {
+        width: var(--icon-size, 20px);
+        height: var(--icon-size, 20px);
+      }
+
+      .icon-spec-item strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .icon-spec-item span {
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .icon-rule-list {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .icon-rule-list li {
+        display: flex;
+        gap: 8px;
+        align-items: flex-start;
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .icon-rule-list li::before {
+        flex: 0 0 auto;
+        width: 6px;
+        height: 6px;
+        margin-top: 7px;
+        border-radius: var(--radius-full);
+        background: var(--brand-primary);
+        content: "";
+      }
+
+      .icon-choice-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .icon-choice-item {
+        display: grid;
+        min-height: 108px;
+        align-content: center;
+        justify-items: center;
+        gap: 7px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px 8px;
+        background: var(--surface-subtle);
+        color: var(--brand-primary);
+        text-align: center;
+      }
+
+      .icon-choice-item.emphasis {
+        border-color: rgb(254 82 5 / 20%);
+        background: var(--brand-soft);
+      }
+
+      .icon-choice-item .icon-svg {
+        width: var(--icon-size, 20px);
+        height: var(--icon-size, 20px);
+      }
+
+      .icon-choice-item strong {
+        color: var(--ink);
+        font-size: 12px;
+        line-height: 1.3;
+      }
+
+      .icon-choice-item span {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .icon-style-note {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .icon-style-note code {
+        flex: 1 1 auto;
+        min-width: 0;
+      }
+
+      .table-preview-wrap {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+      }
+
+      .sticky-demo-shell {
+        display: grid;
+        gap: 8px;
+      }
+
+      .sticky-offset-demo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 8px 10px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .sticky-offset-demo strong {
+        color: var(--ink);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+      }
+
+      .table-preview-wrap--sticky {
+        position: relative;
+        max-height: 248px;
+        overflow: auto;
+        isolation: isolate;
+      }
+
+      .table-preview {
+        width: 100%;
+        min-width: 980px;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .table-preview th,
+      .table-preview td {
+        border-bottom: 1px solid var(--line);
+        padding: 12px 13px;
+        text-align: left;
+        vertical-align: middle;
+      }
+
+      .table-preview th {
+        position: sticky;
+        top: 0;
+        z-index: var(--z-table-header);
+        background: var(--surface-muted);
+        color: var(--ink);
+        font-size: var(--font-note);
+        font-weight: var(--weight-semibold);
+        white-space: nowrap;
+        box-shadow: var(--shadow-sticky-header);
+      }
+
+      .table-preview td {
+        background: var(--surface);
+      }
+
+      .table-preview tbody tr:hover td {
+        background: var(--surface-subtle);
+      }
+
+      .data-workspace-demo {
+        display: grid;
+        grid-column: 1 / -1;
+        height: 520px;
+        grid-template-rows: auto minmax(0, 1fr);
+        gap: 10px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: linear-gradient(180deg, var(--surface-subtle) 0%, var(--bg) 100%);
+        box-shadow: var(--shadow-none);
+      }
+
+      .data-workspace-demo__top {
+        display: grid;
+        gap: 10px;
+      }
+
+      .data-workspace-demo__heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .data-workspace-demo__heading strong {
+        color: var(--ink);
+        font-size: 18px;
+      }
+
+      .data-workspace-demo__heading span {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-full);
+        padding: 5px 9px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+      }
+
+      .data-workspace-demo__filters {
+        display: grid;
+        grid-template-columns:
+          minmax(110px, 0.8fr) minmax(110px, 0.8fr)
+          minmax(140px, 1fr) minmax(130px, 0.95fr)
+          minmax(130px, 0.95fr) minmax(96px, 0.7fr);
+        gap: 8px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 10px;
+        background: var(--surface);
+      }
+
+      .data-workspace-demo__filters span {
+        display: flex;
+        min-height: 36px;
+        align-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface-warm);
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: var(--weight-medium);
+      }
+
+      .data-workspace-demo__result {
+        display: flex;
+        min-height: 0;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+      }
+
+      .data-workspace-demo__result-head,
+      .data-workspace-demo__pagination {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .data-workspace-demo__result-actions {
+        display: inline-flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .data-workspace-demo__result-head strong {
+        color: var(--ink);
+        font-size: 15px;
+      }
+
+      .data-workspace-demo__result-head span,
+      .data-workspace-demo__pagination span {
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .data-workspace-demo__export {
+        display: inline-flex;
+        min-height: 32px;
+        align-items: center;
+        gap: 6px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 11px;
+        background: var(--surface);
+        color: var(--brand-primary);
+        font-size: 12px;
+        font-weight: var(--weight-semibold);
+        white-space: nowrap;
+      }
+
+      .data-workspace-demo__export svg {
+        width: 14px;
+        height: 14px;
+      }
+
+      .data-workspace-demo__export-note {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.4;
+      }
+
+      .data-workspace-demo__scroll {
+        min-height: 0;
+        flex: 1 1 auto;
+        margin: 10px 0;
+        overflow: auto;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        scrollbar-gutter: stable;
+      }
+
+      .data-workspace-demo__pagination {
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .data-workspace-demo__pagination .table-pagination-demo__controls {
+        display: flex;
+        gap: 8px;
+      }
+
+      .table-pagination-spec {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .table-pagination-demo {
+        display: flex;
+        min-height: 52px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 8px 10px;
+        background: var(--surface-subtle);
+      }
+
+      .table-pagination-demo__info {
+        display: grid;
+        gap: 2px;
+        min-width: 0;
+      }
+
+      .table-pagination-demo__info strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .table-pagination-demo__info span,
+      .table-pagination-demo__note {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .table-pagination-demo__controls {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 8px;
+      }
+
+      .table-pagination-demo__size,
+      .table-pagination-demo__page,
+      .table-pagination-demo__page-group {
+        display: inline-flex;
+        min-height: 32px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 12px;
+        font-weight: var(--weight-semibold);
+        white-space: nowrap;
+      }
+
+      .table-pagination-demo__page-group {
+        gap: 6px;
+      }
+
+      .table-pagination-demo__page-input {
+        width: 46px;
+        height: 24px;
+        min-height: 24px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 0 5px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: 12px;
+        font-weight: var(--weight-semibold);
+        line-height: 1;
+        text-align: center;
+        outline: none;
+      }
+
+      .table-pagination-demo__page-input:focus {
+        border-color: var(--brand-primary);
+        box-shadow: var(--focus-ring);
+      }
+
+      .table-pagination-demo__error {
+        color: var(--danger);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+        line-height: 1.45;
+      }
+
+      .table-pagination-demo__size::after {
+        width: 7px;
+        height: 7px;
+        margin-left: 8px;
+        border-right: 2px solid currentColor;
+        border-bottom: 2px solid currentColor;
+        color: var(--brand-primary);
+        content: "";
+        transform: translateY(-25%) rotate(45deg);
+      }
+
+      .table-pagination-demo__button {
+        height: 32px;
+        min-height: 32px;
+        max-height: 32px;
+        padding-inline: 10px;
+        font-size: 12px;
+      }
+
+      .table-pagination-demo--mobile {
+        display: grid;
+        gap: 8px;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__controls {
+        width: 100%;
+        justify-content: space-between;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__page {
+        flex: 1 1 auto;
+      }
+
+      .table-pagination-demo--mobile .table-pagination-demo__page-group {
+        flex: 1 1 auto;
+      }
+
+      .table-state-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .table-state-card {
+        display: grid;
+        align-content: start;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .table-state-card strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .table-state-card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .table-action-group {
+        display: flex;
+        gap: 8px;
+      }
+
+      .empty-state-demo {
+        display: grid;
+        min-height: 116px;
+        place-items: center;
+        border: 1px dashed var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface-subtle);
+        text-align: center;
+      }
+
+      .empty-state-demo span {
+        display: block;
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .skeleton-table-demo {
+        display: grid;
+        gap: 8px;
+      }
+
+      .skeleton-row-demo {
+        display: grid;
+        grid-template-columns: 1.2fr 0.7fr 1fr;
+        gap: 8px;
+      }
+
+      .skeleton-row-demo span {
+        height: 14px;
+        border-radius: var(--radius-full);
+        background: linear-gradient(90deg, #eef3ee, #f8faf6, #eef3ee);
+      }
+
+      .record-card-map {
+        display: grid;
+        gap: 7px;
+      }
+
+      .record-card-map span {
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 6px;
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .record-card-map strong {
+        color: var(--ink);
+        font-size: var(--font-note);
+      }
+
+      .mobile-card-demo {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 14px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .mobile-card-top,
+      .mobile-card-phone,
+      .mobile-card-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .mobile-card-phone strong {
+        font-size: 15px;
+      }
+
+      .mobile-card-product {
+        display: grid;
+        gap: 4px;
+      }
+
+      .mobile-card-product strong {
+        overflow: hidden;
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.45;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .mobile-card-product span,
+      .mobile-card-row span {
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .mobile-card-row strong {
+        font-size: 13px;
+      }
+
+      .section-wide-preview {
+        width: min(1440px, calc(100vw - 48px));
+        max-width: calc(100vw - 48px);
+        margin-left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .clue-workbench-backdrop {
+        display: grid;
+        min-height: min(920px, calc(100dvh - 32px));
+        place-items: center;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 16px;
+        background:
+          linear-gradient(rgb(24 24 24 / 48%), rgb(24 24 24 / 48%)),
+          repeating-linear-gradient(0deg, transparent, transparent 28px, rgb(221 228 221 / 62%) 29px),
+          var(--bg);
+      }
+
+      .clue-workbench-modal {
+        display: grid;
+        width: min(1440px, 100%);
+        height: min(920px, calc(100dvh - 32px));
+        min-height: 680px;
+        grid-template-rows: auto minmax(0, 1fr);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        box-shadow: var(--shadow-workbench);
+      }
+
+      .clue-workbench-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        border-bottom: 1px solid var(--line);
+        padding: 18px 20px;
+        background: rgb(255 255 255 / 96%);
+      }
+
+      .clue-workbench-title {
+        display: grid;
+        gap: 7px;
+      }
+
+      .clue-workbench-title h3 {
+        font-size: 24px;
+      }
+
+      .clue-workbench-context {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .clue-workbench-body {
+        display: grid;
+        min-height: 0;
+        grid-template-columns: minmax(0, 1fr) 380px;
+        gap: 16px;
+        overflow: hidden;
+        padding: 16px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-workbench-main,
+      .clue-workbench-rail {
+        min-height: 0;
+        overflow: auto;
+        scrollbar-gutter: stable;
+      }
+
+      .clue-workbench-main {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+      }
+
+      .clue-summary-strip {
+        display: grid;
+        grid-template-columns: minmax(0, 2.2fr) minmax(240px, 0.9fr);
+        gap: 10px;
+      }
+
+      .clue-summary-item,
+      .clue-section-block,
+      .clue-action-block {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+      }
+
+      .clue-summary-item {
+        display: grid;
+        align-content: start;
+        gap: 8px;
+        min-height: 86px;
+        padding: 13px;
+      }
+
+      .clue-summary-item span,
+      .clue-field-row span,
+      .clue-record-meta,
+      .clue-action-block p,
+      .clue-mobile-order li {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .clue-summary-item strong {
+        font-size: 16px;
+        line-height: 1.35;
+        overflow-wrap: anywhere;
+      }
+
+      .clue-summary-item--contact {
+        min-height: 104px;
+      }
+
+      .clue-summary-phone-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 14px;
+      }
+
+      .clue-summary-phone-row strong {
+        font-size: 22px;
+      }
+
+      .clue-summary-item--status strong {
+        display: inline-flex;
+        width: fit-content;
+        min-height: 28px;
+        align-items: center;
+        border: 1px solid rgb(47 95 149 / 20%);
+        border-radius: var(--radius-full);
+        padding: 0 10px;
+        background: var(--blue-soft);
+        color: var(--blue);
+        font-size: 14px;
+      }
+
+      .clue-section-block {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .clue-section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .clue-field-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .clue-order-grid .clue-field-row--product {
+        grid-column: span 2;
+      }
+
+      .clue-field-row {
+        display: grid;
+        gap: 5px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .clue-field-row strong {
+        font-size: 13px;
+        line-height: 1.45;
+        overflow-wrap: anywhere;
+      }
+
+      .clue-history-list {
+        display: grid;
+        gap: 10px;
+      }
+
+      .clue-round-card {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-round-card.current {
+        border-color: rgb(254 82 5 / 34%);
+        background: rgb(225 239 233 / 42%);
+      }
+
+      .clue-round-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .clue-round-top strong {
+        font-size: 15px;
+      }
+
+      .clue-round-facts {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .clue-record-list {
+        display: grid;
+        gap: 8px;
+        border-top: 1px solid var(--line);
+        padding-top: 10px;
+      }
+
+      .clue-record-item {
+        display: grid;
+        grid-template-columns: 132px 96px minmax(0, 1fr);
+        gap: 10px;
+        align-items: start;
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface);
+      }
+
+      .clue-record-item strong {
+        font-size: 13px;
+      }
+
+      .clue-workbench-rail {
+        display: grid;
+        align-content: start;
+        gap: 12px;
+      }
+
+      .clue-action-block {
+        display: grid;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .clue-phone-value {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: var(--surface-subtle);
+      }
+
+      .clue-phone-value strong {
+        font-size: 18px;
+      }
+
+      .clue-radio-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .clue-radio-item {
+        display: flex;
+        min-height: 42px;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        font-weight: var(--weight-medium);
+      }
+
+      .clue-radio-dot {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--line-strong);
+        border-radius: var(--radius-full);
+      }
+
+      .clue-radio-item.active .clue-radio-dot {
+        border: 5px solid var(--brand-primary);
+      }
+
+      .clue-note-box {
+        min-height: 112px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .clue-mobile-order {
+        display: grid;
+        gap: 8px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .clue-mobile-order li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 9px 10px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-detail-preview-grid {
+        display: grid;
+        grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+        gap: 18px;
+        align-items: start;
+      }
+
+      .mobile-clue-detail-demo {
+        width: min(390px, 100%);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .mobile-clue-detail-demo__top {
+        display: flex;
+        min-height: 64px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 12px 14px;
+        background: rgb(255 255 255 / 96%);
+      }
+
+      .mobile-clue-detail-demo__top h3 {
+        font-size: 21px;
+      }
+
+      .mobile-clue-detail-demo__scroll {
+        display: grid;
+        max-height: 696px;
+        gap: 12px;
+        overflow: auto;
+        padding: 12px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__section {
+        display: grid;
+        gap: 11px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+      }
+
+      .mobile-clue-detail-demo__section-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__section-head h4 {
+        font-size: 16px;
+      }
+
+      .mobile-clue-detail-demo__phone-row {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .mobile-clue-detail-demo__phone-row strong {
+        font-size: 24px;
+      }
+
+      .mobile-clue-detail-demo__icon-actions {
+        display: flex;
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__icon {
+        display: grid;
+        width: 44px;
+        min-width: 44px;
+        height: 44px;
+        min-height: 44px;
+        appearance: none;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--brand-primary);
+        cursor: pointer;
+      }
+
+      .mobile-clue-detail-demo__hint,
+      .mobile-clue-detail-demo__meta,
+      .mobile-clue-detail-demo__fact span,
+      .mobile-clue-detail-demo__record span,
+      .mobile-clue-detail-demo__note {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.45;
+      }
+
+      .mobile-clue-detail-demo__meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .mobile-clue-detail-demo__meta span {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-full);
+        padding: 4px 8px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__radio-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__radio {
+        display: flex;
+        min-height: 44px;
+        align-items: center;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0 10px;
+        background: var(--surface);
+        font-weight: var(--weight-semibold);
+      }
+
+      .mobile-clue-detail-demo__radio-dot {
+        width: 18px;
+        height: 18px;
+        border: 2px solid var(--line-strong);
+        border-radius: var(--radius-full);
+      }
+
+      .mobile-clue-detail-demo__radio.active .mobile-clue-detail-demo__radio-dot {
+        border: 5px solid var(--brand-primary);
+      }
+
+      .mobile-clue-detail-demo__note {
+        min-height: 96px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 10px;
+        background: var(--surface);
+      }
+
+      .mobile-clue-detail-demo__save {
+        width: 100%;
+      }
+
+      .mobile-clue-detail-demo__facts {
+        display: grid;
+        gap: 9px;
+      }
+
+      .mobile-clue-detail-demo__fact {
+        display: grid;
+        gap: 4px;
+        border-top: 1px solid var(--line);
+        padding-top: 8px;
+      }
+
+      .mobile-clue-detail-demo__fact strong,
+      .mobile-clue-detail-demo__record strong {
+        overflow-wrap: anywhere;
+        font-size: 13px;
+      }
+
+      .mobile-clue-detail-demo__rounds {
+        display: grid;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__round {
+        display: grid;
+        gap: 9px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 11px;
+        background: var(--surface-subtle);
+      }
+
+      .mobile-clue-detail-demo__round.current {
+        border-color: rgb(254 82 5 / 34%);
+        background: rgb(225 239 233 / 42%);
+      }
+
+      .mobile-clue-detail-demo__round-top {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-clue-detail-demo__round-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mobile-clue-detail-demo__records {
+        display: grid;
+        gap: 7px;
+        border-top: 1px solid var(--line);
+        padding-top: 9px;
+      }
+
+      .mobile-clue-detail-demo__record {
+        display: grid;
+        grid-template-columns: 70px 62px minmax(0, 1fr);
+        gap: 7px;
+        align-items: start;
+        border-radius: var(--radius-md);
+        padding: 8px;
+        background: var(--surface);
+      }
+
+      .mobile-detail-spec-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .mobile-detail-spec-list li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .mobile-detail-spec-list strong {
+        color: var(--ink);
+      }
+
+      .layout-preview {
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+      }
+
+      .desktop-template-stack {
+        display: grid;
+        gap: 16px;
+      }
+
+      .desktop-template-note {
+        display: none;
+        border: 1px solid rgb(254 82 5 / 20%);
+        border-radius: var(--radius-lg);
+        padding: 12px 14px;
+        background: var(--brand-soft);
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.5;
+      }
+
+      .desktop-template-note strong {
+        color: var(--brand-primary);
+      }
+
+      .mobile-template-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 12px;
+        margin-top: 20px;
+      }
+
+      .mobile-template-heading p {
+        margin: 3px 0 0;
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .mobile-template-stack {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 390px));
+        justify-content: center;
+        gap: 16px;
+        margin-top: 12px;
+      }
+
+      .mobile-data-page {
+        display: grid;
+        width: 100%;
+        max-width: 390px;
+        min-width: 0;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--bg);
+        box-shadow: var(--shadow-none);
+      }
+
+      .mobile-data-page__body {
+        display: grid;
+        min-width: 0;
+        gap: 12px;
+        padding: 14px;
+      }
+
+      .mobile-data-page__heading {
+        display: flex;
+        min-width: 0;
+        align-items: start;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-data-page__heading h3 {
+        margin: 0;
+        font-size: 20px;
+        line-height: 1.25;
+      }
+
+      .mobile-data-page__heading span {
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-full);
+        padding: 5px 9px;
+        background: var(--surface);
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+        white-space: nowrap;
+      }
+
+      .mobile-filter-trigger {
+        display: flex;
+        width: 100%;
+        min-height: var(--touch-target);
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 12px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-weight: var(--weight-semibold);
+      }
+
+      .mobile-filter-trigger span {
+        color: var(--brand-primary);
+        font-size: var(--font-meta);
+      }
+
+      .mobile-filter-summary {
+        display: flex;
+        min-width: 0;
+        flex-wrap: wrap;
+        gap: 6px;
+      }
+
+      .mobile-filter-panel {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+      }
+
+      .mobile-filter-field {
+        display: grid;
+        min-width: 0;
+        gap: 5px;
+      }
+
+      .mobile-filter-field > strong {
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .mobile-filter-field > span {
+        display: flex;
+        min-height: var(--touch-target);
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 11px;
+        background: var(--surface-warm);
+        color: var(--ink);
+        font-size: var(--font-note);
+      }
+
+      .mobile-filter-field > span .icon-svg {
+        width: 16px;
+        height: 16px;
+        flex: 0 0 auto;
+        color: var(--muted);
+      }
+
+      .mobile-filter-panel__actions {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+
+      .mobile-filter-panel__actions .button-like {
+        width: 100%;
+        height: var(--touch-target);
+        min-height: var(--touch-target);
+        max-height: var(--touch-target);
+      }
+
+      .mobile-record-list {
+        display: grid;
+        min-width: 0;
+        gap: 10px;
+      }
+
+      .mobile-record-card {
+        display: grid;
+        min-width: 0;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .mobile-record-card__top,
+      .mobile-record-card__contact,
+      .mobile-record-card__fact {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+
+      .mobile-record-card__top > strong,
+      .mobile-record-card__contact > strong {
+        color: var(--ink);
+        white-space: nowrap;
+      }
+
+      .mobile-record-card__contact .button-row {
+        flex: 0 0 auto;
+        flex-wrap: nowrap;
+      }
+
+      .mobile-record-card .icon-button-demo {
+        width: var(--touch-target);
+        height: var(--touch-target);
+        min-height: var(--touch-target);
+        max-height: var(--touch-target);
+      }
+
+      .mobile-record-card__product {
+        display: grid;
+        min-width: 0;
+        gap: 3px;
+      }
+
+      .mobile-record-card__product strong {
+        min-width: 0;
+        overflow-wrap: anywhere;
+        color: var(--ink);
+        font-size: 15px;
+        line-height: 1.4;
+      }
+
+      .mobile-record-card__product span,
+      .mobile-record-card__fact span {
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .mobile-record-card__fact strong {
+        min-width: 0;
+        color: var(--ink);
+        font-size: var(--font-note);
+        overflow-wrap: anywhere;
+        text-align: right;
+      }
+
+      .mobile-record-card__action {
+        width: 100%;
+        height: var(--touch-target);
+        min-height: var(--touch-target);
+        max-height: var(--touch-target);
+      }
+
+      .mobile-data-pager {
+        display: grid;
+        min-width: 0;
+        grid-template-columns: minmax(72px, 0.85fr) minmax(112px, 1.2fr) minmax(72px, 0.85fr);
+        gap: 8px;
+      }
+
+      .mobile-data-pager > button,
+      .mobile-data-pager__page {
+        display: inline-flex;
+        min-width: 0;
+        min-height: var(--touch-target);
+        align-items: center;
+        justify-content: center;
+        gap: 5px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 9px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-size: var(--font-note);
+        font-weight: var(--weight-semibold);
+        white-space: nowrap;
+      }
+
+      .mobile-data-pager > button:disabled {
+        border-color: var(--line);
+        background: var(--surface-subtle);
+        color: var(--disabled-text);
+      }
+
+      .mobile-data-pager__page input {
+        width: 38px;
+        height: 30px;
+        min-height: 30px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-sm);
+        padding: 0 4px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+        font-weight: var(--weight-semibold);
+        text-align: center;
+        appearance: textfield;
+      }
+
+      .mobile-data-pager__page input::-webkit-inner-spin-button,
+      .mobile-data-pager__page input::-webkit-outer-spin-button {
+        margin: 0;
+        appearance: none;
+      }
+
+      .mobile-data-page > .mobile-nav-demo {
+        margin-top: auto;
+      }
+
+      .mobile-data-page .mobile-navigation-item {
+        min-width: 0;
+      }
+
+      .mobile-data-page .mobile-navigation-item > span {
+        white-space: nowrap;
+      }
+
+      .desktop-shell-demo {
+        display: grid;
+        grid-template-columns: 88px minmax(0, 1fr);
+        min-height: 360px;
+      }
+
+      .rail-demo {
+        display: grid;
+        align-content: start;
+        gap: 6px;
+        border-right: 1px solid var(--line);
+        padding: 18px 14px;
+        background: var(--surface-subtle);
+        text-align: center;
+      }
+
+      .rail-mark {
+        display: grid;
+        width: 46px;
+        height: 46px;
+        margin: 0 auto;
+        place-items: center;
+        border-radius: var(--radius-lg);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+        font-weight: var(--weight-bold);
+      }
+
+      .navigation-item {
+        display: grid;
+        min-height: 64px;
+        align-content: center;
+        justify-items: center;
+        gap: 4px;
+        border: 0;
+        border-radius: var(--radius-lg);
+        padding: 8px 4px;
+        background: transparent;
+        color: var(--muted);
+        font: inherit;
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .navigation-item svg {
+        width: 20px;
+        height: 20px;
+        stroke: currentColor;
+      }
+
+      .navigation-item.active {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .navigation-showcase {
+        display: grid;
+        gap: 12px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+      }
+
+      .workspace-demo {
+        display: grid;
+        grid-template-rows: 64px 48px minmax(0, 1fr);
+      }
+
+      .topbar-demo,
+      .subnav-demo {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 18px;
+        background: rgb(255 255 255 / 94%);
+      }
+
+      .subnav-demo {
+        justify-content: flex-start;
+      }
+
+      .subnav-item {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        gap: 6px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        padding: 0 8px;
+        background: transparent;
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+      }
+
+      .subnav-item.active {
+        color: var(--brand-primary);
+        border-bottom-color: var(--brand-primary);
+      }
+
+      .tertiary-nav-showcase {
+        display: grid;
+        gap: 18px;
+      }
+
+      .tertiary-nav-context {
+        display: grid;
+        gap: 10px;
+        min-width: 0;
+      }
+
+      .tertiary-nav-context__heading {
+        display: grid;
+        gap: 3px;
+      }
+
+      .tertiary-nav {
+        display: flex;
+        align-items: end;
+        gap: 4px;
+        min-width: 0;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        padding-block: 3px;
+        scrollbar-width: thin;
+      }
+
+      .tertiary-nav__item {
+        display: inline-flex;
+        min-height: 38px;
+        flex: 0 0 auto;
+        align-items: center;
+        border-bottom: 2px solid transparent;
+        padding: 0 10px;
+        color: var(--muted);
+        font-size: var(--font-body);
+        font-weight: var(--weight-medium);
+        text-decoration: none;
+        white-space: nowrap;
+      }
+
+      .tertiary-nav__item:hover,
+      .tertiary-nav__item.is-hover {
+        background: var(--brand-soft);
+        color: var(--ink);
+      }
+
+      .tertiary-nav__item:focus-visible,
+      .tertiary-nav__item.is-focus {
+        position: relative;
+        z-index: 1;
+        box-shadow: var(--focus-ring);
+      }
+
+      .tertiary-nav__item[aria-current="page"] {
+        border-bottom-color: var(--brand-accent);
+        color: var(--brand-primary);
+        font-weight: var(--weight-bold);
+      }
+
+      .tertiary-nav__item[aria-current="page"]:hover,
+      .tertiary-nav__item[aria-current="page"].is-hover {
+        background: var(--surface);
+        color: var(--brand-primary);
+      }
+
+      .tertiary-nav__item.is-disabled {
+        color: var(--muted);
+        opacity: 0.48;
+        pointer-events: none;
+      }
+
+      .tertiary-nav-state-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .page-demo {
+        display: grid;
+        align-content: start;
+        gap: 14px;
+        padding: 18px;
+        background: var(--bg);
+      }
+
+      .filter-demo {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 15px;
+        background: var(--surface);
+        box-shadow: var(--shadow-none);
+      }
+
+      .filter-demo span {
+        min-height: 38px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+      }
+
+      .mobile-shell-demo {
+        width: min(360px, 100%);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-xl);
+        background: var(--bg);
+        box-shadow: var(--shadow-none);
+      }
+
+      .mobile-subnav-demo {
+        display: flex;
+        gap: 6px;
+        overflow: auto;
+        border-bottom: 1px solid var(--line);
+        padding: 8px 16px;
+        background: rgb(255 255 255 / 94%);
+      }
+
+      .mobile-subnav-item {
+        display: inline-flex;
+        min-height: 38px;
+        align-items: center;
+        white-space: nowrap;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        padding: 0 8px;
+        background: transparent;
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+      }
+
+      .mobile-subnav-item.active {
+        color: var(--brand-primary);
+        border-bottom-color: var(--brand-primary);
+      }
+
+      .mobile-body-demo {
+        display: grid;
+        gap: 12px;
+        padding: 18px 14px 86px;
+      }
+
+      .mobile-filter-button {
+        display: grid;
+        width: 100%;
+        min-height: var(--touch-target);
+        appearance: none;
+        place-items: center;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        color: var(--ink);
+        font-weight: var(--weight-semibold);
+        cursor: pointer;
+      }
+
+      .mobile-nav-demo {
+        display: flex;
+        gap: 4px;
+        border-top: 1px solid var(--line);
+        padding: 6px 12px;
+        background: rgb(255 255 255 / 96%);
+        box-shadow: var(--shadow-navigation);
+      }
+
+      .mobile-navigation-item {
+        display: grid;
+        flex: 1;
+        min-height: 56px;
+        grid-template-rows: 24px 16px;
+        align-content: center;
+        justify-items: center;
+        gap: 2px;
+        border-radius: var(--radius-lg);
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .mobile-navigation-item svg {
+        width: 24px;
+        height: 24px;
+        stroke: currentColor;
+      }
+
+      .mobile-navigation-item.active {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .decision-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      .decision-table th,
+      .decision-table td {
+        border-bottom: 1px solid var(--line);
+        padding: 11px 12px;
+        text-align: left;
+        vertical-align: top;
+      }
+
+      .decision-table th {
+        background: var(--surface-muted);
+        color: var(--ink);
+        font-size: var(--font-note);
+        font-weight: var(--weight-semibold);
+      }
+
+      .rule-list {
+        display: grid;
+        gap: 10px;
+        margin: 0;
+        padding: 0;
+        list-style: none;
+      }
+
+      .rule-list li {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 12px;
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.55;
+      }
+
+      .rule-list strong {
+        color: var(--ink);
+      }
+
+      @media (max-width: 920px) {
+        .spec-shell {
+          padding: 24px 16px 56px;
+        }
+
+        .tertiary-nav--mobile {
+          margin-inline: -14px;
+          padding-inline: 14px;
+        }
+
+        .tertiary-nav__item {
+          min-height: var(--touch-target);
+        }
+
+        .desktop-template-stack {
+          display: none;
+        }
+
+        .desktop-template-note {
+          display: block;
+        }
+
+        .mobile-template-stack {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          justify-content: stretch;
+        }
+
+        .mobile-data-page {
+          max-width: none;
+        }
+
+        .spec-header,
+        .section-head,
+        .grid-2,
+        .grid-3,
+        .grid-4,
+        .icon-spec-grid,
+        .icon-choice-grid,
+        .flow-steps,
+        .chip-family-grid,
+        .dialog-preview-grid,
+        .table-state-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .field-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .component-gallery,
+        .button-showcase-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .component-card--wide {
+          grid-column: auto;
+        }
+
+        .candidate-state-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .candidate-semantic-panel {
+          grid-template-columns: 1fr;
+        }
+
+        .elevation-scale {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .section-wide-preview {
+          width: 100%;
+          max-width: 100%;
+          margin-left: 0;
+          transform: none;
+        }
+
+        .clue-workbench-backdrop {
+          min-height: auto;
+          padding: 12px;
+        }
+
+        .clue-workbench-modal {
+          height: auto;
+          min-height: 0;
+          max-height: none;
+        }
+
+        .clue-workbench-body {
+          grid-template-columns: 1fr;
+          overflow: visible;
+        }
+
+        .clue-workbench-main,
+        .clue-workbench-rail {
+          overflow: visible;
+        }
+
+        .clue-workbench-rail {
+          order: -1;
+        }
+
+        .clue-summary-strip,
+        .clue-field-grid,
+        .clue-round-facts {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .type-row {
+          grid-template-columns: 1fr;
+          gap: 8px;
+        }
+
+        .desktop-shell-demo {
+          grid-template-columns: 1fr;
+        }
+
+        .rail-demo {
+          display: none;
+        }
+
+        .filter-demo {
+          grid-template-columns: 1fr;
+        }
+
+        .mobile-detail-preview-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .spec-toc-wrap {
+          top: 0;
+          margin-inline: -8px;
+          border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+        }
+
+        .candidate-callout {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .candidate-callout__actions {
+          width: 100%;
+        }
+
+        .theme-button {
+          flex: 1 1 0;
+        }
+
+        .candidate-state-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .elevation-scale {
+          grid-template-columns: 1fr;
+        }
+
+        .mobile-template-heading {
+          align-items: start;
+          flex-direction: column;
+        }
+
+        .mobile-template-stack {
+          grid-template-columns: 1fr;
+        }
+
+        .field-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .field-grid > .field-group:first-child,
+        .field-grid > .field-group:last-child {
+          grid-row: auto;
+          grid-column: auto;
+        }
+
+        h1 {
+          font-size: 26px;
+        }
+
+        .sample-display {
+          font-size: 32px;
+        }
+
+        .button-like,
+        .icon-button-demo {
+          height: 44px;
+          min-height: 44px;
+          max-height: 44px;
+        }
+
+        .icon-button-demo {
+          width: 44px;
+        }
+
+        .dialog-actions {
+          justify-content: stretch;
+        }
+
+        .dialog-actions .button-like {
+          flex: 1 1 auto;
+        }
+
+        .clue-workbench-header {
+          align-items: start;
+          padding: 14px;
+        }
+
+        .clue-workbench-title h3 {
+          font-size: 21px;
+        }
+
+        .clue-workbench-body {
+          gap: 12px;
+          padding: 12px;
+        }
+
+        .clue-summary-strip,
+        .clue-field-grid,
+        .clue-round-facts,
+        .clue-record-item {
+          grid-template-columns: 1fr;
+        }
+
+        .clue-phone-value {
+          align-items: start;
+          flex-direction: column;
+        }
+
+        .mobile-clue-detail-demo {
+          width: 100%;
+        }
+
+        .mobile-clue-detail-demo__scroll {
+          max-height: none;
+        }
+
+        .mobile-clue-detail-demo__phone-row,
+        .mobile-clue-detail-demo__round-grid,
+        .mobile-clue-detail-demo__record {
+          grid-template-columns: 1fr;
+        }
+
+        .table-pagination-demo {
+          display: grid;
+          align-items: stretch;
+        }
+
+        .table-pagination-demo__controls {
+          width: 100%;
+          flex-wrap: wrap;
+          justify-content: space-between;
+        }
+
+        .table-pagination-demo__size {
+          display: none;
+        }
+
+        .table-pagination-demo__button {
+          min-width: 72px;
+          height: 44px;
+          min-height: 44px;
+          max-height: 44px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="solar-icon-sprite" aria-hidden="true">
+      <defs>
+        <symbol id="solar-icon-brand" viewBox="0 0 24 24"><g fill="currentColor"><path d="M2 12c0-4.714 0-7.071 1.464-8.536C4.93 2 7.286 2 12 2c4.714 0 7.071 0 8.535 1.464C22 4.93 22 7.286 22 12c0 4.714 0 7.071-1.465 8.535C19.072 22 16.714 22 12 22s-7.071 0-8.536-1.465C2 19.072 2 16.714 2 12Z" opacity=".5"/><path d="M22 5a3 3 0 1 1-6 0a3 3 0 0 1 6 0Zm-7.5 5.75a.75.75 0 0 1 0-1.5H17a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-.69l-2.013 2.013a1.75 1.75 0 0 1-2.474 0l-1.586-1.586a.25.25 0 0 0-.354 0L7.53 14.53a.75.75 0 0 1-1.06-1.06l2.293-2.293a1.75 1.75 0 0 1 2.474 0l1.586 1.586a.25.25 0 0 0 .354 0l2.012-2.013H14.5Z"/></g></symbol>
+        <symbol id="solar-icon-details" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M16.755 2h-9.51c-1.159 0-1.738 0-2.206.163a3.046 3.046 0 0 0-1.881 1.936C3 4.581 3 5.177 3 6.37v14.004c0 .858.985 1.314 1.608.744a.946.946 0 0 1 1.284 0l.483.442a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0a1.657 1.657 0 0 1 2.25 0a1.657 1.657 0 0 0 2.25 0l.483-.442a.946.946 0 0 1 1.284 0c.623.57 1.608.114 1.608-.744V6.37c0-1.193 0-1.79-.158-2.27a3.045 3.045 0 0 0-1.881-1.937C18.493 2 17.914 2 16.755 2Z"/><path stroke-linecap="round" d="M10.5 11H17M7 11h.5M7 7.5h.5m-.5 7h.5m3-7H17m-6.5 7H17"/></g></symbol>
+        <symbol id="solar-icon-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3.275 15.296C2.425 14.192 2 13.639 2 12c0-1.64.425-2.191 1.275-3.296C4.972 6.5 7.818 4 12 4c4.182 0 7.028 2.5 8.725 4.704C21.575 9.81 22 10.361 22 12c0 1.64-.425 2.191-1.275 3.296C19.028 17.5 16.182 20 12 20c-4.182 0-7.028-2.5-8.725-4.704Z"/><path d="M15 12a3 3 0 1 1-6 0a3 3 0 0 1 6 0Z"/></g></symbol>
+        <symbol id="solar-icon-eyeClosed" viewBox="0 0 24 24"><path fill="currentColor" d="M2.69 6.705a.75.75 0 0 0-1.38.59l1.38-.59Zm12.897 6.624l-.274-.698l.274.698Zm-6.546.409a.75.75 0 1 0-1.257-.818l1.257.818Zm-2.67 1.353a.75.75 0 1 0 1.258.818l-1.258-.818ZM22.69 7.295a.75.75 0 0 0-1.378-.59l1.378.59ZM19 11.13l-.513-.547l.513.547Zm.97 2.03a.75.75 0 1 0 1.06-1.06l-1.06 1.06Zm-8.72 3.34a.75.75 0 0 0 1.5 0h-1.5Zm5.121-.591a.75.75 0 1 0 1.258-.818l-1.258.818Zm-10.84-4.25A.75.75 0 0 0 4.47 10.6l1.06 1.06Zm-2.561.44a.75.75 0 0 0 1.06 1.06L2.97 12.1ZM12 13.25c-3.224 0-5.539-1.605-7.075-3.26a13.637 13.637 0 0 1-1.702-2.28a11.707 11.707 0 0 1-.507-.946a3.903 3.903 0 0 1-.022-.049l-.004-.01l-.001-.001L2 7a76 76 0 0 0-.69.296h.001l.001.003l.003.006a3.837 3.837 0 0 0 .04.088a13.202 13.202 0 0 0 .58 1.084c.41.69 1.034 1.61 1.89 2.533C5.54 12.855 8.224 14.75 12 14.75v-1.5Zm3.313-.62c-.97.383-2.071.62-3.313.62v1.5c1.438 0 2.725-.276 3.862-.723l-.55-1.396Zm-7.529.29l-1.413 2.17l1.258.818l1.412-2.171l-1.257-.818ZM22 7l-.69-.296h.001v.002l-.007.013a8.017 8.017 0 0 1-.151.313a13.298 13.298 0 0 1-2.666 3.55l1.026 1.094a14.802 14.802 0 0 0 3.122-4.26l.039-.085l.01-.024l.004-.007v-.003h.001v-.001L22 7Zm-3.513 3.582c-.86.806-1.913 1.552-3.174 2.049l.549 1.396c1.473-.58 2.685-1.444 3.651-2.351l-1.026-1.094Zm-.017 1.077l1.5 1.5l1.06-1.06l-1.5-1.5l-1.06 1.06ZM11.25 14v2.5h1.5V14h-1.5Zm3.709-.262l1.412 2.171l1.258-.818l-1.413-2.171l-1.257.818Zm-10.49-3.14l-1.5 1.5L4.03 13.16l1.5-1.5l-1.06-1.06Z"/></symbol>
+        <symbol id="solar-icon-copy" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 11c0-2.828 0-4.243.879-5.121C7.757 5 9.172 5 12 5h3c2.828 0 4.243 0 5.121.879C21 6.757 21 8.172 21 11v5c0 2.828 0 4.243-.879 5.121C19.243 22 17.828 22 15 22h-3c-2.828 0-4.243 0-5.121-.879C6 20.243 6 18.828 6 16v-5Z"/><path d="M6 19a3 3 0 0 1-3-3v-6c0-3.771 0-5.657 1.172-6.828C5.343 2 7.229 2 11 2h4a3 3 0 0 1 3 3"/></g></symbol>
+        <symbol id="solar-icon-trash" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="1.5" d="M9.17 4a3.001 3.001 0 0 1 5.66 0m5.67 2h-17m15.333 2.5l-.46 6.9c-.177 2.654-.265 3.981-1.13 4.79c-.865.81-2.196.81-4.856.81h-.774c-2.66 0-3.991 0-4.856-.81c-.865-.809-.954-2.136-1.13-4.79l-.46-6.9M9.5 11l.5 5m4.5-5l-.5 5"/></symbol>
+        <symbol id="solar-icon-filter" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="1.5" d="M19 3H5c-1.414 0-2.121 0-2.56.412C2 3.824 2 4.488 2 5.815v.69c0 1.037 0 1.556.26 1.986c.26.43.733.698 1.682 1.232l2.913 1.64c.636.358.955.537 1.183.735c.474.411.766.895.898 1.49c.064.284.064.618.064 1.285v2.67c0 .909 0 1.364.252 1.718c.252.355.7.53 1.594.88c1.879.734 2.818 1.101 3.486.683c.668-.417.668-1.372.668-3.282v-2.67c0-.666 0-1 .064-1.285a2.68 2.68 0 0 1 .899-1.49c.227-.197.546-.376 1.182-.735l2.913-1.64c.948-.533 1.423-.8 1.682-1.23c.26-.43.26-.95.26-1.988v-.69c0-1.326 0-1.99-.44-2.402C21.122 3 20.415 3 19 3Z"/></symbol>
+        <symbol id="solar-icon-chevronDown" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="m19 9l-7 6l-7-6"/></symbol>
+        <symbol id="solar-icon-rules" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M7.843 3.802C9.872 2.601 10.886 2 12 2c1.114 0 2.128.6 4.157 1.802l.686.406c2.029 1.202 3.043 1.803 3.6 2.792c.557.99.557 2.19.557 4.594v.812c0 2.403 0 3.605-.557 4.594c-.557.99-1.571 1.59-3.6 2.791l-.686.407C14.128 21.399 13.114 22 12 22c-1.114 0-2.128-.6-4.157-1.802l-.686-.407c-2.029-1.2-3.043-1.802-3.6-2.791C3 16.01 3 14.81 3 12.406v-.812C3 9.19 3 7.989 3.557 7c.557-.99 1.571-1.59 3.6-2.792l.686-.406Z"/><circle cx="12" cy="12" r="3"/></g></symbol>
+        <symbol id="solar-icon-logout" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" d="M8.002 7c.012-2.175.109-3.353.877-4.121C9.758 2 11.172 2 14 2h1c2.829 0 4.243 0 5.122.879C21 3.757 21 5.172 21 8v8c0 2.828 0 4.243-.878 5.121C19.242 22 17.829 22 15 22h-1c-2.828 0-4.242 0-5.121-.879c-.768-.768-.865-1.946-.877-4.121"/><path d="M8 19.5c-2.357 0-3.536 0-4.268-.732C3 18.035 3 16.857 3 14.5v-5c0-2.357 0-3.536.732-4.268C4.464 4.5 5.643 4.5 8 4.5"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12H6m0 0l2 2m-2-2l2-2"/></g></symbol>
+        <symbol id="solar-icon-ranking" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 22h18"/><path d="M3 11c0-.943 0-1.414.293-1.707C3.586 9 4.057 9 5 9c.943 0 1.414 0 1.707.293C7 9.586 7 10.057 7 11v6c0 .943 0 1.414-.293 1.707C6.414 19 5.943 19 5 19c-.943 0-1.414 0-1.707-.293C3 18.414 3 17.943 3 17v-6Zm7-4c0-.943 0-1.414.293-1.707C10.586 5 11.057 5 12 5c.943 0 1.414 0 1.707.293C14 5.586 14 6.057 14 7v10c0 .943 0 1.414-.293 1.707C13.414 19 12.943 19 12 19c-.943 0-1.414 0-1.707-.293C10 18.414 10 17.943 10 17V7Zm7-3c0-.943 0-1.414.293-1.707C17.586 2 18.057 2 19 2c.943 0 1.414 0 1.707.293C21 2.586 21 3.057 21 4v13c0 .943 0 1.414-.293 1.707C20.414 19 19.943 19 19 19c-.943 0-1.414 0-1.707-.293C17 18.414 17 17.943 17 17V4Z"/></g></symbol>
+        <symbol id="solar-icon-chart" viewBox="0 0 24 24"><g fill="currentColor"><path d="M3.293 9.293C3 9.586 3 10.057 3 11v6c0 .943 0 1.414.293 1.707C3.586 19 4.057 19 5 19c.943 0 1.414 0 1.707-.293C7 18.414 7 17.943 7 17v-6c0-.943 0-1.414-.293-1.707C6.414 9 5.943 9 5 9c-.943 0-1.414 0-1.707.293Z"/><path d="M17.293 2.293C17 2.586 17 3.057 17 4v13c0 .943 0 1.414.293 1.707c.293.293.764.293 1.707.293c.943 0 1.414 0 1.707-.293C21 18.414 21 17.943 21 17V4c0-.943 0-1.414-.293-1.707C20.414 2 19.943 2 19 2c-.943 0-1.414 0-1.707.293Z" opacity=".4"/><path d="M10 7c0-.943 0-1.414.293-1.707C10.586 5 11.057 5 12 5c.943 0 1.414 0 1.707.293C14 5.586 14 6.057 14 7v10c0 .943 0 1.414-.293 1.707C13.414 19 12.943 19 12 19c-.943 0-1.414 0-1.707-.293C10 18.414 10 17.943 10 17V7Z" opacity=".7"/><path d="M3 21.25a.75.75 0 0 0 0 1.5h18a.75.75 0 0 0 0-1.5H3Z"/></g></symbol>
+        <symbol id="solar-icon-settlement" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><path stroke-linecap="round" d="M22 22H2"/><path d="M17 22V6c0-1.886 0-2.828-.586-3.414C15.828 2 14.886 2 13 2h-2c-1.886 0-2.828 0-3.414.586C7 3.172 7 4.114 7 6v16m14 0V11.5c0-1.405 0-2.107-.337-2.611a2 2 0 0 0-.552-.552C19.607 8 18.904 8 17.5 8M3 22V11.5c0-1.405 0-2.107.337-2.611a2 2 0 0 1 .552-.552C4.393 8 5.096 8 6.5 8"/><path stroke-linecap="round" d="M12 22v-3M10 5h4m-4 3h4m-4 3h4m-4 3h4"/></g></symbol>
+        <symbol id="solar-icon-cluesLine" viewBox="0 0 24 24"><g fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.009m3.982 0H12m3.991 0H16"/><path stroke-width="1.5" d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2S2 6.477 2 12c0 1.6.376 3.112 1.043 4.453c.178.356.237.763.134 1.148l-.595 2.226a1.3 1.3 0 0 0 1.591 1.591l2.226-.595a1.634 1.634 0 0 1 1.149.133A9.958 9.958 0 0 0 12 22Z"/></g></symbol>
+        <symbol id="solar-icon-clues" viewBox="0 0 24 24"><g fill="currentColor"><path d="M12 23c6.075 0 11-4.925 11-11S18.075 1 12 1S1 5.925 1 12c0 1.76.413 3.423 1.148 4.898c.195.392.26.84.147 1.263l-.655 2.448a1.43 1.43 0 0 0 1.75 1.751l2.45-.655a1.797 1.797 0 0 1 1.262.147A10.955 10.955 0 0 0 12 23Z" opacity=".5"/><path d="M10.9 12a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Zm-4.4 0a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Zm8.8 0a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 0 0-2.2 0Z"/></g></symbol>
+        <symbol id="solar-icon-admin" viewBox="0 0 24 24"><g fill="currentColor"><path d="M3.378 5.082C3 5.62 3 7.22 3 10.417v1.574c0 5.638 4.239 8.375 6.899 9.536c.721.315 1.082.473 2.101.473c1.02 0 1.38-.158 2.101-.473C16.761 20.365 21 17.63 21 11.991v-1.574c0-3.198 0-4.797-.378-5.335c-.377-.537-1.88-1.052-4.887-2.081l-.573-.196C13.595 2.268 12.812 2 12 2c-.811 0-1.595.268-3.162.805L8.265 3c-3.007 1.03-4.51 1.545-4.887 2.082Z" opacity=".5"/><path d="M15.06 10.5a.75.75 0 0 0-1.12-1l-3.011 3.374l-.87-.974a.75.75 0 0 0-1.118 1l1.428 1.6a.75.75 0 0 0 1.119 0l3.572-4Z"/></g></symbol>
+        <symbol id="solar-icon-close" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path stroke-linecap="round" d="m14.5 9.5l-5 5m0-5l5 5"/></g></symbol>
+        <symbol id="solar-icon-fileDownload" viewBox="0 0 24 24"><g fill="none"><path fill="currentColor" d="m15.393 4.054l-.502.557l.502-.557Zm3.959 3.563l-.502.557l.502-.557Zm2.302 2.537l-.685.305l.685-.305ZM3.172 20.828l.53-.53l-.53.53Zm17.656 0l-.53-.53l.53.53ZM14 21.25h-4v1.5h4v-1.5ZM2.75 14v-4h-1.5v4h1.5Zm18.5-.437V14h1.5v-.437h-1.5ZM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563l-1.004 1.115Zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104h1.5Zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79L18.85 8.174ZM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316v1.5Zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645l1.004-1.115ZM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153v-1.5ZM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289h-1.5ZM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14v1.5ZM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489h-1.5Zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10h1.5Zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14v-1.5Z"/><path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268C14.464 10 15.643 10 18 10h4"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.5 13.5v5m0 0l2-1.875m-2 1.875l-2-1.875"/></g></symbol>
+      </defs>
+    </svg>
+    <main class="spec-shell">
+      <header class="spec-header">
+        <div class="header-copy">
+          <div class="brand-line">
+            <svg class="candidate-brand-mark solar-icon-sample" aria-hidden="true" data-solar-icon="brand" data-icon-variant="bold-duotone" viewBox="0 0 24 24">
+              <use href="#solar-icon-brand"></use>
+            </svg>
+            <div>
+              <p class="eyebrow">DYDATA-3 + DYDATA-5 · 待人工确认 · PREVIEW ONLY</p>
+              <h1>dy-data UI 设计规范 V0.2 候选版</h1>
+            </div>
+          </div>
+          <p class="summary">
+            这是一份可独立阅读、可直接决策的完整候选规范。它继承 V0.1 的全部 token、组件、图标、表格、弹层和页面模板，并用品牌橙、黑白灰体系呈现所有真实界面样板。
+          </p>
+          <div class="pill-row">
+            <span class="badge">Candidate</span>
+            <span class="pill">状态：pending-human-approval</span>
+            <span class="pill">模式：light-only</span>
+            <span class="pill">更新：2026-07-13</span>
+            <span class="pill">源文件：tokens.v0.2-candidate.json</span>
+          </div>
+        </div>
+        <aside class="status-card">
+          <h3>阶段边界</h3>
+          <p class="summary">
+            当前业务 UI 不会在本阶段切换。只有 Linear 明确记录“确认进入阶段 2”后，才允许启动 DYDATA-4 并迁移运行时 token。
+          </p>
+        </aside>
+      </header>
+
+      <section class="candidate-callout" aria-labelledby="candidate-v02-title">
+        <div class="candidate-callout__copy">
+          <p class="eyebrow">辅助决策工具</p>
+          <h2 id="candidate-v02-title">完整规范默认展示候选橙色</h2>
+          <p class="summary">
+            切换后，下方所有组件、表格、弹层和页面骨架会同步变化；绿色只用于与 V0.1 对照，不写入存储，也不代表运行时已经迁移。
+          </p>
+        </div>
+        <div class="candidate-callout__actions" role="group" aria-label="切换重点色方案">
+          <button class="theme-button" type="button" data-theme-button="current" aria-pressed="false">现有绿色</button>
+          <button class="theme-button" type="button" data-theme-button="candidate" aria-pressed="true">候选橙色</button>
+        </div>
+      </section>
+
+      <div class="spec-toc-wrap">
+        <nav class="spec-toc" aria-label="规范章节">
+          <a href="#workflow" aria-current="true">落地方式</a>
+          <a href="#color">颜色</a>
+          <a href="#typography">排版</a>
+          <a href="#spacing-radius">间距与圆角</a>
+          <a href="#components">组件</a>
+          <a href="#iconography">图标</a>
+          <a href="#table-sticky">表格</a>
+          <a href="#mobile-card">移动卡片</a>
+          <a href="#clue-followup-workbench">跟进工作台</a>
+          <a href="#page-templates">页面骨架</a>
+          <a href="#decisions">决策记录</a>
+          <a href="#enforcement">协作约束</a>
+        </nav>
+      </div>
+
+      <section class="section" id="workflow">
+        <div class="section-head">
+          <div>
+            <h2>规范如何生效</h2>
+            <p>不是靠口头约定，而是靠 token、可视化预览和测试逐步绑定。</p>
+          </div>
+          <code>token -> preview -> decision -> check</code>
+        </div>
+        <div class="grid flow-steps">
+          <div class="step">
+            <strong>1. 候选值</strong>
+            <span>从现有 CSS、业务页面和问题清单提取，不凭空发明。</span>
+          </div>
+          <div class="step">
+            <strong>2. HTML 预览</strong>
+            <span>把颜色、排版、组件、表格、移动卡片都画出来。</span>
+          </div>
+          <div class="step">
+            <strong>3. 人类确认</strong>
+            <span>通过真实视觉效果讨论取舍，确认后再固化。</span>
+          </div>
+          <div class="step">
+            <strong>4. token 固化</strong>
+            <span>确认后再进入运行时 tokens.json，并逐步成为业务实现来源。</span>
+          </div>
+          <div class="step">
+            <strong>5. 测试拦截</strong>
+            <span>关键值和现有 CSS 绑定，避免协作时悄悄漂移。</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="color">
+        <div class="section-head">
+          <div>
+            <h2>颜色 token</h2>
+            <p>品牌橙承担品牌、主操作、选中和聚焦；黑白灰建立高密度后台骨架，语义色保持原义。</p>
+          </div>
+          <code>candidate palette · light-only</code>
+        </div>
+        <div class="grid grid-4">
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #d63b00"></div>
+            <div class="token-meta"><strong>brand-deep-orange</strong><span>#D63B00 · 白字主操作</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #fe5205"></div>
+            <div class="token-meta"><strong>brand-orange</strong><span>#FE5205 · 品牌、选中、focus</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #fff4ef"></div>
+            <div class="token-meta"><strong>brand-orange-soft</strong><span>#FFF4EF · 选中和提示背景</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #181818"></div>
+            <div class="token-meta"><strong>ink</strong><span>#181818 · 标题与正文</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #686a66"></div>
+            <div class="token-meta"><strong>muted</strong><span>#686A66 · 辅助文字</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #f2f2ee"></div>
+            <div class="token-meta"><strong>surface-muted</strong><span>#F2F2EE · 表头和弱分区</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #ffffff"></div>
+            <div class="token-meta"><strong>surface</strong><span>#FFFFFF · 卡片和输入表面</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #f6f6f3"></div>
+            <div class="token-meta"><strong>bg</strong><span>#F6F6F3 · 应用背景</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #0f5b4b"></div>
+            <div class="token-meta"><strong>success</strong><span>#0F5B4B · 成功语义</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #2f5f95"></div>
+            <div class="token-meta"><strong>info</strong><span>#2F5F95 · 信息语义</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #76470f"></div>
+            <div class="token-meta"><strong>warning</strong><span>#76470F · 警告语义</span></div>
+          </article>
+          <article class="token-card">
+            <div class="token-swatch" style="--swatch: #a0443e"></div>
+            <div class="token-meta"><strong>danger</strong><span>#A0443E · 错误与危险语义</span></div>
+          </article>
+        </div>
+        <div class="panel candidate-state-panel">
+          <div class="component-family-head">
+            <div>
+              <h3>深橙主按钮状态</h3>
+              <p>Focus 使用 #FE5205；Disabled 回归中性灰；Loading 保持按钮宽度并阻止重复提交。</p>
+            </div>
+            <code>Rest · Hover · Active · Focus · Disabled · Loading</code>
+          </div>
+          <div class="candidate-state-grid">
+            <div class="candidate-state"><button class="button-like primary" type="button">Rest</button><span>#D63B00</span></div>
+            <div class="candidate-state candidate-state--hover"><button class="button-like primary" type="button">Hover</button><span>#C73700</span></div>
+            <div class="candidate-state candidate-state--active"><button class="button-like primary" type="button">Active</button><span>#AD3000</span></div>
+            <div class="candidate-state candidate-state--focus"><button class="button-like primary" type="button">Focus</button><span>#FE5205 focus ring</span></div>
+            <div class="candidate-state"><button class="button-like is-disabled" type="button" disabled>Disabled</button><span>#DADBD6 / #8A8C87</span></div>
+            <div class="candidate-state"><button class="button-like primary is-loading" type="button" aria-busy="true">Loading</button><span>保持宽度并宣布状态</span></div>
+          </div>
+        </div>
+        <div class="panel candidate-semantic-panel">
+          <div>
+            <h3>语义色保持原义</h3>
+            <p>品牌橙不替代成功、警告、错误和信息；真实界面样板必须同时使用文字或图标表达状态。</p>
+          </div>
+          <div class="chip-row">
+            <span class="status-chip success">成功 · 保持绿色</span>
+            <span class="status-chip warning">警告 · 保持琥珀色</span>
+            <span class="status-chip danger">错误 · 保持红色</span>
+            <span class="status-chip pending">信息 · 保持蓝色</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="typography">
+        <div class="section-head">
+          <div>
+            <h2>排版层级</h2>
+            <p>后台产品不需要过大的装饰标题，页面标题、组件标题、表格文字要形成稳定比例。</p>
+          </div>
+          <code>Chinese-first sans</code>
+        </div>
+        <div class="panel">
+          <div class="type-row">
+            <span class="type-label">display</span>
+            <strong class="sample-display">抖音经营数据引擎</strong>
+            <span class="type-size">44px / 1.1 / 800</span>
+          </div>
+          <div class="type-row">
+            <span class="type-label">page title</span>
+            <strong class="sample-h1">线索跟进列表</strong>
+            <span class="type-size">28px / 1.2 / 800</span>
+          </div>
+          <div class="type-row">
+            <span class="type-label">section title</span>
+            <strong class="sample-h2">当前筛选结果</strong>
+            <span class="type-size">20px / 1.25 / 700</span>
+          </div>
+          <div class="type-row">
+            <span class="type-label">body</span>
+            <span class="sample-body">店端只展示可判断、可操作的线索信息，完整号码需按权限读取。</span>
+            <span class="type-size">14px / 1.55 / 500</span>
+          </div>
+          <div class="type-row">
+            <span class="type-label">table</span>
+            <span class="sample-table">156****8575 · 待跟进 · 第1轮 · 2026-06-24 21:21</span>
+            <span class="type-size">13px / 1.45 / 500</span>
+          </div>
+          <div class="type-row">
+            <span class="type-label">caption</span>
+            <span class="sample-caption">线索生成日期起</span>
+            <span class="type-size">12px / 1.45 / 600 · 仅元数据</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="spacing-radius">
+        <div class="section-head">
+          <div>
+            <h2>间距与圆角</h2>
+            <p>V0.2 继续沿用已经验证的间距和圆角刻度，只调整品牌色角色，不用换色制造新的尺寸漂移。</p>
+          </div>
+          <code>space + radius</code>
+        </div>
+        <div class="grid grid-2">
+          <div class="panel">
+            <h3>间距刻度</h3>
+            <div class="scale-row" style="margin-top: 14px">
+              <span class="space-chip"><span class="space-bar" style="--w: 2px"></span>2</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 4px"></span>4</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 6px"></span>6</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 8px"></span>8</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 12px"></span>12</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 16px"></span>16</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 24px"></span>24</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 28px"></span>28</span>
+              <span class="space-chip"><span class="space-bar" style="--w: 48px"></span>48</span>
+            </div>
+          </div>
+          <div class="panel">
+            <h3>圆角规则</h3>
+            <div class="grid grid-4" style="margin-top: 14px">
+              <div class="radius-demo" style="--r: 4px">4px</div>
+              <div class="radius-demo" style="--r: 6px">6px</div>
+              <div class="radius-demo" style="--r: 8px">8px</div>
+              <div class="radius-demo" style="--r: 999px">pill</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="components">
+        <div class="section-head">
+          <div>
+            <h2>组件家族</h2>
+            <p>按钮、输入框、筛选器、状态、弹层、指标卡、表格和移动卡片必须像同一个产品里的部件。</p>
+          </div>
+          <code>radius 6/8 · height 38/44</code>
+        </div>
+        <div class="component-gallery">
+          <article class="component-card component-card--wide">
+            <h3>Button / 按钮</h3>
+            <div class="button-showcase-grid">
+            <div class="button-group-block">
+              <span class="component-demo-title">文字按钮状态</span>
+              <div class="button-row">
+                <button class="button-like primary" type="button">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
+                  应用筛选
+                </button>
+                <button class="button-like" type="button">查看详情</button>
+                <button class="button-like" type="button">清空筛选</button>
+                <button class="button-like soft" type="button">实时数据</button>
+                <button class="button-like danger" type="button">删除规则</button>
+                <button class="button-like text" type="button">查看明细</button>
+                <button class="button-like primary is-loading" type="button">保存中</button>
+                <button class="button-like is-disabled" type="button" disabled>不可用</button>
+              </div>
+            </div>
+            <div class="button-group-block">
+              <span class="component-demo-title">IconButton 尺寸</span>
+              <div class="button-row">
+                <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                </button>
+                <button class="icon-button-demo active" type="button" aria-label="隐藏完整号码">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eyeClosed" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eyeClosed"></use></svg>
+                </button>
+                <button class="icon-button-demo" type="button" aria-label="复制号码">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                </button>
+                <button class="icon-button-demo danger" type="button" aria-label="移除">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="trash" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-trash"></use></svg>
+                </button>
+                <button class="icon-button-demo mobile" type="button" aria-label="移动端筛选">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
+                </button>
+              </div>
+            </div>
+            </div>
+            <p>桌面按钮固定 38px，移动可点击区域 44px。图标与文字并列时保持 6px 间距，禁用态不新增高度或半径。</p>
+          </article>
+          <article class="component-card component-card--wide">
+            <h3>Field / 表单控件</h3>
+            <div class="field-grid">
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-province">省份</label>
+                  <span>展开</span>
+                </div>
+                <div class="field-control field-control--select field-control--open">
+                  <button
+                    id="demo-province"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="true"
+                    aria-controls="demo-province-menu"
+                  >
+                    全部
+                  </button>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
+                </div>
+                <div id="demo-province-menu" class="select-menu-demo" role="listbox" aria-label="省份选项">
+                  <div class="select-option-demo active" role="option" aria-selected="true"><span>全部</span><strong>默认</strong></div>
+                  <div class="select-option-demo" role="option"><span>浙江</span><strong>12,482</strong></div>
+                  <div class="select-option-demo" role="option"><span>江苏</span><strong>4,206</strong></div>
+                </div>
+                <p class="field-helper">Select 展开态与 Combobox 共用菜单面板，不使用简单线框或浏览器原生样式作为规范样张。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-status">线索状态</label>
+                  <span>聚焦</span>
+                </div>
+                <div class="field-control field-control--select field-control--focus">
+                  <button
+                    id="demo-status"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="false"
+                  >
+                    待跟进
+                  </button>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
+                </div>
+                <p class="field-helper">聚焦态只改变边框和 ring，不改变控件尺寸。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-date-start">线索生成日期起</label>
+                  <span>格式</span>
+                </div>
+                <div class="field-control">
+                  <input id="demo-date-start" class="field" placeholder="yyyy/mm/dd" />
+                </div>
+                <p class="field-helper">placeholder 只展示格式，字段含义由 label 承担。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-date-end">线索生成日期止</label>
+                  <span>错误</span>
+                </div>
+                <div class="field-control field-control--error">
+                  <input id="demo-date-end" class="field" value="2026/06/20" aria-invalid="true" />
+                </div>
+                <p class="field-error" role="alert">截止日期不能早于起始日期。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-disabled">核销状态</label>
+                  <span>禁用</span>
+                </div>
+                <div class="field-control field-control--select field-control--disabled">
+                  <button
+                    id="demo-disabled"
+                    class="field field-trigger"
+                    type="button"
+                    role="combobox"
+                    aria-expanded="false"
+                    disabled
+                  >
+                    全部
+                  </button>
+                  <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
+                </div>
+                <p class="field-helper">禁用态降低对比和交互感，不改变控件高度。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-readonly">门店</label>
+                  <span>只读</span>
+                </div>
+                <div class="field-control field-control--readonly">
+                  <input id="demo-readonly" class="field" value="默认门店" readonly />
+                </div>
+                <p class="field-helper">只读信息仍按字段展示，不改成普通正文。</p>
+              </div>
+              <div class="field-group">
+                <div class="field-label-row">
+                  <label for="demo-combobox">搜索门店</label>
+                  <span>Combobox</span>
+                </div>
+                <div class="field-control field-control--focus">
+                  <input id="demo-combobox" class="field" value="精诚" role="combobox" aria-expanded="true" />
+                </div>
+                <div class="combobox-menu-demo" role="listbox" aria-label="搜索门店结果">
+                  <div class="combobox-option-demo active" role="option" aria-selected="true"><span>精诚养车杭州店</span><strong>已选</strong></div>
+                  <div class="combobox-option-demo" role="option"><span>精诚养车宁波店</span><strong>2,184</strong></div>
+                </div>
+              </div>
+            </div>
+            <p>字段保留 label、格式提示、辅助说明和错误提示；控件文字不用粗体，避免像按钮。</p>
+          </article>
+          <article class="component-card">
+            <h3>Chip / 标签体系</h3>
+            <div class="chip-family-grid">
+              <div class="chip-family-block">
+                <strong>StatusChip</strong>
+                <div class="status-row">
+                  <span class="status-chip pending">待跟进</span>
+                  <span class="status-chip success">已跟进</span>
+                  <span class="status-chip warning">待再分配</span>
+                  <span class="status-chip danger">错误</span>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>CountPill</strong>
+                <div class="chip-line">
+                  <span class="count-pill">共 21,732 条</span>
+                  <span class="count-pill">已选 3 项</span>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>FilterChip</strong>
+                <div class="chip-line">
+                  <button class="filter-chip" type="button">省份：浙江<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                  <button class="filter-chip" type="button">状态：待跟进<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                </div>
+              </div>
+              <div class="chip-family-block">
+                <strong>RoleBadge</strong>
+                <div class="chip-line">
+                  <span class="role-badge strong">最高管理员</span>
+                  <span class="role-badge">门店账号</span>
+                </div>
+              </div>
+            </div>
+            <p>状态、数量、筛选条件和角色不是同一种语义，不能继续都塞进一个 status-chip 变体里。</p>
+          </article>
+          <article class="component-card">
+            <h3>MetricCard / 指标卡</h3>
+            <div class="grid grid-2">
+              <div class="metric-preview">
+                <span class="metric-label">标准指标 · 线索总数</span>
+                <strong class="metric-value">21,732</strong>
+                <span class="metric-meta">筛选范围内订单粒度</span>
+              </div>
+              <div class="metric-preview primary">
+                <span class="metric-label">重点指标 · 核销收入</span>
+                <strong class="metric-value">¥1,054,975.52</strong>
+                <span class="metric-meta">每页最多一个，使用深橙色顶线</span>
+              </div>
+              <div class="metric-preview semantic" style="--semantic-accent: var(--green)">
+                <span class="metric-label">语义指标 · 已跟进</span>
+                <strong class="metric-value">8,461</strong>
+                <span class="metric-meta">保留成功、警告、错误、信息色的原义</span>
+              </div>
+              <div class="metric-preview loading" aria-label="加载指标示例">
+                <span class="metric-label">加载指标</span>
+                <span class="metric-skeleton" aria-hidden="true"></span>
+                <span class="metric-meta">固定卡片尺寸，避免数据到达时版面跳动</span>
+              </div>
+            </div>
+            <p>指标卡只用于看板中的一眼判断。标准态不用顶线；重点态只保留一个；语义态不挪用品牌橙；加载态保持最终几何尺寸。</p>
+          </article>
+          <article class="component-card">
+            <h3>NavigationItem / 导航项</h3>
+            <div class="navigation-showcase">
+              <div class="subnav-demo" aria-label="桌面二级导航示意">
+                <span class="subnav-item active">线索看板</span>
+                <span class="subnav-item">线索明细</span>
+              </div>
+              <div class="mobile-nav-demo" aria-label="移动端一级导航示意">
+                <span class="mobile-navigation-item">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
+                  <span>数据表现</span>
+                </span>
+                <span class="mobile-navigation-item">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="settlement" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-settlement"></use></svg>
+                  <span>结算</span>
+                </span>
+                <span class="mobile-navigation-item active">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
+                  <span>线索</span>
+                </span>
+                <span class="mobile-navigation-item">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg>
+                  <span>后台</span>
+                </span>
+              </div>
+            </div>
+            <p>桌面 Rail 使用 linear 图标和紧凑标签，二级导航以 2px 深橙下划线表示当前页；移动端固定为数据表现、结算、线索、后台四个一级模块。此处仅定义信息架构样板，不新增路由。</p>
+          </article>
+          <article class="component-card component-card--wide">
+            <h3>TertiaryNav / 三级导航</h3>
+            <div class="tertiary-nav-showcase">
+              <section class="tertiary-nav-context" aria-labelledby="tertiary-settlement-title">
+                <div class="tertiary-nav-context__heading">
+                  <strong id="tertiary-settlement-title">页面型 · 结算数据</strong>
+                  <span>二级工作区合并后，三级入口仍保持独立 URL。</span>
+                </div>
+                <nav class="tertiary-nav" aria-label="结算数据子页面">
+                  <a class="tertiary-nav__item" href="/settlement/ranking" aria-current="page">全国门店榜单</a>
+                  <a class="tertiary-nav__item" href="/settlement/stores">单店结算</a>
+                  <a class="tertiary-nav__item" href="/settlement/orders">订单明细</a>
+                </nav>
+              </section>
+              <section class="tertiary-nav-context" aria-labelledby="tertiary-account-title">
+                <div class="tertiary-nav-context__heading">
+                  <strong id="tertiary-account-title">详情型 · 账号详情</strong>
+                  <span>位于实体标题和摘要之后、详情正文之前。</span>
+                </div>
+                <nav class="tertiary-nav" aria-label="账号详情子页面">
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/profile" aria-current="page">基本信息</a>
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/permissions">权限配置</a>
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/activity">操作记录</a>
+                </nav>
+              </section>
+              <section class="tertiary-nav-context">
+                <strong>组件状态</strong>
+                <div class="tertiary-nav-state-row">
+                  <a class="tertiary-nav__item" href="/preview/tertiary/default">默认</a>
+                  <a class="tertiary-nav__item is-hover" href="/preview/tertiary/hover">Hover</a>
+                  <a class="tertiary-nav__item is-focus" href="/preview/tertiary/focus">Focus</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/current" aria-current="page">当前</a>
+                  <span class="tertiary-nav__item is-disabled" aria-disabled="true">禁用</span>
+                </div>
+              </section>
+              <section class="tertiary-nav-context">
+                <strong>移动端 · 横向导航</strong>
+                <nav class="tertiary-nav tertiary-nav--mobile" aria-label="移动端结算数据子页面">
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/ranking">全国门店榜单</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/stores">单店结算</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/orders">订单明细</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/product-settlement">商品结算汇总</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/account-reconciliation" aria-current="page">账号结算对账</a>
+                </nav>
+              </section>
+            </div>
+            <p>三级导航只承载稳定子页面；筛选条件使用 FilterChip，临时展示模式使用 segmented control。普通页面随内容滚动，明细工作台通过内部表格滚动自然保持可见。</p>
+          </article>
+          <article class="component-card">
+            <h3>Elevation / 层级与阴影</h3>
+            <div class="elevation-scale">
+              <div class="elevation-sample level-0"><strong>Level 0</strong><span>表格单元格、Chip<br>仅使用边线</span></div>
+              <div class="elevation-sample level-1"><strong>Level 1</strong><span>卡片、筛选面板<br>shadowCard</span></div>
+              <div class="elevation-sample level-2"><strong>Level 2</strong><span>下拉、Combobox<br>shadowPopover</span></div>
+              <div class="elevation-sample level-3"><strong>Level 3</strong><span>Dialog、ConfirmDialog<br>shadowDialog</span></div>
+              <div class="elevation-sample level-4"><strong>Level 4</strong><span>线索跟进工作台<br>shadowWorkbench</span></div>
+            </div>
+            <p>所有提升层配合 1px 边线，阴影仅使用中性黑透明值。品牌橙只表达交互和选中，不承担投影颜色。</p>
+          </article>
+          <article class="component-card component-card--wide">
+            <h3>Dialog / ConfirmDialog</h3>
+            <div class="dialog-preview-grid">
+              <div class="dialog-backdrop-demo">
+                <div class="dialog-demo" role="dialog" aria-modal="true" aria-labelledby="dialog-demo-title">
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭弹层"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                  <div class="dialog-title">
+                    <strong id="dialog-demo-title">线索详情</strong>
+                    <span>打开后先聚焦关闭按钮或标题，关闭后回到触发行。</span>
+                  </div>
+                  <p>弹层内容可以包含字段、跟进记录和操作按钮；背景区域必须被隔离，Tab 不应穿透到页面表格。</p>
+                  <div class="dialog-actions">
+                    <button class="button-like" type="button">取消</button>
+                    <button class="button-like primary" type="button">保存跟进</button>
+                  </div>
+                </div>
+              </div>
+              <div class="dialog-backdrop-demo">
+                <div class="dialog-demo confirm" role="alertdialog" aria-modal="true" aria-labelledby="confirm-demo-title">
+                  <button class="icon-button-demo compact dialog-close-demo" type="button" aria-label="关闭确认弹层"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                  <div class="dialog-title">
+                    <strong id="confirm-demo-title">删除分佣规则？</strong>
+                    <span>危险操作标题必须说清楚对象和后果。</span>
+                  </div>
+                  <p>删除后该 SKU 将不再按当前规则参与计算。这个操作需要明确二次确认。</p>
+                  <div class="dialog-actions">
+                    <button class="button-like" type="button">取消</button>
+                    <button class="button-like danger" type="button">删除规则</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <ul class="dialog-rule-list">
+              <li>Dialog 统一提供 focus trap、Esc 关闭、关闭后回焦和背景 inert。</li>
+              <li>ConfirmDialog 用于删除、权限变更、批量或不可逆操作；取消按钮保留并优先聚焦。</li>
+            </ul>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="iconography">
+        <div class="section-head">
+          <div>
+            <h2>图标体系</h2>
+            <p>图标只作为动作、导航和状态的辅助信号，来源、尺寸和可访问名称必须统一。</p>
+          </div>
+          <code>@iconify/react · @iconify-icons/solar</code>
+        </div>
+        <div class="grid grid-2">
+          <article class="component-card">
+            <h3>库与入口</h3>
+            <ul class="icon-rule-list">
+              <li>项目唯一 UI 图标库为 <code>@iconify/react</code> + <code>@iconify-icons/solar</code>。</li>
+              <li>业务代码统一通过 <code>apps/web/src/components/SolarIcon.tsx</code> 引用，不在页面里临时手写 SVG。</li>
+              <li>默认变体为 Solar <code>linear</code>；查看、复制、退出、设置、详情等操作图标都走 linear。</li>
+              <li><code>bold-duotone</code> 只用于移动底部导航激活态、一级导航强调、品牌或模块入口。</li>
+              <li>同一语义有普通态和强调态时，在 <code>SolarIcon.tsx</code> 中拆成 <code>cluesLine</code> / <code>clues</code> 这类明确名称。</li>
+              <li>icon-only 控件必须提供可访问名称；装饰图标用 <code>aria-hidden</code>。</li>
+              <li>规范页示例也必须引用与 <code>SolarIcon.tsx</code> 同名的 Solar symbol，不允许文本字形、CSS 箭头或重复手写 path。</li>
+            </ul>
+          </article>
+          <article class="component-card">
+            <h3>尺寸和用法</h3>
+            <div class="icon-spec-grid">
+              <div class="icon-spec-item" style="--icon-size: 16px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                <strong>16px</strong>
+                <span>表格小动作</span>
+              </div>
+              <div class="icon-spec-item" style="--icon-size: 18px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                <strong>18px</strong>
+                <span>按钮内图标</span>
+              </div>
+              <div class="icon-spec-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
+                <strong>20px</strong>
+                <span>导航/标签页</span>
+              </div>
+              <div class="icon-spec-item" style="--icon-size: 24px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
+                <strong>24px</strong>
+                <span>移动主导航</span>
+              </div>
+            </div>
+            <p>图标按钮桌面容器 38px，移动容器 44px；图标大小不要靠缩放容器临时决定。</p>
+          </article>
+          <article class="component-card">
+            <h3>Solar 图标选择矩阵</h3>
+            <div class="icon-style-note">
+              <span>默认用 linear；只有主导航激活态、品牌入口和模块入口可以用 bold-duotone。</span>
+              <code>linear first</code>
+            </div>
+            <div class="icon-choice-grid">
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                <strong>查看</strong>
+                <span>linear · 表格动作</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eyeClosed" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eyeClosed"></use></svg>
+                <strong>隐藏</strong>
+                <span>linear · 显隐切换</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                <strong>复制</strong>
+                <span>linear · 快捷动作</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
+                <strong>筛选</strong>
+                <span>linear · 面板开关</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample solar-icon-sample--up" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
+                <strong>收起</strong>
+                <span>linear · 展开区底部</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg>
+                <strong>设置</strong>
+                <span>linear · 用户操作</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="logout" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-logout"></use></svg>
+                <strong>退出</strong>
+                <span>linear · 用户操作</span>
+              </div>
+              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
+                <strong>线索</strong>
+                <span>duotone · 激活导航</span>
+              </div>
+              <div class="icon-choice-item" style="--icon-size: 20px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
+                <strong>看板</strong>
+                <span>linear · 二级标签</span>
+              </div>
+              <div class="icon-choice-item emphasis" style="--icon-size: 24px">
+                <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="admin" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-admin"></use></svg>
+                <strong>后台</strong>
+                <span>duotone · 一级导航</span>
+              </div>
+            </div>
+            <p>矩阵只定义语义选择；业务实现仍通过 <code>SolarIcon.tsx</code> 注册名称后引用。</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="section" id="table-sticky">
+        <div class="section-head">
+          <div>
+            <h2>线索表格冻结表头</h2>
+            <p>桌面表头冻结时由表格容器承接滚动；明细工作台中外层页面不滚动，表格区内部滚动。</p>
+          </div>
+          <code>--table-sticky-gap: 8px</code>
+        </div>
+        <div class="sticky-demo-shell">
+          <div class="sticky-offset-demo">
+            <span>产品页桌面端使用顶部栏避让：action bar 58px + gap 8px；明细工作台把滚动限制在结果表格容器内，移动端 top subnav 单独计算。</span>
+            <strong>表格容器内部：thead top 0</strong>
+          </div>
+          <div
+            class="table-preview-wrap table-preview-wrap--sticky"
+            tabindex="0"
+            aria-label="线索表格冻结表头滚动演示"
+          >
+            <table class="table-preview">
+              <thead>
+                <tr>
+                  <th>联系方式</th>
+                  <th>线索状态</th>
+                  <th>分配轮次</th>
+                  <th>本轮跟进时间</th>
+                  <th>商品名称</th>
+                  <th>商品类型</th>
+                  <th>线索生成时间</th>
+                  <th>本轮失效时间</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>156****8575</td>
+                  <td><span class="status-chip pending">待跟进</span></td>
+                  <td>第1轮</td>
+                  <td>-</td>
+                  <td>小保养+机油滤芯等5个项目</td>
+                  <td>精诚养车</td>
+                  <td>2026-06-24 21:21</td>
+                  <td>-</td>
+                </tr>
+                <tr>
+                  <td>178****0888</td>
+                  <td><span class="status-chip success">已跟进</span></td>
+                  <td>第1轮</td>
+                  <td>2026-06-24 22:10</td>
+                  <td>V2L放电插排16A</td>
+                  <td>-</td>
+                  <td>2026-06-24 21:18</td>
+                  <td>-</td>
+                </tr>
+                <tr>
+                  <td>132****1231</td>
+                  <td><span class="status-chip pending">待跟进</span></td>
+                  <td>第1轮</td>
+                  <td>-</td>
+                  <td>机油更换+机滤更换等4个项目</td>
+                  <td>精诚养车</td>
+                  <td>2026-06-24 21:15</td>
+                  <td>-</td>
+                </tr>
+                <tr>
+                  <td>139****8833</td>
+                  <td><span class="status-chip warning">待再分配</span></td>
+                  <td>第2轮</td>
+                  <td>2026-06-24 21:40</td>
+                  <td>官方正品 32A外放电插排</td>
+                  <td>-</td>
+                  <td>2026-06-24 21:14</td>
+                  <td>2026-06-26 21:14</td>
+                </tr>
+                <tr>
+                  <td>151****6471</td>
+                  <td><span class="status-chip pending">待跟进</span></td>
+                  <td>第1轮</td>
+                  <td>-</td>
+                  <td>无骨雨刮赠送2副胶条</td>
+                  <td>-</td>
+                  <td>2026-06-24 21:13</td>
+                  <td>-</td>
+                </tr>
+                <tr>
+                  <td>153****1850</td>
+                  <td><span class="status-chip success">已跟进</span></td>
+                  <td>第1轮</td>
+                  <td>2026-06-24 22:30</td>
+                  <td>刹车油更换套餐</td>
+                  <td>精诚养车</td>
+                  <td>2026-06-24 21:12</td>
+                  <td>-</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="table-state-grid">
+            <div class="table-state-card">
+              <strong>标准表格</strong>
+              <p>桌面长列表优先使用 DataTable：表头、行高、单元格 padding、行 hover 和行操作统一。</p>
+              <div class="table-action-group">
+                <button class="icon-button-demo compact" type="button" aria-label="查看详情">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                </button>
+                <button class="icon-button-demo compact" type="button" aria-label="复制">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                </button>
+                <button class="button-like text" type="button">查看详情</button>
+              </div>
+            </div>
+            <div class="table-state-card">
+              <strong>空状态</strong>
+              <div class="empty-state-demo">
+                <div>
+                  <strong>暂无符合条件的数据</strong>
+                  <span>调整筛选或清空条件后再试。</span>
+                </div>
+              </div>
+            </div>
+            <div class="table-state-card">
+              <strong>加载骨架</strong>
+              <div class="skeleton-table-demo" aria-hidden="true">
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+                <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
+              </div>
+              <p>骨架形状跟最终行结构一致，不使用脱离上下文的居中圆形 loading。</p>
+            </div>
+            <div class="table-state-card">
+              <strong>移动端卡片映射</strong>
+              <div class="record-card-map">
+                <span>状态 <strong>待跟进</strong></span>
+                <span>主标识 <strong>139****2401</strong></span>
+                <span>商品 <strong>基础保养套餐</strong></span>
+                <span>主操作 <strong>查看详情</strong></span>
+              </div>
+              <p>字段不能横向塞进手机宽表，必须映射为可扫描的记录卡片。</p>
+            </div>
+          </div>
+          <div class="table-pagination-spec">
+            <h3>TablePagination / DataPager</h3>
+            <div class="table-pagination-demo" aria-label="桌面表格分页组件示意">
+              <div class="table-pagination-demo__info">
+                <strong>显示 1-50 / 共 22,332 条</strong>
+                <span>分页固定在结果区底部，表格内容滚动时保持可见。</span>
+              </div>
+              <div class="table-pagination-demo__controls">
+                <span class="table-pagination-demo__size">每页 50 条</span>
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>首页</button>
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                <label class="table-pagination-demo__page-group">
+                  <span>第</span>
+                  <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="447" inputmode="numeric" aria-label="输入页码" />
+                  <span>/ 447 页</span>
+                </label>
+                <button class="button-like table-pagination-demo__button" type="button">跳转</button>
+                <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+                <button class="button-like table-pagination-demo__button" type="button">末页</button>
+              </div>
+            </div>
+            <span class="table-pagination-demo__error" role="alert">错误态示例：请输入 1-447 之间的页码。</span>
+            <div class="table-pagination-demo table-pagination-demo--mobile" aria-label="移动端表格分页组件示意">
+              <div class="table-pagination-demo__info">
+                <strong>显示 1-20 / 共 22,332 条</strong>
+                <span>移动端保留页码输入，按 Enter 跳转，不额外放跳转按钮。</span>
+              </div>
+              <div class="table-pagination-demo__controls">
+                <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                <label class="table-pagination-demo__page-group">
+                  <span>第</span>
+                  <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="1117" inputmode="numeric" aria-label="输入移动端页码" />
+                  <span>/ 1117 页</span>
+                </label>
+                <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+              </div>
+            </div>
+            <p class="table-pagination-demo__note">
+              分页属于结果区，不放进表格滚动容器；页码输入只允许 1 到总页数之间的正整数，Enter 或“跳转”执行；按钮使用统一 Button 状态，禁用、加载和焦点态必须完整。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="mobile-card">
+        <div class="section-head">
+          <div>
+            <h2>移动端线索卡片</h2>
+            <p>移动端不横向滚宽表，优先展示足够判断和操作的字段。</p>
+          </div>
+          <code>touch target: 44px</code>
+        </div>
+        <div class="grid grid-2">
+          <article class="mobile-card-demo">
+            <div class="mobile-card-top">
+              <span class="status-chip pending">待跟进</span>
+              <strong>第1轮</strong>
+            </div>
+            <div class="mobile-card-phone">
+              <strong>139****2401</strong>
+              <div class="button-row">
+                <button class="icon-button-demo" type="button" aria-label="查看完整号码">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                </button>
+                <button class="icon-button-demo" type="button" aria-label="复制号码">
+                  <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                </button>
+              </div>
+            </div>
+            <div class="mobile-card-product">
+              <strong>精诚养车基础保养套餐</strong>
+              <span>保养服务</span>
+            </div>
+            <div class="mobile-card-row"><span>最近跟进</span><strong>-</strong></div>
+            <div class="mobile-card-row"><span>生成时间</span><strong>2026-06-23 09:20</strong></div>
+            <div class="mobile-card-row"><span>本轮失效</span><strong>-</strong></div>
+            <button class="button-like primary" type="button">查看详情</button>
+          </article>
+          <div class="panel">
+            <h3>字段顺序</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>第一组：</strong>状态、轮次、联系方式、号码操作。</li>
+              <li><strong>第二组：</strong>商品名称和商品类型。</li>
+              <li><strong>第三组：</strong>最近跟进、生成时间、本轮失效。</li>
+              <li><strong>最后：</strong>明确的查看详情主操作。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-wide-preview" id="clue-followup-workbench">
+        <div class="section-head">
+          <div>
+            <h2>线索跟进详情工作台浮层</h2>
+            <p>这是线索中心的特殊浮层：桌面尽量接近全屏，承载联系方式、商品订单、分配轮次历史和当前跟进操作；移动端转为近全屏单列工作台。</p>
+          </div>
+          <code>width: min(1440px, 100vw - 48px)</code>
+        </div>
+        <div class="clue-workbench-backdrop">
+          <article class="clue-workbench-modal" role="dialog" aria-modal="true" aria-labelledby="clue-workbench-title">
+            <header class="clue-workbench-header">
+              <div class="clue-workbench-title">
+                <h3 id="clue-workbench-title">线索跟进详情</h3>
+              </div>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭线索跟进详情"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+            </header>
+            <div class="clue-workbench-body">
+              <div class="clue-workbench-main">
+                <div class="clue-summary-strip" aria-label="线索摘要">
+                  <div class="clue-summary-item clue-summary-item--contact">
+                    <span>联系方式 · 号码操作</span>
+                    <div class="clue-summary-phone-row">
+                      <strong>178****6163</strong>
+                      <div class="button-row">
+                        <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
+                          <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                        </button>
+                        <button class="icon-button-demo compact" type="button" aria-label="复制完整号码">
+                          <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                        </button>
+                      </div>
+                    </div>
+                    <span>当前有效轮次允许查看和复制完整号码；失效、已核销、已退款时显示“已失效不可跟进”。</span>
+                  </div>
+                  <div class="clue-summary-item clue-summary-item--status">
+                    <span>线索状态</span>
+                    <strong>待跟进</strong>
+                    <span>当前轮次仍可处理</span>
+                  </div>
+                </div>
+
+                <section class="clue-section-block" aria-labelledby="clue-order-title">
+                  <div class="clue-section-head">
+                    <h3 id="clue-order-title">商品与订单</h3>
+                  </div>
+                  <div class="clue-field-grid clue-order-grid">
+                    <div class="clue-field-row">
+                      <span>订单编号</span>
+                      <strong>111533703281303808</strong>
+                    </div>
+                    <div class="clue-field-row clue-field-row--product">
+                      <span>完整商品名称</span>
+                      <strong>店端【超值爆品】无骨雨刮赠送2副胶条（部分车型适用）</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>商品类型</span>
+                      <strong>精诚养车</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>订单状态</span>
+                      <strong>履约中</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>下单时间</span>
+                      <strong>2026-06-26 02:04</strong>
+                    </div>
+                    <div class="clue-field-row">
+                      <span>核销状态</span>
+                      <strong>未核销</strong>
+                    </div>
+                  </div>
+                </section>
+
+                <section class="clue-section-block" aria-labelledby="clue-history-title">
+                  <div class="clue-section-head">
+                    <h3 id="clue-history-title">线索跟进历史</h3>
+                    <span class="count-pill">2 轮 · 3 条跟进记录</span>
+                  </div>
+                  <div class="clue-history-list">
+                    <article class="clue-round-card">
+                      <div class="clue-round-top">
+                        <strong>第1轮</strong>
+                        <span class="status-chip warning">超期失效</span>
+                      </div>
+                      <div class="clue-round-facts">
+                        <div class="clue-field-row"><span>分配时间</span><strong>2026-06-24 09:18</strong></div>
+                        <div class="clue-field-row"><span>处理范围</span><strong>其他门店</strong></div>
+                        <div class="clue-field-row"><span>失效原因</span><strong>超过处理时限</strong></div>
+                        <div class="clue-field-row"><span>失效时间</span><strong>2026-06-25 09:18</strong></div>
+                        <div class="clue-field-row"><span>最近结果</span><strong>未接通</strong></div>
+                      </div>
+                      <div class="clue-record-list">
+                        <div class="clue-record-item">
+                          <strong>06-24 10:06</strong>
+                          <span class="clue-record-meta">未接通</span>
+                          <span class="clue-record-meta">电话无人接听，计划下午再次联系。</span>
+                        </div>
+                        <div class="clue-record-item">
+                          <strong>06-24 16:31</strong>
+                          <span class="clue-record-meta">未接通</span>
+                          <span class="clue-record-meta">第二次未接通，本轮后续超期。</span>
+                        </div>
+                      </div>
+                    </article>
+                    <article class="clue-round-card current">
+                      <div class="clue-round-top">
+                        <strong>第2轮 / 当前</strong>
+                        <span class="status-chip pending">待跟进</span>
+                      </div>
+                      <div class="clue-round-facts">
+                        <div class="clue-field-row"><span>分配时间</span><strong>2026-06-26 02:04</strong></div>
+                        <div class="clue-field-row"><span>处理范围</span><strong>本店</strong></div>
+                        <div class="clue-field-row"><span>再分配原因</span><strong>上一轮超期</strong></div>
+                        <div class="clue-field-row"><span>失效时间</span><strong>-</strong></div>
+                        <div class="clue-field-row"><span>最近结果</span><strong>-</strong></div>
+                      </div>
+                      <div class="clue-record-list">
+                        <div class="clue-record-item">
+                          <strong>暂无记录</strong>
+                          <span class="clue-record-meta">待处理</span>
+                          <span class="clue-record-meta">本轮尚未登记跟进结果。</span>
+                        </div>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+              </div>
+
+              <aside class="clue-workbench-rail" aria-label="当前线索操作">
+                <section class="clue-action-block">
+                  <h3>跟进操作</h3>
+                  <div class="clue-radio-list" role="radiogroup" aria-label="跟进结果">
+                    <div class="clue-radio-item active"><span class="clue-radio-dot" aria-hidden="true"></span>未接通</div>
+                    <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>线索战败</div>
+                    <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>跟进成功</div>
+                  </div>
+                  <div class="clue-note-box">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                  <button class="button-like primary" type="button">保存跟进</button>
+                </section>
+              </aside>
+            </div>
+          </article>
+        </div>
+        <div class="grid grid-3">
+          <div class="panel">
+            <h3>桌面尺寸</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>宽度：</strong><code>min(1440px, calc(100vw - 48px))</code>，让 1440 屏接近铺满，超宽屏保持阅读上限。</li>
+              <li><strong>高度：</strong><code>min(920px, calc(100dvh - 32px))</code>，内部滚动，不让背景页面参与滚动。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>内容分区</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>左侧：</strong>线索摘要、商品订单、分配轮次历史和每轮跟进记录。</li>
+              <li><strong>右侧：</strong>号码查看/复制、跟进结果单选、备注、保存按钮和禁用原因。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>使用边界</h3>
+            <ul class="rule-list" style="margin-top: 12px">
+              <li><strong>店端：</strong>历史门店只显示本店/其他门店，不展示内部轮次 ID。</li>
+              <li><strong>管理端：</strong>后续可加排查信息折叠区，但不放进店端默认视图。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>移动端顺序</h3>
+            <ol class="clue-mobile-order" style="margin-top: 12px">
+              <li>先显示线索状态和号码操作，确保店员能马上判断是否可联系。</li>
+              <li>紧接跟进操作，当前轮次不可操作时整块禁用并说明原因。</li>
+              <li>再展示订单、商品摘要和下单时间。</li>
+              <li>最后展示线索跟进历史和每轮下的跟进记录。</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="clue-followup-mobile-detail">
+        <div class="section-head">
+          <div>
+            <h2>移动端线索详情</h2>
+            <p>手机端不复用桌面双栏浮层，而是独立的单列任务页：先让店员判断能不能联系，再完成本轮跟进，最后查看订单商品和历史。</p>
+          </div>
+          <code>mobile: single task page</code>
+        </div>
+        <div class="mobile-detail-preview-grid">
+          <article class="mobile-clue-detail-demo" aria-label="移动端线索详情样张">
+            <header class="mobile-clue-detail-demo__top">
+              <h3>线索跟进详情</h3>
+              <button class="icon-button-demo mobile" type="button" aria-label="关闭移动端线索详情"><svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+            </header>
+            <div class="mobile-clue-detail-demo__scroll">
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-phone-status-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-phone-status-title">手机号与状态</h4>
+                  <span class="status-chip pending">待跟进</span>
+                </div>
+                <div class="mobile-clue-detail-demo__phone-row">
+                  <strong>178****6163</strong>
+                  <div class="mobile-clue-detail-demo__icon-actions">
+                    <button class="mobile-clue-detail-demo__icon" type="button" aria-label="查看完整手机号">
+                      <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                    </button>
+                    <button class="mobile-clue-detail-demo__icon" type="button" aria-label="复制完整手机号">
+                      <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                    </button>
+                  </div>
+                </div>
+                <p class="mobile-clue-detail-demo__hint">当前有效轮次允许查看和复制完整号码；失效、已核销、已退款时显示“已失效不可跟进”。</p>
+                <div class="mobile-clue-detail-demo__meta">
+                  <span>第2轮 / 当前</span>
+                  <span>本轮仍可处理</span>
+                </div>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-follow-action-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-follow-action-title">跟进操作</h4>
+                </div>
+                <div class="mobile-clue-detail-demo__radio-list" role="radiogroup" aria-label="本次跟进结果">
+                  <div class="mobile-clue-detail-demo__radio active"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>未接通</div>
+                  <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>线索战败</div>
+                  <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>跟进成功</div>
+                </div>
+                <div class="mobile-clue-detail-demo__note">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                <button class="button-like primary mobile-clue-detail-demo__save" type="button">保存本次跟进</button>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-order-product-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-order-product-title">商品与订单</h4>
+                </div>
+                <div class="mobile-clue-detail-demo__facts">
+                  <div class="mobile-clue-detail-demo__fact"><span>订单编号</span><strong>111533703281303808</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>下单时间</span><strong>2026-06-26 02:04</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>订单状态</span><strong>履约中</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>完整商品名称</span><strong>店端【超值爆品】无骨雨刮赠送2副胶条（部分车型适用）</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>商品类型</span><strong>精诚养车</strong></div>
+                  <div class="mobile-clue-detail-demo__fact"><span>核销状态</span><strong>未核销</strong></div>
+                </div>
+              </section>
+
+              <section class="mobile-clue-detail-demo__section" aria-labelledby="mobile-history-title">
+                <div class="mobile-clue-detail-demo__section-head">
+                  <h4 id="mobile-history-title">线索跟进历史</h4>
+                  <span class="count-pill">2轮 · 3条记录</span>
+                </div>
+                <div class="mobile-clue-detail-demo__rounds">
+                  <article class="mobile-clue-detail-demo__round">
+                    <div class="mobile-clue-detail-demo__round-top">
+                      <strong>第1轮</strong>
+                      <span class="status-chip warning">超期失效</span>
+                    </div>
+                    <div class="mobile-clue-detail-demo__round-grid">
+                      <div class="mobile-clue-detail-demo__fact"><span>分配时间</span><strong>2026-06-24 09:18</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>处理范围</span><strong>其他门店</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>失效原因</span><strong>超过处理时限</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>失效时间</span><strong>2026-06-25 09:18</strong></div>
+                    </div>
+                    <div class="mobile-clue-detail-demo__records">
+                      <div class="mobile-clue-detail-demo__record"><strong>06-24 10:06</strong><span>未接通</span><span>电话无人接听，计划下午再次联系。</span></div>
+                      <div class="mobile-clue-detail-demo__record"><strong>06-24 16:31</strong><span>未接通</span><span>第二次未接通，本轮后续超期。</span></div>
+                    </div>
+                  </article>
+                  <article class="mobile-clue-detail-demo__round current">
+                    <div class="mobile-clue-detail-demo__round-top">
+                      <strong>第2轮 / 当前</strong>
+                      <span class="status-chip pending">待跟进</span>
+                    </div>
+                    <div class="mobile-clue-detail-demo__round-grid">
+                      <div class="mobile-clue-detail-demo__fact"><span>分配时间</span><strong>2026-06-26 02:04</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>处理范围</span><strong>本店</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>再分配原因</span><strong>上一轮超期</strong></div>
+                      <div class="mobile-clue-detail-demo__fact"><span>最近结果</span><strong>-</strong></div>
+                    </div>
+                    <div class="mobile-clue-detail-demo__records">
+                      <div class="mobile-clue-detail-demo__record"><strong>暂无记录</strong><span>待处理</span><span>本轮尚未登记跟进结果。</span></div>
+                    </div>
+                  </article>
+                </div>
+              </section>
+            </div>
+          </article>
+
+          <div class="panel">
+            <h3>移动端实现规则</h3>
+            <ul class="mobile-detail-spec-list" style="margin-top: 12px">
+              <li><strong>单列任务流：</strong>移动端独立实现，不把桌面右侧操作栏提前塞进同一个浮层布局。</li>
+              <li><strong>首屏判断：</strong>手机号、查看/复制、线索状态和当前轮次必须在首屏最前面。</li>
+              <li><strong>操作优先：</strong>跟进操作紧接联系方式，保存按钮全宽显示，触控目标不小于 44px。</li>
+              <li><strong>历史后置：</strong>订单商品和线索跟进历史保留完整信息，但放在跟进操作之后，避免店员先读审计信息。</li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="page-templates">
+        <div class="section-head">
+          <div>
+            <h2>页面骨架</h2>
+            <p>同类页面使用同一个阅读顺序，减少重复标题和重复上下文。</p>
+          </div>
+          <code>desktop + mobile</code>
+        </div>
+        <div class="desktop-template-stack" aria-label="桌面页面骨架样板">
+          <div class="layout-preview">
+            <div class="desktop-shell-demo">
+              <aside class="rail-demo">
+                <span class="rail-mark">引擎</span>
+                <span class="navigation-item">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="settlement" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-settlement"></use></svg>
+                  <span>结算</span>
+                </span>
+                <span class="navigation-item active">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
+                  <span>线索</span>
+                </span>
+                <span class="navigation-item">
+                  <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg>
+                  <span>后台</span>
+                </span>
+              </aside>
+              <div class="workspace-demo">
+                <div class="topbar-demo">
+                  <strong>线索中心</strong>
+                  <span class="pill">system-admin</span>
+                </div>
+                <div class="subnav-demo">
+                  <span class="subnav-item active">线索看板</span>
+                  <span class="subnav-item">线索明细</span>
+                </div>
+                <div class="page-demo">
+                  <h3>经营线索概览</h3>
+                  <div class="filter-demo">
+                    <span></span><span></span><span></span><span></span>
+                  </div>
+                  <div class="grid grid-3">
+                    <div class="metric-preview"><span class="metric-label">线索总数</span><strong class="metric-value">21,732</strong></div>
+                    <div class="metric-preview" style="--accent: var(--blue)"><span class="metric-label">可跟进</span><strong class="metric-value">21,732</strong></div>
+                    <div class="metric-preview" style="--accent: var(--amber)"><span class="metric-label">待处理</span><strong class="metric-value">0</strong></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="data-workspace-demo">
+            <div class="data-workspace-demo__top">
+              <div class="data-workspace-demo__heading">
+                <strong>明细工作台页面模板</strong>
+                <span>page-frame--data-workspace</span>
+              </div>
+              <div class="data-workspace-demo__filters" aria-label="桌面明细筛选器示意">
+                <span>省份 / 全部</span>
+                <span>城市 / 全部</span>
+                <span>门店 / 可检索</span>
+                <span>日期起</span>
+                <span>日期止</span>
+                <span>清空筛选</span>
+              </div>
+            </div>
+            <div class="data-workspace-demo__result">
+              <div class="data-workspace-demo__result-head">
+                <div>
+                  <strong>当前筛选结果</strong>
+                  <span>桌面一屏内保留标题、筛选、结果和分页</span>
+                  <small class="data-workspace-demo__export-note">导出当前账号可见范围与当前筛选条件；联系方式导出为未加密明文。</small>
+                </div>
+                <div class="data-workspace-demo__result-actions">
+                  <span>共 22,525 条</span>
+                  <button class="data-workspace-demo__export" type="button" aria-label="导出当前筛选线索明细">
+                    <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="fileDownload" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-fileDownload"></use></svg>
+                    导出
+                  </button>
+                </div>
+              </div>
+              <div class="data-workspace-demo__scroll" tabindex="0" aria-label="明细工作台内部滚动表格示意">
+                <table class="table-preview">
+                  <thead>
+                    <tr>
+                      <th>联系方式</th>
+                      <th>线索状态</th>
+                      <th>分配轮次</th>
+                      <th>本轮跟进时间</th>
+                      <th>商品名称</th>
+                      <th>线索生成时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>173****8502</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>小保养+机油滤芯等5个项目</td>
+                      <td>2026-06-25 22:14</td>
+                    </tr>
+                    <tr>
+                      <td>159****0695</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>无骨雨刮赠送2副胶条</td>
+                      <td>2026-06-25 22:11</td>
+                    </tr>
+                    <tr>
+                      <td>150****2310</td>
+                      <td><span class="status-chip success">已跟进</span></td>
+                      <td>第1轮</td>
+                      <td>2026-06-25 22:09</td>
+                      <td>多效抗菌空调滤芯</td>
+                      <td>2026-06-25 22:09</td>
+                    </tr>
+                    <tr>
+                      <td>135****6152</td>
+                      <td><span class="status-chip warning">主动战败</span></td>
+                      <td>第1轮</td>
+                      <td>2026-06-25 22:08</td>
+                      <td>全车打蜡洗美套餐</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                    <tr>
+                      <td>139****5182</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>认证单面喷漆服务</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                    <tr>
+                      <td>157****2739</td>
+                      <td><span class="status-chip pending">待跟进</span></td>
+                      <td>第1轮</td>
+                      <td>-</td>
+                      <td>168全合成机油保养</td>
+                      <td>2026-06-25 22:08</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="data-workspace-demo__pagination">
+                <div class="table-pagination-demo__info">
+                  <strong>显示 1-50 / 共 22,525 条</strong>
+                  <span>分页始终在结果区底部可见</span>
+                </div>
+                <div class="table-pagination-demo__controls">
+                  <span class="table-pagination-demo__size">每页 50 条</span>
+                  <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>首页</button>
+                  <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
+                  <label class="table-pagination-demo__page-group">
+                    <span>第</span>
+                    <input class="table-pagination-demo__page-input" type="number" value="1" min="1" max="451" inputmode="numeric" aria-label="输入明细工作台页码" />
+                    <span>/ 451 页</span>
+                  </label>
+                  <button class="button-like table-pagination-demo__button" type="button">跳转</button>
+                  <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+                  <button class="button-like table-pagination-demo__button" type="button">末页</button>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="data-workspace-demo">
+            <div class="data-workspace-demo__top">
+              <div class="data-workspace-demo__heading">
+                <strong>订单明细导出位置预览</strong>
+                <span>details / current filters</span>
+              </div>
+              <div class="data-workspace-demo__filters" aria-label="订单明细筛选器示意">
+                <span>销售门店 / 全部</span>
+                <span>销售月份</span>
+                <span>是否核销</span>
+                <span>核销门店</span>
+                <span>是否分佣</span>
+                <span>清空筛选</span>
+              </div>
+            </div>
+            <div class="data-workspace-demo__result">
+              <div class="data-workspace-demo__result-head">
+                <div>
+                  <strong>明细记录</strong>
+                  <span>导出按钮与订单明细表同一作用域，不放到页面全局顶部</span>
+                  <small class="data-workspace-demo__export-note">只导出当前账号可见订单和当前筛选结果。</small>
+                </div>
+                <div class="data-workspace-demo__result-actions">
+                  <span>共 18,304 条</span>
+                  <button class="data-workspace-demo__export" type="button" aria-label="导出当前筛选订单明细">
+                    <svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="fileDownload" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-fileDownload"></use></svg>
+                    导出
+                  </button>
+                </div>
+              </div>
+              <div class="data-workspace-demo__scroll" tabindex="0" aria-label="订单明细工作台内部滚动表格示意">
+                <table class="table-preview">
+                  <thead>
+                    <tr>
+                      <th>订单编号</th>
+                      <th>商品名称</th>
+                      <th>销售门店</th>
+                      <th>订单状态</th>
+                      <th>核销状态</th>
+                      <th>支付时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>111533703281303808</td>
+                      <td>小保养+机油滤芯等5个项目</td>
+                      <td>上海中山北路店</td>
+                      <td>履约中</td>
+                      <td>未核销</td>
+                      <td>2026-06-25 21:44</td>
+                    </tr>
+                    <tr>
+                      <td>1115336775460500194</td>
+                      <td>纯电车型保养</td>
+                      <td>杭州滨江店</td>
+                      <td>已完成</td>
+                      <td>已核销</td>
+                      <td>2026-06-25 20:18</td>
+                    </tr>
+                    <tr>
+                      <td>1111869380668829634</td>
+                      <td>全车玻璃水检测</td>
+                      <td>苏州园区店</td>
+                      <td>履约中</td>
+                      <td>未核销</td>
+                      <td>2026-06-25 19:49</td>
+                    </tr>
+                    <tr>
+                      <td>1110729277988500652</td>
+                      <td>无骨雨刮赠送2副胶条</td>
+                      <td>西安雁塔店</td>
+                      <td>已退款</td>
+                      <td>-</td>
+                      <td>2026-06-25 18:31</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div class="data-workspace-demo__pagination">
+                <div class="table-pagination-demo__info">
+                  <strong>显示 1-50 / 共 18,304 条</strong>
+                  <span>导出不受当前页限制，按当前筛选导出全量结果</span>
+                </div>
+                <div class="table-pagination-demo__controls">
+                  <span class="table-pagination-demo__size">每页 50 条</span>
+                  <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>首页</button>
+                  <button class="button-like table-pagination-demo__button" type="button">下一页</button>
+                  <button class="button-like table-pagination-demo__button" type="button">末页</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="desktop-template-note">
+          <strong>桌面模板仅在 921px 以上展示。</strong>
+          当前宽度使用真实移动页面模板，桌面宽表不会被压缩或横向裁切成伪移动布局。
+        </aside>
+
+        <div class="mobile-template-heading">
+          <div>
+            <h3>移动明细页面模板</h3>
+            <p>顶部二级导航、折叠筛选、记录卡片、紧凑分页和四项底部一级导航构成完整移动任务流。</p>
+          </div>
+          <code>390: single · 768: dual</code>
+        </div>
+
+        <div class="mobile-template-stack">
+          <div class="mobile-data-page mobile-data-page--clues">
+            <nav class="mobile-subnav-demo" aria-label="线索中心二级导航">
+              <span class="mobile-subnav-item">线索看板</span>
+              <span class="mobile-subnav-item active">线索明细</span>
+            </nav>
+            <main class="mobile-data-page__body">
+              <header class="mobile-data-page__heading">
+                <h3>线索跟进列表</h3>
+                <span>共 22,525 条</span>
+              </header>
+              <button class="mobile-filter-trigger" type="button" aria-expanded="false" aria-controls="mobile-clue-filter-summary">
+                筛选
+                <span>已选 2 项</span>
+              </button>
+              <div id="mobile-clue-filter-summary" class="mobile-filter-summary" aria-label="当前线索筛选条件">
+                <button class="filter-chip" type="button">省份：浙江<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+                <button class="filter-chip" type="button">状态：待跟进<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
+              </div>
+              <div class="mobile-record-list" aria-label="线索记录卡片">
+                <article class="mobile-record-card mobile-record-card--clue">
+                  <div class="mobile-record-card__top">
+                    <span class="status-chip pending">待跟进</span>
+                    <strong>第1轮</strong>
+                  </div>
+                  <div class="mobile-record-card__contact">
+                    <strong>173****8502</strong>
+                    <div class="button-row">
+                      <button class="icon-button-demo" type="button" aria-label="查看完整号码">
+                        <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
+                      </button>
+                      <button class="icon-button-demo" type="button" aria-label="复制号码">
+                        <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div class="mobile-record-card__product">
+                    <strong>小保养+机油滤芯等5个项目【268高端全合成机油保养】</strong>
+                    <span>保养服务</span>
+                  </div>
+                  <div class="mobile-record-card__fact"><span>最近跟进</span><strong>-</strong></div>
+                  <div class="mobile-record-card__fact"><span>生成时间</span><strong>2026-06-25 22:14</strong></div>
+                  <button class="button-like primary mobile-record-card__action" type="button">查看详情</button>
+                </article>
+                <article class="mobile-record-card mobile-record-card--clue">
+                  <div class="mobile-record-card__top">
+                    <span class="status-chip success">已跟进</span>
+                    <strong>第2轮</strong>
+                  </div>
+                  <div class="mobile-record-card__contact"><strong>159****0695</strong><span class="role-badge">本店线索</span></div>
+                  <div class="mobile-record-card__product"><strong>无骨雨刮赠送2副胶条（部分车型适用）</strong><span>精品汽车</span></div>
+                  <div class="mobile-record-card__fact"><span>最近跟进</span><strong>2026-06-25 21:42</strong></div>
+                  <div class="mobile-record-card__fact"><span>生成时间</span><strong>2026-06-25 22:11</strong></div>
+                  <button class="button-like primary mobile-record-card__action" type="button">查看详情</button>
+                </article>
+              </div>
+              <div class="mobile-data-pager" aria-label="线索明细分页">
+                <button type="button" disabled>上一页</button>
+                <label class="mobile-data-pager__page"><span>第</span><input type="number" value="1" min="1" max="451" inputmode="numeric" aria-label="线索明细页码" /><span>/ 451</span></label>
+                <button type="button">下一页</button>
+              </div>
+            </main>
+            <nav class="mobile-nav-demo" aria-label="线索页一级导航">
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg><span>数据表现</span></span>
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="settlement" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-settlement"></use></svg><span>结算</span></span>
+              <span class="mobile-navigation-item active"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg><span>线索</span></span>
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg><span>后台</span></span>
+            </nav>
+          </div>
+
+          <div class="mobile-data-page mobile-data-page--orders">
+            <nav class="mobile-subnav-demo" aria-label="订单分佣二级导航">
+              <span class="mobile-subnav-item">全国门店榜单</span>
+              <span class="mobile-subnav-item">单店结算</span>
+              <span class="mobile-subnav-item active">订单明细</span>
+            </nav>
+            <main class="mobile-data-page__body">
+              <header class="mobile-data-page__heading">
+                <h3>订单明细</h3>
+                <span>共 18,304 条</span>
+              </header>
+              <button class="mobile-filter-trigger" type="button" aria-expanded="true" aria-controls="mobile-order-filter-panel">筛选条件<span>已展开</span></button>
+              <div id="mobile-order-filter-panel" class="mobile-filter-panel is-expanded" aria-label="订单筛选器展开态">
+                <div class="mobile-filter-field"><strong>销售门店</strong><span>精诚养车杭州店<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg></span></div>
+                <div class="mobile-filter-field"><strong>销售月份</strong><span>2026-06<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg></span></div>
+                <div class="mobile-filter-field"><strong>核销状态</strong><span>全部<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg></span></div>
+                <div class="mobile-filter-panel__actions">
+                  <button class="button-like" type="button">清空</button>
+                  <button class="button-like soft" type="button">收起</button>
+                </div>
+              </div>
+              <div class="mobile-record-list" aria-label="订单记录卡片">
+                <article class="mobile-record-card mobile-record-card--order">
+                  <div class="mobile-record-card__top"><span class="status-chip pending">履约中</span><strong>¥268.00</strong></div>
+                  <div class="mobile-record-card__product"><strong>小保养+机油滤芯等5个项目</strong><span>订单编号 111533703281303808</span></div>
+                  <div class="mobile-record-card__fact"><span>销售门店</span><strong>上海中山北路精诚养车店</strong></div>
+                  <div class="mobile-record-card__fact"><span>核销状态</span><strong>未核销</strong></div>
+                  <div class="mobile-record-card__fact"><span>支付时间</span><strong>2026-06-25 21:44</strong></div>
+                  <button class="button-like primary mobile-record-card__action" type="button">查看订单</button>
+                </article>
+                <article class="mobile-record-card mobile-record-card--order">
+                  <div class="mobile-record-card__top"><span class="status-chip success">已完成</span><strong>¥399.00</strong></div>
+                  <div class="mobile-record-card__product"><strong>纯电车型保养套餐</strong><span>订单编号 1115336775460500194</span></div>
+                  <div class="mobile-record-card__fact"><span>销售门店</span><strong>精诚养车杭州滨江旗舰店</strong></div>
+                  <div class="mobile-record-card__fact"><span>核销状态</span><strong>已核销</strong></div>
+                  <div class="mobile-record-card__fact"><span>支付时间</span><strong>2026-06-25 20:18</strong></div>
+                  <button class="button-like primary mobile-record-card__action" type="button">查看订单</button>
+                </article>
+              </div>
+              <div class="mobile-data-pager" aria-label="订单明细分页">
+                <button type="button">上一页</button>
+                <label class="mobile-data-pager__page"><span>第</span><input type="number" value="13" min="1" max="367" inputmode="numeric" aria-label="订单明细页码" /><span>/ 367</span></label>
+                <button type="button">下一页</button>
+              </div>
+            </main>
+            <nav class="mobile-nav-demo" aria-label="订单页一级导航">
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg><span>数据表现</span></span>
+              <span class="mobile-navigation-item active"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="settlement" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-settlement"></use></svg><span>结算</span></span>
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="cluesLine" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-cluesLine"></use></svg><span>线索</span></span>
+              <span class="mobile-navigation-item"><svg class="solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg><span>后台</span></span>
+            </nav>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h3>明细工作台规则</h3>
+          <ul class="rule-list" style="margin-top: 12px">
+            <li><strong>全局工作区：</strong>登录后的业务页面默认铺满 Shell 可用宽度，不再使用居中窄容器；具体阅读宽度由页面内卡片、表格或弹层自己控制。</li>
+            <li><strong>桌面端：</strong>明细工作台用于线索明细、订单明细这类高密度长表；在全宽基础上增加高度 <code>calc(100vh - topbar)</code> 和内部滚动。</li>
+            <li><strong>滚动归属：</strong>桌面外层页面不纵向滚动，只有结果表格区域上下滚动；移动端恢复自然页面滚动，卡片和分页按内容顺序排列。</li>
+            <li><strong>筛选区：</strong>桌面优先单行密度；移动端使用折叠筛选、已选条件摘要和明确的“收起”操作。</li>
+            <li><strong>分页：</strong>移动端只保留上一页、可编辑页码和下一页，不展示每页数量、首页、末页或独立跳转按钮。</li>
+            <li><strong>适用边界：</strong>看板、后台表单、解释型页面使用全宽普通页面容器，但不套固定高度明细工作台。</li>
+          </ul>
+        </div>
+      </section>
+
+      <section class="section" id="decisions">
+        <div class="section-head">
+          <div>
+            <h2>决策记录</h2>
+            <p>这张表记录 V0.2 候选版继承了什么、改变了什么，以及哪些内容仍需人工确认。</p>
+          </div>
+          <code>decision log</code>
+        </div>
+        <div class="table-preview-wrap">
+          <table class="decision-table">
+            <thead>
+              <tr>
+                <th>领域</th>
+                <th>当前值</th>
+                <th>状态</th>
+                <th>后续动作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>主色与状态色</td>
+                <td>brand #d63b00 / #fe5205 / #fff4ef；语义色保持 green / blue / amber / danger</td>
+                <td><span class="status-chip warning">V0.2 候选</span></td>
+                <td>人工确认后才允许迁移到业务运行时。</td>
+              </tr>
+              <tr>
+                <td>表头冻结</td>
+                <td>容器内 thead top 0；桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
+                <td><span class="status-chip success">已落地</span></td>
+                <td>长表优先放入明细工作台，避免外层页面和表格同时滚动。</td>
+              </tr>
+              <tr>
+                <td>明细工作台</td>
+                <td>桌面宽度 100%，高度 calc(100vh - topbar)，分页可见，表格区内部滚动</td>
+                <td><span class="status-chip success">已落地</span></td>
+                <td>适用于线索明细、订单明细；移动端恢复自然滚动和卡片/列表。</td>
+              </tr>
+              <tr>
+                <td>控件高度</td>
+                <td>桌面 38px，移动 44px</td>
+                <td><span class="status-chip pending">候选</span></td>
+                <td>逐步清理小于点击目标的文字按钮和 radio。</td>
+              </tr>
+              <tr>
+                <td>页面骨架</td>
+                <td>桌面样板只在宽屏展示；移动端使用 top subnav / collapsible filters / record cards / compact pager / four-item bottom nav</td>
+                <td><span class="status-chip success">V0.2 候选已落地</span></td>
+                <td>进入 DYDATA-4 后再迁移线索、订单和后台业务页面。</td>
+              </tr>
+              <tr>
+                <td>三级导航</td>
+                <td>页面标题下方的水平链接；2–5 项；桌面 38px，移动 44px；当前项为深橙文字和 2px 品牌橙下划线</td>
+                <td><span class="status-chip success">V0.2 候选已确认</span></td>
+                <td>只用于稳定 URL 子页面，不用于筛选、临时视图或第四级导航。</td>
+              </tr>
+              <tr>
+                <td>设计规范执行</td>
+                <td>tokens.v0.2-candidate.json + candidate-v0.2.html + pytest</td>
+                <td><span class="status-chip warning">In Review</span></td>
+                <td>等待 Linear 明确记录“确认进入阶段 2”。</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="section" id="enforcement">
+        <div class="section-head">
+          <div>
+            <h2>协作约束</h2>
+            <p>其他人参与开发时，也需要有明确边界，避免又回到散落硬编码。</p>
+          </div>
+          <code>guardrails</code>
+        </div>
+        <ul class="rule-list">
+          <li><strong>新增颜色：</strong>候选阶段必须同步更新 <code>tokens.v0.2-candidate.json</code> 和本页；通过确认前不得写入业务运行时。</li>
+          <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
+          <li><strong>新增长列表：</strong>桌面优先表格，移动端必须设计卡片或摘要，不把宽表直接塞进手机。</li>
+          <li><strong>新增明细长表：</strong>如果用户主要任务是筛选后逐行处理记录，桌面端使用明细工作台模板，保证分页可见且只让结果表格滚动。</li>
+          <li><strong>新增 sticky/fixed：</strong>必须声明对应 z-index 层级和导航避让间距，避免层叠互相遮挡。</li>
+          <li><strong>规范变更：</strong>先在完整候选 HTML 中确认，再把值迁移到产品 CSS 和测试。</li>
+          <li><strong>阶段门禁：</strong>完成文档和测试不等于允许迁移；必须在 Linear 明确记录“确认进入阶段 2”。</li>
+        </ul>
+      </section>
+    </main>
+    <script>
+      document.querySelectorAll("[data-theme-button]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const theme = button.dataset.themeButton;
+          document.body.dataset.theme = theme;
+          document.querySelectorAll("[data-theme-button]").forEach((item) => {
+            item.setAttribute(
+              "aria-pressed",
+              String(item.dataset.themeButton === theme),
+            );
+          });
+        });
+      });
+
+      const revealCurrentTertiaryItem = (nav) => {
+        const currentItem = nav.querySelector('[aria-current="page"]');
+        if (!currentItem) return;
+
+        const navRect = nav.getBoundingClientRect();
+        const currentRect = currentItem.getBoundingClientRect();
+        let targetLeft = nav.scrollLeft;
+
+        if (currentRect.left < navRect.left) {
+          targetLeft -= navRect.left - currentRect.left;
+        } else if (currentRect.right > navRect.right) {
+          targetLeft += currentRect.right - navRect.right;
+        } else {
+          return;
+        }
+
+        nav.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: "auto",
+        });
+      };
+
+      document.querySelectorAll(".tertiary-nav").forEach(revealCurrentTertiaryItem);
+
+      const tocLinks = Array.from(document.querySelectorAll(".spec-toc a"));
+      const tocSections = tocLinks
+        .map((link) => document.querySelector(link.getAttribute("href")))
+        .filter(Boolean);
+
+      const setCurrentSection = (sectionId) => {
+        tocLinks.forEach((link) => {
+          if (link.getAttribute("href") === `#${sectionId}`) {
+            link.setAttribute("aria-current", "true");
+            link.parentElement.scrollTo({
+              left: Math.max(0, link.offsetLeft - 12),
+              behavior: "smooth",
+            });
+          } else {
+            link.removeAttribute("aria-current");
+          }
+        });
+      };
+
+      if ("IntersectionObserver" in window) {
+        const sectionObserver = new IntersectionObserver(
+          (entries) => {
+            const visible = entries
+              .filter((entry) => entry.isIntersecting)
+              .sort((left, right) => right.intersectionRatio - left.intersectionRatio)[0];
+            if (visible) setCurrentSection(visible.target.id);
+          },
+          { rootMargin: "-88px 0px -64% 0px", threshold: [0, 0.2, 0.5] },
+        );
+        tocSections.forEach((section) => sectionObserver.observe(section));
+      }
+    </script>
+  </body>
+</html>

@@ -40,6 +40,8 @@ def _operation_actor(current_user: AuthContext) -> dict:
         "store_ids": current_user.store_ids,
         "user_id": current_user.user_id,
         "username": current_user.username,
+        "auth_type": current_user.auth_type,
+        "is_highest_admin": current_user.is_highest_admin,
     }
 
 
@@ -132,6 +134,8 @@ def clue_assignment_rounds(
                 "page_size": page_size,
                 "scope_store_ids": _scope_store_ids(current_user),
             }
+            ,
+            _operation_actor(current_user),
         )
     )
     return {
@@ -147,7 +151,11 @@ def clue_order_detail(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    payload = store.clue_order_detail(order_id, _scope_store_ids(current_user))
+    payload = store.clue_order_detail(
+        order_id,
+        _scope_store_ids(current_user),
+        _operation_actor(current_user),
+    )
     if payload is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -194,7 +202,12 @@ def clue_assignment_rounds_export(
     generated = generated_at().isoformat()
     filename = quote(f"clue-assignment-rounds-{generated[:10]}.csv")
     return Response(
-        content=with_utf8_bom(store.clue_assignment_rounds_export_csv(filters)),
+        content=with_utf8_bom(
+            store.clue_assignment_rounds_export_csv(
+                filters,
+                _operation_actor(current_user),
+            )
+        ),
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
@@ -246,17 +259,25 @@ def delete_clue_follow_up_record(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    if current_user.role != "admin":
+    if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="Highest administrator access required",
         )
     store = _require_available_store(store)
-    result_status, record = store.delete_clue_follow_up_record(follow_up_record_id)
+    result_status, record = store.delete_clue_follow_up_record(
+        follow_up_record_id,
+        _operation_actor(current_user),
+    )
     if result_status == "not_found":
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Follow-up record not found",
+        )
+    if result_status == "conflict":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Follow-up record has already been deleted",
         )
     data = ClueFollowUpResponseData(**(record or {}))
     store.session.commit()

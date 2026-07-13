@@ -1,5 +1,7 @@
 # Clue Allocation Center MVP Implementation Plan
 
+> **Superseded notice (2026-07-12):** 本计划中的抖音首轮归属、跟进结果、SLA、评分和再分配规则已被 `docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md` 替代。本文仅保留为历史实施记录，不得直接作为新分配引擎的开发依据。
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build the MVP "线索跟进分配中心" from `raw_douyin_clues`, including order-level clue center data, assignment-round details, admin reallocation-rule configuration, API contracts, and a read-only dashboard UI.

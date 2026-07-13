@@ -17,6 +17,14 @@
 - 当前已通过静态测试绑定运行时 CSS token、规范 HTML 必备区块、图标入口和文档说明。
 - 当前还不是完整组件库，也不会自动把所有 token 生成到业务 CSS；`design-tokens.css` 是 V0.1 的人工同步入口。
 
+## V0.2 候选视觉规范
+
+- `tokens.v0.2-candidate.json`：DYDATA-3 的机器可读候选色彩和按钮状态，只用于设计决策，不被业务运行时引用。
+- `candidate-v0.2.html`：V0.2 候选版所见即所得预览，包含完整色卡、按钮状态和典型业务组件样板。
+- V0.1 的 `tokens.json`、`index.html` 和 `apps/web/src/design-tokens.css` 继续代表当前生效版本。
+- 候选版不允许修改 `apps/web/src/design-tokens.css` 或业务页面配色；当前业务 UI 不会在本阶段切换。
+- 只有在 Linear 中明确记录“确认进入阶段 2”后，才允许处理 DYDATA-4，将候选色值提升为运行时 token。
+
 ## UI 改动流程
 
 1. 如果要新增或调整颜色、圆角、控件高度、表格冻结间距、图标风格，先改 `tokens.json`。
@@ -30,6 +38,8 @@
 python -m pytest tests/test_design_system_docs.py tests/test_design_system_enforcement.py tests/test_frontend_clue_center.py tests/test_frontend_app_icon.py
 npm --prefix apps/web run build
 ```
+
+候选视觉规范例外流程：先更新候选 token 和候选 HTML，人工确认后再按上述正式流程同步运行时 CSS 与业务 UI。
 
 ## 协作者规则
 

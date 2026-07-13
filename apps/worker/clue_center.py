@@ -22,6 +22,7 @@ from apps.api.dy_api.models import (
 FOLLOWED_RESULTS = {"success", "failed", "lost", "unreachable", "continue_following"}
 SUCCESS_RESULT = "success"
 GLOBAL_REASSIGN_RULE_KEY = "global"
+SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 PHONE_PAYLOAD_KEYS = (
     "telephone",
     "tel_addr",
@@ -84,7 +85,7 @@ def rebuild_clue_center(
     order_ids = set(grouped)
     sku_rules = _sku_rules(session, raw_clues)
     verifications = _verification_rows(session, order_ids)
-    existing_rounds = _existing_rounds(session, order_ids)
+    existing_rounds = _existing_legacy_rounds(session, order_ids)
     existing_center_orders = _existing_center_orders(session, order_ids)
     encrypted_phone_plain_values = _encrypted_phone_plain_values(
         grouped,
@@ -105,6 +106,7 @@ def rebuild_clue_center(
                 assignment_round_id=assignment_round_id,
                 order_id=order_id,
                 round_no=1,
+                execution_mode="legacy",
                 follow_result="pending",
                 created_at=now,
                 updated_at=now,
@@ -116,6 +118,7 @@ def rebuild_clue_center(
         round_row.assignment_round_id = assignment_round_id
         round_row.order_id = order_id
         round_row.round_no = 1
+        round_row.execution_mode = "legacy"
         round_row.assigned_at = assigned_at
         round_row.assigned_at_source = "clue_create_time_detail"
         round_row.assigned_store_id = _clean(canonical.follow_life_account_id)
@@ -157,16 +160,6 @@ def rebuild_clue_center(
         center_order.source_clue_ids = [_clue_identifier(clue) for clue in sorted_clues]
         center_order.source_clue_count = len(sorted_clues)
         center_order.canonical_clue_id = _clean(canonical.clue_id)
-        center_order.lead_status = _lead_status(round_row)
-        center_order.current_assignment_round_id = assignment_round_id
-        center_order.current_round_no = 1
-        center_order.current_round_status = round_row.round_status
-        center_order.assigned_at = assigned_at
-        center_order.assigned_at_source = "clue_create_time_detail"
-        center_order.assigned_store_id = round_row.assigned_store_id
-        center_order.assigned_store_name = round_row.assigned_store_name
-        center_order.assigned_city = _clean(canonical.auto_city_name)
-        center_order.assigned_province = _clean(canonical.auto_province_name)
         phone_plain, phone_source = _first_clue_phone(sorted_clues, encrypted_phone_plain_values)
         if not phone_plain:
             phone_plain = normalize_phone(center_order.phone_plain)
@@ -182,15 +175,26 @@ def rebuild_clue_center(
         center_order.product_name = _clean(canonical.product_name)
         center_order.product_type = product_rule.product_type if product_rule else None
         center_order.author_nickname = _clean(canonical.author_nickname)
-        center_order.follow_result = round_row.follow_result
-        center_order.is_followed = round_row.is_followed
-        center_order.is_follow_success = round_row.is_follow_success
-        center_order.verified_store_id = round_row.verified_store_id
-        center_order.verified_store_name = round_row.verified_store_name
-        center_order.verified_at = round_row.verified_at
-        center_order.is_self_store_verified = round_row.is_self_store_verified
-        center_order.expires_at = expires_at
-        center_order.reassign_reason = round_row.reassign_reason
+        if not _has_current_self_owned_assignment(session, center_order):
+            center_order.lead_status = _lead_status(round_row)
+            center_order.current_assignment_round_id = assignment_round_id
+            center_order.current_round_no = 1
+            center_order.current_round_status = round_row.round_status
+            center_order.assigned_at = assigned_at
+            center_order.assigned_at_source = "clue_create_time_detail"
+            center_order.assigned_store_id = round_row.assigned_store_id
+            center_order.assigned_store_name = round_row.assigned_store_name
+            center_order.assigned_city = _clean(canonical.auto_city_name)
+            center_order.assigned_province = _clean(canonical.auto_province_name)
+            center_order.follow_result = round_row.follow_result
+            center_order.is_followed = round_row.is_followed
+            center_order.is_follow_success = round_row.is_follow_success
+            center_order.verified_store_id = round_row.verified_store_id
+            center_order.verified_store_name = round_row.verified_store_name
+            center_order.verified_at = round_row.verified_at
+            center_order.is_self_store_verified = round_row.is_self_store_verified
+            center_order.expires_at = expires_at
+            center_order.reassign_reason = round_row.reassign_reason
         center_order.updated_at = now
 
     session.flush()
@@ -365,13 +369,21 @@ def _sku_rules(session: Session, raw_clues: list[RawDouyinClue]) -> dict[str, Di
     return {row.sku_id: row for row in rows}
 
 
-def _existing_rounds(session: Session, order_ids: set[str]) -> dict[str, ClueAssignmentRound]:
+def _existing_legacy_rounds(session: Session, order_ids: set[str]) -> dict[str, ClueAssignmentRound]:
     rows = session.scalars(
         select(ClueAssignmentRound)
         .where(ClueAssignmentRound.order_id.in_(order_ids))
         .where(ClueAssignmentRound.round_no == 1)
+        .where(ClueAssignmentRound.execution_mode == "legacy")
     ).all()
     return {row.order_id: row for row in rows}
+
+
+def _has_current_self_owned_assignment(session: Session, center_order: ClueCenterOrder) -> bool:
+    if not center_order.current_assignment_round_id:
+        return False
+    round_row = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+    return round_row is not None and round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
 
 
 def _existing_center_orders(session: Session, order_ids: set[str]) -> dict[str, ClueCenterOrder]:

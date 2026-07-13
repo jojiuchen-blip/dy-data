@@ -23,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
     ClueCenterOrder,
     ClueFollowUpRecord,
+    ClueMasterLead,
     DimStore,
     RawDouyinClue,
     User,
@@ -183,6 +184,41 @@ def _seed_clue_center(session: Session) -> None:
     session.commit()
 
 
+def _promote_order_two_to_self_owned_round(session: Session) -> None:
+    """Make the mutable fixture use the M2 authoritative lead/round path."""
+
+    order = session.get(ClueCenterOrder, "order-2")
+    round_row = session.get(ClueAssignmentRound, "order-2-1")
+    assert order is not None
+    assert round_row is not None
+    lead = ClueMasterLead(
+        lead_key="lead-order-2",
+        source_clue_row_key="raw-order-2",
+        source_identity_key="identity-order-2",
+        canonical_clue_id="clue-2",
+        order_id="order-2",
+        raw_order_status="履约中",
+        normalized_order_status="active",
+        status_source="test",
+        lifecycle_status="active",
+        pool_location="store_follow_up_pool",
+        allocation_state="assigned",
+        current_assignment_round_id="order-2-1",
+        first_seen_at=_dt(1),
+        last_seen_at=_dt(1),
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    round_row.lead_key = lead.lead_key
+    round_row.execution_mode = "formal"
+    round_row.strategy_type = "city_fallback"
+    round_row.auto_expiry_enabled = True
+    round_row.first_follow_up_sla_hours = 24
+    round_row.protection_days = 7
+    session.add(lead)
+    session.commit()
+
+
 def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> None:
     _seed_clue_center(db_session)
     _login(client)
@@ -274,6 +310,95 @@ def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
     assert rows[0]["phone_plain"] == "13912345678"
     assert rows[0]["phone_masked"] == "139****5678"
     assert "order-2-2" not in response.text
+
+
+def test_headquarters_lead_blocks_legacy_phone_reveal_and_plain_export(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        ClueMasterLead(
+            lead_key="lead-order-2-headquarters",
+            source_clue_row_key="raw-order-2-headquarters",
+            source_identity_key="identity-order-2-headquarters",
+            canonical_clue_id="clue-2",
+            order_id="order-2",
+            raw_order_status="履约中",
+            normalized_order_status="active",
+            status_source="test",
+            lifecycle_status="active",
+            pool_location="headquarters_pool",
+            allocation_state="headquarters_pool",
+            first_seen_at=_dt(1),
+            last_seen_at=_dt(1),
+            created_at=_dt(1),
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    phone = client.get("/api/v1/clues/orders/order-2/phone")
+    exported = client.get(
+        "/api/v1/clues/assignment-rounds/export",
+        params={"assigned_store_id": "store-1", "store_display_status": "待跟进"},
+    )
+
+    assert phone.status_code == 404
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+    assert rows[0]["phone_plain"] == ""
+
+
+def test_store_cannot_list_view_or_export_a_lead_after_it_enters_headquarters_pool(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add_all(
+        [
+            ClueMasterLead(
+                lead_key="lead-order-2-headquarters-store-scope",
+                source_clue_row_key="raw-order-2-headquarters-store-scope",
+                source_identity_key="identity-order-2-headquarters-store-scope",
+                canonical_clue_id="clue-2",
+                order_id="order-2",
+                raw_order_status="履约中",
+                normalized_order_status="active",
+                status_source="test",
+                lifecycle_status="active",
+                pool_location="headquarters_pool",
+                allocation_state="headquarters",
+                first_seen_at=_dt(1),
+                last_seen_at=_dt(1),
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            User(
+                user_id="headquarters-scope-store-user",
+                username="headquarters-scope-store",
+                external_account_id="store-1",
+                display_name="Store One User",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("headquarters-scope-password"),
+            ),
+            UserStoreScope(user_id="headquarters-scope-store-user", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "headquarters-scope-store", "headquarters-scope-password")
+
+    rounds = client.get("/api/v1/clues/assignment-rounds")
+    detail = client.get("/api/v1/clues/orders/order-2")
+    exported = client.get("/api/v1/clues/assignment-rounds/export")
+
+    assert rounds.status_code == 200
+    assert {row["order_id"] for row in rounds.json()["data"]["rows"]} == {"order-1"}
+    assert detail.status_code == 404
+    assert exported.status_code == 200
+    rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+    assert {row["order_id"] for row in rows} == {"order-1"}
 
 
 def test_clue_filters_include_store_location_and_verification_status(
@@ -460,10 +585,37 @@ def test_clue_order_detail_returns_all_assignment_rounds(
     assert payload["follow_up_records"] == []
 
 
+def test_clue_order_detail_serializes_legacy_continue_following_history(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(
+        ClueFollowUpRecord(
+            follow_up_record_id="legacy-continue-following",
+            order_id="order-2",
+            assignment_round_id="order-2-1",
+            round_no=1,
+            assigned_store_id="store-1",
+            follow_result="continue_following",
+            note="Legacy history value",
+            created_at=_dt(1, 16),
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/clues/orders/order-2")
+
+    assert response.status_code == 200
+    records = response.json()["data"]["follow_up_records"]
+    assert records[0]["follow_result"] == "continue_following"
+
+
 def test_admin_can_record_current_follow_up_and_detail_returns_history(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
     _login(client)
 
     response = client.post(
@@ -494,12 +646,12 @@ def test_admin_can_record_current_follow_up_and_detail_returns_history(
     assert round_row is not None
     assert order.follow_result == "unreachable"
     assert order.is_followed is True
-    assert order.is_follow_success is False
+    assert order.is_follow_success is True
     assert order.current_round_status == "active_followed"
     assert order.lead_status == "active"
     assert round_row.follow_result == "unreachable"
     assert round_row.is_followed is True
-    assert round_row.is_follow_success is False
+    assert round_row.is_follow_success is True
     assert round_row.round_status == "active_followed"
     assert round_row.followed_at is not None
 
@@ -540,6 +692,7 @@ def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
     _login(client)
     created = client.post(
         "/api/v1/clues/orders/order-2/follow-up",
@@ -558,7 +711,10 @@ def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
     payload = deleted.json()["data"]
     assert payload["follow_up_record_id"] == record_id
     assert payload["follow_result"] == "unreachable"
-    assert db_session.get(ClueFollowUpRecord, record_id) is None
+    stored_record = db_session.get(ClueFollowUpRecord, record_id)
+    assert stored_record is not None
+    assert stored_record.deleted_at is not None
+    assert stored_record.deleted_by_username == "system-admin"
     db_session.expire_all()
     order = db_session.get(ClueCenterOrder, "order-2")
     round_row = db_session.get(ClueAssignmentRound, "order-2-1")
@@ -577,7 +733,14 @@ def test_admin_can_delete_follow_up_record_and_summary_rolls_back(
 
     detail = client.get("/api/v1/clues/orders/order-2")
     assert detail.status_code == 200
-    assert detail.json()["data"]["follow_up_records"] == []
+    history = detail.json()["data"]["follow_up_records"]
+    assert len(history) == 1
+    assert history[0]["is_deleted"] is True
+    assert history[0]["deleted_by_username"] == "system-admin"
+    assert history[0]["deletion_reason"] == "reversed_by_highest_admin"
+
+    second_delete = client.delete(f"/api/v1/clues/follow-up-records/{record_id}")
+    assert second_delete.status_code == 409
 
 
 def test_store_cannot_delete_follow_up_record(
@@ -622,10 +785,53 @@ def test_store_cannot_delete_follow_up_record(
     assert db_session.get(ClueFollowUpRecord, "record-store-delete-forbidden") is not None
 
 
+def test_database_admin_can_write_follow_up_but_cannot_soft_delete(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
+    db_session.add_all(
+        [
+            User(
+                user_id="ordinary-admin",
+                username="ordinary-admin",
+                external_account_id="ordinary-admin",
+                display_name="Ordinary Admin",
+                role="admin",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("ordinary-admin-secret"),
+            ),
+            ClueFollowUpRecord(
+                follow_up_record_id="ordinary-admin-record",
+                order_id="order-2",
+                assignment_round_id="order-2-1",
+                round_no=1,
+                assigned_store_id="store-1",
+                follow_result="unreachable",
+                created_at=_dt(1, 14),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "ordinary-admin", "ordinary-admin-secret")
+
+    follow_up = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={"assignment_round_id": "order-2-1", "follow_result": "appointment"},
+    )
+    deleted = client.delete("/api/v1/clues/follow-up-records/ordinary-admin-record")
+
+    assert follow_up.status_code == 200
+    assert deleted.status_code == 403
+    assert db_session.get(ClueFollowUpRecord, "ordinary-admin-record").deleted_at is None
+
+
 def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
     _login(client)
 
     response = client.post(
@@ -645,47 +851,30 @@ def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(
     assert order.follow_result == "lost"
     assert order.is_followed is True
     assert order.is_follow_success is False
-    assert order.current_round_status == "failed_pending_reassign"
+    assert order.current_round_status == "headquarters"
     assert order.lead_status == "pending_reassign"
-    assert order.reassign_reason == "follow_lost"
-    assert round_row.round_status == "failed_pending_reassign"
+    assert order.reassign_reason == "headquarters_pool"
+    assert round_row.round_status == "closed_reassigned"
     assert round_row.reassign_reason == "follow_lost"
 
     phone = client.get("/api/v1/clues/orders/order-2/phone")
     assert phone.status_code == 404
 
 
-def test_follow_up_conflicts_if_current_round_changes_after_precheck(
-    monkeypatch: pytest.MonkeyPatch, db_session: Session
+def test_legacy_round_rejects_follow_up_without_mutating_state(
+    db_session: Session,
 ) -> None:
     _seed_clue_center(db_session)
     store = data_module.DashboardDataStore(db_session)
-    original_requested_round = store._requested_operation_round
-
-    def stale_requested_round(order_id: str, assignment_round_id: str):
-        row = original_requested_round(order_id, assignment_round_id)
-        order = db_session.get(ClueCenterOrder, "order-2")
-        round_row = db_session.get(ClueAssignmentRound, "order-2-1")
-        assert order is not None
-        assert round_row is not None
-        order.lead_status = "pending_reassign"
-        order.current_round_status = "failed_pending_reassign"
-        order.reassign_reason = "follow_lost"
-        round_row.round_status = "failed_pending_reassign"
-        round_row.reassign_reason = "follow_lost"
-        db_session.flush()
-        return row
-
-    monkeypatch.setattr(store, "_requested_operation_round", stale_requested_round)
 
     result_status, record = store.save_clue_follow_up(
         "order-2",
         {
-            "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+                "assignment_round_id": "order-2-1",
+                "follow_result": "appointment",
             "note": "stale follow-up",
         },
-        {"role": "admin", "username": "system-admin", "user_id": "admin"},
+        {"role": "admin", "username": "system-admin", "user_id": "admin", "is_highest_admin": True},
     )
 
     assert result_status == "conflict"
@@ -704,73 +893,16 @@ def test_follow_up_conflicts_if_current_round_changes_after_precheck(
     round_row = db_session.get(ClueAssignmentRound, "order-2-1")
     assert order is not None
     assert round_row is not None
-    assert order.lead_status == "pending_reassign"
-    assert order.current_round_status == "failed_pending_reassign"
+    assert order.lead_status == "active"
+    assert order.current_round_status == "active_unfollowed"
     assert order.follow_result == "pending"
-    assert round_row.round_status == "failed_pending_reassign"
+    assert round_row.round_status == "active_unfollowed"
     assert round_row.follow_result == "pending"
-
-
-def test_follow_up_conflicts_if_same_round_is_followed_after_precheck(
-    monkeypatch: pytest.MonkeyPatch, db_session: Session
-) -> None:
-    _seed_clue_center(db_session)
-    store = data_module.DashboardDataStore(db_session)
-    original_requested_round = store._requested_operation_round
-
-    def stale_requested_round(order_id: str, assignment_round_id: str):
-        row = original_requested_round(order_id, assignment_round_id)
-        order = db_session.get(ClueCenterOrder, "order-2")
-        round_row = db_session.get(ClueAssignmentRound, "order-2-1")
-        assert order is not None
-        assert round_row is not None
-        order.current_round_status = "active_followed"
-        order.follow_result = "unreachable"
-        order.is_followed = True
-        round_row.round_status = "active_followed"
-        round_row.follow_result = "unreachable"
-        round_row.is_followed = True
-        db_session.flush()
-        return row
-
-    monkeypatch.setattr(store, "_requested_operation_round", stale_requested_round)
-
-    result_status, record = store.save_clue_follow_up(
-        "order-2",
-        {
-            "assignment_round_id": "order-2-1",
-            "follow_result": "success",
-            "note": "stale success",
-        },
-        {"role": "admin", "username": "system-admin", "user_id": "admin"},
-    )
-
-    assert result_status == "conflict"
-    assert record is None
-    assert db_session.execute(
-        text(
-            """
-            SELECT COUNT(*) FROM clue_follow_up_records
-            WHERE order_id = :order_id
-            """
-        ),
-        {"order_id": "order-2"},
-    ).scalar_one() == 0
-    db_session.expire_all()
-    order = db_session.get(ClueCenterOrder, "order-2")
-    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
-    assert order is not None
-    assert round_row is not None
-    assert order.current_round_status == "active_followed"
-    assert order.follow_result == "unreachable"
-    assert round_row.round_status == "active_followed"
-    assert round_row.follow_result == "unreachable"
-
-
 def test_store_can_record_current_scoped_follow_up(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
     db_session.add_all(
         [
             User(
@@ -793,7 +925,7 @@ def test_store_can_record_current_scoped_follow_up(
         "/api/v1/clues/orders/order-2/follow-up",
         json={
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Reached customer.",
         },
     )
@@ -806,10 +938,65 @@ def test_store_can_record_current_scoped_follow_up(
     round_row = db_session.get(ClueAssignmentRound, "order-2-1")
     assert order is not None
     assert round_row is not None
-    assert order.follow_result == "success"
+    assert order.follow_result == "appointment"
     assert order.is_follow_success is True
     assert order.lead_status == "active"
     assert round_row.round_status == "active_followed"
+
+
+def test_further_follow_up_is_counted_as_successful_follow_up(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
+    _login(client)
+
+    response = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={
+            "assignment_round_id": "order-2-1",
+            "follow_result": "further_follow_up",
+            "note": "Customer asked for a later call.",
+        },
+    )
+
+    assert response.status_code == 200
+    order = db_session.get(ClueCenterOrder, "order-2")
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert order is not None
+    assert round_row is not None
+    assert order.is_followed is True
+    assert order.is_follow_success is True
+    assert round_row.is_followed is True
+    assert round_row.is_follow_success is True
+
+
+def test_store_change_request_closes_self_owned_round_for_reassignment(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _promote_order_two_to_self_owned_round(db_session)
+    _login(client)
+
+    response = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={
+            "assignment_round_id": "order-2-1",
+            "follow_result": "request_store_change",
+            "note": "Customer requested another store.",
+        },
+    )
+
+    assert response.status_code == 200
+    order = db_session.get(ClueCenterOrder, "order-2")
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert order is not None
+    assert round_row is not None
+    assert order.is_follow_success is False
+    assert order.lead_status == "pending_reassign"
+    assert order.reassign_reason == "headquarters_pool"
+    assert round_row.round_status == "closed_reassigned"
+    assert round_row.reassign_reason == "request_store_change"
 
 
 def test_viewer_cannot_record_follow_up(
@@ -835,7 +1022,7 @@ def test_viewer_cannot_record_follow_up(
         "/api/v1/clues/orders/order-2/follow-up",
         json={
             "assignment_round_id": "order-2-1",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Viewer should not save.",
         },
     )
@@ -1161,11 +1348,11 @@ def test_store_account_sees_only_own_round_but_can_open_full_order_detail(
         "/api/v1/clues/orders/order-1/follow-up",
         json={
             "assignment_round_id": "order-1-2",
-            "follow_result": "success",
+            "follow_result": "appointment",
             "note": "Historical store should not save current round.",
         },
     )
-    assert follow_up.status_code == 403
+    assert follow_up.status_code == 409
 
     forbidden = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-2")
     assert forbidden.status_code == 200

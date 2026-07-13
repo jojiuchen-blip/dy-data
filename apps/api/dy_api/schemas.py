@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ApiMeta(BaseModel):
@@ -36,6 +36,7 @@ class AdminUser(BaseModel):
     status: str = "active"
     is_initialized: bool = True
     store_ids: list[str] = Field(default_factory=list)
+    is_highest_admin: bool = False
 
 
 class AccountInitializeRequest(BaseModel):
@@ -414,10 +415,17 @@ class ClueAssignmentRoundRow(BaseModel):
     current_assigned_store_id: str | None = None
     current_assigned_store_name: str | None = None
     is_current_round: bool = False
+    can_operate_current_round: bool = False
     round_effective_status: Literal["active", "inactive"] = "inactive"
     round_status: str
     assigned_at: datetime | None = None
     expires_at: datetime | None = None
+    first_sla_expires_at: datetime | None = None
+    protection_started_at: datetime | None = None
+    protection_expires_at: datetime | None = None
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
     remaining_reassign_seconds: int | None = None
     assigned_store_id: str | None = None
     assigned_store_name: str | None = None
@@ -442,7 +450,7 @@ class ClueAssignmentRoundData(BaseModel):
 
 class ClueFollowUpRequest(BaseModel):
     assignment_round_id: str
-    follow_result: Literal["unreachable", "lost", "success"]
+    follow_result: Literal["appointment", "further_follow_up", "lost", "unreachable", "request_store_change"]
     note: str | None = None
 
     @field_validator("assignment_round_id")
@@ -466,11 +474,25 @@ class ClueFollowUpRecordRow(BaseModel):
     assignment_round_id: str
     round_no: int
     assigned_store_id: str | None = None
-    follow_result: Literal["unreachable", "lost", "success"]
+    follow_result: Literal[
+        "appointment",
+        "further_follow_up",
+        "lost",
+        "unreachable",
+        "request_store_change",
+        "continue_following",
+        "success",
+        "failed",
+    ]
     note: str | None = None
     operator_user_id: str | None = None
     operator_username: str | None = None
     created_at: datetime
+    is_deleted: bool = False
+    deleted_at: datetime | None = None
+    deleted_by_user_id: str | None = None
+    deleted_by_username: str | None = None
+    deletion_reason: str | None = None
 
 
 class ClueFollowUpResponseData(ClueFollowUpRecordRow):
@@ -659,6 +681,396 @@ class Pagination(BaseModel):
     page_size: int
     total: int
     total_pages: int
+
+
+class ClueMasterLeadRow(BaseModel):
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    raw_order_status: str | None = None
+    normalized_order_status: str
+    lifecycle_status: str
+    pool_location: str | None = None
+    allocation_state: str
+    current_assignment_round_id: str | None = None
+    allocation_cycle_id: str | None = None
+    ended_without_assignment: bool = False
+    closed_at: datetime | None = None
+    closed_reason: str | None = None
+    first_seen_at: datetime | None = None
+    last_seen_at: datetime | None = None
+    anchor_poi_id: str | None = None
+    anchor_store_id: str | None = None
+    anchor_source: str | None = None
+    anchor_unavailable_reason: str | None = None
+    anchor_province: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+
+
+class ClueMasterLeadData(BaseModel):
+    rows: list[ClueMasterLeadRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationDecisionRow(BaseModel):
+    decision_id: str
+    lead_key: str
+    order_id: str | None = None
+    rule_id: str | None = None
+    rule_version_id: str | None = None
+    scope_type: str | None = None
+    scope_key: str | None = None
+    strategy_type: str
+    execution_order: int | None = None
+    allocation_cycle_id: str | None = None
+    execution_mode: str
+    assignment_round_id: str | None = None
+    round_no: int | None = None
+    selected_store_id: str | None = None
+    selected_store_name: str | None = None
+    decision_status: str
+    reason: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+    actor: str | None = None
+    executed_at: datetime
+
+
+class ClueAllocationDecisionData(BaseModel):
+    rows: list[ClueAllocationDecisionRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationEligibleLeadRow(BaseModel):
+    lead_key: str
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    allocation_state: str
+    pool_location: str | None = None
+    anchor_store_id: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+    updated_at: datetime
+
+
+class ClueAllocationEligibleLeadData(BaseModel):
+    rows: list[ClueAllocationEligibleLeadRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueHeadquartersPoolEntryRow(BaseModel):
+    headquarters_pool_entry_id: str
+    lead_key: str
+    canonical_clue_id: str | None = None
+    order_id: str | None = None
+    status: str
+    reason: str
+    entered_at: datetime
+    closed_at: datetime | None = None
+    close_reason: str | None = None
+    anchor_store_id: str | None = None
+    anchor_city: str | None = None
+    anchor_city_code: str | None = None
+    source_assignment_round_id: str | None = None
+    source_decision_id: str | None = None
+    source_rule_version_id: str | None = None
+    allocation_cycle_id: str | None = None
+
+
+class ClueHeadquartersPoolData(BaseModel):
+    rows: list[ClueHeadquartersPoolEntryRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationCycleRow(BaseModel):
+    allocation_cycle_id: str
+    cycle_type: str
+    execution_mode: str
+    status: str
+    parent_cycle_id: str | None = None
+    selected_lead_keys: list[str] = Field(default_factory=list)
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    planned_impact: dict[str, Any] = Field(default_factory=dict)
+    actual_impact: dict[str, Any] = Field(default_factory=dict)
+    actor: str | None = None
+    privileged_confirmation: bool = False
+    created_at: datetime
+    executed_at: datetime | None = None
+    completed_at: datetime | None = None
+
+
+class ClueAllocationCycleData(BaseModel):
+    rows: list[ClueAllocationCycleRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationAuditLogRow(BaseModel):
+    audit_log_id: str
+    event_type: str
+    allocation_cycle_id: str | None = None
+    actor: str | None = None
+    privileged_confirmation: bool = False
+    before_snapshot: dict[str, Any] = Field(default_factory=dict)
+    after_snapshot: dict[str, Any] = Field(default_factory=dict)
+    detail: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class ClueAllocationAuditLogData(BaseModel):
+    rows: list[ClueAllocationAuditLogRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationCyclePreviewRequest(BaseModel):
+    operation: Literal["trial", "rebuild"] = "trial"
+    lead_keys: list[str] = Field(default_factory=list, max_length=500)
+    source_cycle_id: str | None = Field(default=None, max_length=256)
+    privileged_confirmation: bool = False
+
+    @field_validator("lead_keys")
+    def normalize_preview_lead_keys(cls, values: list[str]) -> list[str]:
+        return sorted({value.strip() for value in values if value.strip()})
+
+    @model_validator(mode="after")
+    def validate_preview_target(self) -> "ClueAllocationCyclePreviewRequest":
+        if self.operation == "trial" and not self.lead_keys:
+            raise ValueError("trial preview requires at least one lead key")
+        if self.operation == "rebuild" and not (self.source_cycle_id or "").strip():
+            raise ValueError("rebuild preview requires a source cycle")
+        return self
+
+
+class ClueAllocationCycleRequest(BaseModel):
+    lead_keys: list[str] = Field(min_length=1, max_length=500)
+    preview_token: str | None = Field(default=None, max_length=4096)
+    confirm: bool = False
+    privileged_confirmation: bool = False
+
+    @field_validator("lead_keys")
+    def normalize_lead_keys(cls, values: list[str]) -> list[str]:
+        normalized = sorted({value.strip() for value in values if value.strip()})
+        if not normalized:
+            raise ValueError("at least one lead key is required")
+        return normalized
+
+
+class ClueAllocationCycleRebuildRequest(BaseModel):
+    source_cycle_id: str = Field(min_length=1, max_length=256)
+    preview_token: str | None = Field(default=None, max_length=4096)
+    confirm: bool = False
+    privileged_confirmation: bool = False
+
+    @field_validator("source_cycle_id")
+    def normalize_source_cycle_id(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("source cycle is required")
+        return normalized
+
+
+class ClueAllocationCyclePreviewData(BaseModel):
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    lead_keys: list[str] = Field(default_factory=list)
+    summary: dict[str, int] = Field(default_factory=dict)
+    operation: str = "trial"
+    source_cycle_id: str | None = None
+    preview_token: str
+    preview_expires_at: datetime
+
+
+class ClueAllocationCycleExecutionData(BaseModel):
+    allocation_cycle_id: str
+    cycle_type: str
+    execution_mode: str
+    status: str
+    requested_lead_count: int = 0
+    active_lead_count: int = 0
+    privileged_confirmation: bool = False
+    parent_cycle_id: str | None = None
+    summary: dict[str, int] = Field(default_factory=dict)
+
+
+class StoreScoreSnapshotRunData(BaseModel):
+    snapshot_run_id: str
+    snapshot_date: date
+    run_mode: str
+    window_start: datetime
+    window_end: datetime
+    candidate_store_count: int = 0
+    snapshot_count: int = 0
+    triggered_by: str | None = None
+    computed_at: datetime
+
+
+class StoreScoreSnapshotRow(BaseModel):
+    store_id: str
+    city_code: str | None = None
+    conversion_numerator: int = 0
+    conversion_denominator: int = 0
+    conversion_rate: float = 0
+    conversion_value_source: str
+    follow_24h_numerator: int = 0
+    follow_24h_denominator: int = 0
+    follow_24h_rate: float = 0
+    follow_24h_value_source: str
+    store_weight: float = 1
+    composite_score: float = 0
+
+
+class StoreScoreSnapshotData(BaseModel):
+    run: StoreScoreSnapshotRunData | None = None
+    rows: list[StoreScoreSnapshotRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class StoreScoreRefreshRequest(BaseModel):
+    lookback_days: int = Field(default=30, ge=1, le=365)
+    min_samples: int = Field(default=20, ge=1, le=10000)
+
+
+class StoreScoreRefreshResult(BaseModel):
+    snapshot_run_id: str
+    snapshot_count: int = 0
+
+
+class ClueAllocationRuleScopeInput(BaseModel):
+    scope_type: Literal["global", "city", "store_group", "anchor_store"]
+    city_code: str | None = Field(default=None, max_length=128)
+    store_group_id: str | None = Field(default=None, max_length=256)
+    anchor_store_id: str | None = Field(default=None, max_length=256)
+
+    @model_validator(mode="after")
+    def validate_scope_target(self) -> "ClueAllocationRuleScopeInput":
+        targets = {
+            "city": self.city_code,
+            "store_group": self.store_group_id,
+            "anchor_store": self.anchor_store_id,
+        }
+        if self.scope_type == "global":
+            if any(target.strip() for target in targets.values() if target):
+                raise ValueError("global scope cannot include a target")
+            return self
+        selected_target = targets[self.scope_type]
+        if not selected_target or not selected_target.strip():
+            raise ValueError(f"{self.scope_type} scope requires its target identifier")
+        if any(target.strip() for name, target in targets.items() if name != self.scope_type and target):
+            raise ValueError("a logical rule scope can only declare one target")
+        return self
+
+
+class ClueAllocationRuleScopeData(BaseModel):
+    scope_type: Literal["global", "city", "store_group", "anchor_store"]
+    city_code: str | None = None
+    store_group_id: str | None = None
+    anchor_store_id: str | None = None
+
+
+class ClueAllocationRuleCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    scope: ClueAllocationRuleScopeInput
+
+    @field_validator("name")
+    def normalize_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name is required")
+        return normalized
+
+
+class ClueAllocationStrategyConfigInput(BaseModel):
+    strategy_type: Literal["sales_store_priority", "nearby_city_optimization", "city_fallback"]
+    enabled: bool
+    execution_order: int
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClueAllocationStrategyConfigData(BaseModel):
+    strategy_type: Literal["sales_store_priority", "nearby_city_optimization", "city_fallback"]
+    enabled: bool
+    execution_order: int
+    params: dict[str, Any] = Field(default_factory=dict)
+
+
+class ClueAllocationRuleVersionWrite(BaseModel):
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
+    conversion_weight: float | None = None
+    follow_24h_weight: float | None = None
+    lookback_days: int | None = None
+    min_samples: int | None = None
+    strategy_configs: list[ClueAllocationStrategyConfigInput] = Field(default_factory=list, max_length=10)
+
+
+class ClueAllocationRuleVersionData(BaseModel):
+    rule_version_id: str
+    rule_id: str
+    version_no: int
+    status: Literal["draft", "published", "retired"]
+    auto_expiry_enabled: bool | None = None
+    first_follow_up_sla_hours: int | None = None
+    protection_days: int | None = None
+    conversion_weight: float | None = None
+    follow_24h_weight: float | None = None
+    lookback_days: int | None = None
+    min_samples: int | None = None
+    strategy_configs: list[ClueAllocationStrategyConfigData] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    published_at: datetime | None = None
+    retired_at: datetime | None = None
+
+
+class ClueAllocationRuleData(BaseModel):
+    rule_id: str
+    name: str
+    scope: ClueAllocationRuleScopeData
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClueAllocationRuleListData(BaseModel):
+    rows: list[ClueAllocationRuleData] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationRuleDetailData(BaseModel):
+    rule: ClueAllocationRuleData
+    versions: list[ClueAllocationRuleVersionData] = Field(default_factory=list)
+
+
+class ClueAllocationRuleVersionDeleteData(BaseModel):
+    rule_version_id: str
+    deleted: bool
+
+
+class ClueStoreGroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    member_store_ids: list[str] = Field(default_factory=list, max_length=500)
+
+    @field_validator("name")
+    def normalize_group_name(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("name is required")
+        return normalized
+
+
+class ClueStoreGroupMembersUpdate(BaseModel):
+    member_store_ids: list[str] = Field(default_factory=list, max_length=500)
+
+
+class ClueStoreGroupData(BaseModel):
+    store_group_id: str
+    name: str
+    member_store_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+
+
+class ClueStoreGroupListData(BaseModel):
+    rows: list[ClueStoreGroupData] = Field(default_factory=list)
 
 
 class OrderDetailsData(BaseModel):

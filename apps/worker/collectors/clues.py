@@ -91,6 +91,8 @@ def _collect_clue_window(
             order_status=text(first(row, "order_status")),
             follow_life_account_id=text(first(row, "follow_life_account_id")),
             follow_life_account_name=text(first(row, "follow_life_account_name")),
+            follow_poi_id=text(first(row, "follow_poi_id")),
+            intention_poi_id=text(first(row, "intention_poi_id")),
             auto_city_name=text(first(row, "auto_city_name")),
             auto_province_name=text(first(row, "auto_province_name")),
             author_nickname=text(first(row, "author_nickname")),
@@ -187,4 +189,3 @@ def _split_window(
         windows.append((current, window_end))
         current = window_end
     return windows
-

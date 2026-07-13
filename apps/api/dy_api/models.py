@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -122,6 +123,8 @@ class RawDouyinClue(Base):
     order_status: Mapped[str | None] = mapped_column(Text, index=True)
     follow_life_account_id: Mapped[str | None] = mapped_column(Text, index=True)
     follow_life_account_name: Mapped[str | None] = mapped_column(Text)
+    follow_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
+    intention_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
     auto_city_name: Mapped[str | None] = mapped_column(Text, index=True)
     auto_province_name: Mapped[str | None] = mapped_column(Text)
     author_nickname: Mapped[str | None] = mapped_column(Text)
@@ -139,6 +142,17 @@ class DimStore(Base):
     certified_subject_name: Mapped[str | None] = mapped_column(Text)
     region: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    standard_province: Mapped[str | None] = mapped_column(Text)
+    standard_city: Mapped[str | None] = mapped_column(Text)
+    city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    is_douyin_clue_applicable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    participates_in_clue_allocation: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    location_source: Mapped[str | None] = mapped_column(Text)
+    location_status: Mapped[str] = mapped_column(String(32), default="missing", index=True)
+    location_status_note: Mapped[str | None] = mapped_column(Text)
+    location_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -359,6 +373,65 @@ class DataQualityIssue(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class ClueMasterLead(Base):
+    __tablename__ = "clue_master_leads"
+    __table_args__ = (
+        UniqueConstraint("source_clue_row_key", name="uq_clue_master_leads_source_clue_row_key"),
+        UniqueConstraint("source_identity_key", name="uq_clue_master_leads_source_identity_key"),
+        Index("ix_clue_master_leads_order_location", "order_id", "pool_location"),
+        Index("ix_clue_master_leads_lifecycle_location", "lifecycle_status", "pool_location"),
+        Index("ix_clue_master_leads_anchor_store", "anchor_store_id"),
+    )
+
+    lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_clue_row_key: Mapped[str] = mapped_column(Text)
+    source_identity_key: Mapped[str] = mapped_column(Text)
+    canonical_clue_id: Mapped[str | None] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    raw_order_status: Mapped[str | None] = mapped_column(Text)
+    normalized_order_status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
+    status_source: Mapped[str] = mapped_column(String(32), default="clue")
+    lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    pool_location: Mapped[str | None] = mapped_column(String(32), index=True)
+    allocation_state: Mapped[str] = mapped_column(String(32), default="pending_allocation", index=True)
+    current_assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    allocation_cycle_id: Mapped[str | None] = mapped_column(Text, index=True)
+    ended_without_assignment: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    closed_reason: Mapped[str | None] = mapped_column(Text)
+    first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    anchor_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_source: Mapped[str | None] = mapped_column(Text)
+    anchor_unavailable_reason: Mapped[str | None] = mapped_column(Text)
+    anchor_province: Mapped[str | None] = mapped_column(Text)
+    anchor_city: Mapped[str | None] = mapped_column(Text)
+    anchor_city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    anchor_longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    anchor_latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueOrderStatusEvent(Base):
+    __tablename__ = "clue_order_status_events"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="uq_clue_order_status_events_event_key"),
+        Index("ix_clue_order_status_events_lead_observed", "lead_key", "observed_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_key: Mapped[str] = mapped_column(Text, nullable=False)
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    raw_status: Mapped[str | None] = mapped_column(Text)
+    normalized_status: Mapped[str] = mapped_column(String(32), index=True)
+    status_source: Mapped[str] = mapped_column(String(32))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class ClueCenterOrder(Base):
     __tablename__ = "clue_center_orders"
 
@@ -399,11 +472,37 @@ class ClueCenterOrder(Base):
 class ClueAssignmentRound(Base):
     __tablename__ = "clue_assignment_rounds"
     __table_args__ = (
-        UniqueConstraint("order_id", "round_no", name="uq_clue_assignment_rounds_order_round"),
+        UniqueConstraint(
+            "lead_key",
+            "execution_mode",
+            "round_no",
+            name="uq_clue_assignment_rounds_lead_execution_mode_round",
+        ),
     )
 
     assignment_round_id: Mapped[str] = mapped_column(Text, primary_key=True)
     order_id: Mapped[str] = mapped_column(Text, index=True)
+    lead_key: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    rule_version_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    strategy_type: Mapped[str | None] = mapped_column(String(64), index=True)
+    allocation_decision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_decisions.decision_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    allocation_cycle_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_cycles.allocation_cycle_id", ondelete="RESTRICT"),
+        index=True,
+    )
     round_no: Mapped[int] = mapped_column(Integer, default=1)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     assigned_at_source: Mapped[str] = mapped_column(Text, default="clue_create_time_detail")
@@ -414,7 +513,16 @@ class ClueAssignmentRound(Base):
     is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
     round_status: Mapped[str] = mapped_column(String(32), index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="legacy", index=True)
+    matured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    terminal_reason: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    first_sla_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    protection_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    protection_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    auto_expiry_enabled: Mapped[bool | None] = mapped_column(Boolean)
+    first_follow_up_sla_hours: Mapped[int | None] = mapped_column(Integer)
+    protection_days: Mapped[int | None] = mapped_column(Integer)
     reassign_reason: Mapped[str | None] = mapped_column(Text)
     reassigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     verified_store_id: Mapped[str | None] = mapped_column(Text, index=True)
@@ -444,6 +552,10 @@ class ClueFollowUpRecord(Base):
     operator_user_id: Mapped[str | None] = mapped_column(Text)
     operator_username: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    deleted_by_user_id: Mapped[str | None] = mapped_column(Text)
+    deleted_by_username: Mapped[str | None] = mapped_column(Text)
+    deletion_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class ClueReassignRuleSetting(Base):
@@ -453,3 +565,319 @@ class ClueReassignRuleSetting(Base):
     reassign_sla_hours: Mapped[int | None] = mapped_column(Integer)
     updated_by: Mapped[str | None] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class StoreScoreSnapshotRun(Base):
+    __tablename__ = "store_score_snapshot_runs"
+    __table_args__ = (
+        UniqueConstraint("scheduled_key", name="uq_store_score_snapshot_runs_scheduled_key"),
+        Index("ix_store_score_snapshot_runs_date_mode", "snapshot_date", "run_mode"),
+    )
+
+    snapshot_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    run_mode: Mapped[str] = mapped_column(String(32), default="scheduled", index=True)
+    scheduled_key: Mapped[str | None] = mapped_column(Text)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    candidate_store_count: Mapped[int] = mapped_column(Integer, default=0)
+    snapshot_count: Mapped[int] = mapped_column(Integer, default=0)
+    triggered_by: Mapped[str | None] = mapped_column(Text)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StoreScoreSnapshot(Base):
+    __tablename__ = "store_score_snapshots"
+    __table_args__ = (
+        UniqueConstraint("snapshot_run_id", "store_id", name="uq_store_score_snapshots_run_store"),
+        Index("ix_store_score_snapshots_date_store", "snapshot_date", "store_id"),
+        Index("ix_store_score_snapshots_city_date", "city_code", "snapshot_date"),
+    )
+
+    snapshot_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_run_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("store_score_snapshot_runs.snapshot_run_id", ondelete="CASCADE"),
+        index=True,
+    )
+    snapshot_date: Mapped[date] = mapped_column(Date, index=True)
+    run_mode: Mapped[str] = mapped_column(String(32), default="scheduled")
+    store_id: Mapped[str] = mapped_column(Text, ForeignKey("dim_stores.store_id", ondelete="CASCADE"), index=True)
+    city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    conversion_numerator: Mapped[int] = mapped_column(Integer, default=0)
+    conversion_denominator: Mapped[int] = mapped_column(Integer, default=0)
+    conversion_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0"))
+    conversion_value_source: Mapped[str] = mapped_column(String(32), default="cold_start_empty")
+    follow_24h_numerator: Mapped[int] = mapped_column(Integer, default=0)
+    follow_24h_denominator: Mapped[int] = mapped_column(Integer, default=0)
+    follow_24h_rate: Mapped[Decimal] = mapped_column(Numeric(10, 6), default=Decimal("0"))
+    follow_24h_value_source: Mapped[str] = mapped_column(String(32), default="cold_start_empty")
+    conversion_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0.7"))
+    follow_24h_weight: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0.3"))
+    store_weight: Mapped[Decimal] = mapped_column(Numeric(8, 4), default=Decimal("1"))
+    composite_score: Mapped[Decimal] = mapped_column(Numeric(12, 6), default=Decimal("0"), index=True)
+    config_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueStoreGroup(Base):
+    __tablename__ = "clue_store_groups"
+    __table_args__ = (UniqueConstraint("group_name", name="uq_clue_store_groups_group_name"),)
+
+    store_group_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    group_name: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueStoreGroupMember(Base):
+    __tablename__ = "clue_store_group_members"
+    __table_args__ = (
+        UniqueConstraint("store_id", name="uq_clue_store_group_members_store_id"),
+        Index("ix_clue_store_group_members_store_id", "store_id"),
+    )
+
+    store_group_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_store_groups.store_group_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    store_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("dim_stores.store_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueAllocationRule(Base):
+    __tablename__ = "clue_allocation_rules"
+    __table_args__ = (
+        UniqueConstraint("scope_key", name="uq_clue_allocation_rules_scope_key"),
+        Index("ix_clue_allocation_rules_scope", "scope_type", "scope_key"),
+    )
+
+    rule_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_name: Mapped[str] = mapped_column(Text)
+    scope_type: Mapped[str] = mapped_column(String(32), index=True)
+    scope_key: Mapped[str] = mapped_column(Text)
+    scope_city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    scope_store_group_id: Mapped[str | None] = mapped_column(Text, index=True)
+    scope_anchor_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueAllocationRuleVersion(Base):
+    __tablename__ = "clue_allocation_rule_versions"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "version_no", name="uq_clue_allocation_rule_versions_rule_version"),
+        Index("ix_clue_allocation_rule_versions_rule_status", "rule_id", "status"),
+        Index(
+            "uq_clue_allocation_rule_versions_published",
+            "rule_id",
+            unique=True,
+            sqlite_where=text("status = 'published'"),
+            postgresql_where=text("status = 'published'"),
+        ),
+    )
+
+    rule_version_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rules.rule_id", ondelete="CASCADE"),
+        index=True,
+    )
+    version_no: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(32), default="draft", index=True)
+    auto_expiry_enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    first_follow_up_sla_hours: Mapped[int | None] = mapped_column(Integer)
+    protection_days: Mapped[int | None] = mapped_column(Integer)
+    conversion_weight: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    follow_24h_weight: Mapped[Decimal | None] = mapped_column(Numeric(6, 4))
+    lookback_days: Mapped[int | None] = mapped_column(Integer)
+    min_samples: Mapped[int | None] = mapped_column(Integer)
+    created_by: Mapped[str | None] = mapped_column(Text)
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    published_by: Mapped[str | None] = mapped_column(Text)
+    retired_by: Mapped[str | None] = mapped_column(Text)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueAllocationStrategyConfig(Base):
+    __tablename__ = "clue_allocation_strategy_configs"
+    __table_args__ = (Index("ix_clue_allocation_strategy_configs_version_order", "rule_version_id", "execution_order"),)
+
+    strategy_config_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_version_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="CASCADE"),
+        index=True,
+    )
+    strategy_type: Mapped[str] = mapped_column(String(64))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    execution_order: Mapped[int] = mapped_column(Integer)
+    params_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueLeadRuleVersionBinding(Base):
+    __tablename__ = "clue_lead_rule_version_bindings"
+    __table_args__ = (Index("ix_clue_lead_rule_version_bindings_rule_version", "rule_version_id"),)
+
+    lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_version_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+    )
+    scope_type: Mapped[str] = mapped_column(String(32), index=True)
+    scope_key: Mapped[str] = mapped_column(Text)
+    scope_resolution_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    rule_version_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    bound_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueAllocationDecision(Base):
+    """Append-only audit event emitted for each allocation strategy evaluation."""
+
+    __tablename__ = "clue_allocation_decisions"
+    __table_args__ = (
+        UniqueConstraint("attempt_key", name="uq_clue_allocation_decisions_attempt_key"),
+        Index("ix_clue_allocation_decisions_lead_executed", "lead_key", "executed_at"),
+        Index("ix_clue_allocation_decisions_order_executed", "order_id", "executed_at"),
+        Index("ix_clue_allocation_decisions_rule_version", "rule_version_id"),
+        Index("ix_clue_allocation_decisions_status", "decision_status"),
+    )
+
+    decision_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    attempt_key: Mapped[str] = mapped_column(Text)
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    rule_id: Mapped[str | None] = mapped_column(Text, index=True)
+    rule_version_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    scope_type: Mapped[str | None] = mapped_column(String(32), index=True)
+    scope_key: Mapped[str | None] = mapped_column(Text)
+    strategy_type: Mapped[str] = mapped_column(String(64), index=True)
+    execution_order: Mapped[int | None] = mapped_column(Integer)
+    allocation_cycle_id: Mapped[str | None] = mapped_column(Text, index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="formal", index=True)
+    assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    round_no: Mapped[int | None] = mapped_column(Integer)
+    selected_store_id: Mapped[str | None] = mapped_column(Text, index=True)
+    selected_store_name: Mapped[str | None] = mapped_column(Text)
+    decision_status: Mapped[str] = mapped_column(String(32), index=True)
+    reason: Mapped[str | None] = mapped_column(Text)
+    decision_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    actor: Mapped[str | None] = mapped_column(Text)
+    executed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+
+class ClueAllocationCycle(Base):
+    __tablename__ = "clue_allocation_cycles"
+    __table_args__ = (
+        Index("ix_clue_allocation_cycles_mode_status", "execution_mode", "status"),
+        Index("ix_clue_allocation_cycles_parent", "parent_cycle_id"),
+        Index("uq_clue_allocation_cycles_preview_token_hash", "preview_token_hash", unique=True),
+    )
+
+    allocation_cycle_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    cycle_type: Mapped[str] = mapped_column(String(32), index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), index=True)
+    status: Mapped[str] = mapped_column(String(32), default="completed", index=True)
+    parent_cycle_id: Mapped[str | None] = mapped_column(Text, index=True)
+    selected_lead_keys: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    requested_lead_count: Mapped[int] = mapped_column(Integer, default=0)
+    active_lead_count: Mapped[int] = mapped_column(Integer, default=0)
+    planned_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    actual_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    actor: Mapped[str | None] = mapped_column(Text)
+    privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    preview_token_hash: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ClueHeadquartersPoolEntry(Base):
+    __tablename__ = "clue_headquarters_pool_entries"
+    __table_args__ = (
+        Index("ix_clue_headquarters_pool_entries_lead_status", "lead_key", "status"),
+        Index("ix_clue_headquarters_pool_entries_entered", "entered_at"),
+        Index(
+            "uq_clue_headquarters_pool_entries_active_lead",
+            "lead_key",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+    )
+
+    headquarters_pool_entry_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(32), default="active", index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    entered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    close_reason: Mapped[str | None] = mapped_column(Text)
+    source_assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    source_decision_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_decisions.decision_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    source_rule_version_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_rule_versions.rule_version_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    allocation_cycle_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_cycles.allocation_cycle_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    source_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueAllocationAuditLog(Base):
+    __tablename__ = "clue_allocation_audit_logs"
+    __table_args__ = (
+        Index("ix_clue_allocation_audit_logs_cycle_created", "allocation_cycle_id", "created_at"),
+        Index("ix_clue_allocation_audit_logs_event_created", "event_type", "created_at"),
+    )
+
+    audit_log_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(64), index=True)
+    allocation_cycle_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_cycles.allocation_cycle_id", ondelete="RESTRICT"),
+        index=True,
+    )
+    actor: Mapped[str | None] = mapped_column(Text)
+    privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
+    before_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    after_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    detail_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)

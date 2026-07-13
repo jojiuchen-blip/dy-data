@@ -1,0 +1,949 @@
+{
+  "meta": {
+    "name": "dy-data UI Design System Candidate",
+    "version": "0.2.0-candidate",
+    "status": "pending-human-approval",
+    "lastUpdated": "2026-07-13",
+    "language": "zh-CN",
+    "colorMode": "light-only",
+    "darkModeStatus": "not-supported-in-v0.1",
+    "sourceOfTruth": "docs/design-system/tokens.v0.2-candidate.json",
+    "currentImplementationSource": "documentation-only",
+    "purpose": "Provide the complete V0.2 candidate design system for human review before runtime migration.",
+    "issue": "DYDATA-3",
+    "relatedIssues": [
+      "DYDATA-5"
+    ],
+    "stage": "design-system-preview-only",
+    "runtimeApplied": false
+  },
+  "principles": [
+    {
+      "name": "运营后台优先",
+      "description": "界面服务高频筛选、比对、跟进和审核，不做营销页式装饰。"
+    },
+    {
+      "name": "轻量 token 先行",
+      "description": "先固化颜色、字号、间距、半径、控件高度、层级和关键组件规则，再逐步迁移页面。"
+    },
+    {
+      "name": "可视化决策",
+      "description": "重要规范值必须能在 HTML 预览里被人类直接看到，而不是只存在于文字清单。"
+    },
+    {
+      "name": "浅色模式优先",
+      "description": "V0.1 只固化浅色模式；暗色模式不跟随系统设置，也不作为当前设计系统承诺。"
+    },
+    {
+      "name": "规范需要校验",
+      "description": "关键 token 与已实现 CSS 通过测试绑定，后续再扩展到 lint、视觉回归和 PR checklist。"
+    },
+    {
+      "name": "品牌色与语义色分离",
+      "description": "候选品牌橙只承担品牌、主操作、选中和聚焦；成功、警告、错误和信息继续使用各自语义色。"
+    }
+  ],
+  "tokens": {
+    "color": {
+      "bg": {
+        "value": "#f6f6f3",
+        "cssVariable": "--bg",
+        "role": "Candidate application background"
+      },
+      "surface": {
+        "value": "#ffffff",
+        "cssVariable": "--surface",
+        "role": "Candidate main content surface"
+      },
+      "surfaceMuted": {
+        "value": "#f2f2ee",
+        "cssVariable": "--surface-muted",
+        "role": "Candidate structural and recessed background"
+      },
+      "surfaceSubtle": {
+        "value": "#fafaf8",
+        "cssVariable": "--surface-subtle",
+        "role": "Candidate subtle utility surface"
+      },
+      "ink": {
+        "value": "#181818",
+        "cssVariable": "--ink",
+        "role": "Candidate primary text"
+      },
+      "muted": {
+        "value": "#686a66",
+        "cssVariable": "--muted",
+        "role": "Candidate secondary text"
+      },
+      "line": {
+        "value": "#e3e3df",
+        "cssVariable": "--line",
+        "role": "Candidate default divider"
+      },
+      "lineStrong": {
+        "value": "#c9cbc6",
+        "cssVariable": "--line-strong",
+        "role": "Candidate control border"
+      },
+      "green": {
+        "value": "#0f5b4b",
+        "cssVariable": "--green",
+        "role": "Primary action, active state, success tone"
+      },
+      "greenSoft": {
+        "value": "#e1efe9",
+        "cssVariable": "--green-soft",
+        "role": "Primary active background"
+      },
+      "blue": {
+        "value": "#2f5f95",
+        "cssVariable": "--blue",
+        "role": "Pending and informational state"
+      },
+      "blueSoft": {
+        "value": "#dce7f3",
+        "cssVariable": "--blue-soft",
+        "role": "Pending and informational background"
+      },
+      "amber": {
+        "value": "#76470f",
+        "cssVariable": "--amber",
+        "role": "Warning and timeout state"
+      },
+      "amberSoft": {
+        "value": "#f0e5d6",
+        "cssVariable": "--amber-soft",
+        "role": "Warning background"
+      },
+      "danger": {
+        "value": "#a0443e",
+        "cssVariable": "--danger",
+        "role": "Error and destructive state"
+      },
+      "brandDeepOrange": {
+        "value": "#d63b00",
+        "cssVariable": "--brand-deep-orange",
+        "role": "Primary action background with white text"
+      },
+      "brandDeepOrangeHover": {
+        "value": "#c73700",
+        "cssVariable": "--brand-deep-orange-hover",
+        "role": "Primary action hover background"
+      },
+      "brandDeepOrangeActive": {
+        "value": "#ad3000",
+        "cssVariable": "--brand-deep-orange-active",
+        "role": "Primary action active background"
+      },
+      "brandOrange": {
+        "value": "#fe5205",
+        "cssVariable": "--brand-orange",
+        "role": "Brand accent, focus and selected indicator"
+      },
+      "brandOrangeSoft": {
+        "value": "#fff4ef",
+        "cssVariable": "--brand-orange-soft",
+        "role": "Selected and highlighted background"
+      },
+      "brandOrangeInk": {
+        "value": "#7a2600",
+        "cssVariable": "--brand-orange-ink",
+        "role": "Text on soft orange background"
+      },
+      "disabledBackground": {
+        "value": "#dadbd6",
+        "cssVariable": "--disabled-bg",
+        "role": "Disabled control background"
+      },
+      "disabledText": {
+        "value": "#8a8c87",
+        "cssVariable": "--disabled-text",
+        "role": "Disabled control text"
+      }
+    },
+    "typography": {
+      "family": {
+        "value": "\"Microsoft YaHei\", \"PingFang SC\", \"Noto Sans CJK SC\", system-ui, sans-serif",
+        "role": "Chinese-first UI sans stack"
+      },
+      "scale": {
+        "display": {
+          "fontSize": "44px",
+          "lineHeight": "1.1",
+          "fontWeight": 800,
+          "usage": "Home entry only"
+        },
+        "pageTitle": {
+          "fontSize": "28px",
+          "lineHeight": "1.2",
+          "fontWeight": 800,
+          "usage": "Desktop H1"
+        },
+        "mobilePageTitle": {
+          "fontSize": "24px",
+          "lineHeight": "1.2",
+          "fontWeight": 800,
+          "usage": "Mobile H1"
+        },
+        "sectionTitle": {
+          "fontSize": "20px",
+          "lineHeight": "1.25",
+          "fontWeight": 700,
+          "usage": "Section title"
+        },
+        "body": {
+          "fontSize": "14px",
+          "lineHeight": "1.55",
+          "fontWeight": 500,
+          "usage": "Default UI copy"
+        },
+        "table": {
+          "fontSize": "13px",
+          "lineHeight": "1.45",
+          "fontWeight": 500,
+          "usage": "Dense data rows"
+        },
+        "caption": {
+          "fontSize": "12px",
+          "lineHeight": "1.45",
+          "fontWeight": 600,
+          "usage": "Metadata and compact code labels only"
+        },
+        "metricValue": {
+          "fontSize": "30px",
+          "lineHeight": "1.15",
+          "fontWeight": 800,
+          "usage": "KPI values"
+        }
+      }
+    },
+    "space": {
+      "1": "2px",
+      "2": "4px",
+      "3": "6px",
+      "4": "8px",
+      "5": "10px",
+      "6": "12px",
+      "7": "14px",
+      "8": "16px",
+      "9": "18px",
+      "10": "20px",
+      "12": "24px",
+      "14": "28px",
+      "16": "32px",
+      "20": "40px",
+      "24": "48px"
+    },
+    "radius": {
+      "sm": {
+        "value": "4px",
+        "usage": "Small tags and compact inner elements"
+      },
+      "md": {
+        "value": "6px",
+        "usage": "Buttons, inputs, selects"
+      },
+      "lg": {
+        "value": "8px",
+        "usage": "Cards, filter bars, data containers"
+      },
+      "xl": {
+        "value": "12px",
+        "usage": "Mobile sheets and large modal corners"
+      },
+      "full": {
+        "value": "999px",
+        "usage": "Pills, badges, chips"
+      }
+    },
+    "control": {
+      "targetMin": {
+        "value": "24px",
+        "cssVariable": "--target-min",
+        "usage": "Small desktop text/icon actions"
+      },
+      "touchTarget": {
+        "value": "44px",
+        "cssVariable": "--touch-target",
+        "usage": "Mobile buttons and tappable controls"
+      },
+      "heightMd": {
+        "value": "38px",
+        "usage": "Desktop button, select and input height"
+      },
+      "heightMobile": {
+        "value": "44px",
+        "usage": "Mobile tappable control minimum"
+      },
+      "paddingXMd": {
+        "value": "14px",
+        "usage": "Primary button horizontal padding"
+      },
+      "paddingYMd": {
+        "value": "7px",
+        "usage": "Button and input vertical padding"
+      }
+    },
+    "icon": {
+      "library": {
+        "value": "@iconify/react",
+        "usage": "唯一 UI 图标渲染库"
+      },
+      "family": {
+        "value": "@iconify-icons/solar",
+        "usage": "唯一 UI 图标图形来源"
+      },
+      "componentEntry": {
+        "value": "apps/web/src/components/SolarIcon.tsx",
+        "usage": "业务代码通过统一组件引用 Solar 图标"
+      },
+      "tableActionSize": {
+        "value": "16px",
+        "usage": "表格内查看、复制等小动作图标"
+      },
+      "buttonIconSize": {
+        "value": "18px",
+        "usage": "文字按钮内图标"
+      },
+      "navIconSize": {
+        "value": "20px",
+        "usage": "桌面导航和二级标签"
+      },
+      "mobileNavIconSize": {
+        "value": "24px",
+        "usage": "移动端底部主导航"
+      },
+      "styleRule": {
+        "value": "Solar linear by default; bold-duotone only for active mobile navigation or brand emphasis.",
+        "usage": "避免同一界面混用多种图标风格"
+      },
+      "variantSelection": {
+        "default": "linear",
+        "emphasis": "bold-duotone",
+        "linearUseCases": [
+          "table actions",
+          "buttons",
+          "rules",
+          "logout",
+          "detail links"
+        ],
+        "emphasisUseCases": [
+          "active mobile primary navigation",
+          "primary rail active entry",
+          "brand or module entry"
+        ],
+        "namingRule": "Register semantic names in SolarIcon.tsx; split normal and emphasis states explicitly, such as cluesLine and clues.",
+        "semanticExamples": {
+          "show": "eye linear",
+          "hide": "eye closed or slash linear",
+          "copy": "copy linear",
+          "detail": "document or receipt linear",
+          "filter": "filter linear",
+          "collapse": "alt arrow up linear",
+          "rules": "settings minimalistic linear",
+          "logout": "logout linear unless used as a highlighted module action",
+          "dashboard": "chart linear",
+          "clues": "chat round dots bold-duotone only when active",
+          "admin": "shield bold-duotone only when active"
+        }
+      },
+      "previewContract": {
+        "source": "SolarIcon.tsx registered semantic names",
+        "rendering": "One hidden SVG symbol per registered semantic icon; every visible sample references it with <use>.",
+        "requiredAttributes": [
+          "data-solar-icon",
+          "data-icon-variant",
+          "aria-hidden"
+        ],
+        "forbiddenFallbacks": [
+          "ad hoc inline paths",
+          "text glyph icons",
+          "CSS-drawn chevrons"
+        ]
+      }
+    },
+    "layout": {
+      "pageMaxWidth": {
+        "value": "1380px",
+        "usage": "Public entry and standalone pages can use a max width; authenticated workspace pages do not center on this value."
+      },
+      "workspacePageWidth": {
+        "value": "100%",
+        "usage": "All authenticated workspace pages fill the available shell width. Individual content sections, tables or dialogs own their internal reading width."
+      },
+      "dataWorkspaceWidth": {
+        "value": "100%",
+        "usage": "Desktop detail data workspaces inherit the full workspace width and add fixed viewport height plus internal result scrolling"
+      },
+      "dataWorkspaceHeight": {
+        "value": "calc(100vh - var(--workspace-topbar-height))",
+        "usage": "Desktop detail data workspaces stay within one viewport below the global topbar"
+      },
+      "pagePaddingDesktop": {
+        "value": "28px",
+        "usage": "Desktop page gutter"
+      },
+      "pagePaddingTablet": {
+        "value": "18px 16px 28px",
+        "usage": "Tablet workspace page padding"
+      },
+      "pagePaddingMobile": {
+        "value": "18px 14px",
+        "usage": "Mobile page padding"
+      },
+      "workspaceTopbarHeight": {
+        "value": "58px",
+        "cssVariable": "--workspace-topbar-height",
+        "usage": "Desktop global action bar"
+      },
+      "workspaceSubnavHeight": {
+        "value": "51px",
+        "cssVariable": "--workspace-subnav-height",
+        "usage": "Desktop secondary navigation"
+      },
+      "tableStickyGap": {
+        "value": "8px",
+        "cssVariable": "--table-sticky-gap",
+        "usage": "Gap between frozen table header and sticky navigation"
+      },
+      "desktopBreakpoint": {
+        "value": "921px",
+        "usage": "Desktop behavior starts at min-width 921px"
+      },
+      "tabletBreakpoint": {
+        "value": "920px",
+        "usage": "Tablet and mobile shell starts at max-width 920px"
+      },
+      "mobileBreakpoint": {
+        "value": "640px",
+        "usage": "Single-column mobile behavior"
+      }
+    },
+    "zIndex": {
+      "tableStickyColumn": {
+        "value": 2,
+        "cssVariable": "--z-table-sticky-column",
+        "usage": "Sticky table first column cells"
+      },
+      "tableHeader": {
+        "value": 3,
+        "cssVariable": "--z-table-header",
+        "usage": "Frozen table header"
+      },
+      "tableHeaderCorner": {
+        "value": 5,
+        "cssVariable": "--z-table-header-corner",
+        "usage": "Sticky header plus sticky first column corner"
+      },
+      "workspaceSubnav": {
+        "value": 24,
+        "usage": "Desktop secondary navigation"
+      },
+      "workspaceTopbar": {
+        "value": 30,
+        "usage": "Desktop global action bar"
+      },
+      "appRail": {
+        "value": 35,
+        "usage": "Desktop primary rail"
+      },
+      "mobileBottomNav": {
+        "value": 70,
+        "usage": "Mobile primary navigation"
+      },
+      "modal": {
+        "value": 100,
+        "usage": "Dialog and overlay layer"
+      }
+    },
+    "shadow": {
+      "shadowNone": {
+        "value": "none",
+        "cssVariable": "--shadow-none",
+        "usage": "Table cells, chips and inline controls keep hierarchy through borders instead of elevation."
+      },
+      "shadowCard": {
+        "value": "0 2px 10px rgb(24 24 24 / 4%), 0 12px 28px rgb(24 24 24 / 4%)",
+        "cssVariable": "--shadow-card",
+        "usage": "Cards, filter panels and regular content surfaces."
+      },
+      "shadowPopover": {
+        "value": "0 10px 28px rgb(24 24 24 / 9%), 0 2px 8px rgb(24 24 24 / 5%)",
+        "cssVariable": "--shadow-popover",
+        "usage": "Select menus, comboboxes and contextual floating panels."
+      },
+      "shadowDialog": {
+        "value": "0 18px 48px rgb(24 24 24 / 14%), 0 4px 14px rgb(24 24 24 / 7%)",
+        "cssVariable": "--shadow-dialog",
+        "usage": "Dialog and ConfirmDialog surfaces above page content."
+      },
+      "shadowWorkbench": {
+        "value": "0 30px 80px rgb(24 24 24 / 18%), 0 8px 24px rgb(24 24 24 / 9%)",
+        "cssVariable": "--shadow-workbench",
+        "usage": "Large operational workbenches such as clue follow-up."
+      },
+      "focusRing": {
+        "value": "0 0 0 3px rgb(254 82 5 / 22%)",
+        "cssVariable": "--focus-ring",
+        "usage": "Keyboard focus ring"
+      },
+      "stickyTableHeader": {
+        "value": "0 calc(var(--table-sticky-gap) * -1) 0 var(--bg), 0 1px 0 var(--line), 0 12px 20px -18px rgb(24 24 24 / 24%)",
+        "usage": "Frozen table header separation"
+      }
+    }
+  },
+  "components": {
+    "button": {
+      "radius": "6px",
+      "height": "38px",
+      "mobileHeight": "44px",
+      "primaryBackground": "#d63b00",
+      "primaryText": "#ffffff",
+      "secondaryBackground": "#ffffff",
+      "secondaryBorder": "#c4cec6",
+      "activeScale": "0.97",
+      "rule": "Buttons and form controls share the same base radius and height.",
+      "variants": [
+        "primary",
+        "secondary",
+        "soft",
+        "danger",
+        "text"
+      ],
+      "states": [
+        "default",
+        "hover",
+        "focus",
+        "active",
+        "loading",
+        "disabled"
+      ],
+      "iconGap": "6px",
+      "usage": "Use primary for page or card main action; use danger only for destructive confirmation actions.",
+      "primaryHoverBackground": "#c73700",
+      "primaryActiveBackground": "#ad3000",
+      "focusColor": "#fe5205",
+      "disabledBackground": "#dadbd6",
+      "disabledText": "#8a8c87"
+    },
+    "field": {
+      "height": "38px",
+      "radius": "6px",
+      "border": "#c4cec6",
+      "background": "#ffffff",
+      "focusBorder": "#fe5205",
+      "selectIndicator": "CSS chevron, no native browser arrow and no text glyph.",
+      "dropdownSurface": "Select and combobox expanded states share the same menu surface, option highlight and shadow.",
+      "expandedPreview": "Use custom button or combobox triggers for Select previews in this document to avoid the browser native dropdown overlapping the designed menu.",
+      "rule": "Inputs, selects and textareas use one border and focus logic.",
+      "members": [
+        "input",
+        "select",
+        "date",
+        "combobox",
+        "textarea"
+      ],
+      "states": [
+        "default",
+        "focus",
+        "error",
+        "disabled",
+        "readonly"
+      ],
+      "errorMessageRole": "role=alert for blocking validation errors",
+      "focusRing": "0 0 0 3px rgb(254 82 5 / 22%)"
+    },
+    "iconButton": {
+      "desktopSize": "38px",
+      "mobileSize": "44px",
+      "iconSizeDesktop": "18px",
+      "iconSizeCompact": "16px",
+      "radius": "6px",
+      "rule": "Icon-only controls must have an accessible name and use SolarIcon.",
+      "variants": [
+        "default",
+        "active",
+        "danger"
+      ],
+      "requiredAccessibility": "aria-label or visible text alternative"
+    },
+    "chip": {
+      "radius": "999px",
+      "statusHeight": "26px",
+      "countHeight": "30px",
+      "roleBadgeRadius": "4px",
+      "families": {
+        "StatusChip": "Business state such as pending, success, warning and danger.",
+        "CountPill": "Result count, selected count or aggregate quantity.",
+        "FilterChip": "Active filter summary with a clear affordance.",
+        "RoleBadge": "Account role or permission scope."
+      },
+      "rule": "Do not reuse StatusChip for counts, filters, roles or code tokens."
+    },
+    "filterBar": {
+      "radius": "8px",
+      "padding": "15px",
+      "gap": "12px",
+      "desktopBehavior": "Always expanded on desktop.",
+      "mobileBehavior": "Collapsed by default, with a visible collapse action at the bottom when open.",
+      "selectedIndicator": "#fe5205",
+      "selectedBackground": "#fff4ef"
+    },
+    "metricCard": {
+      "radius": "8px",
+      "padding": "18px",
+      "minHeight": "132px",
+      "topAccentHeight": "3px",
+      "states": [
+        "standard",
+        "primary",
+        "semantic",
+        "loading"
+      ],
+      "standard": "Neutral monitoring value with no top accent.",
+      "primary": "One page-level key value with a deep orange top accent.",
+      "semantic": "Operational state value using existing semantic green, blue, amber or danger accents.",
+      "loading": "Fixed-size skeleton that preserves the final card geometry.",
+      "rule": "Use metric cards only for at-a-glance monitoring values, not repeated page sections. One view has at most one primary card."
+    },
+    "navigation": {
+      "desktopRail": "Primary modules use Solar linear icons by default; the active module uses bold-duotone and a soft orange background.",
+      "desktopSubnav": "Secondary navigation stays compact with a 2px deep orange active underline.",
+      "mobileTopSubnav": "Current module sub-navigation remains horizontally scrollable at the top on small screens.",
+      "mobileBottomItems": [
+        "数据表现",
+        "结算",
+        "线索",
+        "后台"
+      ],
+      "mobileBottomHeight": "56px",
+      "mobileIconSize": "24px",
+      "mobileLabelSize": "12px",
+      "activeBackground": "#fff4ef",
+      "activeForeground": "#d63b00",
+      "rule": "The four-item mobile sample is an information architecture candidate only; it does not create runtime routes.",
+      "tertiary": {
+        "semanticRole": "local page navigation",
+        "structure": "nav > a",
+        "landmarkLabel": "required nav aria-label",
+        "currentState": "aria-current=page",
+        "focusVisible": "global focus ring",
+        "desktopItemHeight": "38px",
+        "mobileMinTarget": "44px",
+        "activeText": "#d63b00",
+        "activeIndicator": "2px solid #fe5205",
+        "hoverBackground": "#fff4ef",
+        "itemRange": "2-5",
+        "mobileOverflow": "horizontal scroll with current item visible",
+        "sticky": "not independently sticky",
+        "forbiddenUses": [
+          "filters",
+          "transient display modes",
+          "tablist"
+        ]
+      }
+    },
+    "dialog": {
+      "radius": "12px",
+      "maxWidth": "640px",
+      "zIndex": 100,
+      "members": [
+        "Dialog",
+        "ConfirmDialog"
+      ],
+      "requiredBehavior": [
+        "focus trap",
+        "initial focus",
+        "Escape close",
+        "return focus",
+        "background inert"
+      ],
+      "confirmUsage": "Use for destructive, permission-changing, bulk or irreversible actions."
+    },
+    "clueFollowUpWorkbench": {
+      "radius": "12px",
+      "desktopWidth": "min(1440px, calc(100vw - 48px))",
+      "desktopHeight": "min(920px, calc(100dvh - 32px))",
+      "desktopColumns": "minmax(0, 1fr) 380px",
+      "mobileBehavior": "Near-full-screen single-column workbench with natural internal order: status and phone actions, follow-up action, order/product/order-time summary, then round history.",
+      "contentRegions": [
+        "sticky header with title and close action",
+        "first left row for contact, phone reveal/copy actions and lead status",
+        "second left row for product, order id, order time, order status and verification status",
+        "third left row for grouped round history",
+        "right action rail for follow-up form and guidance",
+        "grouped round history where each round owns its follow-up records"
+      ],
+      "rule": "Use this larger modal only for operational clue follow-up. It is not the default Dialog size and should not expose internal assignment ids in store-facing copy."
+    },
+    "clueFollowUpMobileDetail": {
+      "width": "min(390px, 100%)",
+      "scrollArea": "single-column natural task flow with local content scroll in preview only",
+      "touchTarget": "44px minimum for reveal, copy and save controls",
+      "contentOrder": [
+        "phone and lead status",
+        "follow-up action form",
+        "order, product and order time summary",
+        "round history and nested follow-up records"
+      ],
+      "rule": "Mobile clue detail is a dedicated task page, not a squeezed desktop modal. It must not show data-origin labels or internal assignment ids in store-facing copy."
+    },
+    "dataTable": {
+      "fontSize": "13px",
+      "cellPadding": "12px 13px",
+      "headerBackground": "#f2f2ee",
+      "stickyHeaderTop": "calc(58px + 8px)",
+      "minWidthDefault": "900px",
+      "minWidthClues": "1320px",
+      "minWidthDetails": "1760px",
+      "rule": "Desktop tables can freeze headers below the top action bar; mobile switches to record cards when fields cannot fit.",
+      "states": [
+        "standard",
+        "stickyHeader",
+        "empty",
+        "loading",
+        "rowActions",
+        "mobileRecordCard"
+      ],
+      "stickyRule": "Sticky header stays inside the table scroll container; page-level navigation offset is handled by the container, not each th.",
+      "workspaceRule": "On desktop detail data workspaces, the page frame does not scroll; the table container owns vertical scrolling and pagination remains visible.",
+      "paginationRule": "Pagination belongs to the result section footer outside the table scroll container. Desktop shows range, page size, first/previous, editable page number with a jump action, next/last. Mobile keeps previous, editable page number and next; Enter jumps without an extra jump button.",
+      "paginationValidation": "Page number input accepts positive integers from 1 to totalPages and shows an adjacent error such as 请输入 1-447 之间的页码.",
+      "loadingRule": "Skeleton rows should match the final table row structure."
+    },
+    "mobileClueCard": {
+      "radius": "8px",
+      "padding": "14px",
+      "gap": "12px",
+      "primaryFields": [
+        "status",
+        "round",
+        "phone",
+        "product",
+        "productType",
+        "lastFollowUp",
+        "createdAt",
+        "expiresAt",
+        "detailAction"
+      ],
+      "rule": "Mobile clue cards show the same operational decision fields without requiring horizontal scrolling."
+    }
+  },
+  "pageTemplates": {
+    "desktopShell": {
+      "structure": [
+        "primary rail",
+        "workspace topbar",
+        "secondary subnav",
+        "page frame",
+        "filter panel",
+        "content section"
+      ],
+      "rule": "The rail and topbar should not repeat the page H1; pages own the only H1."
+    },
+    "mobileShell": {
+      "structure": [
+        "top secondary subnav",
+        "page frame",
+        "collapsible filters",
+        "record cards",
+        "bottom primary navigation"
+      ],
+      "rule": "Mobile uses bottom first-level navigation and top second-level navigation."
+    },
+    "tertiaryNavigation": {
+      "appliesTo": [
+        "stable subpages inside one secondary workspace",
+        "entity detail subpages"
+      ],
+      "desktopPlacement": "after page heading and before filters or content",
+      "detailPlacement": "after entity heading and summary",
+      "mobilePlacement": "after page heading and before content",
+      "routingRule": "Every item has a stable URL and supports refresh, deep links, and browser history.",
+      "stickyRule": "Do not add an independent sticky layer or change table sticky offsets."
+    },
+    "listPage": {
+      "structure": [
+        "H1",
+        "realtime badge",
+        "filters",
+        "result summary",
+        "table or cards",
+        "pagination"
+      ],
+      "rule": "List pages should keep the same scan order across settlement, clues, orders and admin lists."
+    },
+    "detailDataWorkspace": {
+      "appliesTo": [
+        "/clues/details",
+        "/details"
+      ],
+      "desktopStructure": [
+        "topbar with secondary nav",
+        "full-width data workspace frame",
+        "page heading",
+        "single-row filters when space allows",
+        "result section",
+        "table scroll region",
+        "visible pagination footer"
+      ],
+      "desktopRule": "Authenticated workspace pages use a full-width page-frame by default. Desktop detail pages that are primarily dense tables additionally use a fixed viewport workspace: page-frame width 100%, height calc(100vh - topbar), no outer page scroll, and table region scrolls inside the result section.",
+      "mobileRule": "Mobile does not use the fixed-height workspace; it returns to natural page scroll and card/list presentation."
+    },
+    "mobileDetailWorkspace": {
+      "appliesTo": [
+        "/clues/details",
+        "/details"
+      ],
+      "desktopOnlyBreakpoint": "920px",
+      "topNavigation": "module secondary navigation",
+      "filterBehavior": "collapsible filter panel with active filter chips and an explicit collapse action",
+      "recordPresentation": "record-cards",
+      "pagerControls": [
+        "previous",
+        "page-input",
+        "next"
+      ],
+      "bottomNavigation": [
+        "数据表现",
+        "结算",
+        "线索",
+        "后台"
+      ],
+      "scrollRule": "Use natural page scrolling; never compress the desktop wide table into the mobile viewport."
+    },
+    "clueFollowUpWorkbenchModal": {
+      "appliesTo": [
+        "ClueCenterPage follow-up detail modal"
+      ],
+      "desktopStructure": [
+        "large centered modal overlay",
+        "header with title and close action",
+        "left main column with contact and phone actions, lead status, product/order/order-time detail and round-grouped history",
+        "right action rail with follow-up form and guidance"
+      ],
+      "mobileStructure": [
+        "near-full-screen modal",
+        "status and phone actions",
+        "follow-up action form",
+        "order, product and order time summary",
+        "round history and nested follow-up records"
+      ],
+      "desktopRule": "The clue follow-up modal is a task workbench, not a small detail dialog: width min(1440px, calc(100vw - 48px)), height min(920px, calc(100dvh - 32px)), internal body scroll only.",
+      "permissionRule": "Store-facing copy keeps invalid rounds visible for rate context, but full phone reveal/copy and follow-up editing are allowed only for the current active round."
+    },
+    "clueFollowUpMobileDetail": {
+      "appliesTo": [
+        "ClueCenterPage mobile follow-up detail view"
+      ],
+      "structure": [
+        "top title and close action",
+        "phone, reveal/copy actions, lead status and current round",
+        "follow-up result selector, note field and full-width save action",
+        "order id, order time, order status, product and verification status",
+        "round-grouped follow-up history"
+      ],
+      "rule": "Mobile implementation should be a one-column task flow with phone/status and follow-up operation before audit history.",
+      "permissionRule": "Invalid, verified or refunded clues keep masked phone visible but disable full phone reveal/copy and follow-up editing."
+    }
+  },
+  "enforcement": {
+    "current": [
+      "Keep key app runtime CSS tokens aligned with this file through apps/web/src/design-tokens.css and tests/test_design_system_docs.py.",
+      "Keep the design-system adoption contract documented in docs/design-system/README.md.",
+      "Keep current static enforcement covered by tests/test_design_system_enforcement.py.",
+      "Review docs/design-system/index.html when deciding a new token value.",
+      "Do not introduce new one-off colors, radii or control heights without updating tokens.json.",
+      "Keep the design-system preview light-only until dark mode is intentionally designed and tested.",
+      "Do not add ad hoc UI icons; extend SolarIcon.tsx and this icon token set instead.",
+      "Keep desktop detail data workspaces on the page-frame--data-workspace template when the primary task is filtering and reviewing dense records.",
+      "Do not import @iconify/react or @iconify-icons/solar directly outside SolarIcon.tsx.",
+      "Block unauthorized hex, rgb, hsl and oklch colors outside apps/web/src/design-tokens.css.",
+      "Block business pages from using legacy status-chip, filter-chip, feedback-status-chip and metric-card class entries.",
+      "Block div or span click handlers that should be native buttons or links."
+    ],
+    "next": [
+      "Add visual regression screenshots for core components.",
+      "Add a PR checklist for new pages and components.",
+      "Generate apps/web/src/design-tokens.css from tokens.json instead of syncing it by hand."
+    ]
+  },
+  "candidateDecision": {
+    "palette": {
+      "deepOrange": {
+        "value": "#d63b00",
+        "role": "Primary action background with white text",
+        "usage": "Critical submit actions, next-step actions and primary pagination"
+      },
+      "orange": {
+        "value": "#fe5205",
+        "role": "Brand accent and focus indicator",
+        "usage": "Brand marks, selected indicators, focus rings and high-attention accents"
+      },
+      "softOrange": {
+        "value": "#fff4ef",
+        "role": "Selected and highlighted background",
+        "usage": "Selected navigation, filter chips, current page and low-intensity notices"
+      },
+      "black": {
+        "value": "#181818",
+        "role": "Primary text",
+        "usage": "Headings, body text and text placed on the base orange"
+      },
+      "gray": {
+        "value": "#686a66",
+        "role": "Secondary text and inactive icon",
+        "usage": "Descriptions, metadata and inactive navigation"
+      },
+      "softGray": {
+        "value": "#f2f2ee",
+        "role": "Structural background",
+        "usage": "Table headers, recessed regions and alternating neutral backgrounds"
+      },
+      "white": {
+        "value": "#ffffff",
+        "role": "Primary content surface",
+        "usage": "Panels, cards, tables, inputs and dialogs"
+      }
+    },
+    "primaryButton": {
+      "rest": "#d63b00",
+      "hover": "#c73700",
+      "active": "#ad3000",
+      "focus": "#fe5205",
+      "focusRule": "2px solid outline with 2px offset",
+      "disabledBackground": "#dadbd6",
+      "disabledText": "#8a8c87",
+      "loadingRule": "Preserve width and prevent duplicate submission"
+    },
+    "brandMark": {
+      "outerTile": "#fff4ef",
+      "tileSize": "56px",
+      "primary": "#d63b00",
+      "accent": "#fe5205",
+      "rule": "Use the enlarged trend and status-node mark centered in a soft orange rounded square."
+    },
+    "semanticBoundary": {
+      "success": "Keep active V0.1 green tokens",
+      "warning": "Keep active V0.1 amber tokens",
+      "error": "Keep active V0.1 danger tokens",
+      "info": "Keep active V0.1 blue tokens"
+    },
+    "comparison": {
+      "default": "candidate-orange",
+      "alternate": "active-v0.1-green",
+      "persistence": "none",
+      "purpose": "Visual decision support only"
+    }
+  },
+  "approvalGate": {
+    "requiredLinearConfirmation": "确认进入阶段 2",
+    "blockedIssue": "DYDATA-4",
+    "runtimeFilesExcluded": [
+      "apps/web/src/design-tokens.css",
+      "apps/web/src"
+    ],
+    "rule": "Candidate tokens remain documentation-only until explicit human approval is recorded in Linear."
+  }
+}

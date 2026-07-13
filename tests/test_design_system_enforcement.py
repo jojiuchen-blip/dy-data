@@ -17,6 +17,8 @@ SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
 RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
 DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
 DESIGN_TOKENS_CSS_PATH = WEB_SRC_DIR / "design-tokens.css"
+CANDIDATE_TOKEN_FILENAME = "tokens.v0.2-candidate.json"
+CANDIDATE_PREVIEW_FILENAME = "candidate-v0.2.html"
 LEGACY_UI_CLASS_PATTERN = re.compile(
     r"(?<![A-Za-z0-9_-])"
     r"(?:status-chip|feedback-status-chip|filter-chip|metric-card)"
@@ -61,6 +63,10 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "结果表格内部滚动",
         "分页保持可见",
         "npm --prefix apps/web run build",
+        "tokens.v0.2-candidate.json",
+        "candidate-v0.2.html",
+        "当前业务 UI 不会在本阶段切换",
+        "确认进入阶段 2",
     ]
 
     for phrase in required_phrases:
@@ -222,6 +228,19 @@ def test_runtime_ui_colors_are_centralized_in_design_tokens_css() -> None:
             continue
         text = read_text(path)
         if COLOR_LITERAL_PATTERN.search(text):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_candidate_design_system_is_not_imported_by_runtime_source() -> None:
+    offenders: list[str] = []
+
+    for path in WEB_SRC_DIR.rglob("*"):
+        if not path.is_file() or path.suffix not in {".css", ".ts", ".tsx", ".js", ".jsx"}:
+            continue
+        text = read_text(path)
+        if CANDIDATE_TOKEN_FILENAME in text or CANDIDATE_PREVIEW_FILENAME in text:
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []
