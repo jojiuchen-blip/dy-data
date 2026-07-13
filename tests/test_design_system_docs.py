@@ -645,7 +645,9 @@ def test_candidate_tertiary_navigation_contract_is_route_based_and_responsive() 
     assert tertiary == {
         "semanticRole": "local page navigation",
         "structure": "nav > a",
+        "landmarkLabel": "required nav aria-label",
         "currentState": "aria-current=page",
+        "focusVisible": "global focus ring",
         "desktopItemHeight": "38px",
         "mobileMinTarget": "44px",
         "activeText": "#d63b00",
@@ -657,7 +659,7 @@ def test_candidate_tertiary_navigation_contract_is_route_based_and_responsive() 
         "forbiddenUses": [
             "filters",
             "transient display modes",
-            "tablist without stable URLs",
+            "tablist",
         ],
     }
 
