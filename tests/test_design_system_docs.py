@@ -689,6 +689,18 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     base = re.search(
         r"\.tertiary-nav__item \{(?P<css>.*?)\n\s*\}", html, re.DOTALL
     )
+    hover = re.search(
+        r"\.tertiary-nav__item:hover,\s*\n\s*"
+        r"\.tertiary-nav__item\.is-hover \{(?P<css>.*?)\n\s*\}",
+        html,
+        re.DOTALL,
+    )
+    focus = re.search(
+        r"\.tertiary-nav__item:focus-visible,\s*\n\s*"
+        r"\.tertiary-nav__item\.is-focus \{(?P<css>.*?)\n\s*\}",
+        html,
+        re.DOTALL,
+    )
     current = re.search(
         r"\.tertiary-nav__item\[aria-current=\"page\"\] \{(?P<css>.*?)\n\s*\}",
         html,
@@ -701,6 +713,11 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     )
     assert base is not None
     assert "min-height: 38px;" in base.group("css")
+    assert "border-bottom: 2px solid transparent;" in base.group("css")
+    assert hover is not None
+    assert "background: var(--brand-soft);" in hover.group("css")
+    assert focus is not None
+    assert "box-shadow: var(--focus-ring);" in focus.group("css")
     assert current is not None
     assert "border-bottom-color: var(--brand-accent);" in current.group("css")
     assert "color: var(--brand-primary);" in current.group("css")
