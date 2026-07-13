@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1359,28 +1359,53 @@ def test_store_account_sees_only_own_round_but_can_open_full_order_detail(
     assert forbidden.json()["data"]["rows"] == []
 
 
-def test_admin_clue_rule_requires_login(client: TestClient) -> None:
-    assert client.get("/api/v1/admin/clue-reassign-rule").status_code == 401
-    assert client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": None}).status_code == 401
+def test_legacy_clue_rule_and_rebuild_routes_are_absent(client: TestClient) -> None:
+    assert client.get("/api/v1/admin/clue-reassign-rule").status_code == 404
+    assert client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": None}).status_code == 404
+    assert client.post("/api/v1/admin/clues/rebuild").status_code == 404
 
 
-def test_admin_can_save_null_and_numeric_clue_rule(client: TestClient) -> None:
-    _login(client)
+def test_clue_center_maintenance_rebuild_requires_highest_administrator(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    maintenance_path = "/api/v1/admin/sync/clue-center/rebuild"
+    assert client.post(maintenance_path).status_code == 401
 
-    response = client.get("/api/v1/admin/clue-reassign-rule")
-    assert response.status_code == 200
-    assert response.json()["data"]["reassign_sla_hours"] is None
+    db_session.add_all(
+        [
+            User(
+                user_id="store-user",
+                username="store-user",
+                external_account_id="store-1",
+                display_name="Store User",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            User(
+                user_id="normal-admin-user",
+                username="normal-admin-user",
+                external_account_id="normal-admin-user",
+                display_name="Normal Admin User",
+                role="admin",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "store-user", "secret")
 
-    response = client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": None})
-    assert response.status_code == 200
-    assert response.json()["data"]["reassign_sla_hours"] is None
+    assert client.post(maintenance_path).status_code == 403
+    _login_user(client, "normal-admin-user", "secret")
 
-    response = client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": 24})
-    assert response.status_code == 200
-    assert response.json()["data"]["reassign_sla_hours"] == 24
+    assert client.post(maintenance_path).status_code == 403
 
 
-def test_admin_can_rebuild_clues(client: TestClient, db_session: Session) -> None:
+def test_highest_admin_can_rebuild_clues(client: TestClient, db_session: Session) -> None:
     db_session.add(
         RawDouyinClue(
             clue_row_key="raw-1",
@@ -1401,14 +1426,46 @@ def test_admin_can_rebuild_clues(client: TestClient, db_session: Session) -> Non
     db_session.commit()
 
     _login(client)
-    response = client.post("/api/v1/admin/clues/rebuild")
+    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
 
     assert response.status_code == 200
     assert response.json()["data"]["rebuilt_order_count"] == 1
     assert db_session.get(ClueCenterOrder, "order-1") is not None
+    master_lead = db_session.scalar(select(ClueMasterLead).where(ClueMasterLead.order_id == "order-1"))
+    assert master_lead is not None
+    assert master_lead.source_clue_row_key == "raw-1"
 
 
-def test_admin_rebuild_decrypts_encrypted_clue_phone(
+def test_clue_center_maintenance_rebuild_stops_when_master_materialization_is_locked(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rebuild_calls: list[str] = []
+
+    monkeypatch.setattr(
+        admin_module,
+        "materialize_clue_master_leads",
+        lambda _session: {
+            "master_leads": 0,
+            "closed_leads": 0,
+            "headquarters_pool": 0,
+            "skipped": "locked",
+        },
+    )
+    monkeypatch.setattr(
+        admin_module,
+        "rebuild_clue_center",
+        lambda *_args, **_kwargs: rebuild_calls.append("clue_center") or {"eligible_orders": 0},
+    )
+
+    _login(client)
+    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
+
+    assert response.status_code == 409
+    assert rebuild_calls == []
+
+
+def test_admin_maintenance_rebuild_decrypts_encrypted_clue_phone(
     client: TestClient,
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
@@ -1446,7 +1503,7 @@ def test_admin_rebuild_decrypts_encrypted_clue_phone(
     )
 
     _login(client)
-    response = client.post("/api/v1/admin/clues/rebuild")
+    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
 
     assert response.status_code == 200
     assert calls == [["Enc.phone-1"]]

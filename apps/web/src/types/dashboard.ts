@@ -636,12 +636,6 @@ export interface CluePhoneReveal {
   phone_masked: string;
 }
 
-export interface ClueReassignRuleData {
-  reassign_sla_hours: number | null;
-  updated_at: string | null;
-  updated_by: string | null;
-}
-
 export interface ClueAllocationEligibleLead {
   lead_key: string;
   canonical_clue_id: string | null;
@@ -904,11 +898,7 @@ export interface StoreScoreSnapshotData {
   pagination: Pagination;
 }
 
-export interface ClueReassignRuleUpdate {
-  reassign_sla_hours: number | null;
-}
-
-export interface ClueRebuildResult {
+export interface ClueCenterMaterializationResult {
   job_id?: string | null;
   status?: "queued" | "running" | "success" | "failed";
   rebuilt_order_count?: number | null;

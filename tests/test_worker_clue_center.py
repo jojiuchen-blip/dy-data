@@ -8,12 +8,18 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueCenterOrder,
-    ClueReassignRuleSetting,
+    ClueMasterLead,
     DimSkuProductRule,
     RawDouyinClue,
     SettlementOrderDetail,
 )
 from apps.worker.clue_center import mask_phone, rebuild_clue_center
+from apps.worker.clue_rule_versions import (
+    bind_lead_rule_version,
+    create_rule,
+    create_rule_version,
+    publish_rule_version,
+)
 
 
 def _dt(day: int, hour: int = 10) -> datetime:
@@ -55,6 +61,74 @@ def _raw_clue(
         raw_payload={"clue_id": clue_id},
         imported_at=create_time,
         updated_at=create_time,
+    )
+
+
+def _rule_strategy_configs() -> list[dict]:
+    return [
+        {
+            "strategy_type": "sales_store_priority",
+            "enabled": True,
+            "execution_order": 1,
+            "params": {"max_distance_km": 10},
+        },
+        {
+            "strategy_type": "nearby_city_optimization",
+            "enabled": True,
+            "execution_order": 2,
+            "params": {"max_distance_km": 15},
+        },
+        {
+            "strategy_type": "city_fallback",
+            "enabled": True,
+            "execution_order": 3,
+            "params": {},
+        },
+    ]
+
+
+def _publish_global_rule(
+    session: Session,
+    *,
+    rule_id: str | None = None,
+    auto_expiry_enabled: bool = True,
+    first_follow_up_sla_hours: int | None = 24,
+):
+    if rule_id is None:
+        rule = create_rule(session, name="Global", scope_type="global", created_by="system-admin")
+        rule_id = rule.rule_id
+    version = create_rule_version(
+        session,
+        rule_id,
+        auto_expiry_enabled=auto_expiry_enabled,
+        first_follow_up_sla_hours=first_follow_up_sla_hours,
+        protection_days=7,
+        conversion_weight=Decimal("0.7"),
+        follow_24h_weight=Decimal("0.3"),
+        lookback_days=30,
+        min_samples=20,
+        strategy_configs=_rule_strategy_configs(),
+        created_by="system-admin",
+    )
+    return publish_rule_version(session, version.rule_version_id, published_by="system-admin")
+
+
+def _master_lead_for_raw_clue(raw_clue: RawDouyinClue, *, lead_key: str) -> ClueMasterLead:
+    return ClueMasterLead(
+        lead_key=lead_key,
+        source_clue_row_key=raw_clue.clue_row_key,
+        source_identity_key=f"identity-{lead_key}",
+        canonical_clue_id=raw_clue.clue_id,
+        order_id=raw_clue.order_id,
+        raw_order_status=raw_clue.order_status,
+        normalized_order_status="active",
+        status_source="test",
+        lifecycle_status="active",
+        allocation_state="pending_allocation",
+        first_seen_at=raw_clue.create_time_detail,
+        last_seen_at=raw_clue.create_time_detail,
+        created_at=raw_clue.create_time_detail,
+        updated_at=raw_clue.create_time_detail,
     )
 
 
@@ -232,26 +306,66 @@ def test_rebuild_uses_phone_from_any_source_clue_for_same_order(
     assert order.phone_source == "raw_payload"
 
 
-def test_sla_configuration_sets_expiration(db_session: Session) -> None:
-    db_session.add(_raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1)))
-    db_session.add(
-        ClueReassignRuleSetting(
-            setting_key="global",
-            reassign_sla_hours=24,
-            updated_by="admin",
-            updated_at=_dt(1),
-        )
+def test_rebuild_uses_lead_bound_rule_version_for_sla_and_auto_expiry(db_session: Session) -> None:
+    raw_clue = _raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1))
+    lead = _master_lead_for_raw_clue(raw_clue, lead_key="lead-1")
+    db_session.add_all([raw_clue, lead])
+    first_version = _publish_global_rule(db_session, first_follow_up_sla_hours=24)
+    binding = bind_lead_rule_version(
+        db_session,
+        lead_key=lead.lead_key,
+        anchor_store_id=None,
+        anchor_city_code=None,
+    )
+    replacement_version = _publish_global_rule(
+        db_session,
+        rule_id=first_version.rule_id,
+        first_follow_up_sla_hours=72,
     )
     db_session.commit()
 
     rebuild_clue_center(db_session, now=_dt(1, 12))
 
-    order = db_session.get(ClueCenterOrder, "order-1")
     round_row = db_session.get(ClueAssignmentRound, "order-1-1")
-    assert order is not None
     assert round_row is not None
-    _assert_same_instant(order.expires_at, _dt(1) + timedelta(hours=24))
+    assert binding.rule_version_id == first_version.rule_version_id
+    assert replacement_version.rule_version_id != first_version.rule_version_id
+    assert round_row.lead_key == lead.lead_key
+    assert round_row.rule_version_id == first_version.rule_version_id
+    assert round_row.auto_expiry_enabled is True
+    assert round_row.first_follow_up_sla_hours == 24
+    _assert_same_instant(round_row.first_sla_expires_at, _dt(1) + timedelta(hours=24))
     _assert_same_instant(round_row.expires_at, _dt(1) + timedelta(hours=24))
+
+
+def test_rebuild_respects_disabled_auto_expiry_from_lead_bound_rule_version(db_session: Session) -> None:
+    raw_clue = _raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1))
+    lead = _master_lead_for_raw_clue(raw_clue, lead_key="lead-1")
+    db_session.add_all([raw_clue, lead])
+    version = _publish_global_rule(
+        db_session,
+        auto_expiry_enabled=False,
+        first_follow_up_sla_hours=None,
+    )
+    bind_lead_rule_version(
+        db_session,
+        lead_key=lead.lead_key,
+        anchor_store_id=None,
+        anchor_city_code=None,
+    )
+    db_session.commit()
+
+    rebuild_clue_center(db_session, now=_dt(5))
+
+    round_row = db_session.get(ClueAssignmentRound, "order-1-1")
+    assert round_row is not None
+    assert round_row.rule_version_id == version.rule_version_id
+    assert round_row.auto_expiry_enabled is False
+    assert round_row.first_follow_up_sla_hours is None
+    assert round_row.first_sla_expires_at is None
+    assert round_row.expires_at is None
+    assert round_row.round_status == "active_unfollowed"
+    assert round_row.reassign_reason is None
 
 
 def test_failed_and_unreachable_follow_results_have_distinct_meanings(db_session: Session) -> None:

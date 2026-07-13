@@ -3,7 +3,6 @@ import { fetchAdminSession, logoutAdmin } from "./api/client";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import { AdminClueAllocationPage } from "./pages/AdminClueAllocationPage";
-import { AdminClueRulePage } from "./pages/AdminClueRulePage";
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
 import { AdminAccountsPage } from "./pages/AdminAccountsPage";
@@ -178,9 +177,7 @@ export function App() {
             <AdminSkuRulesPage />
           ) : location.pathname === "/sync-admin" ||
             location.pathname === "/admin/sync" ? (
-            <AdminSyncPage />
-          ) : location.pathname === "/admin/clues/rules" ? (
-            <AdminClueRulePage />
+            <AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />
           ) : location.pathname === "/admin/clue-allocation" ? (
             <AdminClueAllocationPage isHighestAdmin={user.is_highest_admin === true} />
           ) : location.pathname === "/admin/feedback" ? (

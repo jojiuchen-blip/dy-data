@@ -34,7 +34,7 @@ from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
-from apps.worker.clue_allocation import refresh_store_score_snapshots
+from apps.worker.clue_allocation import materialize_clue_master_leads, refresh_store_score_snapshots
 from apps.worker.clue_allocation_cycles import (
     AllocationCycleError,
     preview_rebuild_trial_allocation_cycle,
@@ -71,8 +71,6 @@ from dy_api.schemas import (
     AccountUpsertRequest,
     ManualSyncRequest,
     ManualSyncResult,
-    ClueReassignRuleData,
-    ClueReassignRuleUpdate,
     ClueRebuildResult,
     ClueAllocationDecisionData,
     ClueAllocationDecisionRow,
@@ -513,60 +511,6 @@ def update_non_commission_owner_accounts(
     }
 
 
-@router.get("/clue-reassign-rule")
-def get_clue_reassign_rule(
-    _username: str = Depends(get_current_admin),
-    store=Depends(get_data_store),
-):
-    store = _require_available_store(store)
-    data = ClueReassignRuleData(**store.get_clue_reassign_rule())
-    return {
-        "data": dump_model(data),
-        "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
-
-
-@router.put("/clue-reassign-rule")
-def update_clue_reassign_rule(
-    payload: ClueReassignRuleUpdate,
-    username: str = Depends(get_current_admin),
-    store=Depends(get_data_store),
-):
-    store = _require_available_store(store)
-    data = ClueReassignRuleData(
-        **store.save_clue_reassign_rule(
-            reassign_sla_hours=payload.reassign_sla_hours,
-            updated_by=username,
-        )
-    )
-    store.session.commit()
-    return {
-        "data": dump_model(data),
-        "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
-
-
-@router.post("/clues/rebuild")
-def rebuild_clues(
-    _username: str = Depends(get_current_admin),
-    store=Depends(get_data_store),
-):
-    store = _require_available_store(store)
-    stats = rebuild_clue_center(
-        store.session,
-        phone_plain_resolver=_phone_plain_resolver(),
-    )
-    store.session.commit()
-    data = ClueRebuildResult(
-        rebuilt_order_count=stats.get("eligible_orders", 0),
-        rebuilt_round_count=stats.get("assignment_rounds", 0),
-    )
-    return {
-        "data": dump_model(data),
-        "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
-
-
 @router.get("/clue-allocation/master-leads")
 def list_clue_master_leads(
     lifecycle_status: str | None = None,
@@ -880,7 +824,7 @@ def list_store_score_snapshots(
     run_mode: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
-    _username: str = Depends(get_current_super_admin),
+    _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
@@ -922,11 +866,15 @@ def refresh_store_scores(
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    version = store.session.get(ClueAllocationRuleVersion, payload.rule_version_id)
+    if version is None:
+        raise HTTPException(status_code=404, detail="线索分配规则版本不存在")
+    if version.status != "published":
+        raise HTTPException(status_code=409, detail="仅已发布规则版本可以刷新门店评分")
     result = refresh_store_score_snapshots(
         store.session,
         run_mode="manual",
-        lookback_days=payload.lookback_days,
-        min_samples=payload.min_samples,
+        rule_version_id=version.rule_version_id,
         triggered_by=_username,
     )
     store.session.commit()
@@ -1250,6 +1198,34 @@ def get_sync_admin(
 ):
     store = _require_available_store(store)
     data = _sync_admin_data(store)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/sync/clue-center/rebuild")
+def rebuild_clue_center_materialization(
+    _username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    master_result = materialize_clue_master_leads(store.session)
+    if master_result.get("skipped") == "locked":
+        store.session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="线索主数据维护正在执行，请稍后重试",
+        )
+    stats = rebuild_clue_center(
+        store.session,
+        phone_plain_resolver=_phone_plain_resolver(),
+    )
+    store.session.commit()
+    data = ClueRebuildResult(
+        rebuilt_order_count=stats.get("eligible_orders", 0),
+        rebuilt_round_count=stats.get("assignment_rounds", 0),
+    )
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

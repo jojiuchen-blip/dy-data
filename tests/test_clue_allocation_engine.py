@@ -178,8 +178,14 @@ def _add_sale_store(session: Session, *, order_id: str, store_id: str, coupon_id
     )
 
 
-def _add_scores(session: Session, scores: dict[str, Decimal]) -> None:
+def _add_scores(
+    session: Session,
+    scores: dict[str, Decimal],
+    *,
+    rule_version_id: str | None = None,
+) -> None:
     run_id = "score-run"
+    score_config = {"source": "test", "rule_version_id": rule_version_id}
     if session.get(StoreScoreSnapshotRun, run_id) is None:
         session.add(
             StoreScoreSnapshotRun(
@@ -190,7 +196,7 @@ def _add_scores(session: Session, scores: dict[str, Decimal]) -> None:
                 window_end=_dt(1),
                 candidate_store_count=len(scores),
                 snapshot_count=len(scores),
-                config_json={"source": "test"},
+                config_json=score_config,
                 computed_at=_dt(1),
             )
         )
@@ -217,7 +223,7 @@ def _add_scores(session: Session, scores: dict[str, Decimal]) -> None:
                 follow_24h_weight=Decimal("0.3"),
                 store_weight=Decimal("1"),
                 composite_score=score,
-                config_json={"source": "test"},
+                config_json=score_config,
                 computed_at=_dt(1),
             )
         )
@@ -412,6 +418,7 @@ def test_nearby_city_ranking_uses_score_then_distance_then_store_id_and_excludes
             ),
         ]
     )
+    _, version = _publish_global_rule(db_session)
     _add_scores(
         db_session,
         {
@@ -419,8 +426,8 @@ def test_nearby_city_ranking_uses_score_then_distance_then_store_id_and_excludes
             "store-a": Decimal("0.80"),
             "store-b": Decimal("0.80"),
         },
+        rule_version_id=version.rule_version_id,
     )
-    _publish_global_rule(db_session)
     db_session.commit()
 
     result = allocate_lead(db_session, lead.lead_key, actor="test-admin")
@@ -447,14 +454,15 @@ def test_nearby_city_prefers_latest_score_before_distance(db_session: Session) -
             lead,
         ]
     )
+    _, version = _publish_global_rule(db_session)
     _add_scores(
         db_session,
         {
             "a-near-low-score": Decimal("0.10"),
             "z-far-high-score": Decimal("0.90"),
         },
+        rule_version_id=version.rule_version_id,
     )
-    _publish_global_rule(db_session)
     db_session.commit()
 
     result = allocate_lead(db_session, lead.lead_key, actor="test-admin")

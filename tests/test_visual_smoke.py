@@ -123,9 +123,16 @@ def install_api_routes(page: Page) -> None:
         "user_id": "visual-admin",
         "display_name": "Visual Admin",
         "role": "admin",
+        "is_highest_admin": True,
         "status": "active",
         "is_initialized": True,
         "store_ids": [],
+    }
+    empty_pagination = {
+        "page": 1,
+        "page_size": 50,
+        "total": 0,
+        "total_pages": 0,
     }
     sync_job = {
         "job_id": "visual-sync-001",
@@ -211,22 +218,48 @@ def install_api_routes(page: Page) -> None:
             body=api_payload(sync_admin),
         ),
     )
+    for endpoint in (
+        "eligible-leads",
+        "headquarters-pool",
+        "cycles",
+        "audit-logs",
+        "rules",
+        "decisions",
+    ):
+        page.route(
+            f"**/api/v1/admin/clue-allocation/{endpoint}*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({"rows": [], "pagination": empty_pagination}),
+            ),
+        )
+    page.route(
+        "**/api/v1/admin/clue-allocation/store-scores*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({"run": None, "rows": [], "pagination": empty_pagination}),
+        ),
+    )
 
 
 @pytest.mark.parametrize("width,height", VIEWPORTS)
 @pytest.mark.parametrize(
-    ("name", "url_path", "expected_text"),
+    ("name", "url_path", "expected_text", "ready_target"),
     [
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
             "抖音经营数据引擎 UI 设计规范",
+            "text",
         ),
-        ("clues", "/clues", "经营线索概览"),
-        ("clue-details", "/clues/details", "线索跟进列表"),
-        ("settlement", "/settlement", "单店月度分账看板"),
-        ("order-details", "/details", "门店月度数据明细表"),
-        ("admin-sync", "/admin/sync", "数据同步管理"),
+        ("clues", "/clues", "经营线索概览", "text"),
+        ("clue-details", "/clues/details", "线索跟进列表", "text"),
+        ("settlement", "/settlement", "单店月度分账看板", "text"),
+        ("order-details", "/details", "门店月度数据明细表", "text"),
+        ("admin-sync", "/admin/sync", "数据同步管理", "text"),
+        ("admin-clue-allocation", "/admin/clue-allocation", "线索分配", "heading"),
     ],
 )
 def test_key_ui_surfaces_render_without_layout_smoke_failures(
@@ -236,6 +269,7 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
     name: str,
     url_path: str,
     expected_text: str,
+    ready_target: str,
     width: int,
     height: int,
 ) -> None:
@@ -253,7 +287,10 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
         install_api_routes(page)
         url = url_path if url_path.startswith("file:") else f"{vite_base_url}{url_path}"
         page.goto(url, wait_until="domcontentloaded")
-        page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+        if ready_target == "heading":
+            page.get_by_role("heading", name=expected_text, exact=True).wait_for(timeout=10000)
+        else:
+            page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
         page.screenshot(path=tmp_path / f"{name}-{width}.png", full_page=True)
 
         text_length = page.evaluate("() => document.body.innerText.trim().length")

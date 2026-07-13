@@ -3158,6 +3158,41 @@ a.metric-card:hover,
   gap: 18px;
 }
 
+.clue-allocation-subnav {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+}
+
+.clue-allocation-subnav__item {
+  flex: 0 0 auto;
+  min-height: var(--touch-target);
+  padding: 0 12px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.clue-allocation-subnav__item:hover,
+.clue-allocation-subnav__item.is-active {
+  border-bottom-color: var(--blue);
+  color: var(--ink);
+}
+
+.clue-allocation-subnav__item.is-active {
+  background: var(--surface-subtle);
+}
+
 .clue-allocation-control__actions {
   display: flex;
   flex-wrap: wrap;
@@ -3787,6 +3822,25 @@ a.metric-card:hover,
 
 .manual-sync-grid {
   grid-template-columns: minmax(240px, 1fr) minmax(140px, 0.45fr) auto auto;
+}
+
+.clue-center-maintenance__body {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.clue-center-maintenance__body h3 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.clue-center-maintenance__body .secondary-button {
+  flex: 0 0 auto;
 }
 
 .worker-status-grid {
@@ -4540,6 +4594,14 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
+  .clue-allocation-subnav {
+    gap: 2px;
+  }
+
+  .clue-allocation-subnav__item {
+    padding: 0 10px;
+  }
+
   .clue-allocation-control__actions,
   .clue-allocation-preview__body {
     grid-template-columns: 1fr;
@@ -4570,9 +4632,15 @@ a.metric-card:hover,
   }
 
   .clue-allocation-control__actions button,
-  .clue-allocation-preview__body > button {
+  .clue-allocation-preview__body > button,
+  .clue-center-maintenance__body .secondary-button {
     min-height: var(--touch-target);
     width: 100%;
+  }
+
+  .clue-center-maintenance__body {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .clue-allocation-admin-table-wrap {

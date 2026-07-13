@@ -11,6 +11,8 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
     Base,
+    ClueAllocationRule,
+    ClueAllocationRuleVersion,
     ClueAssignmentRound,
     ClueCenterOrder,
     ClueFollowUpRecord,
@@ -83,6 +85,38 @@ def _store(store_id: str, *, city_code: str, active: bool = True) -> DimStore:
         location_status="valid",
         location_updated_at=_dt(1),
     )
+
+
+def _published_score_rule_version(
+    session: Session,
+    *,
+    rule_id: str,
+    min_samples: int,
+) -> ClueAllocationRuleVersion:
+    rule = ClueAllocationRule(
+        rule_id=rule_id,
+        rule_name=rule_id,
+        scope_type="global",
+        scope_key=rule_id,
+        created_by="test-admin",
+    )
+    version = ClueAllocationRuleVersion(
+        rule_version_id=f"{rule_id}-v1",
+        rule_id=rule.rule_id,
+        version_no=1,
+        status="published",
+        auto_expiry_enabled=True,
+        first_follow_up_sla_hours=24,
+        protection_days=7,
+        conversion_weight=Decimal("0.7"),
+        follow_24h_weight=Decimal("0.3"),
+        lookback_days=30,
+        min_samples=min_samples,
+        created_by="test-admin",
+    )
+    session.add_all([rule, version])
+    session.commit()
+    return version
 
 
 def test_m1_clue_master_and_anchor_schema_is_declared() -> None:
@@ -605,12 +639,13 @@ def test_score_snapshots_use_formal_mature_rounds_and_city_global_fallbacks(
         ]
     )
     db_session.commit()
+    rule_version = _published_score_rule_version(db_session, rule_id="metrics-rule", min_samples=2)
 
     result = clue_allocation.refresh_store_score_snapshots(
         db_session,
+        rule_version_id=rule_version.rule_version_id,
         now=_dt(10),
         run_mode="manual",
-        min_samples=2,
     )
 
     assert result["snapshots"] == 3
@@ -685,12 +720,13 @@ def test_score_attributes_verification_to_the_latest_formal_round_only(db_sessio
         ]
     )
     db_session.commit()
+    rule_version = _published_score_rule_version(db_session, rule_id="verification-rule", min_samples=1)
 
     result = clue_allocation.refresh_store_score_snapshots(
         db_session,
+        rule_version_id=rule_version.rule_version_id,
         now=_dt(5),
         run_mode="manual",
-        min_samples=1,
     )
 
     rows = {
@@ -705,7 +741,7 @@ def test_score_attributes_verification_to_the_latest_formal_round_only(db_sessio
     assert rows["store-second"].conversion_denominator == 1
 
 
-def test_scheduled_score_refresh_runs_once_after_shanghai_three_am(db_session: Session) -> None:
+def test_scheduled_score_refresh_skips_without_a_rule_version_after_shanghai_three_am(db_session: Session) -> None:
     db_session.add(_store("scheduled-store", city_code="上海"))
     db_session.commit()
 
@@ -723,11 +759,11 @@ def test_scheduled_score_refresh_runs_once_after_shanghai_three_am(db_session: S
     )
 
     assert before == {"snapshot_run_id": None, "snapshots": 0, "skipped": "before_schedule"}
-    assert after["snapshots"] == 1
-    assert repeat == {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
+    assert after == {"snapshot_run_id": None, "snapshots": 0, "skipped": "no_rule_versions"}
+    assert repeat == {"snapshot_run_id": None, "snapshots": 0, "skipped": "no_rule_versions"}
 
 
-def test_scheduled_score_refresh_records_an_empty_run_once_per_day(db_session: Session) -> None:
+def test_scheduled_score_refresh_does_not_record_an_unbound_empty_run(db_session: Session) -> None:
     first = clue_allocation.refresh_due_store_score_snapshots(
         db_session,
         now=datetime(2026, 7, 10, 19, 1, tzinfo=timezone.utc),
@@ -737,9 +773,9 @@ def test_scheduled_score_refresh_records_an_empty_run_once_per_day(db_session: S
         now=datetime(2026, 7, 10, 20, 0, tzinfo=timezone.utc),
     )
 
-    assert first["snapshots"] == 0
-    assert db_session.get(StoreScoreSnapshotRun, first["snapshot_run_id"]) is not None
-    assert repeat == {"snapshot_run_id": None, "snapshots": 0, "skipped": "already_refreshed"}
+    assert first == {"snapshot_run_id": None, "snapshots": 0, "skipped": "no_rule_versions"}
+    assert repeat == {"snapshot_run_id": None, "snapshots": 0, "skipped": "no_rule_versions"}
+    assert db_session.scalar(select(func.count()).select_from(StoreScoreSnapshotRun)) == 0
 
 
 def test_master_materialization_skips_when_its_transaction_lock_is_unavailable(

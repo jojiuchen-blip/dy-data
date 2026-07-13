@@ -18,6 +18,7 @@ import type {
   AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
+  ClueCenterMaterializationResult,
   ClueAllocationAuditLogData,
   ClueAllocationCycleData,
   ClueAllocationCycleExecution,
@@ -40,9 +41,6 @@ import type {
   ClueOverviewFilters,
   ClueOverviewMetrics,
   CluePhoneReveal,
-  ClueReassignRuleData,
-  ClueReassignRuleUpdate,
-  ClueRebuildResult,
   ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
@@ -826,25 +824,6 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
   };
 }
 
-function mockClueRuleResponse(
-  override?: ClueReassignRuleUpdate,
-): ApiResponse<ClueReassignRuleData> {
-  return {
-    data: {
-      ...clueCenterResponses.rule.data,
-      reassign_sla_hours:
-        override?.reassign_sla_hours ??
-        clueCenterResponses.rule.data.reassign_sla_hours,
-      updated_at: generatedAt(),
-    },
-    meta: {
-      ...clueCenterResponses.rule.meta,
-      generated_at: generatedAt(),
-      source: "mock",
-    },
-  };
-}
-
 export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
   return withMockFallback(
     () => requestJson<FilterMetaData>("/meta/filters"),
@@ -1296,38 +1275,15 @@ export async function runManualSync({
   };
 }
 
-export function fetchClueReassignRule(): Promise<ApiLoadResult<ClueReassignRuleData>> {
-  return withMockFallback(
-    () => requestJson<ClueReassignRuleData>("/admin/clue-reassign-rule"),
-    () => mockClueRuleResponse(),
-  );
-}
-
-export function saveClueReassignRule(
-  payload: ClueReassignRuleUpdate,
-): Promise<ApiLoadResult<ClueReassignRuleData>> {
-  return withMockFallback(
-    () =>
-      sendJson<ClueReassignRuleData>("/admin/clue-reassign-rule", {
-        body: payload,
-        method: "PUT",
-      }),
-    () => mockClueRuleResponse(payload),
-  );
-}
-
-export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
-  return withMockFallback(
-    () => sendJson<ClueRebuildResult>("/admin/clues/rebuild", { method: "POST" }),
-    () => ({
-      ...clueCenterResponses.rebuild,
-      meta: {
-        ...clueCenterResponses.rebuild.meta,
-        generated_at: generatedAt(),
-        source: "mock",
-      },
-    }),
-  );
+export async function rebuildClueCenterMaterialization(): Promise<
+  ApiLoadResult<ClueCenterMaterializationResult>
+> {
+  return {
+    ...(await sendJson<ClueCenterMaterializationResult>("/admin/sync/clue-center/rebuild", {
+      method: "POST",
+    })),
+    usingMock: false,
+  };
 }
 
 export async function fetchClueAllocationEligibleLeads(): Promise<
