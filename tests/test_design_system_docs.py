@@ -11,6 +11,13 @@ TOKENS_PATH = DESIGN_SYSTEM_DIR / "tokens.json"
 HTML_PATH = DESIGN_SYSTEM_DIR / "index.html"
 CANDIDATE_TOKENS_PATH = DESIGN_SYSTEM_DIR / "tokens.v0.2-candidate.json"
 CANDIDATE_HTML_PATH = DESIGN_SYSTEM_DIR / "candidate-v0.2.html"
+TERTIARY_PLAN_PATH = (
+    REPO_ROOT
+    / "docs"
+    / "superpowers"
+    / "plans"
+    / "2026-07-13-dydata-v02-tertiary-navigation.md"
+)
 APP_STYLES_PATH = REPO_ROOT / "apps" / "web" / "src" / "styles.css"
 DESIGN_TOKENS_CSS_PATH = REPO_ROOT / "apps" / "web" / "src" / "design-tokens.css"
 WEB_PACKAGE_PATH = REPO_ROOT / "apps" / "web" / "package.json"
@@ -673,14 +680,30 @@ def test_candidate_tertiary_navigation_contract_is_route_based_and_responsive() 
 
 def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() -> None:
     html = read_text(CANDIDATE_HTML_PATH)
+    plan = read_text(TERTIARY_PLAN_PATH)
 
     assert "TertiaryNav / 三级导航" in html
     assert 'class="tertiary-nav-showcase"' in html
     assert 'aria-label="结算数据子页面"' in html
     assert 'aria-label="账号详情子页面"' in html
     assert 'class="tertiary-nav tertiary-nav--mobile"' in html
-    assert 'href="#settlement-ranking" aria-current="page"' in html
-    assert 'href="#account-profile" aria-current="page"' in html
+    route_examples = (
+        "/settlement/ranking",
+        "/settlement/stores",
+        "/settlement/orders",
+        "/admin/accounts/123/profile",
+        "/admin/accounts/123/permissions",
+        "/admin/accounts/123/activity",
+    )
+    for route in route_examples:
+        assert f'href="{route}"' in html
+        assert f'href="{route}"' in plan
+
+    tertiary_hrefs = re.findall(
+        r'<a class="tertiary-nav__item[^"]*" href="([^"]+)"', html
+    )
+    assert tertiary_hrefs
+    assert all(href.startswith("/") for href in tertiary_hrefs)
     assert 'class="tertiary-nav__item is-hover"' in html
     assert 'class="tertiary-nav__item is-focus"' in html
     assert 'class="tertiary-nav__item is-disabled" aria-disabled="true"' in html
@@ -742,11 +765,87 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     mobile_links = mobile_sample.group("html")
     assert mobile_links.count('<a class="tertiary-nav__item"') == 5
     assert (
-        'href="#mobile-product-settlement">商品结算汇总</a>' in mobile_links
+        'href="/preview/tertiary/mobile/product-settlement">商品结算汇总</a>'
+        in mobile_links
     )
     assert (
-        'href="#mobile-account-reconciliation">账号结算对账</a>' in mobile_links
+        'href="/preview/tertiary/mobile/account-reconciliation" '
+        'aria-current="page">账号结算对账</a>' in mobile_links
     )
+
+
+def test_candidate_tertiary_navigation_reveals_the_current_item_horizontally() -> None:
+    html = read_text(CANDIDATE_HTML_PATH)
+
+    initializer = re.search(
+        r"const revealCurrentTertiaryItem = \(nav\) => \{(?P<script>.*?)\n\s*\};",
+        html,
+        re.DOTALL,
+    )
+    assert initializer is not None
+    script = initializer.group("script")
+    assert 'nav.querySelector(\'[aria-current="page"]\')' in script
+    assert script.count("getBoundingClientRect()") == 2
+    assert "currentRect.left < navRect.left" in script
+    assert "currentRect.right > navRect.right" in script
+    assert "nav.scrollTo({" in script
+    assert "window.scrollTo" not in script
+    assert "scrollIntoView" not in script
+    assert (
+        'document.querySelectorAll(".tertiary-nav")'
+        ".forEach(revealCurrentTertiaryItem);" in html
+    )
+
+    mobile_sample = re.search(
+        r'<nav class="tertiary-nav tertiary-nav--mobile" '
+        r'aria-label="移动端结算数据子页面">(?P<html>.*?)</nav>',
+        html,
+        re.DOTALL,
+    )
+    assert mobile_sample is not None
+    mobile_items = re.findall(r"<a\b(?P<attrs>[^>]*)>", mobile_sample.group("html"))
+    assert len(mobile_items) == 5
+    current_index = next(
+        index for index, attrs in enumerate(mobile_items) if 'aria-current="page"' in attrs
+    )
+    assert current_index >= 3
+
+
+def test_candidate_tertiary_current_hover_keeps_white_surface_contrast() -> None:
+    html = read_text(CANDIDATE_HTML_PATH)
+
+    current_hover = re.search(
+        r'\.tertiary-nav__item\[aria-current="page"\]:hover,\s*\n\s*'
+        r'\.tertiary-nav__item\[aria-current="page"\]\.is-hover '
+        r"\{(?P<css>.*?)\n\s*\}",
+        html,
+        re.DOTALL,
+    )
+    assert current_hover is not None
+    css = current_hover.group("css")
+    assert "background: var(--surface);" in css
+    assert "color: var(--brand-primary);" in css
+    assert "var(--brand-soft)" not in css
+
+
+def test_candidate_metadata_uses_final_review_date() -> None:
+    html = read_text(CANDIDATE_HTML_PATH)
+    candidate = json.loads(read_text(CANDIDATE_TOKENS_PATH))
+
+    assert candidate["meta"]["lastUpdated"] == "2026-07-13"
+    assert '<span class="pill">更新：2026-07-13</span>' in html
+
+
+def test_tertiary_plan_verifies_the_merge_base_range_and_records_completion() -> None:
+    plan = read_text(TERTIARY_PLAN_PATH)
+
+    assert "$base = (git merge-base main HEAD).Trim()" in plan
+    assert "git diff --check $base HEAD" in plan
+    assert "git diff --name-only $base HEAD -- apps/web/src" in plan
+    assert "git diff --name-only -- apps/web/src" not in plan
+    assert "## Execution Status" in plan
+    for task in ("Task 1", "Task 2", "Task 3"):
+        assert f"- [x] {task}" in plan
 
 
 def test_candidate_polish_uses_natural_gallery_typography_and_restraint() -> None:
@@ -863,7 +962,6 @@ def test_candidate_mobile_page_templates_replace_desktop_workspaces_on_narrow_sc
     assert ".mobile-template-stack" in narrow_media
 
     mobile_template = candidate["pageTemplates"]["mobileDetailWorkspace"]
-    assert candidate["meta"]["lastUpdated"] == "2026-07-12"
     assert "DYDATA-5" in candidate["meta"]["relatedIssues"]
     assert mobile_template["desktopOnlyBreakpoint"] == "920px"
     assert mobile_template["recordPresentation"] == "record-cards"

@@ -161,8 +161,8 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     assert 'aria-label="结算数据子页面"' in html
     assert 'aria-label="账号详情子页面"' in html
     assert 'class="tertiary-nav tertiary-nav--mobile"' in html
-    assert 'href="#settlement-ranking" aria-current="page"' in html
-    assert 'href="#account-profile" aria-current="page"' in html
+    assert 'href="/settlement/ranking" aria-current="page"' in html
+    assert 'href="/admin/accounts/123/profile" aria-current="page"' in html
     assert 'class="tertiary-nav__item is-hover"' in html
     assert 'class="tertiary-nav__item is-focus"' in html
     assert 'class="tertiary-nav__item is-disabled" aria-disabled="true"' in html
@@ -264,6 +264,12 @@ Add near the existing `.subnav-item` rules:
   font-weight: var(--weight-bold);
 }
 
+.tertiary-nav__item[aria-current="page"]:hover,
+.tertiary-nav__item[aria-current="page"].is-hover {
+  background: var(--surface);
+  color: var(--brand-primary);
+}
+
 .tertiary-nav__item.is-disabled {
   color: var(--muted);
   opacity: 0.48;
@@ -304,9 +310,9 @@ Add a wide component card after `NavigationItem / 导航项`:
         <span>二级工作区合并后，三级入口仍保持独立 URL。</span>
       </div>
       <nav class="tertiary-nav" aria-label="结算数据子页面">
-        <a class="tertiary-nav__item" href="#settlement-ranking" aria-current="page">全国门店榜单</a>
-        <a class="tertiary-nav__item" href="#settlement-stores">单店结算</a>
-        <a class="tertiary-nav__item" href="#settlement-orders">订单明细</a>
+        <a class="tertiary-nav__item" href="/settlement/ranking" aria-current="page">全国门店榜单</a>
+        <a class="tertiary-nav__item" href="/settlement/stores">单店结算</a>
+        <a class="tertiary-nav__item" href="/settlement/orders">订单明细</a>
       </nav>
     </section>
     <section class="tertiary-nav-context" aria-labelledby="tertiary-account-title">
@@ -315,27 +321,29 @@ Add a wide component card after `NavigationItem / 导航项`:
         <span>位于实体标题和摘要之后、详情正文之前。</span>
       </div>
       <nav class="tertiary-nav" aria-label="账号详情子页面">
-        <a class="tertiary-nav__item" href="#account-profile" aria-current="page">基本信息</a>
-        <a class="tertiary-nav__item" href="#account-permissions">权限配置</a>
-        <a class="tertiary-nav__item" href="#account-activity">操作记录</a>
+        <a class="tertiary-nav__item" href="/admin/accounts/123/profile" aria-current="page">基本信息</a>
+        <a class="tertiary-nav__item" href="/admin/accounts/123/permissions">权限配置</a>
+        <a class="tertiary-nav__item" href="/admin/accounts/123/activity">操作记录</a>
       </nav>
     </section>
     <section class="tertiary-nav-context">
       <strong>组件状态</strong>
       <div class="tertiary-nav-state-row">
-        <a class="tertiary-nav__item" href="#state-default">默认</a>
-        <a class="tertiary-nav__item is-hover" href="#state-hover">Hover</a>
-        <a class="tertiary-nav__item is-focus" href="#state-focus">Focus</a>
-        <a class="tertiary-nav__item" href="#state-current" aria-current="page">当前</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/default">默认</a>
+        <a class="tertiary-nav__item is-hover" href="/preview/tertiary/hover">Hover</a>
+        <a class="tertiary-nav__item is-focus" href="/preview/tertiary/focus">Focus</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/current" aria-current="page">当前</a>
         <span class="tertiary-nav__item is-disabled" aria-disabled="true">禁用</span>
       </div>
     </section>
     <section class="tertiary-nav-context">
       <strong>移动端 · 横向导航</strong>
       <nav class="tertiary-nav tertiary-nav--mobile" aria-label="移动端结算数据子页面">
-        <a class="tertiary-nav__item" href="#mobile-ranking" aria-current="page">全国门店榜单</a>
-        <a class="tertiary-nav__item" href="#mobile-stores">单店结算</a>
-        <a class="tertiary-nav__item" href="#mobile-orders">订单明细</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/mobile/ranking">全国门店榜单</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/mobile/stores">单店结算</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/mobile/orders">订单明细</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/mobile/product-settlement">商品结算汇总</a>
+        <a class="tertiary-nav__item" href="/preview/tertiary/mobile/account-reconciliation" aria-current="page">账号结算对账</a>
       </nav>
     </section>
   </div>
@@ -393,10 +401,12 @@ git commit -m "docs: preview V0.2 tertiary navigation"
 ```powershell
 python -m pytest -q
 npm --prefix apps/web run build
-git diff --check
+$base = (git merge-base main HEAD).Trim()
+git diff --check $base HEAD
+git diff --name-only $base HEAD -- apps/web/src
 ```
 
-Expected: all pytest tests pass, Vite build succeeds, and `git diff --check` prints no errors.
+Expected: all pytest tests pass, Vite build succeeds, the committed range has no whitespace errors, and the `apps/web/src` range is empty.
 
 - [ ] **Step 2: Inspect desktop, tablet, and mobile rendering**
 
@@ -417,7 +427,8 @@ For each width verify:
 - [ ] **Step 3: Confirm runtime scope remains untouched**
 
 ```powershell
-git diff --name-only -- apps/web/src
+$base = (git merge-base main HEAD).Trim()
+git diff --name-only $base HEAD -- apps/web/src
 ```
 
 Expected: no output.
@@ -425,3 +436,9 @@ Expected: no output.
 - [ ] **Step 4: Record final status**
 
 Report the exact test counts, build result, visual widths checked, modified files, and that business UI migration remains deferred.
+
+## Execution Status
+
+- [x] Task 1: machine-readable tertiary navigation contract completed.
+- [x] Task 2: route-based gallery, mobile current-item auto-reveal, and current-hover contrast completed.
+- [x] Task 3: focused, design-system, full-suite, build, visual, range, and clean-worktree verification completed; final evidence is recorded in the SDD handoff report.

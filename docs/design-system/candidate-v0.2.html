@@ -2963,6 +2963,12 @@
         font-weight: var(--weight-bold);
       }
 
+      .tertiary-nav__item[aria-current="page"]:hover,
+      .tertiary-nav__item[aria-current="page"].is-hover {
+        background: var(--surface);
+        color: var(--brand-primary);
+      }
+
       .tertiary-nav__item.is-disabled {
         color: var(--muted);
         opacity: 0.48;
@@ -3445,7 +3451,7 @@
             <span class="badge">Candidate</span>
             <span class="pill">状态：pending-human-approval</span>
             <span class="pill">模式：light-only</span>
-            <span class="pill">更新：2026-07-12</span>
+            <span class="pill">更新：2026-07-13</span>
             <span class="pill">源文件：tokens.v0.2-candidate.json</span>
           </div>
         </div>
@@ -3949,9 +3955,9 @@
                   <span>二级工作区合并后，三级入口仍保持独立 URL。</span>
                 </div>
                 <nav class="tertiary-nav" aria-label="结算数据子页面">
-                  <a class="tertiary-nav__item" href="#settlement-ranking" aria-current="page">全国门店榜单</a>
-                  <a class="tertiary-nav__item" href="#settlement-stores">单店结算</a>
-                  <a class="tertiary-nav__item" href="#settlement-orders">订单明细</a>
+                  <a class="tertiary-nav__item" href="/settlement/ranking" aria-current="page">全国门店榜单</a>
+                  <a class="tertiary-nav__item" href="/settlement/stores">单店结算</a>
+                  <a class="tertiary-nav__item" href="/settlement/orders">订单明细</a>
                 </nav>
               </section>
               <section class="tertiary-nav-context" aria-labelledby="tertiary-account-title">
@@ -3960,29 +3966,29 @@
                   <span>位于实体标题和摘要之后、详情正文之前。</span>
                 </div>
                 <nav class="tertiary-nav" aria-label="账号详情子页面">
-                  <a class="tertiary-nav__item" href="#account-profile" aria-current="page">基本信息</a>
-                  <a class="tertiary-nav__item" href="#account-permissions">权限配置</a>
-                  <a class="tertiary-nav__item" href="#account-activity">操作记录</a>
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/profile" aria-current="page">基本信息</a>
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/permissions">权限配置</a>
+                  <a class="tertiary-nav__item" href="/admin/accounts/123/activity">操作记录</a>
                 </nav>
               </section>
               <section class="tertiary-nav-context">
                 <strong>组件状态</strong>
                 <div class="tertiary-nav-state-row">
-                  <a class="tertiary-nav__item" href="#state-default">默认</a>
-                  <a class="tertiary-nav__item is-hover" href="#state-hover">Hover</a>
-                  <a class="tertiary-nav__item is-focus" href="#state-focus">Focus</a>
-                  <a class="tertiary-nav__item" href="#state-current" aria-current="page">当前</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/default">默认</a>
+                  <a class="tertiary-nav__item is-hover" href="/preview/tertiary/hover">Hover</a>
+                  <a class="tertiary-nav__item is-focus" href="/preview/tertiary/focus">Focus</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/current" aria-current="page">当前</a>
                   <span class="tertiary-nav__item is-disabled" aria-disabled="true">禁用</span>
                 </div>
               </section>
               <section class="tertiary-nav-context">
                 <strong>移动端 · 横向导航</strong>
                 <nav class="tertiary-nav tertiary-nav--mobile" aria-label="移动端结算数据子页面">
-                  <a class="tertiary-nav__item" href="#mobile-ranking" aria-current="page">全国门店榜单</a>
-                  <a class="tertiary-nav__item" href="#mobile-stores">单店结算</a>
-                  <a class="tertiary-nav__item" href="#mobile-orders">订单明细</a>
-                  <a class="tertiary-nav__item" href="#mobile-product-settlement">商品结算汇总</a>
-                  <a class="tertiary-nav__item" href="#mobile-account-reconciliation">账号结算对账</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/ranking">全国门店榜单</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/stores">单店结算</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/orders">订单明细</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/product-settlement">商品结算汇总</a>
+                  <a class="tertiary-nav__item" href="/preview/tertiary/mobile/account-reconciliation" aria-current="page">账号结算对账</a>
                 </nav>
               </section>
             </div>
@@ -5179,6 +5185,30 @@
           });
         });
       });
+
+      const revealCurrentTertiaryItem = (nav) => {
+        const currentItem = nav.querySelector('[aria-current="page"]');
+        if (!currentItem) return;
+
+        const navRect = nav.getBoundingClientRect();
+        const currentRect = currentItem.getBoundingClientRect();
+        let targetLeft = nav.scrollLeft;
+
+        if (currentRect.left < navRect.left) {
+          targetLeft -= navRect.left - currentRect.left;
+        } else if (currentRect.right > navRect.right) {
+          targetLeft += currentRect.right - navRect.right;
+        } else {
+          return;
+        }
+
+        nav.scrollTo({
+          left: Math.max(0, targetLeft),
+          behavior: "auto",
+        });
+      };
+
+      document.querySelectorAll(".tertiary-nav").forEach(revealCurrentTertiaryItem);
 
       const tocLinks = Array.from(document.querySelectorAll(".spec-toc a"));
       const tocSections = tocLinks
