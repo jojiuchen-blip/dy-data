@@ -11,6 +11,7 @@ __pycache__/
 /logs/
 /runs/
 /local_exports/
+/.worktrees/
 
 # Keep this repository focused on source scripts and documentation.
 .env
