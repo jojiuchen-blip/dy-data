@@ -13,11 +13,11 @@ def test_activation_form_has_field_guidance_copy_and_focus_bindings() -> None:
 
     assert "activationFieldHints" in source
     assert "activeActivationHint" in source
-    assert "所属账户ID/POI ID" in source
-    assert "账号名或所属账户ID/POI ID" in source
-    assert "抖音来客电脑端右上角个人头像下方的“账户ID”" in source
-    assert "手机端“我的-个人中心-我的账户ID”" in source
-    assert "也可以填写对应门店的POI ID" in source
+    assert "所属账户编号或门店位置编号（POI ID）" in source
+    assert "账号名、所属账户编号或门店位置编号（POI ID）" in source
+    assert "抖音来客电脑端右上角个人头像下方的“账户 ID”" in source
+    assert "手机端“我的-个人中心-我的账户 ID”" in source
+    assert "也可以填写对应门店的位置编号（POI ID）" in source
     assert "抖音来客账号绑定的公司主体全名" in source
     assert source.count("自行设置") >= 3
 

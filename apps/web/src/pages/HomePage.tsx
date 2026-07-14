@@ -4,13 +4,13 @@ const modules = [
   {
     description: "汇总门店分配线索、跟进状态、待再分配和转化核销情况。",
     href: "/clues",
-    meta: "已接入 MVP 看板",
+    meta: "线索看板已上线",
     status: "已接入",
     title: "线索中心",
   },
   {
     beta: true,
-    description: "承接现有门店榜单、单店分账、月度明细和 SKU 分账规则管理。",
+    description: "承接现有门店榜单、单店分账、月度明细和商品分账规则管理。",
     href: "/ranking",
     meta: "试运行阶段",
     status: "已接入",

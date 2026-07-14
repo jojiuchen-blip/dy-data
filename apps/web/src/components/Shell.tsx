@@ -26,11 +26,11 @@ type NavSection = "settlement" | "verification" | "clues" | "admin";
 
 interface NavItem {
   href: string;
-  icon?: SolarIconName;
   label: string;
 }
 
 interface ModuleNavItem extends NavItem {
+  icon?: SolarIconName;
   section: NavSection;
   description: string;
   badge?: string;
@@ -69,25 +69,30 @@ const moduleNavItems: ModuleNavItem[] = [
 ];
 
 const settlementNavItems: NavItem[] = [
-  { href: "/ranking", label: "全国门店榜单", icon: "ranking" },
-  { href: "/settlement", label: "单店结算", icon: "settlement" },
-  { href: "/details", label: "订单明细", icon: "details" },
+  { href: "/ranking", label: "全国门店榜单" },
+  { href: "/settlement", label: "单店结算" },
+  { href: "/details", label: "订单明细" },
 ];
 
 const clueNavItems: NavItem[] = [
-  { href: "/clues", label: "线索看板", icon: "chart" },
-  { href: "/clues/details", label: "线索明细", icon: "details" },
+  { href: "/clues", label: "线索看板" },
+  { href: "/clues/details", label: "线索明细" },
 ];
 
 const adminNavItems: NavItem[] = [
-  { href: "/admin", label: "后台首页", icon: "home" },
-  { href: "/admin/accounts", label: "账号管理", icon: "accounts" },
-  { href: "/admin/rules", label: "分佣规则", icon: "rules" },
-  { href: "/admin/product-types", label: "商品口径", icon: "filter" },
-  { href: "/admin/clue-allocation", label: "线索分配", icon: "cluesLine" },
-  { href: "/admin/feedback", label: "用户建议", icon: "feedback" },
-  { href: "/admin/sync", label: "数据同步", icon: "sync" },
+  { href: "/admin", label: "后台首页" },
+  { href: "/admin/accounts", label: "账号管理" },
+  { href: "/admin/rules", label: "分佣规则" },
+  { href: "/admin/product-types", label: "商品口径" },
+  { href: "/admin/clue-allocation", label: "线索分配" },
+  { href: "/admin/feedback", label: "用户建议" },
+  { href: "/admin/sync", label: "数据同步" },
 ];
+
+const secondaryNavPathAliases: Record<string, string> = {
+  "/rule-admin": "/admin/rules",
+  "/sync-admin": "/admin/sync",
+};
 
 const sectionLabels: Record<NavSection, string> = {
   settlement: "订单分佣结算中心",
@@ -114,7 +119,12 @@ interface ShellProps {
 }
 
 function activeSection(currentPath: string): NavSection {
-  if (adminPaths.has(currentPath)) {
+  if (
+    adminPaths.has(currentPath) ||
+    Array.from(adminPaths).some(
+      (path) => path !== "/admin" && currentPath.startsWith(`${path}/`),
+    )
+  ) {
     return "admin";
   }
   if (verificationPaths.has(currentPath)) {
@@ -140,6 +150,20 @@ function secondaryNav(section: NavSection): NavItem[] {
     return [];
   }
   return settlementNavItems;
+}
+
+function activeSecondaryNavHref(
+  items: NavItem[],
+  currentPath: string,
+): string | undefined {
+  const normalizedPath = secondaryNavPathAliases[currentPath] ?? currentPath;
+  return [...items]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find(
+      (item) =>
+        normalizedPath === item.href ||
+        normalizedPath.startsWith(`${item.href}/`),
+    )?.href;
 }
 
 function roleLabel(user: AdminUser): string {
@@ -171,6 +195,10 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
   const sectionNavItems = secondaryNav(section);
+  const activeSecondaryHref = activeSecondaryNavHref(
+    sectionNavItems,
+    currentPath,
+  );
   const pageFrameClassName = [
     "page-frame",
     dataWorkspacePaths.has(currentPath) ? "page-frame--data-workspace" : "",
@@ -216,17 +244,13 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         aria-label={`${sectionLabels[section]}导航`}
       >
         {sectionNavItems.map((item) => {
-          const active =
-            currentPath === item.href ||
-            (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
-            (item.href === "/admin/sync" && currentPath === "/sync-admin");
+          const active = item.href === activeSecondaryHref;
           return (
             <a
               aria-current={active ? "page" : undefined}
               href={item.href}
               key={item.href}
             >
-              {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
               {item.label}
             </a>
           );

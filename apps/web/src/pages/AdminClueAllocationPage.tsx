@@ -21,6 +21,7 @@ import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
+import { TertiaryNav } from "../components/TertiaryNav";
 import type {
   ClueAllocationAuditLog,
   ClueAllocationCycle,
@@ -37,12 +38,15 @@ import type {
   StoreScoreSnapshotData,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
-
-const poolReasonLabels: Record<string, string> = {
-  follow_poi_missing: "缺少锚点门店",
-  no_candidate: "无可分配门店",
-  strategies_exhausted: "轮次候选已耗尽",
-};
+import {
+  displayAllocationCycleStatus,
+  displayAllocationCycleType,
+  displayAllocationDecisionStatus,
+  displayAllocationEventType,
+  displayAllocationExecutionMode,
+  displayAllocationStrategy,
+  displayClueReason,
+} from "../utils/userFacingLabels";
 
 const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
   global: "全局默认",
@@ -51,25 +55,21 @@ const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
   anchor_store: "锚点门店",
 };
 
-const strategyLabels: Record<string, string> = {
-  sales_store_priority: "销售店优先（10 公里）",
-  nearby_city_optimization: "15 公里城市优选",
-  city_fallback: "城市兜底",
-};
+export type AllocationSubview = "rules" | "trial" | "records" | "headquarters";
 
-const decisionStatusLabels: Record<string, string> = {
-  selected: "已分配",
-  skipped: "已跳过",
-  headquarters: "进入总部池",
-};
-
-type AllocationSubview = "rules" | "trial" | "records" | "headquarters";
-
-const allocationSubviewItems: Array<{ id: AllocationSubview; label: string }> = [
-  { id: "rules", label: "分配规则" },
-  { id: "trial", label: "分配试运行" },
-  { id: "records", label: "分配记录" },
-  { id: "headquarters", label: "总部线索池" },
+const allocationSubviewItems: Array<{
+  href: string;
+  id: AllocationSubview;
+  label: string;
+}> = [
+  { href: "/admin/clue-allocation/rules", id: "rules", label: "分配规则" },
+  { href: "/admin/clue-allocation/trial", id: "trial", label: "分配试运行" },
+  { href: "/admin/clue-allocation/records", id: "records", label: "分配记录" },
+  {
+    href: "/admin/clue-allocation/headquarters",
+    id: "headquarters",
+    label: "总部线索池",
+  },
 ];
 
 interface RuleVersionDraft {
@@ -104,10 +104,6 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
 
 function displayValue(value: string | null | undefined): string {
   return value || "-";
-}
-
-function displayPoolReason(reason: string): string {
-  return poolReasonLabels[reason] ?? reason;
 }
 
 function summaryLabel(summary: Record<string, number> | undefined): string {
@@ -197,10 +193,14 @@ function buildRuleVersionPayload(draft: RuleVersionDraft): ClueAllocationRuleVer
 }
 
 interface AdminClueAllocationPageProps {
+  activeSubview?: AllocationSubview;
   isHighestAdmin: boolean;
 }
 
-export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationPageProps) {
+export function AdminClueAllocationPage({
+  activeSubview = "rules",
+  isHighestAdmin,
+}: AdminClueAllocationPageProps) {
   const [eligibleLeads, setEligibleLeads] = useState<ClueAllocationEligibleLead[]>([]);
   const [headquartersEntries, setHeadquartersEntries] = useState<
     ClueHeadquartersPoolEntry[]
@@ -218,7 +218,6 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
   const [selectedRebuildCycleId, setSelectedRebuildCycleId] = useState("");
   const [preview, setPreview] = useState<ClueAllocationCyclePreview | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeSubview, setActiveSubview] = useState<AllocationSubview>("rules");
   const [action, setAction] = useState<
     "preview" | "trial" | "rebuild" | "rule" | "publish" | "retire" | null
   >(null);
@@ -517,7 +516,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       ruleVersionDraft.salesStoreDistanceKm <= 0 ||
       ruleVersionDraft.nearbyCityDistanceKm <= 0
     ) {
-      setStatusText("SLA、保护期、样本窗口、最小样本和距离参数不在允许范围内。");
+      setStatusText("首次跟进时限、保护期、样本窗口、最小样本和距离参数不在允许范围内。");
       return false;
     }
     if (
@@ -701,7 +700,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "reason",
       title: "进入原因",
       minWidth: 150,
-      render: (entry) => displayPoolReason(entry.reason),
+      render: (entry) => displayClueReason(entry.reason),
     },
     {
       key: "anchor-store",
@@ -728,13 +727,13 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "strategy",
       title: "策略",
       minWidth: 190,
-      render: (decision) => strategyLabels[decision.strategy_type] ?? decision.strategy_type,
+      render: (decision) => displayAllocationStrategy(decision.strategy_type),
     },
     {
       key: "mode",
       title: "执行方式",
       minWidth: 100,
-      render: (decision) => (decision.execution_mode === "trial" ? "试运行" : "正式"),
+      render: (decision) => displayAllocationExecutionMode(decision.execution_mode),
     },
     {
       key: "store",
@@ -746,13 +745,13 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "status",
       title: "结果",
       minWidth: 110,
-      render: (decision) => decisionStatusLabels[decision.decision_status] ?? decision.decision_status,
+      render: (decision) => displayAllocationDecisionStatus(decision.decision_status),
     },
     {
       key: "reason",
       title: "原因",
       minWidth: 170,
-      render: (decision) => displayValue(decision.reason),
+      render: (decision) => displayClueReason(decision.reason),
     },
     {
       key: "executed-at",
@@ -796,9 +795,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "type",
       title: "批次类型",
       minWidth: 120,
-      render: (cycle) => (cycle.cycle_type === "rebuild" ? "试运行重建" : "试运行"),
+      render: (cycle) => displayAllocationCycleType(cycle.cycle_type),
     },
-    { key: "status", title: "状态", minWidth: 100, render: (cycle) => cycle.status },
+    {
+      key: "status",
+      title: "状态",
+      minWidth: 100,
+      render: (cycle) => displayAllocationCycleStatus(cycle.status),
+    },
     { key: "count", title: "线索数", minWidth: 90, render: (cycle) => cycle.active_lead_count },
     {
       key: "impact",
@@ -816,7 +820,12 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
   ];
 
   const auditColumns: Column<ClueAllocationAuditLog>[] = [
-    { key: "event", title: "事件", minWidth: 150, render: (row) => row.event_type },
+    {
+      key: "event",
+      title: "事件",
+      minWidth: 150,
+      render: (row) => displayAllocationEventType(row.event_type),
+    },
     {
       key: "cycle",
       title: "批次",
@@ -881,21 +890,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </div>
       ) : null}
 
-      <nav aria-label="线索分配功能" className="clue-allocation-subnav">
-        {allocationSubviewItems.map((item) => (
-          <button
-            aria-pressed={activeSubview === item.id}
-            className={`clue-allocation-subnav__item${
-              activeSubview === item.id ? " is-active" : ""
-            }`}
-            key={item.id}
-            onClick={() => setActiveSubview(item.id)}
-            type="button"
-          >
-            {item.label}
-          </button>
-        ))}
-      </nav>
+      <TertiaryNav
+        items={allocationSubviewItems.map((item) => ({
+          current: activeSubview === item.id,
+          href: item.href,
+          label: item.label,
+        }))}
+        label="线索分配功能"
+      />
 
       {activeSubview === "trial" ? (
         <>
@@ -975,7 +977,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               }}
               options={rebuildSourceCycles.map((cycle) => ({
                 value: cycle.allocation_cycle_id,
-                label: `${cycle.cycle_type === "rebuild" ? "重建" : "试运行"} · ${formatDateTime(cycle.completed_at ?? cycle.executed_at)}`,
+                label: `${displayAllocationCycleType(cycle.cycle_type)} · ${formatDateTime(cycle.completed_at ?? cycle.executed_at)}`,
               }))}
               placeholder="请选择批次"
               value={selectedRebuildCycleId}
@@ -1077,7 +1079,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                       <h3>固定分配策略</h3>
                       {version.strategy_configs.map((config) => (
                         <p key={config.strategy_type}>
-                          <span>{strategyLabels[config.strategy_type] ?? config.strategy_type}</span>
+                          <span>{displayAllocationStrategy(config.strategy_type)}</span>
                           <strong>{config.enabled ? `第 ${config.execution_order} 顺位` : "已停用"}</strong>
                         </p>
                       ))}
@@ -1187,7 +1189,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   />
                 </label>
                 <label className="filter-field">
-                  <span>首次跟进 SLA（小时）</span>
+                  <span>首次跟进时限（小时）</span>
                   <input
                     min={1}
                     onChange={(event) =>

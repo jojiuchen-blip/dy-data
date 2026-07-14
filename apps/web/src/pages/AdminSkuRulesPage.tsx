@@ -713,7 +713,7 @@ export function AdminSkuRulesPage() {
         <div>
           <h1>商品分账规则管理</h1>
           <p className="admin-muted">
-            先查询并预选 SKU，再对预选范围批量修改；保存后会写入规则表并后台重建结算结果。
+            先查询并预选商品规格（SKU），再对预选范围批量修改；保存后会写入规则表并后台重建结算结果。
           </p>
         </div>
       </section>

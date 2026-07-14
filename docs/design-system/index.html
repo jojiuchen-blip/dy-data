@@ -968,12 +968,10 @@
       }
 
       .metric-preview {
-        position: relative;
         display: grid;
         min-height: 132px;
         align-content: space-between;
         gap: 14px;
-        overflow: hidden;
         border: 1px solid var(--line);
         border-radius: var(--radius-lg);
         padding: 18px;
@@ -981,26 +979,7 @@
         box-shadow: var(--shadow-card);
       }
 
-      .metric-preview::before {
-        position: absolute;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 3px;
-        background: var(--metric-accent, transparent);
-        content: "";
-      }
-
-      .metric-preview.primary {
-        --metric-accent: var(--brand-primary);
-      }
-
-      .metric-preview.semantic {
-        --metric-accent: var(--semantic-accent, var(--green));
-      }
-
       .metric-preview.loading {
-        --metric-accent: transparent;
         gap: 12px;
       }
 
@@ -2864,6 +2843,59 @@
         background: var(--surface-subtle);
       }
 
+      .favicon-contract-grid,
+      .copy-contract-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .browser-tab-demo,
+      .copy-contract-example {
+        display: grid;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 14px;
+        background: var(--surface-subtle);
+      }
+
+      .browser-tab-demo.dark {
+        border-color: #3f403d;
+        background: #202124;
+        color: #ffffff;
+      }
+
+      .browser-tab-demo__title {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: var(--weight-medium);
+      }
+
+      .browser-tab-demo__icon {
+        width: 28px;
+        height: 28px;
+        flex: 0 0 auto;
+        color: var(--brand-primary);
+      }
+
+      .browser-tab-demo__icon--asset {
+        display: block;
+      }
+
+      .browser-tab-demo.dark .browser-tab-demo__icon {
+        color: var(--brand-focus);
+      }
+
+      .copy-contract-example strong {
+        color: var(--danger);
+      }
+
+      .copy-contract-example.correct strong {
+        color: var(--brand-primary);
+      }
+
       .workspace-demo {
         display: grid;
         grid-template-rows: 64px 48px minmax(0, 1fr);
@@ -3451,7 +3483,7 @@
             <span class="badge">Active</span>
             <span class="pill">状态：active</span>
             <span class="pill">模式：light-only</span>
-            <span class="pill">更新：2026-07-13</span>
+            <span class="pill">更新：2026-07-14</span>
             <span class="pill">源文件：tokens.json</span>
           </div>
         </div>
@@ -3896,19 +3928,19 @@
             <h3>MetricCard / 指标卡</h3>
             <div class="grid grid-2">
               <div class="metric-preview">
-                <span class="metric-label">标准指标 · 线索总数</span>
+                <span class="metric-label">总量指标 · 线索总数</span>
                 <strong class="metric-value">21,732</strong>
                 <span class="metric-meta">筛选范围内订单粒度</span>
               </div>
-              <div class="metric-preview primary">
-                <span class="metric-label">重点指标 · 核销收入</span>
+              <div class="metric-preview">
+                <span class="metric-label">金额指标 · 核销收入</span>
                 <strong class="metric-value">¥1,054,975.52</strong>
-                <span class="metric-meta">每页最多一个，使用深橙色顶线</span>
+                <span class="metric-meta">通过标题和值表达业务含义</span>
               </div>
-              <div class="metric-preview semantic" style="--semantic-accent: var(--green)">
-                <span class="metric-label">语义指标 · 已跟进</span>
-                <strong class="metric-value">8,461</strong>
-                <span class="metric-meta">保留成功、警告、错误、信息色的原义</span>
+              <div class="metric-preview">
+                <span class="metric-label">比率指标 · 自店核销率</span>
+                <strong class="metric-value">75.63%</strong>
+                <span class="metric-meta">视觉与总量、金额指标保持一致</span>
               </div>
               <div class="metric-preview loading" aria-label="加载指标示例">
                 <span class="metric-label">加载指标</span>
@@ -3916,7 +3948,7 @@
                 <span class="metric-meta">固定卡片尺寸，避免数据到达时版面跳动</span>
               </div>
             </div>
-            <p>指标卡只用于看板中的一眼判断。标准态不用顶线；重点态只保留一个；语义态不挪用品牌橙；加载态保持最终几何尺寸。</p>
+            <p>KPI 指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色制造卡片层级。优先级通过排列顺序、标签、数值字号和说明文字表达；加载态保持最终几何尺寸。</p>
           </article>
           <article class="component-card">
             <h3>NavigationItem / 导航项</h3>
@@ -3944,7 +3976,43 @@
                 </span>
               </div>
             </div>
-            <p>桌面 Rail 使用 linear 图标和紧凑标签，二级导航以 2px 深橙下划线表示当前页。移动端四项一级导航仅为 DYDATA-5 未来信息架构，不新增现有运行时路由。</p>
+            <p>桌面 Rail 使用 linear 图标和紧凑标签；二级导航不使用图标，以透明底、文字链接和 2px 品牌橙下划线表示当前页。父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态，禁止两个二级入口同时高亮。移动端四项一级导航仅为 DYDATA-5 未来信息架构，不新增现有运行时路由。</p>
+          </article>
+          <article class="component-card">
+            <h3>BrowserFavicon / 浏览器标签图标</h3>
+            <div class="favicon-contract-grid">
+              <div class="browser-tab-demo">
+                <div class="browser-tab-demo__title">
+                  <svg class="browser-tab-demo__icon browser-tab-demo__icon--asset" aria-hidden="true" data-brand-asset="browser-favicon" viewBox="0 0 64 64"><g transform="translate(-14 5) scale(3.4)" fill="currentColor"><path d="M22 5a3 3 0 1 1-6 0a3 3 0 0 1 6 0Zm-7.5 5.75a.75.75 0 0 1 0-1.5H17a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-.69l-2.013 2.013a1.75 1.75 0 0 1-2.474 0l-1.586-1.586a.25.25 0 0 0-.354 0L7.53 14.53a.75.75 0 0 1-1.06-1.06l2.293-2.293a1.75 1.75 0 0 1 2.474 0l1.586 1.586a.25.25 0 0 0 .354 0l2.012-2.013H14.5Z"/></g></svg>
+                  <span>浅色浏览器</span>
+                </div>
+                <code>#d63b00 · 无外层色块</code>
+              </div>
+              <div class="browser-tab-demo dark">
+                <div class="browser-tab-demo__title">
+                  <svg class="browser-tab-demo__icon browser-tab-demo__icon--asset" aria-hidden="true" data-brand-asset="browser-favicon" viewBox="0 0 64 64"><g transform="translate(-14 5) scale(3.4)" fill="currentColor"><path d="M22 5a3 3 0 1 1-6 0a3 3 0 0 1 6 0Zm-7.5 5.75a.75.75 0 0 1 0-1.5H17a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-.69l-2.013 2.013a1.75 1.75 0 0 1-2.474 0l-1.586-1.586a.25.25 0 0 0-.354 0L7.53 14.53a.75.75 0 0 1-1.06-1.06l2.293-2.293a1.75 1.75 0 0 1 2.474 0l1.586 1.586a.25.25 0 0 0 .354 0l2.012-2.013H14.5Z"/></g></svg>
+                  <span>深色浏览器</span>
+                </div>
+                <code>#fe5205 · 无外层色块</code>
+              </div>
+            </div>
+            <p>应用界面仍是 light-only；浏览器标签图标使用已版本化的静态品牌资产，仅适配浏览器 chrome。业务界面图标仍必须通过 SolarIcon；图形或配色变化时必须更换 favicon 文件名，避免缓存继续显示旧绿色版本。</p>
+          </article>
+          <article class="component-card component-card--wide">
+            <h3>ContentPresenter / 用户可见值</h3>
+            <div class="copy-contract-grid">
+              <div class="copy-contract-example">
+                <strong>禁止：内部值直出</strong>
+                <span>fulfilling · protected · orders · sale_time · open api returned 0 rows</span>
+                <small>工程字段、生产枚举、后端错误和未知原值不能进入用户界面。</small>
+              </div>
+              <div class="copy-contract-example correct">
+                <strong>正确：转换为业务文案</strong>
+                <span>履约中 · 跟进保护期内 · 订单数据同步 · 销售时间 · 开放接口未返回数据</span>
+                <small>未知值使用“未知状态 / 未知类型 / 未知原因”，原值只写开发日志。</small>
+              </div>
+            </div>
+            <p>内部生产值不得直接展示。统一通过 <code>apps/web/src/utils/userFacingLabels.ts</code> 转换；POI、SKU 等必要缩写首次出现时补充中文含义。</p>
           </article>
           <article class="component-card component-card--wide">
             <h3>TertiaryNav / 三级导航</h3>
@@ -4142,7 +4210,7 @@
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
                 <strong>看板</strong>
-                <span>linear · 二级标签</span>
+                <span>linear · 一级看板导航</span>
               </div>
               <div class="icon-choice-item emphasis" style="--icon-size: 24px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="admin" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-admin"></use></svg>
@@ -4721,13 +4789,17 @@
                   </div>
                   <div class="grid grid-3">
                     <div class="metric-preview"><span class="metric-label">线索总数</span><strong class="metric-value">21,732</strong></div>
-                    <div class="metric-preview" style="--accent: var(--blue)"><span class="metric-label">可跟进</span><strong class="metric-value">21,732</strong></div>
-                    <div class="metric-preview" style="--accent: var(--amber)"><span class="metric-label">待处理</span><strong class="metric-value">0</strong></div>
+                    <div class="metric-preview"><span class="metric-label">可跟进</span><strong class="metric-value">21,732</strong></div>
+                    <div class="metric-preview"><span class="metric-label">待处理</span><strong class="metric-value">0</strong></div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
+          <aside class="desktop-template-note">
+            <strong>筛选器操作规则：</strong>
+            收起筛选只在筛选面板确实可折叠的窄屏布局中显示；桌面常驻筛选栏始终展开，因此只保留清空筛选等实际有效的操作。
+          </aside>
           <div class="data-workspace-demo">
             <div class="data-workspace-demo__top">
               <div class="data-workspace-demo__heading">
@@ -5143,6 +5215,36 @@
                 <td>只用于稳定 URL 子页面，不用于筛选、临时视图或第四级导航。</td>
               </tr>
               <tr>
+                <td>二级导航</td>
+                <td>纯文字链接；桌面 38px，移动 44px；透明底和 2px 品牌橙当前页下划线</td>
+                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>二级导航不使用图标；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；图标仅属于一级导航或明确操作。</td>
+              </tr>
+              <tr>
+                <td>筛选器收起操作</td>
+                <td>仅在筛选面板能够切换展开与收起状态时显示；当前线索筛选器为 640px 以下</td>
+                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>桌面常驻筛选栏始终展开，不显示无效的“收起筛选”按钮。</td>
+              </tr>
+              <tr>
+                <td>KPI 指标卡</td>
+                <td>统一白底、8px 圆角、细边框和 shadowCard；标准态与加载态共用同一几何尺寸</td>
+                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>不使用彩色顶线、彩色背景或语义色制造层级；成功、警告、错误、信息色保留给状态、反馈和图表。</td>
+              </tr>
+              <tr>
+                <td>浏览器标签图标</td>
+                <td>浅色浏览器 #d63b00；深色浏览器 #fe5205；无外层色块；版本化文件名</td>
+                <td><span class="status-chip success">已落地</span></td>
+                <td>浏览器 chrome 适配不改变应用 light-only 边界。</td>
+              </tr>
+              <tr>
+                <td>用户可见值</td>
+                <td>内部状态、原因、任务、事件、角色和数据库字段名必须先映射为中文</td>
+                <td><span class="status-chip success">已落地</span></td>
+                <td>未知状态 / 未知类型 / 未知原因；原始值只进入开发日志。</td>
+              </tr>
+              <tr>
                 <td>设计规范执行</td>
                 <td>tokens.json + index.html + pytest</td>
                 <td><span class="status-chip success">Active</span></td>
@@ -5164,6 +5266,10 @@
         <ul class="rule-list">
           <li><strong>新增颜色：</strong>同步更新 <code>tokens.json</code>、本页和相关测试；候选工件只作为不可变历史记录。</li>
           <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
+          <li><strong>新增 KPI：</strong>复用统一白底圆角指标卡，不增加 tone、彩色顶线或彩色卡面；优先级通过顺序、标签、数值和说明表达。</li>
+          <li><strong>用户文案：</strong>内部生产值不得直接展示；通过共享映射转换，未知状态 / 未知类型 / 未知原因不得回显原值。</li>
+          <li><strong>导航层级：</strong>二级导航不使用图标；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；稳定子页面使用 <code>TertiaryNav</code>、真实链接和 <code>aria-current="page"</code>。</li>
+          <li><strong>品牌入口：</strong>浏览器标签图标使用版本化橙色资产，浅色与深色浏览器 chrome 分别验证对比度。</li>
           <li><strong>新增长列表：</strong>桌面优先表格；移动端卡片或摘要进入 DYDATA-5 范围，不把宽表直接塞进手机。</li>
           <li><strong>新增明细长表：</strong>如果用户主要任务是筛选后逐行处理记录，桌面端使用明细工作台模板，保证分页可见且只让结果表格滚动。</li>
           <li><strong>新增 sticky/fixed：</strong>必须声明对应 z-index 层级和导航避让间距，避免层叠互相遮挡。</li>

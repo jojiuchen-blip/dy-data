@@ -344,7 +344,9 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     ]
     assert sales_payload["data"]["product_scope"] == "all"
     assert sales_definitions["total_verify_order_count"]["label"] == "实际核销总数"
-    assert "is_refund_excluded=true" in sales_definitions["total_sales_order_count"]["description"]
+    sales_order_description = sales_definitions["total_sales_order_count"]["description"]
+    assert "退款订单不计入" in sales_order_description
+    assert "is_refund_excluded=true" not in sales_order_description
     assert deferred_field("refund", "amount", "cent") not in sales.text
 
     assert details.status_code == 200

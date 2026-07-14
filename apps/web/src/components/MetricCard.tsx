@@ -8,7 +8,6 @@ interface MetricCardProps {
   meta?: ReactNode;
   href?: string;
   loading?: boolean;
-  tone?: "standard" | "primary" | "success" | "info" | "warning" | "danger";
 }
 
 export function MetricCard({
@@ -18,7 +17,6 @@ export function MetricCard({
   meta,
   href,
   loading = false,
-  tone = "standard",
 }: MetricCardProps) {
   const content = (
     <>
@@ -43,7 +41,7 @@ export function MetricCard({
     return (
       <a
         aria-busy={loading || undefined}
-        className={`metric-card metric-card--${tone}`}
+        className="metric-card"
         href={href}
       >
         {content}
@@ -54,7 +52,7 @@ export function MetricCard({
   return (
     <div
       aria-busy={loading || undefined}
-      className={`metric-card metric-card--${tone}`}
+      className="metric-card"
     >
       {content}
     </div>

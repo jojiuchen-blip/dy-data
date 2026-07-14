@@ -20,7 +20,7 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert "AdminProductTypeVisibilityPage" in app_source
     assert 'location.pathname === "/admin/product-types"' in app_source
     assert '"/admin/product-types"' in shell_source
-    assert 'label: "商品口径", icon: "filter"' in shell_source
+    assert 'href: "/admin/product-types", label: "商品口径"' in shell_source
     assert 'href: "/admin/product-types"' in home_source
 
     assert "商品口径控制" in page_source

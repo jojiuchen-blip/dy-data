@@ -23,8 +23,8 @@ const selfServiceSubmitLabels: Record<Exclude<AuthMode, "login">, string> = {
 };
 
 const selfServiceErrorMessages: Record<Exclude<AuthMode, "login">, string> = {
-  activate: "账号激活失败，请核对所属账户ID/POI ID、认证主体全称和密码确认。",
-  reset: "密码重置失败，请核对所属账户ID/POI ID、认证主体全称和密码确认。",
+  activate: "账号激活失败，请核对所属账户编号或门店位置编号（POI ID）、认证主体全称和密码确认。",
+  reset: "密码重置失败，请核对所属账户编号或门店位置编号（POI ID）、认证主体全称和密码确认。",
 };
 
 type ActivationHintKey =
@@ -42,9 +42,9 @@ interface ActivationFieldHint {
 
 const activationFieldHints: Record<ActivationHintKey, ActivationFieldHint> = {
   external_account_id: {
-    title: "所属账户ID/POI ID",
+    title: "所属账户编号或门店位置编号（POI ID）",
     body:
-      "抖音来客电脑端右上角个人头像下方的“账户ID”；手机端“我的-个人中心-我的账户ID”。也可以填写对应门店的POI ID。",
+      "抖音来客电脑端右上角个人头像下方的“账户 ID”；手机端“我的-个人中心-我的账户 ID”。也可以填写对应门店的位置编号（POI ID）。",
   },
   certified_subject_name: {
     title: "认证主体全称",
@@ -201,12 +201,12 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         {mode === "login" ? (
           <form className="auth-form" onSubmit={handleLogin}>
             <label className="filter-field">
-              <span>账号名或所属账户ID/POI ID</span>
+              <span>账号名、所属账户编号或门店位置编号（POI ID）</span>
               <input
                 autoFocus
                 autoComplete="username"
                 onChange={(event) => setIdentifier(event.target.value)}
-                placeholder="输入账号名、所属账户ID或POI ID"
+                placeholder="输入账号名、所属账户编号或门店位置编号"
                 value={identifier}
               />
             </label>
@@ -233,14 +233,14 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         ) : (
           <form className="auth-form" onSubmit={handleSelfService}>
             <label className="filter-field">
-              <span>所属账户ID/POI ID</span>
+              <span>所属账户编号或门店位置编号（POI ID）</span>
               <input
                 autoComplete="off"
                 onFocus={() => setActiveActivationHint("external_account_id")}
                 onChange={(event) =>
                   setPayloadField("external_account_id", event.target.value)
                 }
-                placeholder="输入子机构账号所属账户ID或门店POI ID"
+                placeholder="输入所属账户编号或门店位置编号"
                 value={payload.external_account_id}
               />
             </label>

@@ -270,7 +270,6 @@ def test_legacy_green_is_reserved_for_semantic_success_styles() -> None:
         ".clue-allocation-version-status.is-published",
         ".clue-followup-toast",
         ".feedback-form__message--success",
-        ".metric-card--success::before",
         ".sales-monthly-chart__area--verified",
         ".sales-monthly-chart__dot--verified",
         ".sales-monthly-chart__legend-item--verified::before",

@@ -42,6 +42,11 @@ import type {
   AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
+import {
+  displayClueReason,
+  displayFollowUpTimingState,
+  displayOrderStatus,
+} from "../utils/userFacingLabels";
 
 interface ClueCenterPageProps {
   currentUser: AdminUser;
@@ -95,13 +100,6 @@ const verificationStatusLabels: Record<string, string> = {
   other_store_verified: "非本店核销",
 };
 
-const orderStatusLabels: Record<string, string> = {
-  active: "履约中",
-  converted: "已核销",
-  refunded: "已退款",
-  closed: "已关闭",
-};
-
 const followResultLabels: Record<string, string> = {
   pending: "-",
   unreachable: "未接通",
@@ -112,15 +110,6 @@ const followResultLabels: Record<string, string> = {
   failed: "历史旧值：线索战败",
   success: "历史旧值：跟进成功（已迁移为已预约）",
   continue_following: "历史旧值：待进一步跟进",
-};
-
-const reassignReasonLabels: Record<string, string> = {
-  timeout: "超期失效",
-  follow_failed: "线索战败",
-  "follow_lost": "线索战败",
-  request_store_change: "客户要求换门店",
-  manual: "人工调整",
-  "线索战败": "线索战败",
 };
 
 const storeStatusAliases: Record<string, StoreClueStatus> = {
@@ -142,11 +131,15 @@ const invalidStatuses = new Set<StoreClueStatus>([
   "客户要求换门店",
 ]);
 
-function labelFor(value: string | null | undefined, labels: Record<string, string>) {
+function labelFor(
+  value: string | null | undefined,
+  labels: Record<string, string>,
+  fallback = "未知跟进结果",
+) {
   if (!value) {
     return "-";
   }
-  return labels[value] ?? value;
+  return labels[value] ?? fallback;
 }
 
 function displayValue(value: string | null | undefined): string {
@@ -253,7 +246,8 @@ function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "已核销") {
     return "订单已完成";
   }
-  return row.status_reason ?? "此线索不可操作";
+  const reason = displayClueReason(row.status_reason);
+  return reason === "-" ? "此线索不可操作" : reason;
 }
 
 function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
@@ -273,7 +267,8 @@ function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "已退款") {
     return "订单已退款，不可跟进";
   }
-  return row.status_reason ?? "此线索不可操作";
+  const reason = displayClueReason(row.status_reason);
+  return reason === "-" ? "此线索不可操作" : reason;
 }
 
 function verificationStatusText(row: ClueAssignmentRound): string {
@@ -300,14 +295,14 @@ function invalidationReason(row: ClueAssignmentRound): string {
     return "超期失效";
   }
   if (status === "主动战败") {
-    return labelFor(row.reassign_reason, reassignReasonLabels);
+    return displayClueReason(row.reassign_reason);
   }
   return "-";
 }
 
 function roundTransitionReason(row: ClueAssignmentRound): string {
   if (row.reassign_reason) {
-    return labelFor(row.reassign_reason, reassignReasonLabels);
+    return displayClueReason(row.reassign_reason);
   }
   return invalidationReason(row);
 }
@@ -555,7 +550,7 @@ export function ClueCenterPage({
   const detailProductType =
     detail?.product_type ?? activeDetailRound?.product_type ?? "-";
   const detailOrderStatus = activeDetailRound
-    ? labelFor(activeDetailRound.order_current_status, orderStatusLabels)
+    ? displayOrderStatus(activeDetailRound.order_current_status)
     : "-";
   const detailVerificationStatus = activeDetailRound
     ? verificationStatusText(activeDetailRound)
@@ -1226,37 +1221,31 @@ export function ClueCenterPage({
           <MetricCard
             label="线索总数"
             meta="筛选范围内订单粒度"
-            tone="primary"
             value={formatInteger(overview.total_clues)}
           />
           <MetricCard
             label="可跟进线索"
             meta="仍需门店处理"
-            tone="info"
             value={formatInteger(overview.active_clues)}
           />
           <MetricCard
             label="线索跟进率"
             meta="成功跟进 / 全部线索"
-            tone="warning"
             value={formatPercent(overview.follow_success_rate)}
           />
           <MetricCard
             label="核销数"
             meta="进入跟进池后已核销"
-            tone="info"
             value={formatInteger(overview.verified_count)}
           />
           <MetricCard
             label="核销比例"
             meta="成功且完成核销"
-            tone="info"
             value={formatPercent(overview.self_store_verify_rate)}
           />
           <MetricCard
             label="待处理"
             meta="战败或超期"
-            tone="warning"
             value={formatInteger(overview.pending_reassign_count)}
           />
         </section>
@@ -1660,8 +1649,11 @@ export function ClueCenterPage({
                                           ) : null}
                                           {record.timing_state || record.status_reason ? (
                                             <p>
-                                              {[record.timing_state, record.status_reason]
-                                                .filter(Boolean)
+                                              {[
+                                                displayFollowUpTimingState(record.timing_state),
+                                                displayClueReason(record.status_reason),
+                                              ]
+                                                .filter((value) => value !== "-")
                                                 .join(" · ")}
                                             </p>
                                           ) : null}

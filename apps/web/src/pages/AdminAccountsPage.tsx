@@ -212,7 +212,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "account_ids",
-      title: "所属账户ID",
+      title: "所属账户编号",
       align: "left",
       render: (store) => (
         <span className="mono-cell">{idListLabel(store.account_ids)}</span>
@@ -220,7 +220,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "poi_ids",
-      title: "POI ID",
+      title: "门店位置编号（POI ID）",
       align: "left",
       render: (store) => (
         <span className="mono-cell">{idListLabel(store.poi_ids)}</span>
@@ -249,7 +249,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "external",
-      title: "所属账户ID",
+      title: "所属账户编号",
       align: "left",
       render: (account) => (
         <span className="mono-cell">{account.external_account_id || "-"}</span>
@@ -321,7 +321,7 @@ export function AdminAccountsPage() {
       setDraft(accountDraft(result.data));
       setStatusText("账号已保存。");
     } catch {
-      setStatusText("保存失败，请检查账号名、所属账户ID、密码确认和门店绑定。");
+      setStatusText("保存失败，请检查账号名、所属账户编号、密码确认和门店绑定。");
     } finally {
       setSaving(false);
     }
@@ -425,7 +425,7 @@ export function AdminAccountsPage() {
               />
             </label>
             <label className="filter-field">
-              <span>所属账户ID</span>
+              <span>所属账户编号</span>
               <input
                 onChange={(event) =>
                   setDraftField("external_account_id", event.target.value)
@@ -541,7 +541,7 @@ export function AdminAccountsPage() {
           <div>
             <h2>未激活门店</h2>
             <p>
-              共 {unactivatedStores.length} 个已准备但尚未激活账号的门店，可按所属账户ID/POI ID查询。
+              共 {unactivatedStores.length} 个已准备但尚未激活账号的门店，可按所属账户编号或门店位置编号查询。
             </p>
           </div>
           {unactivatedLoading ? <span className="source-pill">加载中</span> : null}
@@ -551,10 +551,10 @@ export function AdminAccountsPage() {
           onSubmit={handleUnactivatedSearch}
         >
           <label className="filter-field">
-            <span>所属账户ID/POI ID</span>
+            <span>所属账户编号或门店位置编号（POI ID）</span>
             <input
               onChange={(event) => setUnactivatedQuery(event.target.value)}
-              placeholder="输入门店账户ID或POI ID"
+              placeholder="输入门店账户编号或位置编号"
               value={unactivatedQuery}
             />
           </label>

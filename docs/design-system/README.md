@@ -9,12 +9,13 @@
 - `apps/web/src/design-tokens.css`：当前运行时 CSS token 来源，由 `apps/web/src/styles.css` 导入。
 - `tests/test_design_system_docs.py`：验证正式 V0.2 元数据、核心 token、HTML 规范与运行时 CSS 绑定。
 - `tests/test_design_system_enforcement.py`：验证业务代码不会绕过规范入口，例如图标必须从 `SolarIcon.tsx` 集中接入。
+- `tests/test_frontend_user_facing_contracts.py`：阻止内部生产值、错误导航层级和旧版浏览器图标重新进入用户界面。
 
 ## V0.2 生效范围
 
 - 版本为 `0.2.0`，状态为 `active`，阶段为 `runtime-active`，关联工作项为 `DYDATA-4`。
 - 只支持 `light-only`；暗色模式不属于 V0.2。
-- 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、三级导航和桌面明细工作台规则。
+- 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、二级/三级导航、浏览器标签图标和桌面明细工作台规则。
 - `tokens.json` 与 `apps/web/src/design-tokens.css` 的受测核心变量必须保持一致。新增或调整运行时 UI 值时，不能只修改业务页面。
 
 ## DYDATA-5 边界
@@ -42,7 +43,7 @@ python -m pytest tests/test_design_system_docs.py -q
 涉及运行时 CSS、页面或图标契约时，还应运行：
 
 ```powershell
-python -m pytest tests/test_design_system_docs.py tests/test_design_system_enforcement.py tests/test_frontend_clue_center.py tests/test_frontend_app_icon.py
+python -m pytest tests/test_design_system_docs.py tests/test_design_system_enforcement.py tests/test_frontend_user_facing_contracts.py tests/test_frontend_clue_center.py tests/test_frontend_app_icon.py
 python -m pytest tests/test_visual_smoke.py
 npm --prefix apps/web run build
 ```
@@ -53,8 +54,14 @@ npm --prefix apps/web run build
 
 - 不直接在业务页面新增一次性颜色、圆角、控件高度或状态色；先进入 `tokens.json` 和 `index.html`。
 - 不绕过 `apps/web/src/design-tokens.css` 新增运行时颜色、阴影或控件尺寸。
-- 不在业务代码里直接导入 `@iconify/react` 或 `@iconify-icons/solar/*`；新增图标先注册到 `apps/web/src/components/SolarIcon.tsx`。
-- 不把浏览器系统暗色模式适配写入 V0.2；暗色模式需要独立设计、预览、测试和迁移计划。
+- 不在业务代码里直接导入 `@iconify/react` 或 `@iconify-icons/solar/*`；新增图标先注册到 `apps/web/src/components/SolarIcon.tsx`。浏览器 favicon 是版本化静态品牌资产，不作为业务 UI 图标入口。
+- 应用界面不把浏览器系统暗色模式适配写入 V0.2；暗色模式需要独立设计、预览、测试和迁移计划。浏览器标签图标是浏览器 chrome 的例外：浅色浏览器使用 `#d63b00`，深色浏览器使用 `#fe5205`，且不增加外层色块。
+- 内部生产值不得直接展示。订单状态、时效状态、同步任务、分配策略、事件类型、角色和后端错误必须通过 `apps/web/src/utils/userFacingLabels.ts` 转为用户文案；未知值显示“未知状态 / 未知类型 / 未知原因”或通用失败提示，原值只允许进入开发日志。
+- 必须保留的缩写在首次出现时补充中文含义，例如“门店位置编号（POI ID）”和“商品规格（SKU）”；一般用户页面不展示 MVP、Worker、数据库字段名等工程词。
+- 二级导航不使用图标，统一为透明底、文字链接和 2px 品牌橙当前页下划线；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；一级导航和明确操作可使用 Solar 图标。
+- 稳定子页面必须使用 `TertiaryNav` 和独立 URL，不使用本地按钮状态模拟页面导航，也不新增第四级导航。
+- 收起筛选只在筛选面板确实可折叠的窄屏布局中显示；桌面常驻筛选栏始终展开，不显示无效的收起操作。
 - 不把普通信息区块伪装成指标卡；指标卡只用于看板关键监控值。
+- KPI 指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色区分普通指标；信息层级依靠排列顺序、标签、数值字号和说明文字。成功、警告、错误、信息色只用于真实状态、反馈和图表语义。
 - 不用文字字符临时模拟图标、下拉箭头或状态符号。
 - 不把桌面明细长表做成页面整体滚动；使用明细工作台模板，外层视口固定、结果表格内部滚动、分页保持可见。

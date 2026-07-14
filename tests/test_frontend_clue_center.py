@@ -389,11 +389,12 @@ def test_clue_center_splits_dashboard_and_detail_routes() -> None:
     assert 'view="dashboard"' in app_source
     assert 'location.pathname === "/clues/details"' in app_source
     assert 'view="details"' in app_source
-    assert '{ href: "/clues", label: "线索看板", icon: "chart" }' in shell_source
-    assert (
-        '{ href: "/clues/details", label: "线索明细", icon: "details" }'
-        in shell_source
-    )
+    assert '{ href: "/clues", label: "线索看板" }' in shell_source
+    assert '{ href: "/clues/details", label: "线索明细" }' in shell_source
+    secondary_nav = shell_source.split("const renderSecondaryNav", 1)[1].split(
+        "const handleFeedbackSubmit", 1
+    )[0]
+    assert "<SolarIcon" not in secondary_nav
     assert 'currentPath.startsWith("/clues/")' in shell_source
     assert 'view?: ClueCenterView' in page_source
     assert 'const isDetailsView = view === "details"' in page_source
@@ -500,7 +501,7 @@ def test_admin_feedback_page_is_wired_to_shell_and_api_client() -> None:
     assert "AdminFeedbackPage" in app_source
     assert 'location.pathname === "/admin/feedback"' in app_source
     assert '"/admin/feedback"' in shell_source
-    assert 'label: "用户建议", icon: "feedback"' in shell_source
+    assert 'href: "/admin/feedback", label: "用户建议"' in shell_source
     assert 'href: "/admin/feedback"' in home_source
 
     assert "用户建议" in page_source
@@ -696,12 +697,12 @@ def test_mobile_clue_filter_panel_has_visible_collapse_action() -> None:
     styles_source = read_source("styles.css")
 
     base_collapse_rules = styles_source[
-        styles_source.index(".clue-filter-collapse-mobile {") :
+        styles_source.index(".ui-button.clue-filter-collapse-mobile {") :
         styles_source.index("\n.filter-field {")
     ]
     mobile_phone_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
     mobile_collapse_rules = mobile_phone_rules[
-        mobile_phone_rules.index(".clue-filter-collapse-mobile {") :
+        mobile_phone_rules.index(".ui-button.clue-filter-collapse-mobile {") :
         mobile_phone_rules.index(".clue-table-view")
     ]
 
@@ -883,11 +884,12 @@ def test_sensitive_clue_actions_do_not_fallback_to_mock_on_api_denial() -> None:
 
 def test_follow_lost_reason_has_store_label() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
+    label_source = read_source("utils/userFacingLabels.ts")
     client_source = read_source("api/client.ts")
     mock_source = read_source("data/mock/clue_center.json")
 
-    assert "follow_lost" in source
-    assert '"follow_lost": "线索战败"' in source
+    assert "displayClueReason" in source
+    assert 'follow_lost: "线索战败"' in label_source
     assert ': "follow_lost";' in client_source
     assert '"reassign_reason": "follow_lost"' in mock_source
 

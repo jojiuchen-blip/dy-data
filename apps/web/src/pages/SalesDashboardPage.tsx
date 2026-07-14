@@ -755,28 +755,24 @@ export function SalesDashboardPage({
               description={definitionFor("total_sales_order_count")}
               label="总销售订单量"
               meta={`${dashboard.store.store_name} · ${periodLabel}`}
-              tone="primary"
               value={formatInteger(metrics.total_sales_order_count)}
             />
             <MetricCard
               description={definitionFor("self_verify_order_count")}
               label="自店核销数"
               meta="销售门店与核销门店一致"
-              tone="info"
               value={formatInteger(metrics.self_verify_order_count)}
             />
             <MetricCard
               description={definitionFor("self_verify_rate")}
               label="自店核销率"
               meta="自店核销数 / 总销售订单量"
-              tone="warning"
               value={formatPercent(metrics.self_verify_rate)}
             />
             <MetricCard
               description={definitionFor("total_verify_order_count")}
               label="实际核销总数"
               meta={`${dashboard.store.store_name} · ${periodLabel}`}
-              tone="info"
               value={formatInteger(metrics.total_verify_order_count)}
             />
             <MetricCard
@@ -788,8 +784,7 @@ export function SalesDashboardPage({
             <MetricCard
               description={definitionFor("avg_verify_cycle_days")}
               label="平均核销周期"
-              meta="sale_time 到 verify_time"
-              tone="warning"
+              meta="从销售时间到核销时间"
               value={formatDays(metrics.avg_verify_cycle_days)}
             />
           </section>
@@ -832,13 +827,13 @@ export function SalesDashboardPage({
             key: "sales_month_filter",
             label: "月份筛选口径",
             description:
-              "默认展示全年数据；选择具体月份后，总销售订单量、自店核销数、自店核销率按 sale_time 归属月份统计，实际核销总数、实际核销金额和核销周期按 verify_time 归属月份统计。",
+              "默认展示全年数据；选择具体月份后，总销售订单量、自店核销数和自店核销率按销售时间所在月份统计；实际核销总数、实际核销金额和核销周期按核销时间所在月份统计。",
           },
           {
             key: "order_deduplication",
             label: "订单去重口径",
             description:
-              "订单数相关指标统一按 order_id 去重；一单核销多券时，实际核销总数仍只计 1 单。",
+              "订单数相关指标统一按订单编号去重；一单核销多券时，实际核销总数仍只计 1 单。",
           },
         ]}
         title="本页计算口径"

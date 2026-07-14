@@ -11,6 +11,7 @@ import type {
   FeedbackStatus,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
+import { displayUserRole } from "../utils/userFacingLabels";
 
 const PAGE_SIZE = 20;
 
@@ -170,7 +171,9 @@ export function AdminFeedbackPage() {
       render: (row) => (
         <span>
           {row.username || "-"}
-          {row.user_role ? <small className="feedback-user-role">{row.user_role}</small> : null}
+          {row.user_role ? (
+            <small className="feedback-user-role">{displayUserRole(row.user_role)}</small>
+          ) : null}
         </span>
       ),
     },

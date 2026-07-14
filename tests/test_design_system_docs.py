@@ -22,6 +22,7 @@ APP_STYLES_PATH = REPO_ROOT / "apps" / "web" / "src" / "styles.css"
 DESIGN_TOKENS_CSS_PATH = REPO_ROOT / "apps" / "web" / "src" / "design-tokens.css"
 WEB_PACKAGE_PATH = REPO_ROOT / "apps" / "web" / "package.json"
 SOLAR_ICON_PATH = REPO_ROOT / "apps" / "web" / "src" / "components" / "SolarIcon.tsx"
+FAVICON_PATH = REPO_ROOT / "apps" / "web" / "public" / "business-engine-icon-v2.svg"
 
 
 def read_text(path: Path) -> str:
@@ -41,7 +42,7 @@ def test_v02_is_the_active_runtime_design_system() -> None:
         "name": "dy-data UI Design System",
         "version": "0.2.0",
         "status": "active",
-        "lastUpdated": "2026-07-13",
+        "lastUpdated": "2026-07-14",
         "language": "zh-CN",
         "colorMode": "light-only",
         "darkModeStatus": "not-supported-in-v0.2",
@@ -110,7 +111,7 @@ def test_formal_v02_artifacts_identify_the_active_runtime_contract() -> None:
     assert "dy-data UI 设计规范 V0.2" in html
     assert "状态：active" in html
     assert "模式：light-only" in html
-    assert "更新：2026-07-13" in html
+    assert "更新：2026-07-14" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
     assert "pending-human-approval" not in html
@@ -623,6 +624,7 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
     html = read_text(HTML_PATH)
     tokens = load_tokens()
     solar_icon_source = read_text(SOLAR_ICON_PATH)
+    favicon_source = read_text(FAVICON_PATH)
 
     registry = re.search(
         r"const solarIcons = \{(?P<body>.*?)\n\}", solar_icon_source, re.DOTALL
@@ -643,10 +645,26 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
     svg_blocks = re.findall(
         r"<svg\b(?P<attrs>[^>]*)>(?P<body>.*?)</svg>", html, re.DOTALL
     )
+    brand_assets = [
+        (attrs, body)
+        for attrs, body in svg_blocks
+        if 'data-brand-asset="browser-favicon"' in attrs
+    ]
+    assert len(brand_assets) == 2
+    favicon_path = re.search(r'<path d="([^"]+)"', favicon_source)
+    favicon_transform = re.search(r'<g transform="([^"]+)"', favicon_source)
+    assert favicon_path is not None
+    assert favicon_transform is not None
+    for attrs, body in brand_assets:
+        assert 'aria-hidden="true"' in attrs
+        assert f'd="{favicon_path.group(1)}"' in body
+        assert f'transform="{favicon_transform.group(1)}"' in body
+
     visible_icons = [
         (attrs, body)
         for attrs, body in svg_blocks
         if "solar-icon-sprite" not in attrs
+        and 'data-brand-asset="browser-favicon"' not in attrs
     ]
     assert visible_icons
     symbol_ids = set(re.findall(r'<symbol\s+id="([^"]+)"', html))

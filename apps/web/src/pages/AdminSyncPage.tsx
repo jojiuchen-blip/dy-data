@@ -20,12 +20,18 @@ import type {
   SyncConfigData,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger } from "../utils/format";
+import {
+  displaySyncFailureReason,
+  displaySyncJobName,
+  displaySyncPhaseName,
+  displayWorkerMode,
+} from "../utils/userFacingLabels";
 
 const targetOptions: { value: ManualSyncTarget; label: string }[] = [
   { value: "all", label: "全部开放接口数据" },
   { value: "orders", label: "订单数据" },
   { value: "verify_records", label: "核销数据" },
-  { value: "shop_pois", label: "门店 POI 数据" },
+  { value: "shop_pois", label: "门店位置数据（POI）" },
   { value: "aweme_bindings", label: "子机构号开放接口" },
   { value: "backend_aweme_export", label: "子机构号浏览器导出" },
   { value: "settlement", label: "仅重建结算结果" },
@@ -74,7 +80,7 @@ function phaseSummary(job: JobRun): string {
   const parts = Object.values(phases).map((phase) => {
     const fetched = formatInteger(Number(phase.fetched ?? 0));
     const upserted = formatInteger(Number(phase.upserted ?? 0));
-    return `${phase.name} 拉取 ${fetched} / 写入 ${upserted}`;
+    return `${displaySyncPhaseName(phase.name)}：拉取 ${fetched} / 写入 ${upserted}`;
   });
   return parts.length ? parts.join("；") : "-";
 }
@@ -87,14 +93,6 @@ function intervalText(seconds: number): string {
     return `${formatInteger(seconds / 60)} 分钟`;
   }
   return `${formatInteger(seconds)} 秒`;
-}
-
-function workerModeLabel(mode: string): string {
-  if (mode === "collect_and_settle") return "接口采集并重建结算";
-  if (mode === "settlement_only") return "只重建结算";
-  if (mode === "backfill") return "历史数据回填";
-  if (mode === "browser_export_only") return "只执行浏览器导出";
-  return mode || "-";
 }
 
 function yesNo(value: boolean): string {
@@ -229,11 +227,16 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   const jobColumns: Column<JobRun>[] = [
     {
       key: "job_id",
-      title: "任务 ID",
+      title: "任务编号",
       align: "left",
       render: (job) => <span className="mono-cell">{job.job_id}</span>,
     },
-    { key: "type", title: "类型", align: "left", render: (job) => job.job_name },
+    {
+      key: "type",
+      title: "类型",
+      align: "left",
+      render: (job) => displaySyncJobName(job.job_name),
+    },
     {
       key: "status",
       title: "状态",
@@ -271,7 +274,8 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       key: "detail",
       title: "明细",
       align: "left",
-      render: (job) => job.error_message || phaseSummary(job),
+      render: (job) =>
+        job.error_message ? displaySyncFailureReason(job.error_message) : phaseSummary(job),
     },
   ];
 
@@ -309,7 +313,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       draftDirtyRef.current = false;
       configBaselineRef.current = draftSignature(nextDraft);
       setRemoteConfigChanged(false);
-      setStatusText("同步配置已保存，worker 下一轮会读取新配置。");
+      setStatusText("同步配置已保存，后台同步程序下一轮会读取新配置。");
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) {
         setAuthenticated(false);
@@ -463,7 +467,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       <section className="metric-grid metric-grid--four">
         <MetricCard
           label="历史回填进度"
-          tone="primary"
           value={`${progressPercent}%`}
           meta={
             <>
@@ -474,13 +477,11 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         />
         <MetricCard
           label="当前运行任务"
-          tone="info"
           value={formatInteger(data?.progress.running_jobs ?? 0)}
           meta="正在写入数据库的任务数"
         />
         <MetricCard
           label="自动同步"
-          tone={data?.schedule.auto_sync_enabled ? "success" : "warning"}
           value={data ? (data.schedule.auto_sync_enabled ? "开启" : "暂停") : "-"}
           meta={
             <>
@@ -503,7 +504,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       <section className="content-section">
         <div className="section-title">
           <div>
-            <h2>Worker 状态</h2>
+            <h2>后台同步状态</h2>
             <p>
               根据后台配置和最近任务日志判断采集进度，用于确认是否正在跑、跑到哪段、失败原因是什么。
             </p>
@@ -523,7 +524,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </div>
             <div className="worker-status-item">
               <dt>运行模式</dt>
-              <dd>{workerModeLabel(workerStatus.mode)}</dd>
+              <dd>{displayWorkerMode(workerStatus.mode)}</dd>
               <small>
                 启动后立即同步：{yesNo(workerStatus.run_on_start)}；单次运行：
                 {yesNo(workerStatus.run_once)}
@@ -548,7 +549,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               <small>
                 {workerStatus.active_job
                   ? `${workerStatus.active_job.job_id}，${jobWindowText(workerStatus.active_job)}`
-                  : "如果 worker 正在长事务里写入，任务记录可能会在提交后才显示。"}
+                  : "如果后台同步程序正在写入大量数据，任务记录可能会在提交后才显示。"}
               </small>
             </div>
             <div className="worker-status-item">
@@ -559,8 +560,8 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             <div className="worker-status-item">
               <dt>最近失败原因</dt>
               <dd>
-                {workerStatus.latest_failure?.error_message
-                  ? workerStatus.latest_failure.error_message
+                {workerStatus.latest_failure
+                  ? displaySyncFailureReason(workerStatus.latest_failure.error_message)
                   : "暂无失败记录"}
               </dd>
               <small>
@@ -573,7 +574,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </div>
           </dl>
         ) : (
-          <div className="resource-panel">暂无 worker 状态数据</div>
+          <div className="resource-panel">暂无后台同步状态数据</div>
         )}
       </section>
 

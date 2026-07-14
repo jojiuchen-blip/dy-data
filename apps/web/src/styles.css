@@ -214,7 +214,7 @@ a {
   justify-content: space-between;
   gap: 20px;
   border-bottom: 1px solid var(--line);
-  padding: 10px 28px;
+  padding: 9px 28px;
   background: var(--surface-white-92);
   backdrop-filter: blur(16px);
 }
@@ -309,7 +309,6 @@ a {
 .workspace-subnav--desktop {
   flex: 1 1 auto;
   overflow-x: auto;
-  padding-bottom: 2px;
 }
 
 .workspace-subnav--mobile {
@@ -320,32 +319,37 @@ a {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  gap: 7px;
-  min-height: 34px;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  padding: 6px 10px;
+  min-height: var(--control-height);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  background: transparent;
   color: var(--muted);
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
   white-space: nowrap;
   transition:
     background 160ms ease,
-    border-color 160ms ease,
+    border-bottom-color 160ms ease,
     color 160ms ease;
 }
 
 .workspace-subnav a:hover {
-  border-color: var(--line);
-  background: var(--surface);
+  background: var(--brand-orange-soft);
   color: var(--ink);
 }
 
+.workspace-subnav a:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
 .workspace-subnav a[aria-current="page"] {
-  border-color: var(--brand-orange-18);
-  background: var(--surface);
+  border-bottom-color: var(--brand-orange);
+  background: transparent;
   color: var(--brand-deep-orange);
-  box-shadow: inset 0 -2px 0 var(--brand-deep-orange);
 }
 
 .workspace-shell .page-frame {
@@ -974,7 +978,7 @@ h2 {
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
 }
 
-.clue-filter-collapse-mobile {
+.ui-button.clue-filter-collapse-mobile {
   display: none;
 }
 
@@ -1724,14 +1728,13 @@ h2 {
 }
 
 .metric-card {
-  position: relative;
   display: grid;
   min-height: 132px;
   align-content: space-between;
   gap: 14px;
   overflow: visible;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 18px;
   background: var(--surface);
   box-shadow: var(--shadow-card);
@@ -1745,36 +1748,6 @@ a.metric-card:hover,
 .clickable-row:hover {
   border-color: var(--brand-orange);
   background: var(--surface-hover);
-}
-
-.metric-card::before {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 3px;
-  background: transparent;
-  content: "";
-}
-
-.metric-card--primary::before {
-  background: var(--brand-deep-orange);
-}
-
-.metric-card--success::before {
-  background: var(--green);
-}
-
-.metric-card--info::before {
-  background: var(--blue);
-}
-
-.metric-card--warning::before {
-  background: var(--amber);
-}
-
-.metric-card--danger::before {
-  background: var(--danger);
 }
 
 .metric-card__label {
@@ -3258,39 +3231,60 @@ a.metric-card:hover,
   gap: 18px;
 }
 
-.clue-allocation-subnav {
+.tertiary-nav {
   display: flex;
   align-items: flex-end;
   gap: 4px;
   min-width: 0;
   overflow-x: auto;
-  padding-bottom: 2px;
   border-bottom: 1px solid var(--line);
+  padding-block: 3px;
+  scrollbar-width: thin;
 }
 
-.clue-allocation-subnav__item {
+.tertiary-nav__item {
+  display: inline-flex;
+  align-items: center;
   flex: 0 0 auto;
-  min-height: var(--touch-target);
-  padding: 0 12px;
+  min-height: var(--control-height);
   border: 0;
   border-bottom: 2px solid transparent;
+  padding: 0 10px;
   background: transparent;
   color: var(--muted);
-  cursor: pointer;
-  font: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
+  text-decoration: none;
   white-space: nowrap;
 }
 
-.clue-allocation-subnav__item:hover,
-.clue-allocation-subnav__item.is-active {
-  border-bottom-color: var(--blue);
+.tertiary-nav__item:hover {
+  background: var(--brand-orange-soft);
   color: var(--ink);
 }
 
-.clue-allocation-subnav__item.is-active {
-  background: var(--surface-subtle);
+.tertiary-nav__item:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 0;
+  box-shadow: var(--focus-ring);
+}
+
+.tertiary-nav__item[aria-current="page"] {
+  border-bottom-color: var(--brand-orange);
+  background: transparent;
+  color: var(--brand-deep-orange);
+  font-weight: 700;
+}
+
+.tertiary-nav__item[aria-current="page"]:hover {
+  background: var(--surface);
+}
+
+.tertiary-nav__item.is-disabled {
+  color: var(--muted);
+  opacity: 0.48;
+  pointer-events: none;
 }
 
 .clue-allocation-control__actions {
@@ -4703,11 +4697,12 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
-  .clue-allocation-subnav {
+  .tertiary-nav {
     gap: 2px;
   }
 
-  .clue-allocation-subnav__item {
+  .tertiary-nav__item {
+    min-height: var(--touch-target);
     padding: 0 10px;
   }
 
@@ -4892,7 +4887,7 @@ a.metric-card:hover,
     min-height: 36px;
   }
 
-  .clue-filter-collapse-mobile {
+  .ui-button.clue-filter-collapse-mobile {
     display: flex;
     min-height: var(--touch-target);
     justify-content: center;
