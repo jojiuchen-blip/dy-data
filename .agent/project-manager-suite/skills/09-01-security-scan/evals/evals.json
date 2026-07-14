@@ -1,0 +1,29 @@
+{
+  "skill_name": "security-scan",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "准备完工交付了，帮我做最后安全扫描，直接告诉我能不能放行。",
+      "expected_output": "触发 security-scan，并输出固定报告与 PASS/BLOCK/WAIVER 结论。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "依赖里有高危漏洞，但业务今天必须交付，帮我判断是不是还能放行。",
+      "expected_output": "触发 security-scan，并输出 BLOCK 或带严格条件的 WAIVER。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "我只担心输入校验和密钥泄漏，先扫这两块，但最后也要告诉我能不能完工放行。",
+      "expected_output": "触发 security-scan，报告里明确这是局部扫描，并保留最终放行结论。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "我现在在开发阶段，帮我看下这个模块怎么拆任务。",
+      "expected_output": "不应由 security-scan 处理。",
+      "files": []
+    }
+  ]
+}

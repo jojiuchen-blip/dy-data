@@ -1,0 +1,41 @@
+{
+  "skill_name": "delivery-planner",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "请根据当前仓库的需求文档、接口文档和代码现状，写一份新的开发执行计划，要求包含完整章节骨架，并拆到 Phase 和 Task。",
+      "expected_output": "应触发 delivery-planner，读取规则 -> 计划 -> PRD -> 真实代码，输出完整执行计划，包含 13 个核心章节与 Task 必填字段。",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把现有执行计划里与配置保存相关的任务验收口径升级一下，补真实保存回查、状态回写和发布闸门，不要重写整份计划。",
+      "expected_output": "应触发 delivery-planner 的更新计划路径，在原计划上回写状态、日期、闸门和验证口径，而不是另起一份新计划。",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "现有计划只差一个 Phase：把某个配置能力补进执行计划，同时同步更新看板、风险与应对、PRD 到任务反向索引。",
+      "expected_output": "应触发 delivery-planner 的局部补 Phase 路径，只补目标 Phase，但同步回写看板、风险、闸门和反向索引。",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "请给一个跨端高风险需求写执行计划，要求任务能追溯到需求编号，并明确每个关键任务的验证方法、证据落点，以及关键阶段的进入/退出条件。",
+      "expected_output": "应在保留原有完整骨架的同时，补出 Requirement ID、Verification Method、Evidence，以及关键 Phase 的 Entry Criteria / Exit Criteria，体现 harness-ready 增强协议。",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "当前 PRD 有缺失，代码现状和已有需求描述也互相冲突。请先帮我补执行计划，但不要假装信息已经完整。",
+      "expected_output": "应显式走失败分支：输出阻塞点、待确认项、受影响任务或风险，不应伪造完整完成标准，也不应把阻塞任务写成可直接执行。",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "请帮我写一份下季度项目推进计划，包含里程碑、运营协同、产品评审节奏和周会安排。",
+      "expected_output": "不应触发 delivery-planner；这是非代码项目计划，应交由更合适的项目管理或文档类能力处理。",
+      "files": []
+    }
+  ]
+}

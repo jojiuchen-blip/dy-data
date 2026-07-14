@@ -1,0 +1,4 @@
+interface:
+  display_name: "文档治理"
+  short_description: "评估文档边界、重合、唯一权威源与长文档阅读优化，并给出处理建议"
+  default_prompt: "使用 $doc-governance 帮我检查这几份文档的重复内容，或评估单文件太长时是否该加索引、重排或拆分，并给出处理建议。"

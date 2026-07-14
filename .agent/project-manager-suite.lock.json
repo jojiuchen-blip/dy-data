@@ -1,0 +1,9 @@
+{
+  "schema_version": 1,
+  "suite_name": "project-manager-suite",
+  "suite_version": "2.0.0",
+  "target_path": ".agent/project-manager-suite",
+  "content_hash_algorithm": "sha256-path-null-lf-v1",
+  "content_sha256": "9f11b2caad3add723bdb1510bfe728ba4c4f5d277380e4b43f36c321dc2694a7",
+  "generated_by": "tools/install-suite-into-host.mjs"
+}
