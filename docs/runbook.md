@@ -1,6 +1,6 @@
-# 生产运行手册（MVP）
+# dy-data 生产运行手册
 
-本文档面向 Linux Docker Compose 部署。v1 上线范围只包含 PostgreSQL、FastAPI、worker、前端静态站点、受管理员保护的 noVNC Chromium 采集容器，以及每日刷新任务。
+本文档面向 Linux Docker Compose 部署，覆盖 PostgreSQL、FastAPI、worker、React 静态构建、受最高管理员保护的 noVNC Chromium 采集容器、反向代理、迁移和数据刷新任务。业务范围包括经营结算、线索运营和后台管理，产品定义以 `docs/项目产品介绍书.md` 为准。
 
 ## 1. 配置原则
 
@@ -137,7 +137,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml exec postgres \
   -c "select job_id, job_name, status, started_at, finished_at, success_count, failed_count, error_message from job_runs order by started_at desc limit 20;"
 ```
 
-采集完成后，访问看板页面 1、页面 2、页面 3，确认 API 数据可读；页面 2 点击核心数字和表格行跳到页面 3 后，URL 参数和明细结果应一致。页面看板仍为公开只读，任务状态、采集入口和 `/browser/` 仍属于后台受保护区域。
+采集完成后，使用有权限的测试账号访问销售、排名、结算、订单明细和线索页面，确认 API 数据可读、筛选口径一致且汇总可下钻到明细。所有业务页面和导出都要求登录；任务状态、管理接口、采集入口和 `/browser/` 还需满足对应管理员权限。
 
 轮换抖音开放平台凭据时，只更新服务器环境变量或未跟踪 `.env`，然后重启 worker/API 容器；不要改前端代码，不要把新凭据写入仓库。轮换 noVNC/抖音后台登录态时，通过受保护 `/browser/` 入口重新登录，浏览器 profile 保存在 Docker volume 中。
 

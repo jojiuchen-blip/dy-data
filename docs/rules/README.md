@@ -1,10 +1,21 @@
-# dy-data 宿主专项规则入口
+# dy-data 宿主专项规则
 
-本目录是 dy-data 专项开发规则的唯一权威落点，但 DYDATA-6 只建立入口，不在这里复制套包默认规则。
+这里是项目真实技术栈和任务类型规则的唯一落点。套包提供路由与通用协议，本目录负责把它们适配为 dy-data 可执行规则。
 
-当前套包默认规则包含 Java、Vue、MySQL 等假设，直接生成会与 dy-data 的 FastAPI、React/Vite、PostgreSQL、pytest 和现有部署方式冲突。因此在 DYDATA-7 完成适配前：
+## 规则入口
 
-- 不从套包默认规则直接复制 `backend-tasks.md`、`frontend-tasks.md`、`database-tasks.md` 等文件。
-- 实现任务继续遵守 `AGENTS.md`、当前代码配置、相关测试和 `docs/governance/authority-map.md` 声明的证据入口。
-- 普通新功能暂停进入开发；生产紧急修复沿用 `AGENTS.md` 的 Linear、风险和验证例外通道。
-- DYDATA-7 将补齐并验证 FastAPI、React/Vite、PostgreSQL、测试、Linear/计划边界和开发日志落点规则。
+- `backend-tasks.md`：FastAPI、SQLAlchemy、认证授权和 API 变更。
+- `database-tasks.md`：PostgreSQL、Alembic、数据回填和查询验证。
+- `frontend-tasks.md`：React、TypeScript、Vite、真实 API 和视觉系统。
+- `debugging.md`：从症状到数据、服务、页面和生产环境的逐层取证。
+- `docs-and-plans.md`：Linear、执行驾驶舱、项目画像和文档权威同步。
+- `devlog.md`：`docs/devlog/` 的可提交开发日志和 `/logs/` 的运行日志边界。
+
+## 使用方式
+
+1. 按 `AGENTS.md` 完成 turn gate、套包锁和阶段路由。
+2. 根据任务类型加载本目录中最小必要规则。
+3. 技术事实冲突时以当前代码、依赖、迁移、部署配置和真实环境证据为准。
+4. 需求范围、优先级、验收和状态以 Linear 为准；本目录不复制 issue 内容。
+
+规则模板来自公司套包，但本目录内容必须根据宿主技术栈维护，不能从套包默认示例直接复制其他语言、框架或数据库约束。

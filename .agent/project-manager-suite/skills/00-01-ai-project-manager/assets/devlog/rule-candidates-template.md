@@ -9,7 +9,7 @@
 
 ### 1. [202X-MM-DD] [规则短语描述，例如：API 接口最外层统一返回标准格式]
 - **候选 ID**：`RC-YYYYMM-001`
-- **来源任务/日志**：`logs/YYYYMMDD_refactor_log_xxx.md` / 对话上下文 / 复盘记录
+- **来源任务/日志**：`<devlog-dir>/YYYYMMDD_refactor_log_xxx.md` / 对话上下文 / 复盘记录
 - **首次记录时间**：202X-MM-DD
 - **最后一次命中时间**：202X-MM-DD
 - **适用范围**：全局 / 前端 / 后端 / 数据库 / 文档与计划 / 调试

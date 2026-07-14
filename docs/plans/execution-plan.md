@@ -1,44 +1,47 @@
-# 当前执行计划（驾驶舱）
+# 当前执行计划
 
-本文件只记录当前执行入口和下一步，不复制 Linear Backlog 或完整开发计划。当前需求权威为 [DYDATA-6](https://linear.app/keith-lim/issue/DYDATA-6/p0-接入-project-manager-suite建立项目治理底座与状态入口)。
+> 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代后续 S3 正式交付计划。
 
 ## 1. 当前阶段
 
-- S0.5 既有项目基线诊断已完成；普通后续工作按正式 baseline 路由 `【主入口回写】`
+- 套包阶段：`S0.5 既有项目 baseline`
+- 当前 Linear issue：`DYDATA-7`
+- 当前正式计划文件组：尚未生成；`docs/plans/delivery-plans/` 在 S3 后接管正式交付计划。
+- 当前子开发计划：无；DYDATA-7 已完成并通过用户验收。
 
 ## 2. 当前目标
 
-- 保持 project-manager-suite 2.0 的可追溯接入、项目治理入口、可信 baseline 和 CI 门禁有效，不改业务逻辑 `【用户确认】`
+- DYDATA-7 已完成：中途接入治理套包的 dy-data 已具备可长期执行的宿主规则和可信项目入口；套包脚本支持 `docs/devlog/`，文档覆盖经营与结算、线索运营、后台管理和数据平台全貌，项目画像不再继承过期 README 的狭窄定位。
 
 ## 3. 进行中任务
 
-- 无开发中任务；DYDATA-6 已实现并通过本地完整门禁，待提交和 Linear 完成回写 `【主入口回写】`
+- 无；DYDATA-7 的实现、验证和用户验收均已完成。
 
 ## 4. 下一步任务
 
-- 提交 DYDATA-6 并完成 Linear 验收回写；随后 DYDATA-7 可按独立 issue 启动 `【主入口回写】`
-- 正式 baseline 的首个维护文档缺口为 BRD，需按新需求交由 `brd-writer`，不在 DYDATA-6 内扩写 `【主入口回写】`
+- 另行建立 S0.5 文档补齐需求，按 BRD → 页面说明 → FOUNDATION → PRD 的缺口顺序推进。
+- 每个新需求继续以 Linear 为生命周期权威，并在本文件中只保留当前 issue 与紧邻下一步。
 
 ## 5. 完成标准
 
-- [x] 安装态和版本锁可复算，Git 中没有本机绝对路径。
-- [x] `AGENTS.md`、`project-rules.md`、项目画像、执行驾驶舱和材料映射职责不重叠。
-- [x] dry-run 审核记录与正式 baseline 均存在，路由不再是 `UNKNOWN`。
-- [x] CI 等价本地完整门禁通过，业务逻辑没有被修改。
+- 六类 `docs/rules/` 文件存在并符合 FastAPI / React / PostgreSQL / pytest 实际栈。
+- `docs/devlog/` 可由 `project-profile.md` 配置，`/logs/` 仍只承载被忽略的运行日志。
+- README、项目产品介绍书、架构、API、运行和部署文档不再把项目描述为仅有结算或静态 HTML。
+- 项目画像明确四个业务域、证据边界、真实入口和 S0.5 缺口。
+- 文档不含真实生产项目 ID、主机地址或固定线上 URL。
+- 套包测试、锁校验、协议一致性、全局文件校验、路由、pytest、前端构建和 `git diff --check` 全部通过。
 
-## 6. 前置依赖
+## 6. 状态与权威边界
 
-- 标准套包源 `2.0.0` 已通过 114 项测试并安装到 `.agent/project-manager-suite/` `【系统推断】`
-- DYDATA-6 完成回写后解除 DYDATA-7 的依赖阻塞；DYDATA-7 负责后续 FastAPI、React、PostgreSQL、Linear 和日志规则适配 `【系统推断】`
+- issue 范围、优先级、负责人、状态和验收以 Linear 为准。
+- 当前阶段快照以 `project-profile.md` 为准。
+- 历史计划只记录当时事实，不反向覆盖本文件或 Linear。
+- 本文件只保留当前 issue 和紧邻下一步，不扩写未来 Backlog。
 
-## 7. 待确认项
+## 7. 本轮验证证据
 
-- 无 DYDATA-6 阻塞项 `【主入口回写】`
-- `docs/rules/` 的六类宿主专项规则属于 DYDATA-7，不从套包 Java / Vue / MySQL 默认规则直接复制 `【主入口回写】`
-- `/logs/` 仍是被忽略的本地运行目录；`project-devlog` 的可提交落点与状态映射由 DYDATA-7 解决，当前全局校验对应 warning 不阻断 S0.5 `【主入口回写】`
-
-## 8. 当前正式计划文件组
-
-- 主开发计划：待生成 `【主入口回写】`
-- 任务看板：待生成 `【主入口回写】`
-- 当前子开发计划：待生成 `【主入口回写】`
+- 标准套包：`119 passed`；版本锁有效，协议一致性 0 错误、0 警告。
+- 全局治理：0 错误、0 警告；devlog 解析为 `docs/devlog/`；S0.5 路由可进入。
+- 宿主测试：`472 passed`；31 条为现有 Alembic / SQLite 弃用警告，无测试失败。
+- 前端：TypeScript 检查和 Vite 生产构建通过。
+- baseline：14 个页面、63 个 API 端点、37 个模型定义、17 个迁移；画像冲突 0。

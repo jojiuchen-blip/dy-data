@@ -33,7 +33,7 @@ const fileRoles = [
     },
     {
         id: FILE_ROLE_IDS.DEVLOG,
-        defaultFileName: 'logs/YYYYMMDD_refactor_log_<actor>.md 或 logs/YYYY-MM-DD.md',
+        defaultFileName: '<devlog-dir>/YYYYMMDD_refactor_log_<actor>.md 或 <devlog-dir>/YYYY-MM-DD.md',
         defaultPath: 'logs/',
         authorityType: 'ability',
         responsibility: '沉淀本轮动作、产出、结论、风险和下一步建议',

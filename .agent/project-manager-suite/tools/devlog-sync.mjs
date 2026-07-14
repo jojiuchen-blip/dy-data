@@ -14,6 +14,7 @@ import path from 'path';
 import process from 'process';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
+import { resolveDevlogDirectory } from '../lib/ai-pm-protocol/devlog-path.js';
 import { validateGlobalFiles } from './validate-global-files.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -31,7 +32,7 @@ const ruleCandidatesTemplatePath = path.join(
 
 function printUsage() {
     console.log(
-        'Usage: node <suite-path>/tools/devlog-sync.mjs <host-project-root> --title <title> --goal <goal> --action <action> --result <result> [--actor <actor>] [--date YYYY-MM-DD] [--time HH:MM] [--files path1,path2] [--stage <stage>] [--conclusion <text>] [--next <text>] [--plan-path <path>] [--reflection <text>] [--rule-scope <scope>] [--rule-target <path>] [--rule-check <text>] [--rule-title <title>] [--dry-run] [--json]'
+        'Usage: node <suite-path>/tools/devlog-sync.mjs <host-project-root> --title <title> --goal <goal> --action <action> --result <result> [--devlog-dir <relative-path>] [--actor <actor>] [--date YYYY-MM-DD] [--time HH:MM] [--files path1,path2] [--stage <stage>] [--conclusion <text>] [--next <text>] [--plan-path <path>] [--reflection <text>] [--rule-scope <scope>] [--rule-target <path>] [--rule-check <text>] [--rule-title <title>] [--dry-run] [--json]'
     );
     console.log(
         '<suite-path> 指套件根目录：源码仓库联调时为 project-manager-suite/，安装到宿主后为 .agent/project-manager-suite/；命令默认在宿主项目根目录执行。'
@@ -42,6 +43,7 @@ function parseArgs(argv) {
     const args = argv.slice(2);
     const options = {
         hostRoot: '',
+        devlogDir: '',
         actor: '',
         date: '',
         time: '',
@@ -64,6 +66,7 @@ function parseArgs(argv) {
     };
 
     const valueFlags = new Set([
+        '--devlog-dir',
         '--actor',
         '--date',
         '--time',
@@ -201,6 +204,9 @@ function getActor(options, hostRoot) {
             return match[1].trim();
         }
     }
+
+    const gitUserName = getGitUserName(hostRoot);
+    if (gitUserName) return gitUserName;
 
     return process.env.USER || process.env.LOGNAME || 'unknown';
 }
@@ -484,7 +490,14 @@ function devlogSync(options) {
     const planPath = resolvePlanPath(options, hostRoot);
     const actorFileKey = getActorFileKey(options, hostRoot, actor);
     const actorSlug = slugifyActor(actorFileKey);
-    const logRelativePath = path.join('logs', `${dateParts.compactDate}_refactor_log_${actorSlug}.md`);
+    const devlogDirectory = resolveDevlogDirectory({
+        hostRoot,
+        explicitPath: options.devlogDir || ''
+    });
+    const logRelativePath = path.join(
+        ...devlogDirectory.relativePath.split('/'),
+        `${dateParts.compactDate}_refactor_log_${actorSlug}.md`
+    );
     const logFilePath = path.join(hostRoot, logRelativePath);
     const files = splitList(options.files);
     const stage = options.stage || '';
@@ -494,6 +507,7 @@ function devlogSync(options) {
         logFile: logRelativePath.split(path.sep).join('/'),
         actor,
         actorFileKey,
+        devlogDirectory: devlogDirectory.relativePath,
         createdLog: false,
         appendedLog: false,
         mergedLog: false,
@@ -607,6 +621,7 @@ function devlogSync(options) {
 function formatTextReport(result) {
     const lines = [
         `Host root: ${result.hostRoot}`,
+        `Devlog directory: ${result.devlogDirectory}`,
         `Log file: ${result.logFile}`,
         `Actor: ${result.actor}`,
         `Actor file key: ${result.actorFileKey}`,

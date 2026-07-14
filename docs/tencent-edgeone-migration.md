@@ -1,5 +1,10 @@
 # Tencent Cloud EdgeOne Migration Runbook
 
+> Historical migration plan (`legacy`). It records a possible Railway-to-CVM
+> cutover sequence and is not the current deployment or operations authority.
+> Use `docs/runbook.md`, current workflows, `deploy/`, and repository variables
+> for current behavior. Revalidate all cloud-product requirements before use.
+
 This runbook describes the planned migration from Railway to Tencent Cloud CVM with EdgeOne in front. It is intentionally operational: use it as the checklist for provisioning, first deployment, validation, cutover, and later CI/CD automation.
 
 ## Target Architecture

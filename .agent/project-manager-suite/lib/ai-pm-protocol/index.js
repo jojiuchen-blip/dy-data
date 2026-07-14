@@ -7,4 +7,5 @@ export { routeTargets, gatingRules, pagePositioningTagRules } from './routing.js
 export { rulesSyncPolicy } from './rules-sync.js';
 export { bootstrapPolicy } from './bootstrap.js';
 export { validationPolicy } from './validation.js';
+export { DEFAULT_DEVLOG_DIR, resolveDevlogDirectory } from './devlog-path.js';
 export { markdownStructure } from './markdown-structure.js';

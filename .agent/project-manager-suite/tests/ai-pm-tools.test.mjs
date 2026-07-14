@@ -403,6 +403,26 @@ test('validate-global-files resolves authority files on a valid host fixture', (
     assert.equal(result.rulesDirectory.missingDefaultRules.length, 0);
 });
 
+test('validate-global-files resolves a host-configured devlog directory from project-profile', () => {
+    const hostRoot = createHostFixture({ withDevlog: false });
+    const profilePath = path.join(hostRoot, 'project-profile.md');
+    const configuredProfile = readFile(profilePath).replace(
+        '- 状态入口：logs/',
+        '- 最近状态入口：`【系统推断】 docs/devlog/`'
+    );
+    writeFile(profilePath, configuredProfile);
+    writeFile(path.join(hostRoot, 'docs', 'devlog', '20260406_refactor_log_tester.md'), '记录 S1 阶段推进');
+    generateHostRules({ hostRoot, dryRun: false, force: false });
+
+    const result = validateGlobalFiles({ hostRoot });
+
+    assert.equal(result.authority.project_devlog, 'docs/devlog/20260406_refactor_log_tester.md');
+    assert.equal(
+        result.issues.some((issue) => ['missing_logs_directory', 'missing_devlog_entry'].includes(issue.code)),
+        false
+    );
+});
+
 test('route-check blocks S2 routing when stage transition writeback is missing', () => {
     const hostRoot = createHostFixture({
         withDevlog: false,
@@ -2663,6 +2683,80 @@ test('devlog-sync creates daily log, appends updates, and updates candidate pool
     assert.ok(readFile(path.join(hostRoot, secondResult.logFile)).includes('## 补充更新 1'));
 });
 
+test('devlog-sync writes to the devlog directory configured in project-profile', () => {
+    const hostRoot = makeTempDir('pm-suite-devlog-configured-');
+    const configuredProfile = buildProfileContent().replace(
+        '- 状态入口：logs/',
+        '- 最近状态入口：`【系统推断】 docs/devlog/`'
+    );
+    writeFile(path.join(hostRoot, 'project-profile.md'), configuredProfile);
+    writeFile(path.join(hostRoot, 'docs', 'plans', 'execution-plan.md'), buildPlanContent());
+
+    const result = devlogSync({
+        hostRoot,
+        actor: 'tester',
+        date: '2026-04-16',
+        time: '10:00',
+        title: '宿主日志路径适配',
+        goal: '把开发日志与运行日志分离',
+        action: '读取项目画像中的最近状态入口',
+        result: '开发日志写入可跟踪目录',
+        files: 'project-profile.md',
+        stage: 'S0.5',
+        conclusion: '路径适配完成',
+        next: '继续项目治理',
+        planPath: '',
+        reflection: '',
+        ruleScope: '',
+        ruleTarget: '',
+        ruleCheck: '',
+        ruleTitle: '',
+        dryRun: false,
+        json: false
+    });
+
+    assert.match(result.logFile, /^docs\/devlog\/20260416_refactor_log_.+\.md$/);
+    assert.ok(fs.existsSync(path.join(hostRoot, result.logFile)));
+    assert.equal(fs.existsSync(path.join(hostRoot, 'logs')), false);
+});
+
+test('devlog-sync rejects an absolute devlog directory from project-profile', () => {
+    const hostRoot = makeTempDir('pm-suite-devlog-absolute-');
+    const configuredProfile = buildProfileContent().replace(
+        '- 状态入口：logs/',
+        '- 最近状态入口：`【系统推断】 C:\\outside\\devlog\\`'
+    );
+    writeFile(path.join(hostRoot, 'project-profile.md'), configuredProfile);
+    writeFile(path.join(hostRoot, 'docs', 'plans', 'execution-plan.md'), buildPlanContent());
+
+    assert.throws(
+        () =>
+            devlogSync({
+                hostRoot,
+                actor: 'tester',
+                date: '2026-04-16',
+                time: '10:00',
+                title: '非法日志路径',
+                goal: '验证宿主边界',
+                action: '尝试读取绝对路径配置',
+                result: '应阻止写入',
+                files: 'project-profile.md',
+                stage: 'S0.5',
+                conclusion: '',
+                next: '',
+                planPath: '',
+                reflection: '',
+                ruleScope: '',
+                ruleTarget: '',
+                ruleCheck: '',
+                ruleTitle: '',
+                dryRun: true,
+                json: false
+            }),
+        /host-relative path/
+    );
+});
+
 test('devlog-sync merges decision-like same-stage updates into the latest task block', () => {
     const hostRoot = makeTempDir('pm-suite-devlog-merge-');
 
@@ -2761,6 +2855,45 @@ test('devlog-sync uses git user name for log file naming while preserving actor 
     assert.equal(result.logFile, 'logs/20260408_refactor_log_tutoumao.md');
     assert.ok(fs.existsSync(logPath));
     assert.ok(readFile(logPath).includes('> 操作人：我 + AI'));
+});
+
+test('devlog-sync falls back to git user name for actor display on Windows-like environments', () => {
+    const hostRoot = makeTempDir('pm-suite-devlog-default-git-user-');
+
+    writeFile(path.join(hostRoot, 'project-profile.md'), buildProfileContent());
+    writeFile(path.join(hostRoot, 'docs', 'plans', 'execution-plan.md'), buildPlanContent());
+
+    execFileSync('git', ['init'], { cwd: hostRoot, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'tutoumao'], { cwd: hostRoot, stdio: 'ignore' });
+
+    const result = devlogSync({
+        hostRoot,
+        actor: '',
+        date: '2026-04-08',
+        time: '10:00',
+        title: '启动项目骨架',
+        goal: '建立项目画像与计划入口',
+        action: '执行 bootstrap 并补齐基础结构',
+        result: '骨架创建完成',
+        files: 'project-profile.md,docs/plans/execution-plan.md',
+        stage: 'S0',
+        conclusion: '基础骨架已可继续推进',
+        next: '继续访谈',
+        planPath: '',
+        reflection: '',
+        ruleScope: '',
+        ruleTarget: '',
+        ruleCheck: '',
+        ruleTitle: '',
+        dryRun: false,
+        json: false
+    });
+
+    const logPath = path.join(hostRoot, result.logFile);
+
+    assert.equal(result.actor, 'tutoumao');
+    assert.equal(result.actorFileKey, 'tutoumao');
+    assert.ok(readFile(logPath).includes('> 操作人：tutoumao'));
 });
 
 test('bootstrap text treats startup intent as an automatic ai-project-manager entry', () => {

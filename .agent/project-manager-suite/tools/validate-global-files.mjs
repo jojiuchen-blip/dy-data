@@ -17,6 +17,7 @@ import {
     fileRoles,
     fieldPackages,
     fileContracts,
+    resolveDevlogDirectory,
     rulesSyncPolicy,
     validationPolicy
 } from '../lib/ai-pm-protocol/index.js';
@@ -173,11 +174,12 @@ function validateRequiredMarkers(filePath, requiredMarkers) {
     return requiredMarkers.filter((marker) => !content.includes(marker));
 }
 
-function findLatestDevlog(hostRoot) {
-    const logsDir = path.join(hostRoot, 'logs');
+function findLatestDevlog(hostRoot, devlogDirectory) {
+    const logsDir = devlogDirectory.absolutePath;
     if (!fs.existsSync(logsDir) || !fs.statSync(logsDir).isDirectory()) {
         return {
             logDirExists: false,
+            directory: devlogDirectory,
             allEntries: [],
             latestEntry: null
         };
@@ -199,6 +201,7 @@ function findLatestDevlog(hostRoot) {
 
     return {
         logDirExists: true,
+        directory: devlogDirectory,
         allEntries: entries,
         latestEntry: entries[0] || null
     };
@@ -306,14 +309,15 @@ function validateGlobalFiles({ hostRoot }) {
         }
     }
 
-    const devlogState = findLatestDevlog(resolvedHostRoot);
+    const devlogDirectory = resolveDevlogDirectory({ hostRoot: resolvedHostRoot });
+    const devlogState = findLatestDevlog(resolvedHostRoot, devlogDirectory);
     if (!devlogState.logDirExists) {
         issues.push(
             buildIssue(
                 'warning',
                 'missing_logs_directory',
-                'Logs directory is missing; project-devlog has no default landing area.',
-                { roleId: FILE_ROLE_IDS.DEVLOG }
+                `Configured devlog directory is missing: ${devlogDirectory.relativePath}`,
+                { roleId: FILE_ROLE_IDS.DEVLOG, targetDir: devlogDirectory.relativePath }
             )
         );
     } else if (!devlogState.latestEntry) {
@@ -321,8 +325,8 @@ function validateGlobalFiles({ hostRoot }) {
             buildIssue(
                 'warning',
                 'missing_devlog_entry',
-                'Logs directory exists but no default devlog entry was found.',
-                { roleId: FILE_ROLE_IDS.DEVLOG }
+                `Configured devlog directory has no recognized entry: ${devlogDirectory.relativePath}`,
+                { roleId: FILE_ROLE_IDS.DEVLOG, targetDir: devlogDirectory.relativePath }
             )
         );
     }
@@ -378,6 +382,11 @@ function validateGlobalFiles({ hostRoot }) {
             hostRuleFiles: rulesDirectory.hostRuleFiles,
             missingDefaultRules: rulesDirectory.missingDefaultRules
         },
+        devlogDirectory: {
+            path: devlogDirectory.relativePath,
+            source: devlogDirectory.source,
+            exists: devlogState.logDirExists
+        },
         contracts: {
             [FILE_ROLE_IDS.RULES]: fileContracts[FILE_ROLE_IDS.RULES].length,
             [FILE_ROLE_IDS.PROFILE]: fileContracts[FILE_ROLE_IDS.PROFILE].length,
@@ -403,6 +412,7 @@ function formatTextReport(result) {
         `- ${roleLabels[FILE_ROLE_IDS.PROFILE]}: ${result.authority[FILE_ROLE_IDS.PROFILE] || 'NOT FOUND'}`,
         `- ${roleLabels[FILE_ROLE_IDS.PLAN]}: ${result.authority[FILE_ROLE_IDS.PLAN] || 'NOT FOUND'}`,
         `- ${FILE_ROLE_IDS.DEVLOG}: ${result.authority[FILE_ROLE_IDS.DEVLOG] || 'NOT FOUND'}`,
+        `- ${FILE_ROLE_IDS.DEVLOG} directory: ${result.devlogDirectory.path} (${result.devlogDirectory.source})`,
         '',
         `Rules directory: ${result.rulesDirectory.targetDir} (${result.rulesDirectory.exists ? 'exists' : 'missing'})`
     ];

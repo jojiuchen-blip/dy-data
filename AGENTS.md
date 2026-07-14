@@ -83,12 +83,19 @@ Authority boundaries:
 - `project-rules.md` is the thin long-lived authority index.
 - `docs/rules/` is the host-specific implementation-rule authority.
 - `project-profile.md` is the project identity and current-stage snapshot.
+- `docs/devlog/` is the tracked development-log directory configured by the
+  project profile; `/logs/` remains ignored runtime output only.
 - `docs/plans/execution-plan.md` is the current execution cockpit, not the
   Linear backlog or a full development plan.
 - `docs/plans/delivery-plans/` becomes authoritative only after the suite's S3
   planner generates a formal plan group.
 - `docs/governance/authority-map.md` records how legacy documents map into the
   suite without creating duplicate sources of truth.
+
+When suite examples conflict with the host-specific FastAPI, React,
+PostgreSQL, pytest, documentation, or devlog rules in `docs/rules/`, the host
+rules govern implementation. Suite protocol, stage, and artifact contracts
+still govern routing and delivery.
 
 ## 3. Repository Context
 

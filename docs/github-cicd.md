@@ -1,9 +1,11 @@
 # GitHub CI/CD
 
-This repository has two deployment paths from GitHub Actions.
+This repository has two optional deployment paths from GitHub Actions. The
+active production target is an external repository configuration decision, not
+a fact hard-coded in this document.
 
 - Railway production: `.github/workflows/ci-cd.yml`
-- Tencent Lighthouse migration target: `.github/workflows/tencent-lighthouse-deploy.yml`
+- Tencent Lighthouse/self-managed server: `.github/workflows/tencent-lighthouse-deploy.yml`
 
 The Tencent workflow is documented in `docs/tencent-lighthouse-cicd.md`.
 
@@ -30,7 +32,8 @@ Repository variables used by the workflow:
 
 Set `RAILWAY_DEPLOY_ENABLED=true` only when this repository should still deploy
 Railway on every `main` push. Leave it unset or set it to `false` during the
-Tencent migration window to avoid changing Railway production unintentionally.
+period when Railway is not the selected deployment target, to avoid changing an
+inactive or rollback environment unintentionally.
 
 ## GitHub secrets
 
@@ -38,7 +41,7 @@ Repository secrets used by the workflow:
 
 - `RAILWAY_TOKEN`
 
-Create this token in Railway as a project token with deploy access to project `62f9e7d8-cecf-40ea-87fa-1002c6465b13`, then add it in GitHub repository settings. The workflow passes this GitHub secret to Railway CLI as `RAILWAY_TOKEN`.
+Create this token in Railway as a project token with deploy access to the project referenced by the repository variable `RAILWAY_PROJECT_ID`, then add it in GitHub repository settings. The workflow passes this GitHub secret to Railway CLI as `RAILWAY_TOKEN`. Do not copy a real project ID into this document.
 
 If `RAILWAY_TOKEN` is not configured, pushes to `main` still run verification but skip the Railway deploy job with a warning.
 
@@ -86,8 +89,8 @@ Use the `browser` service for the low-frequency backend aweme/sub-organization e
 
 For one-time historical backfills, temporarily set `WORKER_MODE=backfill`, `WORKER_RUN_ONCE=true`, `DOUYIN_COLLECT_START`, `DOUYIN_COLLECT_END`, and `WORKER_BACKFILL_CHUNK_DAYS`. Backfill mode commits each chunk independently, then the service should be restored to `WORKER_MODE=collect_and_settle` for daily incremental collection.
 
-The existing production web URL is:
+Configure the deployed Web base URL through the repository/platform variable:
 
 ```text
-https://dy-business-engine.up.railway.app
+https://<your-service-domain>
 ```

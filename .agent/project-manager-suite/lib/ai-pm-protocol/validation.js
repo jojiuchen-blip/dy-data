@@ -91,7 +91,7 @@ const validationPolicy = {
         },
         [FILE_ROLE_IDS.DEVLOG]: {
             filenameMatchers: [],
-            pathMatchers: ['logs/'],
+            defaultPath: 'logs/',
             logFilePattern: '^(?:\\d{8}_.+|\\d{4}-\\d{2}-\\d{2})\\.md$'
         }
     }

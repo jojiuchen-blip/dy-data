@@ -358,7 +358,7 @@ project-manager-suite/
   - `.agent/project-manager-suite/`（套件拷贝）建议提交进宿主仓库，团队成员拉取即得同版本套件；若选择不提交，则每位成员需自行安装同版本套件，并在 `.gitignore` 中忽略该目录
   - `.agent/project-manager-suite.lock.json` 应与套件拷贝一起提交；它记录 package 版本、相对安装路径和 SHA-256 内容哈希，不包含本机绝对路径
   - 安装或升级后运行 `node .agent/project-manager-suite/tools/verify-suite-lock.mjs .`，内容漂移时不得继续普通项目任务
-  - `docs/`（BRD / PRD / 计划 / 测试用例 / 测试报告 / 安全报告）和 `logs/`（开发日志）下的流水线产物是项目资产，建议提交
+  - `docs/`（BRD / PRD / 计划 / 测试用例 / 测试报告 / 安全报告）和画像配置的开发日志目录（默认 `logs/`）下的流水线产物是项目资产，建议提交
   - `.gitignore` 参考片段（按团队选择保留或删除注释行）：
 
     ```gitignore

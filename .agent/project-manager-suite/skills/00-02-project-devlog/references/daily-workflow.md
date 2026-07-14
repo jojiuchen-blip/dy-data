@@ -10,7 +10,7 @@
 
 **步骤**：
 1. 获取当前日期和 git 用户名
-2. 检查 `logs/YYYYMMDD_refactor_log_<用户名>.md` 是否存在
+2. 按“`--devlog-dir` → 项目画像状态入口 → 默认 `logs/`”解析日志目录，检查 `<devlog-dir>/YYYYMMDD_refactor_log_<用户名>.md` 是否存在
 3. 若不存在，复制 `assets/daily.md` 模板
 4. 自动填入：日期、操作人、关联计划文件路径
 5. 开始记录当日第一项任务
