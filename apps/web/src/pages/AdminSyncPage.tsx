@@ -4,9 +4,11 @@ import {
   fetchAdminSession,
   fetchSyncAdmin,
   loginAdmin,
+  rebuildClueCenterMaterialization,
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
@@ -18,12 +20,18 @@ import type {
   SyncConfigData,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger } from "../utils/format";
+import {
+  displaySyncFailureReason,
+  displaySyncJobName,
+  displaySyncPhaseName,
+  displayWorkerMode,
+} from "../utils/userFacingLabels";
 
 const targetOptions: { value: ManualSyncTarget; label: string }[] = [
   { value: "all", label: "全部开放接口数据" },
   { value: "orders", label: "订单数据" },
   { value: "verify_records", label: "核销数据" },
-  { value: "shop_pois", label: "门店 POI 数据" },
+  { value: "shop_pois", label: "门店位置数据（POI）" },
   { value: "aweme_bindings", label: "子机构号开放接口" },
   { value: "backend_aweme_export", label: "子机构号浏览器导出" },
   { value: "settlement", label: "仅重建结算结果" },
@@ -60,11 +68,11 @@ function statusLabel(status: JobRun["status"]): string {
   return "已排队";
 }
 
-function statusTone(status: JobRun["status"]): "amber" | "blue" | "danger" | "green" {
-  if (status === "success") return "green";
+function statusTone(status: JobRun["status"]): "warning" | "info" | "danger" | "success" {
+  if (status === "success") return "success";
   if (status === "failed") return "danger";
-  if (status === "running") return "blue";
-  return "amber";
+  if (status === "running") return "info";
+  return "warning";
 }
 
 function phaseSummary(job: JobRun): string {
@@ -72,7 +80,7 @@ function phaseSummary(job: JobRun): string {
   const parts = Object.values(phases).map((phase) => {
     const fetched = formatInteger(Number(phase.fetched ?? 0));
     const upserted = formatInteger(Number(phase.upserted ?? 0));
-    return `${phase.name} 拉取 ${fetched} / 写入 ${upserted}`;
+    return `${displaySyncPhaseName(phase.name)}：拉取 ${fetched} / 写入 ${upserted}`;
   });
   return parts.length ? parts.join("；") : "-";
 }
@@ -85,14 +93,6 @@ function intervalText(seconds: number): string {
     return `${formatInteger(seconds / 60)} 分钟`;
   }
   return `${formatInteger(seconds)} 秒`;
-}
-
-function workerModeLabel(mode: string): string {
-  if (mode === "collect_and_settle") return "接口采集并重建结算";
-  if (mode === "settlement_only") return "只重建结算";
-  if (mode === "backfill") return "历史数据回填";
-  if (mode === "browser_export_only") return "只执行浏览器导出";
-  return mode || "-";
 }
 
 function yesNo(value: boolean): string {
@@ -113,7 +113,11 @@ function jobStatusLine(job: JobRun | null | undefined): string {
   return `${statusLabel(job.status)}，${finishedAt}`;
 }
 
-export function AdminSyncPage() {
+interface AdminSyncPageProps {
+  isHighestAdmin: boolean;
+}
+
+export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
@@ -129,6 +133,7 @@ export function AdminSyncPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runningManual, setRunningManual] = useState(false);
+  const [rebuildingClueCenter, setRebuildingClueCenter] = useState(false);
   const [statusText, setStatusText] = useState("");
   const draftDirtyRef = useRef(false);
   const configBaselineRef = useRef("");
@@ -222,11 +227,16 @@ export function AdminSyncPage() {
   const jobColumns: Column<JobRun>[] = [
     {
       key: "job_id",
-      title: "任务 ID",
+      title: "任务编号",
       align: "left",
       render: (job) => <span className="mono-cell">{job.job_id}</span>,
     },
-    { key: "type", title: "类型", align: "left", render: (job) => job.job_name },
+    {
+      key: "type",
+      title: "类型",
+      align: "left",
+      render: (job) => displaySyncJobName(job.job_name),
+    },
     {
       key: "status",
       title: "状态",
@@ -264,7 +274,8 @@ export function AdminSyncPage() {
       key: "detail",
       title: "明细",
       align: "left",
-      render: (job) => job.error_message || phaseSummary(job),
+      render: (job) =>
+        job.error_message ? displaySyncFailureReason(job.error_message) : phaseSummary(job),
     },
   ];
 
@@ -302,7 +313,7 @@ export function AdminSyncPage() {
       draftDirtyRef.current = false;
       configBaselineRef.current = draftSignature(nextDraft);
       setRemoteConfigChanged(false);
-      setStatusText("同步配置已保存，worker 下一轮会读取新配置。");
+      setStatusText("同步配置已保存，后台同步程序下一轮会读取新配置。");
     } catch (error) {
       if (error instanceof ApiRequestError && error.status === 401) {
         setAuthenticated(false);
@@ -337,6 +348,48 @@ export function AdminSyncPage() {
     }
   };
 
+  const handleClueCenterMaintenance = async () => {
+    if (!isHighestAdmin) {
+      setStatusText("当前账号为只读权限，不能执行线索中心数据维护。");
+      return;
+    }
+    if (
+      !window.confirm(
+        "确认执行线索中心数据维护？该操作会重建线索中心物化和联系方式解析，不会重建任何分配试运行批次。",
+      )
+    ) {
+      return;
+    }
+    setRebuildingClueCenter(true);
+    setStatusText("正在执行线索中心数据维护...");
+    try {
+      const response = await rebuildClueCenterMaterialization();
+      const result = response.data;
+      const rebuilt = [
+        result.rebuilt_order_count == null
+          ? null
+          : `订单 ${formatInteger(result.rebuilt_order_count)} 条`,
+        result.rebuilt_round_count == null
+          ? null
+          : `分配轮次 ${formatInteger(result.rebuilt_round_count)} 条`,
+      ].filter((value): value is string => Boolean(value));
+      setStatusText(
+        rebuilt.length
+          ? `线索中心数据维护已完成：${rebuilt.join("，")}。不会重建任何分配试运行批次。`
+          : "线索中心数据维护已完成。不会重建任何分配试运行批次。",
+      );
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 401) {
+        setAuthenticated(false);
+        setStatusText("登录已过期，请重新输入管理密码。");
+      } else {
+        setStatusText(error instanceof Error ? error.message : "数据维护执行失败，请稍后重试。");
+      }
+    } finally {
+      setRebuildingClueCenter(false);
+    }
+  };
+
   if (checkingSession) {
     return (
       <div className="admin-page">
@@ -368,9 +421,9 @@ export function AdminSyncPage() {
               {loginError}
             </p>
           ) : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit" variant="primary">
             进入管理页
-          </button>
+          </Button>
         </form>
       </div>
     );
@@ -405,9 +458,9 @@ export function AdminSyncPage() {
           role="status"
         >
           <span>服务器配置已更新，本地草稿暂未覆盖。</span>
-          <button className="ghost-button" onClick={discardDraftAndRefresh} type="button">
+          <Button onClick={discardDraftAndRefresh} type="button">
             放弃草稿并刷新
-          </button>
+          </Button>
         </div>
       ) : null}
 
@@ -424,7 +477,6 @@ export function AdminSyncPage() {
         />
         <MetricCard
           label="当前运行任务"
-          tone="blue"
           value={formatInteger(data?.progress.running_jobs ?? 0)}
           meta="正在写入数据库的任务数"
         />
@@ -440,7 +492,6 @@ export function AdminSyncPage() {
         />
         <MetricCard
           label="同步间隔"
-          tone="amber"
           value={data ? intervalText(data.config.interval_seconds) : "-"}
           meta={
             <>
@@ -453,14 +504,14 @@ export function AdminSyncPage() {
       <section className="content-section">
         <div className="section-title">
           <div>
-            <h2>Worker 状态</h2>
+            <h2>后台同步状态</h2>
             <p>
               根据后台配置和最近任务日志判断采集进度，用于确认是否正在跑、跑到哪段、失败原因是什么。
             </p>
           </div>
-          <button className="ghost-button" onClick={loadData} type="button">
+          <Button onClick={loadData} type="button">
             刷新状态
-          </button>
+          </Button>
         </div>
         {workerStatus ? (
           <dl className="worker-status-grid">
@@ -473,7 +524,7 @@ export function AdminSyncPage() {
             </div>
             <div className="worker-status-item">
               <dt>运行模式</dt>
-              <dd>{workerModeLabel(workerStatus.mode)}</dd>
+              <dd>{displayWorkerMode(workerStatus.mode)}</dd>
               <small>
                 启动后立即同步：{yesNo(workerStatus.run_on_start)}；单次运行：
                 {yesNo(workerStatus.run_once)}
@@ -498,7 +549,7 @@ export function AdminSyncPage() {
               <small>
                 {workerStatus.active_job
                   ? `${workerStatus.active_job.job_id}，${jobWindowText(workerStatus.active_job)}`
-                  : "如果 worker 正在长事务里写入，任务记录可能会在提交后才显示。"}
+                  : "如果后台同步程序正在写入大量数据，任务记录可能会在提交后才显示。"}
               </small>
             </div>
             <div className="worker-status-item">
@@ -509,8 +560,8 @@ export function AdminSyncPage() {
             <div className="worker-status-item">
               <dt>最近失败原因</dt>
               <dd>
-                {workerStatus.latest_failure?.error_message
-                  ? workerStatus.latest_failure.error_message
+                {workerStatus.latest_failure
+                  ? displaySyncFailureReason(workerStatus.latest_failure.error_message)
                   : "暂无失败记录"}
               </dd>
               <small>
@@ -523,7 +574,7 @@ export function AdminSyncPage() {
             </div>
           </dl>
         ) : (
-          <div className="resource-panel">暂无 worker 状态数据</div>
+          <div className="resource-panel">暂无后台同步状态数据</div>
         )}
       </section>
 
@@ -616,14 +667,14 @@ export function AdminSyncPage() {
                 type="checkbox"
               />
             </label>
-            <button
-              className="primary-button"
+            <Button
               disabled={saving}
               onClick={handleSave}
               type="button"
+              variant="primary"
             >
               保存配置
-            </button>
+            </Button>
           </div>
         ) : (
           <div className="resource-panel">暂无配置数据</div>
@@ -654,17 +705,43 @@ export function AdminSyncPage() {
               value={manualDays}
             />
           </label>
-          <button
-            className="primary-button"
+          <Button
             disabled={runningManual}
             onClick={handleManualRun}
             type="button"
+            variant="primary"
           >
             立即补拉
-          </button>
-          <button className="ghost-button" onClick={loadData} type="button">
+          </Button>
+          <Button onClick={loadData} type="button">
             刷新日志
-          </button>
+          </Button>
+        </div>
+      </section>
+
+      <section className="content-section">
+        <div className="section-title">
+          <div>
+            <h2>线索中心数据维护</h2>
+            <p>用于重建线索中心物化和联系方式解析，不会重建任何分配试运行批次。</p>
+          </div>
+        </div>
+        <div className="clue-center-maintenance__body">
+          <div>
+            <h3>线索中心物化重建</h3>
+            <p className="admin-muted">
+              {isHighestAdmin
+                ? "该操作仅影响线索中心数据，不会创建或重建分配试运行批次。"
+                : "当前账号为只读权限，可查看同步与线索分配数据，但不能触发维护。"}
+            </p>
+          </div>
+          <Button
+            disabled={!isHighestAdmin || rebuildingClueCenter}
+            onClick={() => void handleClueCenterMaintenance()}
+            type="button"
+          >
+            {rebuildingClueCenter ? "维护中" : "执行线索中心维护"}
+          </Button>
         </div>
       </section>
 

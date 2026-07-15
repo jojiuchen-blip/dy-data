@@ -17,9 +17,11 @@ import {
   retireClueAllocationRuleVersion,
   runClueAllocationTrial,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
+import { TertiaryNav } from "../components/TertiaryNav";
 import type {
   ClueAllocationAuditLog,
   ClueAllocationCycle,
@@ -36,12 +38,15 @@ import type {
   StoreScoreSnapshotData,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
-
-const poolReasonLabels: Record<string, string> = {
-  follow_poi_missing: "缺少锚点门店",
-  no_candidate: "无可分配门店",
-  strategies_exhausted: "轮次候选已耗尽",
-};
+import {
+  displayAllocationCycleStatus,
+  displayAllocationCycleType,
+  displayAllocationDecisionStatus,
+  displayAllocationEventType,
+  displayAllocationExecutionMode,
+  displayAllocationStrategy,
+  displayClueReason,
+} from "../utils/userFacingLabels";
 
 const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
   global: "全局默认",
@@ -50,17 +55,22 @@ const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
   anchor_store: "锚点门店",
 };
 
-const strategyLabels: Record<string, string> = {
-  sales_store_priority: "销售店优先（10 公里）",
-  nearby_city_optimization: "15 公里城市优选",
-  city_fallback: "城市兜底",
-};
+export type AllocationSubview = "rules" | "trial" | "records" | "headquarters";
 
-const decisionStatusLabels: Record<string, string> = {
-  selected: "已分配",
-  skipped: "已跳过",
-  headquarters: "进入总部池",
-};
+const allocationSubviewItems: Array<{
+  href: string;
+  id: AllocationSubview;
+  label: string;
+}> = [
+  { href: "/admin/clue-allocation/rules", id: "rules", label: "分配规则" },
+  { href: "/admin/clue-allocation/trial", id: "trial", label: "分配试运行" },
+  { href: "/admin/clue-allocation/records", id: "records", label: "分配记录" },
+  {
+    href: "/admin/clue-allocation/headquarters",
+    id: "headquarters",
+    label: "总部线索池",
+  },
+];
 
 interface RuleVersionDraft {
   auto_expiry_enabled: boolean;
@@ -94,10 +104,6 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
 
 function displayValue(value: string | null | undefined): string {
   return value || "-";
-}
-
-function displayPoolReason(reason: string): string {
-  return poolReasonLabels[reason] ?? reason;
 }
 
 function summaryLabel(summary: Record<string, number> | undefined): string {
@@ -187,10 +193,14 @@ function buildRuleVersionPayload(draft: RuleVersionDraft): ClueAllocationRuleVer
 }
 
 interface AdminClueAllocationPageProps {
+  activeSubview?: AllocationSubview;
   isHighestAdmin: boolean;
 }
 
-export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationPageProps) {
+export function AdminClueAllocationPage({
+  activeSubview = "rules",
+  isHighestAdmin,
+}: AdminClueAllocationPageProps) {
   const [eligibleLeads, setEligibleLeads] = useState<ClueAllocationEligibleLead[]>([]);
   const [headquartersEntries, setHeadquartersEntries] = useState<
     ClueHeadquartersPoolEntry[]
@@ -243,7 +253,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         fetchClueAllocationAuditLogs(),
         fetchClueAllocationRules(),
         fetchClueAllocationDecisions(),
-        isHighestAdmin ? fetchClueAllocationStoreScores() : Promise.resolve(null),
+        fetchClueAllocationStoreScores(),
       ]);
       setEligibleLeads(eligible.data.rows);
       setHeadquartersEntries(headquarters.data.rows);
@@ -506,7 +516,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       ruleVersionDraft.salesStoreDistanceKm <= 0 ||
       ruleVersionDraft.nearbyCityDistanceKm <= 0
     ) {
-      setStatusText("SLA、保护期、样本窗口、最小样本和距离参数不在允许范围内。");
+      setStatusText("首次跟进时限、保护期、样本窗口、最小样本和距离参数不在允许范围内。");
       return false;
     }
     if (
@@ -690,7 +700,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "reason",
       title: "进入原因",
       minWidth: 150,
-      render: (entry) => displayPoolReason(entry.reason),
+      render: (entry) => displayClueReason(entry.reason),
     },
     {
       key: "anchor-store",
@@ -717,13 +727,13 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "strategy",
       title: "策略",
       minWidth: 190,
-      render: (decision) => strategyLabels[decision.strategy_type] ?? decision.strategy_type,
+      render: (decision) => displayAllocationStrategy(decision.strategy_type),
     },
     {
       key: "mode",
       title: "执行方式",
       minWidth: 100,
-      render: (decision) => (decision.execution_mode === "trial" ? "试运行" : "正式"),
+      render: (decision) => displayAllocationExecutionMode(decision.execution_mode),
     },
     {
       key: "store",
@@ -735,13 +745,13 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "status",
       title: "结果",
       minWidth: 110,
-      render: (decision) => decisionStatusLabels[decision.decision_status] ?? decision.decision_status,
+      render: (decision) => displayAllocationDecisionStatus(decision.decision_status),
     },
     {
       key: "reason",
       title: "原因",
       minWidth: 170,
-      render: (decision) => displayValue(decision.reason),
+      render: (decision) => displayClueReason(decision.reason),
     },
     {
       key: "executed-at",
@@ -785,9 +795,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
       key: "type",
       title: "批次类型",
       minWidth: 120,
-      render: (cycle) => (cycle.cycle_type === "rebuild" ? "试运行重建" : "试运行"),
+      render: (cycle) => displayAllocationCycleType(cycle.cycle_type),
     },
-    { key: "status", title: "状态", minWidth: 100, render: (cycle) => cycle.status },
+    {
+      key: "status",
+      title: "状态",
+      minWidth: 100,
+      render: (cycle) => displayAllocationCycleStatus(cycle.status),
+    },
     { key: "count", title: "线索数", minWidth: 90, render: (cycle) => cycle.active_lead_count },
     {
       key: "impact",
@@ -805,7 +820,12 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
   ];
 
   const auditColumns: Column<ClueAllocationAuditLog>[] = [
-    { key: "event", title: "事件", minWidth: 150, render: (row) => row.event_type },
+    {
+      key: "event",
+      title: "事件",
+      minWidth: 150,
+      render: (row) => displayAllocationEventType(row.event_type),
+    },
     {
       key: "cycle",
       title: "批次",
@@ -837,19 +857,18 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
     <div className="admin-page clue-allocation-admin-page">
       <section className="admin-header">
         <div>
-          <h1>线索分配试运行</h1>
-          <p className="admin-muted">预览、试运行和重建均限定在当前选择范围内。</p>
+          <h1>线索分配</h1>
+          <p className="admin-muted">统一管理规则版本、试运行、分配记录和总部池。</p>
         </div>
         <div className="admin-header-actions">
-          <button
-            className="secondary-button"
+          <Button
+            icon="sync"
             disabled={loading || action !== null}
             onClick={() => void load()}
             type="button"
           >
-            <SolarIcon name="sync" size={16} />
             刷新
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -871,6 +890,17 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </div>
       ) : null}
 
+      <TertiaryNav
+        items={allocationSubviewItems.map((item) => ({
+          current: activeSubview === item.id,
+          href: item.href,
+          label: item.label,
+        }))}
+        label="线索分配功能"
+      />
+
+      {activeSubview === "trial" ? (
+        <>
       <section className="content-section clue-allocation-control">
         <div className="section-title">
           <div>
@@ -883,23 +913,22 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
         </div>
         {isWritable ? (
           <div className="clue-allocation-control__actions">
-            <button className="secondary-button" onClick={selectAllEligible} type="button">
+            <Button onClick={selectAllEligible} type="button">
               全选当前页
-            </button>
-            <button className="secondary-button" onClick={clearSelection} type="button">
+            </Button>
+            <Button onClick={clearSelection} type="button">
               清空选择
-            </button>
-            <button
-              className="secondary-button"
+            </Button>
+            <Button
+              icon="eye"
               disabled={action !== null || !selectedKeys.length}
               onClick={() => void handlePreview("trial")}
               type="button"
             >
-              <SolarIcon name="eye" size={16} />
               {action === "preview" ? "预览中" : "预览结果"}
-            </button>
-            <button
-              className="primary-button"
+            </Button>
+            <Button
+              icon="check"
               disabled={
                 action !== null ||
                 !selectedKeys.length ||
@@ -908,10 +937,10 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               }
               onClick={() => void runTrial()}
               type="button"
+              variant="primary"
             >
-              <SolarIcon name="check" size={16} />
               {action === "trial" ? "试运行中" : "启动试运行"}
-            </button>
+            </Button>
           </div>
         ) : null}
         <DataTable
@@ -948,7 +977,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               }}
               options={rebuildSourceCycles.map((cycle) => ({
                 value: cycle.allocation_cycle_id,
-                label: `${cycle.cycle_type === "rebuild" ? "重建" : "试运行"} · ${formatDateTime(cycle.completed_at ?? cycle.executed_at)}`,
+                label: `${displayAllocationCycleType(cycle.cycle_type)} · ${formatDateTime(cycle.completed_at ?? cycle.executed_at)}`,
               }))}
               placeholder="请选择批次"
               value={selectedRebuildCycleId}
@@ -964,17 +993,16 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                 type="checkbox"
               />
             </label>
-            <button
-              className="secondary-button"
+            <Button
+              icon="eye"
               disabled={action !== null || !selectedRebuildCycleId}
               onClick={() => void handlePreview("rebuild")}
               type="button"
             >
-              <SolarIcon name="eye" size={16} />
               {action === "preview" ? "预览中" : "预览重建"}
-            </button>
-            <button
-              className="secondary-button"
+            </Button>
+            <Button
+              icon="sync"
               disabled={
                 action !== null ||
                 !selectedRebuildCycleId ||
@@ -984,14 +1012,17 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
               onClick={() => void runRebuild()}
               type="button"
             >
-              <SolarIcon name="sync" size={16} />
               {action === "rebuild" ? "重建中" : "重建试运行"}
-            </button>
+            </Button>
           </div>
         </section>
       ) : null}
 
-      <section className="content-section clue-allocation-rule-management">
+        </>
+      ) : null}
+
+      {activeSubview === "rules" ? (
+        <section className="content-section clue-allocation-rule-management">
         <div className="section-title">
           <div>
             <h2>规则范围与版本</h2>
@@ -1048,32 +1079,30 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                       <h3>固定分配策略</h3>
                       {version.strategy_configs.map((config) => (
                         <p key={config.strategy_type}>
-                          <span>{strategyLabels[config.strategy_type] ?? config.strategy_type}</span>
+                          <span>{displayAllocationStrategy(config.strategy_type)}</span>
                           <strong>{config.enabled ? `第 ${config.execution_order} 顺位` : "已停用"}</strong>
                         </p>
                       ))}
                     </div>
                     {isWritable && version.status === "draft" ? (
-                      <button
-                        className="secondary-button"
+                      <Button
+                        icon="check"
                         disabled={action !== null}
                         onClick={() => void handlePublishRuleVersion(version)}
                         type="button"
                       >
-                        <SolarIcon name="check" size={16} />
                         发布版本
-                      </button>
+                      </Button>
                     ) : null}
                     {isWritable && version.status === "published" ? (
-                      <button
-                        className="secondary-button"
+                      <Button
+                        icon="close"
                         disabled={action !== null}
                         onClick={() => void handleRetireRuleVersion(version)}
                         type="button"
                       >
-                        <SolarIcon name="close" size={16} />
                         退役版本
-                      </button>
+                      </Button>
                     ) : null}
                   </article>
                 ))}
@@ -1131,15 +1160,14 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   </label>
                 ) : null}
               </div>
-              <button
-                className="secondary-button"
+              <Button
+                icon="rules"
                 disabled={action !== null}
                 onClick={() => void handleCreateRule()}
                 type="button"
               >
-                <SolarIcon name="rules" size={16} />
                 创建规则
-              </button>
+              </Button>
 
               <div className="clue-allocation-rule-editor__divider" />
               <div>
@@ -1161,7 +1189,7 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   />
                 </label>
                 <label className="filter-field">
-                  <span>首次跟进 SLA（小时）</span>
+                  <span>首次跟进时限（小时）</span>
                   <input
                     min={1}
                     onChange={(event) =>
@@ -1318,104 +1346,108 @@ export function AdminClueAllocationPage({ isHighestAdmin }: AdminClueAllocationP
                   />
                 </label>
               </div>
-              <button
-                className="primary-button"
+              <Button
+                icon="rules"
                 disabled={action !== null || !selectedRuleId}
                 onClick={() => void handleCreateRuleVersion()}
                 type="button"
+                variant="primary"
               >
-                <SolarIcon name="rules" size={16} />
                 新建草案版本
-              </button>
+              </Button>
             </div>
           ) : null}
         </div>
-      </section>
+        </section>
+      ) : null}
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>最近分配决策</h2>
-            <p>保留策略、选择结果、失败原因和当时的执行批次，用于复核而不暴露联系方式。</p>
-          </div>
-          <span className="source-pill">{decisions.length} 条</span>
-        </div>
-        <DataTable
-          columns={decisionColumns}
-          emptyText={loading ? "正在加载分配决策..." : "暂无分配决策记录"}
-          rows={decisions}
-          stickyHeader="container"
-        />
-      </section>
+      {activeSubview === "records" ? (
+        <>
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>最近分配决策</h2>
+                <p>保留策略、选择结果、失败原因和当时的执行批次，用于复核而不暴露联系方式。</p>
+              </div>
+              <span className="source-pill">{decisions.length} 条</span>
+            </div>
+            <DataTable
+              columns={decisionColumns}
+              emptyText={loading ? "正在加载分配决策..." : "暂无分配决策记录"}
+              rows={decisions}
+              stickyHeader="container"
+            />
+          </section>
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>门店评分快照</h2>
-            <p>综合评分由已配置的核销转化能力、24 小时有效跟进率与门店权重计算，分配决策保留当时快照。</p>
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>门店评分快照</h2>
+                <p>综合评分由已配置的核销转化能力、24 小时有效跟进率与门店权重计算，分配决策保留当时快照。</p>
+              </div>
+              {scoreData?.run ? (
+                <span className="source-pill">{formatDateTime(scoreData.run.computed_at)}</span>
+              ) : null}
+            </div>
+            <DataTable
+              columns={scoreColumns}
+              emptyText={loading ? "正在加载门店评分快照..." : "暂无评分快照"}
+              rows={scoreData?.rows ?? []}
+              stickyHeader="container"
+            />
+          </section>
+
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>试运行记录</h2>
+                <p>记录每次批次执行范围、结果和操作人。</p>
+              </div>
+              <span className="source-pill">{cycles.length} 次</span>
+            </div>
+            <DataTable
+              columns={cycleColumns}
+              emptyText={loading ? "正在加载试运行记录..." : "暂无试运行记录"}
+              rows={cycles}
+              stickyHeader="container"
+            />
+          </section>
+
+          <section className="content-section">
+            <div className="section-title">
+              <div>
+                <h2>审计记录</h2>
+                <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+              </div>
+            </div>
+            <DataTable
+              columns={auditColumns}
+              emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
+              rows={auditLogs}
+              stickyHeader="container"
+            />
+          </section>
+        </>
+      ) : null}
+
+      {activeSubview === "headquarters" ? (
+        <section className="content-section">
+          <div className="section-title">
+            <div>
+              <h2>总部线索池</h2>
+              <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
+            </div>
+            <span className="source-pill">{headquartersEntries.length} 条</span>
           </div>
-          {isHighestAdmin && scoreData?.run ? (
-            <span className="source-pill">{formatDateTime(scoreData.run.computed_at)}</span>
-          ) : null}
-        </div>
-        {isHighestAdmin ? (
           <DataTable
-            columns={scoreColumns}
-            emptyText={loading ? "正在加载门店评分快照..." : "暂无评分快照"}
-            rows={scoreData?.rows ?? []}
+            columns={headquartersColumns}
+            emptyText={loading ? "正在加载总部线索池..." : "总部池暂无线索"}
+            rows={headquartersEntries}
             stickyHeader="container"
           />
-        ) : (
-          <p className="admin-muted">评分明细仅向最高管理员开放；普通管理员可查看规则版本、分配决策和批次审计。</p>
-        )}
-      </section>
+        </section>
+      ) : null}
 
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>总部线索池</h2>
-            <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
-          </div>
-          <span className="source-pill">{headquartersEntries.length} 条</span>
-        </div>
-        <DataTable
-          columns={headquartersColumns}
-          emptyText={loading ? "正在加载总部线索池..." : "总部池暂无线索"}
-          rows={headquartersEntries}
-          stickyHeader="container"
-        />
-      </section>
-
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>试运行记录</h2>
-            <p>记录每次批次执行范围、结果和操作人。</p>
-          </div>
-          <span className="source-pill">{cycles.length} 次</span>
-        </div>
-        <DataTable
-          columns={cycleColumns}
-          emptyText={loading ? "正在加载试运行记录..." : "暂无试运行记录"}
-          rows={cycles}
-          stickyHeader="container"
-        />
-      </section>
-
-      <section className="content-section">
-        <div className="section-title">
-          <div>
-            <h2>审计记录</h2>
-            <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
-          </div>
-        </div>
-        <DataTable
-          columns={auditColumns}
-          emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
-          rows={auditLogs}
-          stickyHeader="container"
-        />
-      </section>
     </div>
   );
 }

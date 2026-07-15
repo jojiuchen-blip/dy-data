@@ -1,59 +1,67 @@
 # UI 设计规范工程化说明
 
-这个目录是 dy-data 当前 UI 设计规范的工程入口。它不是口头约定，也不是一次性的视觉稿，而是后续页面和组件改造时必须同步维护的依据。
+本目录是 dy-data 当前 UI 设计规范的工程入口。V0.2 是正式生效的浅色设计系统，服务于高频筛选、比对、跟进和审核等运营后台任务。
 
-## 事实来源
+## 正式来源
 
-- `tokens.json`：机器可读的 token、组件规则、页面模板和当前守门范围。
-- `index.html`：所见即所得的人工决策预览，用来判断颜色、排版、控件、图标、表格冻结和移动端卡片是否合适。
-- `apps/web/src/design-tokens.css`：业务前端运行时使用的 token 入口，由 `apps/web/src/styles.css` 导入。
-- `tests/test_design_system_docs.py`：验证规范文档、核心 token 与当前前端实现的绑定关系。
-- `tests/test_design_system_enforcement.py`：验证协作者不会绕过规范入口，例如图标必须从 `SolarIcon.tsx` 集中接入。
+- `tokens.json`：机器可读的 V0.2 token、组件规则、页面模板和运行时契约。它是唯一的规范源文件。
+- `index.html`：V0.2 完整可视化规范，展示颜色、排版、控件状态、图标、表格、弹层与桌面页面模板。
+- `apps/web/src/design-tokens.css`：当前运行时 CSS token 来源，由 `apps/web/src/styles.css` 导入。
+- `tests/test_design_system_docs.py`：验证正式 V0.2 元数据、核心 token、HTML 规范与运行时 CSS 绑定。
+- `tests/test_design_system_enforcement.py`：验证业务代码不会绕过规范入口，例如图标必须从 `SolarIcon.tsx` 集中接入。
+- `tests/test_frontend_user_facing_contracts.py`：阻止内部生产值、错误导航层级和旧版浏览器图标重新进入用户界面。
 
-## 当前生效范围
+## V0.2 生效范围
 
-- V0.1 只承诺浅色模式，设计规范预览不跟随系统暗色模式。
-- 当前已约束核心颜色、字体、间距、圆角、控件高度、层级、阴影、图标来源、表格冻结间距、明细工作台模板和移动端线索卡片结构。
-- 当前已通过静态测试绑定运行时 CSS token、规范 HTML 必备区块、图标入口和文档说明。
-- 当前还不是完整组件库，也不会自动把所有 token 生成到业务 CSS；`design-tokens.css` 是 V0.1 的人工同步入口。
+- 版本为 `0.2.0`，状态为 `active`，阶段为 `runtime-active`，关联工作项为 `DYDATA-4`。
+- 只支持 `light-only`；暗色模式不属于 V0.2。
+- 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、二级/三级导航、浏览器标签图标和桌面明细工作台规则。
+- `tokens.json` 与 `apps/web/src/design-tokens.css` 的受测核心变量必须保持一致。新增或调整运行时 UI 值时，不能只修改业务页面。
 
-## V0.2 候选视觉规范
+## DYDATA-5 边界
 
-- `tokens.v0.2-candidate.json`：DYDATA-3 的机器可读候选色彩和按钮状态，只用于设计决策，不被业务运行时引用。
-- `candidate-v0.2.html`：V0.2 候选版所见即所得预览，包含完整色卡、按钮状态和典型业务组件样板。
-- V0.1 的 `tokens.json`、`index.html` 和 `apps/web/src/design-tokens.css` 继续代表当前生效版本。
-- 候选版不允许修改 `apps/web/src/design-tokens.css` 或业务页面配色；当前业务 UI 不会在本阶段切换。
-- 只有在 Linear 中明确记录“确认进入阶段 2”后，才允许处理 DYDATA-4，将候选色值提升为运行时 token。
+移动端一级信息架构、移动端明细页面、移动端线索详情与移动端卡片样例在 V0.2 规范中仅作为 `DYDATA-5` 的未来实现记录。它们不新增现有运行时路由，也不代表当前产品已实现相应移动端行为。
 
-## UI 改动流程
+## 历史候选工件
 
-1. 如果要新增或调整颜色、圆角、控件高度、表格冻结间距、图标风格，先改 `tokens.json`。
-2. 同步更新 `index.html`，让人能直接看到改动后的实际效果。
-3. 同步更新 `apps/web/src/design-tokens.css`，让业务运行时实际使用新的 token。
-4. 再改业务 UI 的 CSS 或组件实现，避免页面先产生一套临时样式。
-5. 同步补充或调整测试，保证新规则能被 CI 拦住。
-6. 本地至少运行：
+- `tokens.v0.2-candidate.json` 与 `candidate-v0.2.html` 是 DYDATA-3 的历史评审工件。
+- 两个候选文件保持不可变，不作为当前运行时规范或后续改动入口。
+- `tokens.json` 的 `promotionHistory` 和 `promotionRecord` 保留其来源、评审确认和提升结果；这些字段是历史记录，不是新的审批门禁。
+
+## V0.2 维护流程
+
+1. 先更新 `tokens.json`，明确 token、组件或页面模板规则。
+2. 同步更新 `index.html`，使正式规范能完整展示该决策。
+3. 需要改变已绑定运行时变量时，同步更新 `apps/web/src/design-tokens.css` 和业务 UI；DYDATA-4 已完成首次全站运行时迁移。
+4. 更新 `tests/test_design_system_docs.py`，让 V0.2 正式版和不可变候选历史分别受到验证。
+5. 本地至少运行：
 
 ```powershell
-python -m pytest tests/test_design_system_docs.py tests/test_design_system_enforcement.py tests/test_frontend_clue_center.py tests/test_frontend_app_icon.py
+python -m pytest tests/test_design_system_docs.py -q
+```
+
+涉及运行时 CSS、页面或图标契约时，还应运行：
+
+```powershell
+python -m pytest tests/test_design_system_docs.py tests/test_design_system_enforcement.py tests/test_frontend_user_facing_contracts.py tests/test_frontend_clue_center.py tests/test_frontend_app_icon.py
+python -m pytest tests/test_visual_smoke.py
 npm --prefix apps/web run build
 ```
 
-候选视觉规范例外流程：先更新候选 token 和候选 HTML，人工确认后再按上述正式流程同步运行时 CSS 与业务 UI。
+视觉 smoke 固定覆盖正式规范页和全部有效业务页面的 390、768、1440 三档宽度，检查页面可达、唯一 H1、主区域非空、无明显水平溢出和运行时错误。严格像素基线比对仍属于后续增强项。
 
 ## 协作者规则
 
-- 不直接在业务页面里新增一次性颜色、圆角、控件高度或状态色；确实需要新增时，先进入 `tokens.json` 和 `index.html` 决策。
+- 不直接在业务页面新增一次性颜色、圆角、控件高度或状态色；先进入 `tokens.json` 和 `index.html`。
 - 不绕过 `apps/web/src/design-tokens.css` 新增运行时颜色、阴影或控件尺寸。
-- 不在业务代码里直接导入 `@iconify/react` 或 `@iconify-icons/solar/*`；新增图标必须先注册到 `apps/web/src/components/SolarIcon.tsx`。
-- 不把浏览器系统暗色模式适配写进 V0.1 规范预览；暗色模式需要单独设计、预览、测试和迁移计划。
-- 不把普通信息区块伪装成指标卡；指标卡只用于看板上的关键监控值。
-- 不用文字字符临时模拟图标、下拉箭头或状态符号；需要图标时使用统一图标入口。
-- 不把桌面明细长表做成页面整体滚动；线索明细、订单明细这类页面使用明细工作台模板：外层视口固定，结果表格内部滚动，分页保持可见。
-
-## 下一阶段
-
-- 把 `design-tokens.css` 进一步升级为由 `tokens.json` 生成，减少人工同步。
-- 为核心组件和关键页面增加截图回归。
-- 在 PR 模板中加入 UI 设计规范检查项。
-- 在颜色稳定后增加更严格的业务 CSS 颜色扫描，减少散落 hex 值。
+- 不在业务代码里直接导入 `@iconify/react` 或 `@iconify-icons/solar/*`；新增图标先注册到 `apps/web/src/components/SolarIcon.tsx`。浏览器 favicon 是版本化静态品牌资产，不作为业务 UI 图标入口。
+- 应用界面不把浏览器系统暗色模式适配写入 V0.2；暗色模式需要独立设计、预览、测试和迁移计划。浏览器标签图标是浏览器 chrome 的例外：浅色浏览器使用 `#d63b00`，深色浏览器使用 `#fe5205`，且不增加外层色块。
+- 内部生产值不得直接展示。订单状态、时效状态、同步任务、分配策略、事件类型、角色和后端错误必须通过 `apps/web/src/utils/userFacingLabels.ts` 转为用户文案；未知值显示“未知状态 / 未知类型 / 未知原因”或通用失败提示，原值只允许进入开发日志。
+- 必须保留的缩写在首次出现时补充中文含义，例如“门店位置编号（POI ID）”和“商品规格（SKU）”；一般用户页面不展示 MVP、Worker、数据库字段名等工程词。
+- 二级导航不使用图标，统一为透明底、文字链接和 2px 品牌橙当前页下划线；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；一级导航和明确操作可使用 Solar 图标。
+- 稳定子页面必须使用 `TertiaryNav` 和独立 URL，不使用本地按钮状态模拟页面导航，也不新增第四级导航。
+- 收起筛选只在筛选面板确实可折叠的窄屏布局中显示；桌面常驻筛选栏始终展开，不显示无效的收起操作。
+- 不把普通信息区块伪装成指标卡；指标卡只用于看板关键监控值。
+- KPI 指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色区分普通指标；信息层级依靠排列顺序、标签、数值字号和说明文字。成功、警告、错误、信息色只用于真实状态、反馈和图表语义。
+- 不用文字字符临时模拟图标、下拉箭头或状态符号。
+- 不把桌面明细长表做成页面整体滚动；使用明细工作台模板，外层视口固定、结果表格内部滚动、分页保持可见。

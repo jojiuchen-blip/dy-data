@@ -20,14 +20,6 @@ interface IconButtonProps
   variant?: Exclude<ButtonVariant, "text">;
 }
 
-const legacyClassByVariant: Record<ButtonVariant, string> = {
-  danger: "ui-button--danger",
-  primary: "primary-button",
-  secondary: "ghost-button",
-  soft: "ui-button--soft",
-  text: "link-button",
-};
-
 function buttonClassName(
   variant: ButtonVariant,
   size: ButtonSize,
@@ -37,7 +29,6 @@ function buttonClassName(
     "ui-button",
     `ui-button--${variant}`,
     `ui-button--${size}`,
-    legacyClassByVariant[variant],
     extraClassName,
   ]
     .filter(Boolean)
@@ -56,7 +47,7 @@ export function Button({
   variant = "secondary",
   ...props
 }: ButtonProps) {
-  const iconNode = icon ? <SolarIcon name={icon} size={16} /> : null;
+  const iconNode = icon ? <SolarIcon name={icon} size={size === "sm" ? 16 : 18} /> : null;
   const content: ReactNode[] = [];
 
   if (loading) {
@@ -75,6 +66,7 @@ export function Button({
     <button
       className={buttonClassName(variant, size, className)}
       disabled={disabled || loading}
+      aria-busy={loading || undefined}
       type={type}
       {...props}
     >

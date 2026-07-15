@@ -3,6 +3,7 @@ import {
   fetchAdminSession,
   loginAdmin,
 } from "../api/client";
+import { Button } from "../components/Button";
 
 const adminModules = [
   {
@@ -12,16 +13,10 @@ const adminModules = [
     meta: "账号与权限",
   },
   {
-    href: "/admin/clues/rules",
-    title: "线索再分配规则",
-    description: "配置线索中心全局 SLA，支持留空关闭自动超时待再分配，并触发线索中心重建。",
-    meta: "线索规则",
-  },
-  {
     href: "/admin/clue-allocation",
-    title: "线索分配试运行",
-    description: "预览和执行选定线索的试运行分配，查看总部池、批次与审计记录。",
-    meta: "最高管理员",
+    title: "线索分配",
+    description: "统一管理规则版本、试运行、分配记录和总部池。",
+    meta: "规则与运营",
   },
   {
     href: "/admin/product-types",
@@ -121,9 +116,9 @@ export function AdminHomePage() {
               {loginError}
             </p>
           ) : null}
-          <button className="primary-button" type="submit">
+          <Button type="submit" variant="primary">
             进入后台
-          </button>
+          </Button>
         </form>
       </div>
     );

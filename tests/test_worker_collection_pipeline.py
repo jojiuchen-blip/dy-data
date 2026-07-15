@@ -14,7 +14,7 @@ from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
-from apps.worker import scheduler
+from apps.worker import pipeline, scheduler
 from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
 from apps.worker.sync_config import save_sync_config
 from apps.worker.repositories import (
@@ -137,6 +137,27 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     db_session: Session,
 ):
     def settlement_runner(session: Session, source_run_id: str) -> PhaseStats:
+        session.add(
+            SettlementOrderDetail(
+                coupon_id="coupon-after-settlement",
+                order_id="order-1",
+                product_type="Service Product",
+                sale_time=datetime.fromisoformat("2026-01-01T10:00:00+08:00"),
+                is_verified=True,
+                verify_store_id="store-1",
+                verify_store_name="Store One",
+                verify_time=datetime.fromisoformat("2026-01-01T11:00:00+08:00"),
+                relation_type="same_store",
+                is_commissionable=False,
+                is_refund_excluded=False,
+                paid_amount_cent=0,
+                commission_rate=Decimal("0"),
+                receivable_commission_cent=0,
+                payable_commission_cent=0,
+                source_run_id=source_run_id,
+                updated_at=datetime.fromisoformat("2026-01-01T11:00:00+08:00"),
+            )
+        )
         return PhaseStats(name="settlement", fetched=0, upserted=0)
 
     stats = run_collect_and_settle(
@@ -153,17 +174,80 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     assert "clue_center_rebuild" in phase_names
     assert "clue_master_rebuild" in phase_names
     assert "store_score_snapshot" in phase_names
+    assert phase_names.index("clue_master_rebuild") < phase_names.index("clue_center_rebuild")
+    assert phase_names.index("settlement") < phase_names.index("clue_master_refresh")
+    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_center_refresh")
+    assert phase_names.index("clue_center_refresh") < phase_names.index("clue_follow_up_due")
+    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_follow_up_due")
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
     assert order.phone_plain == "13812345678"
     assert order.phone_masked == "138****5678"
+    assert order.verified_store_id == "store-1"
+    assert order.verified_store_name == "Store One"
 
     job = db_session.get(JobRun, "collect-clues")
     assert job is not None
     assert job.metadata_json["phases"]["clues"]["upserted"] == 1
     assert job.metadata_json["phases"]["clue_center_rebuild"]["upserted"] == 1
     assert job.metadata_json["phases"]["clue_master_rebuild"]["upserted"] == 1
+
+
+def test_collect_pipeline_skips_dependent_clue_phases_when_master_materialization_is_locked(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def locked_materialization(_session: Session) -> dict[str, int | str]:
+        calls.append("master")
+        return {
+            "master_leads": 0,
+            "closed_leads": 0,
+            "headquarters_pool": 0,
+            "skipped": "locked",
+        }
+
+    def settlement_runner(_session: Session, _source_run_id: str) -> PhaseStats:
+        calls.append("settlement")
+        return PhaseStats(name="settlement")
+
+    monkeypatch.setattr(pipeline, "materialize_clue_master_leads", locked_materialization)
+    monkeypatch.setattr(
+        pipeline,
+        "rebuild_clue_center",
+        lambda *_args, **_kwargs: calls.append("clue_center") or {"eligible_orders": 0},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "process_due_transitions",
+        lambda _session: calls.append("due") or {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0},
+    )
+    monkeypatch.setattr(
+        pipeline,
+        "refresh_due_store_score_snapshots",
+        lambda _session: calls.append("scores") or {"snapshots": 0},
+    )
+
+    stats = run_collect_and_settle(
+        db_session,
+        client=object(),
+        window=window(),
+        job_id="collect-master-locked",
+        include_browser_export=False,
+        collectors=[],
+        settlement_runner=settlement_runner,
+    )
+
+    phases = {phase.name: phase for phase in stats.phases}
+    assert calls == ["master", "settlement", "master"]
+    assert phases["clue_master_rebuild"].skipped == 1
+    assert phases["clue_center_rebuild"].skipped == 1
+    assert phases["clue_master_refresh"].skipped == 1
+    assert phases["clue_center_refresh"].skipped == 1
+    assert phases["clue_follow_up_due"].skipped == 1
+    assert phases["store_score_snapshot"].skipped == 1
 
 
 def test_run_collect_and_settle_marks_failed_and_skips_settlement(db_session: Session):

@@ -17,6 +17,9 @@ SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
 RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
 DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
 DESIGN_TOKENS_CSS_PATH = WEB_SRC_DIR / "design-tokens.css"
+APP_STYLES_PATH = WEB_SRC_DIR / "styles.css"
+SEARCHABLE_SELECT_PATH = WEB_SRC_DIR / "components" / "SearchableStoreSelect.tsx"
+SEARCHABLE_SELECT_CSS_PATH = WEB_SRC_DIR / "components" / "SearchableStoreSelect.css"
 CANDIDATE_TOKEN_FILENAME = "tokens.v0.2-candidate.json"
 CANDIDATE_PREVIEW_FILENAME = "candidate-v0.2.html"
 LEGACY_UI_CLASS_PATTERN = re.compile(
@@ -26,6 +29,11 @@ LEGACY_UI_CLASS_PATTERN = re.compile(
     r"(?![A-Za-z0-9_-])"
 )
 NON_INTERACTIVE_CLICK_PATTERN = re.compile(r"<(?:div|span)\b[^>]*\bonClick=", re.DOTALL)
+LEGACY_BUTTON_CLASS_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_-])"
+    r"(?:primary-button|ghost-button|secondary-button|link-button|ui-icon-button)"
+    r"(?![A-Za-z0-9_-])"
+)
 COLOR_LITERAL_PATTERN = re.compile(
     r"#[0-9a-fA-F]{3,8}\b|rgba?\([^)]+\)|hsla?\([^)]+\)|oklch\([^)]+\)"
 )
@@ -51,10 +59,12 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "apps/web/src/design-tokens.css",
         "tests/test_design_system_docs.py",
         "tests/test_design_system_enforcement.py",
-        "V0.1 只承诺浅色模式",
-        "先改 `tokens.json`",
+        "V0.2 是正式生效的浅色设计系统",
+        "状态为 `active`",
+        "只支持 `light-only`",
+        "先更新 `tokens.json`",
         "同步更新 `index.html`",
-        "同步更新 `apps/web/src/design-tokens.css`",
+        "同步更新 `apps/web/src/design-tokens.css` 和业务 UI",
         "不在业务代码里直接导入 `@iconify/react`",
         "apps/web/src/components/SolarIcon.tsx",
         "不绕过 `apps/web/src/design-tokens.css`",
@@ -65,8 +75,9 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "npm --prefix apps/web run build",
         "tokens.v0.2-candidate.json",
         "candidate-v0.2.html",
-        "当前业务 UI 不会在本阶段切换",
-        "确认进入阶段 2",
+        "历史评审工件",
+        "DYDATA-5",
+        "不新增现有运行时路由",
     ]
 
     for phrase in required_phrases:
@@ -86,7 +97,7 @@ def test_tokens_declare_current_enforcement_scope() -> None:
     follow_up_mobile_template = tokens["pageTemplates"]["clueFollowUpMobileDetail"]
 
     assert tokens["meta"]["colorMode"] == "light-only"
-    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.1"
+    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.2"
     assert layout_tokens["workspacePageWidth"]["value"] == "100%"
     assert "authenticated workspace pages fill" in layout_tokens["workspacePageWidth"]["usage"]
     assert layout_tokens["dataWorkspaceWidth"]["value"] == "100%"
@@ -139,6 +150,7 @@ def test_tokens_declare_current_enforcement_scope() -> None:
         "legacy status-chip",
         "div or span click handlers",
         "light-only",
+        "390, 768 and 1440",
     ]
     for phrase in current_required:
         assert phrase in current_rules
@@ -205,6 +217,91 @@ def test_business_pages_do_not_use_legacy_visual_class_entries() -> None:
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_business_pages_use_shared_button_components() -> None:
+    offenders: list[str] = []
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        if LEGACY_BUTTON_CLASS_PATTERN.search(read_text(path)):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_runtime_styles_use_v02_button_typography_and_elevation_entries() -> None:
+    styles = read_text(APP_STYLES_PATH)
+    searchable_select_styles = read_text(SEARCHABLE_SELECT_CSS_PATH)
+
+    for legacy_selector in (
+        "primary-button",
+        "secondary-button",
+        "ghost-button",
+        "link-button",
+    ):
+        assert re.search(
+            rf"(?<![A-Za-z0-9_-]){legacy_selector}(?![A-Za-z0-9_-])",
+            styles,
+        ) is None
+
+    assert "var(--shadow-soft)" not in styles
+    assert "var(--shadow)" not in styles
+    assert "--shadow-soft:" not in read_text(DESIGN_TOKENS_CSS_PATH)
+    assert "--shadow:" not in read_text(DESIGN_TOKENS_CSS_PATH)
+    assert ".ui-select__menu" in styles
+    assert "box-shadow: var(--shadow-popover);" in styles
+    assert "box-shadow: var(--shadow-dialog);" in styles
+    assert "box-shadow: var(--shadow-workbench);" in styles
+    assert "box-shadow: var(--shadow-popover);" in searchable_select_styles
+
+    weights = {
+        int(value)
+        for value in re.findall(
+            r"font-weight:\s*(\d+)",
+            styles + searchable_select_styles,
+        )
+    }
+    assert weights <= {500, 600, 700, 800}
+
+
+def test_legacy_green_is_reserved_for_semantic_success_styles() -> None:
+    styles = read_text(APP_STYLES_PATH)
+    allowed_selector_fragments = {
+        ".clue-allocation-version-status.is-published",
+        ".clue-followup-toast",
+        ".feedback-form__message--success",
+        ".sales-monthly-chart__area--verified",
+        ".sales-monthly-chart__dot--verified",
+        ".sales-monthly-chart__legend-item--verified::before",
+        ".sales-monthly-chart__line--verified",
+        ".ui-chip--success",
+    }
+    offenders: list[str] = []
+
+    for block in styles.split("}"):
+        if "var(--green" not in block or "{" not in block:
+            continue
+        selector = block.rsplit("{", 1)[0].strip()
+        if not any(fragment in selector for fragment in allowed_selector_fragments):
+            offenders.append(selector)
+
+    assert offenders == []
+
+
+def test_searchable_select_uses_registered_solar_icons() -> None:
+    component = read_text(SEARCHABLE_SELECT_PATH)
+    styles = read_text(SEARCHABLE_SELECT_CSS_PATH)
+
+    assert '<SolarIcon' in component
+    assert 'name="chevronDown"' in component
+    assert 'name="check"' in component
+    assert "aria-activedescendant" in component
+    assert 'role="combobox"' in component
+    assert 'role="listbox"' in component
+    assert 'role="option"' in component
+    assert "useState(-1)" in component
+    assert "return Math.min(current + 1, filteredOptions.length - 1)" in component
+    assert ".searchable-store-select::after" not in styles
 
 
 def test_business_tsx_does_not_use_div_or_span_as_buttons() -> None:
@@ -282,6 +379,8 @@ def test_status_and_dialog_components_keep_accessibility_contracts() -> None:
         "focusableElements",
         '"Tab"',
         '"Escape"',
+        "if (!closeDisabled)",
+        "[closeDisabled, initialFocusRef, onClose, open, returnFocusRef]",
         'setAttribute("inert"',
         "returnTarget?.focus",
     ]:

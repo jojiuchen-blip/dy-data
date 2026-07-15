@@ -3,8 +3,8 @@ import { fetchCommissionRulesSummary } from "../api/client";
 import { useApiResource } from "../hooks/useApiResource";
 import type { CommissionRuleSkuSummary } from "../types/dashboard";
 import { formatPercent } from "../utils/format";
+import { Button, IconButton } from "./Button";
 import { DataTable, type Column } from "./DataTable";
-import { SolarIcon } from "./SolarIcon";
 
 export function CommissionRulesButton() {
   const [open, setOpen] = useState(false);
@@ -37,16 +37,18 @@ export function CommissionRulesButton() {
 
   return (
     <div className="commission-rules">
-      <button
+      <Button
         aria-controls="commission-rules-popover"
         aria-expanded={open}
-        className="ghost-button commission-rules__button"
+        className="commission-rules__button"
+        icon="rules"
         onClick={() => setOpen((current) => !current)}
+        size="sm"
         type="button"
+        variant="secondary"
       >
-        <SolarIcon name="rules" size={15} />
         分佣规则
-      </button>
+      </Button>
       {open ? (
         <div
           aria-labelledby="commission-rules-title"
@@ -56,14 +58,12 @@ export function CommissionRulesButton() {
         >
           <div className="commission-rules__header">
             <h2 id="commission-rules-title">分佣规则</h2>
-            <button
-              aria-label="关闭分佣规则"
-              className="icon-button"
+            <IconButton
+              icon="close"
+              label="关闭分佣规则"
               onClick={() => setOpen(false)}
               type="button"
-            >
-              <SolarIcon name="close" size={18} />
-            </button>
+            />
           </div>
           {resource.loading ? (
             <p className="admin-muted">正在读取分佣规则...</p>

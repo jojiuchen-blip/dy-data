@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button } from "../components/Button";
 import { RoleBadge, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
@@ -10,6 +11,7 @@ import type {
   FeedbackStatus,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
+import { displayUserRole } from "../utils/userFacingLabels";
 
 const PAGE_SIZE = 20;
 
@@ -43,11 +45,11 @@ const statusLabels: Record<FeedbackStatus, string> = {
   reviewed: "已读",
 };
 
-const feedbackStatusTones: Record<FeedbackStatus, "blue" | "danger" | "green" | "neutral"> = {
+const feedbackStatusTones: Record<FeedbackStatus, "info" | "danger" | "success" | "neutral"> = {
   ignored: "neutral",
   new: "danger",
-  resolved: "green",
-  reviewed: "blue",
+  resolved: "success",
+  reviewed: "info",
 };
 
 const statusActions: Array<{ label: string; value: FeedbackStatus }> = [
@@ -169,7 +171,9 @@ export function AdminFeedbackPage() {
       render: (row) => (
         <span>
           {row.username || "-"}
-          {row.user_role ? <small className="feedback-user-role">{row.user_role}</small> : null}
+          {row.user_role ? (
+            <small className="feedback-user-role">{displayUserRole(row.user_role)}</small>
+          ) : null}
         </span>
       ),
     },
@@ -195,15 +199,14 @@ export function AdminFeedbackPage() {
       render: (row) => (
         <div className="table-action-row">
           {statusActions.map((action) => (
-            <button
-              className="ghost-button"
+            <Button
               disabled={updatingId === row.feedback_id || row.status === action.value}
               key={action.value}
               onClick={() => changeStatus(row.feedback_id, action.value)}
               type="button"
             >
               {updatingId === row.feedback_id ? "更新中" : action.label}
-            </button>
+            </Button>
           ))}
         </div>
       ),
@@ -219,9 +222,9 @@ export function AdminFeedbackPage() {
         </div>
         <div className="admin-header-actions">
           {loading ? <span className="source-pill">加载中</span> : null}
-          <button className="ghost-button" onClick={loadFeedback} type="button">
+          <Button onClick={loadFeedback} type="button">
             刷新
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -267,12 +270,12 @@ export function AdminFeedbackPage() {
             value={searchDraft}
           />
         </label>
-        <button className="primary-button" type="submit">
+        <Button type="submit" variant="primary">
           查询
-        </button>
-        <button className="ghost-button" onClick={clearFilters} type="button">
+        </Button>
+        <Button onClick={clearFilters} type="button">
           清空筛选
-        </button>
+        </Button>
       </form>
 
       {message ? (
@@ -307,22 +310,20 @@ export function AdminFeedbackPage() {
             第 {page} / {totalPages} 页
           </span>
           <div className="pagination-controls__actions">
-            <button
-              className="ghost-button"
+            <Button
               disabled={page <= 1 || loading}
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               type="button"
             >
               上一页
-            </button>
-            <button
-              className="ghost-button"
+            </Button>
+            <Button
               disabled={page >= totalPages || loading}
               onClick={() => setPage((current) => current + 1)}
               type="button"
             >
               下一页
-            </button>
+            </Button>
           </div>
         </div>
       </section>

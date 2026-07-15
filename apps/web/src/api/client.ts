@@ -18,6 +18,7 @@ import type {
   AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
+  ClueCenterMaterializationResult,
   ClueAllocationAuditLogData,
   ClueAllocationCycleData,
   ClueAllocationCycleExecution,
@@ -40,9 +41,6 @@ import type {
   ClueOverviewFilters,
   ClueOverviewMetrics,
   CluePhoneReveal,
-  ClueReassignRuleData,
-  ClueReassignRuleUpdate,
-  ClueRebuildResult,
   ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
@@ -387,13 +385,13 @@ const SALES_DASHBOARD_DEFINITIONS = [
     key: "total_sales_order_count",
     label: "总销售订单量",
     description:
-      "销售归属门店在所选期间卖出的有效订单数，按 order_id 去重，剔除 is_refund_excluded=true 的记录。",
+      "销售归属门店在所选期间卖出的有效订单数，按订单编号去重，退款订单不计入。",
   },
   {
     key: "self_verify_order_count",
     label: "自店核销数",
     description:
-      "销售归属门店和实际核销门店都是当前门店的订单数，按 order_id 去重，剔除退款剔除记录。",
+      "销售归属门店和实际核销门店都是当前门店的订单数，按订单编号去重，退款订单不计入。",
   },
   {
     key: "self_verify_rate",
@@ -404,25 +402,25 @@ const SALES_DASHBOARD_DEFINITIONS = [
     key: "total_verify_order_count",
     label: "实际核销总数",
     description:
-      "不管销售归属门店，只要在当前门店于所选期间完成核销即计入，按 order_id 去重；一单核销多券也只算一单。",
+      "不管销售归属门店，只要在当前门店于所选期间完成核销即计入，按订单编号去重；一单核销多券也只算一单。",
   },
   {
     key: "actual_verify_amount_cent",
     label: "实际核销金额",
     description:
-      "当前门店产生核销后的实收金额合计，剔除 is_refund_excluded=true 的记录。",
+      "当前门店产生核销后的实收金额合计，退款订单不计入。",
   },
   {
     key: "avg_verify_cycle_days",
     label: "平均核销周期",
     description:
-      "当前门店已核销订单从 sale_time 到 verify_time 的平均天数，按订单去重。",
+      "当前门店已核销订单从销售时间到核销时间的平均天数，按订单编号去重。",
   },
   {
     key: "cycle_distribution",
     label: "核销周期分布",
     description:
-      "按商品类型展示当前门店核销订单从 sale_time 到 verify_time 的周期，箱线图展示四分位，散点展示订单样本。",
+      "按商品类型展示当前门店核销订单从销售时间到核销时间的周期，箱线图展示四分位，散点展示订单样本。",
   },
 ];
 
@@ -820,25 +818,6 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
       phone_masked: phoneMasked,
     },
     meta: {
-      generated_at: generatedAt(),
-      source: "mock",
-    },
-  };
-}
-
-function mockClueRuleResponse(
-  override?: ClueReassignRuleUpdate,
-): ApiResponse<ClueReassignRuleData> {
-  return {
-    data: {
-      ...clueCenterResponses.rule.data,
-      reassign_sla_hours:
-        override?.reassign_sla_hours ??
-        clueCenterResponses.rule.data.reassign_sla_hours,
-      updated_at: generatedAt(),
-    },
-    meta: {
-      ...clueCenterResponses.rule.meta,
       generated_at: generatedAt(),
       source: "mock",
     },
@@ -1296,38 +1275,15 @@ export async function runManualSync({
   };
 }
 
-export function fetchClueReassignRule(): Promise<ApiLoadResult<ClueReassignRuleData>> {
-  return withMockFallback(
-    () => requestJson<ClueReassignRuleData>("/admin/clue-reassign-rule"),
-    () => mockClueRuleResponse(),
-  );
-}
-
-export function saveClueReassignRule(
-  payload: ClueReassignRuleUpdate,
-): Promise<ApiLoadResult<ClueReassignRuleData>> {
-  return withMockFallback(
-    () =>
-      sendJson<ClueReassignRuleData>("/admin/clue-reassign-rule", {
-        body: payload,
-        method: "PUT",
-      }),
-    () => mockClueRuleResponse(payload),
-  );
-}
-
-export function rebuildClues(): Promise<ApiLoadResult<ClueRebuildResult>> {
-  return withMockFallback(
-    () => sendJson<ClueRebuildResult>("/admin/clues/rebuild", { method: "POST" }),
-    () => ({
-      ...clueCenterResponses.rebuild,
-      meta: {
-        ...clueCenterResponses.rebuild.meta,
-        generated_at: generatedAt(),
-        source: "mock",
-      },
-    }),
-  );
+export async function rebuildClueCenterMaterialization(): Promise<
+  ApiLoadResult<ClueCenterMaterializationResult>
+> {
+  return {
+    ...(await sendJson<ClueCenterMaterializationResult>("/admin/sync/clue-center/rebuild", {
+      method: "POST",
+    })),
+    usingMock: false,
+  };
 }
 
 export async function fetchClueAllocationEligibleLeads(): Promise<

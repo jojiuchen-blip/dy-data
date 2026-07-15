@@ -4,6 +4,7 @@ import type { AdminUser, FeedbackCategory } from "../types/dashboard";
 import { CommissionRulesButton } from "./CommissionRulesButton";
 import { Dialog } from "./Dialog";
 import { SelectField } from "./FormControls";
+import { Button } from "./Button";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
@@ -14,7 +15,6 @@ const adminPaths = new Set([
   "/admin/accounts",
   "/admin/rules",
   "/admin/sync",
-  "/admin/clues/rules",
   "/admin/clue-allocation",
   "/admin/feedback",
   "/admin/product-types",
@@ -26,11 +26,11 @@ type NavSection = "settlement" | "verification" | "clues" | "admin";
 
 interface NavItem {
   href: string;
-  icon?: SolarIconName;
   label: string;
 }
 
 interface ModuleNavItem extends NavItem {
+  icon?: SolarIconName;
   section: NavSection;
   description: string;
   badge?: string;
@@ -69,26 +69,30 @@ const moduleNavItems: ModuleNavItem[] = [
 ];
 
 const settlementNavItems: NavItem[] = [
-  { href: "/ranking", label: "全国门店榜单", icon: "ranking" },
-  { href: "/settlement", label: "单店结算", icon: "settlement" },
-  { href: "/details", label: "订单明细", icon: "details" },
+  { href: "/ranking", label: "全国门店榜单" },
+  { href: "/settlement", label: "单店结算" },
+  { href: "/details", label: "订单明细" },
 ];
 
 const clueNavItems: NavItem[] = [
-  { href: "/clues", label: "线索看板", icon: "chart" },
-  { href: "/clues/details", label: "线索明细", icon: "details" },
+  { href: "/clues", label: "线索看板" },
+  { href: "/clues/details", label: "线索明细" },
 ];
 
 const adminNavItems: NavItem[] = [
-  { href: "/admin", label: "后台首页", icon: "home" },
-  { href: "/admin/accounts", label: "账号管理", icon: "accounts" },
-  { href: "/admin/rules", label: "分佣规则", icon: "rules" },
-  { href: "/admin/product-types", label: "商品口径", icon: "filter" },
-  { href: "/admin/clues/rules", label: "线索规则", icon: "cluesLine" },
-  { href: "/admin/clue-allocation", label: "分配试运行", icon: "sync" },
-  { href: "/admin/feedback", label: "用户建议", icon: "feedback" },
-  { href: "/admin/sync", label: "数据同步", icon: "sync" },
+  { href: "/admin", label: "后台首页" },
+  { href: "/admin/accounts", label: "账号管理" },
+  { href: "/admin/rules", label: "分佣规则" },
+  { href: "/admin/product-types", label: "商品口径" },
+  { href: "/admin/clue-allocation", label: "线索分配" },
+  { href: "/admin/feedback", label: "用户建议" },
+  { href: "/admin/sync", label: "数据同步" },
 ];
+
+const secondaryNavPathAliases: Record<string, string> = {
+  "/rule-admin": "/admin/rules",
+  "/sync-admin": "/admin/sync",
+};
 
 const sectionLabels: Record<NavSection, string> = {
   settlement: "订单分佣结算中心",
@@ -115,7 +119,12 @@ interface ShellProps {
 }
 
 function activeSection(currentPath: string): NavSection {
-  if (adminPaths.has(currentPath)) {
+  if (
+    adminPaths.has(currentPath) ||
+    Array.from(adminPaths).some(
+      (path) => path !== "/admin" && currentPath.startsWith(`${path}/`),
+    )
+  ) {
     return "admin";
   }
   if (verificationPaths.has(currentPath)) {
@@ -143,11 +152,25 @@ function secondaryNav(section: NavSection): NavItem[] {
   return settlementNavItems;
 }
 
-function roleLabel(role: AdminUser["role"]): string {
-  if (role === "admin") {
-    return "最高管理员";
+function activeSecondaryNavHref(
+  items: NavItem[],
+  currentPath: string,
+): string | undefined {
+  const normalizedPath = secondaryNavPathAliases[currentPath] ?? currentPath;
+  return [...items]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find(
+      (item) =>
+        normalizedPath === item.href ||
+        normalizedPath.startsWith(`${item.href}/`),
+    )?.href;
+}
+
+function roleLabel(user: AdminUser): string {
+  if (user.role === "admin") {
+    return user.is_highest_admin ? "最高管理员" : "管理员";
   }
-  if (role === "viewer") {
+  if (user.role === "viewer") {
     return "全局查看";
   }
   return "门店账号";
@@ -172,6 +195,10 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
   const sectionNavItems = secondaryNav(section);
+  const activeSecondaryHref = activeSecondaryNavHref(
+    sectionNavItems,
+    currentPath,
+  );
   const pageFrameClassName = [
     "page-frame",
     dataWorkspacePaths.has(currentPath) ? "page-frame--data-workspace" : "",
@@ -217,17 +244,13 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         aria-label={`${sectionLabels[section]}导航`}
       >
         {sectionNavItems.map((item) => {
-          const active =
-            currentPath === item.href ||
-            (item.href === "/admin/rules" && currentPath === "/rule-admin") ||
-            (item.href === "/admin/sync" && currentPath === "/sync-admin");
+          const active = item.href === activeSecondaryHref;
           return (
             <a
               aria-current={active ? "page" : undefined}
               href={item.href}
               key={item.href}
             >
-              {item.icon ? <SolarIcon name={item.icon} size={15} /> : null}
               {item.label}
             </a>
           );
@@ -344,25 +367,27 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                 <div className="account-cluster__identity">
                   <SolarIcon name="accounts" size={18} />
                   <span>{currentUser.display_name || currentUser.username}</span>
-                  <em>{roleLabel(currentUser.role)}</em>
+                  <em>{roleLabel(currentUser)}</em>
                 </div>
-                <button
-                  className="ghost-button utility-button"
+                <Button
+                  className="utility-button"
+                  icon="key"
                   onClick={() => setSettingsOpen(true)}
                   type="button"
+                  variant="secondary"
                 >
-                  <SolarIcon name="key" size={15} />
                   个人设置
-                </button>
+                </Button>
                 {onLogout ? (
-                  <button
-                    className="ghost-button utility-button"
+                  <Button
+                    className="utility-button"
+                    icon="logout"
                     onClick={onLogout}
                     type="button"
+                    variant="secondary"
                   >
-                    <SolarIcon name="logout" size={15} />
                     退出
-                  </button>
+                  </Button>
                 ) : null}
               </div>
             ) : null}
@@ -427,7 +452,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           <dl className="mine-panel__meta">
             <div>
               <dt>角色</dt>
-              <dd>{roleLabel(currentUser.role)}</dd>
+              <dd>{roleLabel(currentUser)}</dd>
             </div>
             <div>
               <dt>账号状态</dt>
@@ -443,31 +468,34 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
             </div>
           </dl>
           <div className="mine-panel__actions" aria-label="我的操作">
-            <button
-              className="ghost-button mine-panel__action"
+            <Button
+              className="mine-panel__action"
+              icon="key"
               onClick={openSettingsFromMine}
               type="button"
+              variant="secondary"
             >
-              <SolarIcon name="key" size={18} />
-              <span>修改密码</span>
-            </button>
-            <button
-              className="ghost-button mine-panel__action"
+              修改密码
+            </Button>
+            <Button
+              className="mine-panel__action"
+              icon="feedback"
               onClick={openFeedbackFromMine}
               type="button"
+              variant="secondary"
             >
-              <SolarIcon name="feedback" size={18} />
-              <span>提交建议</span>
-            </button>
+              提交建议
+            </Button>
             {onLogout ? (
-              <button
-                className="ghost-button mine-panel__action mine-panel__action--danger"
+              <Button
+                className="mine-panel__action"
+                icon="logout"
                 onClick={handleMineLogout}
                 type="button"
+                variant="danger"
               >
-                <SolarIcon name="logout" size={18} />
-                <span>退出登录</span>
-              </button>
+                退出登录
+              </Button>
             ) : null}
           </div>
         </Dialog>
@@ -520,21 +548,22 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
               </p>
             ) : null}
             <div className="feedback-form__actions">
-              <button
-                className="ghost-button"
+              <Button
                 disabled={submittingFeedback}
                 onClick={() => setFeedbackOpen(false)}
                 type="button"
+                variant="secondary"
               >
                 取消
-              </button>
-              <button
-                className="primary-button"
-                disabled={submittingFeedback || !feedbackContent.trim()}
+              </Button>
+              <Button
+                disabled={!feedbackContent.trim()}
+                loading={submittingFeedback}
                 type="submit"
+                variant="primary"
               >
                 {submittingFeedback ? "提交中..." : "提交建议"}
-              </button>
+              </Button>
             </div>
           </form>
         </Dialog>
@@ -574,9 +603,9 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
                 {settingsMessage}
               </p>
             ) : null}
-            <button className="primary-button" disabled={savingPassword} type="submit">
+            <Button loading={savingPassword} type="submit" variant="primary">
               保存密码
-            </button>
+            </Button>
           </form>
         </Dialog>
       ) : null}

@@ -190,16 +190,39 @@ def _run_job(
         for collector in active_collectors:
             stats.add_phase(collector(session, active_client, source_window, source_run_id))
         if include_clue_center_rebuild:
-            stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id, active_client))
+            master_rebuild = stats.add_phase(_run_clue_master_rebuild_phase(session, source_run_id))
+            if master_rebuild.skipped:
+                stats.add_phase(_skipped_phase("clue_center_rebuild"))
+            else:
+                stats.add_phase(_run_clue_center_rebuild_phase(session, source_run_id, active_client))
         if _include_browser_export(include_browser_export):
             runner = browser_export_runner or _run_browser_export_phase
             stats.add_phase(_coerce_browser_export_phase(runner(session, source_run_id)))
         if settlement_runner is not None:
             stats.add_phase(_coerce_settlement_phase(settlement_runner(session, source_run_id)))
             if include_clue_center_rebuild:
-                stats.add_phase(_run_clue_master_rebuild_phase(session, source_run_id))
-                stats.add_phase(_run_clue_follow_up_due_phase(session, source_run_id))
-                stats.add_phase(_run_store_score_snapshot_phase(session, source_run_id))
+                master_refresh = stats.add_phase(
+                    _run_clue_master_rebuild_phase(
+                        session,
+                        source_run_id,
+                        phase_name="clue_master_refresh",
+                    )
+                )
+                if master_refresh.skipped:
+                    stats.add_phase(_skipped_phase("clue_center_refresh"))
+                    stats.add_phase(_skipped_phase("clue_follow_up_due"))
+                    stats.add_phase(_skipped_phase("store_score_snapshot"))
+                else:
+                    stats.add_phase(
+                        _run_clue_center_rebuild_phase(
+                            session,
+                            source_run_id,
+                            active_client,
+                            phase_name="clue_center_refresh",
+                        )
+                    )
+                    stats.add_phase(_run_clue_follow_up_due_phase(session, source_run_id))
+                    stats.add_phase(_run_store_score_snapshot_phase(session, source_run_id))
 
         _set_job_metadata(session, source_run_id, stats.as_metadata())
         finish_job_run(
@@ -232,6 +255,8 @@ def _run_clue_center_rebuild_phase(
     session: Session,
     source_run_id: str,
     client: Any | None = None,
+    *,
+    phase_name: str = "clue_center_rebuild",
 ) -> PhaseStats:
     _ = source_run_id
     resolver = getattr(client, "decrypt_cipher_texts", None)
@@ -239,13 +264,27 @@ def _run_clue_center_rebuild_phase(
         session,
         phone_plain_resolver=resolver if callable(resolver) else None,
     )
-    return PhaseStats(name="clue_center_rebuild", fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
+    return PhaseStats(name=phase_name, fetched=0, upserted=int(result.get("eligible_orders", 0) or 0))
 
 
-def _run_clue_master_rebuild_phase(session: Session, source_run_id: str) -> PhaseStats:
+def _run_clue_master_rebuild_phase(
+    session: Session,
+    source_run_id: str,
+    *,
+    phase_name: str = "clue_master_rebuild",
+) -> PhaseStats:
     _ = source_run_id
     result = materialize_clue_master_leads(session)
-    return PhaseStats(name="clue_master_rebuild", fetched=0, upserted=int(result.get("master_leads", 0) or 0))
+    return PhaseStats(
+        name=phase_name,
+        fetched=0,
+        upserted=int(result.get("master_leads", 0) or 0),
+        skipped=1 if result.get("skipped") else 0,
+    )
+
+
+def _skipped_phase(name: str) -> PhaseStats:
+    return PhaseStats(name=name, skipped=1)
 
 
 def _run_clue_follow_up_due_phase(session: Session, source_run_id: str) -> PhaseStats:

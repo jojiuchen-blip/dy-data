@@ -18,6 +18,6 @@ def test_admin_accounts_page_lists_unactivated_stores() -> None:
     assert "UnactivatedStoreAccountRow" in types_source
     assert "unactivatedStoreColumns" in page_source
     assert "未激活门店" in page_source
-    assert "所属账户ID/POI ID" in page_source
+    assert "所属账户编号或门店位置编号（POI ID）" in page_source
     assert "account_ids" in page_source
     assert "poi_ids" in page_source

@@ -22,6 +22,7 @@ APP_STYLES_PATH = REPO_ROOT / "apps" / "web" / "src" / "styles.css"
 DESIGN_TOKENS_CSS_PATH = REPO_ROOT / "apps" / "web" / "src" / "design-tokens.css"
 WEB_PACKAGE_PATH = REPO_ROOT / "apps" / "web" / "package.json"
 SOLAR_ICON_PATH = REPO_ROOT / "apps" / "web" / "src" / "components" / "SolarIcon.tsx"
+FAVICON_PATH = REPO_ROOT / "apps" / "web" / "public" / "business-engine-icon-v2.svg"
 
 
 def read_text(path: Path) -> str:
@@ -32,26 +33,88 @@ def load_tokens() -> dict:
     return json.loads(read_text(TOKENS_PATH))
 
 
+def test_v02_is_the_active_runtime_design_system() -> None:
+    tokens = load_tokens()
+    candidate = json.loads(read_text(CANDIDATE_TOKENS_PATH))
+    html = read_text(HTML_PATH)
+
+    assert tokens["meta"] == {
+        "name": "dy-data UI Design System",
+        "version": "0.2.0",
+        "status": "active",
+        "lastUpdated": "2026-07-14",
+        "language": "zh-CN",
+        "colorMode": "light-only",
+        "darkModeStatus": "not-supported-in-v0.2",
+        "sourceOfTruth": "docs/design-system/tokens.json",
+        "currentImplementationSource": "apps/web/src/design-tokens.css",
+        "purpose": "Provide the formal V0.2 design system and runtime contract for dy-data product UI.",
+        "issue": "DYDATA-4",
+        "relatedIssues": ["DYDATA-3", "DYDATA-5"],
+        "stage": "runtime-active",
+        "runtimeApplied": True,
+    }
+
+    colors = tokens["tokens"]["color"]
+    assert colors["brandDeepOrange"]["value"] == "#d63b00"
+    assert colors["brandDeepOrangeHover"]["value"] == "#c73700"
+    assert colors["brandDeepOrangeActive"]["value"] == "#ad3000"
+    assert colors["brandOrange"]["value"] == "#fe5205"
+    assert colors["brandOrangeSoft"]["value"] == "#fff4ef"
+    assert colors["ink"]["value"] == "#181818"
+    assert colors["surfaceMuted"]["value"] == "#f2f2ee"
+    assert colors["green"]["role"] == "Success and verified state"
+    assert colors["greenSoft"]["role"] == "Success and verified background"
+    assert all(
+        not color["role"].startswith("Candidate")
+        for color in colors.values()
+        if "role" in color
+    )
+    principles = json.dumps(tokens["principles"], ensure_ascii=False)
+    assert "V0.1 只固化" not in principles
+    assert "候选品牌橙" not in principles
+
+    components = tokens["components"]
+    assert components["button"]["secondaryBorder"] == colors["lineStrong"]["value"]
+    assert components["field"]["border"] == colors["lineStrong"]["value"]
+    assert "Solar chevronDown" in components["field"]["selectIndicator"]
+    assert "CSS or text chevron" in components["field"]["selectIndicator"]
+
+    assert colors["green"]["value"] == candidate["tokens"]["color"]["green"]["value"]
+    assert colors["blue"]["value"] == candidate["tokens"]["color"]["blue"]["value"]
+    assert colors["amber"]["value"] == candidate["tokens"]["color"]["amber"]["value"]
+    assert colors["danger"]["value"] == candidate["tokens"]["color"]["danger"]["value"]
+
+    assert "dy-data UI 设计规范 V0.2" in html
+    assert "状态：active" in html
+    assert "源文件：tokens.json" in html
+    assert "PREVIEW ONLY" not in html
+    assert "pending-human-approval" not in html
+    assert candidate["meta"]["status"] == "pending-human-approval"
+    assert candidate["meta"]["runtimeApplied"] is False
+
+
 def css_variable_value(source: str, variable_name: str) -> str:
     match = re.search(rf"{re.escape(variable_name)}:\s*([^;]+);", source)
     assert match, f"{variable_name} should exist in CSS"
     return " ".join(match.group(1).split())
 
 
-def test_design_system_artifacts_exist_and_identify_their_status() -> None:
+def test_formal_v02_artifacts_identify_the_active_runtime_contract() -> None:
     tokens = load_tokens()
     html = read_text(HTML_PATH)
 
-    assert tokens["meta"]["version"] == "0.1.0"
-    assert tokens["meta"]["status"] == "draft"
+    assert tokens["meta"]["version"] == "0.2.0"
+    assert tokens["meta"]["status"] == "active"
     assert tokens["meta"]["colorMode"] == "light-only"
-    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.1"
-    assert "抖音经营数据引擎 UI 设计规范 V0.1" in html
-    assert "Draft" in html
-    assert "模式：浅色优先" in html
-    assert "本阶段只固化浅色模式" in html
-    assert "更新：2026-06-25" in html
-    assert "docs/design-system/tokens.json" in html
+    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.2"
+    assert "dy-data UI 设计规范 V0.2" in html
+    assert "状态：active" in html
+    assert "模式：light-only" in html
+    assert "更新：2026-07-14" in html
+    assert "源文件：tokens.json" in html
+    assert "PREVIEW ONLY" not in html
+    assert "pending-human-approval" not in html
     assert "Lorem" not in html
 
 
@@ -71,6 +134,11 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
         ("--muted", tokens["color"]["muted"]["value"]),
         ("--line", tokens["color"]["line"]["value"]),
         ("--line-strong", tokens["color"]["lineStrong"]["value"]),
+        ("--brand-deep-orange", tokens["color"]["brandDeepOrange"]["value"]),
+        ("--brand-deep-orange-hover", tokens["color"]["brandDeepOrangeHover"]["value"]),
+        ("--brand-deep-orange-active", tokens["color"]["brandDeepOrangeActive"]["value"]),
+        ("--brand-orange", tokens["color"]["brandOrange"]["value"]),
+        ("--brand-orange-soft", tokens["color"]["brandOrangeSoft"]["value"]),
         ("--green", tokens["color"]["green"]["value"]),
         ("--green-soft", tokens["color"]["greenSoft"]["value"]),
         ("--blue", tokens["color"]["blue"]["value"]),
@@ -87,8 +155,11 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
         ("--z-table-header", str(tokens["zIndex"]["tableHeader"]["value"])),
         ("--z-table-header-corner", str(tokens["zIndex"]["tableHeaderCorner"]["value"])),
         ("--focus-ring", tokens["shadow"]["focusRing"]["value"]),
-        ("--shadow", tokens["shadow"]["shadow"]["value"]),
-        ("--shadow-soft", tokens["shadow"]["shadowSoft"]["value"]),
+        ("--shadow-none", tokens["shadow"]["shadowNone"]["value"]),
+        ("--shadow-card", tokens["shadow"]["shadowCard"]["value"]),
+        ("--shadow-popover", tokens["shadow"]["shadowPopover"]["value"]),
+        ("--shadow-dialog", tokens["shadow"]["shadowDialog"]["value"]),
+        ("--shadow-workbench", tokens["shadow"]["shadowWorkbench"]["value"]),
     ]
 
     for variable_name, expected_value in app_variables:
@@ -116,7 +187,7 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     for section in required_sections:
         assert section in html
 
-    assert html.count('class="token-card"') >= 15
+    assert html.count('class="token-card"') >= 12
     assert html.count('class="component-card"') >= 4
     assert "color-scheme: light;" in html
     assert "color-scheme: light dark" not in html
@@ -124,7 +195,7 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert 'class="button-like primary"' in html
     assert 'class="button-like is-disabled"' in html
     assert '<span class="button-like' not in html
-    assert '<button class="mobile-filter-button" type="button">筛选</button>' in html
+    assert '<button class="mobile-filter-trigger" type="button"' in html
     assert "height: 38px;" in html
     assert "max-height: 38px;" in html
     assert 'class="field-control field-control--select field-control--focus"' in html
@@ -146,12 +217,12 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "线索表格冻结表头" in html
     assert "--table-sticky-gap: 8px" in html
     assert "action bar 58px + gap 8px" in html
-    assert "移动端 top subnav 单独计算" in html
+    assert "移动端 top subnav 为 DYDATA-5 未来范围" in html
     assert "明细工作台页面模板" in html
     assert "page-frame--data-workspace" in html
-    assert "content-section--data-workspace" in html
+    assert 'class="data-workspace-demo__result"' in html
     assert "外层页面不纵向滚动" in html
-    assert "分页固定在结果区底部可见" in html
+    assert "分页始终在结果区底部可见" in html
     assert "TablePagination / DataPager" in html
     assert "显示 1-50 / 共 22,332 条" in html
     assert "每页 50 条" in html
@@ -162,7 +233,7 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "移动端保留页码输入，按 Enter 跳转" in html
     assert "分页属于结果区，不放进表格滚动容器" in html
     assert "页码输入只允许 1 到总页数之间的正整数" in html
-    assert "移动端可折叠筛选并恢复自然页面滚动" in html
+    assert "DYDATA-5 未来移动明细页面模板" in html
     assert "新增明细长表" in html
     assert "action bar 58px + subnav 51px + gap 8px" not in html
     assert 'class="sticky-demo-shell"' in html
@@ -205,7 +276,8 @@ def test_design_system_html_does_not_depend_on_remote_assets() -> None:
 
     assert "https://" not in html
     assert "http://" not in html
-    assert "../../apps/web/public/business-engine-icon.svg" in html
+    assert 'class="solar-icon-sprite"' in html
+    assert "business-engine-icon.svg" not in html
     assert "business-loop-icon.svg" not in html
 
 
@@ -552,6 +624,7 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
     html = read_text(HTML_PATH)
     tokens = load_tokens()
     solar_icon_source = read_text(SOLAR_ICON_PATH)
+    favicon_source = read_text(FAVICON_PATH)
 
     registry = re.search(
         r"const solarIcons = \{(?P<body>.*?)\n\}", solar_icon_source, re.DOTALL
@@ -572,10 +645,26 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
     svg_blocks = re.findall(
         r"<svg\b(?P<attrs>[^>]*)>(?P<body>.*?)</svg>", html, re.DOTALL
     )
+    brand_assets = [
+        (attrs, body)
+        for attrs, body in svg_blocks
+        if 'data-brand-asset="browser-favicon"' in attrs
+    ]
+    assert len(brand_assets) == 2
+    favicon_path = re.search(r'<path d="([^"]+)"', favicon_source)
+    favicon_transform = re.search(r'<g transform="([^"]+)"', favicon_source)
+    assert favicon_path is not None
+    assert favicon_transform is not None
+    for attrs, body in brand_assets:
+        assert 'aria-hidden="true"' in attrs
+        assert f'd="{favicon_path.group(1)}"' in body
+        assert f'transform="{favicon_transform.group(1)}"' in body
+
     visible_icons = [
         (attrs, body)
         for attrs, body in svg_blocks
         if "solar-icon-sprite" not in attrs
+        and 'data-brand-asset="browser-favicon"' not in attrs
     ]
     assert visible_icons
     symbol_ids = set(re.findall(r'<symbol\s+id="([^"]+)"', html))
@@ -969,20 +1058,60 @@ def test_candidate_mobile_page_templates_replace_desktop_workspaces_on_narrow_sc
     assert mobile_template["bottomNavigation"] == ["数据表现", "结算", "线索", "后台"]
 
 
-def test_candidate_preview_does_not_change_active_runtime_palette() -> None:
-    active_tokens = load_tokens()["tokens"]["color"]
+def test_formal_v02_keeps_current_runtime_semantic_tokens_bound_to_css() -> None:
+    formal_tokens = load_tokens()["tokens"]["color"]
     runtime_tokens = read_text(DESIGN_TOKENS_CSS_PATH)
 
-    assert active_tokens["green"]["value"] == "#0f5b4b"
-    assert active_tokens["greenSoft"]["value"] == "#e1efe9"
+    assert formal_tokens["green"]["value"] == "#0f5b4b"
+    assert formal_tokens["greenSoft"]["value"] == "#e1efe9"
     assert css_variable_value(runtime_tokens, "--green") == "#0f5b4b"
     assert css_variable_value(runtime_tokens, "--green-soft") == "#e1efe9"
-    assert "#fe5205" not in runtime_tokens.lower()
+    assert css_variable_value(runtime_tokens, "--brand-orange") == formal_tokens["brandOrange"]["value"]
 
 
-def test_active_preview_links_to_candidate_without_promoting_it() -> None:
+def test_formal_v02_records_candidate_artifacts_as_immutable_history() -> None:
+    html = read_text(HTML_PATH)
+    formal = load_tokens()
+    candidate = json.loads(read_text(CANDIDATE_TOKENS_PATH))
+
+    assert candidate["meta"]["version"] == "0.2.0-candidate"
+    assert candidate["meta"]["status"] == "pending-human-approval"
+    assert candidate["meta"]["runtimeApplied"] is False
+    assert formal["promotionRecord"] == {
+        "sourceArtifacts": [
+            "docs/design-system/tokens.v0.2-candidate.json",
+            "docs/design-system/candidate-v0.2.html",
+        ],
+        "sourceIssue": "DYDATA-3",
+        "promotedByIssue": "DYDATA-4",
+        "historicalReviewConfirmation": "确认进入阶段 2",
+        "reviewRuntimeFilesExcluded": [
+            "apps/web/src/design-tokens.css",
+            "apps/web/src",
+        ],
+        "outcome": "Approved V0.2 values are now the formal runtime design-system contract.",
+    }
+    assert "候选工件保留为不可变历史评审记录" in html
+
+
+def test_formal_v02_labels_mobile_candidate_content_as_future_dydata5() -> None:
+    tokens = load_tokens()
     html = read_text(HTML_PATH)
 
-    assert 'href="candidate-v0.2.html"' in html
-    assert "V0.2 候选视觉规范已可预览" in html
-    assert "当前业务 UI 与运行时 token 仍保持 V0.1" in html
+    assert tokens["components"]["navigation"]["implementationStatus"] == (
+        "future-DYDATA-5-not-runtime-active"
+    )
+    assert tokens["components"]["clueFollowUpMobileDetail"]["implementationStatus"] == (
+        "future-DYDATA-5-not-runtime-active"
+    )
+    assert tokens["pageTemplates"]["mobileShell"]["implementationStatus"] == (
+        "future-DYDATA-5-not-runtime-active"
+    )
+    assert tokens["pageTemplates"]["mobileDetailWorkspace"]["implementationStatus"] == (
+        "future-DYDATA-5-not-runtime-active"
+    )
+    assert tokens["pageTemplates"]["clueFollowUpMobileDetail"]["implementationStatus"] == (
+        "future-DYDATA-5-not-runtime-active"
+    )
+    assert "DYDATA-5 未来范围" in html
+    assert "不代表现有运行时行为" in html

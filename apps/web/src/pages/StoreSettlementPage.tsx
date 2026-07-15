@@ -250,7 +250,6 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
               href={payableHref}
               label="本店预计分出分佣参考额"
               meta="点击查看明细"
-              tone="amber"
               value={formatCurrency(
                 view.metrics.estimated_payable_commission_cent,
               )}

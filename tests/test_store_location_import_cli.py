@@ -23,7 +23,7 @@ def test_store_location_import_cli_documents_input_and_safe_defaults() -> None:
     assert "--dry-run" in result.stdout
 
 
-def test_store_score_refresh_cli_documents_manual_refresh_controls() -> None:
+def test_store_score_refresh_cli_requires_a_rule_version() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     result = subprocess.run(
         [sys.executable, "scripts/refresh_store_scores.py", "--help"],
@@ -36,6 +36,7 @@ def test_store_score_refresh_cli_documents_manual_refresh_controls() -> None:
     )
 
     assert result.returncode == 0
-    assert "--lookback-days" in result.stdout
-    assert "--min-samples" in result.stdout
+    assert "--rule-version-id" in result.stdout
+    assert "--lookback-days" not in result.stdout
+    assert "--min-samples" not in result.stdout
     assert "--dry-run" in result.stdout

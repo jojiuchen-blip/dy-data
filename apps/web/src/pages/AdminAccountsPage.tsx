@@ -7,6 +7,7 @@ import {
   resetManagedAccountPassword,
   updateAccount,
 } from "../api/client";
+import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { MultiSelectField, SelectField } from "../components/FormControls";
@@ -211,7 +212,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "account_ids",
-      title: "所属账户ID",
+      title: "所属账户编号",
       align: "left",
       render: (store) => (
         <span className="mono-cell">{idListLabel(store.account_ids)}</span>
@@ -219,7 +220,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "poi_ids",
-      title: "POI ID",
+      title: "门店位置编号（POI ID）",
       align: "left",
       render: (store) => (
         <span className="mono-cell">{idListLabel(store.poi_ids)}</span>
@@ -248,7 +249,7 @@ export function AdminAccountsPage() {
     },
     {
       key: "external",
-      title: "所属账户ID",
+      title: "所属账户编号",
       align: "left",
       render: (account) => (
         <span className="mono-cell">{account.external_account_id || "-"}</span>
@@ -259,7 +260,7 @@ export function AdminAccountsPage() {
       key: "status",
       title: "状态",
       render: (account) => (
-        <StatusChip tone={account.status === "active" ? "green" : "neutral"}>
+        <StatusChip tone={account.status === "active" ? "success" : "neutral"}>
           {account.status === "active" ? "启用" : "停用"}
         </StatusChip>
       ),
@@ -281,20 +282,18 @@ export function AdminAccountsPage() {
       title: "操作",
       render: (account) => (
         <div className="table-action-row">
-          <button
-            className="ghost-button"
+          <Button
             onClick={() => startEdit(account)}
             type="button"
           >
             编辑
-          </button>
-          <button
-            className="ghost-button"
+          </Button>
+          <Button
             onClick={() => setResetTarget(account)}
             type="button"
           >
             重置密码
-          </button>
+          </Button>
         </div>
       ),
     },
@@ -322,7 +321,7 @@ export function AdminAccountsPage() {
       setDraft(accountDraft(result.data));
       setStatusText("账号已保存。");
     } catch {
-      setStatusText("保存失败，请检查账号名、所属账户ID、密码确认和门店绑定。");
+      setStatusText("保存失败，请检查账号名、所属账户编号、密码确认和门店绑定。");
     } finally {
       setSaving(false);
     }
@@ -366,9 +365,9 @@ export function AdminAccountsPage() {
           </p>
         </div>
         <div className="admin-header-actions">
-          <button className="primary-button" onClick={startCreate} type="button">
+          <Button onClick={startCreate} type="button" variant="primary">
             新建账号
-          </button>
+          </Button>
         </div>
       </section>
 
@@ -426,7 +425,7 @@ export function AdminAccountsPage() {
               />
             </label>
             <label className="filter-field">
-              <span>所属账户ID</span>
+              <span>所属账户编号</span>
               <input
                 onChange={(event) =>
                   setDraftField("external_account_id", event.target.value)
@@ -489,9 +488,9 @@ export function AdminAccountsPage() {
                 value={draft.password_confirm ?? ""}
               />
             </label>
-            <button className="primary-button" disabled={saving} type="submit">
+            <Button disabled={saving} type="submit" variant="primary">
               保存账号
-            </button>
+            </Button>
           </form>
 
           {resetTarget ? (
@@ -504,13 +503,12 @@ export function AdminAccountsPage() {
                   <h2>重置密码</h2>
                   <p>{resetTarget.username}</p>
                 </div>
-                <button
-                  className="ghost-button"
+                <Button
                   onClick={() => setResetTarget(null)}
                   type="button"
                 >
                   取消
-                </button>
+                </Button>
               </div>
               <label className="filter-field">
                 <span>新密码</span>
@@ -530,9 +528,9 @@ export function AdminAccountsPage() {
                   value={resetPasswordConfirm}
                 />
               </label>
-              <button className="primary-button" disabled={saving} type="submit">
+              <Button disabled={saving} type="submit" variant="primary">
                 确认重置
-              </button>
+              </Button>
             </form>
           ) : null}
         </aside>
@@ -543,7 +541,7 @@ export function AdminAccountsPage() {
           <div>
             <h2>未激活门店</h2>
             <p>
-              共 {unactivatedStores.length} 个已准备但尚未激活账号的门店，可按所属账户ID/POI ID查询。
+              共 {unactivatedStores.length} 个已准备但尚未激活账号的门店，可按所属账户编号或门店位置编号查询。
             </p>
           </div>
           {unactivatedLoading ? <span className="source-pill">加载中</span> : null}
@@ -553,24 +551,23 @@ export function AdminAccountsPage() {
           onSubmit={handleUnactivatedSearch}
         >
           <label className="filter-field">
-            <span>所属账户ID/POI ID</span>
+            <span>所属账户编号或门店位置编号（POI ID）</span>
             <input
               onChange={(event) => setUnactivatedQuery(event.target.value)}
-              placeholder="输入门店账户ID或POI ID"
+              placeholder="输入门店账户编号或位置编号"
               value={unactivatedQuery}
             />
           </label>
-          <button className="primary-button" disabled={unactivatedLoading} type="submit">
+          <Button disabled={unactivatedLoading} type="submit" variant="primary">
             查询
-          </button>
-          <button
-            className="ghost-button"
+          </Button>
+          <Button
             disabled={unactivatedLoading}
             onClick={resetUnactivatedSearch}
             type="button"
           >
             重置
-          </button>
+          </Button>
         </form>
         <DataTable
           columns={unactivatedStoreColumns}

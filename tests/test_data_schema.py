@@ -24,7 +24,6 @@ def test_production_mvp_tables_are_declared() -> None:
         "clue_center_orders",
         "clue_assignment_rounds",
         "clue_follow_up_records",
-        "clue_reassign_rule_settings",
         "agg_store_ranking",
         "agg_store_monthly_settlement",
         "job_runs",
@@ -32,6 +31,7 @@ def test_production_mvp_tables_are_declared() -> None:
     }
 
     assert expected_tables.issubset(set(Base.metadata.tables))
+    assert "clue_reassign_rule_settings" not in Base.metadata.tables
 
 
 def test_schema_has_natural_keys_for_idempotent_loads() -> None:
@@ -59,7 +59,6 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
         "created_at",
     ):
         assert column_name in follow_up_columns
-    assert [column.name for column in tables["clue_reassign_rule_settings"].primary_key] == ["setting_key"]
     assert [column.name for column in tables["users"].primary_key] == ["user_id"]
     assert [column.name for column in tables["user_store_scopes"].primary_key] == [
         "user_id",

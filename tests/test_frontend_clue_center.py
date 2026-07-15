@@ -129,9 +129,9 @@ def test_clue_center_detail_follow_up_layout_and_actions() -> None:
     assert "currentUser.is_highest_admin === true" in source
     assert "handleDeleteFollowUpRecord" in source
     assert "deleteClueFollowUpRecord(record.follow_up_record_id)" in source
-    assert 'aria-label="删除跟进历史"' in source
+    assert 'label="删除跟进历史"' in source
     assert 'title="删除跟进历史"' in source
-    assert 'name="trash"' in source
+    assert 'icon="trash"' in source
     assert "clue-followup-detail__pager" in source
     assert 'aria-label="切换线索"' in source
     assert "上一条线索" in source
@@ -279,7 +279,8 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
             "收起筛选",
         ],
     )
-    assert 'className="ghost-button clue-filter-collapse-mobile"' in filter_bar
+    assert 'className="clue-filter-collapse-mobile"' in filter_bar
+    assert 'variant="secondary"' in filter_bar
     assert "setMobileFiltersOpen(false)" in filter_bar
 
     assert "assigned_provinces: string[];" in types_source
@@ -323,7 +324,8 @@ def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
         clue_source.index("<DataTable", clue_source.index('<h2>当前筛选结果</h2>'))
     ]
     assert 'className="section-title-actions"' in clue_section
-    assert '<SolarIcon name="fileDownload"' in clue_section
+    assert '<Button' in clue_section
+    assert 'icon="fileDownload"' in clue_section
     assert "导出" in clue_section
     assert "handleExportClues" in clue_section
     assert "当前账号可见范围与当前筛选条件" in clue_section
@@ -334,7 +336,8 @@ def test_detail_export_buttons_use_table_scope_and_solar_icon() -> None:
         order_source.index("<DataTable", order_source.index("<h2>明细记录</h2>"))
     ]
     assert 'className="section-title-actions"' in order_section
-    assert '<SolarIcon name="fileDownload"' in order_section
+    assert '<Button' in order_section
+    assert 'icon="fileDownload"' in order_section
     assert "导出" in order_section
     assert "handleExportOrders" in order_section
 
@@ -386,11 +389,12 @@ def test_clue_center_splits_dashboard_and_detail_routes() -> None:
     assert 'view="dashboard"' in app_source
     assert 'location.pathname === "/clues/details"' in app_source
     assert 'view="details"' in app_source
-    assert '{ href: "/clues", label: "线索看板", icon: "chart" }' in shell_source
-    assert (
-        '{ href: "/clues/details", label: "线索明细", icon: "details" }'
-        in shell_source
-    )
+    assert '{ href: "/clues", label: "线索看板" }' in shell_source
+    assert '{ href: "/clues/details", label: "线索明细" }' in shell_source
+    secondary_nav = shell_source.split("const renderSecondaryNav", 1)[1].split(
+        "const handleFeedbackSubmit", 1
+    )[0]
+    assert "<SolarIcon" not in secondary_nav
     assert 'currentPath.startsWith("/clues/")' in shell_source
     assert 'view?: ClueCenterView' in page_source
     assert 'const isDetailsView = view === "details"' in page_source
@@ -497,7 +501,7 @@ def test_admin_feedback_page_is_wired_to_shell_and_api_client() -> None:
     assert "AdminFeedbackPage" in app_source
     assert 'location.pathname === "/admin/feedback"' in app_source
     assert '"/admin/feedback"' in shell_source
-    assert 'label: "用户建议", icon: "feedback"' in shell_source
+    assert 'href: "/admin/feedback", label: "用户建议"' in shell_source
     assert 'href: "/admin/feedback"' in home_source
 
     assert "用户建议" in page_source
@@ -693,12 +697,12 @@ def test_mobile_clue_filter_panel_has_visible_collapse_action() -> None:
     styles_source = read_source("styles.css")
 
     base_collapse_rules = styles_source[
-        styles_source.index(".clue-filter-collapse-mobile {") :
+        styles_source.index(".ui-button.clue-filter-collapse-mobile {") :
         styles_source.index("\n.filter-field {")
     ]
     mobile_phone_rules = styles_source[styles_source.index("@media (max-width: 640px)") :]
     mobile_collapse_rules = mobile_phone_rules[
-        mobile_phone_rules.index(".clue-filter-collapse-mobile {") :
+        mobile_phone_rules.index(".ui-button.clue-filter-collapse-mobile {") :
         mobile_phone_rules.index(".clue-table-view")
     ]
 
@@ -712,7 +716,6 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     admin_pages = [
         "pages/AdminHomePage.tsx",
         "pages/AdminSkuRulesPage.tsx",
-        "pages/AdminClueRulePage.tsx",
         "pages/AdminFeedbackPage.tsx",
         "pages/AdminSyncPage.tsx",
         "pages/AdminProductTypeVisibilityPage.tsx",
@@ -819,7 +822,7 @@ def test_clue_phone_permission_and_copy_use_full_phone_only() -> None:
     assert "mayRevealFullPhone ? revealedPhones[row.order_id] : undefined" in render_body
     assert "const phoneVisible = Boolean(revealedPhone)" in render_body
     assert 'phoneVisible ? "隐藏完整手机号" : "查看完整手机号"' in render_body
-    assert 'name={phoneVisible ? "eyeClosed" : "eye"}' in render_body
+    assert 'icon={phoneVisible ? "eyeClosed" : "eye"}' in render_body
     assert "hidePhone(row)" in render_body
     assert "const hidePhone" in source
     assert "delete next[row.order_id]" in source
@@ -881,11 +884,12 @@ def test_sensitive_clue_actions_do_not_fallback_to_mock_on_api_denial() -> None:
 
 def test_follow_lost_reason_has_store_label() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
+    label_source = read_source("utils/userFacingLabels.ts")
     client_source = read_source("api/client.ts")
     mock_source = read_source("data/mock/clue_center.json")
 
-    assert "follow_lost" in source
-    assert '"follow_lost": "线索战败"' in source
+    assert "displayClueReason" in source
+    assert 'follow_lost: "线索战败"' in label_source
     assert ': "follow_lost";' in client_source
     assert '"reassign_reason": "follow_lost"' in mock_source
 

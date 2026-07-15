@@ -6,6 +6,7 @@ import {
   fetchOrderDetails,
 } from "../api/client";
 import { StatusChip } from "../components/Chips";
+import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
 import { SelectField } from "../components/FormControls";
@@ -15,7 +16,6 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
-import { SolarIcon } from "../components/SolarIcon";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -51,7 +51,7 @@ function BooleanStatusChip({ value }: { value: boolean | null | undefined }) {
   if (typeof value !== "boolean") {
     return <StatusChip tone="neutral">-</StatusChip>;
   }
-  return <StatusChip tone={value ? "green" : "neutral"}>{labelForBoolean(value)}</StatusChip>;
+  return <StatusChip tone={value ? "success" : "neutral"}>{labelForBoolean(value)}</StatusChip>;
 }
 
 function storeName(meta: FilterMetaData | undefined, storeId: string): string {
@@ -460,9 +460,9 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
             options={booleanOptions}
             value={filters.is_commissionable ?? ""}
           />
-          <button className="ghost-button" onClick={clearFilters} type="button">
+          <Button onClick={clearFilters} type="button">
             清空筛选
-          </button>
+          </Button>
         </FilterBar>
       </div>
 
@@ -485,15 +485,16 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
             </p>
           </div>
           <div className="section-title-actions">
-            <button
-              className="export-button"
+            <Button
               disabled={exportingOrders || !pagination?.total}
+              icon="fileDownload"
+              loading={exportingOrders}
               onClick={handleExportOrders}
+              size="sm"
               type="button"
             >
-              <SolarIcon name="fileDownload" size={16} />
               {exportingOrders ? "导出中" : "导出"}
-            </button>
+            </Button>
           </div>
         </div>
         {exportError ? (

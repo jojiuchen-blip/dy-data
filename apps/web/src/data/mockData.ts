@@ -10,8 +10,6 @@ import type {
   ClueFilterMetadata,
   ClueOrderDetail,
   ClueOverviewMetrics,
-  ClueReassignRuleData,
-  ClueRebuildResult,
   CommissionTablesData,
   MonthlySummaryData,
   OrderDetail,
@@ -34,8 +32,6 @@ export const clueCenterResponses = clueCenterRaw as unknown as {
   overview: ApiResponse<ClueOverviewMetrics>;
   assignment_rounds: ApiResponse<ClueAssignmentRoundData>;
   order_details?: Record<string, ApiResponse<ClueOrderDetail>>;
-  rule: ApiResponse<ClueReassignRuleData>;
-  rebuild: ApiResponse<ClueRebuildResult>;
 };
 
 const skuProductRuleMap = new Map(

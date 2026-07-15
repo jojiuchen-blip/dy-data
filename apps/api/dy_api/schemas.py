@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class ApiMeta(BaseModel):
@@ -520,24 +520,6 @@ class CluePhoneRevealData(BaseModel):
     phone_masked: str
 
 
-class ClueReassignRuleData(BaseModel):
-    reassign_sla_hours: int | None = None
-    updated_at: datetime | None = None
-    updated_by: str | None = None
-
-
-class ClueReassignRuleUpdate(BaseModel):
-    reassign_sla_hours: int | None = None
-
-    @field_validator("reassign_sla_hours")
-    def validate_reassign_sla_hours(cls, value: int | None) -> int | None:
-        if value is None:
-            return None
-        if value < 1 or value > 168:
-            raise ValueError("reassign_sla_hours must be between 1 and 168")
-        return value
-
-
 class ClueRebuildResult(BaseModel):
     rebuilt_order_count: int = 0
     rebuilt_round_count: int = 0
@@ -925,8 +907,9 @@ class StoreScoreSnapshotData(BaseModel):
 
 
 class StoreScoreRefreshRequest(BaseModel):
-    lookback_days: int = Field(default=30, ge=1, le=365)
-    min_samples: int = Field(default=20, ge=1, le=10000)
+    model_config = ConfigDict(extra="forbid")
+
+    rule_version_id: str = Field(min_length=1, max_length=128)
 
 
 class StoreScoreRefreshResult(BaseModel):

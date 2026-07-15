@@ -558,15 +558,6 @@ class ClueFollowUpRecord(Base):
     deletion_reason: Mapped[str | None] = mapped_column(Text)
 
 
-class ClueReassignRuleSetting(Base):
-    __tablename__ = "clue_reassign_rule_settings"
-
-    setting_key: Mapped[str] = mapped_column(Text, primary_key=True)
-    reassign_sla_hours: Mapped[int | None] = mapped_column(Integer)
-    updated_by: Mapped[str | None] = mapped_column(Text)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
-
-
 class StoreScoreSnapshotRun(Base):
     __tablename__ = "store_score_snapshot_runs"
     __table_args__ = (

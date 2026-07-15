@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import socket
 import subprocess
@@ -117,15 +118,38 @@ def api_payload(data: object) -> str:
     )
 
 
+def record_console_error(message: object, errors: list[str]) -> None:
+    message_type = getattr(message, "type", "")
+    message_text = str(getattr(message, "text", ""))
+    if message_type == "error" and not message_text.startswith(
+        "Failed to load resource:",
+    ):
+        errors.append(message_text)
+
+
+def record_unexpected_http_failure(response: object, errors: list[str]) -> None:
+    status = int(getattr(response, "status", 0))
+    url = str(getattr(response, "url", ""))
+    if status >= 400 and "/api/v1/" not in url:
+        errors.append(f"{status} {url}")
+
+
 def install_api_routes(page: Page) -> None:
     admin_user = {
         "username": "visual-admin",
         "user_id": "visual-admin",
         "display_name": "Visual Admin",
         "role": "admin",
+        "is_highest_admin": True,
         "status": "active",
         "is_initialized": True,
         "store_ids": [],
+    }
+    empty_pagination = {
+        "page": 1,
+        "page_size": 50,
+        "total": 0,
+        "total_pages": 0,
     }
     sync_job = {
         "job_id": "visual-sync-001",
@@ -150,6 +174,14 @@ def install_api_routes(page: Page) -> None:
                 },
             },
         },
+    }
+    failed_sync_job = {
+        **sync_job,
+        "job_id": "visual-sync-002",
+        "status": "failed",
+        "success_count": 0,
+        "failed_count": 1,
+        "error_message": "open api returned 0 rows",
     }
     sync_admin = {
         "config": {
@@ -189,10 +221,10 @@ def install_api_routes(page: Page) -> None:
             "disabled_poll_seconds": 300,
             "active_job": None,
             "latest_success": sync_job,
-            "latest_failure": None,
+            "latest_failure": failed_sync_job,
             "next_scheduled_sync_at": "2026-06-25T09:05:00Z",
         },
-        "jobs": [sync_job],
+        "jobs": [sync_job, failed_sync_job],
     }
 
     page.route(
@@ -211,22 +243,85 @@ def install_api_routes(page: Page) -> None:
             body=api_payload(sync_admin),
         ),
     )
+    for endpoint in (
+        "eligible-leads",
+        "headquarters-pool",
+        "cycles",
+        "audit-logs",
+        "rules",
+        "decisions",
+    ):
+        page.route(
+            f"**/api/v1/admin/clue-allocation/{endpoint}*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({"rows": [], "pagination": empty_pagination}),
+            ),
+        )
+    page.route(
+        "**/api/v1/admin/clue-allocation/store-scores*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({"run": None, "rows": [], "pagination": empty_pagination}),
+        ),
+    )
 
 
 @pytest.mark.parametrize("width,height", VIEWPORTS)
 @pytest.mark.parametrize(
-    ("name", "url_path", "expected_text"),
+    ("name", "url_path", "expected_text", "ready_target"),
     [
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
-            "抖音经营数据引擎 UI 设计规范",
+            "dy-data UI 设计规范 V0.2",
+            "heading",
         ),
-        ("clues", "/clues", "经营线索概览"),
-        ("clue-details", "/clues/details", "线索跟进列表"),
-        ("settlement", "/settlement", "单店月度分账看板"),
-        ("order-details", "/details", "门店月度数据明细表"),
-        ("admin-sync", "/admin/sync", "数据同步管理"),
+        ("home", "/", "抖音经营数据引擎", "heading"),
+        ("ranking", "/ranking", "全国门店销售情况榜单", "heading"),
+        ("sales", "/sales", "核销表现", "heading"),
+        ("clues", "/clues", "经营线索概览", "text"),
+        ("clue-details", "/clues/details", "线索跟进列表", "text"),
+        ("settlement", "/settlement", "单店月度分账看板", "text"),
+        ("order-details", "/details", "门店月度数据明细表", "text"),
+        ("admin-home", "/admin", "抖音经营中枢后台", "heading"),
+        ("admin-accounts", "/admin/accounts", "账号管理", "heading"),
+        ("admin-rules", "/admin/rules", "商品分账规则管理", "heading"),
+        ("admin-sync", "/admin/sync", "数据同步管理", "text"),
+        ("admin-clue-allocation", "/admin/clue-allocation", "线索分配", "heading"),
+        (
+            "admin-clue-allocation-rules",
+            "/admin/clue-allocation/rules",
+            "线索分配",
+            "heading",
+        ),
+        (
+            "admin-clue-allocation-trial",
+            "/admin/clue-allocation/trial",
+            "线索分配",
+            "heading",
+        ),
+        (
+            "admin-clue-allocation-records",
+            "/admin/clue-allocation/records",
+            "线索分配",
+            "heading",
+        ),
+        (
+            "admin-clue-allocation-headquarters",
+            "/admin/clue-allocation/headquarters",
+            "线索分配",
+            "heading",
+        ),
+        ("admin-feedback", "/admin/feedback", "用户建议", "heading"),
+        (
+            "admin-product-types",
+            "/admin/product-types",
+            "商品口径控制",
+            "heading",
+        ),
     ],
 )
 def test_key_ui_surfaces_render_without_layout_smoke_failures(
@@ -236,24 +331,30 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
     name: str,
     url_path: str,
     expected_text: str,
+    ready_target: str,
     width: int,
     height: int,
 ) -> None:
     context = browser.new_context(viewport={"width": width, "height": height})
     page = context.new_page()
     console_errors: list[str] = []
+    page_errors: list[str] = []
+    http_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
     page.on(
-        "console",
-        lambda message: console_errors.append(message.text)
-        if message.type == "error"
-        else None,
+        "response",
+        lambda response: record_unexpected_http_failure(response, http_errors),
     )
 
     try:
         install_api_routes(page)
         url = url_path if url_path.startswith("file:") else f"{vite_base_url}{url_path}"
         page.goto(url, wait_until="domcontentloaded")
-        page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+        if ready_target == "heading":
+            page.get_by_role("heading", name=expected_text, exact=True).wait_for(timeout=10000)
+        else:
+            page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
         page.screenshot(path=tmp_path / f"{name}-{width}.png", full_page=True)
 
         text_length = page.evaluate("() => document.body.innerText.trim().length")
@@ -263,7 +364,205 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
 
         assert text_length > 20
         assert horizontal_overflow <= 2
+        assert page.locator("h1").count() == 1
         assert console_errors == []
+        assert page_errors == []
+        assert http_errors == []
+
+        if width == 390:
+            mobile_targets = page.locator(
+                ".mobile-bottom-nav a, .mobile-bottom-nav button",
+            )
+            for index in range(mobile_targets.count()):
+                box = mobile_targets.nth(index).bounding_box()
+                assert box is not None
+                assert box["height"] >= 44
+
+            shared_buttons = page.locator(
+                ".ui-button:visible, .ui-icon-button:visible",
+            )
+            for index in range(shared_buttons.count()):
+                target = shared_buttons.nth(index)
+                box = target.bounding_box()
+                assert box is not None
+                assert box["height"] >= 44
+                if "ui-icon-button" in (target.get_attribute("class") or ""):
+                    assert box["width"] >= 44
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    ("url_path", "current_label"),
+    [
+        ("/admin/clue-allocation/rules", "分配规则"),
+        ("/admin/clue-allocation/trial", "分配试运行"),
+        ("/admin/clue-allocation/records", "分配记录"),
+        ("/admin/clue-allocation/headquarters", "总部线索池"),
+    ],
+)
+def test_clue_allocation_tertiary_navigation_uses_stable_routes_and_v02_state(
+    browser: Browser,
+    vite_base_url: str,
+    url_path: str,
+    current_label: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="线索分配", exact=True).wait_for(timeout=10000)
+
+        navigation = page.get_by_role("navigation", name="线索分配功能")
+        links = navigation.get_by_role("link")
+        current = navigation.get_by_role("link", name=current_label, exact=True)
+        assert links.count() == 4
+        assert navigation.locator("svg").count() == 0
+        assert current.get_attribute("aria-current") == "page"
+
+        metrics = current.evaluate(
+            """(node) => {
+              const style = getComputedStyle(node);
+              const rect = node.getBoundingClientRect();
+              return {
+                borderBottomColor: style.borderBottomColor,
+                height: rect.height,
+              };
+            }"""
+        )
+        assert metrics["borderBottomColor"] == "rgb(254, 82, 5)"
+        assert metrics["height"] >= 38
+    finally:
+        context.close()
+
+
+def test_clue_secondary_navigation_marks_only_the_most_specific_route_current(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/clues/details", wait_until="domcontentloaded")
+        page.get_by_text("线索跟进列表", exact=False).first.wait_for(timeout=10000)
+
+        navigation = page.get_by_role("navigation", name="线索中心导航")
+        current_links = navigation.locator('a[aria-current="page"]')
+
+        assert current_links.count() == 1
+        assert current_links.first.inner_text() == "线索明细"
+        assert (
+            navigation.get_by_role("link", name="线索看板", exact=True).get_attribute(
+                "aria-current"
+            )
+            is None
+        )
+    finally:
+        context.close()
+
+
+def test_audited_internal_values_are_presented_as_user_facing_chinese(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/admin/sync", wait_until="domcontentloaded")
+        page.get_by_text("数据同步管理", exact=False).first.wait_for(timeout=10000)
+        sync_text = page.locator("body").inner_text()
+        assert "订单数据同步" in sync_text
+        assert "订单数据：拉取" in sync_text
+        assert "开放接口未返回数据" in sync_text
+        assert "open api returned 0 rows" not in sync_text
+        assert "Worker" not in sync_text
+        assert "worker" not in sync_text
+        assert not re.search(r"\borders\b", sync_text)
+
+        page.goto(f"{vite_base_url}/clues/details", wait_until="domcontentloaded")
+        page.get_by_text("线索跟进列表", exact=False).first.wait_for(timeout=10000)
+        page.get_by_role("button", name="查看详情").first.click()
+        dialog = page.get_by_role("dialog", name="线索跟进详情")
+        dialog.wait_for(timeout=10000)
+        detail_text = dialog.inner_text()
+        assert "履约中" in detail_text
+        assert "fulfilling" not in detail_text
+        assert not re.search(r"\bactive\b", detail_text)
+        assert "protected" not in detail_text
+
+        dialog.get_by_role("button", name="下一条线索").click()
+        dialog.get_by_text("跟进有效期内", exact=True).wait_for(timeout=10000)
+        next_detail_text = dialog.inner_text()
+        assert "跟进保护期内" in next_detail_text
+        assert "核销保护期内" in next_detail_text
+        assert "fulfilling" not in next_detail_text
+        assert not re.search(r"\bactive\b", next_detail_text)
+        assert "protected" not in next_detail_text
+    finally:
+        context.close()
+
+
+def install_unauthenticated_route(page: Page) -> None:
+    page.route(
+        "**/api/v1/auth/me",
+        lambda route: route.fulfill(
+            status=401,
+            content_type="application/json",
+            body=json.dumps({"detail": "Not authenticated"}),
+        ),
+    )
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+@pytest.mark.parametrize(
+    ("url_path", "expected_heading"),
+    [
+        ("/login", "账号登录"),
+        ("/auth/activate", "账号激活"),
+        ("/auth/reset-password", "重置密码"),
+    ],
+)
+def test_auth_surfaces_follow_the_v02_visual_contract(
+    browser: Browser,
+    vite_base_url: str,
+    url_path: str,
+    expected_heading: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    http_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on(
+        "response",
+        lambda response: record_unexpected_http_failure(response, http_errors),
+    )
+
+    try:
+        install_unauthenticated_route(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_role("heading", name=expected_heading, exact=True).wait_for(
+            timeout=10000,
+        )
+
+        horizontal_overflow = page.evaluate(
+            "() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth",
+        )
+        assert page.locator("h1").count() == 1
+        assert horizontal_overflow <= 2
+        assert console_errors == []
+        assert page_errors == []
+        assert http_errors == []
     finally:
         context.close()
 
@@ -310,6 +609,92 @@ def test_detail_filter_bars_fit_one_desktop_row(
         assert metrics["childCount"] > 0
         assert metrics["rowCount"] == 1
         assert metrics["scrollWidth"] - metrics["clientWidth"] <= 2
+    finally:
+        context.close()
+
+
+def test_clue_filter_collapse_action_is_hidden_in_desktop_layout(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/clues/details", wait_until="domcontentloaded")
+        page.get_by_text("线索跟进列表", exact=False).first.wait_for(timeout=10000)
+
+        assert not page.get_by_role("button", name="收起筛选", exact=True).is_visible()
+    finally:
+        context.close()
+
+
+def test_clue_filter_collapse_action_closes_the_narrow_filter_panel(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 390, "height": 844})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/clues/details", wait_until="domcontentloaded")
+        page.get_by_text("线索跟进列表", exact=False).first.wait_for(timeout=10000)
+
+        toggle = page.locator(".clue-filter-toggle")
+        panel = page.locator("#clue-filter-panel")
+        collapse = page.get_by_role("button", name="收起筛选", exact=True)
+
+        assert toggle.get_attribute("aria-expanded") == "false"
+        assert not panel.is_visible()
+        toggle.click()
+        assert toggle.get_attribute("aria-expanded") == "true"
+        assert panel.is_visible()
+        assert collapse.is_visible()
+
+        collapse.click()
+        assert toggle.get_attribute("aria-expanded") == "false"
+        assert not panel.is_visible()
+    finally:
+        context.close()
+
+
+def test_sales_metric_cards_share_one_white_card_treatment(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
+
+        cards = page.locator(".metric-card")
+        assert cards.count() == 6
+        treatments = cards.evaluate_all(
+            """(nodes) => nodes.map((node) => {
+              const style = getComputedStyle(node);
+              const accent = getComputedStyle(node, "::before");
+              return {
+                backgroundColor: style.backgroundColor,
+                borderColor: style.borderColor,
+                borderRadius: style.borderRadius,
+                boxShadow: style.boxShadow,
+                accentContent: accent.content,
+                accentHeight: accent.height,
+              };
+            })""",
+        )
+
+        assert {item["backgroundColor"] for item in treatments} == {"rgb(255, 255, 255)"}
+        assert len({item["borderColor"] for item in treatments}) == 1
+        assert {item["borderRadius"] for item in treatments} == {"8px"}
+        assert len({item["boxShadow"] for item in treatments}) == 1
+        assert {item["accentContent"] for item in treatments} == {"none"}
+        assert {item["accentHeight"] for item in treatments} == {"auto"}
     finally:
         context.close()
 

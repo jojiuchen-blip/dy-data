@@ -17,6 +17,7 @@ import {
   fetchClueOverview,
   saveClueFollowUp,
 } from "../api/client";
+import { Button, IconButton } from "../components/Button";
 import { CountPill, FilterChip, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
@@ -29,7 +30,6 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
-import { SolarIcon } from "../components/SolarIcon";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -42,6 +42,11 @@ import type {
   AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
+import {
+  displayClueReason,
+  displayFollowUpTimingState,
+  displayOrderStatus,
+} from "../utils/userFacingLabels";
 
 interface ClueCenterPageProps {
   currentUser: AdminUser;
@@ -95,13 +100,6 @@ const verificationStatusLabels: Record<string, string> = {
   other_store_verified: "非本店核销",
 };
 
-const orderStatusLabels: Record<string, string> = {
-  active: "履约中",
-  converted: "已核销",
-  refunded: "已退款",
-  closed: "已关闭",
-};
-
 const followResultLabels: Record<string, string> = {
   pending: "-",
   unreachable: "未接通",
@@ -112,15 +110,6 @@ const followResultLabels: Record<string, string> = {
   failed: "历史旧值：线索战败",
   success: "历史旧值：跟进成功（已迁移为已预约）",
   continue_following: "历史旧值：待进一步跟进",
-};
-
-const reassignReasonLabels: Record<string, string> = {
-  timeout: "超期失效",
-  follow_failed: "线索战败",
-  "follow_lost": "线索战败",
-  request_store_change: "客户要求换门店",
-  manual: "人工调整",
-  "线索战败": "线索战败",
 };
 
 const storeStatusAliases: Record<string, StoreClueStatus> = {
@@ -142,11 +131,15 @@ const invalidStatuses = new Set<StoreClueStatus>([
   "客户要求换门店",
 ]);
 
-function labelFor(value: string | null | undefined, labels: Record<string, string>) {
+function labelFor(
+  value: string | null | undefined,
+  labels: Record<string, string>,
+  fallback = "未知跟进结果",
+) {
   if (!value) {
     return "-";
   }
-  return labels[value] ?? value;
+  return labels[value] ?? fallback;
 }
 
 function displayValue(value: string | null | undefined): string {
@@ -253,7 +246,8 @@ function getPhoneUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "已核销") {
     return "订单已完成";
   }
-  return row.status_reason ?? "此线索不可操作";
+  const reason = displayClueReason(row.status_reason);
+  return reason === "-" ? "此线索不可操作" : reason;
 }
 
 function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
@@ -273,7 +267,8 @@ function getFollowUpUnavailableReason(row: ClueAssignmentRound): string {
   if (status === "已退款") {
     return "订单已退款，不可跟进";
   }
-  return row.status_reason ?? "此线索不可操作";
+  const reason = displayClueReason(row.status_reason);
+  return reason === "-" ? "此线索不可操作" : reason;
 }
 
 function verificationStatusText(row: ClueAssignmentRound): string {
@@ -300,22 +295,22 @@ function invalidationReason(row: ClueAssignmentRound): string {
     return "超期失效";
   }
   if (status === "主动战败") {
-    return labelFor(row.reassign_reason, reassignReasonLabels);
+    return displayClueReason(row.reassign_reason);
   }
   return "-";
 }
 
 function roundTransitionReason(row: ClueAssignmentRound): string {
   if (row.reassign_reason) {
-    return labelFor(row.reassign_reason, reassignReasonLabels);
+    return displayClueReason(row.reassign_reason);
   }
   return invalidationReason(row);
 }
 
-function clueStatusTone(status: StoreClueStatus): "amber" | "blue" | "green" | "neutral" {
-  if (status === "待跟进") return "blue";
-  if (status === "已跟进" || status === "已核销") return "green";
-  if (invalidStatuses.has(status)) return "amber";
+function clueStatusTone(status: StoreClueStatus): "warning" | "info" | "success" | "neutral" {
+  if (status === "待跟进") return "info";
+  if (status === "已跟进" || status === "已核销") return "success";
+  if (invalidStatuses.has(status)) return "warning";
   return "neutral";
 }
 
@@ -555,7 +550,7 @@ export function ClueCenterPage({
   const detailProductType =
     detail?.product_type ?? activeDetailRound?.product_type ?? "-";
   const detailOrderStatus = activeDetailRound
-    ? labelFor(activeDetailRound.order_current_status, orderStatusLabels)
+    ? displayOrderStatus(activeDetailRound.order_current_status)
     : "-";
   const detailVerificationStatus = activeDetailRound
     ? verificationStatusText(activeDetailRound)
@@ -728,52 +723,78 @@ export function ClueCenterPage({
     return (
       <span className={`phone-reveal phone-reveal--${mode}`}>
         <span className="mono-cell">{displayPhone}</span>
-        <button
-          aria-label={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
-          className={iconMode ? "phone-action-button" : "link-button"}
-          disabled={disabled}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (phoneVisible) {
-              hidePhone(row);
-              return;
-            }
-            void revealPhone(row);
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}
-          title={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
-          type="button"
-        >
-          {iconMode ? (
-            <SolarIcon name={phoneVisible ? "eyeClosed" : "eye"} size={16} />
-          ) : phoneVisible ? (
-            "隐藏完整手机号"
-          ) : revealingOrderId === row.order_id ? (
-            "读取中"
-          ) : (
-            "查看完整手机号"
-          )}
-        </button>
-        <button
-          aria-label="复制完整手机号"
-          className={iconMode ? "phone-action-button" : "link-button"}
-          disabled={disabled}
-          onClick={(event) => {
-            event.stopPropagation();
-            void copyPhone(row);
-          }}
-          onDoubleClick={(event) => event.stopPropagation()}
-          title="复制完整手机号"
-          type="button"
-        >
-          {iconMode ? (
-            <SolarIcon name="copy" size={16} />
-          ) : copyingOrderId === row.order_id ? (
-            "复制中"
-          ) : (
-            "复制完整手机号"
-          )}
-        </button>
+        {iconMode ? (
+          <IconButton
+            disabled={disabled}
+            icon={phoneVisible ? "eyeClosed" : "eye"}
+            label={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (phoneVisible) {
+                hidePhone(row);
+                return;
+              }
+              void revealPhone(row);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            size={mode === "detail" ? "touch" : "sm"}
+            title={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+            type="button"
+          />
+        ) : (
+          <Button
+            aria-label={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+            disabled={disabled}
+            loading={revealingOrderId === row.order_id}
+            onClick={(event) => {
+              event.stopPropagation();
+              if (phoneVisible) {
+                hidePhone(row);
+                return;
+              }
+              void revealPhone(row);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            size="sm"
+            title={phoneVisible ? "隐藏完整手机号" : "查看完整手机号"}
+            type="button"
+            variant="text"
+          >
+            {phoneVisible ? "隐藏完整手机号" : revealingOrderId === row.order_id ? "读取中" : "查看完整手机号"}
+          </Button>
+        )}
+        {iconMode ? (
+          <IconButton
+            disabled={disabled}
+            icon="copy"
+            label="复制完整手机号"
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyPhone(row);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            size={mode === "detail" ? "touch" : "sm"}
+            title="复制完整手机号"
+            type="button"
+          />
+        ) : (
+          <Button
+            aria-label="复制完整手机号"
+            disabled={disabled}
+            loading={copyingOrderId === row.order_id}
+            onClick={(event) => {
+              event.stopPropagation();
+              void copyPhone(row);
+            }}
+            onDoubleClick={(event) => event.stopPropagation()}
+            size="sm"
+            title="复制完整手机号"
+            type="button"
+            variant="text"
+          >
+            {copyingOrderId === row.order_id ? "复制中" : "复制完整手机号"}
+          </Button>
+        )}
       </span>
     );
   };
@@ -951,17 +972,19 @@ export function ClueCenterPage({
       render: (row) => (
         <div className="clue-contact-cell">
           {renderPhoneContact(row)}
-          <button
-            className="link-button clue-detail-trigger"
+          <Button
+            className="clue-detail-trigger"
             onClick={(event) => {
               event.stopPropagation();
               openClueDetail(row, event.currentTarget);
             }}
             onDoubleClick={(event) => event.stopPropagation()}
+            size="sm"
             type="button"
+            variant="text"
           >
             查看详情
-          </button>
+          </Button>
         </div>
       ),
     },
@@ -1048,15 +1071,16 @@ export function ClueCenterPage({
       />
 
       <div className="clue-filter-mobile-summary">
-        <button
+        <Button
           aria-controls="clue-filter-panel"
           aria-expanded={mobileFiltersOpen}
-          className="ghost-button clue-filter-toggle"
+          className="clue-filter-toggle"
           onClick={() => setMobileFiltersOpen((current) => !current)}
           type="button"
+          variant="secondary"
         >
           筛选{activeFilterChips.length ? ` (${activeFilterChips.length})` : ""}
-        </button>
+        </Button>
         {activeFilterChips.length ? (
           <div className="clue-filter-chips" aria-label="已选筛选条件">
             {activeFilterChips.map((chip) => (
@@ -1067,13 +1091,15 @@ export function ClueCenterPage({
                 {chip.label}：{chip.value}
               </FilterChip>
             ))}
-            <button
-              className="link-button clue-filter-clear-mobile"
+            <Button
+              className="clue-filter-clear-mobile"
               onClick={resetFilters}
+              size="sm"
               type="button"
+              variant="text"
             >
               清空
-            </button>
+            </Button>
           </div>
         ) : null}
       </div>
@@ -1172,17 +1198,18 @@ export function ClueCenterPage({
           options={[{ value: "all", label: "全部" }, ...optionList(meta?.product_types)]}
           value={activeProductType}
         />
-        <button className="ghost-button" onClick={resetFilters} type="button">
+        <Button onClick={resetFilters} type="button">
           清空筛选
-        </button>
-        <button
+        </Button>
+        <Button
           aria-controls="clue-filter-panel"
-          className="ghost-button clue-filter-collapse-mobile"
+          className="clue-filter-collapse-mobile"
           onClick={() => setMobileFiltersOpen(false)}
           type="button"
+          variant="secondary"
         >
           收起筛选
-        </button>
+        </Button>
       </FilterBar>
 
       {!isDetailsView && !overview && overviewResource.loading ? (
@@ -1199,31 +1226,26 @@ export function ClueCenterPage({
           <MetricCard
             label="可跟进线索"
             meta="仍需门店处理"
-            tone="blue"
             value={formatInteger(overview.active_clues)}
           />
           <MetricCard
             label="线索跟进率"
             meta="成功跟进 / 全部线索"
-            tone="amber"
             value={formatPercent(overview.follow_success_rate)}
           />
           <MetricCard
             label="核销数"
             meta="进入跟进池后已核销"
-            tone="blue"
             value={formatInteger(overview.verified_count)}
           />
           <MetricCard
             label="核销比例"
             meta="成功且完成核销"
-            tone="blue"
             value={formatPercent(overview.self_store_verify_rate)}
           />
           <MetricCard
             label="待处理"
             meta="战败或超期"
-            tone="amber"
             value={formatInteger(overview.pending_reassign_count)}
           />
         </section>
@@ -1244,15 +1266,16 @@ export function ClueCenterPage({
                   共 {formatInteger(pagination.total)} 条
                 </span>
               ) : null}
-              <button
-                className="export-button"
+              <Button
                 disabled={exportingClues || !pagination?.total}
+                icon="fileDownload"
+                loading={exportingClues}
                 onClick={handleExportClues}
+                size="sm"
                 type="button"
               >
-                <SolarIcon name="fileDownload" size={16} />
                 {exportingClues ? "导出中" : "导出"}
-              </button>
+              </Button>
             </div>
           </div>
           {exportError ? (
@@ -1311,13 +1334,14 @@ export function ClueCenterPage({
                             <dd>{displayValue(formatInvalidatedAt(row))}</dd>
                           </div>
                         </dl>
-                        <button
-                          className="primary-button clue-card__detail clue-detail-trigger"
+                        <Button
+                          className="clue-card__detail clue-detail-trigger"
                           onClick={(event) => openClueDetail(row, event.currentTarget)}
                           type="button"
+                          variant="primary"
                         >
                           查看详情
-                        </button>
+                        </Button>
                       </article>
                     );
                   })
@@ -1489,13 +1513,14 @@ export function ClueCenterPage({
                               value={followNote}
                             />
                           </label>
-                          <button
-                            className="primary-button"
+                          <Button
                             disabled={savingFollowUp}
+                            loading={savingFollowUp}
                             type="submit"
+                            variant="primary"
                           >
                             {savingFollowUp ? "保存中" : "保存本次跟进"}
-                          </button>
+                          </Button>
                         </form>
                       ) : (
                         <ResourcePanel>
@@ -1624,27 +1649,31 @@ export function ClueCenterPage({
                                           ) : null}
                                           {record.timing_state || record.status_reason ? (
                                             <p>
-                                              {[record.timing_state, record.status_reason]
-                                                .filter(Boolean)
+                                              {[
+                                                displayFollowUpTimingState(record.timing_state),
+                                                displayClueReason(record.status_reason),
+                                              ]
+                                                .filter((value) => value !== "-")
                                                 .join(" · ")}
                                             </p>
                                           ) : null}
                                           {canDeleteFollowUpRecords && !record.is_deleted ? (
-                                            <button
-                                              aria-label="删除跟进历史"
+                                            <IconButton
                                               className="clue-followup-delete-record"
                                               disabled={
                                                 deletingFollowUpRecordId ===
                                                 record.follow_up_record_id
                                               }
+                                              icon="trash"
+                                              label="删除跟进历史"
                                               onClick={() => {
                                                 void handleDeleteFollowUpRecord(record);
                                               }}
+                                              size="sm"
                                               title="删除跟进历史"
                                               type="button"
-                                            >
-                                              <SolarIcon name="trash" size={16} />
-                                            </button>
+                                              variant="danger"
+                                            />
                                           ) : null}
                                         </li>
                                       ))}
@@ -1673,23 +1702,25 @@ export function ClueCenterPage({
                   aria-label="切换线索"
                   className="clue-followup-detail__pager"
                 >
-                  <button
-                    className="ghost-button"
+                  <Button
                     disabled={!hasPreviousClue}
                     onClick={() => switchSelectedClue(-1)}
+                    size="sm"
                     type="button"
+                    variant="secondary"
                   >
                     上一条线索
-                  </button>
+                  </Button>
                   <span>{currentCluePosition}</span>
-                  <button
-                    className="ghost-button"
+                  <Button
                     disabled={!hasNextClue}
                     onClick={() => switchSelectedClue(1)}
+                    size="sm"
                     type="button"
+                    variant="secondary"
                   >
                     下一条线索
-                  </button>
+                  </Button>
                 </nav>
               </>
             ) : null}

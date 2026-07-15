@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
-import { AdminClueAllocationPage } from "./pages/AdminClueAllocationPage";
-import { AdminClueRulePage } from "./pages/AdminClueRulePage";
+import {
+  AdminClueAllocationPage,
+  type AllocationSubview,
+} from "./pages/AdminClueAllocationPage";
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
 import { AdminAccountsPage } from "./pages/AdminAccountsPage";
@@ -38,6 +40,22 @@ function authModeFromPath(pathname: string): AuthMode {
     return "activate";
   }
   return "login";
+}
+
+function clueAllocationSubviewFromPath(pathname: string): AllocationSubview | null {
+  if (pathname === "/admin/clue-allocation" || pathname === "/admin/clue-allocation/rules") {
+    return "rules";
+  }
+  if (pathname === "/admin/clue-allocation/trial") {
+    return "trial";
+  }
+  if (pathname === "/admin/clue-allocation/records") {
+    return "records";
+  }
+  if (pathname === "/admin/clue-allocation/headquarters") {
+    return "headquarters";
+  }
+  return null;
 }
 
 function AuthGate({ children, pathname }: AuthGateProps) {
@@ -168,6 +186,7 @@ export function App() {
   return (
     <AuthGate pathname={location.pathname}>
       {({ user, onLogout }) => {
+        const clueAllocationSubview = clueAllocationSubviewFromPath(location.pathname);
         const adminPage =
           location.pathname === "/admin" ? (
             <AdminHomePage />
@@ -178,11 +197,12 @@ export function App() {
             <AdminSkuRulesPage />
           ) : location.pathname === "/sync-admin" ||
             location.pathname === "/admin/sync" ? (
-            <AdminSyncPage />
-          ) : location.pathname === "/admin/clues/rules" ? (
-            <AdminClueRulePage />
-          ) : location.pathname === "/admin/clue-allocation" ? (
-            <AdminClueAllocationPage isHighestAdmin={user.is_highest_admin === true} />
+            <AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />
+          ) : clueAllocationSubview ? (
+            <AdminClueAllocationPage
+              activeSubview={clueAllocationSubview}
+              isHighestAdmin={user.is_highest_admin === true}
+            />
           ) : location.pathname === "/admin/feedback" ? (
             <AdminFeedbackPage />
           ) : location.pathname === "/admin/product-types" ? (

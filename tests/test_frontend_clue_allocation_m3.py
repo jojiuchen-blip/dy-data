@@ -16,12 +16,13 @@ def test_m3_allocation_control_is_admin_readable_and_highest_admin_writable() ->
     shell_source = _read("components/Shell.tsx")
     home_source = _read("pages/AdminHomePage.tsx")
 
-    assert 'location.pathname === "/admin/clue-allocation"' in app_source
+    assert 'pathname === "/admin/clue-allocation"' in app_source
+    assert 'pathname === "/admin/clue-allocation/rules"' in app_source
     assert "AdminClueAllocationPage" in app_source
     assert "user.role === \"admin\"" in app_source
-    assert 'href: "/admin/clue-allocation"' in shell_source
-    assert "分配试运行" in shell_source
+    assert '{ href: "/admin/clue-allocation", label: "线索分配" }' in shell_source
     assert 'href: "/admin/clue-allocation"' in home_source
+    assert 'title: "线索分配"' in home_source
     assert "isHighestAdmin" in _read("pages/AdminClueAllocationPage.tsx")
 
 

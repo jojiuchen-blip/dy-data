@@ -1,5 +1,6 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import type { SelectOption } from "../types/dashboard";
+import { SolarIcon } from "./SolarIcon";
 import "./SearchableStoreSelect.css";
 
 interface SearchableStoreSelectProps {
@@ -38,7 +39,7 @@ export function SearchableStoreSelect({
     displayValue(options, value),
   );
   const [isOpen, setIsOpen] = useState(false);
-  const [activeIndex, setActiveIndex] = useState(0);
+  const [activeIndex, setActiveIndex] = useState(-1);
 
   const allOptions = useMemo(() => {
     const unique = new Map<string, SelectOption>();
@@ -72,12 +73,17 @@ export function SearchableStoreSelect({
     onChange(option.value);
     setInputValue(option.label);
     setIsOpen(false);
-    setActiveIndex(0);
+    setActiveIndex(-1);
   };
 
   return (
     <div className="searchable-store-select">
       <input
+        aria-activedescendant={
+          isOpen && filteredOptions[activeIndex]
+            ? `${inputId}-option-${activeIndex}`
+            : undefined
+        }
         aria-autocomplete="list"
         aria-controls={`${inputId}-menu`}
         aria-expanded={isOpen}
@@ -95,20 +101,23 @@ export function SearchableStoreSelect({
           const nextValue = event.target.value;
           setInputValue(nextValue);
           setIsOpen(true);
-          setActiveIndex(0);
+          setActiveIndex(-1);
         }}
         onFocus={() => {
           setInputValue("");
           setIsOpen(true);
-          setActiveIndex(0);
+          setActiveIndex(-1);
         }}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown") {
             event.preventDefault();
             setIsOpen(true);
-            setActiveIndex((current) =>
-              Math.min(current + 1, Math.max(0, filteredOptions.length - 1)),
-            );
+            setActiveIndex((current) => {
+              if (!filteredOptions.length) {
+                return -1;
+              }
+              return Math.min(current + 1, filteredOptions.length - 1);
+            });
           }
           if (event.key === "ArrowUp") {
             event.preventDefault();
@@ -120,9 +129,15 @@ export function SearchableStoreSelect({
           }
           if (event.key === "Escape") {
             setIsOpen(false);
+            setActiveIndex(-1);
             setInputValue(displayValue(allOptions, value));
           }
         }}
+      />
+      <SolarIcon
+        className="searchable-store-select__indicator"
+        name="chevronDown"
+        size={18}
       />
       {isOpen ? (
         <div
@@ -140,6 +155,7 @@ export function SearchableStoreSelect({
                 ]
                   .filter(Boolean)
                   .join(" ")}
+                id={`${inputId}-option-${index}`}
                 key={option.value || "__empty"}
                 role="option"
                 onMouseDown={(event) => {
@@ -148,6 +164,7 @@ export function SearchableStoreSelect({
                 }}
               >
                 <strong>{option.label}</strong>
+                {option.value === value ? <SolarIcon name="check" size={16} /> : null}
               </div>
             ))
           ) : (

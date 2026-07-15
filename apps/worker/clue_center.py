@@ -12,16 +12,16 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueCenterOrder,
-    ClueReassignRuleSetting,
+    ClueMasterLead,
     DimSkuProductRule,
     RawDouyinClue,
     SettlementOrderDetail,
     utcnow,
 )
+from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
 
 FOLLOWED_RESULTS = {"success", "failed", "lost", "unreachable", "continue_following"}
 SUCCESS_RESULT = "success"
-GLOBAL_REASSIGN_RULE_KEY = "global"
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 PHONE_PAYLOAD_KEYS = (
     "telephone",
@@ -50,13 +50,6 @@ def mask_phone(value: str | None) -> str:
     return f"{phone[:3]}****{phone[-4:]}"
 
 
-def load_reassign_sla_hours(session: Session) -> int | None:
-    setting = session.get(ClueReassignRuleSetting, GLOBAL_REASSIGN_RULE_KEY)
-    if setting is None:
-        return None
-    return setting.reassign_sla_hours
-
-
 def rebuild_clue_center(
     session: Session,
     *,
@@ -64,7 +57,6 @@ def rebuild_clue_center(
     phone_plain_resolver: PhonePlainResolver | None = None,
 ) -> dict[str, int]:
     now = _aware(now or utcnow())
-    sla_hours = load_reassign_sla_hours(session)
     raw_clues = session.scalars(
         select(RawDouyinClue)
         .where(RawDouyinClue.order_status == "履约中")
@@ -84,6 +76,7 @@ def rebuild_clue_center(
 
     order_ids = set(grouped)
     sku_rules = _sku_rules(session, raw_clues)
+    master_leads_by_source_clue_row_key = _master_leads_by_source_clue_row_key(session, raw_clues)
     verifications = _verification_rows(session, order_ids)
     existing_rounds = _existing_legacy_rounds(session, order_ids)
     existing_center_orders = _existing_center_orders(session, order_ids)
@@ -98,7 +91,6 @@ def rebuild_clue_center(
         sorted_clues = sorted(clues, key=_clue_sort_key)
         canonical = sorted_clues[0]
         assigned_at = _aware(canonical.create_time_detail)
-        expires_at = _expires_at(assigned_at, sla_hours)
         assignment_round_id = f"{order_id}-1"
         round_row = existing_rounds.get(order_id)
         if round_row is None:
@@ -126,11 +118,29 @@ def rebuild_clue_center(
         round_row.follow_result = _clean(round_row.follow_result) or "pending"
         round_row.is_followed = round_row.follow_result in FOLLOWED_RESULTS
         round_row.is_follow_success = round_row.follow_result == SUCCESS_RESULT
+        lead, rule_version_id, auto_expiry_enabled, first_follow_up_sla_hours = _resolve_legacy_rule_timing(
+            session,
+            round_row=round_row,
+            canonical=canonical,
+            master_leads_by_source_clue_row_key=master_leads_by_source_clue_row_key,
+        )
+        if lead is not None:
+            round_row.lead_key = lead.lead_key
+        if rule_version_id is not None:
+            round_row.rule_version_id = rule_version_id
+            round_row.auto_expiry_enabled = auto_expiry_enabled
+            round_row.first_follow_up_sla_hours = first_follow_up_sla_hours
+        elif round_row.rule_version_id is None:
+            round_row.auto_expiry_enabled = None
+            round_row.first_follow_up_sla_hours = None
+        expires_at = _expires_at(assigned_at, round_row.first_follow_up_sla_hours)
         round_row.expires_at = expires_at
+        round_row.first_sla_expires_at = expires_at
         round_row.round_status, round_row.reassign_reason = _round_status(
             follow_result=round_row.follow_result,
             is_followed=round_row.is_followed,
             expires_at=expires_at,
+            auto_expiry_enabled=round_row.auto_expiry_enabled,
             now=now,
         )
 
@@ -340,12 +350,19 @@ def _round_status(
     follow_result: str,
     is_followed: bool,
     expires_at: datetime | None,
+    auto_expiry_enabled: bool | None,
     now: datetime | None,
 ) -> tuple[str, str | None]:
     if follow_result in {"failed", "lost"}:
         reason = "follow_lost" if follow_result == "lost" else "follow_failed"
         return "failed_pending_reassign", reason
-    if expires_at is not None and now is not None and not is_followed and now >= expires_at:
+    if (
+        auto_expiry_enabled is True
+        and expires_at is not None
+        and now is not None
+        and not is_followed
+        and now >= expires_at
+    ):
         return "expired_pending_reassign", "timeout"
     if is_followed:
         return "active_followed", None
@@ -367,6 +384,55 @@ def _sku_rules(session: Session, raw_clues: list[RawDouyinClue]) -> dict[str, Di
         return {}
     rows = session.scalars(select(DimSkuProductRule).where(DimSkuProductRule.sku_id.in_(product_ids))).all()
     return {row.sku_id: row for row in rows}
+
+
+def _master_leads_by_source_clue_row_key(
+    session: Session,
+    raw_clues: list[RawDouyinClue],
+) -> dict[str, ClueMasterLead]:
+    source_clue_row_keys = {clue.clue_row_key for clue in raw_clues if clue.clue_row_key}
+    if not source_clue_row_keys:
+        return {}
+    rows = session.scalars(
+        select(ClueMasterLead).where(ClueMasterLead.source_clue_row_key.in_(source_clue_row_keys))
+    ).all()
+    return {row.source_clue_row_key: row for row in rows}
+
+
+def _resolve_legacy_rule_timing(
+    session: Session,
+    *,
+    round_row: ClueAssignmentRound,
+    canonical: RawDouyinClue,
+    master_leads_by_source_clue_row_key: dict[str, ClueMasterLead],
+) -> tuple[ClueMasterLead | None, str | None, bool | None, int | None]:
+    lead = session.get(ClueMasterLead, round_row.lead_key) if round_row.lead_key else None
+    if lead is None:
+        lead = master_leads_by_source_clue_row_key.get(canonical.clue_row_key)
+    if lead is None:
+        return None, None, None, None
+    try:
+        binding = bind_lead_rule_version(
+            session,
+            lead_key=lead.lead_key,
+            anchor_store_id=lead.anchor_store_id,
+            anchor_city_code=lead.anchor_city_code,
+        )
+    except RuleResolutionError:
+        return lead, None, None, None
+
+    snapshot = dict(binding.rule_version_snapshot or {})
+    auto_expiry_enabled = snapshot.get("auto_expiry_enabled")
+    if not isinstance(auto_expiry_enabled, bool):
+        auto_expiry_enabled = None
+    first_follow_up_sla_hours = snapshot.get("first_follow_up_sla_hours")
+    if (
+        not isinstance(first_follow_up_sla_hours, int)
+        or isinstance(first_follow_up_sla_hours, bool)
+        or first_follow_up_sla_hours < 1
+    ):
+        first_follow_up_sla_hours = None
+    return lead, binding.rule_version_id, auto_expiry_enabled, first_follow_up_sla_hours
 
 
 def _existing_legacy_rounds(session: Session, order_ids: set[str]) -> dict[str, ClueAssignmentRound]:

@@ -220,14 +220,12 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
               description={definitionFor("self_verify_income_cent")}
               label="核销收入"
               meta="按核销门店归属"
-              tone="blue"
               value={formatCurrency(totals.self_verify_income_cent)}
             />
             <MetricCard
               description={definitionFor("effective_commission_income_cent")}
               label="有效分佣收入"
               meta="销售店预计获得"
-              tone="amber"
               value={formatCurrency(totals.effective_commission_income_cent)}
             />
           </section>
