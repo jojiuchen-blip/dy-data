@@ -1,6 +1,6 @@
 # DYDATA-27 Settlement Center Branch Consolidation Controller Spec
 
-Status: Ready for final verification
+Status: Complete
 Date: 2026-07-16
 Controller: Codex main agent
 Repo / workspace: `C:\Users\86138\Documents\抖音来客看板-settlement-center`
@@ -107,8 +107,8 @@ Acceptance gate:
 - [x] Diff reviewed for unrelated changes.
 - [x] Original dirty worktree remains preserved.
 - [x] Local commit hashes recorded.
-- [ ] Push succeeds and remote SHA matches local target branch.
-- [ ] DYDATA-27 receives verification and remote sync evidence.
+- [x] Push succeeds and remote SHA matches local target branch.
+- [x] DYDATA-27 receives verification and remote sync evidence.
 
 Verification results before push:
 
@@ -120,6 +120,7 @@ Verification results before push:
 - Spec review: exactly three unique code commits and one DYDATA-27 documentation commit are present above `origin/main` before this verification record.
 - Quality review: no blocking migration, API, frontend, documentation, or secret-handling findings; real billing identity values in the source mock were replaced with repository-safe examples.
 - Original worktree: remains on `codex/commission-page-collab-20260707` with its existing untracked files preserved.
+- Initial remote sync: local HEAD, tracking ref, and `git ls-remote` all matched `46dda6289b25cb5ba79784452c4d09b9789c5b95`; ahead/behind was `0/0`.
 
 ## 10. Decision Log
 
@@ -136,3 +137,4 @@ Verification results before push:
 |------|--------|-------|----------|
 | 2026-07-16 | Initial active spec created | Controller | DYDATA-27 and Git audit |
 | 2026-07-16 | Recorded passing tests, build, spec review, and quality review | Controller | Verification commands above |
+| 2026-07-16 | Created the remote integration branch and verified initial SHA equality | Controller | `git push -u`, `git fetch`, `git ls-remote` |
