@@ -20,7 +20,7 @@
 | `project-profile.md` | 项目身份、业务范围、阶段和 baseline 缺口快照 | `authority` | 用户确认与系统推断保持来源标记。 |
 | `docs/plans/execution-plan.md` | 当前执行驾驶舱 | `authority` | 只维护当前 issue、完成标准和紧邻下一步。 |
 | `docs/rules/` | FastAPI、React、PostgreSQL、调试、文档和日志宿主规则 | `authority` | 宿主实现规则优先于套包中的异栈示例。 |
-| `docs/项目产品介绍书.md` | 当前产品定位、四个业务域与业务边界 | `authority` | 覆盖经营结算、线索运营、后台管理和数据平台；后续正式 BRD/PRD 建立后按套包链迁移细节。 |
+| `docs/项目产品介绍书.md` | 当前产品总览、四个业务域与产品导航 | `authority` | 保留面向项目理解的总览职责；业务目标、角色、范围、成功标准和风险以正式 BRD 为准。 |
 | `docs/design-system/README.md`、`docs/design-system/tokens.json` | 视觉系统与运行时设计契约 | `authority` | 当前强视觉规范入口；候选与评审文件仅作 evidence。 |
 | `docs/architecture.md` | 当前服务组成、边界、数据链路和认证架构 | `authority` | 与当前代码、迁移、`deploy/` 同步维护。 |
 | `docs/runbook.md` | 生产部署、迁移、数据任务、备份和恢复操作 | `authority` | 运行命令与生产安全边界的文档入口。 |
@@ -35,7 +35,8 @@
 | `docs/superpowers/specs/` | 已确认功能和视觉设计证据 | `evidence` | 按对应 issue 与日期读取，不合并成总 PRD。 |
 | `docs/superpowers/plans/`、`docs/plans/` 中既有日期计划 | 历史实施计划与控制规格 | `legacy` | 保留当时事实，不覆盖 Linear、项目画像或当前执行驾驶舱。 |
 | `docs/devlog/` | 按天追加的开发执行记录 | `evidence` | 提供执行与验证证据，不替代 Linear 和当前计划。 |
-| `docs/brd/BRD-dy-data-*.md` | S1 正式 BRD | `missing` | 后续独立需求按 baseline 缺口生成。 |
+| `docs/brd/BRD-dy-data-20260716-1255.md` | S1 业务目标、角色、痛点、价值、范围、成功标准、风险与下游边界 | `authority` | 当前唯一权威 BRD；修改业务口径时须重开 BRD 台账并重新完成质量门与终稿确认。 |
+| `docs/brd/ledger-state-dy-data.json`、`docs/brd/brd-ledger-dy-data.md` | BRD 决策状态与追溯记录 | `evidence` | JSON 是决策状态源，Markdown 是脚本渲染的只读展示层；二者不替代 BRD 正文。 |
 | `src/frontend/page-preview/explainer-*-dy-data.md` | S2 页面交互语义 | `missing` | 现有页面和设计规格只作 evidence，不冒充页面说明产物。 |
 | `docs/prd/foundation/foundation-*-dy-data.md` | S2 术语、Schema、API FOUNDATION | `missing` | 现有数据与 API 索引不冒充正式 foundation。 |
 | `docs/prd/mainprd-dy-data.md`、`docs/prd/subprd/` | S2 正式 PRD | `missing` | 现有 specs 与计划不复制为 PRD。 |

@@ -12,6 +12,7 @@
 |---|------|------|------|
 | 1 | DYDATA-7 宿主治理与项目画像纠偏 | S0.5 | ✅ |
 | 2 | DYDATA-7 项目链接索引校验 | S0.5 | ✅ |
+| 3 | DYDATA-20 历史 BRD 标准化进入 S1 | S1 | ✅ |
 
 **本日关键结论**：DYDATA-7 已通过用户验收和全部门禁；项目不再被定义为单一结算中心，四个业务域、技术架构和治理入口已统一
 
@@ -104,3 +105,12 @@
 - **操作**：按 after_existing_project_baseline_audit 触发 project-link-indexer，并执行只读引用校验
 - **结果**：索引已覆盖当前关键产物，无需重建；337 个节点、100 条关系、0 issue、0 错误、0 警告
 - **涉及文件**：docs/index/project-link-graph.json、docs/index/project-link-graph.md、docs/index/project-wiki-schema.json、docs/devlog/20260714_refactor_log_Keith_Chen.md
+---
+
+## 补充更新 2（22:28 · 窗口 2）
+
+### 任务 3：DYDATA-20 历史 BRD 标准化进入 S1
+- **目标**：单独建立历史 BRD 标准化需求，并按套包历史项目标准化模式从 S0.5 切换到 S1
+- **操作**：核对 baseline 与 S1 门禁；创建 Linear DYDATA-20；更新 project-profile.md 和 execution-plan.md；执行 project-link-indexer 伴随校验；预创建 docs/brd 业务需求目录
+- **结果**：DYDATA-20 已进入 In Progress；项目阶段已回写为 S1，独占交付能力为 brd-writer；首个待确认项为项目类型，确认前不初始化台账或生成 BRD
+- **涉及文件**：project-profile.md、docs/plans/execution-plan.md、docs/devlog/20260714_refactor_log_Keith_Chen.md

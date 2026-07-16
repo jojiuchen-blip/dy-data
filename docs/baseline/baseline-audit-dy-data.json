@@ -5,7 +5,7 @@
   "hostRoot": ".",
   "summary": {
     "status": "missing_required_artifacts",
-    "recommended_next_skill": "brd-writer"
+    "recommended_next_skill": "page-explainer"
   },
   "profile": {
     "path": "project-profile.md",
@@ -25,11 +25,14 @@
     },
     {
       "type": "BRD",
-      "status": "missing",
-      "evidence_paths": [],
+      "status": "present",
+      "evidence_paths": [
+        "docs/brd/BRD-dy-data-20260716-1255.md",
+        "docs/brd/brd-ledger-dy-data.md"
+      ],
       "expected_location": "docs/brd/",
-      "recommended_skill": "brd-writer",
-      "reason": "缺少业务背景、角色、核心场景的权威说明"
+      "recommended_skill": null,
+      "reason": "已发现 BRD 文件"
     },
     {
       "type": "PAGE_EXPLAINER",

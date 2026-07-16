@@ -3,7 +3,7 @@
 - 模式：existing-project-baseline
 - 范围：maintenance-docs-only
 - slug：dy-data
-- 推荐下一步：brd-writer
+- 推荐下一步：page-explainer
 
 ## 1. 单焦点待确认
 
@@ -14,7 +14,7 @@
 | 类型 | 状态 | 期望位置 | 推荐 skill | 原因 |
 |---|---|---|---|---|
 | PROJECT_PROFILE | present | project-profile.md | 无 | 项目画像已存在或已生成草稿 |
-| BRD | missing | docs/brd/ | brd-writer | 缺少业务背景、角色、核心场景的权威说明 |
+| BRD | present | docs/brd/ | 无 | 已发现 BRD 文件 |
 | PAGE_EXPLAINER | missing | src/frontend/page-preview/ | page-explainer | 缺少页面流程与交互语义说明；代码中发现页面文件线索 14 个 |
 | FOUNDATION | missing | docs/prd/foundation/ | foundation-builder | 缺少术语表、Schema、API 与交付清单；代码中发现 API 端点线索 63 个、模型定义 37 个、迁移 17 个 |
 | PRD | missing | docs/prd/ | prd-writer | 缺少功能列表、mainprd 与 subprd |

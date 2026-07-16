@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-07-14T13:17:36.629Z",
+  "generatedAt": "2026-07-16T04:57:31.812Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,23 +9,25 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 296,
-    "edges": 58,
+    "nodes": 341,
+    "edges": 107,
     "issues": 0,
     "errors": 0,
     "warnings": 0,
     "nodesByKind": {
-      "config": 19,
-      "doc": 40,
-      "source_code": 225,
+      "config": 45,
+      "source_code": 231,
+      "doc": 51,
       "readme": 6,
       "baseline_audit": 2,
+      "brd": 1,
+      "brd_ledger": 1,
       "project_index": 2,
       "project_profile": 1,
       "project_rules": 1
     },
     "edgesByRelation": {
-      "links_to": 58
+      "links_to": 107
     }
   },
   "nodes": [
@@ -46,6 +48,159 @@
       "authority": true,
       "slug": null,
       "title": "tencent-lighthouse-deploy.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-00-50-420Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-07-13-098Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-11-25-978Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-11-50-842Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-12-36-088Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-12-48-957Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-13-42-406Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-16-46-395Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-17-10-910Z.yml"
+    },
+    {
+      "id": ".tmp/feedback-preview-pids.json",
+      "path": ".tmp/feedback-preview-pids.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "feedback-preview-pids.json"
+    },
+    {
+      "id": ".tmp/playwright-run/package-lock.json",
+      "path": ".tmp/playwright-run/package-lock.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package-lock.json"
+    },
+    {
+      "id": ".tmp/playwright-run/package.json",
+      "path": ".tmp/playwright-run/package.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package.json"
+    },
+    {
+      "id": ".tmp/uiux-runtime/audit-uiux.mjs",
+      "path": ".tmp/uiux-runtime/audit-uiux.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "audit-uiux.mjs"
+    },
+    {
+      "id": ".tmp/uiux-runtime/check-clue-split.mjs",
+      "path": ".tmp/uiux-runtime/check-clue-split.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "check-clue-split.mjs"
+    },
+    {
+      "id": ".tmp/uiux-runtime/package.json",
+      "path": ".tmp/uiux-runtime/package.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package.json"
+    },
+    {
+      "id": ".tmp/uiux-screens/axe.json",
+      "path": ".tmp/uiux-screens/axe.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "axe.json"
+    },
+    {
+      "id": ".tmp/uiux-screens/signals.json",
+      "path": ".tmp/uiux-screens/signals.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "signals.json"
     },
     {
       "id": "AGENTS.md",
@@ -387,7 +542,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "抖音结算中心前端 Mock 看板"
+      "title": "dy-data Web"
     },
     {
       "id": "apps/web/src/api/client.ts",
@@ -1143,7 +1298,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "技术架构与部署规划"
+      "title": "技术架构与部署说明"
     },
     {
       "id": "docs/券核销清单自动导出说明.md",
@@ -1179,7 +1334,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "抖音订单分账数据看板产品定义"
+      "title": "dy-data（抖音经营引擎）产品介绍书"
     },
     {
       "id": "docs/api-contract.md",
@@ -1188,7 +1343,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "API 契约 v1（生产 MVP）"
+      "title": "dy-data API 契约索引"
     },
     {
       "id": "docs/architecture.md",
@@ -1197,7 +1352,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "架构整理说明"
+      "title": "dy-data 当前系统架构"
     },
     {
       "id": "docs/baseline/baseline-audit-dy-data.json",
@@ -1227,13 +1382,40 @@
       "title": "DYDATA-6 baseline dry-run 复核记录"
     },
     {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "kind": "brd",
+      "owner_skill": "brd-writer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "BRD: dy-data（抖音经营引擎）"
+    },
+    {
+      "id": "docs/brd/brd-ledger-dy-data.md",
+      "path": "docs/brd/brd-ledger-dy-data.md",
+      "kind": "brd_ledger",
+      "owner_skill": "brd-writer",
+      "authority": false,
+      "slug": "dy-data",
+      "title": "BRD Ledger — dy-data（抖音经营引擎）"
+    },
+    {
+      "id": "docs/brd/ledger-state-dy-data.json",
+      "path": "docs/brd/ledger-state-dy-data.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "ledger-state-dy-data.json"
+    },
+    {
       "id": "docs/data-model.md",
       "path": "docs/data-model.md",
       "kind": "doc",
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "data-model.md"
+      "title": "dy-data 数据模型索引"
     },
     {
       "id": "docs/design-system/candidate-v0.2.html",
@@ -1279,6 +1461,24 @@
       "authority": true,
       "slug": null,
       "title": "tokens.v0.2-candidate.json"
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-07-14"
+    },
+    {
+      "id": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "path": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-07-16"
     },
     {
       "id": "docs/github-cicd.md",
@@ -1386,7 +1586,61 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "当前执行计划（驾驶舱）"
+      "title": "当前执行计划"
+    },
+    {
+      "id": "docs/rules/backend-tasks.md",
+      "path": "docs/rules/backend-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "后端开发规则"
+    },
+    {
+      "id": "docs/rules/database-tasks.md",
+      "path": "docs/rules/database-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "数据库任务规则"
+    },
+    {
+      "id": "docs/rules/debugging.md",
+      "path": "docs/rules/debugging.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "调试与故障排查规则"
+    },
+    {
+      "id": "docs/rules/devlog.md",
+      "path": "docs/rules/devlog.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志规则"
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md",
+      "path": "docs/rules/docs-and-plans.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "文档与计划规则"
+    },
+    {
+      "id": "docs/rules/frontend-tasks.md",
+      "path": "docs/rules/frontend-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "前端开发规则"
     },
     {
       "id": "docs/rules/README.md",
@@ -1395,7 +1649,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "dy-data 宿主专项规则入口"
+      "title": "dy-data 宿主专项规则"
     },
     {
       "id": "docs/runbook.md",
@@ -1404,7 +1658,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "生产运行手册（MVP）"
+      "title": "dy-data 生产运行手册"
     },
     {
       "id": "docs/superpowers/plans/2026-07-10-dydata-3-complete-v02.md",
@@ -1533,6 +1787,114 @@
       "title": "Tencent Lighthouse CI/CD"
     },
     {
+      "id": "local_exports/_scratch/import_july_m3_integration.py",
+      "path": "local_exports/_scratch/import_july_m3_integration.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "import_july_m3_integration.py"
+    },
+    {
+      "id": "local_exports/_scratch/store_locations_inspect.mjs",
+      "path": "local_exports/_scratch/store_locations_inspect.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "store_locations_inspect.mjs"
+    },
+    {
+      "id": "local_exports/_scratch/store_locations_verify.py",
+      "path": "local_exports/_scratch/store_locations_verify.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "store_locations_verify.py"
+    },
+    {
+      "id": "local_exports/clues/2026/summary.json",
+      "path": "local_exports/clues/2026/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/incremental_20260616_20260625/summary.json",
+      "path": "local_exports/clues/incremental_20260616_20260625/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
+      "path": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/probe-day/summary.json",
+      "path": "local_exports/clues/probe-day/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/probe/summary.json",
+      "path": "local_exports/clues/probe/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis-single.html",
+      "path": "local_exports/jcyc-commission-analysis-single.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "jcyc-commission-analysis-single.html"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/index.html",
+      "path": "local_exports/jcyc-commission-analysis/index.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "index.html"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/last_snapshot.json",
+      "path": "local_exports/jcyc-commission-analysis/last_snapshot.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "last_snapshot.json"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
+      "path": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "refresh_dashboard.py"
+    },
+    {
       "id": "mock/page1_store_ranking.json",
       "path": "mock/page1_store_ranking.json",
       "kind": "config",
@@ -1578,6 +1940,51 @@
       "title": "sku_product_commission_rules.json"
     },
     {
+      "id": "output/brand-orange-preview.html",
+      "path": "output/brand-orange-preview.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "brand-orange-preview.html"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-26-05-643Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-27-30-271Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-44-38-580Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T03-03-20-624Z.yml"
+    },
+    {
       "id": "project-profile.md",
       "path": "project-profile.md",
       "kind": "project_profile",
@@ -1602,7 +2009,7 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "抖音订单分账数据看板"
+      "title": "dy-data（抖音经营引擎）"
     },
     {
       "id": "scripts/diagnostics/compare_backend_aweme_with_api.py",
@@ -2712,7 +3119,7 @@
         },
         {
           "path": "AGENTS.md",
-          "line": 275,
+          "line": 282,
           "text": "the rule affects all Codex windows for this repository, update this `AGENTS.md`",
           "syntax": "backtick"
         }
@@ -2729,7 +3136,7 @@
       "evidence": [
         {
           "path": "AGENTS.md",
-          "line": 90,
+          "line": 92,
           "text": "- `docs/governance/authority-map.md` records how legacy documents map into the",
           "syntax": "backtick"
         }
@@ -2746,7 +3153,7 @@
       "evidence": [
         {
           "path": "AGENTS.md",
-          "line": 86,
+          "line": 88,
           "text": "- `docs/plans/execution-plan.md` is the current execution cockpit, not the",
           "syntax": "backtick"
         }
@@ -2787,8 +3194,65 @@
       ]
     },
     {
-      "id": "docs/技术架构与部署规划.md->docs/api-contract.md:links_to",
+      "id": "apps/web/README.md->docs/design-system/README.md:links_to",
+      "from": "apps/web/README.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "apps/web/README.md",
+          "line": 35,
+          "text": "- 视觉与组件规范读取 `../../docs/design-system/README.md` 和 `../../docs/design-system/tokens.json`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/技术架构与部署规划.md->docs/architecture.md:links_to",
       "from": "docs/技术架构与部署规划.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 3,
+          "text": "> 本文是部署选择与演进说明。当前组件和边界以 `docs/architecture.md` 为准，实际生产步骤以 `docs/runbook.md`、`deploy/` 和 GitHub Actions workflow 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/技术架构与部署规划.md->docs/runbook.md:links_to",
+      "from": "docs/技术架构与部署规划.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 3,
+          "text": "> 本文是部署选择与演进说明。当前组件和边界以 `docs/architecture.md` 为准，实际生产步骤以 `docs/runbook.md`、`deploy/` 和 GitHub Actions workflow 为准。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 48,
+          "text": "具体命令、健康检查、备份、恢复、浏览器登录态和数据任务操作见 `docs/runbook.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/api-contract.md:links_to",
+      "from": "docs/项目产品介绍书.md",
       "to": "docs/api-contract.md",
       "target": "docs/api-contract.md",
       "relation": "links_to",
@@ -2796,16 +3260,33 @@
       "anchor": null,
       "evidence": [
         {
-          "path": "docs/技术架构与部署规划.md",
-          "line": 148,
-          "text": "- 双方共同维护 `docs/api-contract.md`、`docs/data-model.md` 和 `src/dy_data/settlement/` 中的业务口径。",
+          "path": "docs/项目产品介绍书.md",
+          "line": 85,
+          "text": "- API 契约：`docs/api-contract.md`",
           "syntax": "backtick"
         }
       ]
     },
     {
-      "id": "docs/技术架构与部署规划.md->docs/data-model.md:links_to",
-      "from": "docs/技术架构与部署规划.md",
+      "id": "docs/项目产品介绍书.md->docs/architecture.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 84,
+          "text": "- 当前架构：`docs/architecture.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/data-model.md:links_to",
+      "from": "docs/项目产品介绍书.md",
       "to": "docs/data-model.md",
       "target": "docs/data-model.md",
       "relation": "links_to",
@@ -2813,26 +3294,111 @@
       "anchor": null,
       "evidence": [
         {
-          "path": "docs/技术架构与部署规划.md",
-          "line": 148,
-          "text": "- 双方共同维护 `docs/api-contract.md`、`docs/data-model.md` 和 `src/dy_data/settlement/` 中的业务口径。",
+          "path": "docs/项目产品介绍书.md",
+          "line": 86,
+          "text": "- 数据模型证据：`docs/data-model.md` 与 Alembic / SQLAlchemy 代码",
           "syntax": "backtick"
         }
       ]
     },
     {
-      "id": "docs/architecture.md->docs/技术架构与部署规划.md:links_to",
+      "id": "docs/项目产品介绍书.md->docs/design-system/README.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 88,
+          "text": "- 视觉系统：`docs/design-system/README.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 89,
+          "text": "- 项目画像与治理：`project-profile.md`、`docs/governance/authority-map.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/runbook.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 87,
+          "text": "- 运行手册：`docs/runbook.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->project-profile.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 89,
+          "text": "- 项目画像与治理：`project-profile.md`、`docs/governance/authority-map.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/architecture.md->docs/项目产品介绍书.md:links_to",
       "from": "docs/architecture.md",
-      "to": "docs/技术架构与部署规划.md",
-      "target": "docs/技术架构与部署规划.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/architecture.md",
-          "line": 24,
-          "text": "技术栈、生产数据链路和云服务器部署方向见 `docs/技术架构与部署规划.md`。生产数据采集不能依赖开发者个人电脑或 Codex 定时执行，应迁移为服务器上的稳定任务。",
+          "line": 81,
+          "text": "- 产品范围：`docs/项目产品介绍书.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/architecture.md->docs/runbook.md:links_to",
+      "from": "docs/architecture.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/architecture.md",
+          "line": 74,
+          "text": "- `job_runs` 等状态用于观察数据任务；详细部署、迁移、备份与恢复见 `docs/runbook.md`。",
           "syntax": "backtick"
         }
       ]
@@ -2889,6 +3455,227 @@
       ]
     },
     {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "from": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+          "line": 7,
+          "text": "> 决策台账: [brd-ledger-dy-data.md](./brd-ledger-dy-data.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md->project-profile.md:links_to",
+      "from": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+          "line": 6,
+          "text": "> 上游画像: [project-profile.md](../../project-profile.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->AGENTS.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/api-contract.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/architecture.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/data-model.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->project-profile.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->project-rules.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->README.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260716_refactor_log_Keith_Chen.md->project-rules.md:links_to",
+      "from": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+          "line": 69,
+          "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/github-cicd.md->docs/tencent-lighthouse-cicd.md:links_to",
       "from": "docs/github-cicd.md",
       "to": "docs/tencent-lighthouse-cicd.md",
@@ -2899,7 +3686,7 @@
       "evidence": [
         {
           "path": "docs/github-cicd.md",
-          "line": 8,
+          "line": 10,
           "text": "The Tencent workflow is documented in `docs/tencent-lighthouse-cicd.md`.",
           "syntax": "backtick"
         }
@@ -2917,7 +3704,24 @@
         {
           "path": "docs/governance/authority-map.md",
           "line": 17,
-          "text": "| `AGENTS.md` | 平台与仓库硬规则 | `authority` | 保持唯一硬门禁入口；套包规则通过链接引用。 |",
+          "text": "| `AGENTS.md` | 平台与仓库硬规则 | `authority` | 保持唯一 turn gate、套包门禁和 Linear-first 入口。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->apps/web/README.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 29,
+          "text": "| `apps/web/README.md` | Web 开发与当前路由范围指南 | `evidence` | 准确路由和数据行为仍以 `src/App.tsx`、client 与后端 schema 为准。 |",
           "syntax": "backtick"
         }
       ]
@@ -2933,8 +3737,8 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 22,
-          "text": "| `docs/技术架构与部署规划.md` | 技术栈、服务拆分与部署证据 | `evidence` | 与当前代码、Docker、CI 对照使用；过期结构描述不覆盖代码。 |",
+          "line": 30,
+          "text": "| `docs/技术架构与部署规划.md` | 部署选择与演进指南 | `evidence` | 当前事实链接架构、运行手册、workflow 和 `deploy/`。 |",
           "syntax": "backtick"
         }
       ]
@@ -2950,8 +3754,8 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 20,
-          "text": "| `docs/项目产品介绍书.md` | 产品定位与既有分账业务边界 | `authority` | 作为现有产品定义入口；新增线索、后台等范围未来通过 BRD/PRD 补齐，不直接改写成完整 BRD。 |",
+          "line": 23,
+          "text": "| `docs/项目产品介绍书.md` | 当前产品总览、四个业务域与产品导航 | `authority` | 保留面向项目理解的总览职责；业务目标、角色、范围、成功标准和风险以正式 BRD 为准。 |",
           "syntax": "backtick"
         }
       ]
@@ -2967,8 +3771,8 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 24,
-          "text": "| `docs/api-contract.md` | API 契约说明 | `stale` | 只覆盖早期生产 MVP 接口；当前 FastAPI routes 优先，未来映射到 foundation API。 |",
+          "line": 31,
+          "text": "| `docs/api-contract.md` | 当前认证、响应包络和 API 分组索引 | `evidence` | 运行契约以 routes、schema、依赖、OpenAPI 和测试为准；后续映射到 FOUNDATION API。 |",
           "syntax": "backtick"
         }
       ]
@@ -2984,8 +3788,42 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 21,
-          "text": "| `docs/architecture.md` | 早期目录与架构整理说明 | `legacy` | 文件仍声称部分现有目录尚未创建，不作为当前架构权威。 |",
+          "line": 25,
+          "text": "| `docs/architecture.md` | 当前服务组成、边界、数据链路和认证架构 | `authority` | 与当前代码、迁移、`deploy/` 同步维护。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 38,
+          "text": "| `docs/brd/BRD-dy-data-20260716-1255.md` | S1 业务目标、角色、痛点、价值、范围、成功标准、风险与下游边界 | `authority` | 当前唯一权威 BRD；修改业务口径时须重开 BRD 台账并重新完成质量门与终稿确认。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 39,
+          "text": "| `docs/brd/ledger-state-dy-data.json`、`docs/brd/brd-ledger-dy-data.md` | BRD 决策状态与追溯记录 | `evidence` | JSON 是决策状态源，Markdown 是脚本渲染的只读展示层；二者不替代 BRD 正文。 |",
           "syntax": "backtick"
         }
       ]
@@ -3001,8 +3839,8 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 23,
-          "text": "| `docs/data-model.md` | 数据模型说明 | `stale` | 作为术语和初始表设计证据；当前迁移与 SQLAlchemy 模型优先，未来映射到 foundation schema。 |",
+          "line": 34,
+          "text": "| `docs/data-model.md` | 当前 37 个表模型的业务分组索引 | `evidence` | 运行结构以迁移、SQLAlchemy 模型和实际 schema 为准；未来由 FOUNDATION schema 定向补齐字段契约。 |",
           "syntax": "backtick"
         }
       ]
@@ -3018,8 +3856,25 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 25,
-          "text": "| `docs/design-system/README.md`、`docs/design-system/tokens.json` | 视觉系统及运行时契约 | `authority` | V0.2 当前生效；候选文件只保留历史评审用途。 |",
+          "line": 24,
+          "text": "| `docs/design-system/README.md`、`docs/design-system/tokens.json` | 视觉系统与运行时设计契约 | `authority` | 当前强视觉规范入口；候选与评审文件仅作 evidence。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/github-cicd.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/github-cicd.md",
+      "target": "docs/github-cicd.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 32,
+          "text": "| `docs/github-cicd.md`、`docs/tencent-lighthouse-cicd.md` | CI/CD 配置操作指南 | `evidence` | 只记录变量名和通用步骤，不保存真实项目、主机或 URL。 |",
           "syntax": "backtick"
         }
       ]
@@ -3035,8 +3890,93 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 27,
-          "text": "| `docs/superpowers/plans/`、`docs/plans/` 既有日期计划 | 历史实施计划与控制规格 | `legacy` | 已完成或阶段性计划不作为当前驾驶舱；当前任务看 Linear 与 `execution-plan.md`。 |",
+          "line": 21,
+          "text": "| `docs/plans/execution-plan.md` | 当前执行驾驶舱 | `authority` | 只维护当前 issue、完成标准和紧邻下一步。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/runbook.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 26,
+          "text": "| `docs/runbook.md` | 生产部署、迁移、数据任务、备份和恢复操作 | `authority` | 运行命令与生产安全边界的文档入口。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/tencent-edgeone-migration.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/tencent-edgeone-migration.md",
+      "target": "docs/tencent-edgeone-migration.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 33,
+          "text": "| `docs/tencent-edgeone-migration.md` | Railway 到 CVM/EdgeOne 的历史迁移方案 | `legacy` | 不代表当前部署状态；执行前需重新验证云产品要求并以当前 workflow、`deploy/` 和运行手册为准。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/tencent-lighthouse-cicd.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/tencent-lighthouse-cicd.md",
+      "target": "docs/tencent-lighthouse-cicd.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 32,
+          "text": "| `docs/github-cicd.md`、`docs/tencent-lighthouse-cicd.md` | CI/CD 配置操作指南 | `evidence` | 只记录变量名和通用步骤，不保存真实项目、主机或 URL。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->project-profile.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 20,
+          "text": "| `project-profile.md` | 项目身份、业务范围、阶段和 baseline 缺口快照 | `authority` | 用户确认与系统推断保持来源标记。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->project-rules.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 19,
+          "text": "| `project-rules.md` | 长期项目边界与权威索引 | `authority` | 不写临时 issue 状态，不复制专项规则正文。 |",
           "syntax": "backtick"
         }
       ]
@@ -3052,8 +3992,8 @@
       "evidence": [
         {
           "path": "docs/governance/authority-map.md",
-          "line": 19,
-          "text": "| `README.md` | 仓库结构与运行入口 | `evidence` | 产品定义继续指向产品介绍书；代码事实优先。 |",
+          "line": 28,
+          "text": "| `README.md` | 仓库总览、开发入口和权威文档导航 | `evidence` | 不复制完整产品、架构或运行手册。 |",
           "syntax": "backtick"
         }
       ]
@@ -3322,35 +4262,217 @@
       ]
     },
     {
-      "id": "docs/plans/execution-plan.md->AGENTS.md:links_to",
+      "id": "docs/plans/execution-plan.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
       "from": "docs/plans/execution-plan.md",
-      "to": "AGENTS.md",
-      "target": "AGENTS.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 25,
-          "text": "- [x] `AGENTS.md`、`project-rules.md`、项目画像、执行驾驶舱和材料映射职责不重叠。",
+          "line": 10,
+          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 47,
+          "text": "- BRD 台账：`dy-data`，运营型，状态 `DONE`，15 个适用字段已全部锁定、冲突 0；四项前提挑战和七项质量门均已通过，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
           "syntax": "backtick"
         }
       ]
     },
     {
-      "id": "docs/plans/execution-plan.md->project-rules.md:links_to",
+      "id": "docs/plans/execution-plan.md->docs/brd/brd-ledger-dy-data.md:links_to",
       "from": "docs/plans/execution-plan.md",
-      "to": "project-rules.md",
-      "target": "project-rules.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 25,
-          "text": "- [x] `AGENTS.md`、`project-rules.md`、项目画像、执行驾驶舱和材料映射职责不重叠。",
+          "line": 10,
+          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->project-profile.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 36,
+          "text": "- 当前阶段快照以 `project-profile.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/api-contract.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 17,
+          "text": "- 业务响应沿用当前 `{ data, definitions?, meta }` 包络；调整字段时同步后端测试、前端类型和 `docs/api-contract.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/rules/database-tasks.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/rules/database-tasks.md",
+      "target": "docs/rules/database-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 11,
+          "text": "3. 涉及数据库时同时加载 `database-tasks.md`；涉及页面联调时同时加载 `frontend-tasks.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/rules/frontend-tasks.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/rules/frontend-tasks.md",
+      "target": "docs/rules/frontend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 11,
+          "text": "3. 涉及数据库时同时加载 `database-tasks.md`；涉及页面联调时同时加载 `frontend-tasks.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/devlog.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/rules/devlog.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 19,
+          "text": "- issue 状态与验收回写 Linear，当前阶段回写 `project-profile.md`，当前执行摘要回写 `docs/plans/execution-plan.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/devlog.md->project-profile.md:links_to",
+      "from": "docs/rules/devlog.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 5,
+          "text": "- 可提交的开发过程日志写入 `docs/devlog/`，该目录由 `project-profile.md` 的“最近状态入口”配置。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 19,
+          "text": "- issue 状态与验收回写 Linear，当前阶段回写 `project-profile.md`，当前执行摘要回写 `docs/plans/execution-plan.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 9,
+          "text": "- `docs/governance/authority-map.md`：现有文档的 authority、evidence、legacy、stale 和 missing 角色。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 7,
+          "text": "- `docs/plans/execution-plan.md`：当前 issue 的执行驾驶舱，不复制 Backlog。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->project-profile.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 6,
+          "text": "- `project-profile.md`：项目身份、业务范围、阶段和当前缺口快照。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/frontend-tasks.md->docs/design-system/README.md:links_to",
+      "from": "docs/rules/frontend-tasks.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/frontend-tasks.md",
+          "line": 10,
+          "text": "2. 读取 `docs/design-system/README.md`、`docs/design-system/tokens.json` 及现有同类组件。",
           "syntax": "backtick"
         }
       ]
@@ -3366,23 +4488,34 @@
       "evidence": [
         {
           "path": "docs/rules/README.md",
-          "line": 8,
-          "text": "- 实现任务继续遵守 `AGENTS.md`、当前代码配置、相关测试和 `docs/governance/authority-map.md` 声明的证据入口。",
-          "syntax": "backtick"
-        },
-        {
-          "path": "docs/rules/README.md",
-          "line": 9,
-          "text": "- 普通新功能暂停进入开发；生产紧急修复沿用 `AGENTS.md` 的 Linear、风险和验证例外通道。",
+          "line": 16,
+          "text": "1. 按 `AGENTS.md` 完成 turn gate、套包锁和阶段路由。",
           "syntax": "backtick"
         }
       ]
     },
     {
-      "id": "docs/rules/README.md->docs/governance/authority-map.md:links_to",
+      "id": "docs/rules/README.md->docs/rules/backend-tasks.md:links_to",
       "from": "docs/rules/README.md",
-      "to": "docs/governance/authority-map.md",
-      "target": "docs/governance/authority-map.md",
+      "to": "docs/rules/backend-tasks.md",
+      "target": "docs/rules/backend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 7,
+          "text": "- `backend-tasks.md`：FastAPI、SQLAlchemy、认证授权和 API 变更。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/database-tasks.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/database-tasks.md",
+      "target": "docs/rules/database-tasks.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
@@ -3390,7 +4523,92 @@
         {
           "path": "docs/rules/README.md",
           "line": 8,
-          "text": "- 实现任务继续遵守 `AGENTS.md`、当前代码配置、相关测试和 `docs/governance/authority-map.md` 声明的证据入口。",
+          "text": "- `database-tasks.md`：PostgreSQL、Alembic、数据回填和查询验证。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/debugging.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/debugging.md",
+      "target": "docs/rules/debugging.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 10,
+          "text": "- `debugging.md`：从症状到数据、服务、页面和生产环境的逐层取证。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/devlog.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/devlog.md",
+      "target": "docs/rules/devlog.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 12,
+          "text": "- `devlog.md`：`docs/devlog/` 的可提交开发日志和 `/logs/` 的运行日志边界。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/docs-and-plans.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/docs-and-plans.md",
+      "target": "docs/rules/docs-and-plans.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 11,
+          "text": "- `docs-and-plans.md`：Linear、执行驾驶舱、项目画像和文档权威同步。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/frontend-tasks.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/frontend-tasks.md",
+      "target": "docs/rules/frontend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 9,
+          "text": "- `frontend-tasks.md`：React、TypeScript、Vite、真实 API 和视觉系统。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/runbook.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/runbook.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/runbook.md",
+          "line": 3,
+          "text": "本文档面向 Linux Docker Compose 部署，覆盖 PostgreSQL、FastAPI、worker、React 静态构建、受最高管理员保护的 noVNC Chromium 采集容器、反向代理、迁移和数据刷新任务。业务范围包括经营结算、线索运营和后台管理，产品定义以 `docs/项目产品介绍书.md` 为准。",
           "syntax": "backtick"
         }
       ]
@@ -3464,6 +4682,23 @@
       ]
     },
     {
+      "id": "docs/tencent-edgeone-migration.md->docs/runbook.md:links_to",
+      "from": "docs/tencent-edgeone-migration.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/tencent-edgeone-migration.md",
+          "line": 5,
+          "text": "> Use `docs/runbook.md`, current workflows, `deploy/`, and repository variables",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "mock/README.md->docs/api-contract.md:links_to",
       "from": "mock/README.md",
       "to": "docs/api-contract.md",
@@ -3498,23 +4733,6 @@
       ]
     },
     {
-      "id": "project-profile.md->docs/项目产品介绍书.md:links_to",
-      "from": "project-profile.md",
-      "to": "docs/项目产品介绍书.md",
-      "target": "docs/项目产品介绍书.md",
-      "relation": "links_to",
-      "status": "resolved",
-      "anchor": null,
-      "evidence": [
-        {
-          "path": "project-profile.md",
-          "line": 77,
-          "text": "- 产品目标、用户、业务问题和真实分账边界来自 `docs/项目产品介绍书.md`。",
-          "syntax": "backtick"
-        }
-      ]
-    },
-    {
       "id": "project-rules.md->AGENTS.md:links_to",
       "from": "project-rules.md",
       "to": "AGENTS.md",
@@ -3532,70 +4750,19 @@
         {
           "path": "project-rules.md",
           "line": 7,
-          "text": "- 规则权威文件：`AGENTS.md` `【系统推断】`",
+          "text": "- 平台与仓库硬规则：`AGENTS.md`。",
           "syntax": "backtick"
         },
         {
           "path": "project-rules.md",
-          "line": 54,
+          "line": 57,
           "text": "- 项目任务必须先读取 `AGENTS.md`，并按安装态 `ai-project-manager` 路由。",
           "syntax": "backtick"
         },
         {
           "path": "project-rules.md",
-          "line": 62,
-          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` →任务相关资料。",
-          "syntax": "backtick"
-        }
-      ]
-    },
-    {
-      "id": "project-rules.md->docs/技术架构与部署规划.md:links_to",
-      "from": "project-rules.md",
-      "to": "docs/技术架构与部署规划.md",
-      "target": "docs/技术架构与部署规划.md",
-      "relation": "links_to",
-      "status": "resolved",
-      "anchor": null,
-      "evidence": [
-        {
-          "path": "project-rules.md",
-          "line": 36,
-          "text": "- `docs/技术架构与部署规划.md`、`docs/data-model.md`、`docs/api-contract.md` 是重要证据，但其过期部分不能覆盖较新的代码事实。",
-          "syntax": "backtick"
-        }
-      ]
-    },
-    {
-      "id": "project-rules.md->docs/api-contract.md:links_to",
-      "from": "project-rules.md",
-      "to": "docs/api-contract.md",
-      "target": "docs/api-contract.md",
-      "relation": "links_to",
-      "status": "resolved",
-      "anchor": null,
-      "evidence": [
-        {
-          "path": "project-rules.md",
-          "line": 36,
-          "text": "- `docs/技术架构与部署规划.md`、`docs/data-model.md`、`docs/api-contract.md` 是重要证据，但其过期部分不能覆盖较新的代码事实。",
-          "syntax": "backtick"
-        }
-      ]
-    },
-    {
-      "id": "project-rules.md->docs/data-model.md:links_to",
-      "from": "project-rules.md",
-      "to": "docs/data-model.md",
-      "target": "docs/data-model.md",
-      "relation": "links_to",
-      "status": "resolved",
-      "anchor": null,
-      "evidence": [
-        {
-          "path": "project-rules.md",
-          "line": 36,
-          "text": "- `docs/技术架构与部署规划.md`、`docs/data-model.md`、`docs/api-contract.md` 是重要证据，但其过期部分不能覆盖较新的代码事实。",
+          "line": 65,
+          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
           "syntax": "backtick"
         }
       ]
@@ -3611,7 +4778,7 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 37,
+          "line": 39,
           "text": "- 视觉系统以 `docs/design-system/tokens.json` 和 `docs/design-system/README.md` 为权威入口。",
           "syntax": "backtick"
         }
@@ -3628,14 +4795,8 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 12,
-          "text": "- 既有材料角色与新旧权威关系：`docs/governance/authority-map.md` `【系统推断】`",
-          "syntax": "backtick"
-        },
-        {
-          "path": "project-rules.md",
-          "line": 21,
-          "text": "- `docs/governance/authority-map.md`：旧文档到套包角色的映射，不替代原文档。",
+          "line": 13,
+          "text": "- 既有材料角色与新旧权威关系：`docs/governance/authority-map.md`。",
           "syntax": "backtick"
         }
       ]
@@ -3651,20 +4812,14 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 9,
-          "text": "- 计划权威文件：当前执行摘要为 `docs/plans/execution-plan.md`；正式 S3 计划形成前，开发范围仍以当前 Linear issue 为准 `【系统推断】`",
+          "line": 10,
+          "text": "- 当前执行摘要：`docs/plans/execution-plan.md`；正式 S3 计划形成前，开发范围仍以当前 Linear issue 为准。",
           "syntax": "backtick"
         },
         {
           "path": "project-rules.md",
-          "line": 19,
-          "text": "- `docs/plans/execution-plan.md`：当前执行驾驶舱，只链接当前 issue 与正式计划入口。",
-          "syntax": "backtick"
-        },
-        {
-          "path": "project-rules.md",
-          "line": 58,
-          "text": "- 不把 Linear Backlog 复制到 `execution-plan.md`。",
+          "line": 61,
+          "text": "- 不把 Linear Backlog 复制到 `execution-plan.md`，不把临时 issue 状态固化为长期项目规则。",
           "syntax": "backtick"
         }
       ]
@@ -3680,14 +4835,8 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 10,
-          "text": "- 状态回写权威文件：issue 状态与验收记录写回 Linear；项目阶段快照写入 `project-profile.md` `【系统推断】`",
-          "syntax": "backtick"
-        },
-        {
-          "path": "project-rules.md",
-          "line": 18,
-          "text": "- `project-profile.md`：项目身份、阶段、执行主体与待确认项。",
+          "line": 12,
+          "text": "- 项目身份与阶段快照：`project-profile.md`。",
           "syntax": "backtick"
         }
       ]
@@ -3703,26 +4852,26 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 62,
-          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` →任务相关资料。",
+          "line": 65,
+          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
           "syntax": "backtick"
         }
       ]
     },
     {
-      "id": "README.md->docs/技术架构与部署规划.md:links_to",
+      "id": "README.md->AGENTS.md:links_to",
       "from": "README.md",
-      "to": "docs/技术架构与部署规划.md",
-      "target": "docs/技术架构与部署规划.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "README.md",
-          "line": 12,
-          "text": "- `docs/技术架构与部署规划.md`：技术栈、服务拆分、部署方向和协作边界。",
-          "syntax": "backtick"
+          "line": 87,
+          "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -3737,15 +4886,15 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 7,
-          "text": "产品定位和业务边界以 `docs/项目产品介绍书.md` 为准；本 README 只说明仓库结构、配置方式和常用运行入口。",
-          "syntax": "backtick"
+          "line": 12,
+          "text": "系统输出经营与分账参考，不执行真实资金划拨。业务边界以 [项目产品介绍书](docs/项目产品介绍书.md) 为准。",
+          "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 11,
-          "text": "- `docs/项目产品介绍书.md`：产品定义和业务边界。",
-          "syntax": "backtick"
+          "line": 25,
+          "text": "- [项目产品介绍书](docs/项目产品介绍书.md)：当前产品定义和业务边界。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -3760,26 +4909,117 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 14,
-          "text": "- `docs/api-contract.md`：页面 1、页面 2、页面 3 的 API 返回结构草案。",
-          "syntax": "backtick"
+          "line": 27,
+          "text": "- [API 契约](docs/api-contract.md)：认证、响应包络和接口分组。",
+          "syntax": "markdown"
         }
       ]
     },
     {
-      "id": "README.md->docs/data-model.md:links_to",
+      "id": "README.md->docs/architecture.md:links_to",
       "from": "README.md",
-      "to": "docs/data-model.md",
-      "target": "docs/data-model.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "README.md",
-          "line": 13,
-          "text": "- `docs/data-model.md`：数据表草案，需基于真实拉取数据持续校对。",
-          "syntax": "backtick"
+          "line": 26,
+          "text": "- [系统架构](docs/architecture.md)：当前代码结构、服务边界和数据链路。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/design-system/README.md:links_to",
+      "from": "README.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 29,
+          "text": "- [视觉系统](docs/design-system/README.md)：设计令牌、组件和页面视觉规范。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/governance/authority-map.md:links_to",
+      "from": "README.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 30,
+          "text": "- [文档权威映射](docs/governance/authority-map.md)：现有文档的 authority、evidence、legacy 和 stale 角色。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/rules/README.md:links_to",
+      "from": "README.md",
+      "to": "docs/rules/README.md",
+      "target": "docs/rules/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 87,
+          "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/runbook.md:links_to",
+      "from": "README.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 28,
+          "text": "- [运行手册](docs/runbook.md)：生产部署、迁移、运维和恢复。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "README.md",
+          "line": 83,
+          "text": "完整迁移、健康检查、备份和恢复步骤见 [运行手册](docs/runbook.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->project-profile.md:links_to",
+      "from": "README.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 24,
+          "text": "- [项目画像](project-profile.md)：项目身份、当前阶段、范围和治理状态。",
+          "syntax": "markdown"
         }
       ]
     }
