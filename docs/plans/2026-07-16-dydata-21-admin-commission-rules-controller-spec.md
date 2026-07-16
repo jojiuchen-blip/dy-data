@@ -1,6 +1,6 @@
 # DYDATA-21 管理后台分佣规则文档分支 Controller Spec
 
-Status: Ready for final verification
+Status: Complete
 
 Date: 2026-07-16
 
@@ -98,9 +98,9 @@ Scope control rule:
 - [x] Spec review 通过。
 - [x] Code quality review 通过。
 - [x] Focused tests、完整测试和 Web build 通过。
-- [ ] staged diff 已审查且无秘密、本机路径或真实业务数据。
-- [ ] commit hash 已记录。
-- [ ] 远端分支与本地 SHA 一致。
+- [x] staged diff 已审查且无秘密、本机路径或真实业务数据。
+- [x] commit hash 已记录：`7ec7d876fc2cfb78b2dcd578e4131a1cc4c51052`。
+- [x] 首次推送后远端分支与本地 SHA 一致。
 - [x] 协作者提示词可直接粘贴到 Linear。
 
 ## 9. Decision Log
@@ -118,3 +118,4 @@ Scope control rule:
 |------|--------|-------|----------|
 | 2026-07-16 | 创建控制规格 | Controller | 本文件 |
 | 2026-07-16 | 完成规格、质量、完整测试和 Web 构建验证 | Controller | `479 passed`；Web build passed |
+| 2026-07-16 | 提交并首次推送规则交接 | Controller | `7ec7d876fc2cfb78b2dcd578e4131a1cc4c51052`；本地、remote-tracking ref 与 `ls-remote` 一致 |
