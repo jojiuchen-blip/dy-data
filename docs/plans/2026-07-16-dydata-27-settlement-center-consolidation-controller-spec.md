@@ -1,6 +1,6 @@
 # DYDATA-27 Settlement Center Branch Consolidation Controller Spec
 
-Status: Active
+Status: Ready for final verification
 Date: 2026-07-16
 Controller: Codex main agent
 Repo / workspace: `C:\Users\86138\Documents\抖音来客看板-settlement-center`
@@ -99,16 +99,27 @@ Acceptance gate:
 
 ## 9. Final Acceptance Checklist
 
-- [ ] User goal satisfied.
-- [ ] Scope and non-goals respected.
-- [ ] Spec review passed.
-- [ ] Code quality review passed or risks accepted.
-- [ ] Required tests and build run or blockers documented.
-- [ ] Diff reviewed for unrelated changes.
-- [ ] Original dirty worktree remains preserved.
-- [ ] Final commit hashes recorded.
+- [x] User goal satisfied locally on the target branch.
+- [x] Scope and non-goals respected.
+- [x] Spec review passed.
+- [x] Code quality review passed with no blocking findings.
+- [x] Required tests and build passed.
+- [x] Diff reviewed for unrelated changes.
+- [x] Original dirty worktree remains preserved.
+- [x] Local commit hashes recorded.
 - [ ] Push succeeds and remote SHA matches local target branch.
 - [ ] DYDATA-27 receives verification and remote sync evidence.
+
+Verification results before push:
+
+- `git diff --check origin/main..HEAD`: passed.
+- `python -m alembic heads`: `20260715_0018 (head)`.
+- Targeted integration suite: 181 collected; 99 non-visual tests passed, then 86 visual smoke tests passed after installing locked web dependencies.
+- `python -m pytest`: 477 passed, 40 warnings.
+- `npm --prefix apps/web run build`: passed; TypeScript and Vite production build completed.
+- Spec review: exactly three unique code commits and one DYDATA-27 documentation commit are present above `origin/main` before this verification record.
+- Quality review: no blocking migration, API, frontend, documentation, or secret-handling findings; real billing identity values in the source mock were replaced with repository-safe examples.
+- Original worktree: remains on `codex/commission-page-collab-20260707` with its existing untracked files preserved.
 
 ## 10. Decision Log
 
@@ -117,9 +128,11 @@ Acceptance gate:
 | 2026-07-16 | Use latest `origin/main` as base | Includes already merged settlement visual PR and avoids replaying unrelated history | Branch audit |
 | 2026-07-16 | Apply three unique commits, not two merge commits | Merge commits only import mainline history already present in base | `origin/main...HEAD` audit |
 | 2026-07-16 | Preserve newer navigation mock from main | Original untracked mock is an older, substantially different artifact | No-index diff |
+| 2026-07-16 | Sanitize billing identity examples | Repository rules prohibit committing real sensitive business details | Scoped content review |
 
 ## 11. Change Log
 
 | Time | Change | Owner | Evidence |
 |------|--------|-------|----------|
 | 2026-07-16 | Initial active spec created | Controller | DYDATA-27 and Git audit |
+| 2026-07-16 | Recorded passing tests, build, spec review, and quality review | Controller | Verification commands above |
