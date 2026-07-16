@@ -1,0 +1,521 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>全国门店销售情况榜单 Mock</title>
+  <style>
+    :root {
+      --jc-orange: #FE5205;
+      --jc-orange-hover: #E94A04;
+      --jc-orange-tint: #FFF0EA;
+      --jc-bg: #F7F8FA;
+      --jc-surface: #FFFFFF;
+      --jc-surface-muted: #F5F5F5;
+      --jc-border: #E5E7EB;
+      --jc-text: #111827;
+      --jc-text-muted: #6B7280;
+      --jc-text-subtle: #9CA3AF;
+      --jc-blue: #1D4ED8;
+      --jc-green: #0F766E;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--jc-bg);
+      color: var(--jc-text);
+      font-family:
+        -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei",
+        "PingFang SC", sans-serif;
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .app {
+      max-width: 1320px;
+      margin: 0 auto;
+      padding: 28px;
+    }
+
+    .page-head,
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 18px;
+    }
+
+    .page-head {
+      margin-bottom: 18px;
+    }
+
+    h1,
+    h2 {
+      margin: 0;
+      letter-spacing: 0;
+    }
+
+    h1 {
+      font-size: 26px;
+      line-height: 1.2;
+      font-weight: 760;
+    }
+
+    h2 {
+      font-size: 18px;
+      line-height: 1.25;
+      font-weight: 720;
+    }
+
+    .subtle {
+      margin: 8px 0 0;
+      color: var(--jc-text-muted);
+    }
+
+    .source-pill,
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 28px;
+      border-radius: 999px;
+      padding: 0 10px;
+      border: 1px solid var(--jc-border);
+      background: var(--jc-surface);
+      color: var(--jc-text-muted);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .tag--orange {
+      border-color: #FFD0BC;
+      background: var(--jc-orange-tint);
+      color: var(--jc-orange-hover);
+    }
+
+    .notice {
+      display: flex;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 12px 14px;
+      border: 1px solid #FFD0BC;
+      border-radius: 8px;
+      background: #FFF8F4;
+      color: #7C2D12;
+    }
+
+    .notice strong {
+      color: #9A3412;
+      white-space: nowrap;
+    }
+
+    .filters {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(180px, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+      padding: 14px;
+      border: 1px solid var(--jc-border);
+      border-radius: 8px;
+      background: var(--jc-surface);
+    }
+
+    .field label {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--jc-text-muted);
+      font-size: 12px;
+      font-weight: 680;
+    }
+
+    .select {
+      min-height: 38px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 0 12px;
+      border: 1px solid var(--jc-border);
+      border-radius: 6px;
+      background: var(--jc-surface-muted);
+      color: var(--jc-text);
+      font-weight: 620;
+    }
+
+    .select span:last-child {
+      color: var(--jc-text-subtle);
+      font-size: 12px;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      margin-bottom: 18px;
+    }
+
+    .metric-card {
+      min-height: 128px;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--jc-border);
+      border-radius: 8px;
+      background: var(--jc-surface);
+    }
+
+    .metric-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .metric-label {
+      color: var(--jc-text-muted);
+      font-weight: 720;
+    }
+
+    .info {
+      width: 20px;
+      height: 20px;
+      flex: 0 0 auto;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--jc-border);
+      border-radius: 50%;
+      color: var(--jc-text-muted);
+      font-size: 12px;
+      cursor: help;
+    }
+
+    .metric-value {
+      font-size: 27px;
+      line-height: 1;
+      font-weight: 820;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .metric-meta {
+      margin-top: 8px;
+      color: var(--jc-text-subtle);
+      font-size: 12px;
+    }
+
+    .metric-card--orange .metric-value {
+      color: var(--jc-orange);
+    }
+
+    .metric-card--green .metric-value {
+      color: var(--jc-green);
+    }
+
+    .metric-card--blue .metric-value {
+      color: var(--jc-blue);
+    }
+
+    .section {
+      margin-bottom: 18px;
+      border: 1px solid var(--jc-border);
+      border-radius: 8px;
+      background: var(--jc-surface);
+      overflow: hidden;
+    }
+
+    .section-head {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--jc-border);
+      background: #FCFCFD;
+    }
+
+    .section-head p {
+      margin: 6px 0 0;
+      color: var(--jc-text-muted);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+
+    th,
+    td {
+      padding: 13px 18px;
+      border-bottom: 1px solid var(--jc-border);
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+
+    th {
+      color: var(--jc-text-muted);
+      font-size: 12px;
+      text-align: left;
+      font-weight: 760;
+    }
+
+    td {
+      font-weight: 560;
+    }
+
+    tr:last-child td {
+      border-bottom: 0;
+    }
+
+    .rank {
+      width: 34px;
+      height: 26px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      background: var(--jc-surface-muted);
+      color: var(--jc-text-muted);
+      font-weight: 780;
+    }
+
+    .rank--top {
+      background: var(--jc-orange-tint);
+      color: var(--jc-orange-hover);
+    }
+
+    .store-name {
+      font-weight: 760;
+    }
+
+    .num {
+      text-align: right;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .definition-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .definition {
+      margin: 0;
+      padding: 14px;
+      border: 1px solid var(--jc-border);
+      border-radius: 8px;
+      background: var(--jc-surface);
+    }
+
+    .definition dt {
+      margin: 0 0 6px;
+      font-weight: 760;
+    }
+
+    .definition dd {
+      margin: 0;
+      color: var(--jc-text-muted);
+    }
+
+    @media (max-width: 1100px) {
+      .metric-grid,
+      .filters,
+      .definition-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      .app {
+        padding: 18px;
+      }
+
+      .page-head,
+      .section-head {
+        flex-direction: column;
+      }
+
+      .metric-grid,
+      .filters,
+      .definition-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table {
+        min-width: 860px;
+      }
+
+      .table-scroll {
+        overflow-x: auto;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header class="page-head">
+      <div>
+        <h1>全国门店销售情况榜单</h1>
+        <p class="subtle">2026-06 · 精诚养车 · mock 数据预览</p>
+      </div>
+      <span class="source-pill">mock:store-ranking-v2</span>
+    </header>
+
+    <div class="notice">
+      <strong>口径提示</strong>
+      <span>榜单按销售订单数量排序。销售类指标按销售时间；核销收入和厂端激励推广费按核销时间。未配置规则比例的商品类型不进入统计。</span>
+    </div>
+
+    <section class="filters" aria-label="筛选条件">
+      <div class="field">
+        <label>月份</label>
+        <div class="select"><span>2026-06</span><span>混合时间口径</span></div>
+      </div>
+      <div class="field">
+        <label>产品范围</label>
+        <div class="select"><span>精诚养车</span><span>已配置范围</span></div>
+      </div>
+      <div class="field">
+        <label>商品类型</label>
+        <div class="select"><span>全部已配置商品</span><span>3 类</span></div>
+      </div>
+    </section>
+
+    <section class="metric-grid" aria-label="顶部指标">
+      <article class="metric-card">
+        <div class="metric-top">
+          <span class="metric-label">销售订单数量</span>
+          <span class="info" title="按销售归属门店统计有效销售订单，包含未核销订单，按 order_id 去重。">i</span>
+        </div>
+        <div>
+          <div class="metric-value">3,502</div>
+          <div class="metric-meta">按销售时间 · 订单去重</div>
+        </div>
+      </article>
+
+      <article class="metric-card metric-card--blue">
+        <div class="metric-top">
+          <span class="metric-label">销售订单金额</span>
+          <span class="info" title="按销售归属门店统计有效销售订单金额，包含未核销订单；使用订单表整单实收金额，按 order_id 去重。">i</span>
+        </div>
+        <div>
+          <div class="metric-value">¥975,200.00</div>
+          <div class="metric-meta">按销售时间 · 整单金额</div>
+        </div>
+      </article>
+
+      <article class="metric-card metric-card--green">
+        <div class="metric-top">
+          <span class="metric-label">核销收入</span>
+          <span class="info" title="按实际核销门店统计有效核销券级实收金额；退款、关闭、撤销券明细不进入统计。">i</span>
+        </div>
+        <div>
+          <div class="metric-value">¥702,630.00</div>
+          <div class="metric-meta">按核销时间 · 券级金额</div>
+        </div>
+      </article>
+
+      <article class="metric-card metric-card--orange">
+        <div class="metric-top">
+          <span class="metric-label">厂端激励推广费</span>
+          <span class="info" title="销售归属门店卖出的订单完成有效核销后，按商品类型推广费比例计算；本页不展示厂端应收服务费。">i</span>
+        </div>
+        <div>
+          <div class="metric-value">¥47,625.10</div>
+          <div class="metric-meta">按核销时间 · mock 比例</div>
+        </div>
+      </article>
+    </section>
+
+    <section class="section">
+      <div class="section-head">
+        <div>
+          <h2>前 20 门店榜单</h2>
+          <p>默认按销售订单数量降序排序；同数量时按门店 ID 保证排序稳定。</p>
+        </div>
+        <span class="tag tag--orange">排序：销售订单数量</span>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 80px;">排名</th>
+              <th>门店名称</th>
+              <th class="num">销售订单数量</th>
+              <th class="num">销售订单金额</th>
+              <th class="num">核销收入</th>
+              <th class="num">厂端激励推广费</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><span class="rank rank--top">1</span></td>
+              <td><span class="store-name">上海浦东金桥店</span></td>
+              <td class="num">862</td>
+              <td class="num">¥238,640.00</td>
+              <td class="num">¥177,080.00</td>
+              <td class="num">¥12,111.60</td>
+            </tr>
+            <tr>
+              <td><span class="rank rank--top">2</span></td>
+              <td><span class="store-name">杭州西溪银泰店</span></td>
+              <td class="num">744</td>
+              <td class="num">¥207,380.00</td>
+              <td class="num">¥148,920.00</td>
+              <td class="num">¥10,088.40</td>
+            </tr>
+            <tr>
+              <td><span class="rank rank--top">3</span></td>
+              <td><span class="store-name">南京河西奥体店</span></td>
+              <td class="num">693</td>
+              <td class="num">¥192,760.00</td>
+              <td class="num">¥136,450.00</td>
+              <td class="num">¥9,311.50</td>
+            </tr>
+            <tr>
+              <td><span class="rank">4</span></td>
+              <td><span class="store-name">苏州工业园店</span></td>
+              <td class="num">615</td>
+              <td class="num">¥171,520.00</td>
+              <td class="num">¥126,300.00</td>
+              <td class="num">¥8,523.00</td>
+            </tr>
+            <tr>
+              <td><span class="rank">5</span></td>
+              <td><span class="store-name">成都高新金融城店</span></td>
+              <td class="num">588</td>
+              <td class="num">¥164,900.00</td>
+              <td class="num">¥113,880.00</td>
+              <td class="num">¥7,590.60</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="definition-grid" aria-label="计算口径">
+      <dl class="definition">
+        <dt>销售订单数量</dt>
+        <dd>订单销售时间落入所选月份、销售归属门店明确，且排除退款、关闭、撤销券明细后仍至少保留一张有效券，即计为有效销售订单；包含尚未核销的订单，每个 order_id 只计一次。</dd>
+      </dl>
+      <dl class="definition">
+        <dt>销售订单金额</dt>
+        <dd>与销售订单数量使用同一批有效 order_id，每个订单只取一次订单表整单实收金额。一单多券时不会重复金额；部分券退款但订单仍有有效券时，仍按该订单表记录的整单实收金额统计。</dd>
+      </dl>
+      <dl class="definition">
+        <dt>核销收入</dt>
+        <dd>券核销时间落入所选月份且实际核销门店明确时，按实际核销门店汇总有效券的实收金额；每张券只汇总一次，退款、关闭或撤销券不计入。</dd>
+      </dl>
+      <dl class="definition">
+        <dt>厂端激励推广费</dt>
+        <dd>按销售归属门店归集本月完成的有效核销券。每张券以券级实收金额乘所属商品类型的推广费比例，四舍五入到分后再汇总；推广费比例为空的商品类型不进入该指标。</dd>
+      </dl>
+      <dl class="definition">
+        <dt>排名规则</dt>
+        <dd>按销售订单数量从高到低排名；数量相同时按门店 ID 固定顺序排列，保证同一批数据重复查询时排名稳定。销售指标按销售时间，核销收入和推广费按核销时间。</dd>
+      </dl>
+    </section>
+  </main>
+</body>
+</html>

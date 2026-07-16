@@ -158,7 +158,37 @@ When starting implementation on an existing Linear issue:
 If another collaborator or Codex window is already working on the issue, stop
 and ask how to coordinate before editing files.
 
-## 7. Verification Gate
+## 7. Settlement Center Branch Continuity
+
+Settlement center work uses one long-lived remote integration branch by
+default:
+
+```text
+codex/settlement-center
+```
+
+Apply these rules to Settlement, Store Ranking, Store Settlement, Order
+Details, and closely related settlement administration work:
+
+- Reuse `codex/settlement-center`; do not create a date-named or issue-named
+  remote branch for each Linear issue by default.
+- Keep Linear issues separate and include the relevant `DYDATA-xx` identifier
+  in checkpoint commit messages so each change remains traceable.
+- Local temporary branches are allowed for isolated work, but do not push them
+  by default. Review and merge them locally into `codex/settlement-center`.
+- Only one active Codex window or collaborator owns push access to the shared
+  branch at a time. Record the owner and current HEAD in the Linear issue.
+- Before every push, fetch the remote and report the tracking branch,
+  ahead/behind counts, staged diff, unstaged changes, untracked files, recent
+  commits, verification results, and intended push target.
+- Never rebase or force-push the shared branch. If a non-fast-forward update is
+  detected, stop and audit both histories before merging.
+- An exception remote branch requires explicit user approval and a Linear
+  record explaining the isolation reason and cleanup plan.
+- At handoff, record the branch, HEAD, committed-but-unpushed count,
+  staged/unstaged/untracked state, completed verification, and next action.
+
+## 8. Verification Gate
 
 For code changes, start with:
 
@@ -182,7 +212,7 @@ evidence, and explain any excluded or anomalous records.
 For production or deployment work, include CI/deploy status, logs, smoke tests,
 and rollback considerations.
 
-## 8. Done Gate
+## 9. Done Gate
 
 Do not close or call an issue done until:
 
@@ -193,7 +223,7 @@ Do not close or call an issue done until:
 - any remaining risk is recorded or split into a follow-up issue
 - the user or responsible collaborator accepts the result
 
-## 9. Team Documentation
+## 10. Team Documentation
 
 The Linear team documentation is part of the working system. Use and maintain:
 
@@ -205,7 +235,7 @@ When the collaboration process changes, update Linear team documentation and, if
 the rule affects all Codex windows for this repository, update this `AGENTS.md`
 too.
 
-## 10. Suggested User Phrases
+## 11. Suggested User Phrases
 
 Backlog only:
 
