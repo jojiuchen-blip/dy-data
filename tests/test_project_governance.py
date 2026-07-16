@@ -210,7 +210,7 @@ def test_ci_runs_suite_governance_gates_before_product_tests() -> None:
         "node .agent/project-manager-suite/tools/verify-suite-lock.mjs .",
         "node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite",
         "node .agent/project-manager-suite/tools/validate-global-files.mjs .",
-        "node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S0.5",
+        "node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S1",
     )
 
     for relative_path in (
