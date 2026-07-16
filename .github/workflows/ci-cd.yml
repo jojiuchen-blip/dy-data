@@ -55,7 +55,7 @@ jobs:
           node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
           node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite
           node .agent/project-manager-suite/tools/validate-global-files.mjs .
-          node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S0.5
+          node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S1
 
       - name: Install frontend dependencies
         working-directory: apps/web
