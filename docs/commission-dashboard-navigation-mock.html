@@ -1,0 +1,529 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>门店结算看板视觉规范 · DYDATA-23</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+          system-ui, sans-serif;
+        --bg: #f5f5f2;
+        --surface: #ffffff;
+        --surface-soft: #f8faf8;
+        --ink: #1b1c1d;
+        --muted: #68706c;
+        --line: #dfe3df;
+        --line-strong: #cbd2cc;
+        --brand: #d63b00;
+        --brand-bright: #fe5205;
+        --brand-soft: #fff4ef;
+        --green: #116653;
+        --green-soft: #eff8f5;
+        --blue: #2f639a;
+        --blue-soft: #f0f5fb;
+        --shadow-card: 0 12px 28px rgb(18 26 22 / 0.07);
+        --radius: 12px;
+      }
+
+      * { box-sizing: border-box; }
+      html { background: var(--bg); }
+      body { margin: 0; min-width: 0; color: var(--ink); background: var(--bg); }
+      button, input, select { font: inherit; }
+      button, select, input, a { outline-offset: 3px; }
+      button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+        outline: 3px solid rgb(254 82 5 / 0.28);
+      }
+      a { color: inherit; }
+
+      .workspace { min-height: 100vh; display: grid; grid-template-columns: 220px minmax(0, 1fr); }
+      .rail {
+        min-width: 0;
+        padding: 28px 20px;
+        color: #fff;
+        background: #1d222a;
+      }
+      .brand { display: grid; gap: 4px; margin-bottom: 42px; }
+      .brand strong { font-size: 22px; }
+      .brand span, .rail-label { color: #aeb5be; font-size: 13px; }
+      .rail-label { margin-bottom: 10px; }
+      .rail-nav { display: grid; gap: 8px; }
+      .rail-nav a {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 14px;
+        border-left: 2px solid transparent;
+        border-radius: 8px;
+        color: #e8ebef;
+        font-weight: 700;
+        text-decoration: none;
+      }
+      .rail-nav a[aria-current="page"] {
+        border-left-color: var(--brand-bright);
+        background: #303743;
+      }
+      .rail-nav small { color: #f6b494; font-weight: 500; }
+
+      .main-shell { min-width: 0; }
+      .topbar {
+        min-height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 0 32px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface);
+      }
+      .topbar strong { font-size: 20px; }
+      .account { display: flex; align-items: center; gap: 10px; color: #4d534f; }
+      .avatar {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        color: #fff;
+        background: #23272d;
+        font-weight: 800;
+      }
+      .page-wrap { min-width: 0; max-width: 1480px; margin: 0 auto; padding: 34px 32px 60px; }
+      .preview-label { margin: 0 0 8px; color: var(--brand); font-weight: 800; }
+      .page-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 24px;
+      }
+      .page-heading h1 { margin: 0; font-size: clamp(30px, 3vw, 46px); line-height: 1.12; }
+      .page-heading p { max-width: 700px; margin: 12px 0 0; color: var(--muted); line-height: 1.7; }
+      .source-pill, .quiet-badge, .direction-pill, .status-pill {
+        display: inline-flex;
+        align-items: center;
+        min-height: 34px;
+        padding: 0 12px;
+        border: 1px solid #d6e6df;
+        border-radius: 999px;
+        color: var(--green);
+        background: #f7fbf9;
+        white-space: nowrap;
+      }
+      .direction-pill { min-height: 30px; border-color: #f6ded4; color: #9e360e; background: var(--brand-soft); font-weight: 700; }
+      .direction-pill--green { border-color: #d7e8e1; color: var(--green); background: var(--green-soft); }
+      .status-pill { border-color: var(--line); color: var(--muted); background: #f1f3f1; font-weight: 700; }
+      .quiet-badge { border-color: var(--line); color: var(--muted); background: #fff; }
+
+      .peer-nav {
+        display: flex;
+        gap: 32px;
+        margin: 28px 0;
+        overflow-x: auto;
+        border-bottom: 1px solid var(--line);
+        scrollbar-width: thin;
+      }
+      .peer-nav a {
+        min-height: 48px;
+        display: flex;
+        align-items: center;
+        flex: 0 0 auto;
+        border-bottom: 2px solid transparent;
+        color: #666d69;
+        font-size: 17px;
+        font-weight: 800;
+        text-decoration: none;
+      }
+      .peer-nav a[aria-current="page"] { border-color: var(--brand-bright); color: #8e2c09; }
+
+      .filter-panel {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        gap: 16px;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius);
+        background: var(--surface);
+      }
+      .field { min-width: 0; display: grid; gap: 8px; }
+      .field > span { color: #606762; font-size: 14px; font-weight: 800; }
+      .field select, .field input {
+        width: 100%;
+        min-width: 0;
+        min-height: 48px;
+        padding: 0 14px;
+        border: 1px solid var(--line-strong);
+        border-radius: 9px;
+        color: var(--ink);
+        background: #fff;
+      }
+      .field input::placeholder { color: #9aa19c; }
+      .field select:disabled { color: #8a908c; background: #f3f4f2; }
+
+      .metric-grid { display: grid; gap: 16px; margin: 18px 0 24px; }
+      .metric-grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+      .metric-grid--five { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+      .metric {
+        min-width: 0;
+        padding: 20px;
+        border: 1px solid var(--line);
+        border-top: 4px solid #898f8a;
+        border-radius: var(--radius);
+        background: var(--surface);
+        box-shadow: var(--shadow-card);
+      }
+      .metric.blue { border-top-color: var(--blue); }
+      .metric.green { border-top-color: var(--green); }
+      .metric.orange { border-top-color: var(--brand-bright); }
+      .metric-label { display: block; min-height: 42px; color: #5d645f; font-weight: 800; line-height: 1.45; }
+      .metric-value { display: block; margin-top: 14px; font-size: clamp(22px, 2vw, 30px); line-height: 1.1; }
+      .metric.blue .metric-value { color: var(--blue); }
+      .metric.green .metric-value { color: var(--green); }
+      .metric.orange .metric-value { color: var(--brand); }
+      .metric-meta { display: block; margin-top: 12px; color: #858b87; font-size: 13px; }
+      .metric-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); margin-top: 12px; border-block: 1px solid var(--line); }
+      .metric-slice { min-width: 0; padding: 12px 0; }
+      .metric-slice + .metric-slice { padding-left: 14px; border-left: 1px solid var(--line); }
+      .metric-slice span { display: block; color: #777e79; font-size: 12px; }
+      .metric-slice strong { display: block; margin-top: 6px; overflow-wrap: anywhere; font-size: clamp(16px, 1.3vw, 21px); }
+      .metric-slice:last-child strong { color: #989e9a; }
+
+      .content-panel { margin-top: 22px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+      .section-heading {
+        display: flex;
+        align-items: start;
+        justify-content: space-between;
+        gap: 18px;
+        padding: 22px 24px;
+        border-bottom: 1px solid var(--line);
+      }
+      .section-heading h2 { margin: 0; font-size: 24px; }
+      .section-heading p { margin: 7px 0 0; color: var(--muted); line-height: 1.55; }
+      .table-scroll { max-width: 100%; overflow-x: auto; }
+      table { width: 100%; min-width: 920px; border-collapse: collapse; }
+      th, td { padding: 15px 18px; border-bottom: 1px solid var(--line); text-align: left; }
+      th { color: #555d58; background: #f3f4f1; font-size: 13px; }
+      td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+      tbody tr:last-child td { border-bottom: 0; }
+      tbody tr:hover { background: #fffaf7; }
+      .own-row { background: #fff8f4; }
+      .store-name { display: block; font-weight: 800; }
+      .store-id { display: block; margin-top: 4px; color: #8a918c; font-size: 12px; }
+      .rank { color: var(--brand); }
+      .text-link { color: var(--brand); font-weight: 800; text-decoration-thickness: 1px; text-underline-offset: 3px; }
+      .empty-state { padding: 34px; color: var(--muted); text-align: center; }
+      .hidden { display: none !important; }
+
+      .order-tabs {
+        display: flex;
+        gap: 10px;
+        margin: 0 0 16px;
+        overflow-x: auto;
+      }
+      .order-tab {
+        min-height: 44px;
+        padding: 0 16px;
+        border: 1px solid var(--line-strong);
+        border-radius: 8px;
+        color: #555d58;
+        background: #fff;
+        font-weight: 800;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      .order-tab[aria-pressed="true"] { border-color: var(--brand); color: #8e2c09; background: var(--brand-soft); }
+      .invoice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 22px; }
+      .invoice-step { min-height: 150px; display: grid; grid-template-columns: 54px 1fr; gap: 14px; padding: 20px; border: 1px solid #cfe1da; border-radius: 10px; background: #f4faf7; }
+      .invoice-step.current { border-color: #ff8b5f; background: #fff4ef; }
+      .invoice-step.future { border-color: var(--line); background: #fafafa; }
+      .step-number { width: 50px; height: 44px; display: grid; place-items: center; border-radius: 9px; color: #fff; background: var(--green); font-weight: 900; }
+      .invoice-step.current .step-number { background: var(--brand); }
+      .invoice-step.future .step-number { background: #6e746f; }
+      .invoice-step h3 { margin: 2px 0 8px; font-size: 19px; }
+      .invoice-step p { margin: 0; color: var(--muted); line-height: 1.55; }
+      .step-state { display: block; margin-top: 12px; color: var(--green); font-weight: 800; }
+      .invoice-step.current .step-state { color: var(--brand); }
+
+      @media (max-width: 1180px) {
+        .metric-grid--four, .metric-grid--five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+      @media (max-width: 800px) {
+        .workspace { grid-template-columns: 1fr; }
+        .rail { padding: 16px 20px; }
+        .brand { margin-bottom: 14px; }
+        .rail-label { display: none; }
+        .rail-nav { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .rail-nav a { justify-content: center; text-align: center; }
+        .rail-nav a small { display: none; }
+        .topbar { min-height: 60px; padding: 0 20px; }
+        .account span:last-child { display: none; }
+        .page-wrap { padding: 24px 20px 44px; }
+        .page-heading { align-items: start; flex-direction: column; }
+        .source-pill { white-space: normal; }
+      }
+      @media (max-width: 560px) {
+        .rail-nav { grid-template-columns: 1fr 1fr; }
+        .page-wrap { padding-inline: 14px; }
+        .filter-panel, .metric-grid--four, .metric-grid--five, .invoice-grid { grid-template-columns: 1fr; }
+        .peer-nav { gap: 22px; }
+        .section-heading { align-items: start; flex-direction: column; padding: 18px; }
+        .metric { padding: 18px; }
+        .invoice-grid { padding: 16px; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="workspace">
+      <aside class="rail">
+        <div class="brand">
+          <strong>经营引擎</strong>
+          <span>抖音经营数据引擎</span>
+        </div>
+        <div class="rail-label">主模块</div>
+        <nav class="rail-nav" aria-label="主模块">
+          <a href="#/ranking">线索中心</a>
+          <a href="#/ranking">核销表现</a>
+          <a href="#/ranking" aria-current="page">门店结算 <small>试运行</small></a>
+        </nav>
+      </aside>
+      <div class="main-shell">
+        <header class="topbar">
+          <strong>门店结算</strong>
+          <div class="account"><span class="avatar">浦</span><span>上海浦东金桥店 · 门店账号</span></div>
+        </header>
+        <main class="page-wrap">
+          <p class="preview-label">门店结算 · V0.2 视觉规范预览</p>
+          <nav class="peer-nav" aria-label="门店结算页面">
+            <a href="#/ranking" data-route="ranking">全国门店榜单</a>
+            <a href="#/store" data-route="store">单店分账</a>
+            <a href="#/orders" data-route="orders">订单费用明细</a>
+            <a href="#/invoice" data-route="invoice">开票确认</a>
+          </nav>
+          <div id="page"></div>
+        </main>
+      </div>
+    </div>
+
+    <template id="ranking-template">
+      <section class="page-heading">
+        <div><h1>全国门店榜单</h1><p>查看全国门店销售、核销与厂端激励推广费汇总排名。</p></div>
+        <span class="source-pill">Mock 数据 · 更新于 2026-07-15 09:30</span>
+      </section>
+      <section class="filter-panel" aria-label="全国门店榜单筛选器">
+        <label class="field"><span>日期范围</span><select id="ranking-date"><option value="2026-07">2026/07</option><option value="2026-06">2026/06</option><option value="all">全部累计数据</option></select></label>
+        <label class="field"><span>产品范围</span><select><option>全部产品范围</option><option>养车套餐</option><option>美容养护</option><option>轮胎服务</option></select></label>
+        <label class="field"><span>商品类型</span><select><option>全部商品类型</option><option>精保养套餐</option><option>漆面护理</option><option>深度洗美</option><option>轮胎养护</option></select></label>
+        <label class="field"><span>门店搜索</span><input id="ranking-search" placeholder="输入门店名称或 ID" /></label>
+        <label class="field"><span>排名依据</span><select id="ranking-sort"><option value="orders">销售订单数量</option><option value="sales">销售总金额</option><option value="verified">核销收入</option><option value="promotion">厂端激励推广费</option></select></label>
+      </section>
+      <section class="metric-grid metric-grid--four" aria-label="全国汇总指标">
+        <article class="metric"><span class="metric-label">销售订单数量</span><div class="metric-split"><div class="metric-slice"><span>当月</span><strong>3,502</strong></div><div class="metric-slice"><span>累计</span><strong>—</strong></div></div><span class="metric-meta">累计自 2026-08 正式账期启用</span></article>
+        <article class="metric blue"><span class="metric-label">销售总金额</span><div class="metric-split"><div class="metric-slice"><span>当月</span><strong>¥975,200.00</strong></div><div class="metric-slice"><span>累计</span><strong>—</strong></div></div><span class="metric-meta">累计自 2026-08 正式账期启用</span></article>
+        <article class="metric green"><span class="metric-label">核销收入</span><div class="metric-split"><div class="metric-slice"><span>当月</span><strong>¥702,630.00</strong></div><div class="metric-slice"><span>累计</span><strong>—</strong></div></div><span class="metric-meta">累计自 2026-08 正式账期启用</span></article>
+        <article class="metric orange"><span class="metric-label">厂端激励推广费</span><div class="metric-split"><div class="metric-slice"><span>当月</span><strong>¥47,625.10</strong></div><div class="metric-slice"><span>累计</span><strong>—</strong></div></div><span class="metric-meta">累计自 2026-08 正式账期启用</span></article>
+      </section>
+      <section class="content-panel">
+        <div class="section-heading"><div><h2 id="ranking-title">全国门店销售情况榜单</h2><p id="ranking-note">2026/07 当月数据 · 按所选指标降序</p></div><span class="quiet-badge" id="ranking-badge">当月 · 2,846 家门店</span></div>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>排名</th><th>门店</th><th class="num">销售订单数量</th><th class="num">销售总金额</th><th class="num">核销收入</th><th class="num">厂端激励推广费</th><th>权限</th></tr></thead>
+            <tbody id="ranking-rows">
+              <tr class="ranking-data-row own-row" data-store="上海浦东金桥店 ST-SH-001" data-orders="428" data-sales="238640" data-verified="177080" data-promotion="12111.6"><td><strong class="rank">01</strong></td><td><span class="store-name">上海浦东金桥店</span><span class="store-id">ST-SH-001 · 当前门店</span></td><td class="num">428</td><td class="num">¥238,640.00</td><td class="num">¥177,080.00</td><td class="num">¥12,111.60</td><td><a class="text-link" href="#/store">查看本店</a></td></tr>
+              <tr class="ranking-data-row" data-store="北京朝阳来广营店 ST-BJ-021" data-orders="391" data-sales="221180" data-verified="168420" data-promotion="11482.4"><td><strong class="rank">02</strong></td><td><span class="store-name">北京朝阳来广营店</span><span class="store-id">ST-BJ-021</span></td><td class="num">391</td><td class="num">¥221,180.00</td><td class="num">¥168,420.00</td><td class="num">¥11,482.40</td><td>仅看汇总</td></tr>
+              <tr class="ranking-data-row" data-store="广州番禺大道店 ST-GZ-118" data-orders="376" data-sales="208940" data-verified="155860" data-promotion="10306.2"><td><strong class="rank">03</strong></td><td><span class="store-name">广州番禺大道店</span><span class="store-id">ST-GZ-118</span></td><td class="num">376</td><td class="num">¥208,940.00</td><td class="num">¥155,860.00</td><td class="num">¥10,306.20</td><td>仅看汇总</td></tr>
+              <tr class="ranking-data-row" data-store="深圳南山科技园店 ST-SZ-009" data-orders="352" data-sales="196720" data-verified="148360" data-promotion="9842.8"><td><strong class="rank">04</strong></td><td><span class="store-name">深圳南山科技园店</span><span class="store-id">ST-SZ-009</span></td><td class="num">352</td><td class="num">¥196,720.00</td><td class="num">¥148,360.00</td><td class="num">¥9,842.80</td><td>仅看汇总</td></tr>
+              <tr class="ranking-empty-row hidden"><td colspan="7"><div class="empty-state">累计排名将在 2026-08 正式账期启用，7 月测试数据不纳入累计。</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </template>
+
+    <template id="store-template">
+      <section class="page-heading">
+        <div><h1>单店分账</h1><p>查看本店月度经营与两类费用，并按费用方向跳转至订单明细。</p></div>
+        <span class="source-pill">Mock 数据 · 更新于 2026-07-15 09:30</span>
+      </section>
+      <section class="filter-panel" aria-label="单店分账筛选器">
+        <label class="field"><span>月份</span><select><option>2026-07 · 实时数据</option><option>2026-06</option></select></label>
+        <label class="field"><span>门店</span><select disabled><option>上海浦东金桥店</option></select></label>
+        <label class="field"><span>产品范围</span><select><option>全部产品范围</option><option>养车套餐</option><option>美容养护</option></select></label>
+        <label class="field"><span>商品类型</span><select><option>全部商品类型</option><option>精保养套餐</option><option>漆面护理</option><option>深度洗美</option></select></label>
+      </section>
+      <section class="metric-grid metric-grid--five" aria-label="单店经营及费用指标">
+        <article class="metric"><span class="metric-label">销售总金额</span><strong class="metric-value">¥238,640.00</strong><span class="metric-meta">2026-07 · 按销售时间</span></article>
+        <article class="metric blue"><span class="metric-label">本店卖出订单已核销金额</span><strong class="metric-value">¥176,880.00</strong><span class="metric-meta">推广费计算基数</span></article>
+        <article class="metric orange"><span class="metric-label">应收推广费</span><strong class="metric-value">¥12,111.60</strong><span class="metric-meta">全部产品范围 · 本期正常金额</span></article>
+        <article class="metric green"><span class="metric-label">本店核销金额</span><strong class="metric-value">¥177,080.00</strong><span class="metric-meta">按实际核销门店归属</span></article>
+        <article class="metric green"><span class="metric-label">应扣管理服务费</span><strong class="metric-value">¥19,112.60</strong><span class="metric-meta">本期正常金额</span></article>
+      </section>
+      <section class="content-panel">
+        <div class="section-heading"><div><h2>应收推广费：本店卖出的订单已被核销</h2><p>本店通过抖音直播、短视频等卖出的订单，在当月已被核销</p></div><span class="direction-pill">推广费方向</span></div>
+        <div class="table-scroll"><table><thead><tr><th>产品范围</th><th>商品类型</th><th class="num">对应核销单数</th><th class="num">对应订单实收金额</th><th class="num">配置比例</th><th class="num">预计应收推广费</th><th>点击跳转</th></tr></thead><tbody>
+          <tr><td>养车套餐</td><td><strong>精保养套餐</strong></td><td class="num">128</td><td class="num">¥96,000.00</td><td class="num">6.8%</td><td class="num"><strong>¥6,528.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=养车套餐&amp;product_type=精保养套餐&amp;direction=promotion&amp;ratio=6.8%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+          <tr><td>美容养护</td><td><strong>漆面护理</strong></td><td class="num">66</td><td class="num">¥52,400.00</td><td class="num">6.8%</td><td class="num"><strong>¥3,563.20</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=美容养护&amp;product_type=漆面护理&amp;direction=promotion&amp;ratio=6.8%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+          <tr><td>美容养护</td><td><strong>深度洗美</strong></td><td class="num">108</td><td class="num">¥28,480.00</td><td class="num">8.0%</td><td class="num"><strong>¥2,278.40</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=美容养护&amp;product_type=深度洗美&amp;direction=promotion&amp;ratio=8.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+        </tbody></table></div>
+      </section>
+      <section class="content-panel">
+        <div class="section-heading"><div><h2>应扣管理服务费：进入本店完成核销的订单</h2><p>本店在当月核销所有抖音渠道的订单</p></div><span class="direction-pill direction-pill--green">管理服务费方向</span></div>
+        <div class="table-scroll"><table><thead><tr><th>产品范围</th><th>商品类型</th><th class="num">对应核销单数</th><th class="num">对应订单实收金额</th><th class="num">配置比例</th><th class="num">应扣管理服务费</th><th>点击跳转</th></tr></thead><tbody>
+          <tr><td>养车套餐</td><td><strong>精保养套餐</strong></td><td class="num">136</td><td class="num">¥98,200.00</td><td class="num">10.0%</td><td class="num"><strong>¥9,820.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=养车套餐&amp;product_type=精保养套餐&amp;direction=management&amp;ratio=10.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+          <tr><td>美容养护</td><td><strong>漆面护理</strong></td><td class="num">72</td><td class="num">¥54,800.00</td><td class="num">10.0%</td><td class="num"><strong>¥5,480.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=美容养护&amp;product_type=漆面护理&amp;direction=management&amp;ratio=10.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+          <tr><td>美容养护</td><td><strong>深度洗美</strong></td><td class="num">92</td><td class="num">¥24,080.00</td><td class="num">10.0%</td><td class="num"><strong>¥2,408.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=美容养护&amp;product_type=深度洗美&amp;direction=management&amp;ratio=10.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
+        </tbody></table></div>
+      </section>
+    </template>
+
+    <template id="orders-template">
+      <section class="page-heading">
+        <div><h1>订单费用明细</h1><p>核对订单级费用计算；从单店分账跳转时直接定位到筛选器和表格。</p></div>
+        <span class="source-pill">Mock 数据 · 更新于 2026-07-15 09:30</span>
+      </section>
+      <section class="content-panel" id="orders-workbench" tabindex="-1">
+        <div class="section-heading"><div><h2 id="orders-heading">推广费订单明细</h2><p>一张券一行；当前筛选共 3 条 Mock 记录。</p></div><button class="order-tab" type="button">导出当前明细</button></div>
+        <div style="padding: 20px 20px 0">
+          <div class="order-tabs" aria-label="订单费用明细类型">
+            <button class="order-tab" type="button" data-direction="promotion" aria-pressed="true">推广费订单明细</button>
+            <button class="order-tab" type="button" data-direction="management" aria-pressed="false">管理服务费订单明细</button>
+          </div>
+          <section class="filter-panel" aria-label="订单费用明细筛选器">
+            <label class="field"><span>核销月份</span><select id="orders-month"><option value="2026-07">2026-07</option><option value="2026-06">2026-06</option></select></label>
+            <label class="field"><span>数据状态</span><select><option>全部状态</option><option>正常</option><option>退款调整</option></select></label>
+            <label class="field"><span>订单搜索</span><input placeholder="订单 ID、券 ID 或商品类型" /></label>
+          </section>
+        </div>
+        <div class="table-scroll" style="margin-top: 20px"><table><thead><tr><th>订单 ID</th><th>券 ID</th><th>产品范围</th><th>商品类型</th><th>核销月份</th><th class="num">订单实收金额</th><th class="num">费用比例</th><th class="num">费用金额</th><th>状态</th></tr></thead><tbody>
+          <tr class="order-row" data-direction="promotion"><td><strong>DY2026071500188</strong></td><td>CPN-260715-00188</td><td>养车套餐</td><td>精保养套餐</td><td>2026-07</td><td class="num">¥800.00</td><td class="num">6.8%</td><td class="num">¥54.40</td><td>正常</td></tr>
+          <tr class="order-row" data-direction="promotion"><td><strong>DY2026071300321</strong></td><td>CPN-260713-00321</td><td>美容养护</td><td>漆面护理</td><td>2026-07</td><td class="num">¥600.00</td><td class="num">6.8%</td><td class="num">¥40.80</td><td>正常</td></tr>
+          <tr class="order-row" data-direction="promotion"><td><strong>DY2026071100716</strong></td><td>CPN-260711-00716</td><td>美容养护</td><td>深度洗美</td><td>2026-07</td><td class="num">¥320.00</td><td class="num">8.0%</td><td class="num">¥25.60</td><td>正常</td></tr>
+          <tr class="order-row hidden" data-direction="management"><td><strong>DY2026071501092</strong></td><td>CPN-260715-01092</td><td>养车套餐</td><td>精保养套餐</td><td>2026-07</td><td class="num">¥820.00</td><td class="num">10.0%</td><td class="num">¥82.00</td><td>正常</td></tr>
+          <tr class="order-row hidden" data-direction="management"><td><strong>DY2026071200941</strong></td><td>CPN-260712-00941</td><td>美容养护</td><td>漆面护理</td><td>2026-07</td><td class="num">¥760.00</td><td class="num">10.0%</td><td class="num">¥76.00</td><td>正常</td></tr>
+          <tr class="order-row hidden" data-direction="management"><td><strong>DY2026071000318</strong></td><td>CPN-260710-00318</td><td>美容养护</td><td>深度洗美</td><td>2026-07</td><td class="num">¥280.00</td><td class="num">10.0%</td><td class="num">¥28.00</td><td>正常</td></tr>
+        </tbody></table></div>
+      </section>
+    </template>
+
+    <template id="invoice-template">
+      <section class="page-heading">
+        <div><h1>开票确认</h1><p>当前基础版本只展示门店账单确认与开票所处流程，不展开详细发票能力或财务操作。</p></div>
+        <span class="source-pill">Mock 数据 · 更新于 2026-07-15 09:30</span>
+      </section>
+      <section class="content-panel">
+        <div class="section-heading"><div><h2>账单确认与开票</h2><p>初版仅展示门店所处流程，不展开详细发票能力或财务操作。</p></div><span class="status-pill">当前功能暂未开放</span></div>
+        <div class="invoice-grid">
+          <article class="invoice-step"><span class="step-number">01</span><div><h3>月度账单待确认</h3><p>系统生成本店月度账单</p><span class="step-state">流程节点</span></div></article>
+          <article class="invoice-step"><span class="step-number">02</span><div><h3>门店确认账单</h3><p>门店确认账单金额与范围</p><span class="step-state">流程节点</span></div></article>
+          <article class="invoice-step"><span class="step-number">03</span><div><h3>门店开具推广费发票</h3><p>按已确认账单完成开票</p><span class="step-state">流程节点</span></div></article>
+          <article class="invoice-step current"><span class="step-number">04</span><div><h3>发票提交财务审核</h3><p>等待财务审核发票</p><span class="step-state">流程节点</span></div></article>
+          <article class="invoice-step future"><span class="step-number">05</span><div><h3>审核完成并进入结算</h3><p>审核通过后进入结算</p><span class="step-state">流程节点</span></div></article>
+        </div>
+      </section>
+    </template>
+
+    <script>
+      (function () {
+        var pageRoot = document.getElementById("page");
+        var routeLinks = Array.prototype.slice.call(document.querySelectorAll(".peer-nav [data-route]"));
+
+        function routeInfo() {
+          var raw = window.location.hash.replace(/^#\//, "");
+          var parts = raw.split("?");
+          var route = parts[0] || "ranking";
+          if (["ranking", "store", "orders", "invoice"].indexOf(route) === -1) route = "ranking";
+          return { route: route, params: new URLSearchParams(parts[1] || "") };
+        }
+
+        function setCurrentRoute(route) {
+          routeLinks.forEach(function (link) {
+            if (link.dataset.route === route) link.setAttribute("aria-current", "page");
+            else link.removeAttribute("aria-current");
+          });
+        }
+
+        function bindRanking() {
+          var date = document.getElementById("ranking-date");
+          var title = document.getElementById("ranking-title");
+          var note = document.getElementById("ranking-note");
+          var badge = document.getElementById("ranking-badge");
+          var search = document.getElementById("ranking-search");
+          var sort = document.getElementById("ranking-sort");
+          var body = document.getElementById("ranking-rows");
+
+          function refreshRows() {
+            var cumulative = date.value === "all";
+            var query = search.value.trim().toLowerCase();
+            var rows = Array.prototype.slice.call(body.querySelectorAll(".ranking-data-row"));
+            rows.sort(function (left, right) {
+              return Number(right.dataset[sort.value]) - Number(left.dataset[sort.value]);
+            });
+            rows.forEach(function (row, index) {
+              row.classList.toggle("hidden", cumulative || row.dataset.store.toLowerCase().indexOf(query) === -1);
+              row.querySelector(".rank").textContent = String(index + 1).padStart(2, "0");
+              body.insertBefore(row, body.querySelector(".ranking-empty-row"));
+            });
+            body.querySelector(".ranking-empty-row").classList.toggle("hidden", !cumulative);
+            title.textContent = cumulative ? "全国门店累计销售情况榜单" : "全国门店销售情况榜单";
+            note.textContent = cumulative ? "累计从 2026-08 正式账期开始，7 月测试数据不纳入" : date.options[date.selectedIndex].text + " 当月数据 · 按所选指标降序";
+            badge.textContent = (cumulative ? "累计" : "当月") + " · 2,846 家门店";
+          }
+          date.addEventListener("change", refreshRows);
+          search.addEventListener("input", refreshRows);
+          sort.addEventListener("change", refreshRows);
+        }
+
+        function bindOrders(params) {
+          var tabs = Array.prototype.slice.call(document.querySelectorAll("[data-direction]"));
+          var heading = document.getElementById("orders-heading");
+          var workbench = document.getElementById("orders-workbench");
+          var monthSelect = document.getElementById("orders-month");
+          var month = params.get("month");
+          var hasMonthOption = Array.prototype.some.call(monthSelect.options, function (option) {
+            return option.value === month;
+          });
+          if (month && hasMonthOption) {
+            monthSelect.value = month;
+          }
+          ["month", "store", "product_scope", "product_type", "direction", "ratio", "version"].forEach(function (key) {
+            if (params.get(key)) workbench.dataset[key] = params.get(key);
+          });
+          function selectDirection(direction) {
+            tabs.forEach(function (tab) {
+              var selected = tab.dataset.direction === direction;
+              if (tab.classList.contains("order-tab")) tab.setAttribute("aria-pressed", selected ? "true" : "false");
+              if (tab.classList.contains("order-row")) tab.classList.toggle("hidden", !selected);
+            });
+            heading.textContent = direction === "management" ? "管理服务费订单明细" : "推广费订单明细";
+          }
+          document.querySelectorAll(".order-tab[data-direction]").forEach(function (tab) {
+            tab.addEventListener("click", function () { selectDirection(tab.dataset.direction); });
+          });
+          selectDirection(params.get("direction") === "management" ? "management" : "promotion");
+          if (params.get("focus") === "workbench") {
+            window.setTimeout(function () {
+              document.getElementById("orders-workbench").scrollIntoView({ behavior: "smooth", block: "start" });
+            }, 0);
+          }
+        }
+
+        function render() {
+          var info = routeInfo();
+          var template = document.getElementById(info.route + "-template");
+          var peerNav = document.querySelector(".peer-nav");
+          peerNav.remove();
+          pageRoot.replaceChildren(template.content.cloneNode(true));
+          pageRoot.querySelector(".page-heading").after(peerNav);
+          setCurrentRoute(info.route);
+          if (info.route === "ranking") bindRanking();
+          if (info.route === "orders") bindOrders(info.params);
+          window.scrollTo({ top: 0, behavior: "auto" });
+        }
+
+        window.addEventListener("hashchange", render);
+        render();
+      })();
+    </script>
+  </body>
+</html>
