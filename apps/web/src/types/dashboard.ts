@@ -126,6 +126,29 @@ export interface AccountSelfServicePayload {
   display_name?: string | null;
 }
 
+export interface AccountActivationCheckPayload {
+  external_account_id: string;
+  poi_id: string;
+}
+
+export type AccountActivationStatus = "invalid" | "activated" | "ready";
+
+export interface AccountActivationCheckData {
+  status: AccountActivationStatus;
+}
+
+export interface AccountActivationPayload extends AccountActivationCheckPayload {
+  username: string;
+  password: string;
+  password_confirm: string;
+}
+
+export interface AccountPasswordResetPayload
+  extends AccountActivationCheckPayload {
+  password: string;
+  password_confirm: string;
+}
+
 export interface JobRun {
   job_id: string;
   job_name: string;

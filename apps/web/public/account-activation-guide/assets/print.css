@@ -1,0 +1,190 @@
+@page {
+  size: A4 portrait;
+}
+
+:root {
+  --site-header-height: 0px;
+}
+
+html {
+  scroll-padding-top: 0;
+}
+
+body {
+  min-width: 0;
+  background: #ffffff;
+  font-size: 10pt;
+  line-height: 1.55;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.skip-link,
+.mobile-section-nav,
+.desktop-toc,
+.copy-button,
+.site-footer {
+  display: none !important;
+}
+
+.site-header {
+  position: static;
+  border-bottom: 2px solid var(--brand-orange);
+  background: #ffffff;
+  box-shadow: none;
+  break-after: avoid-page;
+}
+
+.title-layout {
+  width: 100%;
+  max-width: none;
+  padding: 0 0 7mm;
+}
+
+.brand-lockup {
+  margin-bottom: 5mm;
+}
+
+.brand-mark {
+  width: 34px;
+  height: 34px;
+}
+
+h1 {
+  font-size: 23pt;
+}
+
+.title-copy > p {
+  max-width: none;
+  font-size: 10pt;
+}
+
+.status-chip {
+  min-height: 24px;
+}
+
+.content-layout {
+  display: block;
+  width: 100%;
+  max-width: none;
+  padding: 0;
+}
+
+.document {
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.document-section {
+  padding: 6mm 0;
+  scroll-margin-top: 0;
+}
+
+.document-section + .document-section {
+  border-top: 1px solid var(--line);
+}
+
+.section-heading {
+  margin-bottom: 4mm;
+  break-after: avoid-page;
+}
+
+.section-heading h2 {
+  font-size: 15pt;
+}
+
+.notice-band,
+.activation-action,
+.completion-note,
+.activation-figure,
+.activation-screen-card,
+.source-step,
+.source-figure,
+.field-definitions > div,
+.migration-panel,
+.faq-list details,
+.contact-item {
+  break-inside: avoid-page;
+}
+
+.notice-band {
+  padding: 4mm;
+}
+
+.activation-action {
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 4mm;
+}
+
+.primary-button {
+  grid-column: auto;
+  min-height: var(--control-height);
+}
+
+.copy-status {
+  min-height: 0;
+}
+
+.preparation-list {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.preparation-list li {
+  padding: 4mm;
+  break-inside: avoid-page;
+}
+
+.steps-layout {
+  grid-template-columns: minmax(0, 1fr) 75mm;
+  gap: 6mm;
+}
+
+.steps-list li {
+  break-inside: avoid-page;
+}
+
+.activation-screens {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4mm;
+}
+
+.source-steps {
+  gap: 3mm;
+}
+
+.source-step {
+  padding: 3mm;
+}
+
+.source-figure {
+  margin-top: 4mm;
+}
+
+.screenshot-frame {
+  background: #ffffff;
+}
+
+.field-definitions > div {
+  grid-template-columns: 42mm minmax(0, 1fr);
+  gap: 6mm;
+  padding: 4mm 0;
+}
+
+.contact-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+#activation-steps,
+#field-guide {
+  break-before: page;
+}
+
+#support {
+  break-inside: avoid-page;
+}
+
+a {
+  color: var(--brand-orange-ink);
+}

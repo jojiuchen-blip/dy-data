@@ -39,19 +39,54 @@ class AdminUser(BaseModel):
     is_highest_admin: bool = False
 
 
-class AccountInitializeRequest(BaseModel):
+class AccountActivationIdentityRequest(BaseModel):
     external_account_id: str
-    certified_subject_name: str
-    username: str
-    password: str
-    password_confirm: str
-    display_name: str | None = None
 
-    @field_validator("external_account_id", "certified_subject_name", "username", "password", "password_confirm")
-    def non_empty_account_input(cls, value: str) -> str:
+    poi_id: str
+
+    @field_validator("external_account_id", "poi_id")
+    def non_empty_activation_identity(cls, value: str) -> str:
         value = " ".join(value.strip().split())
         if not value:
             raise ValueError("value is required")
+        return value
+
+
+class AccountActivationStatusData(BaseModel):
+    status: Literal["invalid", "activated", "ready"]
+
+
+class AccountInitializeRequest(AccountActivationIdentityRequest):
+    username: str
+    password: str
+    password_confirm: str
+
+    @field_validator("username")
+    def valid_account_username(cls, value: str) -> str:
+        value = " ".join(value.strip().split())
+        if not value:
+            raise ValueError("value is required")
+        if not value.isascii() or not value.isalnum():
+            raise ValueError("username must contain only letters and numbers")
+        return value
+
+    @field_validator("password", "password_confirm")
+    def non_empty_activation_password(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("password is required")
+        return value
+
+
+class AccountPasswordResetRequest(AccountActivationIdentityRequest):
+    password: str
+    password_confirm: str
+
+    @field_validator("password", "password_confirm")
+    def non_empty_reset_password(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("password is required")
         return value
 
 

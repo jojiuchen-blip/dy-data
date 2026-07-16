@@ -19,10 +19,13 @@
 - `GET /me`
 - `POST /logout`
 - `POST /change-password`
+- `POST /activation-status`
 - `POST /initialize`
 - `POST /reset-password`
 
-初始化与重置受到当前配置和角色规则约束。生产环境不得启用测试认证模式。
+账号激活和忘记密码统一使用 `external_account_id`（账户所属 ID）与 `poi_id`（所属账户关联 POI ID）进行同记录核验。`POST /activation-status` 返回受控状态 `invalid`、`ready` 或 `activated`；只有认证成功的子机构账号记录及其门店 POI 映射同时匹配时，才允许进入后续激活或重置流程。
+
+`POST /initialize` 在双 ID 复核成功后设置账号名和密码；`POST /reset-password` 只允许已激活、状态正常的门店账号修改密码，并保留原账号名和门店范围。生产环境不得启用测试认证模式。
 
 ## 3. 经营与结算
 
