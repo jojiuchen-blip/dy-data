@@ -436,6 +436,16 @@ export function AdminClueAllocationPage({
     };
   }, [selectedRuleId]);
 
+  const refreshSelectedRuleDetail = async () => {
+    if (!selectedRuleId) {
+      setSelectedRuleDetail(null);
+      return;
+    }
+    const detail = await fetchClueAllocationRuleDetail(selectedRuleId);
+    setSelectedRuleDetail(detail.data);
+    setRuleVersionDraft(ruleVersionToDraft(detail.data.versions[0]));
+  };
+
   const toggleLead = (leadKey: string) => {
     if (!isWritable) {
       return;
@@ -688,9 +698,7 @@ export function AdminClueAllocationPage({
         buildRuleVersionPayload(ruleVersionDraft),
       );
       setStatusText(`已创建草案版本 V${response.data.version_no}，发布前仍可继续调整。`);
-      const detail = await fetchClueAllocationRuleDetail(selectedRuleId);
-      setSelectedRuleDetail(detail.data);
-      setRuleVersionDraft(ruleVersionToDraft(detail.data.versions[0]));
+      await refreshSelectedRuleDetail();
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : "创建草案版本失败。");
     } finally {
@@ -711,6 +719,7 @@ export function AdminClueAllocationPage({
       await publishClueAllocationRuleVersion(version.rule_version_id);
       setStatusText(`V${version.version_no} 已发布。`);
       await load({ clearStatus: false });
+      await refreshSelectedRuleDetail();
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : "发布规则版本失败。");
     } finally {
@@ -731,6 +740,7 @@ export function AdminClueAllocationPage({
       await retireClueAllocationRuleVersion(version.rule_version_id);
       setStatusText(`V${version.version_no} 已退役。`);
       await load({ clearStatus: false });
+      await refreshSelectedRuleDetail();
     } catch (error) {
       setStatusText(error instanceof Error ? error.message : "退役规则版本失败。");
     } finally {

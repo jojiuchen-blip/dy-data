@@ -499,14 +499,6 @@ export class ClueDemoRepository {
       headquarters: 0,
       skipped: requestedLeadKeys.length - activeLeadKeys.length,
     };
-    this.appendAudit(
-      "cycle_previewed",
-      sourceCycleId,
-      {},
-      summary,
-      { operation, preview_token: token },
-      Boolean(payload.privileged_confirmation),
-    );
     this.state.generatedAt = createdAt;
     return demoResponse(
       {
@@ -844,7 +836,7 @@ export class ClueDemoRepository {
     );
     this.state.previewTokens.delete(preview.token);
     this.appendAudit(
-      cycleType === "rebuild" ? "cycle_rebuilt" : "cycle_executed",
+      cycleType === "rebuild" ? "trial_rebuilt" : "trial_executed",
       cycleId,
       { eligible_lead_count: this.state.eligibleLeads.length + activeLeadCount },
       summary,
@@ -902,7 +894,7 @@ export class ClueDemoRepository {
         round.round_effective_status = "inactive";
         round.round_status = "failed_pending_reassign";
         round.store_display_status = "主动战败";
-        round.reassign_reason = cycleType === "rebuild" ? "demo_rebuild" : "demo_trial";
+        round.reassign_reason = "reassigned";
         round.reassigned_at = executedAt;
       }
     }
@@ -935,7 +927,7 @@ export class ClueDemoRepository {
           order_status: previousRound?.order_current_status ?? "fulfilling",
           raw_order_status: "DEMO_FULFILLING",
           status: "active",
-          reason: "all_strategies_exhausted",
+          reason: "strategies_exhausted",
           entered_at: executedAt,
           closed_at: null,
           close_reason: null,
@@ -969,7 +961,7 @@ export class ClueDemoRepository {
         selected_store_id: null,
         selected_store_name: null,
         decision_status: "headquarters",
-        reason: "all_strategies_exhausted",
+        reason: "strategies_exhausted",
         payload: { synthetic: true, supersedes_cycle_id: sourceCycleId },
         actor: "DEMO-USER-ADMIN",
         executed_at: executedAt,
@@ -1010,7 +1002,7 @@ export class ClueDemoRepository {
       author_nickname: detail.author_nickname,
       followed_at: null,
       follow_result: "pending",
-      reassign_reason: cycleType === "rebuild" ? "demo_rebuild" : "demo_trial",
+      reassign_reason: "reassigned",
       reassigned_at: null,
       verified_store_id: null,
       verified_store_name: null,
@@ -1044,7 +1036,7 @@ export class ClueDemoRepository {
       selected_store_id: nextStore.store_id,
       selected_store_name: nextStore.store_name,
       decision_status: "assigned",
-      reason: cycleType === "rebuild" ? "demo_rebuild" : "demo_trial",
+      reason: "reassigned",
       payload: { synthetic: true, supersedes_cycle_id: sourceCycleId },
       actor: "DEMO-USER-ADMIN",
       executed_at: executedAt,
@@ -1121,7 +1113,7 @@ export class ClueDemoRepository {
         order_status: round.order_current_status,
         raw_order_status: "DEMO_FULFILLING",
         status: "active",
-        reason: "all_strategies_exhausted",
+        reason: "strategies_exhausted",
         entered_at: createdAt,
         closed_at: null,
         close_reason: null,
@@ -1208,7 +1200,7 @@ export class ClueDemoRepository {
       strategy_type: "city_fallback",
       execution_order: roundNumber,
       allocation_cycle_id: null,
-      execution_mode: "demo",
+      execution_mode: "formal",
       assignment_round_id: assignmentRoundId,
       round_no: roundNumber,
       selected_store_id: nextStore.store_id,

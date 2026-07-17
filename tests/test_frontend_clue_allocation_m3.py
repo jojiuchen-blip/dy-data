@@ -106,6 +106,13 @@ def test_m3_management_surface_exposes_rule_score_and_decision_evidence_safely()
         assert declaration in type_source
 
 
+def test_m3_rule_lifecycle_refreshes_selected_version_detail_after_writes() -> None:
+    page_source = _read("pages/AdminClueAllocationPage.tsx")
+
+    assert "const refreshSelectedRuleDetail = async" in page_source
+    assert page_source.count("await refreshSelectedRuleDetail();") >= 3
+
+
 def test_m3_rule_management_has_a_compact_read_only_mobile_layout() -> None:
     styles = _read("styles.css")
 

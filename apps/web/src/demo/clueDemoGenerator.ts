@@ -315,7 +315,11 @@ function createHistoricalAudits(
 ): ClueAllocationAuditLog[] {
   return Array.from({ length: 24 }, (_, index) => ({
     audit_log_id: `DEMO-AUDIT-HISTORY-${pad(index + 1, 4)}`,
-    event_type: index % 3 === 0 ? "cycle_previewed" : index % 3 === 1 ? "cycle_executed" : "rule_published",
+    event_type: index % 3 === 0
+      ? "trial_executed"
+      : index % 3 === 1
+        ? "trial_rebuilt"
+        : "rule_version_published",
     allocation_cycle_id: cycles[index % cycles.length].allocation_cycle_id,
     actor: "DEMO-USER-ADMIN",
     privileged_confirmation: index % 6 === 0,
@@ -471,7 +475,7 @@ export function createClueDemoState(
           follow_result: isFinalRound ? outcome.followResult : "pending",
           reassign_reason: historicalReason ?? (isFinalRound && !outcome.hasCurrentRound
             ? outcome.roundStatus === "expired_pending_reassign" ? "timeout"
-              : outcome.leadStatus === "headquarters" ? "all_strategies_exhausted" : "follow_lost"
+              : outcome.leadStatus === "headquarters" ? "strategies_exhausted" : "follow_lost"
             : null),
           reassigned_at: historicalReason ? addHours(assignedAt, 26) : null,
           verified_store_id: verifiedStore?.store_id ?? null,
@@ -520,7 +524,7 @@ export function createClueDemoState(
           strategy_type: roundNumber === 1 ? "sales_store_priority" : "nearby_city_optimization",
           execution_order: roundNumber,
           allocation_cycle_id: cycles[leadIndex % cycles.length].allocation_cycle_id,
-          execution_mode: "demo",
+          execution_mode: "formal",
           assignment_round_id: round.assignment_round_id,
           round_no: round.round_no,
           selected_store_id: assignedStore.store_id,
@@ -557,7 +561,7 @@ export function createClueDemoState(
           order_status: outcome.orderStatus,
           raw_order_status: "DEMO_FULFILLING",
           status: "active",
-          reason: "all_strategies_exhausted",
+          reason: "strategies_exhausted",
           entered_at: addHours(finalRound.assigned_at ?? now.toISOString(), 30),
           closed_at: null,
           close_reason: null,
@@ -580,7 +584,7 @@ export function createClueDemoState(
         order_status: "fulfilling",
         raw_order_status: "DEMO_FULFILLING",
         status: leadIndex % 5 === 0 ? "closed" : "active",
-        reason: "direct_headquarters",
+        reason: "sale_store_unmapped",
         entered_at: shiftedIso(now, -(5 + (leadIndex % 90))),
         closed_at: leadIndex % 5 === 0 ? shiftedIso(now, -(2 + (leadIndex % 30))) : null,
         close_reason: leadIndex % 5 === 0 ? "demo_manual_close" : null,
@@ -703,7 +707,7 @@ export function assertClueDemoState(state: ClueDemoState): void {
   const storeIds = new Set(state.stores.map((store) => store.store_id));
   const orderIds = new Set(orderDetails.map((detail) => detail.order_id));
   const directHeadquartersCount = state.headquartersPool.filter(
-    (entry) => entry.reason === "direct_headquarters" && !entry.source_assignment_round_id,
+    (entry) => !entry.source_assignment_round_id,
   ).length;
   const terminalWithoutRoundCount = orderDetails.filter(
     (detail) => detail.lead_status === "terminal" && detail.rounds.length === 0,

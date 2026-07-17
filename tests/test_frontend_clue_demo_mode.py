@@ -180,3 +180,44 @@ def test_demo_status_reasons_use_supported_label_codes() -> None:
         'status_reason: "allocated_to_store"',
     ]:
         assert supported in combined
+
+
+def test_demo_allocation_decisions_use_supported_execution_modes() -> None:
+    combined = "\n".join(
+        [
+            _read("demo/clueDemoGenerator.ts"),
+            _read("demo/clueDemoRepository.ts"),
+        ]
+    )
+
+    assert 'execution_mode: "demo"' not in combined
+    assert 'execution_mode: "formal"' in combined
+
+
+def test_demo_admin_data_uses_supported_event_and_reason_codes() -> None:
+    combined = "\n".join(
+        [
+            _read("demo/clueDemoGenerator.ts"),
+            _read("demo/clueDemoRepository.ts"),
+        ]
+    )
+
+    for unsupported in [
+        "cycle_previewed",
+        "cycle_executed",
+        "cycle_rebuilt",
+        "rule_published",
+        "all_strategies_exhausted",
+        "direct_headquarters",
+        "demo_rebuild",
+        "demo_trial",
+    ]:
+        assert f'"{unsupported}"' not in combined
+
+    for supported in [
+        '? "trial_executed"',
+        '"trial_rebuilt" : "trial_executed"',
+        'reason: "strategies_exhausted"',
+        'reason: "sale_store_unmapped"',
+    ]:
+        assert supported in combined
