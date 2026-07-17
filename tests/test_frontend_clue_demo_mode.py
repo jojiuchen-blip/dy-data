@@ -113,3 +113,27 @@ def test_demo_repository_covers_all_allocation_admin_calls() -> None:
 
     for marker in ["DEMO-PREVIEW-", "DEMO-CYCLE-", "DEMO-AUDIT-", "previewTokens"]:
         assert marker in source
+
+
+def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
+    client = _read("api/client.ts")
+    app = _read("App.tsx")
+
+    for value in [
+        "CLUE_DEMO_MODE",
+        "CLUE_DEMO_ADMIN_USER",
+        "clueDemoRepository",
+        "demoLoad",
+        "blockDemoNetwork",
+        'fallbackReason: "当前展示合成演示数据。"',
+        "clueDemoRepository.getAssignmentRounds",
+        "clueDemoRepository.saveFollowUp",
+        "clueDemoRepository.getHeadquartersPool",
+        "clueDemoRepository.previewCycle",
+        "clueDemoRepository.runTrial",
+        "clueDemoRepository.getRules",
+    ]:
+        assert value in client
+
+    assert "isDemoMode={CLUE_DEMO_MODE}" in app
+    assert "CLUE_DEMO_MODE ? undefined : onLogout" in app

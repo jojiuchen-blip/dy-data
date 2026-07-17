@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
+import { CLUE_DEMO_MODE } from "./demo/clueDemoMode";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import {
@@ -214,7 +215,8 @@ export function App() {
             <Shell
               currentPath={location.pathname}
               currentUser={user}
-              onLogout={onLogout}
+              isDemoMode={CLUE_DEMO_MODE}
+              onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
             >
               {user.role === "admin" ? (
                 adminPage
@@ -256,7 +258,8 @@ export function App() {
           <Shell
             currentPath={location.pathname}
             currentUser={user}
-            onLogout={onLogout}
+            isDemoMode={CLUE_DEMO_MODE}
+            onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
           >
             {page}
           </Shell>

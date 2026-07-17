@@ -114,6 +114,7 @@ const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
 interface ShellProps {
   currentPath: string;
   currentUser?: AdminUser | null;
+  isDemoMode?: boolean;
   onLogout?: () => void;
   children: ReactNode;
 }
