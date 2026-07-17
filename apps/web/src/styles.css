@@ -237,10 +237,6 @@ a {
   font-weight: 500;
 }
 
-.app-shell--demo .workspace-shell .page-frame--data-workspace {
-  height: calc(100vh - var(--workspace-topbar-height) - 34px);
-}
-
 .workspace-actions {
   display: flex;
   flex: 0 0 auto;
@@ -387,6 +383,10 @@ a {
   max-width: none;
   overflow: hidden;
   padding: 18px 28px 20px;
+}
+
+.app-shell--demo .workspace-shell .page-frame--data-workspace {
+  height: calc(100vh - var(--workspace-topbar-height) - 34px);
 }
 
 .topbar {
