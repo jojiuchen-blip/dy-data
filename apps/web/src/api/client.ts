@@ -11,10 +11,13 @@ import {
 } from "../data/mockData";
 import type {
   ApiResponse,
+  AccountActivationCheckData,
+  AccountActivationCheckPayload,
+  AccountActivationPayload,
   AccountListData,
+  AccountPasswordResetPayload,
   AccountPasswordPayload,
   AccountRow,
-  AccountSelfServicePayload,
   AccountUpsertPayload,
   AdminUser,
   ClueAssignmentRoundData,
@@ -1025,7 +1028,7 @@ export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
 }
 
 export async function initializeAccount(
-  payload: AccountSelfServicePayload,
+  payload: AccountActivationPayload,
 ): Promise<ApiLoadResult<AdminUser>> {
   return {
     ...(await sendJson<AdminUser>("/auth/initialize", { body: payload })),
@@ -1033,8 +1036,19 @@ export async function initializeAccount(
   };
 }
 
+export async function checkAccountActivationStatus(
+  payload: AccountActivationCheckPayload,
+): Promise<ApiLoadResult<AccountActivationCheckData>> {
+  return {
+    ...(await sendJson<AccountActivationCheckData>("/auth/activation-status", {
+      body: payload,
+    })),
+    usingMock: false,
+  };
+}
+
 export async function resetAccountPassword(
-  payload: AccountSelfServicePayload,
+  payload: AccountPasswordResetPayload,
 ): Promise<ApiLoadResult<AdminUser>> {
   return {
     ...(await sendJson<AdminUser>("/auth/reset-password", { body: payload })),

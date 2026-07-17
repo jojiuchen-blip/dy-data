@@ -1,0 +1,5213 @@
+{
+  "mode": "project-link-index",
+  "schemaVersion": "1.0.0",
+  "generatedAt": "2026-07-16T04:57:31.812Z",
+  "hostRoot": ".",
+  "outputs": {
+    "graphJson": "docs/index/project-link-graph.json",
+    "graphMarkdown": "docs/index/project-link-graph.md",
+    "wikiSchemaJson": "docs/index/project-wiki-schema.json"
+  },
+  "summary": {
+    "nodes": 341,
+    "edges": 107,
+    "issues": 0,
+    "errors": 0,
+    "warnings": 0,
+    "nodesByKind": {
+      "config": 45,
+      "source_code": 231,
+      "doc": 51,
+      "readme": 6,
+      "baseline_audit": 2,
+      "brd": 1,
+      "brd_ledger": 1,
+      "project_index": 2,
+      "project_profile": 1,
+      "project_rules": 1
+    },
+    "edgesByRelation": {
+      "links_to": 107
+    }
+  },
+  "nodes": [
+    {
+      "id": ".github/workflows/ci-cd.yml",
+      "path": ".github/workflows/ci-cd.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "ci-cd.yml"
+    },
+    {
+      "id": ".github/workflows/tencent-lighthouse-deploy.yml",
+      "path": ".github/workflows/tencent-lighthouse-deploy.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "tencent-lighthouse-deploy.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-00-50-420Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-07-13-098Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-11-25-978Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-11-50-842Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-12-36-088Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-12-48-957Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-13-42-406Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-16-46-395Z.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
+      "path": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-13T09-17-10-910Z.yml"
+    },
+    {
+      "id": ".tmp/feedback-preview-pids.json",
+      "path": ".tmp/feedback-preview-pids.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "feedback-preview-pids.json"
+    },
+    {
+      "id": ".tmp/playwright-run/package-lock.json",
+      "path": ".tmp/playwright-run/package-lock.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package-lock.json"
+    },
+    {
+      "id": ".tmp/playwright-run/package.json",
+      "path": ".tmp/playwright-run/package.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package.json"
+    },
+    {
+      "id": ".tmp/uiux-runtime/audit-uiux.mjs",
+      "path": ".tmp/uiux-runtime/audit-uiux.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "audit-uiux.mjs"
+    },
+    {
+      "id": ".tmp/uiux-runtime/check-clue-split.mjs",
+      "path": ".tmp/uiux-runtime/check-clue-split.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "check-clue-split.mjs"
+    },
+    {
+      "id": ".tmp/uiux-runtime/package.json",
+      "path": ".tmp/uiux-runtime/package.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package.json"
+    },
+    {
+      "id": ".tmp/uiux-screens/axe.json",
+      "path": ".tmp/uiux-screens/axe.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "axe.json"
+    },
+    {
+      "id": ".tmp/uiux-screens/signals.json",
+      "path": ".tmp/uiux-screens/signals.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "signals.json"
+    },
+    {
+      "id": "AGENTS.md",
+      "path": "AGENTS.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "AGENTS.md"
+    },
+    {
+      "id": "alembic/env.py",
+      "path": "alembic/env.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "env.py"
+    },
+    {
+      "id": "alembic/versions/20260612_0001_backend_production_mvp.py",
+      "path": "alembic/versions/20260612_0001_backend_production_mvp.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260612_0001_backend_production_mvp.py"
+    },
+    {
+      "id": "alembic/versions/20260616_0002_sync_settings.py",
+      "path": "alembic/versions/20260616_0002_sync_settings.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260616_0002_sync_settings.py"
+    },
+    {
+      "id": "alembic/versions/20260616_0003_clue_center_mvp.py",
+      "path": "alembic/versions/20260616_0003_clue_center_mvp.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260616_0003_clue_center_mvp.py"
+    },
+    {
+      "id": "alembic/versions/20260617_0004_non_commission_rules.py",
+      "path": "alembic/versions/20260617_0004_non_commission_rules.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260617_0004_non_commission_rules.py"
+    },
+    {
+      "id": "alembic/versions/20260618_0005_account_module.py",
+      "path": "alembic/versions/20260618_0005_account_module.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260618_0005_account_module.py"
+    },
+    {
+      "id": "alembic/versions/20260622_0006_clue_phone_plain.py",
+      "path": "alembic/versions/20260622_0006_clue_phone_plain.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260622_0006_clue_phone_plain.py"
+    },
+    {
+      "id": "alembic/versions/20260624_0007_clue_follow_up_records.py",
+      "path": "alembic/versions/20260624_0007_clue_follow_up_records.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260624_0007_clue_follow_up_records.py"
+    },
+    {
+      "id": "alembic/versions/20260624_0008_user_feedback_submissions.py",
+      "path": "alembic/versions/20260624_0008_user_feedback_submissions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260624_0008_user_feedback_submissions.py"
+    },
+    {
+      "id": "alembic/versions/20260626_0009_product_type_visibility.py",
+      "path": "alembic/versions/20260626_0009_product_type_visibility.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260626_0009_product_type_visibility.py"
+    },
+    {
+      "id": "alembic/versions/20260626_0010_product_type_default.py",
+      "path": "alembic/versions/20260626_0010_product_type_default.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260626_0010_product_type_default.py"
+    },
+    {
+      "id": "alembic/versions/20260706_0011_product_scope_visibility.py",
+      "path": "alembic/versions/20260706_0011_product_scope_visibility.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260706_0011_product_scope_visibility.py"
+    },
+    {
+      "id": "alembic/versions/20260712_0012_clue_allocation_m1_foundation.py",
+      "path": "alembic/versions/20260712_0012_clue_allocation_m1_foundation.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260712_0012_clue_allocation_m1_foundation.py"
+    },
+    {
+      "id": "alembic/versions/20260712_0013_clue_allocation_rule_versions.py",
+      "path": "alembic/versions/20260712_0013_clue_allocation_rule_versions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260712_0013_clue_allocation_rule_versions.py"
+    },
+    {
+      "id": "alembic/versions/20260712_0014_clue_allocation_engine.py",
+      "path": "alembic/versions/20260712_0014_clue_allocation_engine.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260712_0014_clue_allocation_engine.py"
+    },
+    {
+      "id": "alembic/versions/20260712_0015_clue_follow_up_state_machine.py",
+      "path": "alembic/versions/20260712_0015_clue_follow_up_state_machine.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260712_0015_clue_follow_up_state_machine.py"
+    },
+    {
+      "id": "alembic/versions/20260712_0016_clue_allocation_cycles.py",
+      "path": "alembic/versions/20260712_0016_clue_allocation_cycles.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260712_0016_clue_allocation_cycles.py"
+    },
+    {
+      "id": "alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py",
+      "path": "alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260713_0017_drop_clue_reassign_rule_settings.py"
+    },
+    {
+      "id": "apps/api/dy_api/__init__.py",
+      "path": "apps/api/dy_api/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "apps/api/dy_api/auth.py",
+      "path": "apps/api/dy_api/auth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "auth.py"
+    },
+    {
+      "id": "apps/api/dy_api/db.py",
+      "path": "apps/api/dy_api/db.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "db.py"
+    },
+    {
+      "id": "apps/api/dy_api/main.py",
+      "path": "apps/api/dy_api/main.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "main.py"
+    },
+    {
+      "id": "apps/api/dy_api/models.py",
+      "path": "apps/api/dy_api/models.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "models.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/_data.py",
+      "path": "apps/api/dy_api/routes/_data.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "_data.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/admin.py",
+      "path": "apps/api/dy_api/routes/admin.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "admin.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/auth.py",
+      "path": "apps/api/dy_api/routes/auth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "auth.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/clues.py",
+      "path": "apps/api/dy_api/routes/clues.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clues.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/dashboard.py",
+      "path": "apps/api/dy_api/routes/dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "dashboard.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/feedback.py",
+      "path": "apps/api/dy_api/routes/feedback.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "feedback.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/jobs.py",
+      "path": "apps/api/dy_api/routes/jobs.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "jobs.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/meta.py",
+      "path": "apps/api/dy_api/routes/meta.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "meta.py"
+    },
+    {
+      "id": "apps/api/dy_api/rule_utils.py",
+      "path": "apps/api/dy_api/rule_utils.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "rule_utils.py"
+    },
+    {
+      "id": "apps/api/dy_api/schemas.py",
+      "path": "apps/api/dy_api/schemas.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "schemas.py"
+    },
+    {
+      "id": "apps/web/index.html",
+      "path": "apps/web/index.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "index.html"
+    },
+    {
+      "id": "apps/web/package-lock.json",
+      "path": "apps/web/package-lock.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package-lock.json"
+    },
+    {
+      "id": "apps/web/package.json",
+      "path": "apps/web/package.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "package.json"
+    },
+    {
+      "id": "apps/web/README.md",
+      "path": "apps/web/README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data Web"
+    },
+    {
+      "id": "apps/web/src/api/client.ts",
+      "path": "apps/web/src/api/client.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "client.ts"
+    },
+    {
+      "id": "apps/web/src/App.tsx",
+      "path": "apps/web/src/App.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "App.tsx"
+    },
+    {
+      "id": "apps/web/src/components/Button.tsx",
+      "path": "apps/web/src/components/Button.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Button.tsx"
+    },
+    {
+      "id": "apps/web/src/components/Chips.tsx",
+      "path": "apps/web/src/components/Chips.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Chips.tsx"
+    },
+    {
+      "id": "apps/web/src/components/CommissionRulesButton.tsx",
+      "path": "apps/web/src/components/CommissionRulesButton.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "CommissionRulesButton.tsx"
+    },
+    {
+      "id": "apps/web/src/components/DataTable.tsx",
+      "path": "apps/web/src/components/DataTable.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "DataTable.tsx"
+    },
+    {
+      "id": "apps/web/src/components/DefinitionList.tsx",
+      "path": "apps/web/src/components/DefinitionList.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "DefinitionList.tsx"
+    },
+    {
+      "id": "apps/web/src/components/Dialog.tsx",
+      "path": "apps/web/src/components/Dialog.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Dialog.tsx"
+    },
+    {
+      "id": "apps/web/src/components/Filters.tsx",
+      "path": "apps/web/src/components/Filters.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Filters.tsx"
+    },
+    {
+      "id": "apps/web/src/components/FormControls.tsx",
+      "path": "apps/web/src/components/FormControls.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "FormControls.tsx"
+    },
+    {
+      "id": "apps/web/src/components/MetricCard.tsx",
+      "path": "apps/web/src/components/MetricCard.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "MetricCard.tsx"
+    },
+    {
+      "id": "apps/web/src/components/ResourceState.tsx",
+      "path": "apps/web/src/components/ResourceState.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "ResourceState.tsx"
+    },
+    {
+      "id": "apps/web/src/components/SearchableStoreSelect.css",
+      "path": "apps/web/src/components/SearchableStoreSelect.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "SearchableStoreSelect.css"
+    },
+    {
+      "id": "apps/web/src/components/SearchableStoreSelect.tsx",
+      "path": "apps/web/src/components/SearchableStoreSelect.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "SearchableStoreSelect.tsx"
+    },
+    {
+      "id": "apps/web/src/components/Shell.tsx",
+      "path": "apps/web/src/components/Shell.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Shell.tsx"
+    },
+    {
+      "id": "apps/web/src/components/SolarIcon.tsx",
+      "path": "apps/web/src/components/SolarIcon.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "SolarIcon.tsx"
+    },
+    {
+      "id": "apps/web/src/components/TablePagination.tsx",
+      "path": "apps/web/src/components/TablePagination.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "TablePagination.tsx"
+    },
+    {
+      "id": "apps/web/src/components/TertiaryNav.tsx",
+      "path": "apps/web/src/components/TertiaryNav.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "TertiaryNav.tsx"
+    },
+    {
+      "id": "apps/web/src/components/TooltipLabel.tsx",
+      "path": "apps/web/src/components/TooltipLabel.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "TooltipLabel.tsx"
+    },
+    {
+      "id": "apps/web/src/data/mock/clue_center.json",
+      "path": "apps/web/src/data/mock/clue_center.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "clue_center.json"
+    },
+    {
+      "id": "apps/web/src/data/mock/page1_store_ranking.json",
+      "path": "apps/web/src/data/mock/page1_store_ranking.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page1_store_ranking.json"
+    },
+    {
+      "id": "apps/web/src/data/mock/page2_commission_tables.json",
+      "path": "apps/web/src/data/mock/page2_commission_tables.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page2_commission_tables.json"
+    },
+    {
+      "id": "apps/web/src/data/mock/page2_store_month_summary.json",
+      "path": "apps/web/src/data/mock/page2_store_month_summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page2_store_month_summary.json"
+    },
+    {
+      "id": "apps/web/src/data/mock/README.md",
+      "path": "apps/web/src/data/mock/README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Mock 数据副本"
+    },
+    {
+      "id": "apps/web/src/data/mock/sku_product_commission_rules.json",
+      "path": "apps/web/src/data/mock/sku_product_commission_rules.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "sku_product_commission_rules.json"
+    },
+    {
+      "id": "apps/web/src/data/mockData.ts",
+      "path": "apps/web/src/data/mockData.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "mockData.ts"
+    },
+    {
+      "id": "apps/web/src/design-tokens.css",
+      "path": "apps/web/src/design-tokens.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "design-tokens.css"
+    },
+    {
+      "id": "apps/web/src/hooks/useApiResource.ts",
+      "path": "apps/web/src/hooks/useApiResource.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "useApiResource.ts"
+    },
+    {
+      "id": "apps/web/src/main.tsx",
+      "path": "apps/web/src/main.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "main.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminAccountsPage.tsx",
+      "path": "apps/web/src/pages/AdminAccountsPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminAccountsPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminClueAllocationPage.tsx",
+      "path": "apps/web/src/pages/AdminClueAllocationPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminClueAllocationPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminFeedbackPage.tsx",
+      "path": "apps/web/src/pages/AdminFeedbackPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminFeedbackPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminHomePage.tsx",
+      "path": "apps/web/src/pages/AdminHomePage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminHomePage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminProductTypeVisibilityPage.tsx",
+      "path": "apps/web/src/pages/AdminProductTypeVisibilityPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminProductTypeVisibilityPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminSkuRulesPage.tsx",
+      "path": "apps/web/src/pages/AdminSkuRulesPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminSkuRulesPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AdminSyncPage.tsx",
+      "path": "apps/web/src/pages/AdminSyncPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AdminSyncPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/AuthPage.tsx",
+      "path": "apps/web/src/pages/AuthPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "AuthPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/ClueCenterPage.tsx",
+      "path": "apps/web/src/pages/ClueCenterPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "ClueCenterPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/HomePage.tsx",
+      "path": "apps/web/src/pages/HomePage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "HomePage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/OrderDetailsPage.tsx",
+      "path": "apps/web/src/pages/OrderDetailsPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "OrderDetailsPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/SalesDashboardPage.tsx",
+      "path": "apps/web/src/pages/SalesDashboardPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "SalesDashboardPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/StoreRankingPage.tsx",
+      "path": "apps/web/src/pages/StoreRankingPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "StoreRankingPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/StoreSettlementPage.tsx",
+      "path": "apps/web/src/pages/StoreSettlementPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "StoreSettlementPage.tsx"
+    },
+    {
+      "id": "apps/web/src/styles.css",
+      "path": "apps/web/src/styles.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "styles.css"
+    },
+    {
+      "id": "apps/web/src/types/dashboard.ts",
+      "path": "apps/web/src/types/dashboard.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "dashboard.ts"
+    },
+    {
+      "id": "apps/web/src/utils/csv.ts",
+      "path": "apps/web/src/utils/csv.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "csv.ts"
+    },
+    {
+      "id": "apps/web/src/utils/format.ts",
+      "path": "apps/web/src/utils/format.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "format.ts"
+    },
+    {
+      "id": "apps/web/src/utils/options.ts",
+      "path": "apps/web/src/utils/options.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "options.ts"
+    },
+    {
+      "id": "apps/web/src/utils/settlement.ts",
+      "path": "apps/web/src/utils/settlement.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "settlement.ts"
+    },
+    {
+      "id": "apps/web/src/utils/userFacingLabels.ts",
+      "path": "apps/web/src/utils/userFacingLabels.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "userFacingLabels.ts"
+    },
+    {
+      "id": "apps/web/src/vite-env.d.ts",
+      "path": "apps/web/src/vite-env.d.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "vite-env.d.ts"
+    },
+    {
+      "id": "apps/web/tsconfig.json",
+      "path": "apps/web/tsconfig.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "tsconfig.json"
+    },
+    {
+      "id": "apps/web/vite.config.ts",
+      "path": "apps/web/vite.config.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "vite.config.ts"
+    },
+    {
+      "id": "apps/worker/__init__.py",
+      "path": "apps/worker/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "apps/worker/backfill.py",
+      "path": "apps/worker/backfill.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "backfill.py"
+    },
+    {
+      "id": "apps/worker/browser_exports/__init__.py",
+      "path": "apps/worker/browser_exports/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "apps/worker/browser_exports/backend_aweme_parser.py",
+      "path": "apps/worker/browser_exports/backend_aweme_parser.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "backend_aweme_parser.py"
+    },
+    {
+      "id": "apps/worker/browser_exports/backend_aweme.py",
+      "path": "apps/worker/browser_exports/backend_aweme.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "backend_aweme.py"
+    },
+    {
+      "id": "apps/worker/clue_allocation_cycles.py",
+      "path": "apps/worker/clue_allocation_cycles.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_allocation_cycles.py"
+    },
+    {
+      "id": "apps/worker/clue_allocation_engine.py",
+      "path": "apps/worker/clue_allocation_engine.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_allocation_engine.py"
+    },
+    {
+      "id": "apps/worker/clue_allocation.py",
+      "path": "apps/worker/clue_allocation.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_allocation.py"
+    },
+    {
+      "id": "apps/worker/clue_center.py",
+      "path": "apps/worker/clue_center.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_center.py"
+    },
+    {
+      "id": "apps/worker/clue_follow_up_state.py",
+      "path": "apps/worker/clue_follow_up_state.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_follow_up_state.py"
+    },
+    {
+      "id": "apps/worker/clue_headquarters_pool.py",
+      "path": "apps/worker/clue_headquarters_pool.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_headquarters_pool.py"
+    },
+    {
+      "id": "apps/worker/clue_rule_versions.py",
+      "path": "apps/worker/clue_rule_versions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_rule_versions.py"
+    },
+    {
+      "id": "apps/worker/collect_once.py",
+      "path": "apps/worker/collect_once.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "collect_once.py"
+    },
+    {
+      "id": "apps/worker/collectors/__init__.py",
+      "path": "apps/worker/collectors/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "apps/worker/collectors/aweme_bindings.py",
+      "path": "apps/worker/collectors/aweme_bindings.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "aweme_bindings.py"
+    },
+    {
+      "id": "apps/worker/collectors/clues.py",
+      "path": "apps/worker/collectors/clues.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clues.py"
+    },
+    {
+      "id": "apps/worker/collectors/normalizers.py",
+      "path": "apps/worker/collectors/normalizers.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "normalizers.py"
+    },
+    {
+      "id": "apps/worker/collectors/orders.py",
+      "path": "apps/worker/collectors/orders.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "orders.py"
+    },
+    {
+      "id": "apps/worker/collectors/types.py",
+      "path": "apps/worker/collectors/types.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "types.py"
+    },
+    {
+      "id": "apps/worker/collectors/verify_records.py",
+      "path": "apps/worker/collectors/verify_records.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "verify_records.py"
+    },
+    {
+      "id": "apps/worker/collectors/windows.py",
+      "path": "apps/worker/collectors/windows.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "windows.py"
+    },
+    {
+      "id": "apps/worker/manual_sync.py",
+      "path": "apps/worker/manual_sync.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "manual_sync.py"
+    },
+    {
+      "id": "apps/worker/pipeline.py",
+      "path": "apps/worker/pipeline.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pipeline.py"
+    },
+    {
+      "id": "apps/worker/queued_jobs.py",
+      "path": "apps/worker/queued_jobs.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "queued_jobs.py"
+    },
+    {
+      "id": "apps/worker/repositories.py",
+      "path": "apps/worker/repositories.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "repositories.py"
+    },
+    {
+      "id": "apps/worker/scheduler.py",
+      "path": "apps/worker/scheduler.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "scheduler.py"
+    },
+    {
+      "id": "apps/worker/settlement.py",
+      "path": "apps/worker/settlement.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "settlement.py"
+    },
+    {
+      "id": "apps/worker/sync_config.py",
+      "path": "apps/worker/sync_config.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "sync_config.py"
+    },
+    {
+      "id": "config.example.json",
+      "path": "config.example.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "config.example.json"
+    },
+    {
+      "id": "deploy/compose.yaml",
+      "path": "deploy/compose.yaml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "compose.yaml"
+    },
+    {
+      "id": "docs/技术架构与部署规划.md",
+      "path": "docs/技术架构与部署规划.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "技术架构与部署说明"
+    },
+    {
+      "id": "docs/券核销清单自动导出说明.md",
+      "path": "docs/券核销清单自动导出说明.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "抖音来客券核销清单自动导出"
+    },
+    {
+      "id": "docs/数据口径和计算逻辑汇报.html",
+      "path": "docs/数据口径和计算逻辑汇报.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "数据口径和计算逻辑汇报.html"
+    },
+    {
+      "id": "docs/退款单导出说明.md",
+      "path": "docs/退款单导出说明.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "抖音来客退款单导出"
+    },
+    {
+      "id": "docs/项目产品介绍书.md",
+      "path": "docs/项目产品介绍书.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data（抖音经营引擎）产品介绍书"
+    },
+    {
+      "id": "docs/api-contract.md",
+      "path": "docs/api-contract.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data API 契约索引"
+    },
+    {
+      "id": "docs/architecture.md",
+      "path": "docs/architecture.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data 当前系统架构"
+    },
+    {
+      "id": "docs/baseline/baseline-audit-dy-data.json",
+      "path": "docs/baseline/baseline-audit-dy-data.json",
+      "kind": "baseline_audit",
+      "owner_skill": "project-baseline-auditor",
+      "authority": false,
+      "slug": "dy-data",
+      "title": "baseline-audit-dy-data.json"
+    },
+    {
+      "id": "docs/baseline/baseline-audit-dy-data.md",
+      "path": "docs/baseline/baseline-audit-dy-data.md",
+      "kind": "baseline_audit",
+      "owner_skill": "project-baseline-auditor",
+      "authority": false,
+      "slug": "dy-data",
+      "title": "既有项目关键文件诊断清单"
+    },
+    {
+      "id": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+      "path": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-6 baseline dry-run 复核记录"
+    },
+    {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "kind": "brd",
+      "owner_skill": "brd-writer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "BRD: dy-data（抖音经营引擎）"
+    },
+    {
+      "id": "docs/brd/brd-ledger-dy-data.md",
+      "path": "docs/brd/brd-ledger-dy-data.md",
+      "kind": "brd_ledger",
+      "owner_skill": "brd-writer",
+      "authority": false,
+      "slug": "dy-data",
+      "title": "BRD Ledger — dy-data（抖音经营引擎）"
+    },
+    {
+      "id": "docs/brd/ledger-state-dy-data.json",
+      "path": "docs/brd/ledger-state-dy-data.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "ledger-state-dy-data.json"
+    },
+    {
+      "id": "docs/data-model.md",
+      "path": "docs/data-model.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data 数据模型索引"
+    },
+    {
+      "id": "docs/design-system/candidate-v0.2.html",
+      "path": "docs/design-system/candidate-v0.2.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "candidate-v0.2.html"
+    },
+    {
+      "id": "docs/design-system/index.html",
+      "path": "docs/design-system/index.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "index.html"
+    },
+    {
+      "id": "docs/design-system/README.md",
+      "path": "docs/design-system/README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "UI 设计规范工程化说明"
+    },
+    {
+      "id": "docs/design-system/tokens.json",
+      "path": "docs/design-system/tokens.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "tokens.json"
+    },
+    {
+      "id": "docs/design-system/tokens.v0.2-candidate.json",
+      "path": "docs/design-system/tokens.v0.2-candidate.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "tokens.v0.2-candidate.json"
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-07-14"
+    },
+    {
+      "id": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "path": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-07-16"
+    },
+    {
+      "id": "docs/github-cicd.md",
+      "path": "docs/github-cicd.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "GitHub CI/CD"
+    },
+    {
+      "id": "docs/governance/authority-map.md",
+      "path": "docs/governance/authority-map.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data 既有材料权威映射"
+    },
+    {
+      "id": "docs/index/project-link-graph.json",
+      "path": "docs/index/project-link-graph.json",
+      "kind": "project_index",
+      "owner_skill": "project-link-indexer",
+      "authority": false,
+      "slug": null,
+      "title": "project-link-graph.json"
+    },
+    {
+      "id": "docs/index/project-link-graph.md",
+      "path": "docs/index/project-link-graph.md",
+      "kind": "project_index",
+      "owner_skill": "project-link-indexer",
+      "authority": false,
+      "slug": null,
+      "title": "项目文件引用索引"
+    },
+    {
+      "id": "docs/index/project-wiki-schema.json",
+      "path": "docs/index/project-wiki-schema.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "project-wiki-schema.json"
+    },
+    {
+      "id": "docs/plans/2026-06-11-two-person-development-division.md",
+      "path": "docs/plans/2026-06-11-two-person-development-division.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "两人协作开发分工 Implementation Plan"
+    },
+    {
+      "id": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+      "path": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Automatic Collection Production Closure Implementation Plan"
+    },
+    {
+      "id": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+      "path": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Backend Production MVP Controller Spec"
+    },
+    {
+      "id": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Clue Allocation Center MVP Implementation Plan"
+    },
+    {
+      "id": "docs/plans/2026-07-12-clue-allocation-m1-controller-spec.md",
+      "path": "docs/plans/2026-07-12-clue-allocation-m1-controller-spec.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "线索分配引擎 M1 控制规格"
+    },
+    {
+      "id": "docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md",
+      "path": "docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "线索分配引擎 M2/M3 控制规格"
+    },
+    {
+      "id": "docs/plans/execution-plan.md",
+      "path": "docs/plans/execution-plan.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "当前执行计划"
+    },
+    {
+      "id": "docs/rules/backend-tasks.md",
+      "path": "docs/rules/backend-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "后端开发规则"
+    },
+    {
+      "id": "docs/rules/database-tasks.md",
+      "path": "docs/rules/database-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "数据库任务规则"
+    },
+    {
+      "id": "docs/rules/debugging.md",
+      "path": "docs/rules/debugging.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "调试与故障排查规则"
+    },
+    {
+      "id": "docs/rules/devlog.md",
+      "path": "docs/rules/devlog.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志规则"
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md",
+      "path": "docs/rules/docs-and-plans.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "文档与计划规则"
+    },
+    {
+      "id": "docs/rules/frontend-tasks.md",
+      "path": "docs/rules/frontend-tasks.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "前端开发规则"
+    },
+    {
+      "id": "docs/rules/README.md",
+      "path": "docs/rules/README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data 宿主专项规则"
+    },
+    {
+      "id": "docs/runbook.md",
+      "path": "docs/runbook.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data 生产运行手册"
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-10-dydata-3-complete-v02.md",
+      "path": "docs/superpowers/plans/2026-07-10-dydata-3-complete-v02.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-3 Complete V0.2 Implementation Plan"
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-10-dydata-3-component-navigation-elevation.md",
+      "path": "docs/superpowers/plans/2026-07-10-dydata-3-component-navigation-elevation.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-3 组件、导航与层级规范 Implementation Plan"
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md",
+      "path": "docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "M2/M3 线索分配引擎执行计划"
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-12-dydata-5-mobile-page-templates.md",
+      "path": "docs/superpowers/plans/2026-07-12-dydata-5-mobile-page-templates.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-5 Mobile Page Templates Implementation Plan"
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-13-dydata-v02-tertiary-navigation.md",
+      "path": "docs/superpowers/plans/2026-07-13-dydata-v02-tertiary-navigation.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data V0.2 Tertiary Navigation Implementation Plan"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+      "path": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "线索跟进中心 MVP 设计"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-10-dydata-3-complete-v02-design.md",
+      "path": "docs/superpowers/specs/2026-07-10-dydata-3-complete-v02-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-3 完整 V0.2 设计规范"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-10-dydata-3-component-navigation-elevation-requirements.md",
+      "path": "docs/superpowers/specs/2026-07-10-dydata-3-component-navigation-elevation-requirements.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-3 候选规范组件层级扩充需求"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-10-dydata-3-v02-polish-design.md",
+      "path": "docs/superpowers/specs/2026-07-10-dydata-3-v02-polish-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-3 V0.2 规范页精修设计"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "path": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "线索分配引擎与总部线索池产品设计"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-12-dydata-5-mobile-page-templates-design.md",
+      "path": "docs/superpowers/specs/2026-07-12-dydata-5-mobile-page-templates-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-5 V0.2 移动端页面骨架设计"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-13-dydata-v02-tertiary-navigation-design.md",
+      "path": "docs/superpowers/specs/2026-07-13-dydata-v02-tertiary-navigation-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data V0.2 三级导航设计"
+    },
+    {
+      "id": "docs/tencent-edgeone-migration.md",
+      "path": "docs/tencent-edgeone-migration.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Tencent Cloud EdgeOne Migration Runbook"
+    },
+    {
+      "id": "docs/tencent-lighthouse-cicd.md",
+      "path": "docs/tencent-lighthouse-cicd.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Tencent Lighthouse CI/CD"
+    },
+    {
+      "id": "local_exports/_scratch/import_july_m3_integration.py",
+      "path": "local_exports/_scratch/import_july_m3_integration.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "import_july_m3_integration.py"
+    },
+    {
+      "id": "local_exports/_scratch/store_locations_inspect.mjs",
+      "path": "local_exports/_scratch/store_locations_inspect.mjs",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "store_locations_inspect.mjs"
+    },
+    {
+      "id": "local_exports/_scratch/store_locations_verify.py",
+      "path": "local_exports/_scratch/store_locations_verify.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "store_locations_verify.py"
+    },
+    {
+      "id": "local_exports/clues/2026/summary.json",
+      "path": "local_exports/clues/2026/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/incremental_20260616_20260625/summary.json",
+      "path": "local_exports/clues/incremental_20260616_20260625/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
+      "path": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/probe-day/summary.json",
+      "path": "local_exports/clues/probe-day/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/clues/probe/summary.json",
+      "path": "local_exports/clues/probe/summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "summary.json"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis-single.html",
+      "path": "local_exports/jcyc-commission-analysis-single.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "jcyc-commission-analysis-single.html"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/index.html",
+      "path": "local_exports/jcyc-commission-analysis/index.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "index.html"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/last_snapshot.json",
+      "path": "local_exports/jcyc-commission-analysis/last_snapshot.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "last_snapshot.json"
+    },
+    {
+      "id": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
+      "path": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "refresh_dashboard.py"
+    },
+    {
+      "id": "mock/page1_store_ranking.json",
+      "path": "mock/page1_store_ranking.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page1_store_ranking.json"
+    },
+    {
+      "id": "mock/page2_commission_tables.json",
+      "path": "mock/page2_commission_tables.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page2_commission_tables.json"
+    },
+    {
+      "id": "mock/page2_store_month_summary.json",
+      "path": "mock/page2_store_month_summary.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page2_store_month_summary.json"
+    },
+    {
+      "id": "mock/README.md",
+      "path": "mock/README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "Mock 数据说明"
+    },
+    {
+      "id": "mock/sku_product_commission_rules.json",
+      "path": "mock/sku_product_commission_rules.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "sku_product_commission_rules.json"
+    },
+    {
+      "id": "output/brand-orange-preview.html",
+      "path": "output/brand-orange-preview.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "brand-orange-preview.html"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-26-05-643Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-27-30-271Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T02-44-38-580Z.yml"
+    },
+    {
+      "id": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
+      "path": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-07-10T03-03-20-624Z.yml"
+    },
+    {
+      "id": "project-profile.md",
+      "path": "project-profile.md",
+      "kind": "project_profile",
+      "owner_skill": "ai-project-manager",
+      "authority": true,
+      "slug": null,
+      "title": "项目画像"
+    },
+    {
+      "id": "project-rules.md",
+      "path": "project-rules.md",
+      "kind": "project_rules",
+      "owner_skill": "ai-project-manager",
+      "authority": true,
+      "slug": null,
+      "title": "项目全局规则"
+    },
+    {
+      "id": "README.md",
+      "path": "README.md",
+      "kind": "readme",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "dy-data（抖音经营引擎）"
+    },
+    {
+      "id": "scripts/diagnostics/compare_backend_aweme_with_api.py",
+      "path": "scripts/diagnostics/compare_backend_aweme_with_api.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "compare_backend_aweme_with_api.py"
+    },
+    {
+      "id": "scripts/diagnostics/compare_owner_nickname_uid_match.py",
+      "path": "scripts/diagnostics/compare_owner_nickname_uid_match.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "compare_owner_nickname_uid_match.py"
+    },
+    {
+      "id": "scripts/diagnostics/count_may_verify_pois.py",
+      "path": "scripts/diagnostics/count_may_verify_pois.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "count_may_verify_pois.py"
+    },
+    {
+      "id": "scripts/diagnostics/debug_settlement_filter_counts.py",
+      "path": "scripts/diagnostics/debug_settlement_filter_counts.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "debug_settlement_filter_counts.py"
+    },
+    {
+      "id": "scripts/diagnostics/debug_settlement_key_mismatch.py",
+      "path": "scripts/diagnostics/debug_settlement_key_mismatch.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "debug_settlement_key_mismatch.py"
+    },
+    {
+      "id": "scripts/diagnostics/diagnose_unmatched_verify_cert_reasons.py",
+      "path": "scripts/diagnostics/diagnose_unmatched_verify_cert_reasons.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "diagnose_unmatched_verify_cert_reasons.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_backend_aweme_workbook.py",
+      "path": "scripts/diagnostics/inspect_backend_aweme_workbook.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_backend_aweme_workbook.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_craftsman_status_codes.py",
+      "path": "scripts/diagnostics/inspect_craftsman_status_codes.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_craftsman_status_codes.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_may_order_base.py",
+      "path": "scripts/diagnostics/inspect_may_order_base.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_may_order_base.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_may_verify_duplicates_and_categories.py",
+      "path": "scripts/diagnostics/inspect_may_verify_duplicates_and_categories.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_may_verify_duplicates_and_categories.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_order_api_fields.py",
+      "path": "scripts/diagnostics/inspect_order_api_fields.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_order_api_fields.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_order_owner_ids.py",
+      "path": "scripts/diagnostics/inspect_order_owner_ids.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_order_owner_ids.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_revoked_verify_refunds.py",
+      "path": "scripts/diagnostics/inspect_revoked_verify_refunds.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_revoked_verify_refunds.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_selected_verify_results.py",
+      "path": "scripts/diagnostics/inspect_selected_verify_results.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_selected_verify_results.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_status2_verify_records.py",
+      "path": "scripts/diagnostics/inspect_status2_verify_records.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_status2_verify_records.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_unmatched_owner_uid_nicknames.py",
+      "path": "scripts/diagnostics/inspect_unmatched_owner_uid_nicknames.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_unmatched_owner_uid_nicknames.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_verify_record_fields.py",
+      "path": "scripts/diagnostics/inspect_verify_record_fields.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_verify_record_fields.py"
+    },
+    {
+      "id": "scripts/diagnostics/inspect_verify_status_counts.py",
+      "path": "scripts/diagnostics/inspect_verify_status_counts.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "inspect_verify_status_counts.py"
+    },
+    {
+      "id": "scripts/diagnostics/test_verify_by_selected_pois.py",
+      "path": "scripts/diagnostics/test_verify_by_selected_pois.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_verify_by_selected_pois.py"
+    },
+    {
+      "id": "scripts/diagnostics/validate_owner_nickname_match.py",
+      "path": "scripts/diagnostics/validate_owner_nickname_match.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "validate_owner_nickname_match.py"
+    },
+    {
+      "id": "scripts/diagnostics/validate_settlement_data_availability.py",
+      "path": "scripts/diagnostics/validate_settlement_data_availability.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "validate_settlement_data_availability.py"
+    },
+    {
+      "id": "scripts/exploration/lookup_aweme_account.py",
+      "path": "scripts/exploration/lookup_aweme_account.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "lookup_aweme_account.py"
+    },
+    {
+      "id": "scripts/exploration/match_owner_nickname_to_craftsman.py",
+      "path": "scripts/exploration/match_owner_nickname_to_craftsman.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "match_owner_nickname_to_craftsman.py"
+    },
+    {
+      "id": "scripts/exploration/match_owner_uid_with_backend_account_id.py",
+      "path": "scripts/exploration/match_owner_uid_with_backend_account_id.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "match_owner_uid_with_backend_account_id.py"
+    },
+    {
+      "id": "scripts/exploration/match_owner_uid_with_backend_aweme_id.py",
+      "path": "scripts/exploration/match_owner_uid_with_backend_aweme_id.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "match_owner_uid_with_backend_aweme_id.py"
+    },
+    {
+      "id": "scripts/exploration/match_owner_with_backend_aweme.py",
+      "path": "scripts/exploration/match_owner_with_backend_aweme.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "match_owner_with_backend_aweme.py"
+    },
+    {
+      "id": "scripts/exploration/match_verify_store_name_with_backend_aweme.py",
+      "path": "scripts/exploration/match_verify_store_name_with_backend_aweme.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "match_verify_store_name_with_backend_aweme.py"
+    },
+    {
+      "id": "scripts/exploration/parse_backend_aweme_sheet_xml.py",
+      "path": "scripts/exploration/parse_backend_aweme_sheet_xml.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "parse_backend_aweme_sheet_xml.py"
+    },
+    {
+      "id": "scripts/exploration/probe_aweme_bind_interfaces.py",
+      "path": "scripts/exploration/probe_aweme_bind_interfaces.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_aweme_bind_interfaces.py"
+    },
+    {
+      "id": "scripts/exploration/probe_craftsman_bind_info.py",
+      "path": "scripts/exploration/probe_craftsman_bind_info.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_craftsman_bind_info.py"
+    },
+    {
+      "id": "scripts/exploration/probe_craftsman_single_by_nickname.py",
+      "path": "scripts/exploration/probe_craftsman_single_by_nickname.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_craftsman_single_by_nickname.py"
+    },
+    {
+      "id": "scripts/exploration/probe_jan2026_owner_store_fields.py",
+      "path": "scripts/exploration/probe_jan2026_owner_store_fields.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_jan2026_owner_store_fields.py"
+    },
+    {
+      "id": "scripts/exploration/probe_jan2026_verify_by_poi.py",
+      "path": "scripts/exploration/probe_jan2026_verify_by_poi.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_jan2026_verify_by_poi.py"
+    },
+    {
+      "id": "scripts/exploration/probe_jan2026_verify_specific_poi.py",
+      "path": "scripts/exploration/probe_jan2026_verify_specific_poi.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_jan2026_verify_specific_poi.py"
+    },
+    {
+      "id": "scripts/exploration/probe_jan2026_verify_store_fields.py",
+      "path": "scripts/exploration/probe_jan2026_verify_store_fields.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_jan2026_verify_store_fields.py"
+    },
+    {
+      "id": "scripts/exploration/probe_revoked_refund_api.py",
+      "path": "scripts/exploration/probe_revoked_refund_api.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_revoked_refund_api.py"
+    },
+    {
+      "id": "scripts/exploration/probe_verify_record_poi_id_raw.py",
+      "path": "scripts/exploration/probe_verify_record_poi_id_raw.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "probe_verify_record_poi_id_raw.py"
+    },
+    {
+      "id": "scripts/exploration/select_recent_matched_pois.py",
+      "path": "scripts/exploration/select_recent_matched_pois.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "select_recent_matched_pois.py"
+    },
+    {
+      "id": "scripts/exploration/summarize_craftsman_single_probe.py",
+      "path": "scripts/exploration/summarize_craftsman_single_probe.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "summarize_craftsman_single_probe.py"
+    },
+    {
+      "id": "scripts/exports/auto_export_backend_aweme_chromium.py",
+      "path": "scripts/exports/auto_export_backend_aweme_chromium.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "auto_export_backend_aweme_chromium.py"
+    },
+    {
+      "id": "scripts/exports/douyin_refund_export.py",
+      "path": "scripts/exports/douyin_refund_export.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "douyin_refund_export.py"
+    },
+    {
+      "id": "scripts/exports/douyin_refund_order_history_export.py",
+      "path": "scripts/exports/douyin_refund_order_history_export.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "douyin_refund_order_history_export.py"
+    },
+    {
+      "id": "scripts/exports/douyin_verify_record_export.py",
+      "path": "scripts/exports/douyin_verify_record_export.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "douyin_verify_record_export.py"
+    },
+    {
+      "id": "scripts/exports/export_craftsman_bind_info.py",
+      "path": "scripts/exports/export_craftsman_bind_info.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_craftsman_bind_info.py"
+    },
+    {
+      "id": "scripts/exports/export_douyin_clues.py",
+      "path": "scripts/exports/export_douyin_clues.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_douyin_clues.py"
+    },
+    {
+      "id": "scripts/exports/export_jan2026_merchant_orders_from_cache.py",
+      "path": "scripts/exports/export_jan2026_merchant_orders_from_cache.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_jan2026_merchant_orders_from_cache.py"
+    },
+    {
+      "id": "scripts/exports/export_jan2026_merchant_verify_store_name.py",
+      "path": "scripts/exports/export_jan2026_merchant_verify_store_name.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_jan2026_merchant_verify_store_name.py"
+    },
+    {
+      "id": "scripts/exports/export_jan2026_merchant_verify_store_sample.py",
+      "path": "scripts/exports/export_jan2026_merchant_verify_store_sample.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_jan2026_merchant_verify_store_sample.py"
+    },
+    {
+      "id": "scripts/exports/export_jan2026_sale_owner_store_test.py",
+      "path": "scripts/exports/export_jan2026_sale_owner_store_test.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_jan2026_sale_owner_store_test.py"
+    },
+    {
+      "id": "scripts/exports/export_may_verify_by_backend_pois.py",
+      "path": "scripts/exports/export_may_verify_by_backend_pois.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_may_verify_by_backend_pois.py"
+    },
+    {
+      "id": "scripts/exports/export_raw_orders.py",
+      "path": "scripts/exports/export_raw_orders.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "export_raw_orders.py"
+    },
+    {
+      "id": "scripts/import_store_locations.py",
+      "path": "scripts/import_store_locations.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "import_store_locations.py"
+    },
+    {
+      "id": "scripts/refresh_store_scores.py",
+      "path": "scripts/refresh_store_scores.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "refresh_store_scores.py"
+    },
+    {
+      "id": "scripts/settlement/build_may_settlement_dashboard.py",
+      "path": "scripts/settlement/build_may_settlement_dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "build_may_settlement_dashboard.py"
+    },
+    {
+      "id": "scripts/settlement/build_monthly_settlement_dashboard_from_base.py",
+      "path": "scripts/settlement/build_monthly_settlement_dashboard_from_base.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "build_monthly_settlement_dashboard_from_base.py"
+    },
+    {
+      "id": "scripts/settlement/build_settlement_base_from_current_data.py",
+      "path": "scripts/settlement/build_settlement_base_from_current_data.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "build_settlement_base_from_current_data.py"
+    },
+    {
+      "id": "scripts/settlement/build_settlement_base_with_verify_api.py",
+      "path": "scripts/settlement/build_settlement_base_with_verify_api.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "build_settlement_base_with_verify_api.py"
+    },
+    {
+      "id": "scripts/settlement/supplement_affected_months.py",
+      "path": "scripts/settlement/supplement_affected_months.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "supplement_affected_months.py"
+    },
+    {
+      "id": "scripts/utilities/backfill_coupon_status.py",
+      "path": "scripts/utilities/backfill_coupon_status.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "backfill_coupon_status.py"
+    },
+    {
+      "id": "src/__init__.py",
+      "path": "src/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "src/dy_data/__init__.py",
+      "path": "src/dy_data/__init__.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "__init__.py"
+    },
+    {
+      "id": "src/dy_data/config.py",
+      "path": "src/dy_data/config.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "config.py"
+    },
+    {
+      "id": "src/dy_data/csv_io.py",
+      "path": "src/dy_data/csv_io.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "csv_io.py"
+    },
+    {
+      "id": "src/dy_data/douyin_client.py",
+      "path": "src/dy_data/douyin_client.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "douyin_client.py"
+    },
+    {
+      "id": "src/dy_data/paths.py",
+      "path": "src/dy_data/paths.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "paths.py"
+    },
+    {
+      "id": "src/dy_data/sku.py",
+      "path": "src/dy_data/sku.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "sku.py"
+    },
+    {
+      "id": "tests/conftest.py",
+      "path": "tests/conftest.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "conftest.py"
+    },
+    {
+      "id": "tests/test_alembic_migrations.py",
+      "path": "tests/test_alembic_migrations.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_alembic_migrations.py"
+    },
+    {
+      "id": "tests/test_api_account_permissions.py",
+      "path": "tests/test_api_account_permissions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_account_permissions.py"
+    },
+    {
+      "id": "tests/test_api_admin_accounts.py",
+      "path": "tests/test_api_admin_accounts.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_admin_accounts.py"
+    },
+    {
+      "id": "tests/test_api_admin_sku_rules.py",
+      "path": "tests/test_api_admin_sku_rules.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_admin_sku_rules.py"
+    },
+    {
+      "id": "tests/test_api_admin_sync.py",
+      "path": "tests/test_api_admin_sync.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_admin_sync.py"
+    },
+    {
+      "id": "tests/test_api_auth.py",
+      "path": "tests/test_api_auth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_auth.py"
+    },
+    {
+      "id": "tests/test_api_clue_allocation_decisions.py",
+      "path": "tests/test_api_clue_allocation_decisions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_clue_allocation_decisions.py"
+    },
+    {
+      "id": "tests/test_api_clue_allocation_m1.py",
+      "path": "tests/test_api_clue_allocation_m1.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_clue_allocation_m1.py"
+    },
+    {
+      "id": "tests/test_api_clue_allocation_m3.py",
+      "path": "tests/test_api_clue_allocation_m3.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_clue_allocation_m3.py"
+    },
+    {
+      "id": "tests/test_api_clue_rule_versions.py",
+      "path": "tests/test_api_clue_rule_versions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_clue_rule_versions.py"
+    },
+    {
+      "id": "tests/test_api_clues.py",
+      "path": "tests/test_api_clues.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_clues.py"
+    },
+    {
+      "id": "tests/test_api_dashboard.py",
+      "path": "tests/test_api_dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_dashboard.py"
+    },
+    {
+      "id": "tests/test_api_feedback.py",
+      "path": "tests/test_api_feedback.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_feedback.py"
+    },
+    {
+      "id": "tests/test_api_product_type_visibility.py",
+      "path": "tests/test_api_product_type_visibility.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_product_type_visibility.py"
+    },
+    {
+      "id": "tests/test_backend_aweme_export_job.py",
+      "path": "tests/test_backend_aweme_export_job.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_backend_aweme_export_job.py"
+    },
+    {
+      "id": "tests/test_backend_aweme_parser.py",
+      "path": "tests/test_backend_aweme_parser.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_backend_aweme_parser.py"
+    },
+    {
+      "id": "tests/test_clue_allocation_cycles.py",
+      "path": "tests/test_clue_allocation_cycles.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_allocation_cycles.py"
+    },
+    {
+      "id": "tests/test_clue_allocation_engine.py",
+      "path": "tests/test_clue_allocation_engine.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_allocation_engine.py"
+    },
+    {
+      "id": "tests/test_clue_allocation_m1.py",
+      "path": "tests/test_clue_allocation_m1.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_allocation_m1.py"
+    },
+    {
+      "id": "tests/test_clue_follow_up_state.py",
+      "path": "tests/test_clue_follow_up_state.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_follow_up_state.py"
+    },
+    {
+      "id": "tests/test_clue_headquarters_pool.py",
+      "path": "tests/test_clue_headquarters_pool.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_headquarters_pool.py"
+    },
+    {
+      "id": "tests/test_clue_rule_versions.py",
+      "path": "tests/test_clue_rule_versions.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_clue_rule_versions.py"
+    },
+    {
+      "id": "tests/test_data_schema.py",
+      "path": "tests/test_data_schema.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_data_schema.py"
+    },
+    {
+      "id": "tests/test_data_settlement.py",
+      "path": "tests/test_data_settlement.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_data_settlement.py"
+    },
+    {
+      "id": "tests/test_db_config.py",
+      "path": "tests/test_db_config.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_db_config.py"
+    },
+    {
+      "id": "tests/test_deploy_compose_config.py",
+      "path": "tests/test_deploy_compose_config.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_deploy_compose_config.py"
+    },
+    {
+      "id": "tests/test_design_system_docs.py",
+      "path": "tests/test_design_system_docs.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_design_system_docs.py"
+    },
+    {
+      "id": "tests/test_design_system_enforcement.py",
+      "path": "tests/test_design_system_enforcement.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_design_system_enforcement.py"
+    },
+    {
+      "id": "tests/test_douyin_openapi_client.py",
+      "path": "tests/test_douyin_openapi_client.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_douyin_openapi_client.py"
+    },
+    {
+      "id": "tests/test_export_douyin_clues.py",
+      "path": "tests/test_export_douyin_clues.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_export_douyin_clues.py"
+    },
+    {
+      "id": "tests/test_frontend_admin_accounts.py",
+      "path": "tests/test_frontend_admin_accounts.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_admin_accounts.py"
+    },
+    {
+      "id": "tests/test_frontend_app_icon.py",
+      "path": "tests/test_frontend_app_icon.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_app_icon.py"
+    },
+    {
+      "id": "tests/test_frontend_auth_guidance.py",
+      "path": "tests/test_frontend_auth_guidance.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_auth_guidance.py"
+    },
+    {
+      "id": "tests/test_frontend_clue_allocation_consolidation.py",
+      "path": "tests/test_frontend_clue_allocation_consolidation.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_clue_allocation_consolidation.py"
+    },
+    {
+      "id": "tests/test_frontend_clue_allocation_m3.py",
+      "path": "tests/test_frontend_clue_allocation_m3.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_clue_allocation_m3.py"
+    },
+    {
+      "id": "tests/test_frontend_clue_allocation_score_visibility.py",
+      "path": "tests/test_frontend_clue_allocation_score_visibility.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_clue_allocation_score_visibility.py"
+    },
+    {
+      "id": "tests/test_frontend_clue_center.py",
+      "path": "tests/test_frontend_clue_center.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_clue_center.py"
+    },
+    {
+      "id": "tests/test_frontend_product_type_visibility.py",
+      "path": "tests/test_frontend_product_type_visibility.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_product_type_visibility.py"
+    },
+    {
+      "id": "tests/test_frontend_sales_dashboard.py",
+      "path": "tests/test_frontend_sales_dashboard.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_sales_dashboard.py"
+    },
+    {
+      "id": "tests/test_frontend_settlement_privacy.py",
+      "path": "tests/test_frontend_settlement_privacy.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_settlement_privacy.py"
+    },
+    {
+      "id": "tests/test_frontend_store_select.py",
+      "path": "tests/test_frontend_store_select.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_store_select.py"
+    },
+    {
+      "id": "tests/test_frontend_user_facing_contracts.py",
+      "path": "tests/test_frontend_user_facing_contracts.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_user_facing_contracts.py"
+    },
+    {
+      "id": "tests/test_project_governance.py",
+      "path": "tests/test_project_governance.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_project_governance.py"
+    },
+    {
+      "id": "tests/test_store_location_import_cli.py",
+      "path": "tests/test_store_location_import_cli.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_store_location_import_cli.py"
+    },
+    {
+      "id": "tests/test_visual_smoke.py",
+      "path": "tests/test_visual_smoke.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_visual_smoke.py"
+    },
+    {
+      "id": "tests/test_worker_aweme_binding_collector.py",
+      "path": "tests/test_worker_aweme_binding_collector.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_aweme_binding_collector.py"
+    },
+    {
+      "id": "tests/test_worker_clue_center.py",
+      "path": "tests/test_worker_clue_center.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_clue_center.py"
+    },
+    {
+      "id": "tests/test_worker_clue_collector.py",
+      "path": "tests/test_worker_clue_collector.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_clue_collector.py"
+    },
+    {
+      "id": "tests/test_worker_collect_once_cli.py",
+      "path": "tests/test_worker_collect_once_cli.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_collect_once_cli.py"
+    },
+    {
+      "id": "tests/test_worker_collection_pipeline.py",
+      "path": "tests/test_worker_collection_pipeline.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_collection_pipeline.py"
+    },
+    {
+      "id": "tests/test_worker_collection_windows.py",
+      "path": "tests/test_worker_collection_windows.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_collection_windows.py"
+    },
+    {
+      "id": "tests/test_worker_order_collector.py",
+      "path": "tests/test_worker_order_collector.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_order_collector.py"
+    },
+    {
+      "id": "tests/test_worker_rule_version_scoring.py",
+      "path": "tests/test_worker_rule_version_scoring.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_rule_version_scoring.py"
+    },
+    {
+      "id": "tests/test_worker_verify_collector.py",
+      "path": "tests/test_worker_verify_collector.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_worker_verify_collector.py"
+    }
+  ],
+  "edges": [
+    {
+      "id": "AGENTS.md->AGENTS.md:links_to",
+      "from": "AGENTS.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 80,
+          "text": "- `AGENTS.md` is the platform and repository hard-rule authority.",
+          "syntax": "backtick"
+        },
+        {
+          "path": "AGENTS.md",
+          "line": 282,
+          "text": "the rule affects all Codex windows for this repository, update this `AGENTS.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "AGENTS.md->docs/governance/authority-map.md:links_to",
+      "from": "AGENTS.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 92,
+          "text": "- `docs/governance/authority-map.md` records how legacy documents map into the",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "AGENTS.md->docs/plans/execution-plan.md:links_to",
+      "from": "AGENTS.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 88,
+          "text": "- `docs/plans/execution-plan.md` is the current execution cockpit, not the",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "AGENTS.md->project-profile.md:links_to",
+      "from": "AGENTS.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 85,
+          "text": "- `project-profile.md` is the project identity and current-stage snapshot.",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "AGENTS.md->project-rules.md:links_to",
+      "from": "AGENTS.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "AGENTS.md",
+          "line": 83,
+          "text": "- `project-rules.md` is the thin long-lived authority index.",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "apps/web/README.md->docs/design-system/README.md:links_to",
+      "from": "apps/web/README.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "apps/web/README.md",
+          "line": 35,
+          "text": "- 视觉与组件规范读取 `../../docs/design-system/README.md` 和 `../../docs/design-system/tokens.json`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/技术架构与部署规划.md->docs/architecture.md:links_to",
+      "from": "docs/技术架构与部署规划.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 3,
+          "text": "> 本文是部署选择与演进说明。当前组件和边界以 `docs/architecture.md` 为准，实际生产步骤以 `docs/runbook.md`、`deploy/` 和 GitHub Actions workflow 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/技术架构与部署规划.md->docs/runbook.md:links_to",
+      "from": "docs/技术架构与部署规划.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 3,
+          "text": "> 本文是部署选择与演进说明。当前组件和边界以 `docs/architecture.md` 为准，实际生产步骤以 `docs/runbook.md`、`deploy/` 和 GitHub Actions workflow 为准。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/技术架构与部署规划.md",
+          "line": 48,
+          "text": "具体命令、健康检查、备份、恢复、浏览器登录态和数据任务操作见 `docs/runbook.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/api-contract.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 85,
+          "text": "- API 契约：`docs/api-contract.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/architecture.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 84,
+          "text": "- 当前架构：`docs/architecture.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/data-model.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 86,
+          "text": "- 数据模型证据：`docs/data-model.md` 与 Alembic / SQLAlchemy 代码",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/design-system/README.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 88,
+          "text": "- 视觉系统：`docs/design-system/README.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 89,
+          "text": "- 项目画像与治理：`project-profile.md`、`docs/governance/authority-map.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->docs/runbook.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 87,
+          "text": "- 运行手册：`docs/runbook.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/项目产品介绍书.md->project-profile.md:links_to",
+      "from": "docs/项目产品介绍书.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/项目产品介绍书.md",
+          "line": 89,
+          "text": "- 项目画像与治理：`project-profile.md`、`docs/governance/authority-map.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/architecture.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/architecture.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/architecture.md",
+          "line": 81,
+          "text": "- 产品范围：`docs/项目产品介绍书.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/architecture.md->docs/runbook.md:links_to",
+      "from": "docs/architecture.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/architecture.md",
+          "line": 74,
+          "text": "- `job_runs` 等状态用于观察数据任务；详细部署、迁移、备份与恢复见 `docs/runbook.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/baseline/dydata-6-baseline-dry-run-review.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+          "line": 50,
+          "text": "第二次 dry-run 仍报告 BRD、PAGE_EXPLAINER、FOUNDATION、PRD 缺失，这是套包正式产物缺口，不代表现有项目没有任何产品、视觉、架构或规格材料。现有材料的权威级别与迁移关系以 `docs/governance/authority-map.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/baseline/dydata-6-baseline-dry-run-review.md->project-profile.md:links_to",
+      "from": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+          "line": 16,
+          "text": "因此，首次结果未生成正式 `project-profile.md` 或 `baseline-audit-dy-data.*`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/baseline/dydata-6-baseline-dry-run-review.md->README.md:links_to",
+      "from": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/baseline/dydata-6-baseline-dry-run-review.md",
+          "line": 41,
+          "text": "| 项目 README | `README.md` | 正确 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "from": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+          "line": 7,
+          "text": "> 决策台账: [brd-ledger-dy-data.md](./brd-ledger-dy-data.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/brd/BRD-dy-data-20260716-1255.md->project-profile.md:links_to",
+      "from": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/brd/BRD-dy-data-20260716-1255.md",
+          "line": 6,
+          "text": "> 上游画像: [project-profile.md](../../project-profile.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->AGENTS.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/api-contract.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/architecture.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/data-model.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 51,
+          "text": "| 修改 | `docs/architecture.md`、`docs/api-contract.md`、`docs/data-model.md`、部署与运行文档 | 清理过期架构、接口、数据和基础设施描述 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->project-profile.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->project-rules.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 修改 | `AGENTS.md`、`project-rules.md`、`docs/governance/authority-map.md`、`docs/plans/execution-plan.md` | 明确宿主规则优先级和 Linear / 套包 / GitHub 权威边界 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260714_refactor_log_Keith_Chen.md->README.md:links_to",
+      "from": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260714_refactor_log_Keith_Chen.md",
+          "line": 50,
+          "text": "| 修改 | `README.md`、`project-profile.md`、`docs/项目产品介绍书.md` | 将产品定位统一为覆盖四个业务域的抖音经营引擎 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260716_refactor_log_Keith_Chen.md->project-rules.md:links_to",
+      "from": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
+          "line": 69,
+          "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/github-cicd.md->docs/tencent-lighthouse-cicd.md:links_to",
+      "from": "docs/github-cicd.md",
+      "to": "docs/tencent-lighthouse-cicd.md",
+      "target": "docs/tencent-lighthouse-cicd.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/github-cicd.md",
+          "line": 10,
+          "text": "The Tencent workflow is documented in `docs/tencent-lighthouse-cicd.md`.",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->AGENTS.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 17,
+          "text": "| `AGENTS.md` | 平台与仓库硬规则 | `authority` | 保持唯一 turn gate、套包门禁和 Linear-first 入口。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->apps/web/README.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 29,
+          "text": "| `apps/web/README.md` | Web 开发与当前路由范围指南 | `evidence` | 准确路由和数据行为仍以 `src/App.tsx`、client 与后端 schema 为准。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/技术架构与部署规划.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/技术架构与部署规划.md",
+      "target": "docs/技术架构与部署规划.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 30,
+          "text": "| `docs/技术架构与部署规划.md` | 部署选择与演进指南 | `evidence` | 当前事实链接架构、运行手册、workflow 和 `deploy/`。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 23,
+          "text": "| `docs/项目产品介绍书.md` | 当前产品总览、四个业务域与产品导航 | `authority` | 保留面向项目理解的总览职责；业务目标、角色、范围、成功标准和风险以正式 BRD 为准。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/api-contract.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 31,
+          "text": "| `docs/api-contract.md` | 当前认证、响应包络和 API 分组索引 | `evidence` | 运行契约以 routes、schema、依赖、OpenAPI 和测试为准；后续映射到 FOUNDATION API。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/architecture.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 25,
+          "text": "| `docs/architecture.md` | 当前服务组成、边界、数据链路和认证架构 | `authority` | 与当前代码、迁移、`deploy/` 同步维护。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 38,
+          "text": "| `docs/brd/BRD-dy-data-20260716-1255.md` | S1 业务目标、角色、痛点、价值、范围、成功标准、风险与下游边界 | `authority` | 当前唯一权威 BRD；修改业务口径时须重开 BRD 台账并重新完成质量门与终稿确认。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 39,
+          "text": "| `docs/brd/ledger-state-dy-data.json`、`docs/brd/brd-ledger-dy-data.md` | BRD 决策状态与追溯记录 | `evidence` | JSON 是决策状态源，Markdown 是脚本渲染的只读展示层；二者不替代 BRD 正文。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/data-model.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 34,
+          "text": "| `docs/data-model.md` | 当前 37 个表模型的业务分组索引 | `evidence` | 运行结构以迁移、SQLAlchemy 模型和实际 schema 为准；未来由 FOUNDATION schema 定向补齐字段契约。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/design-system/README.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 24,
+          "text": "| `docs/design-system/README.md`、`docs/design-system/tokens.json` | 视觉系统与运行时设计契约 | `authority` | 当前强视觉规范入口；候选与评审文件仅作 evidence。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/github-cicd.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/github-cicd.md",
+      "target": "docs/github-cicd.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 32,
+          "text": "| `docs/github-cicd.md`、`docs/tencent-lighthouse-cicd.md` | CI/CD 配置操作指南 | `evidence` | 只记录变量名和通用步骤，不保存真实项目、主机或 URL。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 21,
+          "text": "| `docs/plans/execution-plan.md` | 当前执行驾驶舱 | `authority` | 只维护当前 issue、完成标准和紧邻下一步。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/runbook.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 26,
+          "text": "| `docs/runbook.md` | 生产部署、迁移、数据任务、备份和恢复操作 | `authority` | 运行命令与生产安全边界的文档入口。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/tencent-edgeone-migration.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/tencent-edgeone-migration.md",
+      "target": "docs/tencent-edgeone-migration.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 33,
+          "text": "| `docs/tencent-edgeone-migration.md` | Railway 到 CVM/EdgeOne 的历史迁移方案 | `legacy` | 不代表当前部署状态；执行前需重新验证云产品要求并以当前 workflow、`deploy/` 和运行手册为准。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->docs/tencent-lighthouse-cicd.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "docs/tencent-lighthouse-cicd.md",
+      "target": "docs/tencent-lighthouse-cicd.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 32,
+          "text": "| `docs/github-cicd.md`、`docs/tencent-lighthouse-cicd.md` | CI/CD 配置操作指南 | `evidence` | 只记录变量名和通用步骤，不保存真实项目、主机或 URL。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->project-profile.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 20,
+          "text": "| `project-profile.md` | 项目身份、业务范围、阶段和 baseline 缺口快照 | `authority` | 用户确认与系统推断保持来源标记。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->project-rules.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 19,
+          "text": "| `project-rules.md` | 长期项目边界与权威索引 | `authority` | 不写临时 issue 状态，不复制专项规则正文。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/governance/authority-map.md->README.md:links_to",
+      "from": "docs/governance/authority-map.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/governance/authority-map.md",
+          "line": 28,
+          "text": "| `README.md` | 仓库总览、开发入口和权威文档导航 | `evidence` | 不复制完整产品、架构或运行手册。 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-11-two-person-development-division.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/plans/2026-06-11-two-person-development-division.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 44,
+          "text": "- 两人都可以改文档，但同一时间只由一人改 `docs/项目产品介绍书.md`，避免文档冲突。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 62,
+          "text": "- `docs/项目产品介绍书.md` 中的页面定义、口径说明和交互说明",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 237,
+          "text": "- Modify: `docs/项目产品介绍书.md` only when产品口径变化.",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 275,
+          "text": "2. B 基于本文件和 `docs/项目产品介绍书.md` 画出页面 1/2/3 的静态结构，不等真实数据全部补齐。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 292,
+          "text": "- `docs/项目产品介绍书.md`、字段契约、页面验收清单三者口径一致。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-11-two-person-development-division.md->docs/architecture.md:links_to",
+      "from": "docs/plans/2026-06-11-two-person-development-division.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 68,
+          "text": "- `docs/architecture.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-11-two-person-development-division.md->docs/runbook.md:links_to",
+      "from": "docs/plans/2026-06-11-two-person-development-division.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 69,
+          "text": "- `docs/runbook.md`",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 159,
+          "text": "- Modify: `docs/runbook.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-11-two-person-development-division.md->README.md:links_to",
+      "from": "docs/plans/2026-06-11-two-person-development-division.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-11-two-person-development-division.md",
+          "line": 67,
+          "text": "- `README.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-12-automatic-collection-production-closure.md->docs/技术架构与部署规划.md:links_to",
+      "from": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+      "to": "docs/技术架构与部署规划.md",
+      "target": "docs/技术架构与部署规划.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+          "line": 523,
+          "text": "- Modify: `docs/技术架构与部署规划.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-12-automatic-collection-production-closure.md->docs/data-model.md:links_to",
+      "from": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+          "line": 524,
+          "text": "- Modify: `docs/data-model.md` if new env fields or metadata are added",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-12-automatic-collection-production-closure.md->docs/runbook.md:links_to",
+      "from": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-12-automatic-collection-production-closure.md",
+          "line": 522,
+          "text": "- Modify: `docs/runbook.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md->docs/api-contract.md:links_to",
+      "from": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+          "line": 21,
+          "text": "| API contract | Page 1/2/3 contract exists. | `docs/api-contract.md` | High | Needs v1 cleanup and metadata endpoint. |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md->docs/data-model.md:links_to",
+      "from": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-12-backend-production-mvp-controller-spec.md",
+          "line": 20,
+          "text": "| Data contract | First-round data model exists and supports one-row-per-coupon detail modeling. | `docs/data-model.md` | High | Needs v1 cleanup for no invoice/refund display. |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md->docs/api-contract.md:links_to",
+      "from": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 974,
+          "text": "- Modify: `docs/api-contract.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md->docs/data-model.md:links_to",
+      "from": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 973,
+          "text": "- Modify: `docs/data-model.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md->docs/runbook.md:links_to",
+      "from": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 975,
+          "text": "- Modify: `docs/runbook.md`",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 992,
+          "text": "In `docs/runbook.md`, add:",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 1055,
+          "text": "Use the existing local development command from `docs/runbook.md`. If using SQLite tests only, at least run `Base.metadata.create_all` through pytest.",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md->docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:links_to",
+      "from": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "to": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "target": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+          "line": 3,
+          "text": "> **Superseded notice (2026-07-12):** 本计划中的抖音首轮归属、跟进结果、SLA、评分和再分配规则已被 `docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md` 替代。本文仅保留为历史实施记录，不得直接作为新分配引擎的开发依据。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 10,
+          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 47,
+          "text": "- BRD 台账：`dy-data`，运营型，状态 `DONE`，15 个适用字段已全部锁定、冲突 0；四项前提挑战和七项质量门均已通过，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/brd/brd-ledger-dy-data.md",
+      "target": "docs/brd/brd-ledger-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 10,
+          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->project-profile.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 36,
+          "text": "- 当前阶段快照以 `project-profile.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/api-contract.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 17,
+          "text": "- 业务响应沿用当前 `{ data, definitions?, meta }` 包络；调整字段时同步后端测试、前端类型和 `docs/api-contract.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/rules/database-tasks.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/rules/database-tasks.md",
+      "target": "docs/rules/database-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 11,
+          "text": "3. 涉及数据库时同时加载 `database-tasks.md`；涉及页面联调时同时加载 `frontend-tasks.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/backend-tasks.md->docs/rules/frontend-tasks.md:links_to",
+      "from": "docs/rules/backend-tasks.md",
+      "to": "docs/rules/frontend-tasks.md",
+      "target": "docs/rules/frontend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/backend-tasks.md",
+          "line": 11,
+          "text": "3. 涉及数据库时同时加载 `database-tasks.md`；涉及页面联调时同时加载 `frontend-tasks.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/devlog.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/rules/devlog.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 19,
+          "text": "- issue 状态与验收回写 Linear，当前阶段回写 `project-profile.md`，当前执行摘要回写 `docs/plans/execution-plan.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/devlog.md->project-profile.md:links_to",
+      "from": "docs/rules/devlog.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 5,
+          "text": "- 可提交的开发过程日志写入 `docs/devlog/`，该目录由 `project-profile.md` 的“最近状态入口”配置。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/rules/devlog.md",
+          "line": 19,
+          "text": "- issue 状态与验收回写 Linear，当前阶段回写 `project-profile.md`，当前执行摘要回写 `docs/plans/execution-plan.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->docs/governance/authority-map.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 9,
+          "text": "- `docs/governance/authority-map.md`：现有文档的 authority、evidence、legacy、stale 和 missing 角色。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 7,
+          "text": "- `docs/plans/execution-plan.md`：当前 issue 的执行驾驶舱，不复制 Backlog。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/docs-and-plans.md->project-profile.md:links_to",
+      "from": "docs/rules/docs-and-plans.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/docs-and-plans.md",
+          "line": 6,
+          "text": "- `project-profile.md`：项目身份、业务范围、阶段和当前缺口快照。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/frontend-tasks.md->docs/design-system/README.md:links_to",
+      "from": "docs/rules/frontend-tasks.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/frontend-tasks.md",
+          "line": 10,
+          "text": "2. 读取 `docs/design-system/README.md`、`docs/design-system/tokens.json` 及现有同类组件。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->AGENTS.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 16,
+          "text": "1. 按 `AGENTS.md` 完成 turn gate、套包锁和阶段路由。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/backend-tasks.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/backend-tasks.md",
+      "target": "docs/rules/backend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 7,
+          "text": "- `backend-tasks.md`：FastAPI、SQLAlchemy、认证授权和 API 变更。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/database-tasks.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/database-tasks.md",
+      "target": "docs/rules/database-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 8,
+          "text": "- `database-tasks.md`：PostgreSQL、Alembic、数据回填和查询验证。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/debugging.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/debugging.md",
+      "target": "docs/rules/debugging.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 10,
+          "text": "- `debugging.md`：从症状到数据、服务、页面和生产环境的逐层取证。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/devlog.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/devlog.md",
+      "target": "docs/rules/devlog.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 12,
+          "text": "- `devlog.md`：`docs/devlog/` 的可提交开发日志和 `/logs/` 的运行日志边界。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/docs-and-plans.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/docs-and-plans.md",
+      "target": "docs/rules/docs-and-plans.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 11,
+          "text": "- `docs-and-plans.md`：Linear、执行驾驶舱、项目画像和文档权威同步。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/frontend-tasks.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/frontend-tasks.md",
+      "target": "docs/rules/frontend-tasks.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 9,
+          "text": "- `frontend-tasks.md`：React、TypeScript、Vite、真实 API 和视觉系统。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/runbook.md->docs/项目产品介绍书.md:links_to",
+      "from": "docs/runbook.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/runbook.md",
+          "line": 3,
+          "text": "本文档面向 Linux Docker Compose 部署，覆盖 PostgreSQL、FastAPI、worker、React 静态构建、受最高管理员保护的 noVNC Chromium 采集容器、反向代理、迁移和数据刷新任务。业务范围包括经营结算、线索运营和后台管理，产品定义以 `docs/项目产品介绍书.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md->docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md:links_to",
+      "from": "docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md",
+      "to": "docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md",
+      "target": "docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md",
+          "line": 3,
+          "text": "> **Controller note:** Sequential execution on `feat/clue-allocation-m1`; source of truth is the approved product design and `docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md`.",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md->docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:links_to",
+      "from": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+      "to": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "target": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+          "line": 3,
+          "text": "> **更新提示（2026-07-12）：** 本文中的跟进结果枚举、SLA、轮次流转、分配门店来源以及“本店/其他门店”展示口径，已被 `docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md` 替代。未冲突的列表、详情面板和手机号权限设计继续有效。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md->docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:links_to",
+      "from": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "to": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "target": "docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+          "line": 9,
+          "text": "- `docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md->docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md:links_to",
+      "from": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+      "to": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+      "target": "docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md",
+          "line": 10,
+          "text": "- `docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/tencent-edgeone-migration.md->docs/runbook.md:links_to",
+      "from": "docs/tencent-edgeone-migration.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/tencent-edgeone-migration.md",
+          "line": 5,
+          "text": "> Use `docs/runbook.md`, current workflows, `deploy/`, and repository variables",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "mock/README.md->docs/api-contract.md:links_to",
+      "from": "mock/README.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "mock/README.md",
+          "line": 5,
+          "text": "当前状态：第一轮数据侧已确认。mock 字段已按券/核销明细粒度同步到 `docs/data-model.md` 和 `docs/api-contract.md`；门店展示名可使用真实或近似真实门店名称以便前端展示，其余订单、券、核销、金额和状态数据仍然是脱敏示例，不代表真实交易或最终财务口径。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "mock/README.md->docs/data-model.md:links_to",
+      "from": "mock/README.md",
+      "to": "docs/data-model.md",
+      "target": "docs/data-model.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "mock/README.md",
+          "line": 5,
+          "text": "当前状态：第一轮数据侧已确认。mock 字段已按券/核销明细粒度同步到 `docs/data-model.md` 和 `docs/api-contract.md`；门店展示名可使用真实或近似真实门店名称以便前端展示，其余订单、券、核销、金额和状态数据仍然是脱敏示例，不代表真实交易或最终财务口径。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->AGENTS.md:links_to",
+      "from": "project-rules.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 3,
+          "text": "本文件只维护长期权威入口和稳定边界，不复制 `AGENTS.md`、Linear issue、套包协议或专项规则正文。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "project-rules.md",
+          "line": 7,
+          "text": "- 平台与仓库硬规则：`AGENTS.md`。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "project-rules.md",
+          "line": 57,
+          "text": "- 项目任务必须先读取 `AGENTS.md`，并按安装态 `ai-project-manager` 路由。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "project-rules.md",
+          "line": 65,
+          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->docs/design-system/README.md:links_to",
+      "from": "project-rules.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 39,
+          "text": "- 视觉系统以 `docs/design-system/tokens.json` 和 `docs/design-system/README.md` 为权威入口。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->docs/governance/authority-map.md:links_to",
+      "from": "project-rules.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 13,
+          "text": "- 既有材料角色与新旧权威关系：`docs/governance/authority-map.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->docs/plans/execution-plan.md:links_to",
+      "from": "project-rules.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 10,
+          "text": "- 当前执行摘要：`docs/plans/execution-plan.md`；正式 S3 计划形成前，开发范围仍以当前 Linear issue 为准。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "project-rules.md",
+          "line": 61,
+          "text": "- 不把 Linear Backlog 复制到 `execution-plan.md`，不把临时 issue 状态固化为长期项目规则。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->project-profile.md:links_to",
+      "from": "project-rules.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 12,
+          "text": "- 项目身份与阶段快照：`project-profile.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->project-rules.md:links_to",
+      "from": "project-rules.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 65,
+          "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "README.md->AGENTS.md:links_to",
+      "from": "README.md",
+      "to": "AGENTS.md",
+      "target": "AGENTS.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 87,
+          "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/项目产品介绍书.md:links_to",
+      "from": "README.md",
+      "to": "docs/项目产品介绍书.md",
+      "target": "docs/项目产品介绍书.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 12,
+          "text": "系统输出经营与分账参考，不执行真实资金划拨。业务边界以 [项目产品介绍书](docs/项目产品介绍书.md) 为准。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "README.md",
+          "line": 25,
+          "text": "- [项目产品介绍书](docs/项目产品介绍书.md)：当前产品定义和业务边界。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/api-contract.md:links_to",
+      "from": "README.md",
+      "to": "docs/api-contract.md",
+      "target": "docs/api-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 27,
+          "text": "- [API 契约](docs/api-contract.md)：认证、响应包络和接口分组。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/architecture.md:links_to",
+      "from": "README.md",
+      "to": "docs/architecture.md",
+      "target": "docs/architecture.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 26,
+          "text": "- [系统架构](docs/architecture.md)：当前代码结构、服务边界和数据链路。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/design-system/README.md:links_to",
+      "from": "README.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 29,
+          "text": "- [视觉系统](docs/design-system/README.md)：设计令牌、组件和页面视觉规范。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/governance/authority-map.md:links_to",
+      "from": "README.md",
+      "to": "docs/governance/authority-map.md",
+      "target": "docs/governance/authority-map.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 30,
+          "text": "- [文档权威映射](docs/governance/authority-map.md)：现有文档的 authority、evidence、legacy 和 stale 角色。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/rules/README.md:links_to",
+      "from": "README.md",
+      "to": "docs/rules/README.md",
+      "target": "docs/rules/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 87,
+          "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/runbook.md:links_to",
+      "from": "README.md",
+      "to": "docs/runbook.md",
+      "target": "docs/runbook.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 28,
+          "text": "- [运行手册](docs/runbook.md)：生产部署、迁移、运维和恢复。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "README.md",
+          "line": 83,
+          "text": "完整迁移、健康检查、备份和恢复步骤见 [运行手册](docs/runbook.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->project-profile.md:links_to",
+      "from": "README.md",
+      "to": "project-profile.md",
+      "target": "project-profile.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 24,
+          "text": "- [项目画像](project-profile.md)：项目身份、当前阶段、范围和治理状态。",
+          "syntax": "markdown"
+        }
+      ]
+    }
+  ],
+  "issues": [],
+  "wikiSchema": {
+    "schemaVersion": "1.0.0",
+    "principle": "project-link-indexer compiles a rebuildable LLM wiki style file graph from existing host artifacts; source artifacts remain authoritative.",
+    "outputs": {
+      "graphJson": "docs/index/project-link-graph.json",
+      "graphMarkdown": "docs/index/project-link-graph.md",
+      "wikiSchemaJson": "docs/index/project-wiki-schema.json"
+    },
+    "nodeFields": [
+      "id",
+      "path",
+      "kind",
+      "owner_skill",
+      "authority",
+      "slug",
+      "title"
+    ],
+    "edgeFields": [
+      "id",
+      "from",
+      "to",
+      "target",
+      "relation",
+      "status",
+      "anchor",
+      "evidence"
+    ],
+    "relationTypes": [
+      {
+        "id": "indexes",
+        "description": "索引文件列出并指向子文件，子文件仍保留自身内容权威"
+      },
+      {
+        "id": "depends_on",
+        "description": "下游文件在执行、理解或生成时需要读取上游文件"
+      },
+      {
+        "id": "links_to",
+        "description": "普通引用或导航关系"
+      },
+      {
+        "id": "implements",
+        "description": "代码文件实现某个规格、计划或页面说明"
+      },
+      {
+        "id": "verifies",
+        "description": "验收或测试文件验证某个需求、验收条目或实现文件"
+      },
+      {
+        "id": "derived_from",
+        "description": "文件内容由上游材料推导而来"
+      }
+    ],
+    "fileKinds": {
+      "project_profile": {
+        "owner_skill": "ai-project-manager",
+        "authority": true,
+        "description": "项目画像与当前阶段入口"
+      },
+      "project_rules": {
+        "owner_skill": "ai-project-manager",
+        "authority": true,
+        "description": "宿主项目协作规则入口"
+      },
+      "baseline_audit": {
+        "owner_skill": "project-baseline-auditor",
+        "authority": false,
+        "description": "既有项目基线诊断清单"
+      },
+      "brd": {
+        "owner_skill": "brd-writer",
+        "authority": true,
+        "description": "业务需求文档"
+      },
+      "brd_ledger": {
+        "owner_skill": "brd-writer",
+        "authority": false,
+        "description": "BRD 决策台账"
+      },
+      "page_delivery": {
+        "owner_skill": "page-designer",
+        "authority": false,
+        "description": "页面交付清单"
+      },
+      "page_explainer": {
+        "owner_skill": "page-explainer",
+        "authority": true,
+        "description": "页面流程、交互语义或差异说明"
+      },
+      "page_ledger": {
+        "owner_skill": "page-designer",
+        "authority": false,
+        "description": "页面台账"
+      },
+      "foundation": {
+        "owner_skill": "foundation-builder",
+        "authority": true,
+        "description": "术语表、Schema、API 或 foundation 交付清单"
+      },
+      "prd_feature_list": {
+        "owner_skill": "prd-writer",
+        "authority": true,
+        "description": "PRD 功能列表"
+      },
+      "mainprd": {
+        "owner_skill": "prd-writer",
+        "authority": true,
+        "description": "mainprd 索引"
+      },
+      "subprd": {
+        "owner_skill": "prd-writer",
+        "authority": true,
+        "description": "按功能区块拆分的 subprd"
+      },
+      "delivery_plan": {
+        "owner_skill": "delivery-planner",
+        "authority": true,
+        "description": "开发执行计划"
+      },
+      "source_code": {
+        "owner_skill": "coding-standards",
+        "authority": true,
+        "description": "宿主项目代码文件"
+      },
+      "acceptance": {
+        "owner_skill": "prd-acceptance-reviewer",
+        "authority": true,
+        "description": "验收文档"
+      },
+      "test_case": {
+        "owner_skill": "test-case-writer",
+        "authority": true,
+        "description": "测试用例或测试数据"
+      },
+      "test_review": {
+        "owner_skill": "test-case-reviewer",
+        "authority": false,
+        "description": "测试用例核查问题清单"
+      },
+      "config": {
+        "owner_skill": "host-project",
+        "authority": true,
+        "description": "宿主配置文件"
+      },
+      "readme": {
+        "owner_skill": "host-project",
+        "authority": false,
+        "description": "宿主 README 或说明入口"
+      },
+      "project_index": {
+        "owner_skill": "project-link-indexer",
+        "authority": false,
+        "description": "由索引器生成的关系图与 wiki schema"
+      },
+      "doc": {
+        "owner_skill": "host-project",
+        "authority": false,
+        "description": "其他宿主文档"
+      },
+      "data_file": {
+        "owner_skill": "host-project",
+        "authority": false,
+        "description": "结构化数据文件"
+      }
+    },
+    "requiredRelations": [
+      {
+        "from_kind": "mainprd",
+        "relation": "indexes",
+        "to_kind": "subprd",
+        "reverse_required": true,
+        "reverse_relation": "links_to",
+        "missing_issue": "missing_reverse_link"
+      }
+    ],
+    "writePolicy": {
+      "mayRewrite": [
+        "docs/index/project-link-graph.json",
+        "docs/index/project-link-graph.md",
+        "docs/index/project-wiki-schema.json"
+      ],
+      "mustNotRewriteAsSourceOfTruth": true,
+      "sourceOfTruth": "project-profile.md, docs/brd, src/frontend/page-preview, docs/prd, docs/plans/delivery-plans, docs/test-case, and host code files"
+    }
+  }
+}

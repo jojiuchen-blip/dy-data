@@ -11,6 +11,8 @@ __pycache__/
 /logs/
 /runs/
 /local_exports/
+/.worktrees/
+/tmp/
 
 # Keep this repository focused on source scripts and documentation.
 .env
@@ -31,3 +33,4 @@ dist/
 Thumbs.db
 .idea/
 .vscode/
+.gstack/

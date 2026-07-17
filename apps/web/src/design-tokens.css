@@ -139,4 +139,39 @@
   --surface-white-70: rgb(255 255 255 / 70%);
   --surface-white-92: rgb(255 255 255 / 92%);
   --surface-white-96: rgb(255 255 255 / 96%);
+
+  /* Authentication shell themes */
+  --auth-shell-background: #f8f8f5;
+  --auth-backdrop-overlay: rgb(248 248 245 / 18%);
+  --auth-panel-surface: rgb(255 255 255 / 96%);
+  --auth-panel-outline: rgb(24 24 24 / 11%);
+  --auth-panel-elevation:
+    0 24px 70px rgb(24 24 24 / 12%),
+    0 4px 16px rgb(24 24 24 / 6%);
+  --auth-dark-shell-background: #0c0f11;
+  --auth-dark-backdrop-overlay: rgb(9 11 13 / 10%);
+  --auth-dark-panel-surface: rgb(21 24 26 / 96%);
+  --auth-dark-panel-outline: rgb(255 255 255 / 10%);
+  --auth-dark-panel-elevation:
+    0 28px 80px rgb(0 0 0 / 42%),
+    0 4px 18px rgb(0 0 0 / 28%);
+  --auth-dark-surface: #15181a;
+  --auth-dark-surface-warm: #191c1f;
+  --auth-dark-surface-muted: #202427;
+  --auth-dark-surface-subtle: #1b1f22;
+  --auth-dark-ink: #f2f3f0;
+  --auth-dark-muted: #aeb3b5;
+  --auth-dark-line: #303538;
+  --auth-dark-line-strong: #464d51;
+  --auth-dark-brand-deep-orange: #e35a24;
+  --auth-dark-brand-deep-orange-hover: #ee6630;
+  --auth-dark-brand-deep-orange-active: #cf4e1c;
+  --auth-dark-brand-orange: #ef6b35;
+  --auth-dark-brand-orange-soft: #2d1d17;
+  --auth-dark-brand-orange-ink: #ffb08d;
+  --auth-dark-disabled-background: #34393c;
+  --auth-dark-disabled-text: #81878a;
+  --auth-dark-danger: #ff9187;
+  --auth-dark-focus-ring: 0 0 0 3px rgb(239 107 53 / 28%);
+  --auth-dark-primary-text: #fff9f5;
 }

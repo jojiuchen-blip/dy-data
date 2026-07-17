@@ -1,7 +1,8 @@
 # Tencent Lighthouse CI/CD
 
-This is the deployment path for the Tencent Cloud Lighthouse server used during
-the Railway-to-Tencent migration.
+This is the optional deployment path for a Tencent Cloud Lighthouse or
+compatible self-managed Linux server. Whether it is the active production
+target is controlled by repository variables and environment protection.
 
 ## Workflow
 
@@ -12,11 +13,11 @@ The workflow is `.github/workflows/tencent-lighthouse-deploy.yml`.
   is set to `true`.
 
 The default is intentionally manual so a normal push does not accidentally
-change the Tencent server before DNS and ICP cutover are ready.
+change a self-managed production server.
 
 ## GitHub variables
 
-- `TENCENT_HOST`: public server IP, for example `124.222.59.236`.
+- `TENCENT_HOST`: server hostname or IP supplied through the repository variable, for example `<SERVER_HOST>`.
 - `TENCENT_SSH_PORT`: SSH port, usually `22`.
 - `TENCENT_SSH_USER`: SSH user, usually `ubuntu`.
 - `TENCENT_DEPLOY_ON_PUSH`: set to `true` only after automatic deploys on every
@@ -54,5 +55,6 @@ It performs:
    workflow/server environment.
 9. Smoke test `/` and `/api/v1/auth/me`.
 
-Until final cutover, keep `TENCENT_START_WORKER` unset so the Tencent server does
-not start independent data collection.
+Set `TENCENT_START_WORKER=true` only when this deployment is intentionally the
+active collector. Leave it unset when another environment owns collection, so
+two workers cannot ingest or refresh the same data independently.

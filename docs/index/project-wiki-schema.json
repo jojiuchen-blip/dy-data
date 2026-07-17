@@ -1,0 +1,185 @@
+{
+  "schemaVersion": "1.0.0",
+  "principle": "project-link-indexer compiles a rebuildable LLM wiki style file graph from existing host artifacts; source artifacts remain authoritative.",
+  "outputs": {
+    "graphJson": "docs/index/project-link-graph.json",
+    "graphMarkdown": "docs/index/project-link-graph.md",
+    "wikiSchemaJson": "docs/index/project-wiki-schema.json"
+  },
+  "nodeFields": [
+    "id",
+    "path",
+    "kind",
+    "owner_skill",
+    "authority",
+    "slug",
+    "title"
+  ],
+  "edgeFields": [
+    "id",
+    "from",
+    "to",
+    "target",
+    "relation",
+    "status",
+    "anchor",
+    "evidence"
+  ],
+  "relationTypes": [
+    {
+      "id": "indexes",
+      "description": "索引文件列出并指向子文件，子文件仍保留自身内容权威"
+    },
+    {
+      "id": "depends_on",
+      "description": "下游文件在执行、理解或生成时需要读取上游文件"
+    },
+    {
+      "id": "links_to",
+      "description": "普通引用或导航关系"
+    },
+    {
+      "id": "implements",
+      "description": "代码文件实现某个规格、计划或页面说明"
+    },
+    {
+      "id": "verifies",
+      "description": "验收或测试文件验证某个需求、验收条目或实现文件"
+    },
+    {
+      "id": "derived_from",
+      "description": "文件内容由上游材料推导而来"
+    }
+  ],
+  "fileKinds": {
+    "project_profile": {
+      "owner_skill": "ai-project-manager",
+      "authority": true,
+      "description": "项目画像与当前阶段入口"
+    },
+    "project_rules": {
+      "owner_skill": "ai-project-manager",
+      "authority": true,
+      "description": "宿主项目协作规则入口"
+    },
+    "baseline_audit": {
+      "owner_skill": "project-baseline-auditor",
+      "authority": false,
+      "description": "既有项目基线诊断清单"
+    },
+    "brd": {
+      "owner_skill": "brd-writer",
+      "authority": true,
+      "description": "业务需求文档"
+    },
+    "brd_ledger": {
+      "owner_skill": "brd-writer",
+      "authority": false,
+      "description": "BRD 决策台账"
+    },
+    "page_delivery": {
+      "owner_skill": "page-designer",
+      "authority": false,
+      "description": "页面交付清单"
+    },
+    "page_explainer": {
+      "owner_skill": "page-explainer",
+      "authority": true,
+      "description": "页面流程、交互语义或差异说明"
+    },
+    "page_ledger": {
+      "owner_skill": "page-designer",
+      "authority": false,
+      "description": "页面台账"
+    },
+    "foundation": {
+      "owner_skill": "foundation-builder",
+      "authority": true,
+      "description": "术语表、Schema、API 或 foundation 交付清单"
+    },
+    "prd_feature_list": {
+      "owner_skill": "prd-writer",
+      "authority": true,
+      "description": "PRD 功能列表"
+    },
+    "mainprd": {
+      "owner_skill": "prd-writer",
+      "authority": true,
+      "description": "mainprd 索引"
+    },
+    "subprd": {
+      "owner_skill": "prd-writer",
+      "authority": true,
+      "description": "按功能区块拆分的 subprd"
+    },
+    "delivery_plan": {
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "description": "开发执行计划"
+    },
+    "source_code": {
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "description": "宿主项目代码文件"
+    },
+    "acceptance": {
+      "owner_skill": "prd-acceptance-reviewer",
+      "authority": true,
+      "description": "验收文档"
+    },
+    "test_case": {
+      "owner_skill": "test-case-writer",
+      "authority": true,
+      "description": "测试用例或测试数据"
+    },
+    "test_review": {
+      "owner_skill": "test-case-reviewer",
+      "authority": false,
+      "description": "测试用例核查问题清单"
+    },
+    "config": {
+      "owner_skill": "host-project",
+      "authority": true,
+      "description": "宿主配置文件"
+    },
+    "readme": {
+      "owner_skill": "host-project",
+      "authority": false,
+      "description": "宿主 README 或说明入口"
+    },
+    "project_index": {
+      "owner_skill": "project-link-indexer",
+      "authority": false,
+      "description": "由索引器生成的关系图与 wiki schema"
+    },
+    "doc": {
+      "owner_skill": "host-project",
+      "authority": false,
+      "description": "其他宿主文档"
+    },
+    "data_file": {
+      "owner_skill": "host-project",
+      "authority": false,
+      "description": "结构化数据文件"
+    }
+  },
+  "requiredRelations": [
+    {
+      "from_kind": "mainprd",
+      "relation": "indexes",
+      "to_kind": "subprd",
+      "reverse_required": true,
+      "reverse_relation": "links_to",
+      "missing_issue": "missing_reverse_link"
+    }
+  ],
+  "writePolicy": {
+    "mayRewrite": [
+      "docs/index/project-link-graph.json",
+      "docs/index/project-link-graph.md",
+      "docs/index/project-wiki-schema.json"
+    ],
+    "mustNotRewriteAsSourceOfTruth": true,
+    "sourceOfTruth": "project-profile.md, docs/brd, src/frontend/page-preview, docs/prd, docs/plans/delivery-plans, docs/test-case, and host code files"
+  }
+}

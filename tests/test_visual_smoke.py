@@ -18,6 +18,7 @@ from playwright.sync_api import Browser, Page, sync_playwright
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WEB_DIR = REPO_ROOT / "apps" / "web"
 DESIGN_SYSTEM_HTML = REPO_ROOT / "docs" / "design-system" / "index.html"
+COMMISSION_MOCK_HTML = REPO_ROOT / "docs" / "commission-dashboard-navigation-mock.html"
 HOST = "127.0.0.1"
 VIEWPORTS = [
     (390, 844),
@@ -279,6 +280,12 @@ def install_api_routes(page: Page) -> None:
             "dy-data UI 设计规范 V0.2",
             "heading",
         ),
+        (
+            "commission-dashboard-mock",
+            COMMISSION_MOCK_HTML.as_uri(),
+            "全国门店榜单",
+            "heading",
+        ),
         ("home", "/", "抖音经营数据引擎", "heading"),
         ("ranking", "/ranking", "全国门店销售情况榜单", "heading"),
         ("sales", "/sales", "核销表现", "heading"),
@@ -388,6 +395,106 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
                 assert box["height"] >= 44
                 if "ui-icon-button" in (target.get_attribute("class") or ""):
                     assert box["width"] >= 44
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_commission_dashboard_mock_peer_routes_and_cumulative_state(
+    browser: Browser,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+
+    try:
+        page.goto(COMMISSION_MOCK_HTML.as_uri(), wait_until="domcontentloaded")
+        for route, heading in (
+            ("ranking", "全国门店榜单"),
+            ("store", "单店分账"),
+            ("orders", "订单费用明细"),
+            ("invoice", "开票确认"),
+        ):
+            page.locator(f'.peer-nav a[data-route="{route}"]').click()
+            page.get_by_role("heading", name=heading, exact=True).wait_for()
+            assert (
+                page.locator(f'.peer-nav a[data-route="{route}"]')
+                .get_attribute("aria-current")
+                == "page"
+            )
+            horizontal_overflow = page.evaluate(
+                "() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth"
+            )
+            assert horizontal_overflow <= 2
+
+        page.locator('.peer-nav a[data-route="ranking"]').click()
+        page.get_by_label("日期范围").select_option("all")
+        page.get_by_role("heading", name="全国门店累计销售情况榜单").wait_for()
+        page.get_by_text("累计排名将在 2026-08 正式账期启用", exact=False).wait_for()
+        assert console_errors == []
+        assert page_errors == []
+    finally:
+        context.close()
+
+
+def test_commission_dashboard_mock_fee_links_keep_context_and_focus_workbench(
+    browser: Browser,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    try:
+        page.goto(
+            f"{COMMISSION_MOCK_HTML.as_uri()}#/store",
+            wait_until="domcontentloaded",
+        )
+        promotion_link = page.get_by_role("link", name="查看订单").first
+        promotion_link.click()
+        page.get_by_role("heading", name="推广费订单明细", exact=True).wait_for()
+        assert page.locator('button[data-direction="promotion"]').get_attribute(
+            "aria-pressed"
+        ) == "true"
+        for key in (
+            "month=2026-07",
+            "store=ST-SH-001",
+            "product_scope=",
+            "product_type=",
+            "direction=promotion",
+            "ratio=",
+            "version=V2026.07.1",
+            "focus=workbench",
+        ):
+            assert key in page.url
+        page.wait_for_function("() => window.scrollY > 0")
+        assert page.evaluate("() => window.scrollY") > 0
+
+        page.goto(
+            f"{COMMISSION_MOCK_HTML.as_uri()}#/store",
+            wait_until="domcontentloaded",
+        )
+        management_link = page.get_by_role("link", name="查看订单").last
+        management_link.click()
+        page.get_by_role("heading", name="管理服务费订单明细", exact=True).wait_for()
+        assert page.locator('button[data-direction="management"]').get_attribute(
+            "aria-pressed"
+        ) == "true"
+        assert "direction=management" in page.url
+
+        page.goto(
+            f"{COMMISSION_MOCK_HTML.as_uri()}#/orders?month=%22%5D&direction=management&focus=workbench",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="管理服务费订单明细", exact=True).wait_for()
+        assert page.locator('button[data-direction="management"]').get_attribute(
+            "aria-pressed"
+        ) == "true"
+        assert page_errors == []
     finally:
         context.close()
 

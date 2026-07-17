@@ -1,0 +1,4 @@
+interface:
+  display_name: "完工前安全扫描"
+  short_description: "完工前固定安全扫描、阻断判断与豁免记录流程助手"
+  default_prompt: "Use $security-scan to run the completion security gate and return a fixed PASS/BLOCK/WAIVER report."

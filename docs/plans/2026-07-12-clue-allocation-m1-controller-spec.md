@@ -3,7 +3,7 @@
 Status: Active
 Date: 2026-07-12
 Controller: Codex
-Repo / workspace: `C:\Own Docm\Coding\抖音结算中心\dy-data`
+Repo / workspace: repository root (`.`)
 Branch / target: `feat/clue-allocation-m1` from `main` at `6fc7d61`
 
 ## 1. 用户目标

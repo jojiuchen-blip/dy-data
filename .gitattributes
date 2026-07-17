@@ -2,3 +2,6 @@
 *.yml text eol=lf
 *.yaml text eol=lf
 *.py text eol=lf
+*.md text eol=lf
+.agent/project-manager-suite/** text eol=lf
+.agent/project-manager-suite.lock.json text eol=lf

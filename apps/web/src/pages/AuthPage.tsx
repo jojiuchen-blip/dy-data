@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from "react";
-import { initializeAccount, loginAdmin, resetAccountPassword } from "../api/client";
-import { Button } from "../components/Button";
+import {
+  checkAccountActivationStatus,
+  initializeAccount,
+  loginAdmin,
+  resetAccountPassword,
+} from "../api/client";
+import { Button, IconButton } from "../components/Button";
 import { SolarIcon } from "../components/SolarIcon";
-import type { AccountSelfServicePayload, AdminUser } from "../types/dashboard";
+import type {
+  AccountActivationCheckPayload,
+  AccountActivationPayload,
+  AccountPasswordResetPayload,
+  AdminUser,
+} from "../types/dashboard";
 
 export type AuthMode = "login" | "activate" | "reset";
 
@@ -11,71 +21,63 @@ interface AuthPageProps {
   onAuthenticated: (user: AdminUser) => void;
 }
 
+type ActivationStep = "identity" | "credentials";
+type ResetStep = "identity" | "credentials";
+type ActivationCheckState = "idle" | "invalid" | "activated";
+type ResetCheckState = "idle" | "invalid" | "unactivated";
+type ActivationHintKey = "external_account_id" | "poi_id";
+
+interface ActivationCredentials {
+  username: string;
+  password: string;
+  password_confirm: string;
+}
+
+interface PasswordCredentials {
+  password: string;
+  password_confirm: string;
+}
+
+interface ActivationFieldHint {
+  title: string;
+}
+
+const USERNAME_PATTERN = /^[A-Za-z0-9]+$/;
+
 const modeLabels: Record<AuthMode, string> = {
   login: "账号登录",
   activate: "账号激活",
   reset: "重置密码",
 };
 
-const selfServiceSubmitLabels: Record<Exclude<AuthMode, "login">, string> = {
-  activate: "完成激活",
-  reset: "重置密码",
-};
-
-const selfServiceErrorMessages: Record<Exclude<AuthMode, "login">, string> = {
-  activate: "账号激活失败，请核对所属账户编号或门店位置编号（POI ID）、认证主体全称和密码确认。",
-  reset: "密码重置失败，请核对所属账户编号或门店位置编号（POI ID）、认证主体全称和密码确认。",
-};
-
-type ActivationHintKey =
-  | "external_account_id"
-  | "certified_subject_name"
-  | "username"
-  | "display_name"
-  | "password"
-  | "password_confirm";
-
-interface ActivationFieldHint {
-  title: string;
-  body: string;
-}
-
 const activationFieldHints: Record<ActivationHintKey, ActivationFieldHint> = {
   external_account_id: {
-    title: "所属账户编号或门店位置编号（POI ID）",
-    body:
-      "抖音来客电脑端右上角个人头像下方的“账户 ID”；手机端“我的-个人中心-我的账户 ID”。也可以填写对应门店的位置编号（POI ID）。",
+    title: "如何获取账户所属ID",
   },
-  certified_subject_name: {
-    title: "认证主体全称",
-    body: "抖音来客账号绑定的公司主体全名。",
-  },
-  username: {
-    title: "账号名",
-    body: "自行设置。",
-  },
-  display_name: {
-    title: "显示名称",
-    body: "自行设置。",
-  },
-  password: {
-    title: "密码",
-    body: "自行设置。",
-  },
-  password_confirm: {
-    title: "确认密码",
-    body: "自行设置。",
+  poi_id: {
+    title: "如何获取关联 POI ID",
   },
 };
 
-function emptyActivationPayload(): AccountSelfServicePayload {
+function emptyActivationIdentity(): AccountActivationCheckPayload {
   return {
     external_account_id: "",
-    certified_subject_name: "",
+    poi_id: "",
+  };
+}
+
+function emptyActivationCredentials(): ActivationCredentials {
+  return {
     username: "",
     password: "",
     password_confirm: "",
-    display_name: "",
+  };
+}
+
+function emptyPasswordCredentials(): PasswordCredentials {
+  return {
+    password: "",
+    password_confirm: "",
   };
 }
 
@@ -83,9 +85,21 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
   const [mode, setMode] = useState<AuthMode>(initialMode);
   const [identifier, setIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [payload, setPayload] = useState<AccountSelfServicePayload>(
-    emptyActivationPayload,
-  );
+  const [activationStep, setActivationStep] =
+    useState<ActivationStep>("identity");
+  const [activationIdentity, setActivationIdentity] =
+    useState<AccountActivationCheckPayload>(emptyActivationIdentity);
+  const [activationCredentials, setActivationCredentials] =
+    useState<ActivationCredentials>(emptyActivationCredentials);
+  const [activationCheckState, setActivationCheckState] =
+    useState<ActivationCheckState>("idle");
+  const [resetStep, setResetStep] = useState<ResetStep>("identity");
+  const [resetIdentity, setResetIdentity] =
+    useState<AccountActivationCheckPayload>(emptyActivationIdentity);
+  const [resetCredentials, setResetCredentials] =
+    useState<PasswordCredentials>(emptyPasswordCredentials);
+  const [resetCheckState, setResetCheckState] =
+    useState<ResetCheckState>("idle");
   const [activeActivationHint, setActiveActivationHint] =
     useState<ActivationHintKey | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -93,33 +107,103 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
 
   const title = useMemo(() => modeLabels[mode], [mode]);
   const activeActivationHintDetail =
-    mode === "login" || !activeActivationHint
-      ? null
-      : activationFieldHints[activeActivationHint];
+    mode !== "login" && activeActivationHint
+      ? activationFieldHints[activeActivationHint]
+      : null;
   const authShellClassName = [
     "auth-shell",
-    mode === "login" ? "" : "auth-shell--with-help",
+    mode !== "login" ? "auth-shell--with-help" : "",
   ]
     .filter(Boolean)
     .join(" ");
+  const activationIdentityComplete = Boolean(
+    activationIdentity.external_account_id.trim() && activationIdentity.poi_id.trim(),
+  );
+  const trimmedUsername = activationCredentials.username.trim();
+  const usernameHasInvalidCharacters = Boolean(
+    trimmedUsername && !USERNAME_PATTERN.test(trimmedUsername),
+  );
+  const activationCredentialsComplete = Boolean(
+    trimmedUsername &&
+      !usernameHasInvalidCharacters &&
+      activationCredentials.password &&
+      activationCredentials.password_confirm,
+  );
+  const resetIdentityComplete = Boolean(
+    resetIdentity.external_account_id.trim() && resetIdentity.poi_id.trim(),
+  );
+  const resetCredentialsComplete = Boolean(
+    resetCredentials.password && resetCredentials.password_confirm,
+  );
 
   useEffect(() => {
     setMode(initialMode);
     setMessage("");
     setActiveActivationHint(null);
+    setActivationStep("identity");
+    setActivationCheckState("idle");
+    setActivationCredentials(emptyActivationCredentials());
+    setResetStep("identity");
+    setResetIdentity(emptyActivationIdentity());
+    setResetCredentials(emptyPasswordCredentials());
+    setResetCheckState("idle");
   }, [initialMode]);
 
-  const setPayloadField = (
-    field: keyof AccountSelfServicePayload,
-    value: string,
-  ) => {
-    setPayload((current) => ({ ...current, [field]: value }));
+  const resetActivationFlow = () => {
+    setActivationStep("identity");
+    setActivationIdentity(emptyActivationIdentity());
+    setActivationCredentials(emptyActivationCredentials());
+    setActivationCheckState("idle");
+    setActiveActivationHint(null);
+  };
+
+  const resetPasswordFlow = () => {
+    setResetStep("identity");
+    setResetIdentity(emptyActivationIdentity());
+    setResetCredentials(emptyPasswordCredentials());
+    setResetCheckState("idle");
+    setActiveActivationHint(null);
   };
 
   const switchMode = (nextMode: AuthMode) => {
     setMode(nextMode);
     setMessage("");
-    setActiveActivationHint(null);
+    resetActivationFlow();
+    resetPasswordFlow();
+  };
+
+  const setActivationIdentityField = (
+    field: keyof AccountActivationCheckPayload,
+    value: string,
+  ) => {
+    setActivationIdentity((current) => ({ ...current, [field]: value }));
+    setActivationCheckState("idle");
+    setMessage("");
+  };
+
+  const setActivationCredentialField = (
+    field: keyof ActivationCredentials,
+    value: string,
+  ) => {
+    setActivationCredentials((current) => ({ ...current, [field]: value }));
+    setMessage("");
+  };
+
+  const setResetIdentityField = (
+    field: keyof AccountActivationCheckPayload,
+    value: string,
+  ) => {
+    setResetIdentity((current) => ({ ...current, [field]: value }));
+    setResetCheckState("idle");
+    setMessage("");
+  };
+
+  const setResetCredentialField = (
+    field: keyof PasswordCredentials,
+    value: string,
+  ) => {
+    setResetCredentials((current) => ({ ...current, [field]: value }));
+    setMessage("");
   };
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -137,31 +221,154 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
     }
   };
 
-  const handleSelfService = async (event: React.FormEvent<HTMLFormElement>) => {
+  const handleActivationCheck = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
     event.preventDefault();
-    if (mode === "login") {
+    if (!activationIdentityComplete) {
+      return;
+    }
+    setSubmitting(true);
+    setMessage("");
+    setActivationCheckState("idle");
+    try {
+      const result = await checkAccountActivationStatus({
+        external_account_id: activationIdentity.external_account_id.trim(),
+        poi_id: activationIdentity.poi_id.trim(),
+      });
+      if (result.data.status === "ready") {
+        setActivationCredentials(emptyActivationCredentials());
+        setActivationStep("credentials");
+        setActiveActivationHint(null);
+        return;
+      }
+      if (result.data.status === "activated") {
+        setActivationCheckState("activated");
+        setMessage("账户已激活过，需要前往账户登录");
+        return;
+      }
+      setActivationCheckState("invalid");
+      setMessage("账户所属ID和所属账户关联POI ID不正确");
+    } catch {
+      setActivationCheckState("invalid");
+      setMessage("暂时无法核验激活状态，请稍后重试。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleActivationSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    if (!activationCredentialsComplete) {
+      if (usernameHasInvalidCharacters) {
+        setMessage("账号名只能使用数字和英文字母。");
+      }
+      return;
+    }
+    if (
+      activationCredentials.password !== activationCredentials.password_confirm
+    ) {
+      setMessage("两次输入的密码不一致。");
       return;
     }
     setSubmitting(true);
     setMessage("");
     try {
-      const submitPayload = {
-        ...payload,
-        external_account_id: payload.external_account_id.trim(),
-        certified_subject_name: payload.certified_subject_name.trim(),
-        username: payload.username.trim(),
-        display_name: payload.display_name?.trim() || null,
+      const payload: AccountActivationPayload = {
+        external_account_id: activationIdentity.external_account_id.trim(),
+        poi_id: activationIdentity.poi_id.trim(),
+        username: trimmedUsername,
+        password: activationCredentials.password,
+        password_confirm: activationCredentials.password_confirm,
       };
-      const request =
-        mode === "reset" ? resetAccountPassword : initializeAccount;
-      const result = await request(submitPayload);
-      setPayload(emptyActivationPayload());
+      const result = await initializeAccount(payload);
+      resetActivationFlow();
       onAuthenticated(result.data);
     } catch {
-      setMessage(selfServiceErrorMessages[mode]);
+      setMessage("账号激活失败，请重新核验门店信息后再试。");
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleActivationBack = () => {
+    setActivationStep("identity");
+    setActivationCredentials(emptyActivationCredentials());
+    setMessage("");
+  };
+
+  const handleResetIdentityCheck = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    if (!resetIdentityComplete) {
+      return;
+    }
+    setSubmitting(true);
+    setMessage("");
+    setResetCheckState("idle");
+    try {
+      const result = await checkAccountActivationStatus({
+        external_account_id: resetIdentity.external_account_id.trim(),
+        poi_id: resetIdentity.poi_id.trim(),
+      });
+      if (result.data.status === "activated") {
+        setResetCredentials(emptyPasswordCredentials());
+        setResetStep("credentials");
+        setActiveActivationHint(null);
+        return;
+      }
+      if (result.data.status === "ready") {
+        setResetCheckState("unactivated");
+        setMessage("账户尚未激活，请先完成账号激活");
+        return;
+      }
+      setResetCheckState("invalid");
+      setMessage("账户所属ID和所属账户关联POI ID不正确");
+    } catch {
+      setResetCheckState("invalid");
+      setMessage("暂时无法核验账户信息，请稍后重试。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetPassword = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+    if (!resetCredentialsComplete) {
+      return;
+    }
+    if (resetCredentials.password !== resetCredentials.password_confirm) {
+      setMessage("两次输入的密码不一致。");
+      return;
+    }
+    setSubmitting(true);
+    setMessage("");
+    try {
+      const payload: AccountPasswordResetPayload = {
+        external_account_id: resetIdentity.external_account_id.trim(),
+        poi_id: resetIdentity.poi_id.trim(),
+        password: resetCredentials.password,
+        password_confirm: resetCredentials.password_confirm,
+      };
+      const result = await resetAccountPassword(payload);
+      resetPasswordFlow();
+      onAuthenticated(result.data);
+    } catch {
+      setMessage("密码重置失败，请重新核验门店信息后再试。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleResetBack = () => {
+    setResetStep("identity");
+    setResetCredentials(emptyPasswordCredentials());
+    setMessage("");
   };
 
   return (
@@ -177,9 +384,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
 
         {mode === "reset" ? (
           <div className="auth-return-row">
-            <a href="/login">
-              返回账号登录
-            </a>
+            <a href="/login">返回账号登录</a>
           </div>
         ) : (
           <div className="auth-tabs auth-tabs--two" role="tablist" aria-label="账号入口">
@@ -225,87 +430,285 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               <Button loading={submitting} type="submit" variant="primary">
                 登录
               </Button>
-              <a href="/auth/reset-password">
-                忘记密码
+              <a href="/auth/reset-password">忘记密码</a>
+            </div>
+          </form>
+        ) : mode === "reset" ? (
+          resetStep === "identity" ? (
+            <form className="auth-form" onSubmit={handleResetIdentityCheck}>
+              <div className="filter-field">
+                <div className="auth-field-label">
+                  <label htmlFor="reset-external-account-id">账户所属ID</label>
+                  <IconButton
+                    aria-pressed={activeActivationHint === "external_account_id"}
+                    className="auth-help-trigger"
+                    icon="question"
+                    label="查看账户所属ID获取方式"
+                    onClick={() => setActiveActivationHint("external_account_id")}
+                    size="sm"
+                    variant="soft"
+                  />
+                </div>
+                <input
+                  autoComplete="off"
+                  id="reset-external-account-id"
+                  onChange={(event) =>
+                    setResetIdentityField("external_account_id", event.target.value)
+                  }
+                  placeholder="输入导出数据中的账户所属ID"
+                  value={resetIdentity.external_account_id}
+                />
+              </div>
+              <div className="filter-field">
+                <div className="auth-field-label">
+                  <label htmlFor="reset-poi-id">所属账户关联 POI ID</label>
+                  <IconButton
+                    aria-pressed={activeActivationHint === "poi_id"}
+                    className="auth-help-trigger"
+                    icon="question"
+                    label="查看所属账户关联 POI ID 获取方式"
+                    onClick={() => setActiveActivationHint("poi_id")}
+                    size="sm"
+                    variant="soft"
+                  />
+                </div>
+                <input
+                  autoComplete="off"
+                  id="reset-poi-id"
+                  onChange={(event) =>
+                    setResetIdentityField("poi_id", event.target.value)
+                  }
+                  placeholder="输入导出数据中的所属账户关联 POI ID"
+                  value={resetIdentity.poi_id}
+                />
+              </div>
+              {message ? (
+                <div
+                  className={`auth-check-result auth-check-result--${resetCheckState}`}
+                  role="status"
+                >
+                  <p>{message}</p>
+                  {resetCheckState === "unactivated" ? (
+                    <Button onClick={() => switchMode("activate")} size="sm" variant="soft">
+                      前往账号激活
+                    </Button>
+                  ) : null}
+                </div>
+              ) : null}
+              <Button
+                disabled={!resetIdentityComplete}
+                loading={submitting}
+                type="submit"
+                variant="primary"
+              >
+                验证账户信息
+              </Button>
+            </form>
+          ) : (
+            <form className="auth-form" onSubmit={handleResetPassword}>
+              <div className="auth-verified-summary">
+                <SolarIcon name="check" size={18} />
+                <div>
+                  <strong>账户信息已核验</strong>
+                  <span>请设置新的登录密码。</span>
+                </div>
+              </div>
+              <label className="filter-field">
+                <span>新密码</span>
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setResetCredentialField("password", event.target.value)
+                  }
+                  placeholder="设置新密码"
+                  type="password"
+                  value={resetCredentials.password}
+                />
+              </label>
+              <label className="filter-field">
+                <span>确认密码</span>
+                <input
+                  autoComplete="new-password"
+                  onChange={(event) =>
+                    setResetCredentialField("password_confirm", event.target.value)
+                  }
+                  placeholder="再次输入新密码"
+                  type="password"
+                  value={resetCredentials.password_confirm}
+                />
+              </label>
+              {message ? <p className="admin-error">{message}</p> : null}
+              <div className="auth-activation-submit-row">
+                <Button onClick={handleResetBack} variant="soft">
+                  返回修改门店信息
+                </Button>
+                <Button
+                  disabled={!resetCredentialsComplete}
+                  loading={submitting}
+                  type="submit"
+                  variant="primary"
+                >
+                  重置密码
+                </Button>
+              </div>
+            </form>
+          )
+        ) : activationStep === "identity" ? (
+          <form className="auth-form" onSubmit={handleActivationCheck}>
+            <div className="filter-field">
+              <div className="auth-field-label">
+                <label htmlFor="activation-external-account-id">账户所属ID</label>
+                <IconButton
+                  aria-pressed={activeActivationHint === "external_account_id"}
+                  className="auth-help-trigger"
+                  icon="question"
+                  label="查看账户所属ID获取方式"
+                  onClick={() => setActiveActivationHint("external_account_id")}
+                  size="sm"
+                  variant="soft"
+                />
+              </div>
+              <input
+                autoComplete="off"
+                id="activation-external-account-id"
+                onChange={(event) =>
+                  setActivationIdentityField("external_account_id", event.target.value)
+                }
+                placeholder="输入导出数据中的账户所属ID"
+                value={activationIdentity.external_account_id}
+              />
+            </div>
+            <div className="filter-field">
+              <div className="auth-field-label">
+                <label htmlFor="activation-poi-id">所属账户关联 POI ID</label>
+                <IconButton
+                  aria-pressed={activeActivationHint === "poi_id"}
+                  className="auth-help-trigger"
+                  icon="question"
+                  label="查看所属账户关联 POI ID 获取方式"
+                  onClick={() => setActiveActivationHint("poi_id")}
+                  size="sm"
+                  variant="soft"
+                />
+              </div>
+              <input
+                autoComplete="off"
+                id="activation-poi-id"
+                onChange={(event) =>
+                  setActivationIdentityField("poi_id", event.target.value)
+                }
+                placeholder="输入导出数据中的所属账户关联 POI ID"
+                value={activationIdentity.poi_id}
+              />
+            </div>
+            {message ? (
+              <div
+                className={`auth-check-result auth-check-result--${activationCheckState}`}
+                role="status"
+              >
+                <p>{message}</p>
+                {activationCheckState === "activated" ? (
+                  <Button onClick={() => switchMode("login")} size="sm" variant="soft">
+                    前往账户登录
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+            <div className="auth-activation-actions">
+              <Button
+                disabled={!activationIdentityComplete}
+                loading={submitting}
+                type="submit"
+                variant="primary"
+              >
+                激活状态核验
+              </Button>
+              <a
+                className="auth-guide-link"
+                href="/account-activation-guide/index.html"
+                rel="noreferrer"
+                target="_blank"
+              >
+                查看账号激活指引
               </a>
             </div>
           </form>
         ) : (
-          <form className="auth-form" onSubmit={handleSelfService}>
-            <label className="filter-field">
-              <span>所属账户编号或门店位置编号（POI ID）</span>
-              <input
-                autoComplete="off"
-                onFocus={() => setActiveActivationHint("external_account_id")}
-                onChange={(event) =>
-                  setPayloadField("external_account_id", event.target.value)
-                }
-                placeholder="输入所属账户编号或门店位置编号"
-                value={payload.external_account_id}
-              />
-            </label>
-            <label className="filter-field">
-              <span>认证主体全称</span>
-              <input
-                autoComplete="organization"
-                onFocus={() => setActiveActivationHint("certified_subject_name")}
-                onChange={(event) =>
-                  setPayloadField("certified_subject_name", event.target.value)
-                }
-                placeholder="输入门店主数据中的认证主体全称"
-                value={payload.certified_subject_name}
-              />
-            </label>
+          <form className="auth-form" onSubmit={handleActivationSubmit}>
+            <div className="auth-verified-summary">
+              <SolarIcon name="check" size={18} />
+              <div>
+                <strong>门店信息已核验</strong>
+                <span>请设置后续登录使用的账号名和密码。</span>
+              </div>
+            </div>
             <label className="filter-field">
               <span>账号名</span>
               <input
+                aria-describedby="activation-username-help activation-username-error"
+                aria-invalid={usernameHasInvalidCharacters || undefined}
                 autoComplete="username"
-                onFocus={() => setActiveActivationHint("username")}
-                onChange={(event) => setPayloadField("username", event.target.value)}
-                placeholder="设置后续登录使用的账号名"
-                value={payload.username}
-              />
-            </label>
-            <label className="filter-field">
-              <span>显示名称</span>
-              <input
-                autoComplete="name"
-                onFocus={() => setActiveActivationHint("display_name")}
                 onChange={(event) =>
-                  setPayloadField("display_name", event.target.value)
+                  setActivationCredentialField("username", event.target.value)
                 }
-                placeholder="可选，默认使用门店名称"
-                value={payload.display_name ?? ""}
+                placeholder="仅输入数字和英文字母"
+                value={activationCredentials.username}
               />
+              <small className="auth-field-help" id="activation-username-help">
+                只能使用数字和英文字母。
+              </small>
+              {usernameHasInvalidCharacters ? (
+                <small className="auth-field-error" id="activation-username-error" role="alert">
+                  账号名只能使用数字和英文字母。
+                </small>
+              ) : null}
             </label>
             <label className="filter-field">
               <span>密码</span>
               <input
                 autoComplete="new-password"
-                onFocus={() => setActiveActivationHint("password")}
-                onChange={(event) => setPayloadField("password", event.target.value)}
+                onChange={(event) =>
+                  setActivationCredentialField("password", event.target.value)
+                }
                 placeholder="设置密码"
                 type="password"
-                value={payload.password}
+                value={activationCredentials.password}
               />
             </label>
             <label className="filter-field">
               <span>确认密码</span>
               <input
                 autoComplete="new-password"
-                onFocus={() => setActiveActivationHint("password_confirm")}
                 onChange={(event) =>
-                  setPayloadField("password_confirm", event.target.value)
+                  setActivationCredentialField("password_confirm", event.target.value)
                 }
                 placeholder="再次输入密码"
                 type="password"
-                value={payload.password_confirm}
+                value={activationCredentials.password_confirm}
               />
             </label>
             {message ? <p className="admin-error">{message}</p> : null}
-            <Button loading={submitting} type="submit" variant="primary">
-              {selfServiceSubmitLabels[mode]}
-            </Button>
+            <div className="auth-activation-submit-row">
+              <Button onClick={handleActivationBack} variant="soft">
+                返回修改门店信息
+              </Button>
+              <Button
+                disabled={!activationCredentialsComplete}
+                loading={submitting}
+                type="submit"
+                variant="primary"
+              >
+                设置账号并完成激活
+              </Button>
+            </div>
+            <a
+              className="auth-guide-link"
+              href="/account-activation-guide/index.html"
+              rel="noreferrer"
+              target="_blank"
+            >
+              查看账号激活指引
+            </a>
           </form>
         )}
       </section>
@@ -313,9 +716,17 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         <aside className="auth-help-card" aria-live="polite">
           <p className="auth-help-card__eyebrow">字段来源</p>
           <h2>{activeActivationHintDetail.title}</h2>
-          {activeActivationHintDetail.body ? (
-            <p>{activeActivationHintDetail.body}</p>
-          ) : null}
+          <p>请从同一条认证成功的子机构经营号记录中获取这两个字段。</p>
+          <ol>
+            <li>进入抖音来客的【店铺管理】-【抖音号管理】-【子机构经营号】。</li>
+            <li>若没有子机构经营号，先创建新账号并完成认证。</li>
+            <li>
+              点击【导出数据】，在对应记录中查看【账户所属id】和【所属账户关联poi_id】。
+            </li>
+          </ol>
+          <a href="/account-activation-guide/index.html" rel="noreferrer" target="_blank">
+            查看完整账号激活指引
+          </a>
         </aside>
       ) : null}
     </main>

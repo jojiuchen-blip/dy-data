@@ -22,12 +22,89 @@ If the router cannot be read after an actual read attempt, state the read error
 briefly, then fall back to matching the user intent against available skill
 descriptions.
 
-## 2. Repository Context
+## 2. Project Governance Suite Gate
 
-The active application repository is this directory, not the parent workspace:
+The company governance suite is vendored at:
 
 ```text
-C:\Own Docm\Coding\抖音结算中心\dy-data
+.agent/project-manager-suite/
+```
+
+Its tracked version lock is:
+
+```text
+.agent/project-manager-suite.lock.json
+```
+
+For project work, the mandatory turn order is:
+
+1. Load `myskills-router` as required by the Turn Gate.
+2. Verify the installed suite and lock:
+
+   ```powershell
+   node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
+   ```
+
+3. Load `.agent/project-manager-suite/skills/00-01-ai-project-manager/SKILL.md`.
+4. Run the global-file and stage checks when the task can change project state:
+
+   ```powershell
+   node .agent/project-manager-suite/tools/validate-global-files.mjs .
+   node .agent/project-manager-suite/tools/route-check.mjs .
+   ```
+
+5. Follow the route selected by `ai-project-manager` and load only the rules and
+   materials required for the current task.
+
+If the suite directory, lock file, package version, or content hash is missing
+or invalid, ordinary project work is blocked. Only recovery work under an
+active governance issue may repair the standard suite source, reinstall it,
+refresh the lock, and rerun the gates.
+
+After installation, repository work must not depend on an external absolute
+suite path. Do not hand-edit the vendored suite to create a host-only fork.
+Change the standard suite source, run its tests, reinstall it, and commit the
+updated lock and vendored copy together.
+
+For an existing project, baseline adoption is always two-stage:
+
+1. Run `collect-baseline-gaps.mjs` with `--dry-run --json --slug dy-data`.
+2. Review the README source, page/API/model evidence, profile field sources,
+   and document-gap conclusions before allowing a formal baseline write.
+
+Scanner inference is evidence, not user confirmation. It must never overwrite
+or masquerade as `【用户确认】` information.
+
+Authority boundaries:
+
+- `AGENTS.md` is the platform and repository hard-rule authority.
+- Linear is the requirement pool, priority, ownership, acceptance, and issue
+  state authority.
+- `project-rules.md` is the thin long-lived authority index.
+- `docs/rules/` is the host-specific implementation-rule authority.
+- `project-profile.md` is the project identity and current-stage snapshot.
+- `docs/devlog/` is the tracked development-log directory configured by the
+  project profile; `/logs/` remains ignored runtime output only.
+- `docs/plans/execution-plan.md` is the current execution cockpit, not the
+  Linear backlog or a full development plan.
+- `docs/plans/delivery-plans/` becomes authoritative only after the suite's S3
+  planner generates a formal plan group.
+- `docs/governance/authority-map.md` records how legacy documents map into the
+  suite without creating duplicate sources of truth.
+
+When suite examples conflict with the host-specific FastAPI, React,
+PostgreSQL, pytest, documentation, or devlog rules in `docs/rules/`, the host
+rules govern implementation. Suite protocol, stage, and artifact contracts
+still govern routing and delivery.
+
+## 3. Repository Context
+
+The active application repository is the Git repository root (`.`), not its
+parent workspace. All repository instructions and commands must use relative
+paths so the checkout remains portable across machines and worktrees.
+
+```text
+.
 ```
 
 The product is the Douyin business/settlement engine. It covers Douyin order
@@ -38,7 +115,7 @@ deployment reliability.
 Do not commit secrets, cookies, browser profiles, real exported data, database
 URLs, local personal paths, or credentials.
 
-## 3. Linear-First Requirement Lifecycle
+## 4. Linear-First Requirement Lifecycle
 
 For this project, Linear is the unified requirement pool and execution view.
 The Linear team is:
@@ -81,7 +158,7 @@ Exceptions:
 - If Linear tools are unavailable, provide a ready-to-create Linear issue draft
   and ask the user to reconnect Linear before issue creation.
 
-## 4. Requirement Intake Steps
+## 5. Requirement Intake Steps
 
 During intake, Codex should produce or confirm:
 
@@ -100,7 +177,7 @@ During intake, Codex should produce or confirm:
 If information is missing, prefer `Needs Definition`, `Needs Data`, or
 `Needs Decision` over guessing.
 
-## 5. Linear Issue Definition
+## 6. Linear Issue Definition
 
 Every Linear issue created from Codex should include:
 
@@ -134,7 +211,7 @@ For GitHub Issues used as a source:
 - use Linear for planning, status, acceptance, and closure
 - keep GitHub for PRs, commits, CI, and external discussion context
 
-## 6. Development Gate
+## 7. Development Gate
 
 Only enter development after all of these are true:
 
@@ -158,7 +235,7 @@ When starting implementation on an existing Linear issue:
 If another collaborator or Codex window is already working on the issue, stop
 and ask how to coordinate before editing files.
 
-## 7. Verification Gate
+## 8. Verification Gate
 
 For code changes, start with:
 
@@ -182,7 +259,7 @@ evidence, and explain any excluded or anomalous records.
 For production or deployment work, include CI/deploy status, logs, smoke tests,
 and rollback considerations.
 
-## 8. Done Gate
+## 9. Done Gate
 
 Do not close or call an issue done until:
 
@@ -193,7 +270,7 @@ Do not close or call an issue done until:
 - any remaining risk is recorded or split into a follow-up issue
 - the user or responsible collaborator accepts the result
 
-## 9. Team Documentation
+## 10. Team Documentation
 
 The Linear team documentation is part of the working system. Use and maintain:
 
@@ -205,7 +282,7 @@ When the collaboration process changes, update Linear team documentation and, if
 the rule affects all Codex windows for this repository, update this `AGENTS.md`
 too.
 
-## 10. Suggested User Phrases
+## 11. Suggested User Phrases
 
 Backlog only:
 

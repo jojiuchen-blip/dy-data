@@ -788,6 +788,14 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
         assert f'href="{route}"' in html
         assert f'href="{route}"' in plan
 
+    assert 'href="/settlement/invoice"' in html
+    assert ">全国门店榜单</a>" in html
+    assert ">单店分账</a>" in html
+    assert ">订单费用明细</a>" in html
+    assert ">开票确认</a>" in html
+    assert ">单店结算</a>" not in html
+    assert ">订单明细</a>" not in html
+
     tertiary_hrefs = re.findall(
         r'<a class="tertiary-nav__item[^"]*" href="([^"]+)"', html
     )
@@ -852,14 +860,15 @@ def test_candidate_tertiary_navigation_gallery_uses_links_and_complete_states() 
     assert "min-height: var(--touch-target);" in mobile.group("css")
     assert mobile_sample is not None
     mobile_links = mobile_sample.group("html")
-    assert mobile_links.count('<a class="tertiary-nav__item"') == 5
+    assert mobile_links.count('<a class="tertiary-nav__item"') == 4
+    assert 'href="/preview/tertiary/mobile/stores">单店分账</a>' in mobile_links
     assert (
-        'href="/preview/tertiary/mobile/product-settlement">商品结算汇总</a>'
+        'href="/preview/tertiary/mobile/orders">订单费用明细</a>'
         in mobile_links
     )
     assert (
-        'href="/preview/tertiary/mobile/account-reconciliation" '
-        'aria-current="page">账号结算对账</a>' in mobile_links
+        'href="/preview/tertiary/mobile/invoice" '
+        'aria-current="page">开票确认</a>' in mobile_links
     )
 
 
@@ -893,7 +902,7 @@ def test_candidate_tertiary_navigation_reveals_the_current_item_horizontally() -
     )
     assert mobile_sample is not None
     mobile_items = re.findall(r"<a\b(?P<attrs>[^>]*)>", mobile_sample.group("html"))
-    assert len(mobile_items) == 5
+    assert len(mobile_items) == 4
     current_index = next(
         index for index, attrs in enumerate(mobile_items) if 'aria-current="page"' in attrs
     )

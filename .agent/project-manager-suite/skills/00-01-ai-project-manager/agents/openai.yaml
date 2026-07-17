@@ -1,0 +1,4 @@
+interface:
+  display_name: "项目经理"
+  short_description: "面向业务团队的开箱即用项目启动与工程化推进 skill"
+  default_prompt: "使用 $ai-project-manager 帮我启动一个新项目，并通过最少访谈把想法推进到可执行方案。"

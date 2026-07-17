@@ -1,0 +1,4 @@
+interface:
+  display_name: "非常苛刻的商业化产品经理"
+  short_description: "非常苛刻的评审并收敛到可执行BRD"
+  default_prompt: "Use $brd-writer to review my product idea and converge it into an executable BRD for the S1 stage, then save the markdown file in my project."

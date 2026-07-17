@@ -16,23 +16,34 @@ from dy_api.auth import (
     normalize_account_value,
     set_auth_cookie,
     set_session_cookie,
-    store_ids_for_account_identifier,
     user_store_ids,
     verify_user_credentials,
     verify_admin_credentials,
 )
 from dy_api.routes._data import generated_at, get_session_dependency
 from dy_api.schemas import (
+    AccountActivationIdentityRequest,
+    AccountActivationStatusData,
     AccountInitializeRequest,
+    AccountPasswordResetRequest,
     AccountPasswordUpdateRequest,
     AdminUser,
     LoginRequest,
     dump_model,
 )
-from apps.api.dy_api.models import DimStore, User, UserStoreScope
+from apps.api.dy_api.models import (
+    DimStore,
+    DimStorePoiMapping,
+    RawAwemeBinding,
+    User,
+    UserStoreScope,
+)
 
 
 router = APIRouter()
+SUB_ACCOUNT_TYPES = {"子机构经营号", "子机构账号"}
+SUCCESSFUL_BINDING_STATUS = "认证成功"
+ACCOUNT_TYPE_KEYS = ("账号类型", "账户类型", "account_type")
 
 
 def _session_response(auth: AuthContext) -> dict:
@@ -157,9 +168,31 @@ def initialize_account(
     return _session_response(auth)
 
 
+@router.post("/activation-status")
+def activation_status(
+    payload: AccountActivationIdentityRequest,
+    session=Depends(get_session_dependency),
+):
+    if session is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database is not available",
+        )
+    state = _account_activation_state(
+        session,
+        payload.external_account_id,
+        payload.poi_id,
+    )
+    data = AccountActivationStatusData(status=state)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "database"},
+    }
+
+
 @router.post("/reset-password")
 def reset_password(
-    payload: AccountInitializeRequest,
+    payload: AccountPasswordResetRequest,
     response: Response,
     session=Depends(get_session_dependency),
 ):
@@ -192,10 +225,10 @@ def _activate_account(
             detail="Password confirmation does not match",
         )
 
-    store = _verified_store(
+    store = _verified_activation_store(
         session,
         payload.external_account_id,
-        payload.certified_subject_name,
+        payload.poi_id,
     )
     if store is None:
         raise HTTPException(
@@ -205,7 +238,7 @@ def _activate_account(
 
     username = normalize_account_value(payload.username)
     external_account_id = normalize_account_value(store.store_id)
-    target = find_user_by_account_identifier(session, payload.external_account_id)
+    target = find_user_by_account_identifier(session, store.store_id)
     existing_by_username = find_user_by_identifier(session, username)
 
     if existing_by_username is not None and existing_by_username is not target:
@@ -213,7 +246,7 @@ def _activate_account(
             status_code=status.HTTP_409_CONFLICT,
             detail="Username already exists",
         )
-    if target is not None and target.is_initialized:
+    if target is not None and (target.password_hash or target.is_initialized):
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Account already initialized",
@@ -225,7 +258,7 @@ def _activate_account(
             user_id=uuid4().hex,
             username=username,
             external_account_id=external_account_id,
-            display_name=normalize_account_value(payload.display_name) or store.store_name,
+            display_name=store.store_name,
             role="store",
             status="active",
             is_initialized=True,
@@ -237,7 +270,7 @@ def _activate_account(
     else:
         target.username = username
         target.external_account_id = external_account_id
-        target.display_name = normalize_account_value(payload.display_name) or store.store_name
+        target.display_name = store.store_name
         target.status = "active"
         target.is_initialized = True
         target.password_hash = hash_password_pbkdf2(payload.password)
@@ -250,7 +283,7 @@ def _activate_account(
 
 
 def _reset_account_password(
-    payload: AccountInitializeRequest,
+    payload: AccountPasswordResetRequest,
     *,
     session,
 ) -> User:
@@ -265,10 +298,10 @@ def _reset_account_password(
             detail="Password confirmation does not match",
         )
 
-    store = _verified_store(
+    store = _verified_activation_store(
         session,
         payload.external_account_id,
-        payload.certified_subject_name,
+        payload.poi_id,
     )
     if store is None:
         raise HTTPException(
@@ -276,13 +309,11 @@ def _reset_account_password(
             detail="Account verification failed",
         )
 
-    username = normalize_account_value(payload.username)
-    external_account_id = normalize_account_value(store.store_id)
-    target = find_user_by_account_identifier(session, payload.external_account_id)
+    target = find_user_by_account_identifier(session, store.store_id)
     if target is None:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account verification failed",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account is not activated",
         )
     if target.role != "store" or target.status != "active":
         raise HTTPException(
@@ -290,52 +321,75 @@ def _reset_account_password(
             detail="Account verification failed",
         )
 
-    existing_by_username = find_user_by_identifier(session, username)
-    if (
-        existing_by_username is not None
-        and existing_by_username.user_id != target.user_id
-    ):
+    if not target.password_hash:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="Username already exists",
+            detail="Account is not activated",
         )
 
     now = generated_at()
-    target.username = username
-    target.external_account_id = external_account_id
-    target.display_name = (
-        normalize_account_value(payload.display_name)
-        or target.display_name
-        or store.store_name
-    )
     target.is_initialized = True
     target.password_hash = hash_password_pbkdf2(payload.password)
     target.updated_at = now
 
-    session.flush()
-    _replace_store_scopes(session, target.user_id, [store.store_id])
     session.commit()
     return target
 
 
-def _verified_store(
+def _account_activation_state(
     session,
     external_account_id: str,
-    certified_subject_name: str,
-) -> DimStore | None:
-    external_account_id = normalize_account_value(external_account_id)
-    expected_subject = normalize_account_value(certified_subject_name)
-    candidate_store_ids = store_ids_for_account_identifier(session, external_account_id)
+    poi_id: str,
+) -> str:
+    store = _verified_activation_store(session, external_account_id, poi_id)
+    if store is None:
+        return "invalid"
+    target = find_user_by_account_identifier(session, store.store_id)
+    if target is not None and target.password_hash:
+        return "activated"
+    return "ready"
 
-    stores = session.execute(
-        select(DimStore).where(DimStore.store_id.in_(candidate_store_ids))
+
+def _verified_activation_store(
+    session,
+    external_account_id: str,
+    poi_id: str,
+) -> DimStore | None:
+    normalized_account_id = normalize_account_value(external_account_id)
+    normalized_poi_id = normalize_account_value(poi_id)
+    bindings = session.execute(
+        select(RawAwemeBinding).where(
+            RawAwemeBinding.account_id == normalized_account_id,
+            RawAwemeBinding.poi_id == normalized_poi_id,
+            RawAwemeBinding.binding_status == SUCCESSFUL_BINDING_STATUS,
+        )
     ).scalars().all()
-    for store in stores:
-        if not store.is_active:
-            continue
-        if normalize_account_value(store.certified_subject_name) == expected_subject:
-            return store
-    return None
+    if not any(_is_sub_account_binding(binding) for binding in bindings):
+        return None
+
+    store = session.get(DimStore, normalized_account_id)
+    if store is None or not store.is_active:
+        return None
+    mapping = session.execute(
+        select(DimStorePoiMapping).where(
+            DimStorePoiMapping.store_id == store.store_id,
+            DimStorePoiMapping.poi_id == normalized_poi_id,
+        )
+    ).scalar_one_or_none()
+    return store if mapping is not None else None
+
+
+def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
+    raw_payload = binding.raw_payload or {}
+    account_type = next(
+        (
+            normalize_account_value(raw_payload.get(key))
+            for key in ACCOUNT_TYPE_KEYS
+            if normalize_account_value(raw_payload.get(key))
+        ),
+        "",
+    )
+    return not account_type or account_type in SUB_ACCOUNT_TYPES
 
 
 def _replace_store_scopes(session, user_id: str, store_ids: list[str]) -> None:

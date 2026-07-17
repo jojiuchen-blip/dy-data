@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# SessionStart hook for project-manager-suite
+# 会话启动时自动注入 ai-project-manager SKILL.md 内容
+
+set -euo pipefail
+
+# Determine plugin root directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+if command -v node >/dev/null 2>&1; then
+    node "${PLUGIN_ROOT}/lib/bootstrap/render-session-start.mjs"
+    exit 0
+fi
+
+# Fallback: if node is unavailable, inject the raw skill body directly.
+ai_pm_content=$(cat "${PLUGIN_ROOT}/skills/00-01-ai-project-manager/SKILL.md" 2>&1 || echo "Error reading ai-project-manager skill")
+
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+ai_pm_escaped=$(escape_for_json "$ai_pm_content")
+session_context="<EXTREMELY_IMPORTANT>\n你已加载项目经理套件。\n当前会话一旦出现项目启动或项目推进意图，默认直接由 \`ai-project-manager\` 接管；不要再次询问是否要按这套流程开始。\n在 \`ai-project-manager\` 完成全局文件识别、最小访谈、阶段判断和初次路由前，不得先进入 \`superpower\` 等通用增强类 skill。\n\n**以下是 ai-project-manager skill 的完整内容，作为项目域默认第一入口；当用户说“启动一个新项目”时，应直接开始主入口流程，且不要先进入 \`superpower\` 等通用增强类 skill。**\n\n${ai_pm_escaped}\n</EXTREMELY_IMPORTANT>"
+
+cat <<EOF
+{
+  "additional_context": "${session_context}",
+  "hookSpecificOutput": {
+    "hookEventName": "SessionStart",
+    "additionalContext": "${session_context}"
+  }
+}
+EOF
+
+exit 0

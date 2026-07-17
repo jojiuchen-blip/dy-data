@@ -1,0 +1,9 @@
+{
+  "name": "project-manager-suite",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test:ai-pm": "node --test tests/ai-pm-tools.test.mjs tests/protocol-alignment.test.mjs tests/page-ledger.test.mjs tests/prd-check.test.mjs"
+  }
+}
