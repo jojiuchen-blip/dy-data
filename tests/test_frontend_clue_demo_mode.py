@@ -54,3 +54,20 @@ def test_demo_generator_has_required_scale_and_privacy_guards() -> None:
     assert "local_exports" not in combined
     assert "telephone" not in profile.lower()
     assert "follow_life_account_name" not in profile
+
+
+def test_demo_repository_exposes_coherent_clue_center_reads() -> None:
+    source = _read("demo/clueDemoRepository.ts")
+    for name in [
+        "class ClueDemoRepository",
+        "getFilters(",
+        "getOverview(",
+        "getAssignmentRounds(",
+        "getOrderDetail(",
+        "getOrderPhone(",
+        "filterRounds(",
+        "paginate(",
+        "reset(",
+        'source: "demo"',
+    ]:
+        assert name in source
