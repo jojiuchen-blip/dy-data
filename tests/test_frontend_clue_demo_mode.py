@@ -26,3 +26,31 @@ def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     assert package["scripts"]["dev:demo"] == "vite --host 127.0.0.1 --mode demo"
     assert "VITE_DEMO_MODE=true" in demo_env
     assert "VITE_USE_MOCKS=true" in demo_env
+
+
+def test_demo_generator_has_required_scale_and_privacy_guards() -> None:
+    profile = _read("demo/clueDemoProfile.ts")
+    generator = _read("demo/clueDemoGenerator.ts")
+    types = _read("demo/clueDemoTypes.ts")
+    combined = "\n".join([profile, generator, types])
+
+    for required in [
+        "leadCount: 480",
+        "storeCount: 48",
+        "cityCount: 12",
+        "oneRoundLeadCount: 230",
+        "twoRoundLeadCount: 90",
+        "threeRoundLeadCount: 40",
+        "directHeadquartersLeadCount: 60",
+        "terminalWithoutRoundLeadCount: 60",
+        "minimumFollowUpCount: 650",
+        "maximumFollowUpCount: 750",
+        "createClueDemoState",
+        "assertClueDemoState",
+        'startsWith("DEMO-")',
+    ]:
+        assert required in combined
+
+    assert "local_exports" not in combined
+    assert "telephone" not in profile.lower()
+    assert "follow_life_account_name" not in profile
