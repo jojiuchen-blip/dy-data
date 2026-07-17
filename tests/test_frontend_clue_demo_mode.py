@@ -151,3 +151,32 @@ def test_shell_discloses_demo_data_on_desktop_and_mobile() -> None:
     assert ".app-shell--demo" in styles
     assert "npm run dev:demo" in readme
     assert "刷新页面后恢复" in readme
+
+
+def test_demo_status_reasons_use_supported_label_codes() -> None:
+    combined = "\n".join(
+        [
+            _read("demo/clueDemoGenerator.ts"),
+            _read("demo/clueDemoRepository.ts"),
+        ]
+    )
+
+    for unsupported in [
+        "订单已退款",
+        "分配策略已穷尽",
+        "首次跟进时限内",
+        "跟进保护期内",
+        "历史流转轮次",
+        "演示跟进保护期内",
+        "新一轮首次跟进时限内",
+        "试运行重建生成",
+        "试运行生成",
+    ]:
+        assert f'"{unsupported}"' not in combined
+
+    for supported in [
+        'statusReason: "order_refunded"',
+        'statusReason: "strategies_exhausted"',
+        'status_reason: "allocated_to_store"',
+    ]:
+        assert supported in combined

@@ -254,7 +254,7 @@ export class ClueDemoRepository {
       follow_result: payload.follow_result,
       note: payload.note,
       timing_state: "protected",
-      status_reason: "演示跟进保护期内",
+      status_reason: "核销保护期内",
       is_deleted: false,
       deleted_at: null,
       deleted_by_user_id: null,
@@ -293,7 +293,7 @@ export class ClueDemoRepository {
       round.follow_result = payload.follow_result;
       round.followed_at = createdAt;
       round.timing_state = "protected";
-      round.status_reason = "演示跟进保护期内";
+      round.status_reason = "核销保护期内";
       round.expires_at = new Date(
         new Date(createdAt).getTime() + 7 * 24 * 60 * 60 * 1000,
       ).toISOString();
@@ -995,7 +995,7 @@ export class ClueDemoRepository {
       round_effective_status: "active",
       can_operate_current_round: true,
       timing_state: "active",
-      status_reason: cycleType === "rebuild" ? "试运行重建生成" : "试运行生成",
+      status_reason: "allocated_to_store",
       round_status: "active_unfollowed",
       assigned_at: executedAt,
       expires_at: new Date(
@@ -1157,7 +1157,7 @@ export class ClueDemoRepository {
       round_effective_status: "active",
       can_operate_current_round: true,
       timing_state: "active",
-      status_reason: "新一轮首次跟进时限内",
+      status_reason: "allocated_to_store",
       round_status: "active_unfollowed",
       assigned_at: createdAt,
       expires_at: new Date(

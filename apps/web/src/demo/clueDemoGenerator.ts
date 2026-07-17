@@ -125,7 +125,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: true,
         canOperate: true,
         timingState: "active",
-        statusReason: "首次跟进时限内",
+        statusReason: "allocated_to_store",
         followResult: "pending",
       };
     case 1:
@@ -137,7 +137,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: true,
         canOperate: true,
         timingState: "protected",
-        statusReason: "跟进保护期内",
+        statusReason: "核销保护期内",
         followResult: "further_follow_up",
       };
     case 2:
@@ -149,7 +149,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: true,
         canOperate: false,
         timingState: "converted",
-        statusReason: "订单已核销",
+        statusReason: "order_verified",
         followResult: "success",
       };
     case 3:
@@ -161,7 +161,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: true,
         canOperate: false,
         timingState: "closed",
-        statusReason: "订单已退款",
+        statusReason: "order_refunded",
         followResult: "success",
       };
     case 4:
@@ -173,7 +173,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: false,
         canOperate: false,
         timingState: "expired",
-        statusReason: "首次跟进超时",
+        statusReason: "sla_expired",
         followResult: "unreachable",
       };
     case 5:
@@ -185,7 +185,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: false,
         canOperate: false,
         timingState: "inactive",
-        statusReason: "门店主动战败",
+        statusReason: "follow_lost",
         followResult: "lost",
       };
     case 6:
@@ -197,7 +197,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: false,
         canOperate: false,
         timingState: "inactive",
-        statusReason: "分配策略已穷尽",
+        statusReason: "strategies_exhausted",
         followResult: "request_store_change",
       };
     default:
@@ -209,7 +209,7 @@ function finalRoundOutcome(index: number): FinalRoundOutcome {
         hasCurrentRound: true,
         canOperate: true,
         timingState: "protected",
-        statusReason: "预约到店保护期内",
+        statusReason: "核销保护期内",
         followResult: "appointment",
       };
   }
@@ -343,7 +343,7 @@ function makeFollowUpRecord(
     follow_result: result,
     note: DEMO_FOLLOW_UP_NOTES[noteIndex % DEMO_FOLLOW_UP_NOTES.length],
     timing_state: result === "appointment" ? "protected" : "active",
-    status_reason: result === "appointment" ? "已进入预约保护期" : null,
+    status_reason: result === "appointment" ? "核销保护期内" : null,
     is_deleted: false,
     deleted_at: null,
     deleted_by_user_id: null,
@@ -450,7 +450,9 @@ export function createClueDemoState(
           round_effective_status: isCurrentRound && outcome.canOperate ? "active" : "inactive",
           can_operate_current_round: isCurrentRound && outcome.canOperate,
           timing_state: isFinalRound ? outcome.timingState : "inactive",
-          status_reason: isFinalRound ? outcome.statusReason : "历史流转轮次",
+          status_reason: isFinalRound
+            ? outcome.statusReason
+            : historicalReason ?? "reassigned",
           round_status: roundStatus,
           assigned_at: assignedAt,
           expires_at: isCurrentRound && outcome.canOperate
