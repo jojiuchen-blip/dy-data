@@ -137,3 +137,17 @@ def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
 
     assert "isDemoMode={CLUE_DEMO_MODE}" in app
     assert "CLUE_DEMO_MODE ? undefined : onLogout" in app
+
+
+def test_shell_discloses_demo_data_on_desktop_and_mobile() -> None:
+    shell = _read("components/Shell.tsx")
+    styles = _read("styles.css")
+    readme = (WEB / "README.md").read_text(encoding="utf-8")
+
+    assert "isDemoMode?: boolean" in shell
+    assert "演示数据 · 全部为合成数据 · 不写入数据库" in shell
+    assert "demo-mode-notice" in shell
+    assert ".demo-mode-notice" in styles
+    assert ".app-shell--demo" in styles
+    assert "npm run dev:demo" in readme
+    assert "刷新页面后恢复" in readme

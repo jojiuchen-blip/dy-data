@@ -30,6 +30,14 @@ npm run dev
 npm run build
 ```
 
+### 线索分配演示模式
+
+```powershell
+npm run dev:demo
+```
+
+演示模式仅在 Vite 开发环境生效，自动使用“演示最高管理员”和合成线索数据，不连接真实业务 API。跟进、试运行、重建和规则操作只修改当前浏览器会话内存，刷新页面后恢复初始数据。
+
 ## 实现约束
 
 - 视觉与组件规范读取 `../../docs/design-system/README.md` 和 `../../docs/design-system/tokens.json`。

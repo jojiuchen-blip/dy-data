@@ -177,7 +177,13 @@ function roleLabel(user: AdminUser): string {
   return "门店账号";
 }
 
-export function Shell({ currentPath, currentUser, onLogout, children }: ShellProps) {
+export function Shell({
+  currentPath,
+  currentUser,
+  isDemoMode = false,
+  onLogout,
+  children,
+}: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mineOpen, setMineOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -209,6 +215,9 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   const visibleModuleItems = moduleNavItems.filter(
     (item) => item.section !== "admin" || currentUser?.role === "admin",
   );
+  const shellClassName = isDemoMode
+    ? "app-shell app-shell--rail app-shell--demo"
+    : "app-shell app-shell--rail";
 
   const openFeedback = () => {
     setFeedbackOpen(true);
@@ -312,7 +321,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   };
 
   return (
-    <div className="app-shell app-shell--rail">
+    <div className={shellClassName}>
       <aside className="app-rail" aria-label="主模块导航">
         <a className="rail-brand" href="/">
           <SolarIcon className="rail-brand__mark" name="brand" size={42} />
@@ -399,6 +408,14 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         {section === "settlement" ? (
           <div className="settlement-trial-notice settlement-trial-notice--mobile">
             {settlementTrialNotice}
+          </div>
+        ) : null}
+
+        {isDemoMode ? (
+          <div className="demo-mode-notice" role="note">
+            <SolarIcon name="question" size={16} />
+            <span>演示数据 · 全部为合成数据 · 不写入数据库</span>
+            <small>操作仅在当前浏览器会话生效，刷新后重置</small>
           </div>
         ) : null}
 

@@ -219,6 +219,28 @@ a {
   backdrop-filter: blur(16px);
 }
 
+.demo-mode-notice {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #f2c879;
+  padding: 6px 28px;
+  background: #fff7e6;
+  color: #6f4300;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.demo-mode-notice small {
+  color: #8a641d;
+  font-weight: 500;
+}
+
+.app-shell--demo .workspace-shell .page-frame--data-workspace {
+  height: calc(100vh - var(--workspace-topbar-height) - 34px);
+}
+
 .workspace-actions {
   display: flex;
   flex: 0 0 auto;
@@ -4962,6 +4984,21 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
+  .demo-mode-notice {
+    min-height: 0;
+    align-items: flex-start;
+    padding: 8px 16px;
+    line-height: 1.4;
+  }
+
+  .demo-mode-notice small {
+    display: none;
+  }
+
+  .app-shell--demo .workspace-shell .page-frame--data-workspace {
+    height: auto;
+  }
+
   .tertiary-nav {
     gap: 2px;
   }
