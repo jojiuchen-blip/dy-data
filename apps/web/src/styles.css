@@ -224,16 +224,16 @@ a {
   min-height: 34px;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid #f2c879;
+  border-bottom: 1px solid var(--amber-token-35);
   padding: 6px 28px;
-  background: #fff7e6;
-  color: #6f4300;
+  background: var(--surface-warning);
+  color: var(--amber);
   font-size: 12px;
   font-weight: 700;
 }
 
 .demo-mode-notice small {
-  color: #8a641d;
+  color: var(--amber);
   font-weight: 500;
 }
 
