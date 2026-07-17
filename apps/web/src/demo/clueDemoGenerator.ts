@@ -292,7 +292,7 @@ function createHistoricalCycles(now: Date): ClueAllocationCycle[] {
     return {
       allocation_cycle_id: cycleId,
       cycle_type: index % 3 === 0 ? "rebuild" : "trial",
-      execution_mode: "demo",
+      execution_mode: "trial",
       status: "completed",
       parent_cycle_id: index % 3 === 0 && index > 0 ? `DEMO-CYCLE-HISTORY-${pad(index, 3)}` : null,
       selected_lead_keys: selectedLeadKeys,

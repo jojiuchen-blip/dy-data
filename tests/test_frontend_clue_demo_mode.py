@@ -88,3 +88,28 @@ def test_demo_repository_models_follow_up_and_round_transitions() -> None:
         "demo-clue-assignment-rounds-",
     ]:
         assert value in source
+
+
+def test_demo_repository_covers_all_allocation_admin_calls() -> None:
+    source = _read("demo/clueDemoRepository.ts")
+    for method in [
+        "getEligibleLeads(",
+        "getHeadquartersPool(",
+        "getCycles(",
+        "getAuditLogs(",
+        "previewCycle(",
+        "runTrial(",
+        "rebuildTrial(",
+        "getRules(",
+        "getRuleDetail(",
+        "getDecisions(",
+        "getStoreScores(",
+        "createRule(",
+        "createRuleVersion(",
+        "publishRuleVersion(",
+        "retireRuleVersion(",
+    ]:
+        assert method in source
+
+    for marker in ["DEMO-PREVIEW-", "DEMO-CYCLE-", "DEMO-AUDIT-", "previewTokens"]:
+        assert marker in source
