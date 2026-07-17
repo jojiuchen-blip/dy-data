@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
   createClueAllocationRule,
@@ -16,11 +16,14 @@ import {
   rebuildClueAllocationTrial,
   retireClueAllocationRuleVersion,
   runClueAllocationTrial,
+  type ClueHeadquartersPoolFilters,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { FilterField } from "../components/Filters";
 import { SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
+import { TablePagination } from "../components/TablePagination";
 import { TertiaryNav } from "../components/TertiaryNav";
 import type {
   ClueAllocationAuditLog,
@@ -33,6 +36,7 @@ import type {
   ClueAllocationRuleScope,
   ClueAllocationRuleVersion,
   ClueAllocationRuleVersionWrite,
+  ClueHeadquartersPoolData,
   ClueHeadquartersPoolEntry,
   StoreScoreSnapshot,
   StoreScoreSnapshotData,
@@ -46,6 +50,7 @@ import {
   displayAllocationExecutionMode,
   displayAllocationStrategy,
   displayClueReason,
+  displayOrderStatus,
 } from "../utils/userFacingLabels";
 
 const scopeLabels: Record<ClueAllocationRuleScope["scope_type"], string> = {
@@ -102,8 +107,53 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
   cityFallbackEnabled: true,
 };
 
+const defaultHeadquartersFilters: ClueHeadquartersPoolFilters = {
+  pool_status: "active",
+  reason: "",
+  entered_date_start: "",
+  entered_date_end: "",
+  order_status: "",
+  order_id: "",
+};
+
+const emptyHeadquartersPoolData: ClueHeadquartersPoolData = {
+  rows: [],
+  pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
+  summary: { current_inventory: 0, filtered_total: 0 },
+  filter_options: { pool_statuses: [], reasons: [], order_statuses: [] },
+};
+
+function normalizeHeadquartersPoolData(
+  data: ClueHeadquartersPoolData,
+): ClueHeadquartersPoolData {
+  const rows = Array.isArray(data.rows) ? data.rows : [];
+  const pagination = data.pagination ?? emptyHeadquartersPoolData.pagination;
+  return {
+    rows,
+    pagination,
+    summary: data.summary ?? {
+      current_inventory: rows.filter((row) => row.status === "active").length,
+      filtered_total: pagination.total,
+    },
+    filter_options: data.filter_options ?? {
+      pool_statuses: Array.from(new Set(rows.map((row) => row.status))).sort(),
+      reasons: Array.from(new Set(rows.map((row) => row.reason))).sort(),
+      order_statuses: Array.from(
+        new Set(rows.map((row) => row.order_status).filter(Boolean)),
+      ).sort(),
+    },
+  };
+}
+
 function displayValue(value: string | null | undefined): string {
   return value || "-";
+}
+
+function displayHeadquartersPoolStatus(value: string): string {
+  if (value === "active") return "在池";
+  if (value === "closed") return "已离池";
+  if (value === "superseded") return "已被新记录替代";
+  return value;
 }
 
 function summaryLabel(summary: Record<string, number> | undefined): string {
@@ -202,9 +252,14 @@ export function AdminClueAllocationPage({
   isHighestAdmin,
 }: AdminClueAllocationPageProps) {
   const [eligibleLeads, setEligibleLeads] = useState<ClueAllocationEligibleLead[]>([]);
-  const [headquartersEntries, setHeadquartersEntries] = useState<
-    ClueHeadquartersPoolEntry[]
-  >([]);
+  const [headquartersPool, setHeadquartersPool] = useState<ClueHeadquartersPoolData>(
+    emptyHeadquartersPoolData,
+  );
+  const [headquartersFilterDraft, setHeadquartersFilterDraft] =
+    useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
+  const [headquartersFilters, setHeadquartersFilters] =
+    useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
+  const [headquartersLoading, setHeadquartersLoading] = useState(false);
   const [cycles, setCycles] = useState<ClueAllocationCycle[]>([]);
   const [auditLogs, setAuditLogs] = useState<ClueAllocationAuditLog[]>([]);
   const [rules, setRules] = useState<ClueAllocationRule[]>([]);
@@ -243,12 +298,68 @@ export function AdminClueAllocationPage({
     [cycles],
   );
 
+  const refreshHeadquartersPool = async (
+    filters: ClueHeadquartersPoolFilters,
+    page = 1,
+    pageSize = headquartersPool.pagination.page_size,
+  ) => {
+    setHeadquartersLoading(true);
+    try {
+      const response = await fetchClueHeadquartersPool({
+        ...filters,
+        page,
+        page_size: pageSize,
+      });
+      setHeadquartersPool(normalizeHeadquartersPoolData(response.data));
+      return true;
+    } catch (error) {
+      setStatusText(
+        error instanceof ApiRequestError && error.status === 422
+          ? "总部池筛选条件无效，请检查日期范围。"
+          : "总部线索池暂时无法读取。",
+      );
+      return false;
+    } finally {
+      setHeadquartersLoading(false);
+    }
+  };
+
+  const applyHeadquartersFilters = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const start = headquartersFilterDraft.entered_date_start;
+    const end = headquartersFilterDraft.entered_date_end;
+    if (start && end && end < start) {
+      setStatusText("进入日期止不能早于进入日期起。");
+      return;
+    }
+    const nextFilters = { ...headquartersFilterDraft };
+    const loaded = await refreshHeadquartersPool(nextFilters, 1);
+    if (loaded) {
+      setHeadquartersFilters(nextFilters);
+      setStatusText("");
+    }
+  };
+
+  const clearHeadquartersFilters = async () => {
+    const nextFilters = { ...defaultHeadquartersFilters };
+    setHeadquartersFilterDraft(nextFilters);
+    const loaded = await refreshHeadquartersPool(nextFilters, 1);
+    if (loaded) {
+      setHeadquartersFilters(nextFilters);
+      setStatusText("");
+    }
+  };
+
   const load = async ({ clearStatus = true }: { clearStatus?: boolean } = {}) => {
     setLoading(true);
     try {
       const [eligible, headquarters, cycleData, auditData, ruleData, decisionData, scores] = await Promise.all([
         fetchClueAllocationEligibleLeads(),
-        fetchClueHeadquartersPool(),
+        fetchClueHeadquartersPool({
+          ...headquartersFilters,
+          page: headquartersPool.pagination.page,
+          page_size: headquartersPool.pagination.page_size,
+        }),
         fetchClueAllocationCycles(),
         fetchClueAllocationAuditLogs(),
         fetchClueAllocationRules(),
@@ -256,7 +367,7 @@ export function AdminClueAllocationPage({
         fetchClueAllocationStoreScores(),
       ]);
       setEligibleLeads(eligible.data.rows);
-      setHeadquartersEntries(headquarters.data.rows);
+      setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
       setCycles(cycleData.data.rows);
       setAuditLogs(auditData.data.rows);
       setRules(ruleData.data.rows);
@@ -695,6 +806,18 @@ export function AdminClueAllocationPage({
       title: "订单 ID",
       minWidth: 150,
       render: (entry) => displayValue(entry.order_id),
+    },
+    {
+      key: "pool-status",
+      title: "总部池状态",
+      minWidth: 120,
+      render: (entry) => displayHeadquartersPoolStatus(entry.status),
+    },
+    {
+      key: "order-status",
+      title: "订单状态",
+      minWidth: 110,
+      render: (entry) => displayOrderStatus(entry.order_status),
     },
     {
       key: "reason",
@@ -1437,13 +1560,134 @@ export function AdminClueAllocationPage({
               <h2>总部线索池</h2>
               <p>没有锚点、无可分配门店或候选轮次耗尽的线索会保留在总部池。</p>
             </div>
-            <span className="source-pill">{headquartersEntries.length} 条</span>
+            <div className="clue-headquarters-summary" aria-label="总部池库存摘要">
+              <span className="source-pill">
+                当前库存 {headquartersPool.summary.current_inventory} 条
+              </span>
+              <span className="source-pill">
+                筛选结果 {headquartersPool.summary.filtered_total} 条
+              </span>
+            </div>
           </div>
+          <form
+            className="filter-bar filter-bar--compact clue-headquarters-filter-bar"
+            onSubmit={applyHeadquartersFilters}
+          >
+            <SelectField
+              label="总部池状态"
+              onChange={(value) =>
+                setHeadquartersFilterDraft((current) => ({ ...current, pool_status: value }))
+              }
+              options={[
+                { value: "", label: "全部" },
+                ...Array.from(
+                  new Set(["active", "closed", ...headquartersPool.filter_options.pool_statuses]),
+                ).map((value) => ({ value, label: displayHeadquartersPoolStatus(value) })),
+              ]}
+              value={headquartersFilterDraft.pool_status ?? ""}
+            />
+            <SelectField
+              label="进入原因"
+              onChange={(value) =>
+                setHeadquartersFilterDraft((current) => ({ ...current, reason: value }))
+              }
+              options={[
+                { value: "", label: "全部" },
+                ...headquartersPool.filter_options.reasons.map((value) => ({
+                  value,
+                  label: displayClueReason(value),
+                })),
+              ]}
+              value={headquartersFilterDraft.reason ?? ""}
+            />
+            <FilterField label="进入日期起">
+              <input
+                onChange={(event) =>
+                  setHeadquartersFilterDraft((current) => ({
+                    ...current,
+                    entered_date_start: event.target.value,
+                  }))
+                }
+                type="date"
+                value={headquartersFilterDraft.entered_date_start ?? ""}
+              />
+            </FilterField>
+            <FilterField label="进入日期止">
+              <input
+                onChange={(event) =>
+                  setHeadquartersFilterDraft((current) => ({
+                    ...current,
+                    entered_date_end: event.target.value,
+                  }))
+                }
+                type="date"
+                value={headquartersFilterDraft.entered_date_end ?? ""}
+              />
+            </FilterField>
+            <SelectField
+              label="订单状态"
+              onChange={(value) =>
+                setHeadquartersFilterDraft((current) => ({ ...current, order_status: value }))
+              }
+              options={[
+                { value: "", label: "全部" },
+                ...headquartersPool.filter_options.order_statuses.map((value) => ({
+                  value,
+                  label: displayOrderStatus(value),
+                })),
+              ]}
+              value={headquartersFilterDraft.order_status ?? ""}
+            />
+            <FilterField label="订单号">
+              <input
+                onChange={(event) =>
+                  setHeadquartersFilterDraft((current) => ({
+                    ...current,
+                    order_id: event.target.value,
+                  }))
+                }
+                placeholder="输入完整或部分订单号"
+                type="search"
+                value={headquartersFilterDraft.order_id ?? ""}
+              />
+            </FilterField>
+            <div className="clue-headquarters-filter-bar__actions">
+              <Button icon="filter" loading={headquartersLoading} type="submit" variant="primary">
+                筛选
+              </Button>
+              <Button
+                disabled={headquartersLoading}
+                onClick={() => void clearHeadquartersFilters()}
+                type="button"
+              >
+                清空筛选
+              </Button>
+            </div>
+          </form>
           <DataTable
             columns={headquartersColumns}
-            emptyText={loading ? "正在加载总部线索池..." : "总部池暂无线索"}
-            rows={headquartersEntries}
+            emptyText={loading || headquartersLoading ? "正在加载总部线索池..." : "总部池暂无线索"}
+            rows={headquartersPool.rows}
             stickyHeader="container"
+          />
+          <TablePagination
+            loading={headquartersLoading}
+            onPageChange={(page) =>
+              void refreshHeadquartersPool(
+                headquartersFilters,
+                page,
+                headquartersPool.pagination.page_size,
+              )
+            }
+            onPageSizeChange={(pageSize) =>
+              void refreshHeadquartersPool(headquartersFilters, 1, pageSize)
+            }
+            page={headquartersPool.pagination.page}
+            pageSize={headquartersPool.pagination.page_size}
+            pageSizeOptions={[20, 50, 100]}
+            rowsOnPage={headquartersPool.rows.length}
+            total={headquartersPool.pagination.total}
+            totalPages={headquartersPool.pagination.total_pages}
           />
         </section>
       ) : null}

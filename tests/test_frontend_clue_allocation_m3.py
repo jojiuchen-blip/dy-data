@@ -121,3 +121,40 @@ def test_m3_rule_management_has_a_compact_read_only_mobile_layout() -> None:
     mobile_styles = styles[styles.index("@media (max-width: 640px)") :]
     assert ".clue-allocation-management-grid" in mobile_styles
     assert "grid-template-columns: 1fr;" in mobile_styles
+
+
+def test_m3_headquarters_pool_exposes_approved_filters_and_inventory_summary() -> None:
+    page_source = _read("pages/AdminClueAllocationPage.tsx")
+    client_source = _read("api/client.ts")
+    type_source = _read("types/dashboard.ts")
+    styles = _read("styles.css")
+
+    for label in [
+        "总部池状态",
+        "进入原因",
+        "进入日期起",
+        "进入日期止",
+        "订单状态",
+        "订单号",
+        "清空筛选",
+        "当前库存",
+        "筛选结果",
+    ]:
+        assert label in page_source
+
+    for query_key in [
+        "pool_status",
+        "reason",
+        "entered_date_start",
+        "entered_date_end",
+        "order_status",
+        "order_id",
+    ]:
+        assert query_key in client_source
+
+    assert "ClueHeadquartersPoolFilters" in client_source
+    assert "displayOrderStatus(entry.order_status)" in page_source
+    assert "headquartersPool.summary.current_inventory" in page_source
+    assert "export interface ClueHeadquartersPoolSummary" in type_source
+    assert "export interface ClueHeadquartersPoolFilterOptions" in type_source
+    assert ".clue-headquarters-filter-bar" in styles

@@ -27,7 +27,10 @@ from apps.api.dy_api.models import (  # noqa: E402
     DimStore,
     User,
 )
-from apps.worker.clue_headquarters_pool import enter_headquarters_pool  # noqa: E402
+from apps.worker.clue_headquarters_pool import (  # noqa: E402
+    close_current_headquarters_pool_entry,
+    enter_headquarters_pool,
+)
 from apps.worker.clue_rule_versions import (  # noqa: E402
     create_rule,
     create_rule_version,
@@ -137,6 +140,58 @@ def _seed_trial_ready_lead(session: Session, *, lead_key: str = "trial-lead") ->
         created_by="system-admin",
     )
     publish_rule_version(session, version.rule_version_id, published_by="system-admin")
+    session.commit()
+    return lead
+
+
+def _seed_headquarters_lead(
+    session: Session,
+    *,
+    lead_key: str,
+    order_id: str,
+    normalized_order_status: str,
+    raw_order_status: str,
+    reason: str,
+    entered_at: datetime,
+    pool_status: str = "active",
+) -> ClueMasterLead:
+    lifecycle_status = "active" if normalized_order_status == "active" else f"closed_{normalized_order_status}"
+    lead = ClueMasterLead(
+        lead_key=lead_key,
+        source_clue_row_key=f"raw-{lead_key}",
+        source_identity_key=f"identity-{lead_key}",
+        canonical_clue_id=f"clue-{lead_key}",
+        order_id=order_id,
+        raw_order_status=raw_order_status,
+        normalized_order_status=normalized_order_status,
+        status_source="test",
+        lifecycle_status=lifecycle_status,
+        pool_location="headquarters_pool",
+        allocation_state="headquarters",
+        anchor_store_id=f"anchor-{lead_key}",
+        anchor_city="上海市",
+        anchor_city_code="CN-SH",
+        first_seen_at=entered_at,
+        last_seen_at=entered_at,
+        created_at=entered_at,
+        updated_at=entered_at,
+    )
+    session.add(lead)
+    enter_headquarters_pool(
+        session,
+        lead=lead,
+        reason=reason,
+        entered_at=entered_at,
+        source_snapshot={"phone_plain": "13812345678", "reason": reason},
+    )
+    if pool_status != "active":
+        close_current_headquarters_pool_entry(
+            session,
+            lead.lead_key,
+            closed_at=_dt(4),
+            close_reason="order_status_changed",
+            status=pool_status,
+        )
     session.commit()
     return lead
 
@@ -309,6 +364,92 @@ def test_m3_headquarters_pool_is_readable_without_contact_data(
     assert eligible.json()["data"]["rows"] == []
     assert db_session.scalar(select(ClueHeadquartersPoolEntry)) is not None
     assert db_session.scalar(select(ClueAllocationAuditLog)) is None
+
+
+def test_m3_headquarters_pool_filters_inventory_and_order_status(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_headquarters_lead(
+        db_session,
+        lead_key="hq-filter-match",
+        order_id="order-filter-match-001",
+        normalized_order_status="active",
+        raw_order_status="履约中",
+        reason="no_candidate",
+        entered_at=_dt(2, 15),
+    )
+    _seed_headquarters_lead(
+        db_session,
+        lead_key="hq-next-local-day",
+        order_id="order-next-day-002",
+        normalized_order_status="active",
+        raw_order_status="履约中",
+        reason="no_candidate",
+        entered_at=_dt(2, 16),
+    )
+    _seed_headquarters_lead(
+        db_session,
+        lead_key="hq-other-reason",
+        order_id="order-other-reason-003",
+        normalized_order_status="active",
+        raw_order_status="履约中",
+        reason="follow_poi_missing",
+        entered_at=_dt(2, 12),
+    )
+    _seed_headquarters_lead(
+        db_session,
+        lead_key="hq-closed-verified",
+        order_id="order-verified-004",
+        normalized_order_status="verified",
+        raw_order_status="已核销",
+        reason="strategies_exhausted",
+        entered_at=_dt(1),
+        pool_status="closed",
+    )
+    _login(client)
+
+    response = client.get(
+        "/api/v1/admin/clue-allocation/headquarters-pool",
+        params={
+            "pool_status": "active",
+            "reason": "no_candidate",
+            "entered_date_start": "2026-07-02",
+            "entered_date_end": "2026-07-02",
+            "order_status": "active",
+            "order_id": "filter-match",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["pagination"]["total"] == 1
+    assert data["summary"] == {"current_inventory": 3, "filtered_total": 1}
+    assert data["filter_options"]["pool_statuses"] == ["active", "closed"]
+    assert data["filter_options"]["reasons"] == [
+        "follow_poi_missing",
+        "no_candidate",
+        "strategies_exhausted",
+    ]
+    assert data["filter_options"]["order_statuses"] == ["active", "verified"]
+    row = data["rows"][0]
+    assert row["lead_key"] == "hq-filter-match"
+    assert row["order_id"] == "order-filter-match-001"
+    assert row["order_status"] == "active"
+    assert row["raw_order_status"] == "履约中"
+    assert "phone" not in json.dumps(data, ensure_ascii=False).lower()
+
+
+def test_m3_headquarters_pool_rejects_an_inverted_entry_date_range(
+    client: TestClient,
+) -> None:
+    _login(client)
+
+    response = client.get(
+        "/api/v1/admin/clue-allocation/headquarters-pool",
+        params={"entered_date_start": "2026-07-03", "entered_date_end": "2026-07-02"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_m3_rebuild_uses_a_source_cycle_and_matching_preview(

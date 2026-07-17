@@ -681,6 +681,8 @@ export interface ClueHeadquartersPoolEntry {
   lead_key: string;
   canonical_clue_id: string | null;
   order_id: string | null;
+  order_status: string;
+  raw_order_status: string | null;
   status: string;
   reason: string;
   entered_at: string;
@@ -695,9 +697,22 @@ export interface ClueHeadquartersPoolEntry {
   allocation_cycle_id: string | null;
 }
 
+export interface ClueHeadquartersPoolSummary {
+  current_inventory: number;
+  filtered_total: number;
+}
+
+export interface ClueHeadquartersPoolFilterOptions {
+  pool_statuses: string[];
+  reasons: string[];
+  order_statuses: string[];
+}
+
 export interface ClueHeadquartersPoolData {
   rows: ClueHeadquartersPoolEntry[];
   pagination: Pagination;
+  summary: ClueHeadquartersPoolSummary;
+  filter_options: ClueHeadquartersPoolFilterOptions;
 }
 
 export interface ClueAllocationCycle {

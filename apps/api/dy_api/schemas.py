@@ -778,6 +778,8 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     lead_key: str
     canonical_clue_id: str | None = None
     order_id: str | None = None
+    order_status: str
+    raw_order_status: str | None = None
     status: str
     reason: str
     entered_at: datetime
@@ -792,9 +794,22 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     allocation_cycle_id: str | None = None
 
 
+class ClueHeadquartersPoolSummary(BaseModel):
+    current_inventory: int = 0
+    filtered_total: int = 0
+
+
+class ClueHeadquartersPoolFilterOptions(BaseModel):
+    pool_statuses: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    order_statuses: list[str] = Field(default_factory=list)
+
+
 class ClueHeadquartersPoolData(BaseModel):
     rows: list[ClueHeadquartersPoolEntryRow] = Field(default_factory=list)
     pagination: Pagination
+    summary: ClueHeadquartersPoolSummary
+    filter_options: ClueHeadquartersPoolFilterOptions
 
 
 class ClueAllocationCycleRow(BaseModel):

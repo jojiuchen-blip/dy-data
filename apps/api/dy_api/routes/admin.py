@@ -87,6 +87,8 @@ from dy_api.schemas import (
     ClueAllocationEligibleLeadRow,
     ClueHeadquartersPoolData,
     ClueHeadquartersPoolEntryRow,
+    ClueHeadquartersPoolFilterOptions,
+    ClueHeadquartersPoolSummary,
     ClueMasterLeadData,
     ClueMasterLeadRow,
     ClueAllocationRuleCreateRequest,
@@ -163,6 +165,10 @@ def _require_available_store(store):
             detail="Database is not available",
         )
     return store
+
+
+def _shanghai_day_start(value: date) -> datetime:
+    return datetime.combine(value, datetime.min.time(), tzinfo=SHANGHAI_TZ).astimezone(timezone.utc)
 
 
 def _rule_version_http_error(error: RuleVersionError) -> HTTPException:
@@ -614,17 +620,54 @@ def list_clue_allocation_eligible_leads(
 @router.get("/clue-allocation/headquarters-pool")
 def list_clue_headquarters_pool(
     pool_status: str | None = None,
+    reason: str | None = None,
+    entered_date_start: date | None = None,
+    entered_date_end: date | None = None,
+    order_status: str | None = None,
+    order_id: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    statement = select(ClueHeadquartersPoolEntry)
+    if entered_date_start and entered_date_end and entered_date_end < entered_date_start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="entered_date_end must be on or after entered_date_start",
+        )
+
+    filters = []
     if pool_status:
-        statement = statement.where(ClueHeadquartersPoolEntry.status == pool_status)
-    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
-    rows = store.session.scalars(
+        filters.append(ClueHeadquartersPoolEntry.status == pool_status)
+    if reason:
+        filters.append(ClueHeadquartersPoolEntry.reason == reason)
+    if entered_date_start:
+        filters.append(ClueHeadquartersPoolEntry.entered_at >= _shanghai_day_start(entered_date_start))
+    if entered_date_end:
+        filters.append(
+            ClueHeadquartersPoolEntry.entered_at
+            < _shanghai_day_start(entered_date_end + timedelta(days=1))
+        )
+    if order_status:
+        filters.append(ClueMasterLead.normalized_order_status == order_status)
+    normalized_order_id = (order_id or "").strip()
+    if normalized_order_id:
+        filters.append(ClueMasterLead.order_id.contains(normalized_order_id, autoescape=True))
+
+    statement = (
+        select(ClueHeadquartersPoolEntry, ClueMasterLead)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueHeadquartersPoolEntry.lead_key)
+        .where(*filters)
+    )
+    total_statement = (
+        select(func.count())
+        .select_from(ClueHeadquartersPoolEntry)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueHeadquartersPoolEntry.lead_key)
+        .where(*filters)
+    )
+    total = int(store.session.scalar(total_statement) or 0)
+    rows = store.session.execute(
         statement.order_by(
             ClueHeadquartersPoolEntry.entered_at.desc(),
             ClueHeadquartersPoolEntry.headquarters_pool_entry_id.desc(),
@@ -635,11 +678,49 @@ def list_clue_headquarters_pool(
     data = ClueHeadquartersPoolData(
         rows=[
             ClueHeadquartersPoolEntryRow(
-                **_clue_headquarters_pool_entry_payload(store.session, row)
+                **_clue_headquarters_pool_entry_payload(entry, lead)
             )
-            for row in rows
+            for entry, lead in rows
         ],
         pagination=_pagination(page, page_size, total),
+        summary=ClueHeadquartersPoolSummary(
+            current_inventory=int(
+                store.session.scalar(
+                    select(func.count())
+                    .select_from(ClueHeadquartersPoolEntry)
+                    .where(ClueHeadquartersPoolEntry.status == "active")
+                )
+                or 0
+            ),
+            filtered_total=total,
+        ),
+        filter_options=ClueHeadquartersPoolFilterOptions(
+            pool_statuses=list(
+                store.session.scalars(
+                    select(ClueHeadquartersPoolEntry.status)
+                    .distinct()
+                    .order_by(ClueHeadquartersPoolEntry.status)
+                ).all()
+            ),
+            reasons=list(
+                store.session.scalars(
+                    select(ClueHeadquartersPoolEntry.reason)
+                    .distinct()
+                    .order_by(ClueHeadquartersPoolEntry.reason)
+                ).all()
+            ),
+            order_statuses=list(
+                store.session.scalars(
+                    select(ClueMasterLead.normalized_order_status)
+                    .join(
+                        ClueHeadquartersPoolEntry,
+                        ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key,
+                    )
+                    .distinct()
+                    .order_by(ClueMasterLead.normalized_order_status)
+                ).all()
+            ),
+        ),
     )
     return {
         "data": dump_model(data),
@@ -1732,21 +1813,25 @@ def _clue_allocation_eligible_lead_payload(row: ClueMasterLead) -> dict:
     }
 
 
-def _clue_headquarters_pool_entry_payload(session, row: ClueHeadquartersPoolEntry) -> dict:
-    lead = session.get(ClueMasterLead, row.lead_key)
+def _clue_headquarters_pool_entry_payload(
+    row: ClueHeadquartersPoolEntry,
+    lead: ClueMasterLead,
+) -> dict:
     return {
         "headquarters_pool_entry_id": row.headquarters_pool_entry_id,
         "lead_key": row.lead_key,
-        "canonical_clue_id": lead.canonical_clue_id if lead is not None else None,
-        "order_id": lead.order_id if lead is not None else None,
+        "canonical_clue_id": lead.canonical_clue_id,
+        "order_id": lead.order_id,
+        "order_status": lead.normalized_order_status,
+        "raw_order_status": lead.raw_order_status,
         "status": row.status,
         "reason": row.reason,
         "entered_at": row.entered_at,
         "closed_at": row.closed_at,
         "close_reason": row.close_reason,
-        "anchor_store_id": lead.anchor_store_id if lead is not None else None,
-        "anchor_city": lead.anchor_city if lead is not None else None,
-        "anchor_city_code": lead.anchor_city_code if lead is not None else None,
+        "anchor_store_id": lead.anchor_store_id,
+        "anchor_city": lead.anchor_city,
+        "anchor_city_code": lead.anchor_city_code,
         "source_assignment_round_id": row.source_assignment_round_id,
         "source_decision_id": row.source_decision_id,
         "source_rule_version_id": row.source_rule_version_id,

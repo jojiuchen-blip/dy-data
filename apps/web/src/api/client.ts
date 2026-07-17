@@ -1311,12 +1311,26 @@ export async function fetchClueAllocationEligibleLeads(): Promise<
   };
 }
 
-export async function fetchClueHeadquartersPool(): Promise<
+export interface ClueHeadquartersPoolFilters extends QueryParams {
+  pool_status?: string;
+  reason?: string;
+  entered_date_start?: string;
+  entered_date_end?: string;
+  order_status?: string;
+  order_id?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export async function fetchClueHeadquartersPool(
+  filters: ClueHeadquartersPoolFilters = {},
+): Promise<
   ApiLoadResult<ClueHeadquartersPoolData>
 > {
   return {
     ...(await requestJson<ClueHeadquartersPoolData>(
       "/admin/clue-allocation/headquarters-pool",
+      filters,
     )),
     usingMock: false,
   };
