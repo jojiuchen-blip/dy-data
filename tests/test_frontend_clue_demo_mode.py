@@ -71,3 +71,20 @@ def test_demo_repository_exposes_coherent_clue_center_reads() -> None:
         'source: "demo"',
     ]:
         assert name in source
+
+
+def test_demo_repository_models_follow_up_and_round_transitions() -> None:
+    source = _read("demo/clueDemoRepository.ts")
+    for value in [
+        "saveFollowUp(",
+        "deleteFollowUpRecord(",
+        "advanceAfterRoundFailure(",
+        "exportAssignmentRounds(",
+        'payload.follow_result === "lost"',
+        'payload.follow_result === "request_store_change"',
+        'round.round_effective_status = "inactive"',
+        "round.can_operate_current_round = false",
+        "DEMO-PHONE-",
+        "demo-clue-assignment-rounds-",
+    ]:
+        assert value in source
