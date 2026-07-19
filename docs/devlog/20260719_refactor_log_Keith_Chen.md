@@ -12,6 +12,7 @@
 |---|------|------|------|
 | 1 | DYDATA-34 旧线索分配引擎下线启动 | 本轮推进 | ✅ |
 | 2 | DYDATA-37 baseline 治理路由修复 | 本轮推进 | ✅ |
+| 3 | 项目级页面交付基线 | S0.5 | ✅ |
 
 **本日关键结论**：DYDATA-37 只修复套包的错误准入判断，不提供维护快速通道；正确顺序为补齐 page-delivery、刷新 baseline、完成 DYDATA-36 线索中心 BRD V1.0 及必需规格，再进入 DYDATA-34
 
@@ -97,3 +98,12 @@
 - [ ] 由 page-designer 补齐 page-delivery，并刷新 baseline
 - [ ] 完成 DYDATA-36 线索中心 BRD V1.0 及 S4 必需规格
 - [ ] 门禁通过后进入 DYDATA-34，全面下线旧线索分配引擎
+---
+
+## 补充更新 1（16:40 · 窗口 1）
+
+### 任务 2：项目级页面交付基线
+- **目标**：补齐14个现有页面的可运行交付清单并解除PAGE_EXPLAINER前置阻塞
+- **操作**：复用V0.2运行时页面，生成page ledger与page delivery，验证17个demo路由和3个认证模式，刷新baseline与项目链接索引
+- **结果**：page-designer台账进入phase 4；前端构建和25项设计系统测试通过；route-check目标为page-explainer且canEnter=true
+- **涉及文件**：src/frontend/page-preview/page-delivery-dy-data.md、src/frontend/page-preview/page-ledger-dy-data.json、design-system/dy-data/MASTER.md、docs/baseline/baseline-audit-dy-data.json、docs/index/project-link-graph.json、project-profile.md、docs/plans/execution-plan.md

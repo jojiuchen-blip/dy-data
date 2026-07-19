@@ -7,8 +7,8 @@
 - 项目名称：`【用户确认】 dy-data（抖音经营引擎）`
 - 项目 slug：`【主入口回写】 dy-data`
 - 项目一句话目标：`【用户确认】 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。`
-- 当前阶段：`【主入口回写】 S1 已有项目级权威 BRD；S0.5 历史项目标准化仍按 baseline 缺口路由；DYDATA-37 已修复错误准入判断，尚未进入 S3/S4`
-- 当前 Linear issue：`【主入口回写】 无进行中事项；DYDATA-37 已完成，下一项 DYDATA-36 形成线索中心 BRD V1.0 及必需规格，之后才进入 DYDATA-34 下线旧引擎；DYDATA-35 记录门店地理数据质量闭环`
+- 当前阶段：`【主入口回写】 S1 已有项目级权威 BRD；S0.5 已补齐项目级 page-delivery，刷新后的 baseline 推荐 page-explainer 且 canEnter=true；尚未进入 S3/S4`
+- 当前 Linear issue：`【主入口回写】 无进行中事项；DYDATA-37 已完成，项目级 page-delivery 前置已补齐；下一步按路由补 PAGE_EXPLAINER，再进入 DYDATA-36 形成线索中心 BRD V1.0 及必需规格，之后才进入 DYDATA-34 下线旧引擎；DYDATA-35 记录门店地理数据质量闭环`
 - 协作模式：`【系统推断】 业务单人 + AI执行`
 
 ## 2. 身份识别
@@ -71,12 +71,12 @@
 - 当前架构入口：`【主入口回写】 docs/architecture.md`
 - 部署与运行入口：`【主入口回写】 docs/runbook.md、deploy/ 与 .github/workflows/`
 - 规格与历史材料：`【系统推断】 docs/superpowers/specs/、docs/plans/ 及 docs/governance/authority-map.md 中映射的 evidence / legacy 文件`
-- 套包标准产物：`【主入口回写】 PROJECT_PROFILE 与权威 BRD 已建立；DYDATA-20 的 BRD 适用 P0 字段、四项前提挑战、七项质量门和终稿确认均已完成，正式文件为 docs/brd/BRD-dy-data-20260716-1255.md；PAGE_EXPLAINER、FOUNDATION、PRD 待后续独立需求补齐`
+- 套包标准产物：`【主入口回写】 PROJECT_PROFILE、项目级权威 BRD 与 page-delivery 已建立；DYDATA-20 的 BRD 适用 P0 字段、四项前提挑战、七项质量门和终稿确认均已完成，页面交付覆盖 14 个现有页面组件；PAGE_EXPLAINER、FOUNDATION、PRD 待后续独立需求补齐`
 - 当前扫描证据：`【系统推断】 页面文件 14 个，API 文件 9 个，API 端点 63 个，模型定义 37 个，迁移 17 个`
-- 已有文档：`【系统推断】 docs/brd/BRD-dy-data-20260716-1255.md、docs/brd/brd-ledger-dy-data.md`
-- 已有原型 / 截图：`【系统推断】 未扫描到独立原型或截图`
-- 已有系统 / Excel / 流程：`【系统推断】 既有代码文件 228 个`
-- 其他可用材料：`【系统推断】 页面文件 14 个，API 文件 9 个，API 端点 63 个，模型定义 37 个，迁移 17 个，配置线索 5 个`
+- 已有文档：`【系统推断】 docs/brd/BRD-dy-data-20260716-1255.md、docs/brd/brd-ledger-dy-data.md、src/frontend/page-preview/page-delivery-dy-data.md`
+- 已有原型 / 截图：`【主入口回写】 现有 React 页面即交互原型；线索看板、线索明细桌面端及线索明细移动端验收截图位于 src/frontend/page-preview/screenshots/`
+- 已有系统 / Excel / 流程：`【系统推断】 既有代码文件 242 个`
+- 其他可用材料：`【系统推断】 页面文件 14 个，API 文件 9 个，API 端点 64 个，模型定义 37 个，迁移 17 个，配置线索 5 个`
 
 ## 7. 项目入口与识别信息
 
@@ -94,10 +94,10 @@
 
 ## 8. 当前判断
 
-- 当前最适合进入的阶段：`【主入口回写】 S0.5 既有项目维护知识底座继续补档；修复后的路由因缺少 page-delivery 阻止进入 PAGE_EXPLAINER，并恢复到 page-designer`
-- 当前轮应输出的交付物：`【主入口回写】 先补齐 page-delivery 并刷新 baseline，再通过 DYDATA-36 形成线索中心 BRD V1.0、PAGE_EXPLAINER、FOUNDATION、PRD 和正式交付计划，最后执行 DYDATA-34`
+- 当前最适合进入的阶段：`【主入口回写】 S0.5 既有项目维护知识底座继续补档；page-delivery 已完成，刷新后的路由允许进入 page-explainer`
+- 当前轮应输出的交付物：`【主入口回写】 下一项先形成 14 个现有页面的 PAGE_EXPLAINER，再通过 DYDATA-36 形成线索中心 BRD V1.0 及专项规格，之后补 FOUNDATION、PRD 和正式交付计划，最后执行 DYDATA-34`
 - 当前最大不确定项：`【主入口回写】 必须区分应删除的 legacy 分配行为与仍需保留的原始线索物化、订单商品投影和手机号解析能力`
-- 当前任务执行主体：`【主入口回写】 page-designer 先补 page-delivery，由 ai-project-manager 刷新 baseline 并推进 DYDATA-36；通过 S4 门禁后才由 coding-standards 承接 DYDATA-34 实现`
+- 当前任务执行主体：`【主入口回写】 page-explainer 承接下一项页面语义补档；随后由 brd-writer 与 ai-project-manager 推进 DYDATA-36；通过 S4 门禁后才由 coding-standards 承接 DYDATA-34 实现`
 
 ## 9. 待确认
 

@@ -48,7 +48,7 @@
       "evidence_paths": [],
       "expected_location": "docs/prd/foundation/",
       "recommended_skill": "foundation-builder",
-      "reason": "缺少术语表、Schema、API 与交付清单；代码中发现 API 端点线索 63 个、模型定义 37 个、迁移 17 个"
+      "reason": "缺少术语表、Schema、API 与交付清单；代码中发现 API 端点线索 64 个、模型定义 37 个、迁移 17 个"
     },
     {
       "type": "PRD",
@@ -120,7 +120,7 @@
     "counts": {
       "page_files": 14,
       "api_files": 9,
-      "api_endpoints": 63,
+      "api_endpoints": 64,
       "model_files": 19,
       "model_definitions": 37,
       "migration_files": 17
