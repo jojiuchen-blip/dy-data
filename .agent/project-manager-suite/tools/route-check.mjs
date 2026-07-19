@@ -802,6 +802,32 @@ function baselineRecommendedArtifactSatisfied(recommendedSkill, { s2Artifacts, f
     return false;
 }
 
+function inspectBaselineRecommendedSkillPrerequisites(recommendedSkill, { s2Artifacts }) {
+    const missingPrerequisites = [];
+    let recoverySkill = null;
+
+    if (recommendedSkill === 'page-explainer') {
+        if (!s2Artifacts.brdExists) {
+            missingPrerequisites.push('brd');
+            recoverySkill = 'brd-writer';
+        }
+
+        if (!s2Artifacts.pageDeliveryExists) {
+            missingPrerequisites.push('page-delivery');
+            recoverySkill ||= 'page-designer';
+        }
+    }
+
+    return {
+        pass: missingPrerequisites.length === 0,
+        evidence: {
+            recommendedSkill: recommendedSkill || null,
+            missingPrerequisites,
+            recoverySkill
+        }
+    };
+}
+
 function directoryHasCodeFiles(rootDir, relativeDir, maxDepth = 4) {
     const startDir = path.join(rootDir, relativeDir);
     if (!fs.existsSync(startDir) || !fs.statSync(startDir).isDirectory()) {
@@ -1405,6 +1431,10 @@ function buildGateChecks({ targetStage, profileContext, planContext, validationR
                 parseError: baselineAudit.parseError || null
             }
         };
+        checks.baselineRecommendedSkillReady = inspectBaselineRecommendedSkillPrerequisites(
+            baselineAudit.recommendedNextSkill,
+            { s2Artifacts }
+        );
     }
 
     return checks;
@@ -1429,6 +1459,20 @@ function buildBlockingReasons({ targetStage, currentStage, recommendedStage, gat
         reasons.push({
             code: 'baseline_audit_missing',
             message: gatingRules.projectBaselineAuditReady.description
+        });
+    }
+
+    if (
+        targetStage === STAGE_IDS.S0_5 &&
+        gateChecks.projectBaselineAuditReady?.pass &&
+        gateChecks.baselineRecommendedSkillReady &&
+        !gateChecks.baselineRecommendedSkillReady.pass
+    ) {
+        reasons.push({
+            code: 'baseline_recommended_skill_prerequisite_missing',
+            message: 'baseline 推荐能力的硬性前置产物尚未补齐',
+            missingPrerequisites: gateChecks.baselineRecommendedSkillReady.evidence.missingPrerequisites,
+            recoverySkill: gateChecks.baselineRecommendedSkillReady.evidence.recoverySkill
         });
     }
 
@@ -1584,6 +1628,27 @@ function findDevelopmentPlanBlocker(blockers) {
 }
 
 function resolveRecoveryRouteTarget({ targetStage, blockers, gateChecks }) {
+    if (targetStage === STAGE_IDS.S0_5) {
+        const baselinePrerequisiteBlocker = blockers.find(
+            (item) => item.code === 'baseline_recommended_skill_prerequisite_missing'
+        );
+        if (!baselinePrerequisiteBlocker) {
+            return null;
+        }
+
+        return {
+            skill: baselinePrerequisiteBlocker.recoverySkill,
+            source: 'baseline-prerequisite-recovery',
+            recoveryFor: baselinePrerequisiteBlocker.code,
+            exclusiveDeliverable: true,
+            evidence: {
+                recommendedSkill:
+                    gateChecks.baselineRecommendedSkillReady?.evidence.recommendedSkill || null,
+                missingPrerequisites: baselinePrerequisiteBlocker.missingPrerequisites
+            }
+        };
+    }
+
     if (targetStage !== STAGE_IDS.S4) {
         return null;
     }
@@ -1692,6 +1757,17 @@ function resolveNextActionWithContext({ validationResult, targetStage, resolvedR
 
     if (!validationResult.authority[FILE_ROLE_IDS.PROFILE]) {
         return '停留主入口，发起首轮极简访谈并补齐项目画像';
+    }
+
+    const baselinePrerequisiteBlocker = blockers.find(
+        (item) => item.code === 'baseline_recommended_skill_prerequisite_missing'
+    );
+    if (baselinePrerequisiteBlocker) {
+        if (baselinePrerequisiteBlocker.recoverySkill === 'brd-writer') {
+            return 'baseline 推荐 page-explainer，但其 BRD 前置产物缺失；先交由 brd-writer 补齐 BRD，再刷新 baseline';
+        }
+
+        return 'baseline 推荐 page-explainer，但其 page-delivery 前置产物缺失；先交由 page-designer 补齐页面交付清单，再刷新 baseline';
     }
 
     const startupBlocker = blockers.find((item) => item.code === 'startup_minimum_missing');
@@ -1853,6 +1929,10 @@ function routeCheck({ hostRoot, targetStage = '' }) {
                       recommendedNextSkill: gateChecks.projectBaselineAuditReady.evidence.recommendedNextSkill,
                       recommendedArtifactSatisfied:
                           gateChecks.projectBaselineAuditReady.evidence.recommendedArtifactSatisfied,
+                      recommendedSkillPrerequisitesReady:
+                          gateChecks.baselineRecommendedSkillReady?.pass ?? true,
+                      missingRecommendedSkillPrerequisites:
+                          gateChecks.baselineRecommendedSkillReady?.evidence.missingPrerequisites || [],
                       usable: gateChecks.projectBaselineAuditReady.pass
                   }
                 : null

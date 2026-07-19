@@ -1,13 +1,13 @@
 {
   "schema_version": 1,
   "suite_name": "project-manager-suite",
-  "suite_version": "2.0.0",
+  "suite_version": "2.0.1",
   "target_path": ".agent/project-manager-suite",
   "content_hash_algorithm": "sha256-path-null-lf-v1",
-  "content_sha256": "8081559e89aef44ed01f4d74c5f8d7792591d6e69c00f23ff4863d04430d5189",
+  "content_sha256": "737ff2de9242febf1b8da301138a1e095c6b881f40adaa7aa4ca2b2cb9077bb9",
   "generated_by": "tools/install-suite-into-host.mjs",
   "install_mode": "upgrade",
-  "installed_at": "2026-07-14T14:11:49.453Z",
+  "installed_at": "2026-07-19T07:47:39.137Z",
   "installed_files": [
     ".codex/INSTALL.md",
     ".opencode/INSTALL.md",

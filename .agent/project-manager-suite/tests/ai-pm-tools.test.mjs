@@ -727,6 +727,98 @@ test('route-check uses baseline audit JSON to route maintenance-doc gaps only to
     assert.match(result.nextAction, /baseline-audit/);
 });
 
+function createPageExplainerBaselineHost({ brdExists = true, pageDeliveryExists = true } = {}) {
+    const hostRoot = createHostFixture({
+        profileOverrides: {
+            current_stage: 'S0.5',
+            recommended_stage: 'S0.5',
+            current_round_deliverable: '既有项目关键文件诊断清单',
+            largest_uncertainty: '页面交互说明缺失'
+        },
+        planOverrides: {
+            current_stage: 'S0.5',
+            current_goal: '补齐既有项目维护知识底座',
+            next_tasks: '读取 baseline-audit 后补页面交互说明'
+        },
+        logContent: '记录 S0.5 既有项目基线诊断'
+    });
+    generateHostRules({ hostRoot, dryRun: false, force: false });
+    writeJsonFile(path.join(hostRoot, 'docs', 'baseline', 'baseline-audit-demo.json'), {
+        mode: 'existing-project-baseline',
+        scope: 'maintenance-docs-only',
+        slug: 'demo',
+        summary: {
+            status: 'missing_required_artifacts',
+            recommended_next_skill: 'page-explainer'
+        },
+        artifacts: [
+            {
+                type: 'PAGE_EXPLAINER',
+                status: 'missing',
+                recommended_skill: 'page-explainer'
+            }
+        ]
+    });
+
+    if (brdExists) {
+        writeFile(path.join(hostRoot, 'docs', 'brd', 'BRD-demo-20260719-1200.md'), '# BRD Demo\n');
+    }
+
+    if (pageDeliveryExists) {
+        writeFile(
+            path.join(hostRoot, 'src', 'frontend', 'page-preview', 'page-delivery-demo.md'),
+            '# 页面交付清单\n'
+        );
+    }
+
+    return hostRoot;
+}
+
+test('route-check blocks baseline page-explainer and recovers to page-designer when page delivery is missing', () => {
+    const hostRoot = createPageExplainerBaselineHost({ pageDeliveryExists: false });
+
+    const result = routeCheck({ hostRoot });
+
+    assert.equal(result.canEnter, false);
+    assert.equal(result.routeTarget.skill, 'page-designer');
+    assert.equal(result.routeTarget.source, 'baseline-prerequisite-recovery');
+    assert.deepEqual(
+        result.gateChecks.baselineRecommendedSkillReady.evidence.missingPrerequisites,
+        ['page-delivery']
+    );
+    assert.equal(
+        result.blockingReasons.some((item) => item.code === 'baseline_recommended_skill_prerequisite_missing'),
+        true
+    );
+    assert.match(result.nextAction, /page-delivery/);
+    assert.match(result.nextAction, /page-designer/);
+});
+
+test('route-check recovers a stale page-explainer recommendation to brd-writer when BRD is missing', () => {
+    const hostRoot = createPageExplainerBaselineHost({ brdExists: false });
+
+    const result = routeCheck({ hostRoot });
+
+    assert.equal(result.canEnter, false);
+    assert.equal(result.routeTarget.skill, 'brd-writer');
+    assert.equal(result.routeTarget.source, 'baseline-prerequisite-recovery');
+    assert.deepEqual(result.gateChecks.baselineRecommendedSkillReady.evidence.missingPrerequisites, ['brd']);
+    assert.match(result.nextAction, /BRD/);
+    assert.match(result.nextAction, /brd-writer/);
+});
+
+test('route-check keeps baseline page-explainer available when BRD and page delivery both exist', () => {
+    const hostRoot = createPageExplainerBaselineHost();
+
+    const result = routeCheck({ hostRoot });
+
+    assert.equal(result.canEnter, true);
+    assert.equal(result.routeTarget.skill, 'page-explainer');
+    assert.equal(result.routeTarget.source, 'baseline-audit');
+    assert.equal(result.gateChecks.baselineRecommendedSkillReady.pass, true);
+    assert.deepEqual(result.gateChecks.baselineRecommendedSkillReady.evidence.missingPrerequisites, []);
+});
+
 test('route-check refreshes stale baseline when recommended BRD gap is already filled', () => {
     const hostRoot = createHostFixture({
         profileOverrides: {
@@ -1698,7 +1790,7 @@ test('install-suite-into-host creates host .agent directory when it does not exi
     const packageMetadata = JSON.parse(readFile(path.join(CURRENT_SUITE_ROOT, 'package.json')));
 
     assert.equal(result.installMode, 'install');
-    assert.equal(packageMetadata.version, '2.0.0');
+    assert.equal(packageMetadata.version, '2.0.1');
     assert.ok(fs.existsSync(path.join(hostRoot, '.agent')));
     assert.ok(fs.existsSync(path.join(targetSuiteRoot, 'tools', 'bootstrap-host.mjs')));
     assert.ok(fs.existsSync(path.join(targetSuiteRoot, 'skills', '00-01-ai-project-manager', 'SKILL.md')));
@@ -1710,7 +1802,7 @@ test('install-suite-into-host creates host .agent directory when it does not exi
 
     assert.equal(manifest.install_mode, 'install');
     assert.equal(manifest.suite_name, 'project-manager-suite');
-    assert.equal(manifest.suite_version, '2.0.0');
+    assert.equal(manifest.suite_version, '2.0.1');
     assert.equal(manifest.target_path, '.agent/project-manager-suite');
     assert.equal(manifest.content_hash_algorithm, 'sha256-path-null-lf-v1');
     assert.match(manifest.content_sha256, /^[a-f0-9]{64}$/);
@@ -1799,7 +1891,7 @@ test('verify-suite-lock rejects manifest metadata and installed file list drift'
     assert.equal(metadataDriftResult.status, 1);
     assert.equal(JSON.parse(metadataDriftResult.stdout).status, 'manifest_mismatch');
 
-    manifest.suite_version = '2.0.0';
+    manifest.suite_version = '2.0.1';
     manifest.installed_files = manifest.installed_files.slice(1);
     writeJsonFile(manifestPath, manifest);
 
