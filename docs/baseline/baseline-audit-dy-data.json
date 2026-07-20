@@ -5,7 +5,7 @@
   "hostRoot": ".",
   "summary": {
     "status": "missing_required_artifacts",
-    "recommended_next_skill": "page-explainer"
+    "recommended_next_skill": "foundation-builder"
   },
   "profile": {
     "path": "project-profile.md",
@@ -36,11 +36,15 @@
     },
     {
       "type": "PAGE_EXPLAINER",
-      "status": "missing",
-      "evidence_paths": [],
+      "status": "present",
+      "evidence_paths": [
+        "src/frontend/page-preview/explainer-flow-dy-data.md",
+        "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+        "src/frontend/page-preview/explainer-delivery-dy-data.md"
+      ],
       "expected_location": "src/frontend/page-preview/",
-      "recommended_skill": "page-explainer",
-      "reason": "缺少页面流程与交互语义说明；代码中发现页面文件线索 14 个"
+      "recommended_skill": null,
+      "reason": "已发现页面交互说明文件"
     },
     {
       "type": "FOUNDATION",

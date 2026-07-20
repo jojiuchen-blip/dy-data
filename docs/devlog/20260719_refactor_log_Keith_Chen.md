@@ -95,7 +95,7 @@
 
 ## 六、待跟进事项
 
-- [ ] 由 page-designer 补齐 page-delivery，并刷新 baseline
+- [x] 补齐 page-delivery 与 PAGE_EXPLAINER，并刷新 baseline
 - [ ] 完成 DYDATA-36 线索中心 BRD V1.0 及 S4 必需规格
 - [ ] 门禁通过后进入 DYDATA-34，全面下线旧线索分配引擎
 ---
@@ -107,3 +107,13 @@
 - **操作**：复用V0.2运行时页面，生成page ledger与page delivery，验证17个demo路由和3个认证模式，刷新baseline与项目链接索引
 - **结果**：page-designer台账进入phase 4；前端构建和25项设计系统测试通过；route-check目标为page-explainer且canEnter=true
 - **涉及文件**：src/frontend/page-preview/page-delivery-dy-data.md、src/frontend/page-preview/page-ledger-dy-data.json、design-system/dy-data/MASTER.md、docs/baseline/baseline-audit-dy-data.json、docs/index/project-link-graph.json、project-profile.md、docs/plans/execution-plan.md
+
+---
+
+## 补充更新 2（15:20 · 窗口 1）
+
+### 任务 3：PAGE_EXPLAINER 收官并启动 DYDATA-36
+- **目标**：冻结当前运行版页面语义基线，解除线索中心专项 BRD 的治理前置阻塞
+- **操作**：完成 8 条用户流程、57 条交互语义、3 项范围差异和最终交付清单；将协作者改造中的结算中心明确为历史基线；刷新 baseline 与项目链接索引；将 DYDATA-36 移至 In Progress
+- **结果**：57 条交互全部 locked，卡片与机读表一致；baseline 已识别 PAGE_EXPLAINER 为 present；下一步进入线索中心 BRD V1.0 的逐章定义
+- **涉及文件**：src/frontend/page-preview/explainer-flow-dy-data.md、src/frontend/page-preview/explainer-b-interaction-dy-data.md、src/frontend/page-preview/explainer-b-gap-dy-data.md、src/frontend/page-preview/explainer-delivery-dy-data.md、docs/baseline/baseline-audit-dy-data.json、docs/baseline/baseline-audit-dy-data.md、docs/index/project-link-graph.json、docs/index/project-link-graph.md、project-profile.md、docs/plans/execution-plan.md

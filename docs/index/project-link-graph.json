@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-07-19T08:37:39.114Z",
+  "generatedAt": "2026-07-20T07:17:20.210Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,8 +9,8 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 466,
-    "edges": 145,
+    "nodes": 470,
+    "edges": 154,
     "issues": 16,
     "errors": 16,
     "warnings": 0,
@@ -26,12 +26,13 @@
       "delivery_plan": 5,
       "project_profile": 1,
       "project_rules": 1,
+      "page_explainer": 4,
       "page_delivery": 1,
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 141,
-      "depends_on": 4
+      "links_to": 144,
+      "depends_on": 10
     }
   },
   "nodes": [
@@ -3699,6 +3700,42 @@
       "title": "sku.py"
     },
     {
+      "id": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+      "path": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+      "kind": "page_explainer",
+      "owner_skill": "page-explainer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "页面交互差异 - dy-data（抖音经营数据引擎）"
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "path": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "kind": "page_explainer",
+      "owner_skill": "page-explainer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "交互描述 - dy-data（抖音经营数据引擎）"
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "kind": "page_explainer",
+      "owner_skill": "page-explainer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "Page-Explainer 交付清单 - dy-data（抖音经营数据引擎）"
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "path": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "kind": "page_explainer",
+      "owner_skill": "page-explainer",
+      "authority": true,
+      "slug": "dy-data",
+      "title": "用户流程 - dy-data（抖音经营数据引擎）"
+    },
+    {
       "id": "src/frontend/page-preview/page-delivery-dy-data.md",
       "path": "src/frontend/page-preview/page-delivery-dy-data.md",
       "kind": "page_delivery",
@@ -5093,19 +5130,19 @@
       "evidence": [
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 26,
+          "line": 27,
           "text": "- **涉及文件**：`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 32,
+          "line": 33,
           "text": "- **涉及文件**：`.agent/project-manager-suite/tools/route-check.mjs`、`.agent/project-manager-suite/tests/ai-pm-tools.test.mjs`、`.agent/project-manager-suite/package.json`、`.agent/project-manager-suite.lock.json`、`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 52,
+          "line": 53,
           "text": "| 新建 | `docs/devlog/20260719_refactor_log_Keith_Chen.md` | 记录需求登记与开发启动 |",
           "syntax": "backtick"
         }
@@ -5122,19 +5159,19 @@
       "evidence": [
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 26,
+          "line": 27,
           "text": "- **涉及文件**：`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 32,
+          "line": 33,
           "text": "- **涉及文件**：`.agent/project-manager-suite/tools/route-check.mjs`、`.agent/project-manager-suite/tests/ai-pm-tools.test.mjs`、`.agent/project-manager-suite/package.json`、`.agent/project-manager-suite.lock.json`、`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 51,
+          "line": 52,
           "text": "| 修改 | `docs/plans/execution-plan.md` | 建立 DYDATA-34 当前执行驾驶舱 |",
           "syntax": "backtick"
         }
@@ -5151,19 +5188,19 @@
       "evidence": [
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 26,
+          "line": 27,
           "text": "- **涉及文件**：`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 32,
+          "line": 33,
           "text": "- **涉及文件**：`.agent/project-manager-suite/tools/route-check.mjs`、`.agent/project-manager-suite/tests/ai-pm-tools.test.mjs`、`.agent/project-manager-suite/package.json`、`.agent/project-manager-suite.lock.json`、`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260719_refactor_log_Keith_Chen.md`",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 50,
+          "line": 51,
           "text": "| 修改 | `project-profile.md` | 切换当前 Linear issue，保持真实套包阶段 |",
           "syntax": "backtick"
         }
@@ -5180,7 +5217,7 @@
       "evidence": [
         {
           "path": "docs/devlog/20260719_refactor_log_Keith_Chen.md",
-          "line": 80,
+          "line": 81,
           "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
           "syntax": "backtick"
         }
@@ -6096,8 +6133,25 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 39,
           "text": "- 当前阶段快照以 `project-profile.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->src/frontend/page-preview/page-delivery-dy-data.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 30,
+          "text": "- `page-delivery-dy-data.md` 覆盖全部 14 个页面组件、实际路由、绝对文件路径和可复现启动命令。",
           "syntax": "backtick"
         }
       ]
@@ -6873,6 +6927,154 @@
           "line": 24,
           "text": "- [项目画像](project-profile.md)：项目身份、当前阶段、范围和治理状态。",
           "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-b-gap-dy-data.md->src/frontend/page-preview/explainer-flow-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+          "line": 28,
+          "text": "- **证据来源**: Browser 已验证四个子视图和当前控件；`explainer-flow-dy-data.md` 仅锁定导航；用户已明确新分配规则、总部池流转和旧引擎退役由 `DYDATA-36` 线索中心 BRD V1.0 固化",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-b-interaction-dy-data.md->src/frontend/page-preview/explainer-flow-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+          "line": 5,
+          "text": "> 依据: `page-delivery-dy-data.md` + Browser 运行页面验证 + 页面代码 + 已锁定 `explainer-flow-dy-data.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-b-interaction-dy-data.md->src/frontend/page-preview/page-delivery-dy-data.md:links_to",
+      "from": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "to": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+          "line": 5,
+          "text": "> 依据: `page-delivery-dy-data.md` + Browser 运行页面验证 + 页面代码 + 已锁定 `explainer-flow-dy-data.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-delivery-dy-data.md->src/frontend/page-preview/explainer-b-gap-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-b-gap-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 14,
+          "text": "| 差异文件 | `src/frontend/page-preview/explainer-b-gap-dy-data.md` | ✓ |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-delivery-dy-data.md->src/frontend/page-preview/explainer-b-interaction-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-b-interaction-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 13,
+          "text": "| 交互描述 | `src/frontend/page-preview/explainer-b-interaction-dy-data.md` | ✓ |",
+          "syntax": "backtick"
+        },
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 22,
+          "text": "| `explainer-b-interaction-dy-data.md` | 57 | 0 | 100% |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-delivery-dy-data.md->src/frontend/page-preview/explainer-flow-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 12,
+          "text": "| 用户流程图 | `src/frontend/page-preview/explainer-flow-dy-data.md` | ✓ |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-delivery-dy-data.md->src/frontend/page-preview/page-delivery-dy-data.md:links_to",
+      "from": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "to": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/page-delivery-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 11,
+          "text": "| 页面交付基线 | `src/frontend/page-preview/page-delivery-dy-data.md` | ✓ |",
+          "syntax": "backtick"
+        },
+        {
+          "path": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+          "line": 60,
+          "text": "| 2 | 交互文件中的路由与 `page-delivery-dy-data.md` 一致 | ✓ |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "src/frontend/page-preview/explainer-flow-dy-data.md->src/frontend/page-preview/explainer-delivery-dy-data.md:depends_on",
+      "from": "src/frontend/page-preview/explainer-flow-dy-data.md",
+      "to": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "src/frontend/page-preview/explainer-flow-dy-data.md",
+          "line": 7,
+          "text": "> 本文件只描述用户流程语义。产物索引、存在性校验、一致性自查统一在后续 `explainer-delivery-dy-data.md` 收束。",
+          "syntax": "backtick"
         }
       ]
     }

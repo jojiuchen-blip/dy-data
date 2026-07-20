@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：466
-- 文件关系：145
+- 文件节点：470
+- 文件关系：154
 - 诊断问题：16
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -134,10 +134,10 @@
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | README.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
 | docs/devlog/20260716_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260716_refactor_log_Keith_Chen.md:71 |
-| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | docs/devlog/20260719_refactor_log_Keith_Chen.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:26 |
-| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:26 |
-| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:26 |
-| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:80 |
+| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | docs/devlog/20260719_refactor_log_Keith_Chen.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:81 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -185,7 +185,8 @@
 | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:5 |
 | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:6 |
 | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:7 |
-| docs/plans/execution-plan.md | links_to | project-profile.md | docs/plans/execution-plan.md:40 |
+| docs/plans/execution-plan.md | links_to | project-profile.md | docs/plans/execution-plan.md:39 |
+| docs/plans/execution-plan.md | links_to | src/frontend/page-preview/page-delivery-dy-data.md | docs/plans/execution-plan.md:30 |
 | docs/rules/backend-tasks.md | links_to | docs/api-contract.md | docs/rules/backend-tasks.md:17 |
 | docs/rules/backend-tasks.md | links_to | docs/rules/database-tasks.md | docs/rules/backend-tasks.md:11 |
 | docs/rules/backend-tasks.md | links_to | docs/rules/frontend-tasks.md | docs/rules/backend-tasks.md:11 |
@@ -218,7 +219,6 @@
 | project-rules.md | links_to | docs/plans/execution-plan.md | project-rules.md:10 |
 | project-rules.md | links_to | project-profile.md | project-rules.md:12 |
 | project-rules.md | links_to | project-rules.md | project-rules.md:65 |
-| README.md | links_to | AGENTS.md | README.md:88 |
 
 ## 4. 诊断问题
 
