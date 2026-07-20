@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：341
-- 文件关系：107
-- 诊断问题：0
+- 文件节点：322
+- 文件关系：127
+- 诊断问题：2
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -16,23 +16,6 @@
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
-| page-2026-07-13T09-00-50-420Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-00-50-420Z.yml|page-2026-07-13T09-00-50-420Z.yml]] | [page-2026-07-13T09-00-50-420Z.yml](../../.playwright-cli/page-2026-07-13T09-00-50-420Z.yml) |
-| page-2026-07-13T09-07-13-098Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-07-13-098Z.yml|page-2026-07-13T09-07-13-098Z.yml]] | [page-2026-07-13T09-07-13-098Z.yml](../../.playwright-cli/page-2026-07-13T09-07-13-098Z.yml) |
-| page-2026-07-13T09-11-25-978Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-25-978Z.yml|page-2026-07-13T09-11-25-978Z.yml]] | [page-2026-07-13T09-11-25-978Z.yml](../../.playwright-cli/page-2026-07-13T09-11-25-978Z.yml) |
-| page-2026-07-13T09-11-50-842Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-50-842Z.yml|page-2026-07-13T09-11-50-842Z.yml]] | [page-2026-07-13T09-11-50-842Z.yml](../../.playwright-cli/page-2026-07-13T09-11-50-842Z.yml) |
-| page-2026-07-13T09-12-36-088Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-36-088Z.yml|page-2026-07-13T09-12-36-088Z.yml]] | [page-2026-07-13T09-12-36-088Z.yml](../../.playwright-cli/page-2026-07-13T09-12-36-088Z.yml) |
-| page-2026-07-13T09-12-48-957Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-48-957Z.yml|page-2026-07-13T09-12-48-957Z.yml]] | [page-2026-07-13T09-12-48-957Z.yml](../../.playwright-cli/page-2026-07-13T09-12-48-957Z.yml) |
-| page-2026-07-13T09-13-42-406Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-13-42-406Z.yml|page-2026-07-13T09-13-42-406Z.yml]] | [page-2026-07-13T09-13-42-406Z.yml](../../.playwright-cli/page-2026-07-13T09-13-42-406Z.yml) |
-| page-2026-07-13T09-16-46-395Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-16-46-395Z.yml|page-2026-07-13T09-16-46-395Z.yml]] | [page-2026-07-13T09-16-46-395Z.yml](../../.playwright-cli/page-2026-07-13T09-16-46-395Z.yml) |
-| page-2026-07-13T09-17-10-910Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-17-10-910Z.yml|page-2026-07-13T09-17-10-910Z.yml]] | [page-2026-07-13T09-17-10-910Z.yml](../../.playwright-cli/page-2026-07-13T09-17-10-910Z.yml) |
-| feedback-preview-pids.json | config | host-project | [[.tmp/feedback-preview-pids.json|feedback-preview-pids.json]] | [feedback-preview-pids.json](../../.tmp/feedback-preview-pids.json) |
-| package-lock.json | config | host-project | [[.tmp/playwright-run/package-lock.json|package-lock.json]] | [package-lock.json](../../.tmp/playwright-run/package-lock.json) |
-| package.json | config | host-project | [[.tmp/playwright-run/package.json|package.json]] | [package.json](../../.tmp/playwright-run/package.json) |
-| audit-uiux.mjs | source_code | coding-standards | [[.tmp/uiux-runtime/audit-uiux.mjs|audit-uiux.mjs]] | [audit-uiux.mjs](../../.tmp/uiux-runtime/audit-uiux.mjs) |
-| check-clue-split.mjs | source_code | coding-standards | [[.tmp/uiux-runtime/check-clue-split.mjs|check-clue-split.mjs]] | [check-clue-split.mjs](../../.tmp/uiux-runtime/check-clue-split.mjs) |
-| package.json | config | host-project | [[.tmp/uiux-runtime/package.json|package.json]] | [package.json](../../.tmp/uiux-runtime/package.json) |
-| axe.json | config | host-project | [[.tmp/uiux-screens/axe.json|axe.json]] | [axe.json](../../.tmp/uiux-screens/axe.json) |
-| signals.json | config | host-project | [[.tmp/uiux-screens/signals.json|signals.json]] | [signals.json](../../.tmp/uiux-screens/signals.json) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
 | env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
 | 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
@@ -70,6 +53,10 @@
 | index.html | doc | host-project | [[apps/web/index.html|index.html]] | [index.html](../../apps/web/index.html) |
 | package-lock.json | config | host-project | [[apps/web/package-lock.json|package-lock.json]] | [package-lock.json](../../apps/web/package-lock.json) |
 | package.json | config | host-project | [[apps/web/package.json|package.json]] | [package.json](../../apps/web/package.json) |
+| app.js | source_code | coding-standards | [[apps/web/public/account-activation-guide/assets/app.js|app.js]] | [app.js](../../apps/web/public/account-activation-guide/assets/app.js) |
+| print.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/print.css|print.css]] | [print.css](../../apps/web/public/account-activation-guide/assets/print.css) |
+| styles.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/styles.css|styles.css]] | [styles.css](../../apps/web/public/account-activation-guide/assets/styles.css) |
+| index.html | doc | host-project | [[apps/web/public/account-activation-guide/index.html|index.html]] | [index.html](../../apps/web/public/account-activation-guide/index.html) |
 | dy-data Web | readme | host-project | [[apps/web/README.md|dy-data Web]] | [dy-data Web](../../apps/web/README.md) |
 | client.ts | source_code | coding-standards | [[apps/web/src/api/client.ts|client.ts]] | [client.ts](../../apps/web/src/api/client.ts) |
 | App.tsx | source_code | coding-standards | [[apps/web/src/App.tsx|App.tsx]] | [App.tsx](../../apps/web/src/App.tsx) |
@@ -94,6 +81,19 @@
 | page1_store_ranking.json | config | host-project | [[apps/web/src/data/mock/page1_store_ranking.json|page1_store_ranking.json]] | [page1_store_ranking.json](../../apps/web/src/data/mock/page1_store_ranking.json) |
 | page2_commission_tables.json | config | host-project | [[apps/web/src/data/mock/page2_commission_tables.json|page2_commission_tables.json]] | [page2_commission_tables.json](../../apps/web/src/data/mock/page2_commission_tables.json) |
 | page2_store_month_summary.json | config | host-project | [[apps/web/src/data/mock/page2_store_month_summary.json|page2_store_month_summary.json]] | [page2_store_month_summary.json](../../apps/web/src/data/mock/page2_store_month_summary.json) |
+| Mock 数据副本 | readme | host-project | [[apps/web/src/data/mock/README.md|Mock 数据副本]] | [Mock 数据副本](../../apps/web/src/data/mock/README.md) |
+| sku_product_commission_rules.json | config | host-project | [[apps/web/src/data/mock/sku_product_commission_rules.json|sku_product_commission_rules.json]] | [sku_product_commission_rules.json](../../apps/web/src/data/mock/sku_product_commission_rules.json) |
+| mockData.ts | source_code | coding-standards | [[apps/web/src/data/mockData.ts|mockData.ts]] | [mockData.ts](../../apps/web/src/data/mockData.ts) |
+| design-tokens.css | doc | host-project | [[apps/web/src/design-tokens.css|design-tokens.css]] | [design-tokens.css](../../apps/web/src/design-tokens.css) |
+| useApiResource.ts | source_code | coding-standards | [[apps/web/src/hooks/useApiResource.ts|useApiResource.ts]] | [useApiResource.ts](../../apps/web/src/hooks/useApiResource.ts) |
+| main.tsx | source_code | coding-standards | [[apps/web/src/main.tsx|main.tsx]] | [main.tsx](../../apps/web/src/main.tsx) |
+| AdminAccountsPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminAccountsPage.tsx|AdminAccountsPage.tsx]] | [AdminAccountsPage.tsx](../../apps/web/src/pages/AdminAccountsPage.tsx) |
+| AdminClueAllocationPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminClueAllocationPage.tsx|AdminClueAllocationPage.tsx]] | [AdminClueAllocationPage.tsx](../../apps/web/src/pages/AdminClueAllocationPage.tsx) |
+| AdminFeedbackPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminFeedbackPage.tsx|AdminFeedbackPage.tsx]] | [AdminFeedbackPage.tsx](../../apps/web/src/pages/AdminFeedbackPage.tsx) |
+| AdminHomePage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminHomePage.tsx|AdminHomePage.tsx]] | [AdminHomePage.tsx](../../apps/web/src/pages/AdminHomePage.tsx) |
+| AdminProductTypeVisibilityPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminProductTypeVisibilityPage.tsx|AdminProductTypeVisibilityPage.tsx]] | [AdminProductTypeVisibilityPage.tsx](../../apps/web/src/pages/AdminProductTypeVisibilityPage.tsx) |
+| AdminSkuRulesPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminSkuRulesPage.tsx|AdminSkuRulesPage.tsx]] | [AdminSkuRulesPage.tsx](../../apps/web/src/pages/AdminSkuRulesPage.tsx) |
+| AdminSyncPage.tsx | source_code | coding-standards | [[apps/web/src/pages/AdminSyncPage.tsx|AdminSyncPage.tsx]] | [AdminSyncPage.tsx](../../apps/web/src/pages/AdminSyncPage.tsx) |
 
 ## 3. 关系
 
@@ -131,7 +131,7 @@
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | README.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
-| docs/devlog/20260716_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260716_refactor_log_Keith_Chen.md:69 |
+| docs/devlog/20260716_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260716_refactor_log_Keith_Chen.md:71 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -164,8 +164,23 @@
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/data-model.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:973 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/runbook.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:975 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:3 |
-| docs/plans/execution-plan.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/execution-plan.md:10 |
-| docs/plans/execution-plan.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/plans/execution-plan.md:10 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:12 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:78 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:79 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:80 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:84 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:6 |
+| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:5 |
+| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:6 |
+| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:7 |
+| docs/plans/execution-plan.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/execution-plan.md:47 |
+| docs/plans/execution-plan.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/execution-plan.md:9 |
 | docs/plans/execution-plan.md | links_to | project-profile.md | docs/plans/execution-plan.md:36 |
 | docs/rules/backend-tasks.md | links_to | docs/api-contract.md | docs/rules/backend-tasks.md:17 |
 | docs/rules/backend-tasks.md | links_to | docs/rules/database-tasks.md | docs/rules/backend-tasks.md:11 |
@@ -176,7 +191,8 @@
 | docs/rules/docs-and-plans.md | links_to | docs/plans/execution-plan.md | docs/rules/docs-and-plans.md:7 |
 | docs/rules/docs-and-plans.md | links_to | project-profile.md | docs/rules/docs-and-plans.md:6 |
 | docs/rules/frontend-tasks.md | links_to | docs/design-system/README.md | docs/rules/frontend-tasks.md:10 |
-| docs/rules/README.md | links_to | AGENTS.md | docs/rules/README.md:16 |
+| docs/rules/README.md | links_to | AGENTS.md | docs/rules/README.md:17 |
+| docs/rules/README.md | links_to | docs/rules/account-access-control.md | docs/rules/README.md:13 |
 | docs/rules/README.md | links_to | docs/rules/backend-tasks.md | docs/rules/README.md:7 |
 | docs/rules/README.md | links_to | docs/rules/database-tasks.md | docs/rules/README.md:8 |
 | docs/rules/README.md | links_to | docs/rules/debugging.md | docs/rules/README.md:10 |
@@ -192,23 +208,21 @@
 | mock/README.md | links_to | docs/api-contract.md | mock/README.md:5 |
 | mock/README.md | links_to | docs/data-model.md | mock/README.md:5 |
 | project-rules.md | links_to | AGENTS.md | project-rules.md:3 |
-| project-rules.md | links_to | docs/design-system/README.md | project-rules.md:39 |
+| project-rules.md | links_to | docs/design-system/README.md | project-rules.md:40 |
 | project-rules.md | links_to | docs/governance/authority-map.md | project-rules.md:13 |
 | project-rules.md | links_to | docs/plans/execution-plan.md | project-rules.md:10 |
+| project-rules.md | links_to | docs/rules/account-access-control.md | project-rules.md:39 |
 | project-rules.md | links_to | project-profile.md | project-rules.md:12 |
-| project-rules.md | links_to | project-rules.md | project-rules.md:65 |
-| README.md | links_to | AGENTS.md | README.md:87 |
+| project-rules.md | links_to | project-rules.md | project-rules.md:66 |
+| README.md | links_to | AGENTS.md | README.md:88 |
 | README.md | links_to | docs/项目产品介绍书.md | README.md:12 |
-| README.md | links_to | docs/api-contract.md | README.md:27 |
-| README.md | links_to | docs/architecture.md | README.md:26 |
-| README.md | links_to | docs/design-system/README.md | README.md:29 |
-| README.md | links_to | docs/governance/authority-map.md | README.md:30 |
-| README.md | links_to | docs/rules/README.md | README.md:87 |
-| README.md | links_to | docs/runbook.md | README.md:28 |
-| README.md | links_to | project-profile.md | README.md:24 |
+| README.md | links_to | docs/api-contract.md | README.md:28 |
+| README.md | links_to | docs/architecture.md | README.md:27 |
+| README.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | README.md:12 |
 
 ## 4. 诊断问题
 
 | 级别 | code | 位置 | 说明 |
 |---|---|---|---|
-| info | none | - | 未发现索引级问题 |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |

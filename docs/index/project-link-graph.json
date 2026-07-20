@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-07-16T04:57:31.812Z",
+  "generatedAt": "2026-07-20T03:02:29.645Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,25 +9,27 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 341,
-    "edges": 107,
-    "issues": 0,
-    "errors": 0,
+    "nodes": 322,
+    "edges": 127,
+    "issues": 2,
+    "errors": 2,
     "warnings": 0,
     "nodesByKind": {
-      "config": 45,
-      "source_code": 231,
-      "doc": 51,
+      "config": 20,
+      "doc": 56,
+      "source_code": 227,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 1,
       "brd_ledger": 1,
       "project_index": 2,
+      "delivery_plan": 5,
       "project_profile": 1,
       "project_rules": 1
     },
     "edgesByRelation": {
-      "links_to": 107
+      "links_to": 123,
+      "depends_on": 4
     }
   },
   "nodes": [
@@ -48,159 +50,6 @@
       "authority": true,
       "slug": null,
       "title": "tencent-lighthouse-deploy.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-00-50-420Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-00-50-420Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-07-13-098Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-07-13-098Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-11-25-978Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-11-25-978Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-11-50-842Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-11-50-842Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-12-36-088Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-12-36-088Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-12-48-957Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-12-48-957Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-13-42-406Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-13-42-406Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-16-46-395Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-16-46-395Z.yml"
-    },
-    {
-      "id": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
-      "path": ".playwright-cli/page-2026-07-13T09-17-10-910Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-13T09-17-10-910Z.yml"
-    },
-    {
-      "id": ".tmp/feedback-preview-pids.json",
-      "path": ".tmp/feedback-preview-pids.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "feedback-preview-pids.json"
-    },
-    {
-      "id": ".tmp/playwright-run/package-lock.json",
-      "path": ".tmp/playwright-run/package-lock.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "package-lock.json"
-    },
-    {
-      "id": ".tmp/playwright-run/package.json",
-      "path": ".tmp/playwright-run/package.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "package.json"
-    },
-    {
-      "id": ".tmp/uiux-runtime/audit-uiux.mjs",
-      "path": ".tmp/uiux-runtime/audit-uiux.mjs",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "audit-uiux.mjs"
-    },
-    {
-      "id": ".tmp/uiux-runtime/check-clue-split.mjs",
-      "path": ".tmp/uiux-runtime/check-clue-split.mjs",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "check-clue-split.mjs"
-    },
-    {
-      "id": ".tmp/uiux-runtime/package.json",
-      "path": ".tmp/uiux-runtime/package.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "package.json"
-    },
-    {
-      "id": ".tmp/uiux-screens/axe.json",
-      "path": ".tmp/uiux-screens/axe.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "axe.json"
-    },
-    {
-      "id": ".tmp/uiux-screens/signals.json",
-      "path": ".tmp/uiux-screens/signals.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "signals.json"
     },
     {
       "id": "AGENTS.md",
@@ -534,6 +383,42 @@
       "authority": true,
       "slug": null,
       "title": "package.json"
+    },
+    {
+      "id": "apps/web/public/account-activation-guide/assets/app.js",
+      "path": "apps/web/public/account-activation-guide/assets/app.js",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "app.js"
+    },
+    {
+      "id": "apps/web/public/account-activation-guide/assets/print.css",
+      "path": "apps/web/public/account-activation-guide/assets/print.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "print.css"
+    },
+    {
+      "id": "apps/web/public/account-activation-guide/assets/styles.css",
+      "path": "apps/web/public/account-activation-guide/assets/styles.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "styles.css"
+    },
+    {
+      "id": "apps/web/public/account-activation-guide/index.html",
+      "path": "apps/web/public/account-activation-guide/index.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "index.html"
     },
     {
       "id": "apps/web/README.md",
@@ -1409,6 +1294,15 @@
       "title": "ledger-state-dy-data.json"
     },
     {
+      "id": "docs/commission-dashboard-navigation-mock.html",
+      "path": "docs/commission-dashboard-navigation-mock.html",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "commission-dashboard-navigation-mock.html"
+    },
+    {
       "id": "docs/data-model.md",
       "path": "docs/data-model.md",
       "kind": "doc",
@@ -1580,6 +1474,60 @@
       "title": "线索分配引擎 M2/M3 控制规格"
     },
     {
+      "id": "docs/plans/2026-07-15-dydata-23-store-dashboard-controller-spec.md",
+      "path": "docs/plans/2026-07-15-dydata-23-store-dashboard-controller-spec.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-23 门店结算看板视觉规范 Controller Spec"
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-22-dual-id-activation",
+      "title": "DYDATA-22 双 ID 账号激活主开发计划"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-22-dual-id-activation",
+      "title": "T1.1 双 ID 激活前端交互与指南入口"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-22-dual-id-activation",
+      "title": "T1.2 双 ID 同记录后端核验"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-22-dual-id-activation",
+      "title": "T1.3 联调、独立指南与真实截图"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "path": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-22-dual-id-activation",
+      "title": "DYDATA-22 双 ID 账号激活任务看板"
+    },
+    {
       "id": "docs/plans/execution-plan.md",
       "path": "docs/plans/execution-plan.md",
       "kind": "doc",
@@ -1587,6 +1535,24 @@
       "authority": false,
       "slug": null,
       "title": "当前执行计划"
+    },
+    {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-dydata-22-dual-id-activation.md",
+      "path": "docs/plans/foundation-plans/foundation-change-requests-dydata-22-dual-id-activation.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-22 Foundation Change Requests"
+    },
+    {
+      "id": "docs/rules/account-access-control.md",
+      "path": "docs/rules/account-access-control.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "账号、页面权限与门店范围规则"
     },
     {
       "id": "docs/rules/backend-tasks.md",
@@ -1769,6 +1735,15 @@
       "title": "dy-data V0.2 三级导航设计"
     },
     {
+      "id": "docs/superpowers/specs/2026-07-15-dydata-23-store-dashboard-visual-design.md",
+      "path": "docs/superpowers/specs/2026-07-15-dydata-23-store-dashboard-visual-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-23 门店结算看板视觉规范"
+    },
+    {
       "id": "docs/tencent-edgeone-migration.md",
       "path": "docs/tencent-edgeone-migration.md",
       "kind": "doc",
@@ -1785,114 +1760,6 @@
       "authority": false,
       "slug": null,
       "title": "Tencent Lighthouse CI/CD"
-    },
-    {
-      "id": "local_exports/_scratch/import_july_m3_integration.py",
-      "path": "local_exports/_scratch/import_july_m3_integration.py",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "import_july_m3_integration.py"
-    },
-    {
-      "id": "local_exports/_scratch/store_locations_inspect.mjs",
-      "path": "local_exports/_scratch/store_locations_inspect.mjs",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "store_locations_inspect.mjs"
-    },
-    {
-      "id": "local_exports/_scratch/store_locations_verify.py",
-      "path": "local_exports/_scratch/store_locations_verify.py",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "store_locations_verify.py"
-    },
-    {
-      "id": "local_exports/clues/2026/summary.json",
-      "path": "local_exports/clues/2026/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "local_exports/clues/incremental_20260616_20260625/summary.json",
-      "path": "local_exports/clues/incremental_20260616_20260625/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
-      "path": "local_exports/clues/last_30_days_20260525_20260625/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "local_exports/clues/probe-day/summary.json",
-      "path": "local_exports/clues/probe-day/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "local_exports/clues/probe/summary.json",
-      "path": "local_exports/clues/probe/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "local_exports/jcyc-commission-analysis-single.html",
-      "path": "local_exports/jcyc-commission-analysis-single.html",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": null,
-      "title": "jcyc-commission-analysis-single.html"
-    },
-    {
-      "id": "local_exports/jcyc-commission-analysis/index.html",
-      "path": "local_exports/jcyc-commission-analysis/index.html",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": null,
-      "title": "index.html"
-    },
-    {
-      "id": "local_exports/jcyc-commission-analysis/last_snapshot.json",
-      "path": "local_exports/jcyc-commission-analysis/last_snapshot.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "last_snapshot.json"
-    },
-    {
-      "id": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
-      "path": "local_exports/jcyc-commission-analysis/refresh_dashboard.py",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "refresh_dashboard.py"
     },
     {
       "id": "mock/page1_store_ranking.json",
@@ -1938,51 +1805,6 @@
       "authority": true,
       "slug": null,
       "title": "sku_product_commission_rules.json"
-    },
-    {
-      "id": "output/brand-orange-preview.html",
-      "path": "output/brand-orange-preview.html",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": null,
-      "title": "brand-orange-preview.html"
-    },
-    {
-      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
-      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-26-05-643Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-10T02-26-05-643Z.yml"
-    },
-    {
-      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
-      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-27-30-271Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-10T02-27-30-271Z.yml"
-    },
-    {
-      "id": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
-      "path": "output/playwright/.playwright-cli/page-2026-07-10T02-44-38-580Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-10T02-44-38-580Z.yml"
-    },
-    {
-      "id": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
-      "path": "output/playwright/.playwright-cli/page-2026-07-10T03-03-20-624Z.yml",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "page-2026-07-10T03-03-20-624Z.yml"
     },
     {
       "id": "project-profile.md",
@@ -2811,6 +2633,15 @@
       "authority": true,
       "slug": null,
       "title": "test_clue_rule_versions.py"
+    },
+    {
+      "id": "tests/test_commission_dashboard_navigation_mock.py",
+      "path": "tests/test_commission_dashboard_navigation_mock.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_commission_dashboard_navigation_mock.py"
     },
     {
       "id": "tests/test_data_schema.py",
@@ -3669,7 +3500,7 @@
       "evidence": [
         {
           "path": "docs/devlog/20260716_refactor_log_Keith_Chen.md",
-          "line": 69,
+          "line": 71,
           "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
           "syntax": "backtick"
         }
@@ -4262,6 +4093,319 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md->docs/brd/BRD-dy-data-20260716-1255.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 12,
+          "text": "> **上游发现结论**：`collect-upstream-context.mjs` 于 2026-07-16 扫描失败，原因是 `docs/prd/` 不存在；本计划按 Linear `DYDATA-22`、`docs/brd/BRD-dy-data-20260716-1255.md` 和已确认的静态指南实现作为权威输入，不补造 PRD 事实",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 24,
+          "text": "- 需求口径以 Linear `DYDATA-22`、`docs/brd/BRD-dy-data-20260716-1255.md` 和 `../account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 78,
+          "text": "| T1.1 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md) | 已完成（2026-07-16） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 116,
+          "text": "| Linear `DYDATA-22`：激活表单与指南入口 | DYDATA-22-FE | T1.1 | [T1.1 前端计划](sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 79,
+          "text": "| T1.2 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md) | 已完成（2026-07-16） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 117,
+          "text": "| Linear `DYDATA-22`：双 ID 同记录核验 | DYDATA-22-BE | T1.2 | [T1.2 后端计划](sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 80,
+          "text": "| T1.3 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md) | 已完成（2026-07-16） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 118,
+          "text": "| Linear `DYDATA-22`：独立指南发布与真实截图 | DYDATA-22-GUIDE | T1.3 | [T1.3 联调与指南计划](sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+          "line": 84,
+          "text": "- 看板入口：[task-kanban-dydata-22-dual-id-activation.md](task-kanban-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md->docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "to": null,
+      "target": "docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "relation": "depends_on",
+      "status": "missing",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+          "line": 14,
+          "text": "- `../account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md`",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md->docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-22-dual-id-activation.md](main-delivery-plan-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md->docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-22-dual-id-activation.md](task-kanban-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md->docs/brd/BRD-dy-data-20260716-1255.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+          "line": 14,
+          "text": "- `docs/brd/BRD-dy-data-20260716-1255.md` 的账号与门店权限背景",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md->docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-22-dual-id-activation.md](main-delivery-plan-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md->docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-22-dual-id-activation.md](task-kanban-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md->docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "to": null,
+      "target": "docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "relation": "depends_on",
+      "status": "missing",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+          "line": 15,
+          "text": "- `../account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md`",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md->docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-22-dual-id-activation.md](main-delivery-plan-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md->docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-22-dual-id-activation.md](task-kanban-dydata-22-dual-id-activation.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+          "line": 5,
+          "text": "| T1.1 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md) | AI 执行 -> 人审核 | 无 | 已完成（2026-07-16） | 2026-07-16 | 4 项前端契约测试通过，TypeScript/Vite 构建通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+          "line": 6,
+          "text": "| T1.2 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md) | AI 执行 -> 人审核 | T1.1 | 已完成（2026-07-16） | 2026-07-16 | 14 项认证目标测试和 24 项账号回归通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
+          "line": 7,
+          "text": "| T1.3 | [sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md](sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md) | AI 执行 -> 人审核 | T1.1、T1.2 | 已完成（2026-07-16） | 2026-07-16 | 4 页 PDF、桌面/390px 移动验收、25 项账号回归、17 项指南测试和 Web build 通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/execution-plan.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
       "from": "docs/plans/execution-plan.md",
       "to": "docs/brd/BRD-dy-data-20260716-1255.md",
@@ -4272,12 +4416,6 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 10,
-          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
-          "syntax": "backtick"
-        },
-        {
-          "path": "docs/plans/execution-plan.md",
           "line": 47,
           "text": "- BRD 台账：`dy-data`，运营型，状态 `DONE`，15 个适用字段已全部锁定、冲突 0；四项前提挑战和七项质量门均已通过，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
           "syntax": "backtick"
@@ -4285,18 +4423,18 @@
       ]
     },
     {
-      "id": "docs/plans/execution-plan.md->docs/brd/brd-ledger-dy-data.md:links_to",
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:links_to",
       "from": "docs/plans/execution-plan.md",
-      "to": "docs/brd/brd-ledger-dy-data.md",
-      "target": "docs/brd/brd-ledger-dy-data.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 10,
-          "text": "- 当前子开发计划：brd-writer `DONE`；`docs/brd/ledger-state-dy-data.json` 为决策状态权威源，`docs/brd/brd-ledger-dy-data.md` 为只读展示层，正式 BRD 为 `docs/brd/BRD-dy-data-20260716-1255.md`。",
+          "line": 9,
+          "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md` 及其 T1.1-T1.3 子计划。",
           "syntax": "backtick"
         }
       ]
@@ -4488,8 +4626,25 @@
       "evidence": [
         {
           "path": "docs/rules/README.md",
-          "line": 16,
+          "line": 17,
           "text": "1. 按 `AGENTS.md` 完成 turn gate、套包锁和阶段路由。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/rules/README.md->docs/rules/account-access-control.md:links_to",
+      "from": "docs/rules/README.md",
+      "to": "docs/rules/account-access-control.md",
+      "target": "docs/rules/account-access-control.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/rules/README.md",
+          "line": 13,
+          "text": "- `account-access-control.md`：三类账号、页面权限、门店范围、门店激活兼容和权限变更记录。",
           "syntax": "backtick"
         }
       ]
@@ -4755,13 +4910,13 @@
         },
         {
           "path": "project-rules.md",
-          "line": 57,
+          "line": 58,
           "text": "- 项目任务必须先读取 `AGENTS.md`，并按安装态 `ai-project-manager` 路由。",
           "syntax": "backtick"
         },
         {
           "path": "project-rules.md",
-          "line": 65,
+          "line": 66,
           "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
           "syntax": "backtick"
         }
@@ -4778,7 +4933,7 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 39,
+          "line": 40,
           "text": "- 视觉系统以 `docs/design-system/tokens.json` 和 `docs/design-system/README.md` 为权威入口。",
           "syntax": "backtick"
         }
@@ -4818,8 +4973,25 @@
         },
         {
           "path": "project-rules.md",
-          "line": 61,
+          "line": 62,
           "text": "- 不把 Linear Backlog 复制到 `execution-plan.md`，不把临时 issue 状态固化为长期项目规则。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "project-rules.md->docs/rules/account-access-control.md:links_to",
+      "from": "project-rules.md",
+      "to": "docs/rules/account-access-control.md",
+      "target": "docs/rules/account-access-control.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-rules.md",
+          "line": 39,
+          "text": "- 账号角色、页面权限、门店范围、门店激活兼容和权限变更记录以 `docs/rules/account-access-control.md` 为长期规则入口。",
           "syntax": "backtick"
         }
       ]
@@ -4852,7 +5024,7 @@
       "evidence": [
         {
           "path": "project-rules.md",
-          "line": 65,
+          "line": 66,
           "text": "- 规则冲突优先级：`AGENTS.md` → Linear 生命周期事实 → `project-rules.md` → `docs/rules/` → 任务相关资料。",
           "syntax": "backtick"
         }
@@ -4869,7 +5041,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 87,
+          "line": 88,
           "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
           "syntax": "markdown"
         }
@@ -4887,13 +5059,13 @@
         {
           "path": "README.md",
           "line": 12,
-          "text": "系统输出经营与分账参考，不执行真实资金划拨。业务边界以 [项目产品介绍书](docs/项目产品介绍书.md) 为准。",
+          "text": "系统输出经营与分账参考，不执行真实资金划拨。产品总览以 [项目产品介绍书](docs/项目产品介绍书.md) 为准；项目级业务目标、角色、范围、成功标准和风险边界以 [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md) 为准。",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
           "line": 25,
-          "text": "- [项目产品介绍书](docs/项目产品介绍书.md)：当前产品定义和业务边界。",
+          "text": "- [项目产品介绍书](docs/项目产品介绍书.md)：当前产品总览与四个业务域导航。",
           "syntax": "markdown"
         }
       ]
@@ -4909,7 +5081,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 27,
+          "line": 28,
           "text": "- [API 契约](docs/api-contract.md)：认证、响应包络和接口分组。",
           "syntax": "markdown"
         }
@@ -4926,8 +5098,31 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 26,
+          "line": 27,
           "text": "- [系统架构](docs/architecture.md)：当前代码结构、服务边界和数据链路。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "README.md->docs/brd/BRD-dy-data-20260716-1255.md:links_to",
+      "from": "README.md",
+      "to": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "target": "docs/brd/BRD-dy-data-20260716-1255.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "README.md",
+          "line": 12,
+          "text": "系统输出经营与分账参考，不执行真实资金划拨。产品总览以 [项目产品介绍书](docs/项目产品介绍书.md) 为准；项目级业务目标、角色、范围、成功标准和风险边界以 [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md) 为准。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "README.md",
+          "line": 26,
+          "text": "- [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md)：项目级业务目标、角色、痛点、范围、成功标准、风险与下游边界。",
           "syntax": "markdown"
         }
       ]
@@ -4943,7 +5138,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 29,
+          "line": 30,
           "text": "- [视觉系统](docs/design-system/README.md)：设计令牌、组件和页面视觉规范。",
           "syntax": "markdown"
         }
@@ -4960,7 +5155,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 30,
+          "line": 31,
           "text": "- [文档权威映射](docs/governance/authority-map.md)：现有文档的 authority、evidence、legacy 和 stale 角色。",
           "syntax": "markdown"
         }
@@ -4977,7 +5172,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 87,
+          "line": 88,
           "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
           "syntax": "markdown"
         }
@@ -4994,13 +5189,13 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 28,
+          "line": 29,
           "text": "- [运行手册](docs/runbook.md)：生产部署、迁移、运维和恢复。",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 83,
+          "line": 84,
           "text": "完整迁移、健康检查、备份和恢复步骤见 [运行手册](docs/runbook.md)。",
           "syntax": "markdown"
         }
@@ -5024,7 +5219,34 @@
       ]
     }
   ],
-  "issues": [],
+  "issues": [
+    {
+      "severity": "error",
+      "code": "broken_link",
+      "message": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+      "target": "docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "evidence": {
+        "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
+        "line": 14,
+        "text": "- `../account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md`",
+        "syntax": "prd_double_link"
+      }
+    },
+    {
+      "severity": "error",
+      "code": "broken_link",
+      "message": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+      "target": "docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md",
+      "evidence": {
+        "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md",
+        "line": 15,
+        "text": "- `../account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md`",
+        "syntax": "prd_double_link"
+      }
+    }
+  ],
   "wikiSchema": {
     "schemaVersion": "1.0.0",
     "principle": "project-link-indexer compiles a rebuildable LLM wiki style file graph from existing host artifacts; source artifacts remain authoritative.",
