@@ -9,6 +9,7 @@ import {
 import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
 import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
 import { AdminAccountsPage } from "./pages/AdminAccountsPage";
+import { AdminAccountsDydata32PreviewPage } from "./pages/AdminAccountsDydata32PreviewPage";
 import { AuthPage, type AuthMode } from "./pages/AuthPage";
 import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
@@ -191,7 +192,11 @@ export function App() {
           location.pathname === "/admin" ? (
             <AdminHomePage />
           ) : location.pathname === "/admin/accounts" ? (
-            <AdminAccountsPage />
+            searchParams.get("preview") === "dydata32" ? (
+              <AdminAccountsDydata32PreviewPage />
+            ) : (
+              <AdminAccountsPage />
+            )
           ) : location.pathname === "/rule-admin" ||
             location.pathname === "/admin/rules" ? (
             <AdminSkuRulesPage />
