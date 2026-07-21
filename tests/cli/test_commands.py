@@ -12,6 +12,7 @@ from dydata_cli.parser import parse_args
 
 
 NOW = datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc)
+CANONICAL_REQUEST_ID = "req_" + "a" * 32
 
 
 class FakeCredentialStore:
@@ -71,7 +72,7 @@ def success_envelope(command: str, data: dict[str, Any]) -> dict[str, Any]:
         "command": command,
         "schema_version": "1.0",
         "data": data,
-        "meta": {"request_id": "req-server", "partial": False},
+        "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
     }
 
 
@@ -128,7 +129,7 @@ def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[st
     }
     payload["meta"] = {
         "partial": False,
-        "request_id": "req-server",
+        "request_id": CANONICAL_REQUEST_ID,
         "generated_at": "2026-07-21T12:00:00Z",
         "data_as_of": "2026-07-21T12:00:00Z",
         "source": "postgres",

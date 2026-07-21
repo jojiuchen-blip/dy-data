@@ -9,13 +9,16 @@ import pytest
 from dydata_cli.client import CliError, DyDataClient
 
 
+CANONICAL_REQUEST_ID = "req_" + "a" * 32
+
+
 def envelope(command: str, data: dict[str, object]) -> dict[str, object]:
     return {
         "ok": True,
         "command": command,
         "schema_version": "1.0",
         "data": data,
-        "meta": {"request_id": "req-server", "partial": False},
+        "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
     }
 
 
@@ -54,7 +57,7 @@ def follow_up_envelope() -> dict[str, object]:
         "timezone": "Asia/Shanghai",
     }
     payload["meta"] = {
-        "request_id": "req-server",
+        "request_id": CANONICAL_REQUEST_ID,
         "partial": False,
         "generated_at": "2026-07-21T12:00:00Z",
         "data_as_of": "2026-07-21T12:00:00Z",
@@ -88,10 +91,12 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
+        payload = stores_envelope()
+        payload["meta"]["request_id"] = request.headers["X-Request-ID"]
         return httpx.Response(
             200,
-            json=stores_envelope(),
-            headers={"X-Request-ID": "req-server"},
+            json=payload,
+            headers={"X-Request-ID": request.headers["X-Request-ID"]},
         )
 
     monkeypatch.setenv("DYDATA_API_URL", "https://api.example.test/api/v1///")
@@ -114,9 +119,11 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         captured.append(request)
+        payload = follow_up_envelope()
+        payload["meta"]["request_id"] = request.headers["X-Request-ID"]
         return httpx.Response(
             200,
-            json=follow_up_envelope(),
+            json=payload,
         )
 
     client = DyDataClient(
@@ -239,22 +246,28 @@ def test_network_timeouts_are_retried_then_mapped_without_token_leakage() -> Non
 def test_remote_error_preserves_safe_request_id_and_retryability(
     code: str, retryable: bool
 ) -> None:
-    response = httpx.Response(
-        503 if retryable else 403,
-        json={
-            "ok": False,
-            "command": "stores.list",
-            "schema_version": "1.0",
-            "error": {
-                "code": code,
-                "message": "unsafe access-secret",
-                "retryable": retryable,
-                "request_id": "req-remote",
+    echoed_request_id = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal echoed_request_id
+        echoed_request_id = request.headers["X-Request-ID"]
+        return httpx.Response(
+            503 if retryable else 403,
+            json={
+                "ok": False,
+                "command": "stores.list",
+                "schema_version": "1.0",
+                "error": {
+                    "code": code,
+                    "message": "unsafe access-secret",
+                    "retryable": retryable,
+                    "request_id": echoed_request_id,
+                },
             },
-        },
-    )
+        )
+
     client = DyDataClient(
-        transport=httpx.MockTransport(lambda _: response),
+        transport=httpx.MockTransport(handler),
         max_attempts=1,
     )
 
@@ -263,8 +276,32 @@ def test_remote_error_preserves_safe_request_id_and_retryability(
 
     assert raised.value.code == code
     assert raised.value.retryable is retryable
-    assert raised.value.request_id == "req-remote"
+    assert raised.value.request_id == echoed_request_id
     assert "access-secret" not in str(raised.value)
+
+
+def test_retries_use_one_stable_logical_request_id_and_require_its_echo() -> None:
+    request_ids: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        request_id = request.headers["X-Request-ID"]
+        request_ids.append(request_id)
+        if len(request_ids) == 1:
+            return httpx.Response(503, json={})
+        payload = stores_envelope()
+        payload["meta"]["request_id"] = request_id
+        return httpx.Response(200, json=payload)
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler),
+        max_attempts=2,
+        sleep=lambda _: None,
+    )
+
+    result = client.list_stores("access-secret")
+
+    assert result["meta"]["request_id"] == request_ids[0]
+    assert request_ids == [request_ids[0], request_ids[0]]
 
 
 @pytest.mark.parametrize(

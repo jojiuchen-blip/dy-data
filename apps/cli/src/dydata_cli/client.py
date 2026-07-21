@@ -162,10 +162,13 @@ class DyDataClient:
         access_token: str | None = None,
         json_body: dict[str, str] | None = None,
         params: list[tuple[str, str]] | None = None,
-        validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        validator: Callable[
+            [dict[str, Any], str | None], dict[str, Any]
+        ] | None = None,
         allow_pending: bool = False,
         allow_empty: bool = False,
     ) -> dict[str, Any]:
+        # One logical call keeps one correlation ID across every retry attempt.
         request_id = f"req_{uuid4().hex}"
         headers = {
             "X-DyData-CLI-Version": CLI_VERSION,
@@ -207,7 +210,7 @@ class DyDataClient:
             payload = self._json_object(response, request_id=request_id)
             if validator is not None:
                 try:
-                    return validator(payload)
+                    return validator(payload, request_id)
                 except ContractError:
                     raise CliError(
                         "SCHEMA_MISMATCH", request_id=request_id
@@ -238,7 +241,7 @@ class DyDataClient:
     def _response_error(
         response: httpx.Response, *, fallback_request_id: str
     ) -> CliError:
-        request_id = response.headers.get("X-Request-ID") or fallback_request_id
+        request_id = fallback_request_id
         server_code: str | None = None
         retryable: bool | None = None
         try:
@@ -252,7 +255,7 @@ class DyDataClient:
                 if isinstance(candidate, str) and candidate in _ERROR_MESSAGES:
                     server_code = candidate
                 candidate_request_id = error.get("request_id")
-                if isinstance(candidate_request_id, str) and candidate_request_id:
+                if candidate_request_id == fallback_request_id:
                     request_id = candidate_request_id
                 candidate_retryable = error.get("retryable")
                 if isinstance(candidate_retryable, bool):

@@ -7,6 +7,7 @@ from datetime import date, datetime
 from typing import Any
 
 from .constants import CLI_SCHEMA_VERSION
+from .errors import is_canonical_request_id
 
 
 _COUNT_FIELDS = {
@@ -25,7 +26,9 @@ class ContractError(ValueError):
     """A protected response does not match its approved success contract."""
 
 
-def validate_auth_status(payload: dict[str, Any]) -> dict[str, Any]:
+def validate_auth_status(
+    payload: dict[str, Any], expected_request_id: str | None = None
+) -> dict[str, Any]:
     """Validate and rebuild an auth-status success envelope."""
     _require_envelope(payload, command="auth.status", extra_fields={"data", "meta"})
     data = _require_mapping(payload["data"])
@@ -46,7 +49,7 @@ def validate_auth_status(payload: dict[str, Any]) -> dict[str, Any]:
         raise ContractError("authenticated must be true")
     user_id = _require_optional_identifier(data["user_id"])
     expires_at = _require_datetime_text(data["expires_at"])
-    meta = _validate_basic_meta(payload["meta"])
+    meta = _validate_basic_meta(payload["meta"], expected_request_id)
     return {
         "ok": True,
         "command": "auth.status",
@@ -65,7 +68,9 @@ def validate_auth_status(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def validate_stores(payload: dict[str, Any]) -> dict[str, Any]:
+def validate_stores(
+    payload: dict[str, Any], expected_request_id: str | None = None
+) -> dict[str, Any]:
     """Validate and rebuild a store-list success envelope."""
     _require_envelope(
         payload,
@@ -98,11 +103,13 @@ def validate_stores(payload: dict[str, Any]) -> dict[str, Any]:
             ),
         },
         "data": {"stores": stores},
-        "meta": _validate_basic_meta(payload["meta"]),
+        "meta": _validate_basic_meta(payload["meta"], expected_request_id),
     }
 
 
-def validate_follow_up_stats(payload: dict[str, Any]) -> dict[str, Any]:
+def validate_follow_up_stats(
+    payload: dict[str, Any], expected_request_id: str | None = None
+) -> dict[str, Any]:
     """Validate and rebuild a clue follow-up aggregate success envelope."""
     _require_envelope(
         payload,
@@ -148,6 +155,7 @@ def validate_follow_up_stats(payload: dict[str, Any]) -> dict[str, Any]:
     )
     if meta["partial"] is not False:
         raise ContractError("partial responses are forbidden")
+    request_id = _require_request_id(meta["request_id"], expected_request_id)
     return {
         "ok": True,
         "command": "clues.follow-up-stats",
@@ -173,7 +181,7 @@ def validate_follow_up_stats(payload: dict[str, Any]) -> dict[str, Any]:
         },
         "meta": {
             "partial": False,
-            "request_id": _require_identifier(meta["request_id"]),
+            "request_id": request_id,
             "generated_at": _require_datetime_text(meta["generated_at"]),
             "data_as_of": _require_datetime_text(meta["data_as_of"]),
             "source": _require_identifier(meta["source"]),
@@ -196,15 +204,26 @@ def _require_envelope(
         raise ContractError("success envelope is incompatible")
 
 
-def _validate_basic_meta(value: Any) -> dict[str, Any]:
+def _validate_basic_meta(
+    value: Any, expected_request_id: str | None
+) -> dict[str, Any]:
     meta = _require_mapping(value)
     _require_exact_keys(meta, {"partial", "request_id"})
     if meta["partial"] is not False:
         raise ContractError("partial responses are forbidden")
     return {
         "partial": False,
-        "request_id": _require_identifier(meta["request_id"]),
+        "request_id": _require_request_id(meta["request_id"], expected_request_id),
     }
+
+
+def _require_request_id(value: Any, expected_request_id: str | None) -> str:
+    request_id = _require_identifier(value)
+    if not is_canonical_request_id(request_id):
+        raise ContractError("request_id is not canonical")
+    if expected_request_id is not None and request_id != expected_request_id:
+        raise ContractError("request_id does not match the request")
+    return request_id
 
 
 def _validate_metrics(value: dict[str, Any]) -> dict[str, int | float]:

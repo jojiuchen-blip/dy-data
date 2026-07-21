@@ -7,12 +7,18 @@ from uuid import uuid4
 
 
 RETRYABLE_ERROR_CODES = {"API_UNAVAILABLE", "RATE_LIMITED"}
-_SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
+_CANONICAL_REQUEST_ID = re.compile(r"^req_[0-9a-f]{32}$")
+
+
+def is_canonical_request_id(value: object) -> bool:
+    """Return whether a value has the one permitted local correlation-ID shape."""
+    return isinstance(value, str) and _CANONICAL_REQUEST_ID.fullmatch(value) is not None
 
 
 def safe_request_id(value: str | None = None) -> str:
-    """Preserve a bounded safe ID or create a fresh local correlation ID."""
-    if isinstance(value, str) and _SAFE_REQUEST_ID.fullmatch(value):
+    """Preserve a canonical ID or create a fresh local correlation ID."""
+    if is_canonical_request_id(value):
+        assert isinstance(value, str)
         return value
     return f"req_{uuid4().hex}"
 

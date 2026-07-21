@@ -24,7 +24,7 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
         "INVALID_ARGUMENT",
         "Date range is invalid",
         retryable=False,
-        request_id="req-local",
+        request_id="req_" + "a" * 32,
         stream=stream,
     )
 
@@ -35,7 +35,7 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
             "code": "INVALID_ARGUMENT",
             "message": "Date range is invalid",
             "retryable": False,
-            "request_id": "req-local",
+            "request_id": "req_" + "a" * 32,
         },
         "ok": False,
         "schema_version": "1.0",
@@ -67,6 +67,25 @@ def test_local_error_generates_a_safe_request_id_and_retryability() -> None:
     assert error["retryable"] is True
     assert error["request_id"].startswith("req_")
     assert len(error["request_id"]) == 36
+
+
+def test_noncanonical_request_id_is_replaced_without_echoing_it() -> None:
+    stream = io.StringIO()
+
+    emit_error(
+        "stores.list",
+        "SCOPE_DENIED",
+        "safe",
+        request_id="refresh-token-like-secret",
+        stream=stream,
+    )
+
+    output = stream.getvalue()
+    error = json.loads(output)["error"]
+    assert error["request_id"].startswith("req_")
+    assert len(error["request_id"]) == 36
+    assert set(error["request_id"][4:]) <= set("0123456789abcdef")
+    assert "refresh-token-like-secret" not in output
 
 
 def test_aggregate_table_has_only_the_approved_summary_columns() -> None:

@@ -15,6 +15,7 @@ from dydata_cli.parser import parse_args
 
 
 NOW = datetime(2026, 7, 21, 12, 0, tzinfo=timezone.utc)
+CANONICAL_REQUEST_ID = "req_" + "a" * 32
 
 
 class FakeCredentialStore:
@@ -50,7 +51,7 @@ def auth_status_envelope() -> dict[str, Any]:
             "store_ids": ["store-a", "store-b"],
             "expires_at": "2026-07-21T12:30:00+00:00",
         },
-        "meta": {"partial": False, "request_id": "req-server"},
+        "meta": {"partial": False, "request_id": CANONICAL_REQUEST_ID},
     }
 
 
@@ -69,7 +70,7 @@ def stores_envelope() -> dict[str, Any]:
                 {"store_id": "store-b", "store_name": "Beta"},
             ]
         },
-        "meta": {"partial": False, "request_id": "req-server"},
+        "meta": {"partial": False, "request_id": CANONICAL_REQUEST_ID},
     }
 
 
@@ -107,7 +108,7 @@ def follow_up_envelope() -> dict[str, Any]:
         },
         "meta": {
             "partial": False,
-            "request_id": "req-server",
+            "request_id": CANONICAL_REQUEST_ID,
             "generated_at": "2026-07-21T12:00:00+00:00",
             "data_as_of": "2026-07-21T12:00:00+00:00",
             "source": "postgres",
@@ -118,14 +119,16 @@ def follow_up_envelope() -> dict[str, Any]:
 def execute_http_response(
     argv: list[str], payload: dict[str, Any]
 ) -> tuple[int, str]:
-    client = DyDataClient(
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(
-                200,
-                json=payload,
-                headers={"X-Request-ID": "req-server"},
-            )
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload["meta"]["request_id"] = request.headers["X-Request-ID"]
+        return httpx.Response(
+            200,
+            json=payload,
+            headers={"X-Request-ID": request.headers["X-Request-ID"]},
         )
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler)
     )
     stream = StringIO()
     exit_code = execute_command(
@@ -136,6 +139,42 @@ def execute_http_response(
         stream=stream,
     )
     return exit_code, stream.getvalue()
+
+
+def execute_request_id_response(
+    argv: list[str],
+    payload: dict[str, Any],
+    *,
+    response_request_id: str | None,
+    status_code: int = 200,
+) -> tuple[int, str, str]:
+    sent_request_id = ""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal sent_request_id
+        sent_request_id = request.headers["X-Request-ID"]
+        response_payload = deepcopy(payload)
+        if status_code >= 400:
+            error = response_payload["error"]
+            error["request_id"] = response_request_id or sent_request_id
+        else:
+            meta = response_payload["meta"]
+            meta["request_id"] = response_request_id or sent_request_id
+        return httpx.Response(status_code, json=response_payload)
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler),
+        max_attempts=1,
+    )
+    stream = StringIO()
+    exit_code = execute_command(
+        parse_args(argv, today=NOW.date()),
+        credential_store=FakeCredentialStore(),
+        client=client,
+        now=lambda: NOW,
+        stream=stream,
+    )
+    return exit_code, stream.getvalue(), sent_request_id
 
 
 @pytest.mark.parametrize(
@@ -210,3 +249,125 @@ def test_invalid_success_contract_is_rejected_without_sensitive_output(
     assert exit_code == 6
     assert document["error"]["code"] == "SCHEMA_MISMATCH"
     assert marker not in stdout
+
+
+@pytest.mark.parametrize(
+    ("argv", "payload_factory"),
+    [
+        (["auth", "status", "--json"], auth_status_envelope),
+        (["stores", "list", "--json"], stores_envelope),
+        (["clues", "follow-up-stats"], follow_up_envelope),
+    ],
+)
+@pytest.mark.parametrize(
+    "remote_request_id",
+    ["refresh-token-like-secret", "req_" + "b" * 32],
+)
+def test_success_request_id_must_exactly_echo_the_sent_id(
+    argv: list[str],
+    payload_factory: Callable[[], dict[str, Any]],
+    remote_request_id: str,
+) -> None:
+    exit_code, stdout, sent_request_id = execute_request_id_response(
+        argv,
+        payload_factory(),
+        response_request_id=remote_request_id,
+    )
+
+    document = __import__("json").loads(stdout)
+    assert exit_code == 6
+    assert document["error"]["code"] == "SCHEMA_MISMATCH"
+    assert document["error"]["request_id"] == sent_request_id
+    assert remote_request_id not in stdout
+
+
+@pytest.mark.parametrize(
+    ("argv", "payload_factory"),
+    [
+        (["auth", "status", "--json"], auth_status_envelope),
+        (["stores", "list", "--json"], stores_envelope),
+        (["clues", "follow-up-stats"], follow_up_envelope),
+    ],
+)
+def test_success_request_id_accepts_the_exact_echo(
+    argv: list[str], payload_factory: Callable[[], dict[str, Any]]
+) -> None:
+    exit_code, stdout, sent_request_id = execute_request_id_response(
+        argv,
+        payload_factory(),
+        response_request_id=None,
+    )
+
+    assert exit_code == 0
+    assert __import__("json").loads(stdout)["meta"]["request_id"] == sent_request_id
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable", "status_code", "remote_request_id", "expected_exit"),
+    [
+        ("API_UNAVAILABLE", True, 503, "refresh-token-like-secret", 5),
+        ("SCOPE_DENIED", False, 403, "req_" + "b" * 32, 4),
+    ],
+)
+def test_remote_error_request_id_mismatch_uses_the_sent_local_id(
+    code: str,
+    retryable: bool,
+    status_code: int,
+    remote_request_id: str,
+    expected_exit: int,
+) -> None:
+    payload = {
+        "ok": False,
+        "command": "stores.list",
+        "schema_version": "1.0",
+        "error": {
+            "code": code,
+            "message": "unsafe remote message",
+            "retryable": retryable,
+            "request_id": remote_request_id,
+        },
+    }
+
+    exit_code, stdout, sent_request_id = execute_request_id_response(
+        ["stores", "list", "--json"],
+        payload,
+        response_request_id=remote_request_id,
+        status_code=status_code,
+    )
+
+    error = __import__("json").loads(stdout)["error"]
+    assert exit_code == expected_exit
+    assert error == {
+        "code": code,
+        "message": {
+            "API_UNAVAILABLE": "The dydata API is unavailable.",
+            "SCOPE_DENIED": "The requested scope is not permitted.",
+        }[code],
+        "retryable": retryable,
+        "request_id": sent_request_id,
+    }
+    assert remote_request_id not in stdout
+
+
+def test_remote_error_request_id_accepts_the_exact_echo() -> None:
+    payload = {
+        "ok": False,
+        "command": "stores.list",
+        "schema_version": "1.0",
+        "error": {
+            "code": "SCOPE_DENIED",
+            "message": "unsafe remote message",
+            "retryable": False,
+            "request_id": CANONICAL_REQUEST_ID,
+        },
+    }
+
+    exit_code, stdout, sent_request_id = execute_request_id_response(
+        ["stores", "list", "--json"],
+        payload,
+        response_request_id=None,
+        status_code=403,
+    )
+
+    assert exit_code == 4
+    assert __import__("json").loads(stdout)["error"]["request_id"] == sent_request_id

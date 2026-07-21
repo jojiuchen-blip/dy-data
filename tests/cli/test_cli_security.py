@@ -185,7 +185,9 @@ def test_remote_error_contract_survives_into_main_json_without_server_message(
         def list_stores(self, access_token: str) -> dict[str, object]:
             assert access_token == "access-secret"
             raise CliError(
-                "API_UNAVAILABLE", request_id="req-remote", retryable=True
+                "API_UNAVAILABLE",
+                request_id="req_" + "a" * 32,
+                retryable=True,
             )
 
     assert main(
@@ -198,7 +200,7 @@ def test_remote_error_contract_survives_into_main_json_without_server_message(
         "code": "API_UNAVAILABLE",
         "message": "The dydata API is unavailable.",
         "retryable": True,
-        "request_id": "req-remote",
+        "request_id": "req_" + "a" * 32,
     }
     assert "secret" not in captured.out
 
