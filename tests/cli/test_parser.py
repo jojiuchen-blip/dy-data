@@ -132,13 +132,21 @@ def test_main_serializes_every_argument_error_as_one_json_document(
     assert payload["schema_version"] == "1.0"
 
 
-def test_registered_non_offline_command_uses_internal_error_envelope(
+def test_registered_protected_command_requires_credentials(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    exit_code = main(["auth", "status", "--json"])
+    class EmptyCredentialStore:
+        def load(self) -> None:
+            return None
 
-    assert exit_code == 6
-    assert json.loads(capsys.readouterr().out)["error"]["code"] == "INTERNAL_ERROR"
+    exit_code = main(
+        ["auth", "status", "--json"],
+        credential_store=EmptyCredentialStore(),
+        client=object(),
+    )
+
+    assert exit_code == 3
+    assert json.loads(capsys.readouterr().out)["error"]["code"] == "AUTH_REQUIRED"
 
 
 def _parser_leaf_commands(parser) -> set[str]:

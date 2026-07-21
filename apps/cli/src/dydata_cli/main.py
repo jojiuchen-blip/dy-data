@@ -1,45 +1,33 @@
-"""Offline command-shell entry point; service execution is added in Task 7."""
+"""Console entry point for the strict read-only dydata CLI."""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
 
-from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
-from .output import emit_error, emit_json
+from .client import DyDataClient
+from .commands import execute_command
+from .credentials import CredentialStore
+from .output import emit_error
 from .parser import CliArgumentError, parse_args
-from .registry import command_catalog
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(
+    argv: Sequence[str] | None = None,
+    *,
+    credential_store: CredentialStore | None = None,
+    client: DyDataClient | None = None,
+) -> int:
+    """Parse and execute one approved CLI command."""
     try:
         parsed = parse_args(argv)
-    except CliArgumentError as exc:
-        return emit_error("unknown", "INVALID_ARGUMENT", str(exc))
-
-    if parsed.command == "commands":
-        emit_json(
-            {
-                "ok": True,
-                "command": "commands",
-                "schema_version": CLI_SCHEMA_VERSION,
-                "data": {"commands": command_catalog()},
-            }
+    except CliArgumentError:
+        return emit_error(
+            "unknown", "INVALID_ARGUMENT", "Invalid command arguments."
         )
-        return 0
-    if parsed.command == "version":
-        emit_json(
-            {
-                "ok": True,
-                "command": "version",
-                "schema_version": CLI_SCHEMA_VERSION,
-                "data": {"cli_version": CLI_VERSION, "schema_version": CLI_SCHEMA_VERSION},
-            }
-        )
-        return 0
-    return emit_error(
-        parsed.command,
-        "INTERNAL_ERROR",
-        "This command is registered but offline execution is not available yet.",
+    return execute_command(
+        parsed,
+        credential_store=credential_store,
+        client=client,
     )
 
 
