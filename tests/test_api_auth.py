@@ -169,6 +169,76 @@ def test_activation_status_requires_same_verified_sub_account_record(
         assert invalid.json()["data"]["status"] == "invalid"
 
 
+def test_activation_status_allows_certified_store_and_region_sub_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    add_activation_seed(
+        db_session,
+        store_id="store-sub-store",
+        poi_id="poi-sub-store",
+        account_type="子机构门店号",
+    )
+    add_activation_seed(
+        db_session,
+        store_id="store-sub-region",
+        poi_id="poi-sub-region",
+        account_type="子机构区域号",
+    )
+    db_session.commit()
+    client = create_database_client(db_session)
+
+    for external_account_id, poi_id in (
+        ("store-sub-store", "poi-sub-store"),
+        ("store-sub-region", "poi-sub-region"),
+    ):
+        response = client.post(
+            "/api/v1/auth/activation-status",
+            json={"external_account_id": external_account_id, "poi_id": poi_id},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "ready"
+
+
+def test_activation_status_rejects_uncertified_store_and_region_sub_accounts(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    add_activation_seed(
+        db_session,
+        store_id="store-pending-store",
+        poi_id="poi-pending-store",
+        binding_status="认证中",
+        account_type="子机构门店号",
+    )
+    add_activation_seed(
+        db_session,
+        store_id="store-pending-region",
+        poi_id="poi-pending-region",
+        binding_status="认证中",
+        account_type="子机构区域号",
+    )
+    db_session.commit()
+    client = create_database_client(db_session)
+
+    for external_account_id, poi_id in (
+        ("store-pending-store", "poi-pending-store"),
+        ("store-pending-region", "poi-pending-region"),
+    ):
+        response = client.post(
+            "/api/v1/auth/activation-status",
+            json={"external_account_id": external_account_id, "poi_id": poi_id},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["status"] == "invalid"
+
+
 def test_store_account_can_initialize_login_and_change_password(
     monkeypatch: pytest.MonkeyPatch,
     db_session,
