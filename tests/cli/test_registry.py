@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from dydata_cli.docs import render_command_reference
+from dydata_cli.main import main
 from dydata_cli.registry import command_catalog
 
 
@@ -59,3 +62,28 @@ def test_reference_is_rendered_from_the_registry() -> None:
         assert item["purpose"] in reference
         for example in item["examples"]:
             assert example in reference
+
+
+def test_temporary_executable_fallback_is_declared_in_registry_and_catalog_json(
+    capsys,
+) -> None:
+    offline_commands = {"commands", "version"}
+    expected_temporary = {
+        item["command"]
+        for item in command_catalog()
+        if item["command"] not in offline_commands
+    }
+
+    assert all(
+        "INTERNAL_ERROR" in item["errors"]
+        for item in command_catalog()
+        if item["command"] in expected_temporary
+    )
+
+    assert main(["commands", "--json"]) == 0
+    catalog_json = json.loads(capsys.readouterr().out)["data"]["commands"]
+    assert {
+        item["command"]
+        for item in catalog_json
+        if "INTERNAL_ERROR" in item["errors"]
+    } >= expected_temporary

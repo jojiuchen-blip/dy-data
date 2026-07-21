@@ -80,7 +80,12 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "output_schema": {"data": {"stores": "Store[]"}},
         "sensitive_data": "store_identity",
         "examples": ["dydata stores list --json"],
-        "errors": ["AUTH_REQUIRED", "SCOPE_DENIED", "API_UNAVAILABLE"],
+        "errors": [
+            "AUTH_REQUIRED",
+            "SCOPE_DENIED",
+            "API_UNAVAILABLE",
+            "INTERNAL_ERROR",
+        ],
     },
     {
         "command": "clues.follow-up-stats",
@@ -133,7 +138,13 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
             "dydata clues follow-up-stats",
             "dydata clues follow-up-stats --from 2026-07-01 --to 2026-07-07 --store-id store-a --output table",
         ],
-        "errors": ["AUTH_REQUIRED", "SCOPE_DENIED", "INVALID_ARGUMENT", "API_UNAVAILABLE"],
+        "errors": [
+            "AUTH_REQUIRED",
+            "SCOPE_DENIED",
+            "INVALID_ARGUMENT",
+            "API_UNAVAILABLE",
+            "INTERNAL_ERROR",
+        ],
     },
     {
         "command": "version",
