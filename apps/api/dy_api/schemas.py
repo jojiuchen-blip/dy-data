@@ -48,6 +48,22 @@ class CliDeviceStartResponse(BaseModel):
     interval: Literal[3] = 3
 
 
+class CliFollowUpMetrics(BaseModel):
+    total_count: int = 0
+    pending_count: int = 0
+    followed_count: int = 0
+    other_status_count: int = 0
+    action_followed_count: int = 0
+    effective_followed_count: int = 0
+    system_follow_up_rate: float = 0
+    action_follow_rate: float = 0
+
+
+class CliFollowUpData(CliFollowUpMetrics):
+    store_id: str
+    store_name: str
+
+
 class CliDeviceApproveRequest(BaseModel):
     user_code: str
 

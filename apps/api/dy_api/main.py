@@ -5,7 +5,19 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dy_api.routes import admin, auth, cli_auth, clues, dashboard, feedback, jobs, meta
+from dy_api.cli_audit import CliAuditMiddleware
+from dy_api.cli_contract import install_cli_exception_handlers
+from dy_api.routes import (
+    admin,
+    auth,
+    cli,
+    cli_auth,
+    clues,
+    dashboard,
+    feedback,
+    jobs,
+    meta,
+)
 
 
 def create_app() -> FastAPI:
@@ -25,10 +37,14 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
+    app.add_middleware(CliAuditMiddleware)
+    install_cli_exception_handlers(app)
+
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(
         cli_auth.router, prefix="/api/v1/auth/cli", tags=["cli-auth"]
     )
+    app.include_router(cli.router, prefix="/api/v1", tags=["cli-readonly"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
