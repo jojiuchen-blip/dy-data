@@ -85,3 +85,31 @@ def test_cli_auth_hashes_are_unique(db_session, model, values) -> None:
     db_session.add(model(**values))
     with pytest.raises(IntegrityError):
         db_session.commit()
+    db_session.rollback()
+
+
+def test_cli_device_authorization_user_code_hash_is_unique(db_session) -> None:
+    db_session.add(
+        CliDeviceAuthorization(
+            device_authorization_id="device-1",
+            device_code_hash="device-hash",
+            user_code_hash="user-hash",
+            expires_at=utcnow() + timedelta(minutes=10),
+        )
+    )
+    db_session.commit()
+
+    db_session.add(
+        CliDeviceAuthorization(
+            device_authorization_id="device-2",
+            device_code_hash="different-device-hash",
+            user_code_hash="user-hash",
+            expires_at=utcnow() + timedelta(minutes=10),
+        )
+    )
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+    assert db_session.get(CliDeviceAuthorization, "device-1") is not None
+    assert db_session.get(CliDeviceAuthorization, "device-2") is None

@@ -354,14 +354,20 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
         "revoked_at",
         "replaced_by_token_id",
     }.issubset({column["name"] for column in upgraded.get_columns("cli_refresh_tokens")})
+    device_indexes = {
+        index["name"]: index for index in upgraded.get_indexes("cli_device_authorizations")
+    }
+    refresh_token_indexes = {
+        index["name"]: index for index in upgraded.get_indexes("cli_refresh_tokens")
+    }
     assert {
         "ix_cli_device_authorizations_device_code_hash",
         "ix_cli_device_authorizations_user_code_hash",
         "ix_cli_refresh_tokens_token_hash",
     }.issubset(
-        {index["name"] for index in upgraded.get_indexes("cli_device_authorizations")}
-        | {index["name"] for index in upgraded.get_indexes("cli_refresh_tokens")}
+        device_indexes.keys() | refresh_token_indexes.keys()
     )
+    assert device_indexes["ix_cli_device_authorizations_user_code_hash"]["unique"]
 
     command.downgrade(config, "20260713_0017")
 
