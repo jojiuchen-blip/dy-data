@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
@@ -18,6 +18,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     UserStoreScope,
     utcnow,
 )
+from apps.api.dy_api.user_auth_state import replace_user_store_scopes  # noqa: E402
 from dy_api.auth import create_session_token  # noqa: E402
 from dy_api.cli_auth import hash_cli_secret  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
@@ -355,12 +356,7 @@ def test_store_scope_change_revokes_existing_refresh_token(
 ) -> None:
     flow = _approve_and_exchange(client, db_session)
     refresh_token = flow["tokens"]["refresh_token"]
-    db_session.execute(
-        delete(UserStoreScope).where(UserStoreScope.user_id == flow["user"].user_id)
-    )
-    db_session.add(
-        UserStoreScope(user_id=flow["user"].user_id, store_id="store-2")
-    )
+    replace_user_store_scopes(db_session, flow["user"].user_id, ["store-2"])
     db_session.commit()
 
     response = client.post(
@@ -464,11 +460,9 @@ def test_store_scope_round_trip_before_first_refresh_invalidates_old_token(
     refresh_token = flow["tokens"]["refresh_token"]
     user_id = flow["user"].user_id
 
-    db_session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
-    db_session.add(UserStoreScope(user_id=user_id, store_id="store-2"))
+    replace_user_store_scopes(db_session, user_id, ["store-2"])
     db_session.commit()
-    db_session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
-    db_session.add(UserStoreScope(user_id=user_id, store_id="store-1"))
+    replace_user_store_scopes(db_session, user_id, ["store-1"])
     db_session.commit()
 
     response = client.post(
