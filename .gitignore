@@ -8,9 +8,11 @@ __pycache__/
 /exports/
 /output_refund/
 /output/
+/outputs/
 /logs/
 /runs/
 /local_exports/
+/.codex_tmp/
 /.worktrees/
 /tmp/
 

@@ -414,6 +414,32 @@ test('crosscheck passes the happy-path mock fixture', () => {
     assert.equal(result.summary.needs_ai_review, 0);
 });
 
+test('crosscheck recognizes schema fields from split files with level-two table headings', () => {
+    const hostRoot = writeHappyHost();
+    const schemaPath = path.join(hostRoot, 'docs', 'prd', 'foundation', 'foundation-schema-demo.md');
+    writeFile(schemaPath, `# 数据库 Schema
+
+## 拆分文件索引
+
+- [核心表](foundation-schema-demo/schema-core.md)
+`);
+    writeFile(path.join(schemaPath.replace(/\.md$/, ''), 'schema-core.md'), `# 核心表
+
+## 1 \`demo_items\`
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| \`title\` | varchar | 标题 |
+| \`summary\` | varchar | 摘要 |
+| \`enabled\` | boolean | 是否启用 |
+`);
+
+    const result = runPrdCheck(['crosscheck', '--host-dir', hostRoot, '--slug', 'demo']);
+
+    assert.equal(result.ok, true);
+    assert.equal(result.summary.fail, 0);
+});
+
 test('crosscheck catches feature-list/mainprd status drift with a stable rule id', () => {
     const hostRoot = writeHappyHost();
     writeFile(path.join(hostRoot, 'docs', 'prd', 'mainprd-demo.md'), mainprd({ status: '待确认' }));
