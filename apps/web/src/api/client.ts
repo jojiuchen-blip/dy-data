@@ -48,6 +48,7 @@ import type {
   ClueAllocationRuleListData,
   ClueAllocationRuleVersion,
   ClueAllocationRuleVersionWrite,
+  CliAuthorizationApproval,
   ClueFilterMetadata,
   ClueFollowUpPayload,
   ClueFollowUpRecord,
@@ -291,6 +292,34 @@ async function sendJson<T>(
   }
 
   return response.json() as Promise<ApiResponse<T>>;
+}
+
+async function sendBareJson<T>(
+  path: string,
+  {
+    body,
+    method = "POST",
+  }: {
+    body?: unknown;
+    method?: "POST" | "PUT";
+  } = {},
+): Promise<T> {
+  blockDemoNetwork();
+  const response = await fetch(apiUrl(path), {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method,
+  });
+
+  if (!response.ok) {
+    throw new ApiRequestError(response.status);
+  }
+
+  return response.json() as Promise<T>;
 }
 
 async function withMockFallback<T>(
@@ -1119,6 +1148,14 @@ export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
     ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
     usingMock: false,
   };
+}
+
+export function approveCliAuthorization(
+  userCode: string,
+): Promise<CliAuthorizationApproval> {
+  return sendBareJson<CliAuthorizationApproval>("/auth/cli/device/approve", {
+    body: { user_code: userCode },
+  });
 }
 
 export async function initializeAccount(

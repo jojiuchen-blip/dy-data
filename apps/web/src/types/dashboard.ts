@@ -15,6 +15,12 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
+export interface CliAuthorizationApproval {
+  user_code: string;
+  status: "approved";
+  expires_at: string;
+}
+
 export type UserRole = "highest_admin" | "admin" | "store";
 export type UserStatus = "active" | "disabled";
 export type StoreScopeMode = "all" | "specified" | "none";
