@@ -19,7 +19,7 @@ interface DataTableProps<T> {
   loadingText?: string;
   mobileCard?: ((row: T, index: number) => ReactNode) | false;
   onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
-  rowHref?: (row: T) => string;
+  rowHref?: (row: T) => string | undefined;
   state?: "ready" | "loading" | "error";
   stickyHeader?: "container";
   tableClassName?: string;

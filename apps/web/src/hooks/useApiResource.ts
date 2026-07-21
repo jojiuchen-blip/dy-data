@@ -4,6 +4,7 @@ import type { ApiLoadResult } from "../api/client";
 interface ApiResourceState<T> {
   data?: ApiLoadResult<T>;
   error?: string;
+  rawError?: unknown;
   loading: boolean;
 }
 
@@ -26,21 +27,23 @@ export function useApiResource<T>(
     let cancelled = false;
 
     if (!enabled) {
-      setState((current) => ({
-        data: current.data,
+      setState({
+        data: undefined,
         error: undefined,
+        rawError: undefined,
         loading: false,
-      }));
+      });
       return () => {
         cancelled = true;
       };
     }
 
-    setState((current) => ({
-      ...current,
+    setState({
+      data: undefined,
       error: undefined,
+      rawError: undefined,
       loading: true,
-    }));
+    });
 
     load()
       .then((data) => {
@@ -50,11 +53,12 @@ export function useApiResource<T>(
       })
       .catch((error) => {
         if (!cancelled) {
-          setState((current) => ({
-            ...current,
+          setState({
+            data: undefined,
             error: errorMessage(error),
+            rawError: error,
             loading: false,
-          }));
+          });
         }
       });
 

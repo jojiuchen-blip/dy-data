@@ -166,6 +166,48 @@ const userRoleLabels: LabelMap = {
   viewer: "只读账号",
 };
 
+const productStatusLabels: LabelMap = {
+  ACTIVE: "在线",
+  INACTIVE: "下线",
+  DELETED: "已删除",
+  UNKNOWN: "状态待确认",
+};
+
+const feeRuleStatusLabels: LabelMap = {
+  ACTIVE: "启用",
+  INACTIVE: "停用",
+};
+
+const importBatchStatusLabels: LabelMap = {
+  UPLOADED: "已上传",
+  VALIDATION_FAILED: "校验未通过",
+  PENDING_COMMIT: "待原子提交",
+  COMMITTING: "提交中",
+  COMPLETED: "已完成",
+  FAILED: "提交失败",
+};
+
+const importRowStatusLabels: LabelMap = {
+  PENDING: "待校验",
+  VALID: "校验通过",
+  INVALID: "校验失败",
+  COMMITTED: "已写入",
+  COMMIT_FAILED: "写入失败",
+};
+
+const productSyncStatusLabels: LabelMap = {
+  QUEUED: "已排队",
+  RUNNING: "运行中",
+  SUCCESS: "成功",
+  FAILED: "失败",
+  PARTIAL: "部分成功",
+};
+
+const productSyncModeLabels: LabelMap = {
+  INCREMENTAL: "增量同步",
+  FULL: "全量同步",
+};
+
 export function displayOrderStatus(value: string | null | undefined): string {
   return displayEnumLabel(value, orderStatusLabels, "未知订单状态", "order status");
 }
@@ -270,4 +312,28 @@ export function displayAllocationCycleType(value: string | null | undefined): st
 
 export function displayUserRole(value: string | null | undefined): string {
   return displayEnumLabel(value, userRoleLabels, "未知角色", "user role");
+}
+
+export function displayProductStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, productStatusLabels, "未知商品状态", "product status");
+}
+
+export function displayFeeRuleStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, feeRuleStatusLabels, "未知规则状态", "fee rule status");
+}
+
+export function displayImportBatchStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, importBatchStatusLabels, "未知导入状态", "import batch status");
+}
+
+export function displayImportRowStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, importRowStatusLabels, "未知行状态", "import row status");
+}
+
+export function displayProductSyncStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, productSyncStatusLabels, "未知同步状态", "product sync status");
+}
+
+export function displayProductSyncMode(value: string | null | undefined): string {
+  return displayEnumLabel(value, productSyncModeLabels, "未知同步方式", "product sync mode");
 }

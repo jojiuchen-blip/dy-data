@@ -18,6 +18,7 @@ import { ClueCenterPage } from "./pages/ClueCenterPage";
 import { CliAuthorizePage } from "./pages/CliAuthorizePage";
 import { McpAuthorizePage } from "./pages/McpAuthorizePage";
 import { HomePage } from "./pages/HomePage";
+import { InvoiceGuidePage } from "./pages/InvoiceGuidePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { SalesDashboardPage } from "./pages/SalesDashboardPage";
 import { StoreRankingPage } from "./pages/StoreRankingPage";
@@ -283,6 +284,8 @@ export function App() {
         const page =
           location.pathname === "/settlement" ? (
             <StoreSettlementPage searchParams={searchParams} />
+          ) : location.pathname === "/invoice" ? (
+            <InvoiceGuidePage />
           ) : location.pathname === "/clues" ? (
             <ClueCenterPage
               currentUser={user}

@@ -11,6 +11,7 @@ import {
   saveSkuRules,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { AdminSkuGovernancePanel } from "../components/AdminSkuGovernancePanel";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
@@ -729,6 +730,20 @@ export function AdminSkuRulesPage() {
           {statusText}
         </div>
       ) : null}
+
+      <AdminSkuGovernancePanel />
+
+      <section className="content-section legacy-rule-boundary">
+        <div className="section-title">
+          <div>
+            <h2>旧单费率兼容区</h2>
+            <p>
+              仅保留既有调用方和历史规则维护；正式双费率发布、版本追溯与批量导入请使用上方新入口。
+            </p>
+          </div>
+          <StatusChip tone="warning">兼容维护</StatusChip>
+        </div>
+      </section>
 
       <datalist id="product-type-options">
         {productTypeOptions.map((productType) => (
