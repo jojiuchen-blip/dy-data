@@ -662,10 +662,8 @@ def test_data_table_alignment_defaults_center_but_keeps_long_text_left() -> None
 
     assert_column_align(clue_page_source, "product_name", "left")
     assert_column_align(order_details_source, "order", "left")
-    assert_column_align(order_details_source, "coupon", "left")
-    assert_column_align(order_details_source, "productName", "left")
-    assert_column_align(order_details_source, "saleStore", "left")
-    assert_column_align(order_details_source, "verifyStore", "left")
+    assert_column_align(order_details_source, "product", "left")
+    assert_column_align(order_details_source, "stores", "left")
     assert_column_align(ranking_source, "store", "left")
 
 
@@ -755,7 +753,7 @@ def test_admin_sku_preselection_keeps_product_scope_separate() -> None:
     assert '<span>商品类型</span>' in page_source
     assert "product_scope: productScope || currentRule.product_scope" in page_source
     assert "product_type: row.product_type.trim()" in page_source
-    assert "product_scope: row.product_scope.trim()" not in page_source
+    assert "product_scope: row.product_scope?.trim() ?? \"\"" in page_source
 
 
 def test_clue_follow_up_types_and_api_client_are_declared() -> None:

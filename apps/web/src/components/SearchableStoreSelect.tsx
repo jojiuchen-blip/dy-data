@@ -5,6 +5,7 @@ import "./SearchableStoreSelect.css";
 
 interface SearchableStoreSelectProps {
   allowEmpty?: boolean;
+  disabled?: boolean;
   emptyLabel?: string;
   emptyMessage?: string;
   onChange: (value: string) => void;
@@ -27,6 +28,7 @@ function displayValue(options: SelectOption[], value: string): string {
 
 export function SearchableStoreSelect({
   allowEmpty = false,
+  disabled = false,
   emptyLabel = "全部",
   emptyMessage = "未找到门店",
   onChange,
@@ -88,6 +90,7 @@ export function SearchableStoreSelect({
         aria-controls={`${inputId}-menu`}
         aria-expanded={isOpen}
         autoComplete="off"
+        disabled={disabled}
         placeholder={placeholder}
         role="combobox"
         value={inputValue}

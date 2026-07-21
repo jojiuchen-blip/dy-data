@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：341
-- 文件关系：107
-- 诊断问题：0
+- 文件节点：405
+- 文件关系：307
+- 诊断问题：3
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -16,23 +16,6 @@
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
-| page-2026-07-13T09-00-50-420Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-00-50-420Z.yml|page-2026-07-13T09-00-50-420Z.yml]] | [page-2026-07-13T09-00-50-420Z.yml](../../.playwright-cli/page-2026-07-13T09-00-50-420Z.yml) |
-| page-2026-07-13T09-07-13-098Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-07-13-098Z.yml|page-2026-07-13T09-07-13-098Z.yml]] | [page-2026-07-13T09-07-13-098Z.yml](../../.playwright-cli/page-2026-07-13T09-07-13-098Z.yml) |
-| page-2026-07-13T09-11-25-978Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-25-978Z.yml|page-2026-07-13T09-11-25-978Z.yml]] | [page-2026-07-13T09-11-25-978Z.yml](../../.playwright-cli/page-2026-07-13T09-11-25-978Z.yml) |
-| page-2026-07-13T09-11-50-842Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-50-842Z.yml|page-2026-07-13T09-11-50-842Z.yml]] | [page-2026-07-13T09-11-50-842Z.yml](../../.playwright-cli/page-2026-07-13T09-11-50-842Z.yml) |
-| page-2026-07-13T09-12-36-088Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-36-088Z.yml|page-2026-07-13T09-12-36-088Z.yml]] | [page-2026-07-13T09-12-36-088Z.yml](../../.playwright-cli/page-2026-07-13T09-12-36-088Z.yml) |
-| page-2026-07-13T09-12-48-957Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-48-957Z.yml|page-2026-07-13T09-12-48-957Z.yml]] | [page-2026-07-13T09-12-48-957Z.yml](../../.playwright-cli/page-2026-07-13T09-12-48-957Z.yml) |
-| page-2026-07-13T09-13-42-406Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-13-42-406Z.yml|page-2026-07-13T09-13-42-406Z.yml]] | [page-2026-07-13T09-13-42-406Z.yml](../../.playwright-cli/page-2026-07-13T09-13-42-406Z.yml) |
-| page-2026-07-13T09-16-46-395Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-16-46-395Z.yml|page-2026-07-13T09-16-46-395Z.yml]] | [page-2026-07-13T09-16-46-395Z.yml](../../.playwright-cli/page-2026-07-13T09-16-46-395Z.yml) |
-| page-2026-07-13T09-17-10-910Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-17-10-910Z.yml|page-2026-07-13T09-17-10-910Z.yml]] | [page-2026-07-13T09-17-10-910Z.yml](../../.playwright-cli/page-2026-07-13T09-17-10-910Z.yml) |
-| feedback-preview-pids.json | config | host-project | [[.tmp/feedback-preview-pids.json|feedback-preview-pids.json]] | [feedback-preview-pids.json](../../.tmp/feedback-preview-pids.json) |
-| package-lock.json | config | host-project | [[.tmp/playwright-run/package-lock.json|package-lock.json]] | [package-lock.json](../../.tmp/playwright-run/package-lock.json) |
-| package.json | config | host-project | [[.tmp/playwright-run/package.json|package.json]] | [package.json](../../.tmp/playwright-run/package.json) |
-| audit-uiux.mjs | source_code | coding-standards | [[.tmp/uiux-runtime/audit-uiux.mjs|audit-uiux.mjs]] | [audit-uiux.mjs](../../.tmp/uiux-runtime/audit-uiux.mjs) |
-| check-clue-split.mjs | source_code | coding-standards | [[.tmp/uiux-runtime/check-clue-split.mjs|check-clue-split.mjs]] | [check-clue-split.mjs](../../.tmp/uiux-runtime/check-clue-split.mjs) |
-| package.json | config | host-project | [[.tmp/uiux-runtime/package.json|package.json]] | [package.json](../../.tmp/uiux-runtime/package.json) |
-| axe.json | config | host-project | [[.tmp/uiux-screens/axe.json|axe.json]] | [axe.json](../../.tmp/uiux-screens/axe.json) |
-| signals.json | config | host-project | [[.tmp/uiux-screens/signals.json|signals.json]] | [signals.json](../../.tmp/uiux-screens/signals.json) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
 | env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
 | 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
@@ -46,12 +29,22 @@
 | 20260626_0009_product_type_visibility.py | source_code | coding-standards | [[alembic/versions/20260626_0009_product_type_visibility.py|20260626_0009_product_type_visibility.py]] | [20260626_0009_product_type_visibility.py](../../alembic/versions/20260626_0009_product_type_visibility.py) |
 | 20260626_0010_product_type_default.py | source_code | coding-standards | [[alembic/versions/20260626_0010_product_type_default.py|20260626_0010_product_type_default.py]] | [20260626_0010_product_type_default.py](../../alembic/versions/20260626_0010_product_type_default.py) |
 | 20260706_0011_product_scope_visibility.py | source_code | coding-standards | [[alembic/versions/20260706_0011_product_scope_visibility.py|20260706_0011_product_scope_visibility.py]] | [20260706_0011_product_scope_visibility.py](../../alembic/versions/20260706_0011_product_scope_visibility.py) |
+| 20260707_0012_sku_product_scope.py | source_code | coding-standards | [[alembic/versions/20260707_0012_sku_product_scope.py|20260707_0012_sku_product_scope.py]] | [20260707_0012_sku_product_scope.py](../../alembic/versions/20260707_0012_sku_product_scope.py) |
 | 20260712_0012_clue_allocation_m1_foundation.py | source_code | coding-standards | [[alembic/versions/20260712_0012_clue_allocation_m1_foundation.py|20260712_0012_clue_allocation_m1_foundation.py]] | [20260712_0012_clue_allocation_m1_foundation.py](../../alembic/versions/20260712_0012_clue_allocation_m1_foundation.py) |
 | 20260712_0013_clue_allocation_rule_versions.py | source_code | coding-standards | [[alembic/versions/20260712_0013_clue_allocation_rule_versions.py|20260712_0013_clue_allocation_rule_versions.py]] | [20260712_0013_clue_allocation_rule_versions.py](../../alembic/versions/20260712_0013_clue_allocation_rule_versions.py) |
 | 20260712_0014_clue_allocation_engine.py | source_code | coding-standards | [[alembic/versions/20260712_0014_clue_allocation_engine.py|20260712_0014_clue_allocation_engine.py]] | [20260712_0014_clue_allocation_engine.py](../../alembic/versions/20260712_0014_clue_allocation_engine.py) |
 | 20260712_0015_clue_follow_up_state_machine.py | source_code | coding-standards | [[alembic/versions/20260712_0015_clue_follow_up_state_machine.py|20260712_0015_clue_follow_up_state_machine.py]] | [20260712_0015_clue_follow_up_state_machine.py](../../alembic/versions/20260712_0015_clue_follow_up_state_machine.py) |
 | 20260712_0016_clue_allocation_cycles.py | source_code | coding-standards | [[alembic/versions/20260712_0016_clue_allocation_cycles.py|20260712_0016_clue_allocation_cycles.py]] | [20260712_0016_clue_allocation_cycles.py](../../alembic/versions/20260712_0016_clue_allocation_cycles.py) |
 | 20260713_0017_drop_clue_reassign_rule_settings.py | source_code | coding-standards | [[alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py|20260713_0017_drop_clue_reassign_rule_settings.py]] | [20260713_0017_drop_clue_reassign_rule_settings.py](../../alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py) |
+| 20260715_0018_merge_sku_and_clue_heads.py | source_code | coding-standards | [[alembic/versions/20260715_0018_merge_sku_and_clue_heads.py|20260715_0018_merge_sku_and_clue_heads.py]] | [20260715_0018_merge_sku_and_clue_heads.py](../../alembic/versions/20260715_0018_merge_sku_and_clue_heads.py) |
+| 20260720_0019_raw_order_internal_ids.py | source_code | coding-standards | [[alembic/versions/20260720_0019_raw_order_internal_ids.py|20260720_0019_raw_order_internal_ids.py]] | [20260720_0019_raw_order_internal_ids.py](../../alembic/versions/20260720_0019_raw_order_internal_ids.py) |
+| 20260720_0020_product_rule_schema.py | source_code | coding-standards | [[alembic/versions/20260720_0020_product_rule_schema.py|20260720_0020_product_rule_schema.py]] | [20260720_0020_product_rule_schema.py](../../alembic/versions/20260720_0020_product_rule_schema.py) |
+| 20260720_0021_settlement_reporting_schema.py | source_code | coding-standards | [[alembic/versions/20260720_0021_settlement_reporting_schema.py|20260720_0021_settlement_reporting_schema.py]] | [20260720_0021_settlement_reporting_schema.py](../../alembic/versions/20260720_0021_settlement_reporting_schema.py) |
+| 20260720_0022_raw_order_settlement_fields.py | source_code | coding-standards | [[alembic/versions/20260720_0022_raw_order_settlement_fields.py|20260720_0022_raw_order_settlement_fields.py]] | [20260720_0022_raw_order_settlement_fields.py](../../alembic/versions/20260720_0022_raw_order_settlement_fields.py) |
+| 20260720_0023_refund_success_observed_at.py | source_code | coding-standards | [[alembic/versions/20260720_0023_refund_success_observed_at.py|20260720_0023_refund_success_observed_at.py]] | [20260720_0023_refund_success_observed_at.py](../../alembic/versions/20260720_0023_refund_success_observed_at.py) |
+| 20260720_0024_raw_order_internal_pk_cutover.py | source_code | coding-standards | [[alembic/versions/20260720_0024_raw_order_internal_pk_cutover.py|20260720_0024_raw_order_internal_pk_cutover.py]] | [20260720_0024_raw_order_internal_pk_cutover.py](../../alembic/versions/20260720_0024_raw_order_internal_pk_cutover.py) |
+| 20260721_0025_product_sync_active_slot.py | source_code | coding-standards | [[alembic/versions/20260721_0025_product_sync_active_slot.py|20260721_0025_product_sync_active_slot.py]] | [20260721_0025_product_sync_active_slot.py](../../alembic/versions/20260721_0025_product_sync_active_slot.py) |
+| 20260721_0026_product_sync_idempotency_key.py | source_code | coding-standards | [[alembic/versions/20260721_0026_product_sync_idempotency_key.py|20260721_0026_product_sync_idempotency_key.py]] | [20260721_0026_product_sync_idempotency_key.py](../../alembic/versions/20260721_0026_product_sync_idempotency_key.py) |
 | __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
 | auth.py | source_code | coding-standards | [[apps/api/dy_api/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/auth.py) |
 | db.py | source_code | coding-standards | [[apps/api/dy_api/db.py|db.py]] | [db.py](../../apps/api/dy_api/db.py) |
@@ -62,6 +55,7 @@
 | auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/routes/auth.py) |
 | clues.py | source_code | coding-standards | [[apps/api/dy_api/routes/clues.py|clues.py]] | [clues.py](../../apps/api/dy_api/routes/clues.py) |
 | dashboard.py | source_code | coding-standards | [[apps/api/dy_api/routes/dashboard.py|dashboard.py]] | [dashboard.py](../../apps/api/dy_api/routes/dashboard.py) |
+| fee_admin.py | source_code | coding-standards | [[apps/api/dy_api/routes/fee_admin.py|fee_admin.py]] | [fee_admin.py](../../apps/api/dy_api/routes/fee_admin.py) |
 | feedback.py | source_code | coding-standards | [[apps/api/dy_api/routes/feedback.py|feedback.py]] | [feedback.py](../../apps/api/dy_api/routes/feedback.py) |
 | jobs.py | source_code | coding-standards | [[apps/api/dy_api/routes/jobs.py|jobs.py]] | [jobs.py](../../apps/api/dy_api/routes/jobs.py) |
 | meta.py | source_code | coding-standards | [[apps/api/dy_api/routes/meta.py|meta.py]] | [meta.py](../../apps/api/dy_api/routes/meta.py) |
@@ -70,9 +64,15 @@
 | index.html | doc | host-project | [[apps/web/index.html|index.html]] | [index.html](../../apps/web/index.html) |
 | package-lock.json | config | host-project | [[apps/web/package-lock.json|package-lock.json]] | [package-lock.json](../../apps/web/package-lock.json) |
 | package.json | config | host-project | [[apps/web/package.json|package.json]] | [package.json](../../apps/web/package.json) |
+| app.js | source_code | coding-standards | [[apps/web/public/account-activation-guide/assets/app.js|app.js]] | [app.js](../../apps/web/public/account-activation-guide/assets/app.js) |
+| print.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/print.css|print.css]] | [print.css](../../apps/web/public/account-activation-guide/assets/print.css) |
+| styles.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/styles.css|styles.css]] | [styles.css](../../apps/web/public/account-activation-guide/assets/styles.css) |
+| index.html | doc | host-project | [[apps/web/public/account-activation-guide/index.html|index.html]] | [index.html](../../apps/web/public/account-activation-guide/index.html) |
 | dy-data Web | readme | host-project | [[apps/web/README.md|dy-data Web]] | [dy-data Web](../../apps/web/README.md) |
 | client.ts | source_code | coding-standards | [[apps/web/src/api/client.ts|client.ts]] | [client.ts](../../apps/web/src/api/client.ts) |
 | App.tsx | source_code | coding-standards | [[apps/web/src/App.tsx|App.tsx]] | [App.tsx](../../apps/web/src/App.tsx) |
+| AdminProductSyncPanel.tsx | source_code | coding-standards | [[apps/web/src/components/AdminProductSyncPanel.tsx|AdminProductSyncPanel.tsx]] | [AdminProductSyncPanel.tsx](../../apps/web/src/components/AdminProductSyncPanel.tsx) |
+| AdminSkuGovernancePanel.tsx | source_code | coding-standards | [[apps/web/src/components/AdminSkuGovernancePanel.tsx|AdminSkuGovernancePanel.tsx]] | [AdminSkuGovernancePanel.tsx](../../apps/web/src/components/AdminSkuGovernancePanel.tsx) |
 | Button.tsx | source_code | coding-standards | [[apps/web/src/components/Button.tsx|Button.tsx]] | [Button.tsx](../../apps/web/src/components/Button.tsx) |
 | Chips.tsx | source_code | coding-standards | [[apps/web/src/components/Chips.tsx|Chips.tsx]] | [Chips.tsx](../../apps/web/src/components/Chips.tsx) |
 | CommissionRulesButton.tsx | source_code | coding-standards | [[apps/web/src/components/CommissionRulesButton.tsx|CommissionRulesButton.tsx]] | [CommissionRulesButton.tsx](../../apps/web/src/components/CommissionRulesButton.tsx) |
@@ -114,6 +114,7 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
+| docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
 | docs/architecture.md | links_to | docs/项目产品介绍书.md | docs/architecture.md:81 |
 | docs/architecture.md | links_to | docs/runbook.md | docs/architecture.md:74 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | docs/governance/authority-map.md | docs/baseline/dydata-6-baseline-dry-run-review.md:50 |
@@ -121,6 +122,8 @@
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | README.md | docs/baseline/dydata-6-baseline-dry-run-review.md:41 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/brd/BRD-dy-data-20260716-1255.md:7 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | project-profile.md | docs/brd/BRD-dy-data-20260716-1255.md:6 |
+| docs/commission-settlement-rework-decisions.md | links_to | docs/single-store-monthly-settlement-mock.html | docs/commission-settlement-rework-decisions.md:51 |
+| docs/commission-settlement-rework-decisions.md | links_to | docs/store-ranking-mock.html | docs/commission-settlement-rework-decisions.md:23 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | AGENTS.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | docs/项目产品介绍书.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | docs/api-contract.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:51 |
@@ -131,7 +134,10 @@
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | README.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
-| docs/devlog/20260716_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260716_refactor_log_Keith_Chen.md:69 |
+| docs/devlog/20260716_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260716_refactor_log_Keith_Chen.md:71 |
+| docs/devlog/20260717_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260717_refactor_log_jojiuchen-blip.md:69 |
+| docs/devlog/20260720_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260720_refactor_log_jojiuchen-blip.md:88 |
+| docs/devlog/20260721_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260721_refactor_log_jojiuchen-blip.md:76 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -145,6 +151,7 @@
 | docs/governance/authority-map.md | links_to | docs/design-system/README.md | docs/governance/authority-map.md:24 |
 | docs/governance/authority-map.md | links_to | docs/github-cicd.md | docs/governance/authority-map.md:32 |
 | docs/governance/authority-map.md | links_to | docs/plans/execution-plan.md | docs/governance/authority-map.md:21 |
+| docs/governance/authority-map.md | links_to | docs/prd/mainprd-dy-data.md | docs/governance/authority-map.md:42 |
 | docs/governance/authority-map.md | links_to | docs/runbook.md | docs/governance/authority-map.md:26 |
 | docs/governance/authority-map.md | links_to | docs/tencent-edgeone-migration.md | docs/governance/authority-map.md:33 |
 | docs/governance/authority-map.md | links_to | docs/tencent-lighthouse-cicd.md | docs/governance/authority-map.md:32 |
@@ -164,51 +171,59 @@
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/data-model.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:973 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/runbook.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:975 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:3 |
-| docs/plans/execution-plan.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/execution-plan.md:10 |
-| docs/plans/execution-plan.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/plans/execution-plan.md:10 |
-| docs/plans/execution-plan.md | links_to | project-profile.md | docs/plans/execution-plan.md:36 |
-| docs/rules/backend-tasks.md | links_to | docs/api-contract.md | docs/rules/backend-tasks.md:17 |
-| docs/rules/backend-tasks.md | links_to | docs/rules/database-tasks.md | docs/rules/backend-tasks.md:11 |
-| docs/rules/backend-tasks.md | links_to | docs/rules/frontend-tasks.md | docs/rules/backend-tasks.md:11 |
-| docs/rules/devlog.md | links_to | docs/plans/execution-plan.md | docs/rules/devlog.md:19 |
-| docs/rules/devlog.md | links_to | project-profile.md | docs/rules/devlog.md:5 |
-| docs/rules/docs-and-plans.md | links_to | docs/governance/authority-map.md | docs/rules/docs-and-plans.md:9 |
-| docs/rules/docs-and-plans.md | links_to | docs/plans/execution-plan.md | docs/rules/docs-and-plans.md:7 |
-| docs/rules/docs-and-plans.md | links_to | project-profile.md | docs/rules/docs-and-plans.md:6 |
-| docs/rules/frontend-tasks.md | links_to | docs/design-system/README.md | docs/rules/frontend-tasks.md:10 |
-| docs/rules/README.md | links_to | AGENTS.md | docs/rules/README.md:16 |
-| docs/rules/README.md | links_to | docs/rules/backend-tasks.md | docs/rules/README.md:7 |
-| docs/rules/README.md | links_to | docs/rules/database-tasks.md | docs/rules/README.md:8 |
-| docs/rules/README.md | links_to | docs/rules/debugging.md | docs/rules/README.md:10 |
-| docs/rules/README.md | links_to | docs/rules/devlog.md | docs/rules/README.md:12 |
-| docs/rules/README.md | links_to | docs/rules/docs-and-plans.md | docs/rules/README.md:11 |
-| docs/rules/README.md | links_to | docs/rules/frontend-tasks.md | docs/rules/README.md:9 |
-| docs/runbook.md | links_to | docs/项目产品介绍书.md | docs/runbook.md:3 |
-| docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md | links_to | docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md | docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md:3 |
-| docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md:3 |
-| docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | links_to | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:9 |
-| docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | links_to | docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:10 |
-| docs/tencent-edgeone-migration.md | links_to | docs/runbook.md | docs/tencent-edgeone-migration.md:5 |
-| mock/README.md | links_to | docs/api-contract.md | mock/README.md:5 |
-| mock/README.md | links_to | docs/data-model.md | mock/README.md:5 |
-| project-rules.md | links_to | AGENTS.md | project-rules.md:3 |
-| project-rules.md | links_to | docs/design-system/README.md | project-rules.md:39 |
-| project-rules.md | links_to | docs/governance/authority-map.md | project-rules.md:13 |
-| project-rules.md | links_to | docs/plans/execution-plan.md | project-rules.md:10 |
-| project-rules.md | links_to | project-profile.md | project-rules.md:12 |
-| project-rules.md | links_to | project-rules.md | project-rules.md:65 |
-| README.md | links_to | AGENTS.md | README.md:87 |
-| README.md | links_to | docs/项目产品介绍书.md | README.md:12 |
-| README.md | links_to | docs/api-contract.md | README.md:27 |
-| README.md | links_to | docs/architecture.md | README.md:26 |
-| README.md | links_to | docs/design-system/README.md | README.md:29 |
-| README.md | links_to | docs/governance/authority-map.md | README.md:30 |
-| README.md | links_to | docs/rules/README.md | README.md:87 |
-| README.md | links_to | docs/runbook.md | README.md:28 |
-| README.md | links_to | project-profile.md | README.md:24 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:89 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:90 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:91 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:101 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:102 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:103 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.4-statement-projections.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:104 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.5-raw-id-cutover.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:105 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.1-reporting-api.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:115 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.2-settlement-pages.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:116 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.3-admin-console.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:117 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T4.1-release-verification.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:127 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:131 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | depends_on | docs/prd/foundation/foundation-delivery-dy-data.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:24 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | depends_on | docs/prd/mainprd-dy-data.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:23 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | links_to | docs/prd/prd-feature-list-dy-data.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:23 |
+| docs/plans/delivery-plans/main-delivery-plan-dy-data.md | depends_on | docs/prd/subprd/03-subprd-order-fee-details.md | docs/plans/delivery-plans/main-delivery-plan-dy-data.md:12 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:12 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:78 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:79 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:80 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:84 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md | depends_on | docs/prd/foundation/foundation-schema-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md | depends_on | docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md | depends_on | docs/prd/foundation/foundation-schema-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md | depends_on | docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.2-product-rule-schema.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | depends_on | docs/prd/foundation/foundation-schema-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | depends_on | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md | depends_on | docs/prd/subprd/03-subprd-order-fee-details.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.3-settlement-schema.md:15 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md | depends_on | docs/prd/foundation/foundation-api-dy-data/product-sync.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md | depends_on | docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.1-product-sync.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md | depends_on | docs/prd/foundation/foundation-api-dy-data/common-contract.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md | depends_on | docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.2-sku-fee-admin.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | links_to | docs/plans/delivery-plans/task-kanban-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | depends_on | docs/prd/foundation/foundation-glossary-dy-data.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | depends_on | docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md | depends_on | docs/prd/subprd/02-subprd-store-settlement.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T2.3-dual-fee-engine.md:15 |
 
 ## 4. 诊断问题
 
 | 级别 | code | 位置 | 说明 |
 |---|---|---|---|
-| info | none | - | 未发现索引级问题 |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
+| info | orphan_artifact | src/frontend/page-preview/explainer-b-gap-dy-data.md | src/frontend/page-preview/explainer-b-gap-dy-data.md has no discovered file-level relationship |

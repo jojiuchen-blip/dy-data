@@ -7,7 +7,7 @@ import { SelectField } from "./FormControls";
 import { Button } from "./Button";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
 
-const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
+const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/invoice"]);
 const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const adminPaths = new Set([
@@ -70,8 +70,9 @@ const moduleNavItems: ModuleNavItem[] = [
 
 const settlementNavItems: NavItem[] = [
   { href: "/ranking", label: "全国门店榜单" },
-  { href: "/settlement", label: "单店结算" },
-  { href: "/details", label: "订单明细" },
+  { href: "/settlement", label: "单店分账" },
+  { href: "/details", label: "订单费用明细" },
+  { href: "/invoice", label: "开票确认" },
 ];
 
 const clueNavItems: NavItem[] = [

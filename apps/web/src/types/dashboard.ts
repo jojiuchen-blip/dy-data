@@ -5,8 +5,10 @@ export interface ApiDefinition {
 }
 
 export interface ApiMeta {
-  generated_at: string;
-  source: string;
+  generated_at?: string;
+  generatedAt?: string;
+  requestId?: string;
+  source?: string;
 }
 
 export interface ApiResponse<T> {
@@ -279,6 +281,186 @@ export interface FilterMetaData {
   verify_months: string[];
 }
 
+export type FeeDirection = "PROMOTION" | "MANAGEMENT";
+export type PeriodType = "MONTHLY" | "CUMULATIVE";
+export type RankingSortBy =
+  | "SALES_AMOUNT"
+  | "VERIFIED_AMOUNT"
+  | "PROMOTION_FEE"
+  | "MANAGEMENT_FEE"
+  | "NET_SETTLEMENT_REFERENCE";
+export type SortOrder = "ASC" | "DESC";
+
+export interface SettlementFilterMetaData {
+  stores: Array<{ storeId: string; storeName: string }>;
+  productScopes: string[];
+  productScopeTypeMap: Record<string, string[]>;
+  productTypes: string[];
+  defaultProductType: string;
+  saleMonths: string[];
+  verifyMonths: string[];
+  statementMonths: string[];
+  periodTypes: PeriodType[];
+  feeDirections: FeeDirection[];
+  formalPeriodStartMonth: string;
+  timezone: string;
+}
+
+export interface SettlementStoreRankingRow {
+  rank: number;
+  storeId: string;
+  storeName: string;
+  salesOrderCount: number;
+  salesAmountCent: number;
+  verifiedOrderCount: number;
+  verifiedAmountCent: number;
+  promotionNetFeeCent: number;
+  managementNetFeeCent: number;
+  netSettlementReferenceCent: number;
+}
+
+export interface SettlementStoreRankingData {
+  periodType: PeriodType;
+  periodKey: string;
+  productScope: string;
+  productType: string;
+  scopeMode: "AUTHORIZED" | "GLOBAL_TOP_20_EXCEPTION";
+  totals: Omit<SettlementStoreRankingRow, "rank" | "storeId" | "storeName">;
+  list: SettlementStoreRankingRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface SettlementStatementSummary {
+  statementId: string;
+  statementStatus: "GENERATING" | "PENDING_CONFIRMATION" | "CONFIRMED" | "LOCKED";
+  confirmedAt?: string | null;
+  lockedAt?: string | null;
+  lockVersion?: string | null;
+}
+
+export interface SettlementStatementLine {
+  statementLineId?: string | null;
+  feeDirection: FeeDirection;
+  productScope: string;
+  productType: string;
+  originalEntryCount: number;
+  adjustmentEntryCount: number;
+  originalBaseCent: number;
+  adjustmentBaseCent: number;
+  netBaseCent: number;
+  originalFeeCent: number;
+  adjustmentFeeCent: number;
+  netFeeCent: number;
+  minFeeRate?: string | null;
+  maxFeeRate?: string | null;
+  ruleVersionCount: number;
+  feeRates: string[];
+  ruleVersions: string[];
+}
+
+export interface SettlementMonthlyData {
+  store: { storeId: string; storeName: string };
+  month: string;
+  productScope: string;
+  productType: string;
+  isFormalPeriod: boolean;
+  statement?: SettlementStatementSummary | null;
+  metrics: {
+    salesOrderCount: number;
+    salesAmountCent: number;
+    verifiedOrderCount: number;
+    verifiedAmountCent: number;
+    promotionBaseCent: number;
+    promotionOriginalFeeCent: number;
+    promotionAdjustmentFeeCent: number;
+    promotionNetFeeCent: number;
+    managementBaseCent: number;
+    managementOriginalFeeCent: number;
+    managementAdjustmentFeeCent: number;
+    managementNetFeeCent: number;
+    netSettlementReferenceCent: number;
+  };
+  lines: SettlementStatementLine[];
+}
+
+export interface OrderFeeAdjustment {
+  adjustmentId: string;
+  adjustmentPostingMonth: string;
+  adjustmentType: string;
+  adjustmentBaseCent: number;
+  adjustmentFeeCent: number;
+  ruleVersion: string;
+  adjustmentReason: string;
+  occurredAt: string;
+}
+
+export interface OrderFeeDetailRow {
+  feeResultId: string;
+  statementEntryId?: string | null;
+  orderId: string;
+  couponId: string;
+  orderStatus?: string | null;
+  couponStatus?: string | null;
+  feeDirection: FeeDirection;
+  originalBusinessMonth: string;
+  saleMonth?: string | null;
+  verifyMonth?: string | null;
+  ruleMatchDate?: string | null;
+  saleTime?: string | null;
+  verifyTime?: string | null;
+  saleStoreId?: string | null;
+  saleStoreName?: string | null;
+  verifyStoreId?: string | null;
+  verifyStoreName?: string | null;
+  skuId: string;
+  skuName?: string | null;
+  productName?: string | null;
+  productScope: string;
+  productType: string;
+  saleChannel: string;
+  sourceAmountCent: number;
+  refundedAmountCent: number;
+  originalBaseCent: number;
+  feeRate: string;
+  originalFeeCent: number;
+  adjustmentBaseCent: number;
+  adjustmentFeeCent: number;
+  adjustedNetBaseCent: number;
+  adjustedNetFeeCent: number;
+  ruleVersion: string;
+  resultStatus: string;
+  statementId?: string | null;
+  statementLineId?: string | null;
+  statementStatus?: string | null;
+  dataStatus?: string;
+  adjustments: OrderFeeAdjustment[];
+}
+
+export interface OrderFeeDetailsData {
+  context: {
+    statementId?: string | null;
+    statementLineId?: string | null;
+    storeId?: string | null;
+    month?: string | null;
+    saleMonth?: string | null;
+    verifyMonth?: string | null;
+    feeDirection: FeeDirection;
+    productScope: string;
+    productType: string;
+    feeRates: string[];
+    ruleVersions: string[];
+    dataStatus?: string | null;
+    q?: string | null;
+    statementStatus?: string | null;
+  };
+  list: OrderFeeDetailRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface StoreRankingRow {
   rank: number;
   store_id: string;
@@ -479,6 +661,210 @@ export interface SkuRuleUpdateResult {
   rebuild_status: "queued" | "running" | "success" | "failed";
   settlement_detail_count?: number | null;
   settlement_monthly_count?: number | null;
+}
+
+export interface CamelPagination {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages?: number;
+}
+
+export type ProductStatus = "ACTIVE" | "INACTIVE" | "DELETED" | "UNKNOWN";
+
+export interface SkuProductItem {
+  skuId: string;
+  skuName: string | null;
+  productId: string | null;
+  productName: string | null;
+  spuId: string | null;
+  productScope: string;
+  productType: string;
+  isServiceProduct: boolean;
+  creatorAccountId: string | null;
+  creatorAccountName: string | null;
+  ownerAccountId: string | null;
+  ownerAccountName: string | null;
+  productStatus: ProductStatus | null;
+  isActiveProduct: boolean;
+  lastSyncedAt: string | null;
+  manualModifiedAt: string | null;
+}
+
+export interface SkuProductListData extends CamelPagination {
+  list: SkuProductItem[];
+}
+
+export interface SkuProductManualUpdate {
+  productScope: string;
+  productType: string;
+  isServiceProduct: boolean;
+}
+
+export type FeeRuleStatus = "ACTIVE" | "INACTIVE";
+
+export interface SkuFeeRuleItem {
+  ruleVersion: string;
+  skuId: string;
+  skuName: string | null;
+  productScope: string;
+  productType: string;
+  promotionServiceFeeRate: string;
+  managementServiceFeeRate: string;
+  effectiveDate: string;
+  effectiveAt: string;
+  ruleStatus: FeeRuleStatus;
+  previousRuleVersion: string | null;
+  createdBy: string;
+  changeReason: string;
+  publishedAt: string;
+  isMatchedVersion?: boolean;
+}
+
+export interface SkuFeeRuleListData extends CamelPagination {
+  list: SkuFeeRuleItem[];
+}
+
+export interface SkuFeeRuleCreate {
+  skuId: string;
+  promotionServiceFeeRate: string;
+  managementServiceFeeRate: string;
+  effectiveDate: string;
+  ruleStatus: FeeRuleStatus;
+  changeReason: string;
+}
+
+export type ImportBatchStatus =
+  | "UPLOADED"
+  | "VALIDATION_FAILED"
+  | "PENDING_COMMIT"
+  | "COMMITTING"
+  | "COMPLETED"
+  | "FAILED";
+
+export type ImportRowStatus =
+  | "PENDING"
+  | "VALID"
+  | "INVALID"
+  | "COMMITTED"
+  | "COMMIT_FAILED";
+
+export interface ImportBatchItem {
+  batchId: string;
+  fileName: string;
+  batchStatus: ImportBatchStatus;
+  commitMode: "ATOMIC";
+  effectiveDate: string;
+  totalCount: number;
+  validCount: number;
+  successCount: number;
+  failedCount: number;
+  uploadedBy: string;
+  validatedAt: string | null;
+  committedAt: string | null;
+  hasResultFile: boolean;
+}
+
+export interface ImportRowError {
+  field: string;
+  code: string;
+  message: string;
+}
+
+export interface ImportRowItem {
+  rowNumber: number;
+  skuName: string | null;
+  skuId: string | null;
+  promotionServiceFeeRate: string | null;
+  managementServiceFeeRate: string | null;
+  validationStatus: ImportRowStatus;
+  errors: ImportRowError[];
+  createdRuleVersion: string | null;
+}
+
+export interface ImportBatchUploadData {
+  batch: ImportBatchItem;
+  errorPreview: ImportRowItem[];
+  hasMoreErrors: boolean;
+}
+
+export interface ImportBatchListData extends CamelPagination {
+  list: ImportBatchItem[];
+}
+
+export interface ImportBatchDetailData {
+  batch: ImportBatchItem;
+  rows: CamelPagination & { list: ImportRowItem[] };
+}
+
+export interface ImportBatchCommitData {
+  batch: ImportBatchItem;
+  createdRuleVersions: string[];
+}
+
+export type ProductSyncStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "SUCCESS"
+  | "FAILED"
+  | "PARTIAL";
+export type ProductSyncMode = "INCREMENTAL" | "FULL";
+
+export interface ProductSyncRunItem {
+  syncRunId: string;
+  mode: ProductSyncMode;
+  status: ProductSyncStatus;
+  startedAt: string | null;
+  finishedAt: string | null;
+  observedCount: number;
+  insertedCount: number;
+  updatedCount: number;
+  unchangedCount: number;
+  failedCount: number;
+  latestSuccessfulSyncedAt: string | null;
+  nextCursorMasked: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+export interface ProductSyncRunListData extends CamelPagination {
+  list: ProductSyncRunItem[];
+}
+
+export interface ProductSyncRunDetailData {
+  run: ProductSyncRunItem;
+  phaseCounts: Record<string, number>;
+  affectedSkuSample: string[];
+  dataQualityIssueCount: number;
+  retryable: boolean;
+}
+
+export interface ProductSyncTriggerData {
+  syncRunId: string;
+  mode: ProductSyncMode;
+  status: "QUEUED";
+}
+
+export interface SkuSyncHistoryItem {
+  snapshotId: string;
+  syncRunId: string;
+  skuId: string;
+  productId: string | null;
+  spuId: string | null;
+  skuName: string | null;
+  productName: string | null;
+  creatorAccountId: string | null;
+  creatorAccountName: string | null;
+  ownerAccountId: string | null;
+  ownerAccountName: string | null;
+  productStatusRaw: string | null;
+  productStatus: ProductStatus | null;
+  payloadSha256: string;
+  observedAt: string;
+}
+
+export interface SkuSyncHistoryListData extends CamelPagination {
+  list: SkuSyncHistoryItem[];
 }
 
 export interface NonCommissionOwnerAccount {

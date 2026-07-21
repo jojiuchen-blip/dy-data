@@ -1,0 +1,14 @@
+{
+  "schemaVersion": "2.0.0",
+  "slug": "dy-data",
+  "brdFile": "C:\\Users\\86138\\Documents\\抖音来客看板\\docs\\brd\\BRD-dy-data-20260716-1255.md",
+  "screenshotAsked": true,
+  "screenshotDir": "C:\\Users\\86138\\Documents\\抖音来客看板\\src\\frontend\\page-preview\\screenshots",
+  "phase": 4,
+  "loopRound": 1,
+  "gapFilesConsumed": [
+    "C:\\Users\\86138\\Documents\\抖音来客看板\\src\\frontend\\page-preview\\explainer-b-gap-dy-data.md"
+  ],
+  "createdAt": "2026-07-17 14:26",
+  "updatedAt": "2026-07-17 14:41"
+}

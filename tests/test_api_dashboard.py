@@ -19,6 +19,7 @@ from dy_api.routes._data import DashboardDataStore, get_data_store, sanitize_err
 from apps.api.dy_api.models import (  # noqa: E402
     AggStoreMonthlySettlement,
     AggStoreRanking,
+    DimSkuProductRule,
     DimStore,
     SettlementOrderDetail,
 )
@@ -46,6 +47,162 @@ class FakeStore:
 
     def list_verify_months(self):
         return ["2026-05"]
+
+    def list_statement_months(self):
+        return ["2026-08", "2026-07"]
+
+    def store_exists(self, store_id: str):
+        return store_id == "store_001"
+
+    def monthly_settlement_context_exists(self, store_id: str, month: str):
+        return store_id == "store_001" and month in {"2026-08", "2026-07", "2026-05"}
+
+    def store_ranking_report(self, filters: dict):
+        return {
+            "period_type": filters["period_type"],
+            "period_key": filters["period_key"],
+            "product_scope": filters["product_scope"],
+            "product_type": filters["product_type"],
+            "formal_period_start_month": "2026-08",
+            "scope_mode": filters["scope_mode"],
+            "totals": {
+                "sales_order_count": 30,
+                "sales_amount_cent": 300000,
+                "verified_order_count": 20,
+                "verified_amount_cent": 200000,
+                "promotion_net_fee_cent": 4200,
+                "management_net_fee_cent": 1200,
+                "net_settlement_reference_cent": 3000,
+            },
+            "list": [
+                {
+                    "rank": 1,
+                    "store_id": "store_001",
+                    "store_name": "Store One",
+                    "sales_order_count": 3,
+                    "sales_amount_cent": 30000,
+                    "verified_order_count": 2,
+                    "verified_amount_cent": 20000,
+                    "promotion_net_fee_cent": 420,
+                    "management_net_fee_cent": 120,
+                    "net_settlement_reference_cent": 300,
+                }
+            ],
+            "total": 1,
+            "page": filters["page"],
+            "page_size": filters["page_size"],
+        }
+
+    def monthly_settlement_report(self, filters: dict):
+        return {
+            "store": {"store_id": filters["store_id"], "store_name": "Store One"},
+            "month": filters["month"],
+            "product_scope": filters["product_scope"],
+            "product_type": filters["product_type"],
+            "is_formal_period": filters["month"] >= "2026-08",
+            "statement": None,
+            "metrics": {
+                "sales_order_count": 3,
+                "sales_amount_cent": 30000,
+                "verified_order_count": 2,
+                "verified_amount_cent": 20000,
+                "promotion_base_cent": 21000,
+                "promotion_original_fee_cent": 1680,
+                "promotion_adjustment_fee_cent": -80,
+                "promotion_net_fee_cent": 1600,
+                "management_base_cent": 10000,
+                "management_original_fee_cent": 1000,
+                "management_adjustment_fee_cent": -100,
+                "management_net_fee_cent": 900,
+                "net_settlement_reference_cent": 700,
+            },
+            "lines": [
+                {
+                    "statement_line_id": None,
+                    "fee_direction": "PROMOTION",
+                    "product_scope": "精诚养车",
+                    "product_type": "basic_service",
+                    "original_entry_count": 1,
+                    "adjustment_entry_count": 1,
+                    "original_base_cent": 22000,
+                    "adjustment_base_cent": -1000,
+                    "net_base_cent": 21000,
+                    "original_fee_cent": 1680,
+                    "adjustment_fee_cent": -80,
+                    "net_fee_cent": 1600,
+                    "min_fee_rate": "0.080000",
+                    "max_fee_rate": "0.080000",
+                    "rule_version_count": 1,
+                    "fee_rates": ["0.080000"],
+                    "rule_versions": ["rule-v1"],
+                }
+            ],
+        }
+
+    def order_fee_details(self, filters: dict):
+        return {
+            "context": {
+                "statement_id": filters.get("statement_id"),
+                "statement_line_id": filters.get("statement_line_id"),
+                "store_id": filters.get("store_id"),
+                "month": filters.get("month"),
+                "fee_direction": filters["fee_direction"],
+                "product_scope": filters["product_scope"],
+                "product_type": filters["product_type"],
+                "fee_rates": filters.get("fee_rates", []),
+                "rule_versions": filters.get("rule_versions", []),
+                "statement_status": None,
+            },
+            "list": [
+                {
+                    "fee_result_id": "fee-1",
+                    "statement_entry_id": None,
+                    "order_id": "order_001",
+                    "coupon_id": "coupon_001",
+                    "order_status": "PAID",
+                    "coupon_status": "VERIFIED",
+                    "fee_direction": filters["fee_direction"],
+                    "original_business_month": "2026-08",
+                    "sale_month": "2026-08",
+                    "verify_month": "2026-08",
+                    "rule_match_date": "2026-08-02",
+                    "sale_time": "2026-08-02T08:00:00+08:00",
+                    "verify_time": "2026-08-03T08:00:00+08:00",
+                    "sale_store_id": "store_001",
+                    "sale_store_name": "Store One",
+                    "verify_store_id": "store_001",
+                    "verify_store_name": "Store One",
+                    "sku_id": "sku_001",
+                    "sku_name": "基础养护 SKU",
+                    "product_name": "基础养护",
+                    "product_scope": "精诚养车",
+                    "product_type": "basic_service",
+                    "sale_channel": "LIVE",
+                    "source_amount_cent": 10000,
+                    "refunded_amount_cent": 1000,
+                    "original_base_cent": 10000,
+                    "fee_rate": "0.080000",
+                    "original_fee_cent": 800,
+                    "adjustment_base_cent": -1000,
+                    "adjustment_fee_cent": -80,
+                    "adjusted_net_base_cent": 9000,
+                    "adjusted_net_fee_cent": 720,
+                    "rule_version": "rule-v1",
+                    "result_status": "VALID",
+                    "statement_id": None,
+                    "statement_line_id": None,
+                    "adjustments": [],
+                }
+            ],
+            "total": 1,
+            "page": filters["page"],
+            "page_size": filters["page_size"],
+        }
+
+    def order_fee_details_export_csv(self, filters: dict):
+        if filters.get("q") == "missing":
+            return ""
+        return "订单ID,券ID,费用方向,规则版本\r\norder_001,coupon_001,PROMOTION,rule-v1\r\n"
 
     def latest_job(self):
         return {
@@ -278,18 +435,179 @@ def test_filter_metadata_contract(client: TestClient):
 
     assert response.status_code == 200
     data = response.json()["data"]
-    assert data["stores"] == [{"store_id": "store_001", "store_name": "Store One"}]
-    assert data["product_scopes"] == ["all", "精诚养车"]
-    assert data["product_scope_type_map"] == {"精诚养车": ["basic_service"]}
-    assert data["product_types"] == ["all", "basic_service"]
+    assert data["stores"] == [{"storeId": "store_001", "storeName": "Store One"}]
+    assert data["productScopes"] == ["all", "精诚养车"]
+    assert data["productScopeTypeMap"] == {"精诚养车": ["basic_service"]}
+    assert data["productTypes"] == ["all", "basic_service"]
     assert "latest_job" not in data
+
+
+def test_settlement_reporting_target_contracts_are_camel_case(client: TestClient):
+    _login(client)
+
+    metadata = client.get("/api/v1/meta/filters")
+    assert metadata.status_code == 200
+    metadata_payload = metadata.json()
+    assert metadata_payload["data"]["stores"] == [
+        {"storeId": "store_001", "storeName": "Store One"}
+    ]
+    assert metadata_payload["data"]["statementMonths"] == ["2026-08", "2026-07"]
+    assert metadata_payload["data"]["feeDirections"] == ["PROMOTION", "MANAGEMENT"]
+    assert metadata_payload["data"]["formalPeriodStartMonth"] == "2026-08"
+    assert metadata_payload["meta"]["requestId"].startswith("req_")
+
+    ranking = client.get(
+        "/api/v1/dashboard/store-ranking",
+        params={
+            "periodType": "MONTHLY",
+            "periodKey": "2026-08",
+            "productScope": "all",
+            "productType": "all",
+            "sortBy": "NET_SETTLEMENT_REFERENCE",
+            "sortOrder": "DESC",
+            "page": 1,
+            "pageSize": 20,
+        },
+    )
+    assert ranking.status_code == 200
+    ranking_data = ranking.json()["data"]
+    assert ranking_data["totals"]["promotionNetFeeCent"] == 4200
+    assert ranking_data["list"][0]["storeId"] == "store_001"
+    assert ranking_data["pageSize"] == 20
+    assert "rows" not in ranking_data
+
+    settlement = client.get(
+        "/api/v1/stores/store_001/monthly-settlement",
+        params={"month": "2026-08", "productScope": "all", "productType": "all"},
+    )
+    assert settlement.status_code == 200
+    settlement_data = settlement.json()["data"]
+    assert settlement_data["isFormalPeriod"] is True
+    assert settlement_data["metrics"]["promotionNetFeeCent"] == 1600
+    assert settlement_data["lines"][0]["feeRates"] == ["0.080000"]
+    assert "tables" not in settlement_data
+
+    details = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "storeId": "store_001",
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "feeRates": "0.080000",
+            "ruleVersions": "rule-v1",
+            "page": 1,
+            "pageSize": 50,
+        },
+    )
+    assert details.status_code == 200
+    detail_data = details.json()["data"]
+    assert detail_data["context"]["feeRates"] == ["0.080000"]
+    assert detail_data["list"][0]["adjustedNetFeeCent"] == 720
+    assert "id" not in detail_data["list"][0]
+    assert "rawOrderId" not in detail_data["list"][0]
+
+    export = client.get(
+        "/api/v1/order-fee-details/export",
+        params={
+            "storeId": "store_001",
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "page": 9,
+            "pageSize": 1,
+        },
+    )
+    assert export.status_code == 200
+    assert export.content.startswith(b"\xef\xbb\xbf")
+    assert "text/csv" in export.headers["content-type"]
+    assert export.headers["x-request-id"].startswith("req_")
+    assert "order_001" in export.content.decode("utf-8-sig")
+
+
+def test_settlement_reporting_validation_is_structured(client: TestClient):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/order-fee-details",
+        params={"storeId": "store_001", "feeDirection": "PROMOTION"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "VALIDATION_FAILED"
+    assert response.json()["detail"]["requestId"].startswith("req_")
+
+
+def test_order_fee_export_empty_result_is_a_structured_conflict(
+    client: TestClient,
+):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/order-fee-details/export",
+        params={
+            "storeId": "store_001",
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "q": "missing",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "EXPORT_EMPTY"
+    assert response.json()["detail"]["requestId"].startswith("req_")
+
+
+def test_monthly_settlement_missing_store_is_structured_not_found(
+    client: TestClient,
+):
+    _login(client)
+
+    response = client.get(
+        "/api/v1/stores/missing/monthly-settlement",
+        params={"month": "2026-08"},
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"]["code"] == "RESOURCE_NOT_FOUND"
+
+
+def test_order_fee_detail_source_contexts_are_mutually_exclusive(
+    client: TestClient,
+):
+    _login(client)
+
+    orphan_line = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "statementLineId": "line-1",
+            "storeId": "store_001",
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+        },
+    )
+    mixed_context = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "statementId": "statement-1",
+            "statementLineId": "line-1",
+            "storeId": "store_001",
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+        },
+    )
+
+    assert orphan_line.status_code == 422
+    assert orphan_line.json()["detail"]["errors"][0]["field"] == "statementLineId"
+    assert mixed_context.status_code == 422
+    assert mixed_context.json()["detail"]["errors"][0]["field"] == "storeId"
 
 
 def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     client: TestClient,
 ):
     _login(client)
-    ranking = client.get("/api/v1/dashboard/store-ranking?month=2026-05")
+    ranking = client.get(
+        "/api/v1/dashboard/store-ranking?periodType=MONTHLY&periodKey=2026-05"
+    )
     settlement = client.get(
         "/api/v1/stores/store_001/monthly-settlement?month=2026-05"
     )
@@ -300,14 +618,14 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
 
     assert ranking.status_code == 200
     ranking_payload = ranking.json()
-    assert ranking_payload["data"]["rows"][0]["sales_order_count"] == 3
-    assert ranking_payload["data"]["totals"]["sales_order_count"] == 30
+    assert ranking_payload["data"]["list"][0]["salesOrderCount"] == 3
+    assert ranking_payload["data"]["totals"]["salesOrderCount"] == 30
     ranking_definitions = {
         definition["key"]: definition for definition in ranking_payload["definitions"]
     }
-    assert ranking_definitions["sales_order_count"]["label"] == "销售订单数量"
-    assert "顶部数字" in ranking_definitions["sales_order_count"]["description"]
-    assert ranking_definitions["self_verify_income_cent"]["label"] == "核销收入"
+    assert ranking_definitions["salesOrderCount"]["label"] == "销售订单数量"
+    assert "完整筛选集合" in ranking_definitions["salesOrderCount"]["description"]
+    assert ranking_definitions["promotionNetFeeCent"]["label"] == "推广服务费净额"
 
     assert settlement.status_code == 200
     settlement_payload = settlement.json()
@@ -315,19 +633,16 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
         definition["key"]: definition for definition in settlement_payload["definitions"]
     }
     assert (
-        settlement_definitions["estimated_receivable_commission_cent"]["label"]
-        == "预计应收分佣"
+        settlement_definitions["promotionNetFeeCent"]["label"]
+        == "应收推广服务费净额"
     )
-    assert "commissionable_total_cent" not in settlement_definitions
+    assert "commissionableTotalCent" not in settlement_definitions
     assert (
-        "按当前规则测算的参考额"
-        in settlement_definitions["estimated_payable_commission_cent"]["description"]
+        "调整后净额"
+        in settlement_definitions["managementNetFeeCent"]["description"]
     )
     assert (
-        settlement_payload["data"]["metrics"][
-            "estimated_receivable_commission_cent"
-        ]
-        == 1680
+        settlement_payload["data"]["metrics"]["promotionNetFeeCent"] == 1600
     )
     settlement_text = settlement.text
     assert deferred_field("current", "receivable", "commission", "cent") not in settlement_text
@@ -352,6 +667,8 @@ def test_dashboard_contract_responses_do_not_expose_deferred_fields(
     assert details.status_code == 200
     detail_row = details.json()["data"]["rows"][0]
     assert detail_row["coupon_id"] == "coupon_001"
+    assert "id" not in detail_row
+    assert "raw_order_id" not in detail_row
     assert detail_row["sale_store_subject_name"] == "Subject One"
     assert detail_row["verify_store_subject_name"] == "Subject Two"
     assert detail_row["is_refund_excluded"] is False
@@ -385,6 +702,9 @@ def test_order_details_export_is_csv_and_omits_deferred_fields(client: TestClien
     assert response.content.startswith(b"\xef\xbb\xbf")
     assert "order_id,coupon_id" in response.text
     assert "is_refund_excluded" in response.text
+    export_header = next(csv.reader(io.StringIO(response.text.lstrip("\ufeff"))))
+    assert "id" not in export_header
+    assert "raw_order_id" not in export_header
     assert deferred_field("invoice", "status") not in response.text
     assert deferred_field("refund", "amount", "cent") not in response.text
 
@@ -453,6 +773,88 @@ def test_store_ranking_totals_include_all_matching_rows(db_session: Session):
     }
 
 
+def test_target_store_ranking_totals_and_rank_are_stable_across_pages(
+    db_session: Session,
+):
+    timestamp = datetime(2026, 8, 1, 8, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            AggStoreRanking(
+                period_type=1,
+                period_key="2026-08",
+                month="2026-08",
+                store_id="store-a",
+                store_name="Store A",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=2,
+                sales_amount_cent=20000,
+                verified_order_count=1,
+                verified_amount_cent=10000,
+                promotion_net_fee_cent=1600,
+                management_net_fee_cent=300,
+                net_settlement_reference_cent=1300,
+                projection_run_id="run-ranking",
+                updated_at=timestamp,
+            ),
+            AggStoreRanking(
+                period_type=1,
+                period_key="2026-08",
+                month="2026-08",
+                store_id="store-b",
+                store_name="Store B",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=3,
+                sales_amount_cent=30000,
+                verified_order_count=2,
+                verified_amount_cent=20000,
+                promotion_net_fee_cent=2400,
+                management_net_fee_cent=500,
+                net_settlement_reference_cent=1900,
+                projection_run_id="run-ranking",
+                updated_at=timestamp,
+            ),
+        ]
+    )
+    db_session.commit()
+    store = DashboardDataStore(db_session)
+    base_filters = {
+        "period_type": "MONTHLY",
+        "period_key": "2026-08",
+        "product_scope": "all",
+        "product_type": "all",
+        "q": None,
+        "sort_by": "SALES_AMOUNT",
+        "sort_order": "DESC",
+        "page_size": 1,
+        "scope_mode": "AUTHORIZED",
+        "scope_store_ids": None,
+    }
+
+    first_page = store.store_ranking_report({**base_filters, "page": 1})
+    second_page = store.store_ranking_report({**base_filters, "page": 2})
+
+    assert first_page["list"][0]["store_id"] == "store-b"
+    assert first_page["list"][0]["rank"] == 1
+    assert second_page["list"][0]["store_id"] == "store-a"
+    assert second_page["list"][0]["rank"] == 2
+    assert first_page["totals"] == second_page["totals"]
+    assert first_page["totals"]["sales_amount_cent"] == 50000
+    assert first_page["total"] == 2
+
+    early_cumulative = store.store_ranking_report(
+        {
+            **base_filters,
+            "period_type": "CUMULATIVE",
+            "period_key": "2026-07",
+            "page": 1,
+        }
+    )
+    assert early_cumulative["list"] == []
+    assert early_cumulative["totals"]["sales_amount_cent"] == 0
+
+
 def test_product_scope_filters_ranking_settlement_and_details(db_session: Session):
     timestamp = datetime(2026, 5, 1, 8, tzinfo=timezone.utc)
     verify_time = datetime(2026, 5, 4, 8, tzinfo=timezone.utc)
@@ -467,6 +869,13 @@ def test_product_scope_filters_ranking_settlement_and_details(db_session: Sessio
                 store_id="store_other",
                 store_name="Other Store",
                 certified_subject_name="Other Subject",
+            ),
+            DimSkuProductRule(
+                sku_id="sku_scope",
+                product_scope="精诚养车",
+                product_type="268保养",
+                commission_rate=Decimal("0.1000"),
+                is_service_product=True,
             ),
             AggStoreRanking(
                 month="2026-05",
@@ -668,6 +1077,15 @@ def test_sales_dashboard_product_scope_filters_mapped_product_types(
             store_id="store_scope",
             store_name="Scope Store",
             certified_subject_name="Scope Subject",
+        )
+    )
+    db_session.add(
+        DimSkuProductRule(
+            sku_id="sku_scope",
+            product_scope="精诚养车",
+            product_type="268保养",
+            commission_rate=Decimal("0.1000"),
+            is_service_product=True,
         )
     )
     for coupon_id, order_id, product_type, amount in [
