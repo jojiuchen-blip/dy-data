@@ -1,8 +1,8 @@
 # dy-data Page Delivery Design-System Index
 
-**Project:** dy-data  
-**Delivery scope:** Existing project pages  
-**Generated search profile:** Data-dense operational dashboard  
+**Project:** dy-data
+**Delivery scope:** Existing project pages
+**Generated search profile:** Data-dense operational dashboard
 **Authority status:** Index only; not a competing design system
 
 ## Authoritative Sources

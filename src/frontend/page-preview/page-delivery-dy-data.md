@@ -1,7 +1,7 @@
 # 页面交付清单 - dy-data（抖音经营数据引擎）
 
-> 生成时间: 2026-07-19 16:32 +08:00  
-> Skill: page-designer  
+> 生成时间: 2026-07-19 16:32 +08:00
+> Skill: page-designer
 > 技术栈: React 19 + TypeScript + Vite 7 + Solar Icons
 
 ## 交付边界
