@@ -5,7 +5,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dy_api.routes import admin, auth, clues, dashboard, feedback, jobs, meta
+from dy_api.routes import admin, auth, cli_auth, clues, dashboard, feedback, jobs, meta
 
 
 def create_app() -> FastAPI:
@@ -26,6 +26,9 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
+    app.include_router(
+        cli_auth.router, prefix="/api/v1/auth/cli", tags=["cli-auth"]
+    )
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])

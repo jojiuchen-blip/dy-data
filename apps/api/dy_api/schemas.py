@@ -39,6 +39,61 @@ class AdminUser(BaseModel):
     is_highest_admin: bool = False
 
 
+class CliDeviceStartResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str
+    expires_in: Literal[600] = 600
+    interval: Literal[3] = 3
+
+
+class CliDeviceApproveRequest(BaseModel):
+    user_code: str
+
+    @field_validator("user_code")
+    def normalize_user_code(cls, value: str) -> str:
+        normalized = "".join(value.split()).upper()
+        if not normalized:
+            raise ValueError("user_code is required")
+        return normalized
+
+
+class CliDeviceTokenRequest(BaseModel):
+    device_code: str
+
+    @field_validator("device_code")
+    def non_empty_device_code(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("device_code is required")
+        return normalized
+
+
+class CliRefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+    @field_validator("refresh_token")
+    def non_empty_refresh_token(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("refresh_token is required")
+        return normalized
+
+
+class CliTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    scope: Literal["cli:read"] = "cli:read"
+    expires_in: Literal[1800] = 1800
+    access_token_expires_at: datetime
+
+
+class CliAuthorizationStatusResponse(BaseModel):
+    status: Literal["authorization_pending", "approved", "revoked"]
+
+
 class AccountActivationIdentityRequest(BaseModel):
     external_account_id: str
 
