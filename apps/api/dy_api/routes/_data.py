@@ -1993,6 +1993,16 @@ class DashboardDataStore:
             return []
 
         clauses = [f"r.assigned_store_id IN ({placeholders})"]
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is not None:
+            visible_placeholders, visible_params = _in_clause_params(
+                "clue_visible_product", visible_product_types
+            )
+            if visible_placeholders:
+                clauses.append(f"c.product_type IN ({visible_placeholders})")
+                params.update(visible_params)
+            else:
+                clauses.append("1 = 0")
         assigned_start = _parse_filter_datetime(assigned_date_start)
         if assigned_start is not None:
             clauses.append("r.assigned_at >= :assigned_date_start")

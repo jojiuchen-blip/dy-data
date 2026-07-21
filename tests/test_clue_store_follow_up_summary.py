@@ -10,7 +10,12 @@ from sqlalchemy.orm import Session
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, DimStore  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    ClueAssignmentRound,
+    ClueCenterOrder,
+    DimStore,
+    ProductTypeVisibilitySetting,
+)
 from dy_api.routes._data import DashboardDataStore  # noqa: E402
 
 
@@ -33,6 +38,7 @@ def _add_round(
     follow_result: str,
     is_followed: bool,
     is_follow_success: bool,
+    product_type: str | None = None,
 ) -> None:
     session.add_all(
         [
@@ -48,6 +54,7 @@ def _add_round(
                 assigned_at=assigned_at,
                 assigned_store_id=store_id,
                 assigned_store_name=store_name,
+                product_type=product_type,
                 follow_result=follow_result,
                 is_followed=is_followed,
                 is_follow_success=is_follow_success,
@@ -208,3 +215,82 @@ def test_clue_store_follow_up_summary_partitions_rounds_and_matches_overview(
         )
         assert row["system_follow_up_rate"] == overview["follow_success_rate"]
         assert row["action_follow_rate"] == overview["follow_rate"]
+
+
+def test_clue_store_follow_up_summary_honors_product_type_visibility(
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [
+            DimStore(store_id="store-visible", store_name="Visible Store", is_active=True),
+            DimStore(store_id="store-zero", store_name="Zero Store", is_active=True),
+            ProductTypeVisibilitySetting(
+                setting_key="global",
+                enabled=True,
+                visible_product_scopes=[],
+                visible_product_types=["Visible Product"],
+                default_product_type="all",
+            ),
+        ]
+    )
+    _add_round(
+        db_session,
+        order_id="visible-product-round",
+        store_id="store-visible",
+        store_name="Visible Store",
+        assigned_at=_bj(1, 10),
+        lead_status="active",
+        round_status="active_followed",
+        follow_result="appointment",
+        is_followed=True,
+        is_follow_success=True,
+        product_type="Visible Product",
+    )
+    _add_round(
+        db_session,
+        order_id="hidden-product-round",
+        store_id="store-visible",
+        store_name="Visible Store",
+        assigned_at=_bj(1, 11),
+        lead_status="active",
+        round_status="active_unfollowed",
+        follow_result="pending",
+        is_followed=False,
+        is_follow_success=False,
+        product_type="Hidden Product",
+    )
+    db_session.commit()
+
+    store = DashboardDataStore(db_session)
+    filters = {
+        "assigned_store_id": "store-visible",
+        "assigned_date_start": "2026-06-01",
+        "assigned_date_end": "2026-06-01",
+    }
+    rows = store.clue_store_follow_up_summary(
+        store_ids=("store-zero", "store-visible"),
+        assigned_date_start=filters["assigned_date_start"],
+        assigned_date_end=filters["assigned_date_end"],
+    )
+
+    visible, zero = rows
+    assert visible["total_count"] == 1
+    assert visible["system_follow_up_rate"] == 1
+    assert visible["action_follow_rate"] == 1
+    assert visible["system_follow_up_rate"] == store.clue_overview(filters)["follow_success_rate"]
+    assert visible["action_follow_rate"] == store.clue_overview(filters)["follow_rate"]
+    assert zero["total_count"] == 0
+
+    visibility = db_session.get(ProductTypeVisibilitySetting, "global")
+    assert visibility is not None
+    visibility.visible_product_types = []
+    db_session.commit()
+
+    empty_visibility_rows = store.clue_store_follow_up_summary(
+        store_ids=("store-zero", "store-visible"),
+        assigned_date_start=filters["assigned_date_start"],
+        assigned_date_end=filters["assigned_date_end"],
+    )
+    assert [row["total_count"] for row in empty_visibility_rows] == [0, 0]
+    assert [row["system_follow_up_rate"] for row in empty_visibility_rows] == [0, 0]
+    assert [row["action_follow_rate"] for row in empty_visibility_rows] == [0, 0]
