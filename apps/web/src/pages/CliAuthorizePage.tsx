@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 import { ApiRequestError, approveCliAuthorization } from "../api/client";
 import { Button } from "../components/Button";
 import type { AdminUser } from "../types/dashboard";
-import { readCliAuthorizationCode } from "../utils/cliAuthorization";
+import {
+  isCurrentCliAuthorizationRequest,
+  readCliAuthorizationCode,
+} from "../utils/cliAuthorization";
 
 interface CliAuthorizePageProps {
   currentUser: AdminUser;
@@ -25,13 +34,19 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
   const [approvalState, setApprovalState] = useState<ApprovalState>("ready");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
+  const requestGenerationRef = useRef(0);
+  const latestUserCodeRef = useRef("");
+  const submittingRef = useRef(false);
   const userCode = useMemo(
     () => readCliAuthorizationCode(search),
     [search],
   );
   const accountName = currentUser.display_name || currentUser.username;
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    latestUserCodeRef.current = userCode;
+    requestGenerationRef.current += 1;
+    submittingRef.current = false;
     setApprovalState("ready");
     setSubmitting(false);
     setMessage("");
@@ -39,20 +54,49 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
 
   const handleApprove = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!userCode || submitting) {
+    if (!userCode || submittingRef.current) {
       return;
     }
 
+    const request = {
+      generation: requestGenerationRef.current,
+      userCode,
+    };
+    const isCurrentRequest = (responseUserCode?: string) =>
+      isCurrentCliAuthorizationRequest(
+        request,
+        {
+          generation: requestGenerationRef.current,
+          userCode: latestUserCodeRef.current,
+        },
+        responseUserCode,
+      );
+
+    submittingRef.current = true;
     setSubmitting(true);
     setMessage("");
     try {
-      await approveCliAuthorization(userCode);
+      const response = await approveCliAuthorization(userCode);
+      if (!isCurrentRequest()) {
+        return;
+      }
+      if (!isCurrentRequest(response.user_code)) {
+        setApprovalState("invalid");
+        setMessage("授权响应与当前验证码不匹配，请返回 CLI 重新发起授权。");
+        return;
+      }
       setApprovalState("approved");
     } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
       setApprovalState("invalid");
       setMessage(errorMessage(error));
     } finally {
-      setSubmitting(false);
+      if (isCurrentRequest()) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
     }
   };
 
