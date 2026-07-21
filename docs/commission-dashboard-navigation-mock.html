@@ -245,6 +245,16 @@
       .invoice-step p { margin: 0; color: var(--muted); line-height: 1.55; }
       .step-state { display: block; margin-top: 12px; color: var(--green); font-weight: 800; }
       .invoice-step.current .step-state { color: var(--brand); }
+      .invoice-guide { padding: 0 22px 22px; }
+      .invoice-guide h3 { margin: 0 0 14px; font-size: 20px; }
+      .guide-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      .guide-card { padding: 20px; border: 1px solid var(--line); border-radius: 10px; background: #fff; }
+      .guide-card h4 { margin: 0 0 10px; font-size: 17px; }
+      .guide-card p { margin: 0; color: var(--muted); line-height: 1.7; }
+      .guide-card ul { margin: 0; padding-left: 20px; color: var(--muted); line-height: 1.8; }
+      .guide-card strong { color: var(--ink); }
+      .guide-card--wide { grid-column: 1 / -1; }
+      .guide-note { margin-top: 10px !important; padding: 10px 12px; border-radius: 8px; color: #7a2600 !important; background: var(--brand-soft); }
 
       @media (max-width: 1180px) {
         .metric-grid--four, .metric-grid--five { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -266,11 +276,13 @@
       @media (max-width: 560px) {
         .rail-nav { grid-template-columns: 1fr 1fr; }
         .page-wrap { padding-inline: 14px; }
-        .filter-panel, .metric-grid--four, .metric-grid--five, .invoice-grid { grid-template-columns: 1fr; }
+        .filter-panel, .metric-grid--four, .metric-grid--five, .invoice-grid, .guide-grid { grid-template-columns: 1fr; }
         .peer-nav { gap: 22px; }
         .section-heading { align-items: start; flex-direction: column; padding: 18px; }
         .metric { padding: 18px; }
         .invoice-grid { padding: 16px; }
+        .invoice-guide { padding: 0 16px 16px; }
+        .guide-card--wide { grid-column: auto; }
       }
     </style>
   </head>
@@ -368,7 +380,7 @@
         </tbody></table></div>
       </section>
       <section class="content-panel">
-        <div class="section-heading"><div><h2>应扣管理服务费：进入本店完成核销的订单</h2><p>本店在当月核销所有抖音渠道的订单</p></div><span class="direction-pill direction-pill--green">管理服务费方向</span></div>
+        <div class="section-heading"><div><h2>应扣管理服务费：进入本店完成核销的订单</h2><p>本店在当月核销的直播、短视频渠道有效商品订单</p></div><span class="direction-pill direction-pill--green">管理服务费方向</span></div>
         <div class="table-scroll"><table><thead><tr><th>产品范围</th><th>商品类型</th><th class="num">对应核销单数</th><th class="num">对应订单实收金额</th><th class="num">配置比例</th><th class="num">应扣管理服务费</th><th>点击跳转</th></tr></thead><tbody>
           <tr><td>养车套餐</td><td><strong>精保养套餐</strong></td><td class="num">136</td><td class="num">¥98,200.00</td><td class="num">10.0%</td><td class="num"><strong>¥9,820.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=养车套餐&amp;product_type=精保养套餐&amp;direction=management&amp;ratio=10.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
           <tr><td>美容养护</td><td><strong>漆面护理</strong></td><td class="num">72</td><td class="num">¥54,800.00</td><td class="num">10.0%</td><td class="num"><strong>¥5,480.00</strong></td><td><a class="text-link" href="#/orders?month=2026-07&amp;store=ST-SH-001&amp;product_scope=美容养护&amp;product_type=漆面护理&amp;direction=management&amp;ratio=10.0%25&amp;version=V2026.07.1&amp;focus=workbench">查看订单</a></td></tr>
@@ -408,11 +420,11 @@
 
     <template id="invoice-template">
       <section class="page-heading">
-        <div><h1>开票确认</h1><p>当前基础版本只展示门店账单确认与开票所处流程，不展开详细发票能力或财务操作。</p></div>
+        <div><h1>开票确认</h1><p>查看门店账单确认、开票准备与财务审核路径；当前不提供在线开票或财务操作。</p></div>
         <span class="source-pill">Mock 数据 · 更新于 2026-07-15 09:30</span>
       </section>
       <section class="content-panel">
-        <div class="section-heading"><div><h2>账单确认与开票</h2><p>初版仅展示门店所处流程，不展开详细发票能力或财务操作。</p></div><span class="status-pill">当前功能暂未开放</span></div>
+        <div class="section-heading"><div><h2>账单确认与开票</h2><p>先核对账单与订单费用，再按财务最终指引准备材料。</p></div><span class="status-pill">当前功能暂未开放</span></div>
         <div class="invoice-grid">
           <article class="invoice-step"><span class="step-number">01</span><div><h3>月度账单待确认</h3><p>系统生成本店月度账单</p><span class="step-state">流程节点</span></div></article>
           <article class="invoice-step"><span class="step-number">02</span><div><h3>门店确认账单</h3><p>门店确认账单金额与范围</p><span class="step-state">流程节点</span></div></article>
@@ -420,6 +432,44 @@
           <article class="invoice-step current"><span class="step-number">04</span><div><h3>发票提交财务审核</h3><p>等待财务审核发票</p><span class="step-state">流程节点</span></div></article>
           <article class="invoice-step future"><span class="step-number">05</span><div><h3>审核完成并进入结算</h3><p>审核通过后进入结算</p><span class="step-state">流程节点</span></div></article>
         </div>
+        <section class="invoice-guide" aria-labelledby="invoice-guide-title">
+          <h3 id="invoice-guide-title">开票准备指引</h3>
+          <div class="guide-grid">
+            <article class="guide-card">
+              <h4>前置条件</h4>
+              <ul>
+                <li>正式账期从 2026-08 开始，2026-07 测试数据不纳入。</li>
+                <li>先在单店分账和订单费用明细中核对推广费金额与计算依据。</li>
+                <li>账单状态、金额和范围确认后，再按财务通知开票。</li>
+              </ul>
+            </article>
+            <article class="guide-card">
+              <h4>需准备材料</h4>
+              <ul>
+                <li>门店开票主体与纳税人识别信息。</li>
+                <li>已确认的月度账单与推广费订单明细。</li>
+                <li>财务要求的其他资质或证明材料。</li>
+              </ul>
+              <p class="guide-note"><strong>待财务确认：</strong>发票抬头、税号、类目、税率与接收方式以上线通知为准。</p>
+            </article>
+            <article class="guide-card">
+              <h4>预计开票范围</h4>
+              <p>门店按已确认账单开具<strong>推广服务费</strong>发票。管理服务费属于门店应扣费用，不计入本页所述的门店推广费开票金额。</p>
+            </article>
+            <article class="guide-card">
+              <h4>支持渠道</h4>
+              <p>当前页面不提供在线提交。若账单金额、订单归属或材料口径有疑问，请联系所属区域运营或财务对接人；正式支持入口待上线通知。</p>
+            </article>
+            <article class="guide-card guide-card--wide">
+              <h4>常见问题</h4>
+              <ul>
+                <li><strong>现在能在系统里开票吗？</strong> 不能，当前仅提供流程与准备指引。</li>
+                <li><strong>2026-07 的测试账单需要开票吗？</strong> 不需要，正式账期从 2026-08 开始。</li>
+                <li><strong>账单金额有疑问怎么办？</strong> 返回单店分账并下钻订单费用明细，保留规则版本后联系运营或财务核对。</li>
+              </ul>
+            </article>
+          </div>
+        </section>
       </section>
     </template>
 

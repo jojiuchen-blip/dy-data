@@ -1,6 +1,6 @@
 # dy-data API 契约索引
 
-> 当前运行契约以 `apps/api/dy_api/routes/`、Pydantic schema、依赖和测试为准。本文提供稳定的认证、包络和接口分组索引，不替代尚未建立的 FOUNDATION API 文档。
+> 当前运行契约以 `apps/api/dy_api/routes/`、Pydantic schema、依赖和测试为准。双费率、商品同步和双费用结算契约见 [Foundation API 设计](prd/foundation/foundation-api-dy-data.md)；T3.1 已实现结算筛选、榜单、单店分账、订单费用明细与同口径导出，生产迁移和端到端发布验收仍以 T4.1 结果为准。
 
 ## 1. 基础约定
 
@@ -35,11 +35,15 @@
 - `GET /dashboard/store-ranking`
 - `GET /commission-rules/summary`
 - `GET /stores/{store_id}/monthly-settlement`
+- `GET /order-fee-details`
+- `GET /order-fee-details/export`
 - `GET /dashboard/sales`
 - `GET /order-details`
 - `GET /order-details/export`
 
-筛选、汇总与明细必须使用一致的时间、门店、商品类型和权限范围。导出不是公开端点，同样需要认证与范围控制。
+前三个结算页面入口使用 camelCase 业务字段、标准 `{ list, total, page, pageSize }` 分页和带 `requestId` 的响应元数据。榜单摘要基于完整过滤集合且名次不按页重置；单店和订单明细在服务端重验门店或账单范围；锁账查询只读冻结来源，预览只读当前指针。`/order-fee-details/export` 忽略分页、重新授权、返回带 UTF-8 BOM 的 CSV，空结果返回 409 `EXPORT_EMPTY`。
+
+旧 `/order-details*` 继续提供通用订单查询和导出，不混入双费用、账单冻结或调整记录语义。所有筛选、汇总与明细必须使用一致的时间、门店、产品维度和权限范围；导出不是公开端点，同样需要认证与范围控制。
 
 ## 4. 线索运营
 
@@ -80,4 +84,4 @@
 1. 先修改 schema、实现和测试，再同步本文分组索引与前端类型。
 2. 破坏性字段或语义变化必须写入 Linear 验收标准并提供迁移方案。
 3. 新接口至少覆盖正常、非法输入、无认证、无权限和门店越权场景。
-4. 正式 FOUNDATION 建立后，详细字段契约迁入该权威文档，本文保留入口与兼容约定。
+4. 详细目标字段契约由 Foundation API 文档维护；本文保留当前运行入口与兼容约定。目标契约进入实现后，必须同步更新 route、Pydantic schema、前端类型、测试和本索引。
