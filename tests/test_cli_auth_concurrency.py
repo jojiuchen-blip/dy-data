@@ -5,7 +5,8 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, select
+from sqlalchemy.sql import Delete, Insert, Select, Update
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.orm.exc import StaleDataError
 
@@ -127,3 +128,106 @@ def test_scope_replacement_atomically_bumps_stale_user_once_and_noop_does_not(
         replace_user_store_scopes(stale_session, "scope-user", [])
         stale_session.commit()
         assert stale_user.auth_generation == initial_generation + 2
+
+
+def test_scope_replacement_locks_parent_before_scope_read_and_mutation(
+    tmp_path: Path,
+) -> None:
+    factory = _session_factory(tmp_path)
+    with factory() as setup_session:
+        setup_session.add_all(
+            [
+                DimStore(store_id="store-a", store_name="Store A"),
+                DimStore(store_id="store-b", store_name="Store B"),
+            ]
+        )
+        _add_user(setup_session, user_id="locked-user")
+        setup_session.add(
+            UserStoreScope(user_id="locked-user", store_id="store-a")
+        )
+        setup_session.commit()
+
+    with factory() as session:
+        statements: list[object] = []
+
+        @event.listens_for(session.get_bind(), "before_execute")
+        def _record_statement(
+            _connection,
+            clause_element,
+            _multiparams,
+            _params,
+            _execution_options,
+        ) -> None:
+            statements.append(clause_element)
+
+        replace_user_store_scopes(session, "locked-user", ["store-b"])
+
+        lock_statement = statements[0]
+        scope_statement = statements[1]
+        delete_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if isinstance(statement, Delete)
+        )
+        insert_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if isinstance(statement, Insert)
+        )
+        update_index = next(
+            index
+            for index, statement in enumerate(statements)
+            if isinstance(statement, Update)
+        )
+        assert isinstance(lock_statement, Select)
+        assert User.__table__ in lock_statement.get_final_froms()
+        assert lock_statement._for_update_arg is not None
+        assert isinstance(scope_statement, Select)
+        assert UserStoreScope.__table__ in scope_statement.get_final_froms()
+        assert 1 < delete_index < insert_index < update_index
+
+
+def test_scope_replacement_handles_missing_user_explicitly(tmp_path: Path) -> None:
+    factory = _session_factory(tmp_path)
+
+    with factory() as session:
+        with pytest.raises(ValueError, match="User not found"):
+            replace_user_store_scopes(session, "missing-user", [])
+
+
+def test_serial_scope_replacements_noop_same_target_and_replace_different_target(
+    tmp_path: Path,
+) -> None:
+    factory = _session_factory(tmp_path)
+    with factory() as setup_session:
+        setup_session.add_all(
+            [
+                DimStore(store_id="store-a", store_name="Store A"),
+                DimStore(store_id="store-b", store_name="Store B"),
+            ]
+        )
+        user = _add_user(setup_session, user_id="serial-user")
+        initial_generation = user.auth_generation
+
+    with factory() as session:
+        replace_user_store_scopes(session, "serial-user", ["store-a"])
+        session.commit()
+        user = session.get(User, "serial-user")
+        assert user is not None
+        first_generation = user.auth_generation
+        assert first_generation == initial_generation + 1
+
+        replace_user_store_scopes(session, "serial-user", ["store-a"])
+        session.commit()
+        assert user.auth_generation == first_generation
+
+        replace_user_store_scopes(session, "serial-user", ["store-b"])
+        session.commit()
+        assert user.auth_generation == first_generation + 1
+        assert set(
+            session.scalars(
+                select(UserStoreScope.store_id).where(
+                    UserStoreScope.user_id == "serial-user"
+                )
+            ).all()
+        ) == {"store-b"}

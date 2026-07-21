@@ -28,6 +28,13 @@ def replace_user_store_scopes(
     session: Session, user_id: str, store_ids: list[str]
 ) -> None:
     """Replace store membership and invalidate prior authorization when it changes."""
+    with session.no_autoflush:
+        locked_user = session.execute(
+            select(User).where(User.user_id == user_id).with_for_update()
+        ).scalar_one_or_none()
+    if locked_user is None:
+        raise ValueError(f"User not found: {user_id}")
+
     desired_store_ids = set(store_ids)
     current_store_ids = set(
         session.scalars(
