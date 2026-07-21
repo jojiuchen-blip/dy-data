@@ -1,5 +1,11 @@
+export function normalizeCliAuthorizationCode(userCode: string): string {
+  return userCode.replace(/\s+/g, "").toUpperCase();
+}
+
 export function readCliAuthorizationCode(search: string): string {
-  return new URLSearchParams(search).get("user_code")?.trim() ?? "";
+  return normalizeCliAuthorizationCode(
+    new URLSearchParams(search).get("user_code") ?? "",
+  );
 }
 
 export interface CliAuthorizationRequest {
@@ -12,9 +18,17 @@ export function isCurrentCliAuthorizationRequest(
   current: CliAuthorizationRequest,
   responseUserCode?: string,
 ): boolean {
+  const requestUserCode = normalizeCliAuthorizationCode(request.userCode);
+  const currentUserCode = normalizeCliAuthorizationCode(current.userCode);
+  const normalizedResponseUserCode =
+    responseUserCode === undefined
+      ? undefined
+      : normalizeCliAuthorizationCode(responseUserCode);
+
   return (
     request.generation === current.generation &&
-    request.userCode === current.userCode &&
-    (responseUserCode === undefined || responseUserCode === request.userCode)
+    requestUserCode === currentUserCode &&
+    (normalizedResponseUserCode === undefined ||
+      normalizedResponseUserCode === requestUserCode)
   );
 }
