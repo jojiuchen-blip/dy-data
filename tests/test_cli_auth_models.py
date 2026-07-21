@@ -22,6 +22,7 @@ def test_cli_device_authorization_and_refresh_token_persist(db_session) -> None:
         token_hash="refresh-hash",
         username="admin",
         auth_type="local",
+        authorization_fingerprint="fingerprint-1",
         expires_at=utcnow() + timedelta(days=30),
     )
 
@@ -36,6 +37,7 @@ def test_cli_device_authorization_and_refresh_token_persist(db_session) -> None:
     assert persisted_refresh_token is not None
     assert persisted_refresh_token.user_id is None
     assert persisted_refresh_token.token_hash == "refresh-hash"
+    assert persisted_refresh_token.authorization_fingerprint == "fingerprint-1"
 
 
 @pytest.mark.parametrize(
@@ -57,6 +59,7 @@ def test_cli_device_authorization_and_refresh_token_persist(db_session) -> None:
                 "token_hash": "refresh-hash",
                 "username": "admin",
                 "auth_type": "local",
+                "authorization_fingerprint": "fingerprint-duplicate",
                 "expires_at": utcnow() + timedelta(days=30),
             },
         ),
@@ -77,6 +80,7 @@ def test_cli_auth_hashes_are_unique(db_session, model, values) -> None:
             token_hash="refresh-hash",
             username="admin",
             auth_type="local",
+            authorization_fingerprint="fingerprint-1",
             expires_at=utcnow() + timedelta(days=30),
         )
     )
@@ -113,3 +117,19 @@ def test_cli_device_authorization_user_code_hash_is_unique(db_session) -> None:
 
     assert db_session.get(CliDeviceAuthorization, "device-1") is not None
     assert db_session.get(CliDeviceAuthorization, "device-2") is None
+
+
+def test_cli_refresh_token_authorization_fingerprint_is_required(db_session) -> None:
+    db_session.add(
+        CliRefreshToken(
+            refresh_token_id="refresh-without-fingerprint",
+            token_hash="refresh-without-fingerprint-hash",
+            username="admin",
+            auth_type="env_admin",
+            expires_at=utcnow() + timedelta(days=30),
+        )
+    )
+
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()

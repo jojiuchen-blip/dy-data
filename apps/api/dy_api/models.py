@@ -205,6 +205,7 @@ class CliRefreshToken(Base):
     )
     username: Mapped[str] = mapped_column(Text)
     auth_type: Mapped[str] = mapped_column(String(32))
+    authorization_fingerprint: Mapped[str] = mapped_column(Text)
     scope: Mapped[str] = mapped_column(Text, default="cli:read")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)

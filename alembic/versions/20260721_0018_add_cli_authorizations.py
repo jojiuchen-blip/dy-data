@@ -77,6 +77,7 @@ def upgrade() -> None:
             ),
             sa.Column("username", sa.Text(), nullable=False),
             sa.Column("auth_type", sa.String(length=32), nullable=False),
+            sa.Column("authorization_fingerprint", sa.Text(), nullable=False),
             sa.Column("scope", sa.Text(), nullable=False, server_default="cli:read"),
             sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
             sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),

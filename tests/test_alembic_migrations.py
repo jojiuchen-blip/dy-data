@@ -348,12 +348,18 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
         "user_id",
         "username",
         "auth_type",
+        "authorization_fingerprint",
         "scope",
         "expires_at",
         "last_used_at",
         "revoked_at",
         "replaced_by_token_id",
     }.issubset({column["name"] for column in upgraded.get_columns("cli_refresh_tokens")})
+    refresh_columns = {
+        column["name"]: column
+        for column in upgraded.get_columns("cli_refresh_tokens")
+    }
+    assert not refresh_columns["authorization_fingerprint"]["nullable"]
     device_indexes = {
         index["name"]: index for index in upgraded.get_indexes("cli_device_authorizations")
     }

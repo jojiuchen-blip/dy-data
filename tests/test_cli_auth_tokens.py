@@ -59,7 +59,7 @@ def test_cli_access_token_reloads_current_user_scope(monkeypatch, db_session) ->
     _active_user(db_session)
     issued_auth = AuthContext(
         user_id="user-1",
-        username="stale-username",
+        username="store-user",
         display_name="Stale Name",
         role="admin",
         store_ids=("historic-store",),
@@ -179,7 +179,9 @@ def test_cli_access_payload_has_fixed_type_scope_and_expiry(monkeypatch) -> None
     assert payload is not None
     assert payload["typ"] == "cli_access"
     assert payload["scope"] == "cli:read"
-    assert payload["uid"] == "user-1"
+    assert "uid" not in payload
+    assert "user_id" not in payload
+    assert "user-1" not in payload.values()
     assert isinstance(payload["jti"], str) and payload["jti"]
     assert "store_ids" not in payload
     assert expires_at == datetime(2026, 7, 21, 8, 30, tzinfo=timezone.utc)

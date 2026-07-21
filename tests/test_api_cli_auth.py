@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
@@ -153,6 +153,45 @@ def test_device_start_uses_request_origin_without_proxy_root_path(
     )
 
 
+def test_device_start_rejects_host_fallback_in_production(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    db_session,
+) -> None:
+    monkeypatch.setenv("DY_API_TEST_MODE", "false")
+    monkeypatch.delenv("DY_WEB_BASE_URL", raising=False)
+
+    response = client.post(
+        "/api/v1/auth/cli/device/start",
+        headers={"Host": "attacker.example"},
+    )
+
+    assert response.status_code == 503
+    assert "DY_WEB_BASE_URL" in response.json()["detail"]
+    assert (
+        db_session.execute(select(CliDeviceAuthorization)).scalar_one_or_none()
+        is None
+    )
+
+
+@pytest.mark.parametrize(
+    "unsafe_base_url",
+    ["http://portal.example.test", "https:///missing-host"],
+)
+def test_device_start_rejects_unsafe_production_web_base_url(
+    monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    unsafe_base_url: str,
+) -> None:
+    monkeypatch.setenv("DY_API_TEST_MODE", "false")
+    monkeypatch.setenv("DY_WEB_BASE_URL", unsafe_base_url)
+
+    response = client.post("/api/v1/auth/cli/device/start")
+
+    assert response.status_code == 503
+    assert "https URL with a hostname" in response.json()["detail"]
+
+
 def test_device_token_pending_then_approved_grant_is_consumed_once(
     client: TestClient, db_session
 ) -> None:
@@ -271,6 +310,94 @@ def test_disabled_user_cannot_refresh(client: TestClient, db_session) -> None:
     )
 
     assert response.status_code == 401
+
+
+def test_store_scope_change_revokes_existing_refresh_token(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refresh_token = flow["tokens"]["refresh_token"]
+    db_session.execute(
+        delete(UserStoreScope).where(UserStoreScope.user_id == flow["user"].user_id)
+    )
+    db_session.add(
+        UserStoreScope(user_id=flow["user"].user_id, store_id="store-2")
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 401
+    stored = db_session.execute(
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(refresh_token)
+        )
+    ).scalar_one()
+    db_session.refresh(stored)
+    assert stored.revoked_at is not None
+
+
+@pytest.mark.parametrize(
+    ("field_name", "changed_value"),
+    [("role", "viewer"), ("password_hash", "changed-password-hash")],
+)
+def test_role_or_credential_change_revokes_existing_refresh_token(
+    client: TestClient,
+    db_session,
+    field_name: str,
+    changed_value: str,
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refresh_token = flow["tokens"]["refresh_token"]
+    setattr(flow["user"], field_name, changed_value)
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 401
+    stored = db_session.execute(
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(refresh_token)
+        )
+    ).scalar_one()
+    db_session.refresh(stored)
+    assert stored.revoked_at is not None
+
+
+def test_failed_disabled_refresh_stays_revoked_after_user_is_reenabled(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refresh_token = flow["tokens"]["refresh_token"]
+    flow["user"].status = "disabled"
+    db_session.commit()
+
+    disabled_response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert disabled_response.status_code == 401
+    stored = db_session.execute(
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(refresh_token)
+        )
+    ).scalar_one()
+    db_session.refresh(stored)
+    assert stored.revoked_at is not None
+
+    flow["user"].status = "active"
+    db_session.commit()
+    reenabled_response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+    assert reenabled_response.status_code == 401
 
 
 def test_revoke_is_idempotent_and_never_echoes_token(

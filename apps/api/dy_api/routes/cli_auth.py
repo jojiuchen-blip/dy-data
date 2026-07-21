@@ -59,7 +59,30 @@ def _invalid_device_code() -> HTTPException:
 
 def _verification_uri(request: Request) -> str:
     configured = os.getenv("DY_WEB_BASE_URL", "").strip().rstrip("/")
-    if configured:
+    test_mode = os.getenv("DY_API_TEST_MODE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if not test_mode:
+        if not configured:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="DY_WEB_BASE_URL is required for CLI authorization",
+            )
+        parsed_configured = urlsplit(configured)
+        try:
+            hostname = parsed_configured.hostname
+        except ValueError:
+            hostname = None
+        if parsed_configured.scheme.lower() != "https" or not hostname:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="DY_WEB_BASE_URL must be an https URL with a hostname",
+            )
+        base_url = configured
+    elif configured:
         base_url = configured
     else:
         parsed_base_url = urlsplit(str(request.base_url))
@@ -191,7 +214,6 @@ def exchange_device_code(
 
     auth = _current_auth(
         active_session,
-        user_id=grant.user_id,
         username=grant.username,
         auth_type=grant.auth_type,
     )
