@@ -10,6 +10,7 @@ from collections.abc import Generator, Iterable
 from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import Depends
@@ -77,6 +78,37 @@ ALL_MONTHS = "all"
 ALL_STORES_OPTION = {"store_id": "", "store_name": "全部门店"}
 MAX_SALES_CYCLE_SAMPLE_POINTS = 90
 
+FEE_DIRECTION_TO_DB = {"PROMOTION": 1, "MANAGEMENT": 2}
+FEE_DIRECTION_FROM_DB = {value: key for key, value in FEE_DIRECTION_TO_DB.items()}
+PERIOD_TYPE_TO_DB = {"MONTHLY": 1, "CUMULATIVE": 2}
+STATEMENT_STATUS_FROM_DB = {
+    1: "GENERATING",
+    2: "PENDING_CONFIRMATION",
+    3: "CONFIRMED",
+    4: "LOCKED",
+}
+RESULT_STATUS_FROM_DB = {
+    1: "VALID",
+    2: "SUPERSEDED",
+    3: "DATA_QUALITY_BLOCKED",
+}
+ADJUSTMENT_TYPE_FROM_DB = {
+    1: "PARTIAL_REFUND",
+    2: "FULL_REFUND",
+    3: "VERIFY_CANCELLED",
+    4: "MANUAL_CORRECTION",
+}
+
+
+class ReportingValidationError(ValueError):
+    def __init__(self, message: str, *, field: str = "request") -> None:
+        self.field = field
+        super().__init__(message)
+
+
+class ReportingPermissionError(PermissionError):
+    pass
+
 
 def generated_at() -> datetime:
     return datetime.now(SHANGHAI_TZ)
@@ -84,6 +116,33 @@ def generated_at() -> datetime:
 
 def with_utf8_bom(csv_text: str) -> str:
     return csv_text if csv_text.startswith(UTF8_BOM) else f"{UTF8_BOM}{csv_text}"
+
+
+def request_id(request: Any) -> str:
+    existing = getattr(request.state, "reporting_request_id", None)
+    if existing:
+        return str(existing)
+    provided = (request.headers.get("X-Request-ID") or "").strip()
+    value = provided or f"req_{uuid4().hex}"
+    request.state.reporting_request_id = value
+    return value
+
+
+def camelize(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {_camelize_key(str(key)): camelize(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [camelize(item) for item in value]
+    if isinstance(value, tuple):
+        return [camelize(item) for item in value]
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return value
+
+
+def _camelize_key(value: str) -> str:
+    head, *tail = value.split("_")
+    return head + "".join(part[:1].upper() + part[1:] for part in tail)
 
 
 def sanitize_error_message(message: str | None) -> str | None:
@@ -638,6 +697,35 @@ class DashboardDataStore:
 
         return visible_product_types
 
+    def _reporting_projection_product_condition(
+        self,
+        params: dict[str, Any],
+        *,
+        product_scope: str,
+        product_type: str,
+        prefix: str,
+    ) -> str:
+        params[f"{prefix}_scope"] = product_scope
+        clauses = [f"product_scope = :{prefix}_scope"]
+        if product_type != "all":
+            params[f"{prefix}_type"] = product_type
+            clauses.append(f"product_type = :{prefix}_type")
+            return " AND ".join(clauses)
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is None:
+            params[f"{prefix}_type"] = "all"
+            clauses.append(f"product_type = :{prefix}_type")
+            return " AND ".join(clauses)
+        placeholders, visible_params = _in_clause_params(
+            f"{prefix}_visible_type", visible_product_types
+        )
+        if not placeholders:
+            clauses.append("1 = 0")
+        else:
+            params.update(visible_params)
+            clauses.append(f"product_type IN ({placeholders})")
+        return " AND ".join(clauses)
+
     def _product_filter_condition(
         self,
         column: str,
@@ -786,24 +874,57 @@ class DashboardDataStore:
         return self.product_type_visibility()
 
     def list_sale_months(self) -> list[str]:
-        expr = self._month_expr("sale_time")
-        rows = self._execute(
-            f"""
-            SELECT DISTINCT {expr} AS month
-            FROM settlement_order_details
-            WHERE sale_time IS NOT NULL
-            ORDER BY month DESC
-            """
+        months: set[str] = set()
+        for table, column in (
+            ("settlement_order_details", "sale_time"),
+            ("raw_douyin_orders", "sale_time"),
+        ):
+            expr = self._month_expr(column)
+            rows = self._execute(
+                f"""
+                SELECT DISTINCT {expr} AS month
+                FROM {table}
+                WHERE {column} IS NOT NULL
+                """
+            )
+            months.update(
+                _to_str(row.get("month")) for row in rows if row.get("month")
+            )
+        months.update(
+            _to_str(row.get("month"))
+            for row in self._execute(
+                """
+                SELECT DISTINCT period_key AS month
+                FROM agg_store_ranking
+                WHERE period_key IS NOT NULL AND period_key != ''
+                """
+            )
+            if row.get("month")
         )
-        return [_to_str(row.get("month")) for row in rows if row.get("month")]
+        return sorted(months, reverse=True)
 
     def list_verify_months(self) -> list[str]:
-        expr = self._month_expr("verify_time")
+        months: set[str] = set()
+        for table in ("settlement_order_details", "raw_douyin_verify_records"):
+            expr = self._month_expr("verify_time")
+            rows = self._execute(
+                f"""
+                SELECT DISTINCT {expr} AS month
+                FROM {table}
+                WHERE verify_time IS NOT NULL
+                """
+            )
+            months.update(
+                _to_str(row.get("month")) for row in rows if row.get("month")
+            )
+        return sorted(months, reverse=True)
+
+    def list_statement_months(self) -> list[str]:
         rows = self._execute(
-            f"""
-            SELECT DISTINCT {expr} AS month
-            FROM settlement_order_details
-            WHERE verify_time IS NOT NULL
+            """
+            SELECT DISTINCT month
+            FROM agg_store_monthly_settlement
+            WHERE month IS NOT NULL AND month != ''
             ORDER BY month DESC
             """
         )
@@ -974,16 +1095,19 @@ class DashboardDataStore:
             if not sku_id or not product_type:
                 continue
             existing_name = self._sku_product_name(sku_id)
-            self.session.merge(
-                DimSkuProductRule(
-                    sku_id=sku_id,
-                    product_scope=product_scope,
-                    product_type=product_type,
-                    product_name=existing_name,
-                    commission_rate=Decimal(str(rule.get("commission_rate") or 0)),
-                    is_service_product=_to_bool(rule.get("is_service_product")),
-                )
+            existing = self.session.scalar(
+                select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
             )
+            if existing is None:
+                existing = DimSkuProductRule(
+                    sku_id=sku_id,
+                    product_name=existing_name,
+                )
+                self.session.add(existing)
+            existing.product_scope = product_scope
+            existing.product_type = product_type
+            existing.commission_rate = Decimal(str(rule.get("commission_rate") or 0))
+            existing.is_service_product = _to_bool(rule.get("is_service_product"))
             updated += 1
         self.session.flush()
         return updated
@@ -1109,6 +1233,913 @@ class DashboardDataStore:
         )
         return [self._clean_job(row) for row in rows]
 
+    def store_ranking_report(self, filters: dict[str, Any]) -> dict[str, Any]:
+        period_type = _to_str(filters.get("period_type"), "MONTHLY")
+        period_key = _to_str(filters.get("period_key"))
+        page = _to_int(filters.get("page"), 1)
+        page_size = _to_int(filters.get("page_size"), 20)
+        product_scope = _normalize_product_scope_value(filters.get("product_scope"))
+        product_type = _normalize_product_type_value(filters.get("product_type"))
+        empty_totals = {
+            "sales_order_count": 0,
+            "sales_amount_cent": 0,
+            "verified_order_count": 0,
+            "verified_amount_cent": 0,
+            "promotion_net_fee_cent": 0,
+            "management_net_fee_cent": 0,
+            "net_settlement_reference_cent": 0,
+        }
+        if period_type == "CUMULATIVE" and period_key < "2026-08":
+            return {
+                "period_type": period_type,
+                "period_key": period_key,
+                "product_scope": product_scope,
+                "product_type": product_type,
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+                "totals": empty_totals,
+                "list": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+            }
+
+        params: dict[str, Any] = {
+            "period_type": PERIOD_TYPE_TO_DB[period_type],
+            "period_key": period_key,
+        }
+        clauses = [
+            "period_type = :period_type",
+            "period_key = :period_key",
+            self._reporting_projection_product_condition(
+                params,
+                product_scope=product_scope,
+                product_type=product_type,
+                prefix="ranking_product",
+            ),
+        ]
+        keyword = _to_str(filters.get("q")).strip()
+        if keyword:
+            params["q"] = f"%{keyword.lower()}%"
+            clauses.append("LOWER(store_name) LIKE :q")
+        scope_store_ids = filters.get("scope_store_ids")
+        if filters.get("scope_mode") == "AUTHORIZED" and scope_store_ids is not None:
+            placeholders, scope_params = _in_clause_params(
+                "ranking_scope", scope_store_ids
+            )
+            if not placeholders:
+                clauses.append("1 = 0")
+            else:
+                params.update(scope_params)
+                clauses.append(f"store_id IN ({placeholders})")
+        where_sql = " AND ".join(clauses)
+        aggregate = self._execute(
+            f"""
+            SELECT COUNT(DISTINCT store_id) AS total,
+                   COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(sales_amount_cent), 0) AS sales_amount_cent,
+                   COALESCE(SUM(verified_order_count), 0) AS verified_order_count,
+                   COALESCE(SUM(verified_amount_cent), 0) AS verified_amount_cent,
+                   COALESCE(SUM(promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                   COALESCE(SUM(management_net_fee_cent), 0) AS management_net_fee_cent,
+                   COALESCE(SUM(net_settlement_reference_cent), 0)
+                       AS net_settlement_reference_cent
+            FROM agg_store_ranking
+            WHERE {where_sql}
+            """,
+            params,
+        )
+        aggregate_row = aggregate[0] if aggregate else {}
+        total = _to_int(aggregate_row.get("total"))
+        sort_column = {
+            "SALES_AMOUNT": "sales_amount_cent",
+            "VERIFIED_AMOUNT": "verified_amount_cent",
+            "PROMOTION_FEE": "promotion_net_fee_cent",
+            "MANAGEMENT_FEE": "management_net_fee_cent",
+            "NET_SETTLEMENT_REFERENCE": "net_settlement_reference_cent",
+        }[_to_str(filters.get("sort_by"), "NET_SETTLEMENT_REFERENCE")]
+        sort_order = (
+            "ASC" if _to_str(filters.get("sort_order"), "DESC") == "ASC" else "DESC"
+        )
+        rows = self._execute(
+            f"""
+            SELECT ranked.*
+            FROM (
+                SELECT grouped.*,
+                       ROW_NUMBER() OVER (
+                           ORDER BY {sort_column} {sort_order}, store_id ASC
+                       ) AS rank
+                FROM (
+                    SELECT store_id,
+                           COALESCE(MAX(NULLIF(store_name, '')), store_id) AS store_name,
+                           COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
+                           COALESCE(SUM(sales_amount_cent), 0) AS sales_amount_cent,
+                           COALESCE(SUM(verified_order_count), 0) AS verified_order_count,
+                           COALESCE(SUM(verified_amount_cent), 0) AS verified_amount_cent,
+                           COALESCE(SUM(promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                           COALESCE(SUM(management_net_fee_cent), 0) AS management_net_fee_cent,
+                           COALESCE(SUM(net_settlement_reference_cent), 0)
+                               AS net_settlement_reference_cent
+                    FROM agg_store_ranking
+                    WHERE {where_sql}
+                    GROUP BY store_id
+                ) grouped
+            ) ranked
+            ORDER BY rank
+            LIMIT :limit OFFSET :offset
+            """,
+            {
+                **params,
+                "limit": page_size,
+                "offset": (page - 1) * page_size,
+            },
+        )
+        metrics = tuple(empty_totals)
+        return {
+            "period_type": period_type,
+            "period_key": period_key,
+            "product_scope": product_scope,
+            "product_type": product_type,
+            "formal_period_start_month": "2026-08",
+            "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+            "totals": {
+                key: _to_int(aggregate_row.get(key)) for key in metrics
+            },
+            "list": [
+                {
+                    "rank": _to_int(row.get("rank")),
+                    "store_id": _to_str(row.get("store_id")),
+                    "store_name": _to_str(row.get("store_name")),
+                    **{key: _to_int(row.get(key)) for key in metrics},
+                }
+                for row in rows
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def monthly_settlement_report(self, filters: dict[str, Any]) -> dict[str, Any]:
+        store_id = _to_str(filters.get("store_id"))
+        month = _to_str(filters.get("month"))
+        product_scope = _normalize_product_scope_value(filters.get("product_scope"))
+        product_type = _normalize_product_type_value(filters.get("product_type"))
+        projection_params: dict[str, Any] = {
+            "store_id": store_id,
+            "month": month,
+        }
+        product_condition = self._reporting_projection_product_condition(
+            projection_params,
+            product_scope=product_scope,
+            product_type=product_type,
+            prefix="monthly_product",
+        )
+        rows = self._execute(
+            f"""
+            SELECT COALESCE(SUM(sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(sales_amount_cent), 0) AS sales_amount_cent,
+                   COALESCE(SUM(verified_order_count), 0) AS verified_order_count,
+                   COALESCE(SUM(verified_amount_cent), 0) AS verified_amount_cent,
+                   COALESCE(SUM(promotion_base_cent), 0) AS promotion_base_cent,
+                   COALESCE(SUM(promotion_original_fee_cent), 0)
+                       AS promotion_original_fee_cent,
+                   COALESCE(SUM(promotion_adjustment_fee_cent), 0)
+                       AS promotion_adjustment_fee_cent,
+                   COALESCE(SUM(promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                   COALESCE(SUM(management_base_cent), 0) AS management_base_cent,
+                   COALESCE(SUM(management_original_fee_cent), 0)
+                       AS management_original_fee_cent,
+                   COALESCE(SUM(management_adjustment_fee_cent), 0)
+                       AS management_adjustment_fee_cent,
+                   COALESCE(SUM(management_net_fee_cent), 0) AS management_net_fee_cent,
+                   MAX(statement_status) AS statement_status
+            FROM agg_store_monthly_settlement
+            WHERE store_id = :store_id
+              AND month = :month
+              AND {product_condition}
+            """,
+            projection_params,
+        )
+        projection = rows[0] if rows else {}
+        statement_rows = self._execute(
+            """
+            SELECT statement_id, statement_status, confirmed_at, locked_at, lock_version
+            FROM settlement_statement
+            WHERE store_id = :store_id AND statement_month = :month
+            LIMIT 1
+            """,
+            {"store_id": store_id, "month": month},
+        )
+        statement_row = statement_rows[0] if statement_rows else None
+        statement = None
+        if statement_row is not None:
+            statement = {
+                "statement_id": _to_str(statement_row.get("statement_id")),
+                "statement_status": STATEMENT_STATUS_FROM_DB.get(
+                    _to_int(statement_row.get("statement_status")), "GENERATING"
+                ),
+                "confirmed_at": statement_row.get("confirmed_at"),
+                "locked_at": statement_row.get("locked_at"),
+                "lock_version": statement_row.get("lock_version"),
+            }
+        metric_fields = (
+            "sales_order_count",
+            "sales_amount_cent",
+            "verified_order_count",
+            "verified_amount_cent",
+            "promotion_base_cent",
+            "promotion_original_fee_cent",
+            "promotion_adjustment_fee_cent",
+            "promotion_net_fee_cent",
+            "management_base_cent",
+            "management_original_fee_cent",
+            "management_adjustment_fee_cent",
+            "management_net_fee_cent",
+        )
+        metrics = {key: _to_int(projection.get(key)) for key in metric_fields}
+        metrics["net_settlement_reference_cent"] = (
+            metrics["promotion_net_fee_cent"] - metrics["management_net_fee_cent"]
+        )
+        lines = self._statement_report_lines(
+            statement_id=(
+                statement["statement_id"]
+                if statement and statement["statement_status"] == "LOCKED"
+                else None
+            ),
+            store_id=store_id,
+            month=month,
+            product_scope=product_scope,
+            product_type=product_type,
+        )
+        if statement and statement["statement_status"] == "LOCKED":
+            promotion_lines = [
+                line for line in lines if line["fee_direction"] == "PROMOTION"
+            ]
+            management_lines = [
+                line for line in lines if line["fee_direction"] == "MANAGEMENT"
+            ]
+            metrics.update(
+                {
+                    "promotion_base_cent": sum(
+                        line["net_base_cent"] for line in promotion_lines
+                    ),
+                    "promotion_original_fee_cent": sum(
+                        line["original_fee_cent"] for line in promotion_lines
+                    ),
+                    "promotion_adjustment_fee_cent": sum(
+                        line["adjustment_fee_cent"] for line in promotion_lines
+                    ),
+                    "promotion_net_fee_cent": sum(
+                        line["net_fee_cent"] for line in promotion_lines
+                    ),
+                    "management_base_cent": sum(
+                        line["net_base_cent"] for line in management_lines
+                    ),
+                    "management_original_fee_cent": sum(
+                        line["original_fee_cent"] for line in management_lines
+                    ),
+                    "management_adjustment_fee_cent": sum(
+                        line["adjustment_fee_cent"] for line in management_lines
+                    ),
+                    "management_net_fee_cent": sum(
+                        line["net_fee_cent"] for line in management_lines
+                    ),
+                }
+            )
+            metrics["net_settlement_reference_cent"] = (
+                metrics["promotion_net_fee_cent"]
+                - metrics["management_net_fee_cent"]
+            )
+        return {
+            "store": self.get_store(store_id),
+            "month": month,
+            "product_scope": product_scope,
+            "product_type": product_type,
+            "is_formal_period": month >= "2026-08",
+            "statement": statement,
+            "metrics": metrics,
+            "lines": lines,
+        }
+
+    def _statement_report_lines(
+        self,
+        *,
+        statement_id: str | None,
+        store_id: str,
+        month: str,
+        product_scope: str,
+        product_type: str,
+    ) -> list[dict[str, Any]]:
+        dimension_clauses: list[str] = []
+        dimension_params: dict[str, Any] = {}
+        if product_scope != "all":
+            dimension_clauses.append("product_scope = :product_scope")
+            dimension_params["product_scope"] = product_scope
+        if product_type != "all":
+            dimension_clauses.append("product_type = :product_type")
+            dimension_params["product_type"] = product_type
+        else:
+            visible_product_types = self._visible_product_types()
+            if visible_product_types is not None:
+                placeholders, visible_params = _in_clause_params(
+                    "statement_visible_type", visible_product_types
+                )
+                if not placeholders:
+                    dimension_clauses.append("1 = 0")
+                else:
+                    dimension_params.update(visible_params)
+                    dimension_clauses.append(
+                        f"product_type IN ({placeholders})"
+                    )
+        dimension_sql = (
+            " AND " + " AND ".join(dimension_clauses)
+            if dimension_clauses
+            else ""
+        )
+        if statement_id:
+            rows = self._execute(
+                f"""
+                SELECT statement_line_id, fee_direction, product_scope, product_type,
+                       original_entry_count, adjustment_entry_count,
+                       original_base_cent, adjustment_base_cent, net_base_cent,
+                       original_fee_cent, adjustment_fee_cent, net_fee_cent
+                FROM settlement_statement_line
+                WHERE statement_id = :statement_id
+                  {dimension_sql}
+                ORDER BY fee_direction, product_scope, product_type
+                """,
+                {
+                    "statement_id": statement_id,
+                    **dimension_params,
+                },
+            )
+        else:
+            result_dimension_sql = dimension_sql.replace(
+                "product_scope", "r.product_scope"
+            ).replace("product_type", "r.product_type")
+            rows = self._execute(
+                f"""
+                SELECT NULL AS statement_line_id, r.fee_direction,
+                       r.product_scope, r.product_type,
+                       COALESCE(SUM(CASE WHEN r.original_business_month = :month THEN 1 ELSE 0 END), 0)
+                           AS original_entry_count,
+                       COALESCE(SUM(a.adjustment_entry_count), 0)
+                           AS adjustment_entry_count,
+                       COALESCE(SUM(CASE WHEN r.original_business_month = :month
+                           THEN r.fee_base_cent ELSE 0 END), 0) AS original_base_cent,
+                       COALESCE(SUM(a.adjustment_base_cent), 0) AS adjustment_base_cent,
+                       COALESCE(SUM(CASE WHEN r.original_business_month = :month
+                           THEN r.fee_base_cent ELSE 0 END), 0)
+                           + COALESCE(SUM(a.adjustment_base_cent), 0) AS net_base_cent,
+                       COALESCE(SUM(CASE WHEN r.original_business_month = :month
+                           THEN r.fee_amount_cent ELSE 0 END), 0) AS original_fee_cent,
+                       COALESCE(SUM(a.adjustment_fee_cent), 0) AS adjustment_fee_cent,
+                       COALESCE(SUM(CASE WHEN r.original_business_month = :month
+                           THEN r.fee_amount_cent ELSE 0 END), 0)
+                           + COALESCE(SUM(a.adjustment_fee_cent), 0) AS net_fee_cent
+                FROM settlement_fee_result_current c
+                JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
+                LEFT JOIN (
+                    SELECT original_fee_result_id,
+                           COUNT(*) AS adjustment_entry_count,
+                           SUM(adjustment_base_cent) AS adjustment_base_cent,
+                           SUM(adjustment_fee_cent) AS adjustment_fee_cent
+                    FROM settlement_fee_adjustment
+                    WHERE adjustment_posting_month = :month
+                    GROUP BY original_fee_result_id
+                ) a ON a.original_fee_result_id = r.fee_result_id
+                WHERE (r.original_business_month = :month
+                    OR COALESCE(a.adjustment_entry_count, 0) > 0)
+                  {result_dimension_sql}
+                  AND ((r.fee_direction = 1 AND r.sale_store_id = :store_id)
+                    OR (r.fee_direction = 2 AND r.verify_store_id = :store_id))
+                GROUP BY r.fee_direction, r.product_scope, r.product_type
+                ORDER BY r.fee_direction, r.product_scope, r.product_type
+                """,
+                {
+                    "store_id": store_id,
+                    "month": month,
+                    **dimension_params,
+                },
+            )
+        cleaned: list[dict[str, Any]] = []
+        for row in rows:
+            source_rows = self._execute(
+                """
+                SELECT DISTINCT r.fee_rate, r.rule_version
+                FROM settlement_fee_result r
+                LEFT JOIN settlement_fee_result_current c
+                  ON c.fee_result_id = r.fee_result_id
+                LEFT JOIN settlement_statement_entry e
+                  ON e.original_fee_result_id = r.fee_result_id
+                WHERE (:statement_line_id IS NULL OR e.statement_line_id = :statement_line_id)
+                  AND (:statement_line_id IS NOT NULL OR c.fee_result_id = r.fee_result_id)
+                  AND r.fee_direction = :fee_direction
+                  AND r.product_scope = :product_scope
+                  AND r.product_type = :product_type
+                  AND ((r.fee_direction = 1 AND r.sale_store_id = :store_id)
+                    OR (r.fee_direction = 2 AND r.verify_store_id = :store_id))
+                  AND (
+                      :statement_line_id IS NOT NULL
+                      OR r.original_business_month = :month
+                      OR EXISTS (
+                          SELECT 1
+                          FROM settlement_fee_adjustment rate_adjustment
+                          WHERE rate_adjustment.original_fee_result_id = r.fee_result_id
+                            AND rate_adjustment.adjustment_posting_month = :month
+                      )
+                  )
+                ORDER BY r.fee_rate, r.rule_version
+                """,
+                {
+                    "statement_line_id": row.get("statement_line_id"),
+                    "fee_direction": row.get("fee_direction"),
+                    "product_scope": row.get("product_scope"),
+                    "product_type": row.get("product_type"),
+                    "store_id": store_id,
+                    "month": month,
+                },
+            )
+            rates = sorted(
+                {self._format_rate(item.get("fee_rate")) for item in source_rows}
+            )
+            versions = sorted(
+                {_to_str(item.get("rule_version")) for item in source_rows if item.get("rule_version")}
+            )
+            cleaned.append(
+                {
+                    "statement_line_id": row.get("statement_line_id"),
+                    "fee_direction": FEE_DIRECTION_FROM_DB.get(
+                        _to_int(row.get("fee_direction")), "PROMOTION"
+                    ),
+                    "product_scope": _to_str(row.get("product_scope")),
+                    "product_type": _to_str(row.get("product_type")),
+                    "original_entry_count": _to_int(row.get("original_entry_count")),
+                    "adjustment_entry_count": _to_int(row.get("adjustment_entry_count")),
+                    "original_base_cent": _to_int(row.get("original_base_cent")),
+                    "adjustment_base_cent": _to_int(row.get("adjustment_base_cent")),
+                    "net_base_cent": _to_int(row.get("net_base_cent")),
+                    "original_fee_cent": _to_int(row.get("original_fee_cent")),
+                    "adjustment_fee_cent": _to_int(row.get("adjustment_fee_cent")),
+                    "net_fee_cent": _to_int(row.get("net_fee_cent")),
+                    "min_fee_rate": rates[0] if rates else None,
+                    "max_fee_rate": rates[-1] if rates else None,
+                    "rule_version_count": len(versions),
+                    "fee_rates": rates,
+                    "rule_versions": versions,
+                }
+            )
+        return cleaned
+
+    def order_fee_details(self, filters: dict[str, Any]) -> dict[str, Any]:
+        has_detail_filters = any(
+            filters.get(key) for key in ("sale_month", "verify_month", "q")
+        )
+        context_filters = {
+            **filters,
+            "sale_month": None,
+            "verify_month": None,
+            "q": None,
+            "data_status": None,
+        }
+        context_rows, statement_status = self._order_fee_source_rows(context_filters)
+        fee_rates = sorted(
+            {self._format_rate(row.get("fee_rate")) for row in context_rows}
+        )
+        rule_versions = sorted(
+            {
+                _to_str(row.get("rule_version"))
+                for row in context_rows
+                if row.get("rule_version")
+            }
+        )
+        requested_rates = sorted(
+            {self._format_rate(value) for value in filters.get("fee_rates", [])}
+        )
+        requested_versions = sorted(
+            {_to_str(value) for value in filters.get("rule_versions", []) if value}
+        )
+        if requested_rates and requested_rates != fee_rates:
+            raise ReportingValidationError(
+                "feeRates 与当前来源上下文不一致，请返回单店分账重新选择",
+                field="feeRates",
+            )
+        if requested_versions and requested_versions != rule_versions:
+            raise ReportingValidationError(
+                "ruleVersions 与当前来源上下文不一致，请返回单店分账重新选择",
+                field="ruleVersions",
+            )
+
+        rows = (
+            self._order_fee_source_rows(filters)[0]
+            if has_detail_filters
+            else context_rows
+        )
+
+        cleaned = [self._clean_order_fee_row(row, statement_status) for row in rows]
+        data_status = filters.get("data_status")
+        if data_status:
+            cleaned = [
+                row for row in cleaned if self._order_fee_data_status(row) == data_status
+            ]
+        total = len(cleaned)
+        page = _to_int(filters.get("page"), 1)
+        page_size = _to_int(filters.get("page_size"), 50)
+        if not filters.get("export"):
+            offset = (page - 1) * page_size
+            cleaned = cleaned[offset : offset + page_size]
+        context = {
+            "statement_id": filters.get("statement_id"),
+            "statement_line_id": filters.get("statement_line_id"),
+            "store_id": filters.get("store_id"),
+            "month": filters.get("month"),
+            "sale_month": filters.get("sale_month"),
+            "verify_month": filters.get("verify_month"),
+            "fee_direction": filters.get("fee_direction"),
+            "product_scope": filters.get("product_scope", "all"),
+            "product_type": filters.get("product_type", "all"),
+            "fee_rates": fee_rates,
+            "rule_versions": rule_versions,
+            "data_status": data_status,
+            "q": filters.get("q"),
+            "statement_status": statement_status,
+        }
+        return {
+            "context": context,
+            "list": cleaned,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def _order_fee_source_rows(
+        self, filters: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        statement_id = filters.get("statement_id")
+        statement_line_id = filters.get("statement_line_id")
+        params: dict[str, Any] = {
+            "fee_direction": FEE_DIRECTION_TO_DB[filters["fee_direction"]],
+        }
+        requested_product_scope = filters.get("product_scope", "all")
+        requested_product_type = filters.get("product_type", "all")
+        statement_status = None
+        if statement_id:
+            statement_rows = self._execute(
+                """
+                SELECT store_id, statement_status
+                FROM settlement_statement
+                WHERE statement_id = :statement_id
+                LIMIT 1
+                """,
+                {"statement_id": statement_id},
+            )
+            if not statement_rows:
+                raise ReportingValidationError(
+                    "statementId 不存在或已失效", field="statementId"
+                )
+            statement_row = statement_rows[0]
+            scope_store_ids = filters.get("scope_store_ids")
+            if scope_store_ids is not None and _to_str(
+                statement_row.get("store_id")
+            ) not in set(scope_store_ids):
+                raise ReportingPermissionError("账单不在当前用户门店范围内")
+            statement_status = STATEMENT_STATUS_FROM_DB.get(
+                _to_int(statement_row.get("statement_status")), "GENERATING"
+            )
+            if statement_status != "LOCKED":
+                raise ReportingValidationError(
+                    "statementId 仅支持已锁账明细下钻",
+                    field="statementId",
+                )
+            line_rows = self._execute(
+                """
+                SELECT 1
+                FROM settlement_statement_line
+                WHERE statement_id = :statement_id
+                  AND statement_line_id = :statement_line_id
+                LIMIT 1
+                """,
+                {
+                    "statement_id": statement_id,
+                    "statement_line_id": statement_line_id,
+                },
+            )
+            if not line_rows:
+                raise ReportingValidationError(
+                    "statementLineId 不属于 statementId", field="statementLineId"
+                )
+            params.update(
+                {
+                    "statement_id": statement_id,
+                    "statement_line_id": statement_line_id,
+                }
+            )
+            source_sql = """
+                (
+                    SELECT original_fee_result_id,
+                           COALESCE(
+                               MAX(CASE WHEN source_type = 1 THEN statement_entry_id END),
+                               MIN(statement_entry_id)
+                           ) AS statement_entry_id,
+                           statement_id,
+                           statement_line_id
+                    FROM settlement_statement_entry
+                    WHERE statement_id = :statement_id
+                      AND statement_line_id = :statement_line_id
+                    GROUP BY original_fee_result_id, statement_id, statement_line_id
+                ) e
+                JOIN settlement_fee_result r
+                  ON r.fee_result_id = e.original_fee_result_id
+            """
+            clauses = [
+                "e.statement_id = :statement_id",
+                "e.statement_line_id = :statement_line_id",
+                "r.fee_direction = :fee_direction",
+            ]
+            entry_fields = (
+                "e.statement_entry_id, e.statement_id, e.statement_line_id"
+            )
+        else:
+            params.update(
+                {
+                    "store_id": filters.get("store_id"),
+                    "month": filters.get("month"),
+                }
+            )
+            source_sql = """
+                settlement_fee_result_current c
+                JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
+            """
+            store_column = (
+                "r.sale_store_id"
+                if filters["fee_direction"] == "PROMOTION"
+                else "r.verify_store_id"
+            )
+            clauses = [
+                "r.fee_direction = :fee_direction",
+                "(r.original_business_month = :month OR EXISTS ("
+                "SELECT 1 FROM settlement_fee_adjustment month_adjustment "
+                "WHERE month_adjustment.original_fee_result_id = r.fee_result_id "
+                "AND month_adjustment.adjustment_posting_month = :month))",
+                f"{store_column} = :store_id",
+            ]
+            entry_fields = (
+                "NULL AS statement_entry_id, NULL AS statement_id, "
+                "NULL AS statement_line_id"
+            )
+
+        if requested_product_scope != "all":
+            params["product_scope"] = requested_product_scope
+            clauses.append("r.product_scope = :product_scope")
+        if requested_product_type != "all":
+            params["product_type"] = requested_product_type
+            clauses.append("r.product_type = :product_type")
+        else:
+            visible_product_types = self._visible_product_types()
+            if visible_product_types is not None:
+                placeholders, visible_params = _in_clause_params(
+                    "detail_visible_type", visible_product_types
+                )
+                if not placeholders:
+                    clauses.append("1 = 0")
+                else:
+                    params.update(visible_params)
+                    clauses.append(f"r.product_type IN ({placeholders})")
+
+        sale_month = filters.get("sale_month")
+        verify_month = filters.get("verify_month")
+        if sale_month:
+            params["sale_month"] = sale_month
+            clauses.append(f"{self._month_expr('o.sale_time')} = :sale_month")
+        verify_time_sql = """(
+            SELECT MAX(v.verify_time)
+            FROM raw_douyin_verify_records v
+            WHERE v.coupon_id = r.coupon_id
+        )"""
+        if verify_month:
+            params["verify_month"] = verify_month
+            clauses.append(f"{self._month_expr(verify_time_sql)} = :verify_month")
+        keyword = _to_str(filters.get("q")).strip()
+        if keyword:
+            params["q"] = f"%{keyword.lower()}%"
+            clauses.append(
+                "(LOWER(r.order_id) LIKE :q OR LOWER(r.coupon_id) LIKE :q "
+                "OR LOWER(r.sku_id) LIKE :q OR LOWER(COALESCE(o.product_name, '')) LIKE :q)"
+            )
+        rows = self._execute(
+            f"""
+            SELECT {entry_fields},
+                   r.fee_result_id, r.order_id, r.coupon_id,
+                   o.order_status_normalized AS order_status,
+                   cp.coupon_status_normalized AS coupon_status,
+                   r.fee_direction, r.original_business_month,
+                   r.rule_match_date, o.sale_time,
+                   {verify_time_sql} AS verify_time,
+                   r.sale_store_id,
+                   (SELECT store_name FROM dim_stores ds
+                     WHERE ds.store_id = r.sale_store_id LIMIT 1) AS sale_store_name,
+                   r.verify_store_id,
+                   (SELECT store_name FROM dim_stores ds
+                     WHERE ds.store_id = r.verify_store_id LIMIT 1) AS verify_store_name,
+                   r.sku_id,
+                   (SELECT sku_name FROM dim_sku_product_rules d
+                     WHERE d.sku_id = r.sku_id LIMIT 1) AS sku_name,
+                   COALESCE(
+                       (SELECT product_name FROM dim_sku_product_rules d
+                         WHERE d.sku_id = r.sku_id LIMIT 1),
+                       o.product_name
+                   ) AS product_name,
+                   r.product_scope, r.product_type, r.sale_channel_normalized,
+                   r.source_amount_cent, r.refunded_amount_cent,
+                   r.fee_base_cent, r.fee_rate, r.fee_amount_cent,
+                   r.rule_version, r.result_status
+            FROM {source_sql}
+            LEFT JOIN raw_douyin_orders o ON o.order_id = r.order_id
+            LEFT JOIN raw_douyin_order_coupons cp ON cp.coupon_id = r.coupon_id
+            WHERE {' AND '.join(clauses)}
+            ORDER BY o.sale_time DESC, r.order_id, r.coupon_id, r.fee_result_id
+            """,
+            params,
+        )
+        return rows, statement_status
+
+    def _clean_order_fee_row(
+        self, row: dict[str, Any], statement_status: str | None
+    ) -> dict[str, Any]:
+        if row.get("statement_id"):
+            adjustment_rows = self._execute(
+                """
+                SELECT a.adjustment_id, a.adjustment_posting_month, a.adjustment_type,
+                       a.adjustment_base_cent, a.adjustment_fee_cent, a.rule_version,
+                       a.adjustment_reason, a.occurred_at
+                FROM settlement_fee_adjustment a
+                JOIN settlement_statement_entry e
+                  ON e.source_type = 2
+                 AND e.source_record_id = a.adjustment_id
+                 AND e.original_fee_result_id = a.original_fee_result_id
+                WHERE a.original_fee_result_id = :fee_result_id
+                  AND e.statement_id = :statement_id
+                  AND e.statement_line_id = :statement_line_id
+                ORDER BY a.occurred_at, a.adjustment_id
+                """,
+                {
+                    "fee_result_id": row.get("fee_result_id"),
+                    "statement_id": row.get("statement_id"),
+                    "statement_line_id": row.get("statement_line_id"),
+                },
+            )
+        else:
+            adjustment_rows = self._execute(
+                """
+                SELECT adjustment_id, adjustment_posting_month, adjustment_type,
+                       adjustment_base_cent, adjustment_fee_cent, rule_version,
+                       adjustment_reason, occurred_at
+                FROM settlement_fee_adjustment
+                WHERE original_fee_result_id = :fee_result_id
+                ORDER BY occurred_at, adjustment_id
+                """,
+                {"fee_result_id": row.get("fee_result_id")},
+            )
+        adjustments = [
+            {
+                "adjustment_id": _to_str(item.get("adjustment_id")),
+                "adjustment_posting_month": _to_str(
+                    item.get("adjustment_posting_month")
+                ),
+                "adjustment_type": ADJUSTMENT_TYPE_FROM_DB.get(
+                    _to_int(item.get("adjustment_type")), "MANUAL_CORRECTION"
+                ),
+                "adjustment_base_cent": _to_int(item.get("adjustment_base_cent")),
+                "adjustment_fee_cent": _to_int(item.get("adjustment_fee_cent")),
+                "rule_version": _to_str(item.get("rule_version")),
+                "adjustment_reason": _to_str(item.get("adjustment_reason")),
+                "occurred_at": item.get("occurred_at"),
+            }
+            for item in adjustment_rows
+        ]
+        adjustment_base_cent = sum(
+            item["adjustment_base_cent"] for item in adjustments
+        )
+        adjustment_fee_cent = sum(
+            item["adjustment_fee_cent"] for item in adjustments
+        )
+        sale_time = row.get("sale_time")
+        verify_time = row.get("verify_time")
+        original_base_cent = _to_int(row.get("fee_base_cent"))
+        original_fee_cent = _to_int(row.get("fee_amount_cent"))
+        return {
+            "fee_result_id": _to_str(row.get("fee_result_id")),
+            "statement_entry_id": row.get("statement_entry_id"),
+            "order_id": _to_str(row.get("order_id")),
+            "coupon_id": _to_str(row.get("coupon_id")),
+            "order_status": row.get("order_status"),
+            "coupon_status": row.get("coupon_status"),
+            "fee_direction": FEE_DIRECTION_FROM_DB.get(
+                _to_int(row.get("fee_direction")), "PROMOTION"
+            ),
+            "original_business_month": _to_str(
+                row.get("original_business_month")
+            ),
+            "sale_month": self._business_month(sale_time),
+            "verify_month": self._business_month(verify_time),
+            "rule_match_date": row.get("rule_match_date"),
+            "sale_time": sale_time,
+            "verify_time": verify_time,
+            "sale_store_id": row.get("sale_store_id"),
+            "sale_store_name": row.get("sale_store_name"),
+            "verify_store_id": row.get("verify_store_id"),
+            "verify_store_name": row.get("verify_store_name"),
+            "sku_id": _to_str(row.get("sku_id")),
+            "sku_name": row.get("sku_name"),
+            "product_name": row.get("product_name"),
+            "product_scope": _to_str(row.get("product_scope")),
+            "product_type": _to_str(row.get("product_type")),
+            "sale_channel": _to_str(row.get("sale_channel_normalized"), "UNKNOWN"),
+            "source_amount_cent": _to_int(row.get("source_amount_cent")),
+            "refunded_amount_cent": _to_int(row.get("refunded_amount_cent")),
+            "original_base_cent": original_base_cent,
+            "fee_rate": self._format_rate(row.get("fee_rate")),
+            "original_fee_cent": original_fee_cent,
+            "adjustment_base_cent": adjustment_base_cent,
+            "adjustment_fee_cent": adjustment_fee_cent,
+            "adjusted_net_base_cent": original_base_cent + adjustment_base_cent,
+            "adjusted_net_fee_cent": original_fee_cent + adjustment_fee_cent,
+            "rule_version": _to_str(row.get("rule_version")),
+            "result_status": RESULT_STATUS_FROM_DB.get(
+                _to_int(row.get("result_status")), "DATA_QUALITY_BLOCKED"
+            ),
+            "statement_id": row.get("statement_id"),
+            "statement_line_id": row.get("statement_line_id"),
+            "statement_status": statement_status,
+            "adjustments": adjustments,
+        }
+
+    def order_fee_details_export_csv(self, filters: dict[str, Any]) -> str:
+        data = self.order_fee_details({**filters, "export": True})
+        if not data["list"]:
+            return ""
+        output = io.StringIO(newline="")
+        writer = csv.writer(output)
+        writer.writerow(
+            [
+                "订单ID", "券ID", "费用方向", "原始发生月份", "销售月份", "核销月份",
+                "调整入账月份", "规则匹配日", "销售门店", "核销门店", "SKU ID",
+                "产品范围", "商品类型", "原始基数", "调整基数", "净基数", "费率",
+                "原始费用", "调整费用", "调整后净额", "规则版本", "账单状态",
+            ]
+        )
+        for row in data["list"]:
+            writer.writerow(
+                [
+                    row["order_id"], row["coupon_id"], row["fee_direction"],
+                    row["original_business_month"], row["sale_month"], row["verify_month"],
+                    ";".join(
+                        sorted(
+                            {
+                                item["adjustment_posting_month"]
+                                for item in row["adjustments"]
+                            }
+                        )
+                    ),
+                    row["rule_match_date"], row["sale_store_name"] or row["sale_store_id"],
+                    row["verify_store_name"] or row["verify_store_id"], row["sku_id"],
+                    row["product_scope"], row["product_type"], row["original_base_cent"],
+                    row["adjustment_base_cent"], row["adjusted_net_base_cent"], row["fee_rate"],
+                    row["original_fee_cent"], row["adjustment_fee_cent"],
+                    row["adjusted_net_fee_cent"], row["rule_version"],
+                    row["statement_status"] or "PREVIEW",
+                ]
+            )
+        return output.getvalue()
+
+    @staticmethod
+    def _format_rate(value: Any) -> str:
+        try:
+            return f"{Decimal(str(value)):.6f}"
+        except (ValueError, TypeError, ArithmeticError):
+            return "0.000000"
+
+    @staticmethod
+    def _business_month(value: Any) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is not None:
+                value = value.astimezone(SHANGHAI_TZ)
+            return value.strftime("%Y-%m")
+        text_value = _to_str(value)
+        return text_value[:7] if len(text_value) >= 7 else None
+
+    @staticmethod
+    def _order_fee_data_status(row: dict[str, Any]) -> str:
+        if row.get("statement_status") == "LOCKED":
+            return "LOCKED"
+        if row.get("result_status") == "DATA_QUALITY_BLOCKED":
+            return "BLOCKED"
+        if row.get("adjustments"):
+            return "ADJUSTED"
+        return "VALID"
+
     def store_ranking(
         self, *, month: str, product_type: str, limit: int, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
@@ -1217,6 +2248,31 @@ class DashboardDataStore:
                 "store_name": _to_str(rows[0].get("store_name")),
             }
         return {"store_id": store_id, "store_name": store_id}
+
+    def store_exists(self, store_id: str) -> bool:
+        return bool(
+            self._execute(
+                "SELECT 1 FROM dim_stores WHERE store_id = :store_id LIMIT 1",
+                {"store_id": store_id},
+            )
+        )
+
+    def monthly_settlement_context_exists(self, store_id: str, month: str) -> bool:
+        return bool(
+            self._execute(
+                """
+                SELECT 1
+                FROM agg_store_monthly_settlement
+                WHERE store_id = :store_id AND month = :month
+                UNION ALL
+                SELECT 1
+                FROM settlement_statement
+                WHERE store_id = :store_id AND statement_month = :month
+                LIMIT 1
+                """,
+                {"store_id": store_id, "month": month},
+            )
+        )
 
     def monthly_settlement(
         self,

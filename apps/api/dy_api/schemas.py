@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -312,7 +313,7 @@ class StoreOption(BaseModel):
 class JobRun(BaseModel):
     job_id: str
     job_name: str
-    status: Literal["running", "success", "failed", "queued"]
+    status: Literal["running", "success", "failed", "partial", "queued"]
     started_at: datetime | None = None
     finished_at: datetime | None = None
     success_count: int = 0
@@ -383,6 +384,107 @@ class SyncAdminData(BaseModel):
     schedule: SyncScheduleData
     worker_status: SyncWorkerStatusData
     jobs: list[JobRun] = Field(default_factory=list)
+
+
+class ProductSyncRunRequest(BaseModel):
+    mode: Literal["INCREMENTAL", "FULL"]
+    reason: str = Field(min_length=1, max_length=512)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_reason(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class SkuProductManualUpdateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    product_scope: str = Field(alias="productScope", min_length=1, max_length=128)
+    product_type: str = Field(alias="productType", min_length=1, max_length=128)
+    is_service_product: bool = Field(alias="isServiceProduct")
+
+    @field_validator("product_scope", "product_type")
+    @classmethod
+    def normalize_product_dimension(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("value is required")
+        return normalized
+
+
+class SkuFeeRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    sku_id: str = Field(alias="skuId", min_length=1, max_length=128)
+    promotion_service_fee_rate: Decimal = Field(alias="promotionServiceFeeRate")
+    management_service_fee_rate: Decimal = Field(alias="managementServiceFeeRate")
+    effective_date: date = Field(alias="effectiveDate")
+    rule_status: Literal["ACTIVE", "INACTIVE"] = Field(alias="ruleStatus")
+    change_reason: str = Field(alias="changeReason", min_length=1, max_length=512)
+
+    @field_validator("promotion_service_fee_rate", "management_service_fee_rate")
+    @classmethod
+    def validate_fee_rate(cls, value: Decimal) -> Decimal:
+        if value < 0 or value > 1:
+            raise ValueError("fee rate must be between 0 and 1")
+        if max(0, -value.as_tuple().exponent) > 6:
+            raise ValueError("fee rate supports at most six decimal places")
+        return value
+
+    @field_validator("sku_id", "change_reason")
+    @classmethod
+    def normalize_fee_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("value is required")
+        return normalized
+
+
+class SkuFeeRuleImportCommitRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    change_reason: str = Field(alias="changeReason", min_length=1, max_length=512)
+
+    @field_validator("change_reason")
+    @classmethod
+    def normalize_import_reason(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("changeReason is required")
+        return normalized
+
+
+class SettlementScopeRuleCreateRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    effective_month: str = Field(
+        alias="effectiveMonth", pattern=r"^\d{4}-(0[1-9]|1[0-2])$"
+    )
+    owner_account_id: str = Field(alias="ownerAccountId", min_length=1, max_length=128)
+    allowed_sale_channels: list[Literal["LIVE", "SHORT_VIDEO"]] = Field(
+        alias="allowedSaleChannels", min_length=1, max_length=2
+    )
+    change_reason: str = Field(alias="changeReason", min_length=1, max_length=512)
+
+    @field_validator("allowed_sale_channels", mode="before")
+    @classmethod
+    def deduplicate_sale_channels(
+        cls, value: Any
+    ) -> Any:
+        if isinstance(value, list):
+            return list(dict.fromkeys(value))
+        return value
+
+    @field_validator("owner_account_id", "change_reason")
+    @classmethod
+    def normalize_scope_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("value is required")
+        return normalized
 
 
 class ManualSyncRequest(BaseModel):

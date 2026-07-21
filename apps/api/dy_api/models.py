@@ -5,14 +5,20 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
+    event,
     ForeignKey,
+    func,
+    Identity,
     Index,
     Integer,
     JSON,
     Numeric,
+    select,
     String,
     Text,
     UniqueConstraint,
@@ -35,19 +41,41 @@ class Base(DeclarativeBase):
 
 class RawDouyinOrder(Base):
     __tablename__ = "raw_douyin_orders"
+    __table_args__ = (
+        UniqueConstraint("order_id", name="uk_raw_douyin_orders_order_id"),
+        Index("idx_raw_douyin_orders_status", "order_status_normalized"),
+        Index("idx_raw_douyin_orders_sale_month", "sale_time"),
+        Index(
+            "idx_raw_douyin_orders_channel_owner",
+            "sale_channel_normalized",
+            "owner_account_id",
+        ),
+    )
 
-    order_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    order_id: Mapped[str] = mapped_column(Text, nullable=False)
     order_status: Mapped[str | None] = mapped_column(Text)
+    order_status_raw: Mapped[str | None] = mapped_column(String(128))
+    order_status_normalized: Mapped[str | None] = mapped_column(String(32))
     sku_id: Mapped[str | None] = mapped_column(Text, index=True)
     product_name: Mapped[str | None] = mapped_column(Text)
     pay_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    sale_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     create_order_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     paid_amount_cent: Mapped[int | None] = mapped_column(Integer)
+    order_paid_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     owner_account_id: Mapped[str | None] = mapped_column(Text, index=True)
     owner_douyin_uid: Mapped[str | None] = mapped_column(Text)
     owner_account_name: Mapped[str | None] = mapped_column(Text, index=True)
     sale_role: Mapped[str | None] = mapped_column(Text)
     sale_channel: Mapped[str | None] = mapped_column(Text)
+    sale_channel_raw: Mapped[str | None] = mapped_column(String(128))
+    sale_channel_normalized: Mapped[str | None] = mapped_column(String(32))
     intention_poi_id: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
@@ -57,18 +85,53 @@ class RawDouyinOrder(Base):
 
 class RawDouyinOrderCoupon(Base):
     __tablename__ = "raw_douyin_order_coupons"
+    __table_args__ = (
+        UniqueConstraint("coupon_id", name="uk_raw_douyin_order_coupons_coupon_id"),
+        Index(
+            "idx_raw_douyin_order_coupons_status", "coupon_status_normalized"
+        ),
+        Index("idx_raw_douyin_order_coupons_latest_refund", "latest_refund_at"),
+        Index("idx_raw_douyin_order_coupons_raw_order", "raw_order_id"),
+    )
 
-    coupon_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    order_id: Mapped[str] = mapped_column(
-        Text, ForeignKey("raw_douyin_orders.order_id", ondelete="CASCADE"), index=True
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    coupon_id: Mapped[str] = mapped_column(Text, nullable=False)
+    order_id: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    raw_order_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), nullable=False
     )
     order_item_id: Mapped[str | None] = mapped_column(Text)
     coupon_status: Mapped[str | None] = mapped_column(Text, index=True)
+    coupon_status_raw: Mapped[str | None] = mapped_column(String(128))
+    coupon_status_normalized: Mapped[str | None] = mapped_column(String(32))
+    coupon_paid_amount_cent: Mapped[int | None] = mapped_column(BigInteger)
     coupon_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     coupon_refunded_cent: Mapped[int | None] = mapped_column(Integer)
+    coupon_refunded_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     coupon_refund_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    latest_refund_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+
+
+@event.listens_for(RawDouyinOrderCoupon, "before_insert")
+def _populate_raw_coupon_internal_order_id(
+    _mapper: Any,
+    connection: Any,
+    target: RawDouyinOrderCoupon,
+) -> None:
+    if target.raw_order_id is None:
+        raw_order_id = connection.scalar(
+            select(RawDouyinOrder.id).where(RawDouyinOrder.order_id == target.order_id)
+        )
+        if raw_order_id is None:
+            raise ValueError(f"raw order does not exist: order_id={target.order_id}")
+        target.raw_order_id = int(raw_order_id)
 
 
 class RawDouyinVerifyRecord(Base):
@@ -227,14 +290,316 @@ class DimStorePoiMapping(Base):
 
 class DimSkuProductRule(Base):
     __tablename__ = "dim_sku_product_rules"
+    __table_args__ = (
+        UniqueConstraint("sku_id", name="uk_dim_sku_product_rules_sku_id"),
+        Index("idx_dim_sku_product_rules_product_id", "product_id"),
+        Index("idx_dim_sku_product_rules_spu_id", "spu_id"),
+        Index(
+            "idx_dim_sku_product_rules_scope_type",
+            "product_scope",
+            "product_type",
+        ),
+        Index(
+            "idx_dim_sku_product_rules_owner_status",
+            "owner_account_id",
+            "product_status_normalized",
+        ),
+        Index("idx_dim_sku_product_rules_active", "is_active_product"),
+        Index("idx_dim_sku_product_rules_sync_run", "sync_run_id"),
+        Index("idx_dim_sku_product_rules_last_synced", "last_synced_at"),
+    )
 
-    sku_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    product_scope: Mapped[str] = mapped_column(Text, default="", index=True)
-    product_type: Mapped[str] = mapped_column(Text, index=True)
-    product_name: Mapped[str | None] = mapped_column(Text)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    sku_id: Mapped[str] = mapped_column(String(128))
+    sku_name: Mapped[str | None] = mapped_column(String(512))
+    product_id: Mapped[str | None] = mapped_column(String(128))
+    product_name: Mapped[str | None] = mapped_column(String(512))
+    spu_id: Mapped[str | None] = mapped_column(String(128))
+    product_scope: Mapped[str] = mapped_column(String(128), default="")
+    product_type: Mapped[str] = mapped_column(String(128), default="")
+    is_service_product: Mapped[bool] = mapped_column(Boolean, default=False)
+    creator_account_id: Mapped[str | None] = mapped_column(String(128))
+    creator_account_name: Mapped[str | None] = mapped_column(String(255))
+    owner_account_id: Mapped[str | None] = mapped_column(String(128))
+    owner_account_name: Mapped[str | None] = mapped_column(String(255))
+    product_status_raw: Mapped[str | None] = mapped_column(String(128))
+    product_status_normalized: Mapped[str | None] = mapped_column(String(32))
+    is_active_product: Mapped[bool] = mapped_column(Boolean, default=False)
+    sync_source: Mapped[str | None] = mapped_column(String(64))
+    sync_run_id: Mapped[str | None] = mapped_column(String(128))
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    manual_modified_by: Mapped[str | None] = mapped_column(String(128))
+    manual_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Compatibility-only until all settlement reads use immutable sku_fee_rule versions.
     commission_rate: Mapped[Decimal] = mapped_column(Numeric(6, 4), default=Decimal("0"))
-    is_service_product: Mapped[bool] = mapped_column(Boolean, default=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkuProductSyncHistory(Base):
+    __tablename__ = "sku_product_sync_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "snapshot_id", name="uk_sku_product_sync_history_snapshot_id"
+        ),
+        Index(
+            "idx_sku_product_sync_history_sku_observed", "sku_id", "observed_at"
+        ),
+        Index("idx_sku_product_sync_history_run", "sync_run_id"),
+        Index("idx_sku_product_sync_history_product", "product_id"),
+        Index("idx_sku_product_sync_history_owner", "owner_account_id"),
+        Index("idx_sku_product_sync_history_payload", "payload_sha256"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    snapshot_id: Mapped[str] = mapped_column(String(128))
+    sync_run_id: Mapped[str] = mapped_column(String(128))
+    sku_id: Mapped[str] = mapped_column(String(128))
+    product_id: Mapped[str | None] = mapped_column(String(128))
+    spu_id: Mapped[str | None] = mapped_column(String(128))
+    sku_name: Mapped[str | None] = mapped_column(String(512))
+    product_name: Mapped[str | None] = mapped_column(String(512))
+    creator_account_id: Mapped[str | None] = mapped_column(String(128))
+    creator_account_name: Mapped[str | None] = mapped_column(String(255))
+    owner_account_id: Mapped[str | None] = mapped_column(String(128))
+    owner_account_name: Mapped[str | None] = mapped_column(String(255))
+    product_status_raw: Mapped[str | None] = mapped_column(String(128))
+    product_status_normalized: Mapped[str | None] = mapped_column(String(32))
+    payload_sha256: Mapped[str] = mapped_column(String(64))
+    observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementScopeRule(Base):
+    __tablename__ = "settlement_scope_rule"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope_rule_version", name="uk_settlement_scope_rule_version"
+        ),
+        UniqueConstraint(
+            "idempotency_key_hash",
+            "sale_channel_normalized",
+            name="uk_settlement_scope_rule_idempotency_channel",
+        ),
+        UniqueConstraint(
+            "effective_month",
+            "owner_account_id",
+            "sale_channel_normalized",
+            name="uk_settlement_scope_rule_slot",
+        ),
+        CheckConstraint(
+            "sale_channel_normalized IN ('live', 'short_video')",
+            name="ck_settlement_scope_rule_sale_channel",
+        ),
+        Index("idx_settlement_scope_rule_active", "is_active", "effective_month"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    scope_rule_version: Mapped[str] = mapped_column(String(64))
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str] = mapped_column(String(64))
+    effective_month: Mapped[str] = mapped_column(String(7))
+    owner_account_id: Mapped[str] = mapped_column(String(128))
+    sale_channel_normalized: Mapped[str] = mapped_column(String(32))
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(128))
+    change_reason: Mapped[str] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkuFeeRule(Base):
+    __tablename__ = "sku_fee_rule"
+    __table_args__ = (
+        UniqueConstraint("rule_version", name="uk_sku_fee_rule_version"),
+        UniqueConstraint(
+            "idempotency_key_hash",
+            "sku_id",
+            name="uk_sku_fee_rule_idempotency_sku",
+        ),
+        UniqueConstraint(
+            "sku_id", "effective_date", name="uk_sku_fee_rule_sku_date"
+        ),
+        CheckConstraint(
+            "promotion_service_fee_rate >= 0 AND promotion_service_fee_rate <= 1",
+            name="ck_sku_fee_rule_promotion_rate",
+        ),
+        CheckConstraint(
+            "management_service_fee_rate >= 0 AND management_service_fee_rate <= 1",
+            name="ck_sku_fee_rule_management_rate",
+        ),
+        CheckConstraint("rule_status IN (1, 2)", name="ck_sku_fee_rule_status"),
+        Index("idx_sku_fee_rule_match", "sku_id", "rule_status", "effective_at"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    rule_version: Mapped[str] = mapped_column(String(64))
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str] = mapped_column(String(64))
+    sku_id: Mapped[str] = mapped_column(String(128))
+    sku_name_snapshot: Mapped[str | None] = mapped_column(String(512))
+    product_scope_snapshot: Mapped[str] = mapped_column(String(128), default="")
+    product_type_snapshot: Mapped[str] = mapped_column(String(128), default="")
+    promotion_service_fee_rate: Mapped[Decimal] = mapped_column(
+        Numeric(8, 6), default=Decimal("0")
+    )
+    management_service_fee_rate: Mapped[Decimal] = mapped_column(
+        Numeric(8, 6), default=Decimal("0")
+    )
+    effective_date: Mapped[date] = mapped_column(Date)
+    effective_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    rule_status: Mapped[int] = mapped_column(Integer, default=1)
+    previous_rule_version: Mapped[str | None] = mapped_column(String(64))
+    created_by: Mapped[str] = mapped_column(String(128))
+    change_reason: Mapped[str] = mapped_column(String(512))
+    published_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkuFeeRuleImportBatch(Base):
+    __tablename__ = "sku_fee_rule_import_batch"
+    __table_args__ = (
+        UniqueConstraint("batch_id", name="uk_sku_fee_rule_import_batch_id"),
+        UniqueConstraint(
+            "commit_idempotency_key_hash",
+            name="uk_sku_fee_rule_import_batch_commit_key",
+        ),
+        CheckConstraint(
+            "batch_status IN (1, 2, 3, 4, 5, 6)",
+            name="ck_sku_fee_rule_import_batch_status",
+        ),
+        CheckConstraint(
+            "commit_mode = 1", name="ck_sku_fee_rule_import_batch_commit_mode"
+        ),
+        CheckConstraint(
+            "total_count >= 0 AND valid_count >= 0 AND success_count >= 0 "
+            "AND failed_count >= 0",
+            name="ck_sku_fee_rule_import_batch_counts",
+        ),
+        Index("idx_sku_fee_rule_import_batch_sha", "file_sha256"),
+        Index("idx_sku_fee_rule_import_batch_effective_date", "effective_date"),
+        Index(
+            "idx_sku_fee_rule_import_batch_user_status", "uploaded_by", "batch_status"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    batch_id: Mapped[str] = mapped_column(String(128))
+    file_name: Mapped[str] = mapped_column(String(512))
+    file_sha256: Mapped[str] = mapped_column(String(64))
+    batch_status: Mapped[int] = mapped_column(Integer, default=1)
+    commit_mode: Mapped[int] = mapped_column(Integer, default=1)
+    effective_date: Mapped[date] = mapped_column(Date)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    valid_count: Mapped[int] = mapped_column(Integer, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_by: Mapped[str] = mapped_column(String(128))
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    commit_idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    commit_payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    result_file_key: Mapped[str | None] = mapped_column(String(512))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkuFeeRuleImportRow(Base):
+    __tablename__ = "sku_fee_rule_import_row"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_id", "row_number", name="uk_sku_fee_rule_import_row_number"
+        ),
+        CheckConstraint("row_number > 0", name="ck_sku_fee_rule_import_row_number"),
+        CheckConstraint(
+            "validation_status IN (1, 2, 3, 4, 5)",
+            name="ck_sku_fee_rule_import_row_status",
+        ),
+        CheckConstraint(
+            "error_count >= 0", name="ck_sku_fee_rule_import_row_error_count"
+        ),
+        Index("idx_sku_fee_rule_import_row_sku", "sku_id"),
+        Index(
+            "idx_sku_fee_rule_import_row_status", "batch_id", "validation_status"
+        ),
+        Index("idx_sku_fee_rule_import_row_error_field", "error_field"),
+        Index("idx_sku_fee_rule_import_row_error_code", "error_code"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    batch_id: Mapped[str] = mapped_column(String(128))
+    row_number: Mapped[int] = mapped_column(Integer)
+    sku_name: Mapped[str | None] = mapped_column(String(512))
+    sku_id: Mapped[str | None] = mapped_column(String(128))
+    promotion_service_fee_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    management_service_fee_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 6))
+    validation_status: Mapped[int] = mapped_column(Integer, default=1)
+    error_count: Mapped[int] = mapped_column(Integer, default=0)
+    error_field: Mapped[str | None] = mapped_column(String(64))
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_message: Mapped[str | None] = mapped_column(String(1000))
+    validation_errors_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
+    created_rule_version: Mapped[str | None] = mapped_column(String(64))
+    source_row_json: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class DimNonCommissionOwnerAccount(Base):
@@ -293,36 +658,583 @@ class SettlementOrderDetail(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class DouyinRefundEvent(Base):
+    __tablename__ = "douyin_refund_event"
+    __table_args__ = (
+        UniqueConstraint("refund_event_id", name="uk_douyin_refund_event_id"),
+        CheckConstraint("refund_type IN (1, 2)", name="ck_douyin_refund_event_type"),
+        CheckConstraint(
+            "refund_status IN (1, 2, 3, 4)", name="ck_douyin_refund_event_status"
+        ),
+        CheckConstraint(
+            "refund_amount_cent >= 0", name="ck_douyin_refund_event_amount"
+        ),
+        Index("idx_douyin_refund_event_coupon_time", "coupon_id", "occurred_at"),
+        Index("idx_douyin_refund_event_order_time", "order_id", "occurred_at"),
+        Index("idx_douyin_refund_event_source_run", "source_run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    refund_event_id: Mapped[str] = mapped_column(String(128))
+    order_id: Mapped[str] = mapped_column(String(128))
+    coupon_id: Mapped[str | None] = mapped_column(String(128))
+    refund_type: Mapped[int] = mapped_column(Integer)
+    refund_status: Mapped[int] = mapped_column(Integer)
+    refund_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    source_run_id: Mapped[str | None] = mapped_column(String(128))
+    raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
+    successful_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+@event.listens_for(DouyinRefundEvent, "before_insert")
+@event.listens_for(DouyinRefundEvent, "before_update")
+def _freeze_refund_success_observed_at(
+    _mapper: Any,
+    _connection: Any,
+    target: DouyinRefundEvent,
+) -> None:
+    if target.refund_status == 2 and target.successful_observed_at is None:
+        target.successful_observed_at = utcnow()
+
+
+class SettlementFeeResult(Base):
+    __tablename__ = "settlement_fee_result"
+    __table_args__ = (
+        UniqueConstraint("fee_result_id", name="uk_settlement_fee_result_id"),
+        UniqueConstraint(
+            "coupon_id",
+            "fee_direction",
+            "result_version",
+            name="uk_settlement_fee_result_revision",
+        ),
+        CheckConstraint(
+            "fee_direction IN (1, 2)", name="ck_settlement_fee_result_direction"
+        ),
+        CheckConstraint(
+            "result_version > 0", name="ck_settlement_fee_result_version"
+        ),
+        CheckConstraint(
+            "source_amount_cent >= 0 AND refunded_amount_cent >= 0 "
+            "AND fee_base_cent >= 0 AND fee_amount_cent >= 0",
+            name="ck_settlement_fee_result_amounts",
+        ),
+        CheckConstraint(
+            "fee_rate >= 0 AND fee_rate <= 1",
+            name="ck_settlement_fee_result_rate",
+        ),
+        CheckConstraint(
+            "result_status IN (1, 2, 3)", name="ck_settlement_fee_result_status"
+        ),
+        Index(
+            "idx_settlement_fee_result_month_store",
+            "original_business_month",
+            "fee_direction",
+            "sale_store_id",
+            "verify_store_id",
+        ),
+        Index(
+            "idx_settlement_fee_result_product", "product_scope", "product_type"
+        ),
+        Index("idx_settlement_fee_result_rule", "rule_version"),
+        Index(
+            "idx_settlement_fee_result_match_date", "rule_match_date", "fee_direction"
+        ),
+        Index("idx_settlement_fee_result_calculation_run", "calculation_run_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    fee_result_id: Mapped[str] = mapped_column(String(128))
+    coupon_id: Mapped[str] = mapped_column(String(128))
+    order_id: Mapped[str] = mapped_column(String(128))
+    fee_direction: Mapped[int] = mapped_column(Integer)
+    result_version: Mapped[int] = mapped_column(Integer, default=1)
+    original_business_month: Mapped[str] = mapped_column(String(7))
+    rule_match_date: Mapped[date] = mapped_column(Date)
+    sale_store_id: Mapped[str | None] = mapped_column(String(128))
+    verify_store_id: Mapped[str | None] = mapped_column(String(128))
+    sku_id: Mapped[str] = mapped_column(String(128))
+    product_scope: Mapped[str] = mapped_column(String(128), default="")
+    product_type: Mapped[str] = mapped_column(String(128), default="")
+    sale_channel_normalized: Mapped[str] = mapped_column(String(32))
+    source_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    refunded_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    fee_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    fee_rate: Mapped[Decimal] = mapped_column(Numeric(8, 6), default=Decimal("0"))
+    fee_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    rule_version: Mapped[str] = mapped_column(String(64))
+    scope_rule_version: Mapped[str] = mapped_column(String(64))
+    result_status: Mapped[int] = mapped_column(Integer, default=1)
+    calculation_run_id: Mapped[str] = mapped_column(String(128))
+    calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementFeeResultCurrent(Base):
+    __tablename__ = "settlement_fee_result_current"
+    __table_args__ = (
+        UniqueConstraint(
+            "coupon_id",
+            "fee_direction",
+            name="uk_settlement_fee_result_current_slot",
+        ),
+        UniqueConstraint(
+            "fee_result_id", name="uk_settlement_fee_result_current_result"
+        ),
+        CheckConstraint(
+            "fee_direction IN (1, 2)",
+            name="ck_settlement_fee_result_current_direction",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    coupon_id: Mapped[str] = mapped_column(String(128))
+    fee_direction: Mapped[int] = mapped_column(Integer)
+    fee_result_id: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementFeeAdjustment(Base):
+    __tablename__ = "settlement_fee_adjustment"
+    __table_args__ = (
+        UniqueConstraint(
+            "adjustment_id", name="uk_settlement_fee_adjustment_id"
+        ),
+        CheckConstraint(
+            "fee_direction IN (1, 2)",
+            name="ck_settlement_fee_adjustment_direction",
+        ),
+        CheckConstraint(
+            "adjustment_type IN (1, 2, 3, 4)",
+            name="ck_settlement_fee_adjustment_type",
+        ),
+        Index("idx_settlement_fee_adjustment_original", "original_fee_result_id"),
+        Index("idx_settlement_fee_adjustment_refund", "refund_event_id"),
+        Index(
+            "idx_settlement_fee_adjustment_posting",
+            "adjustment_posting_month",
+            "fee_direction",
+        ),
+        Index(
+            "idx_settlement_fee_adjustment_coupon", "coupon_id", "occurred_at"
+        ),
+        Index("idx_settlement_fee_adjustment_rule", "rule_version"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    adjustment_id: Mapped[str] = mapped_column(String(128))
+    original_fee_result_id: Mapped[str] = mapped_column(String(128))
+    refund_event_id: Mapped[str | None] = mapped_column(String(128))
+    coupon_id: Mapped[str] = mapped_column(String(128))
+    order_id: Mapped[str] = mapped_column(String(128))
+    fee_direction: Mapped[int] = mapped_column(Integer)
+    original_business_month: Mapped[str] = mapped_column(String(7))
+    adjustment_posting_month: Mapped[str] = mapped_column(String(7))
+    adjustment_type: Mapped[int] = mapped_column(Integer)
+    adjustment_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    rule_version: Mapped[str] = mapped_column(String(64))
+    adjustment_reason: Mapped[str] = mapped_column(String(1000))
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_by: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementStatement(Base):
+    __tablename__ = "settlement_statement"
+    __table_args__ = (
+        UniqueConstraint("statement_id", name="uk_settlement_statement_id"),
+        UniqueConstraint(
+            "store_id", "statement_month", name="uk_settlement_statement_store_month"
+        ),
+        UniqueConstraint(
+            "lock_version", name="uk_settlement_statement_lock_version"
+        ),
+        CheckConstraint(
+            "statement_status IN (1, 2, 3, 4)",
+            name="ck_settlement_statement_status",
+        ),
+        CheckConstraint(
+            "promotion_net_fee_cent = promotion_original_fee_cent + "
+            "promotion_adjustment_fee_cent",
+            name="ck_settlement_statement_promotion_net",
+        ),
+        CheckConstraint(
+            "management_net_fee_cent = management_original_fee_cent + "
+            "management_adjustment_fee_cent",
+            name="ck_settlement_statement_management_net",
+        ),
+        Index(
+            "idx_settlement_statement_status_month",
+            "statement_status",
+            "statement_month",
+        ),
+        Index("idx_settlement_statement_locked_at", "locked_at"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    statement_id: Mapped[str] = mapped_column(String(128))
+    store_id: Mapped[str] = mapped_column(String(128))
+    statement_month: Mapped[str] = mapped_column(String(7))
+    statement_status: Mapped[int] = mapped_column(Integer, default=1)
+    promotion_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    confirmed_by: Mapped[str | None] = mapped_column(String(128))
+    confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    locked_by: Mapped[str | None] = mapped_column(String(128))
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lock_version: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementStatementLine(Base):
+    __tablename__ = "settlement_statement_line"
+    __table_args__ = (
+        UniqueConstraint(
+            "statement_line_id", name="uk_settlement_statement_line_id"
+        ),
+        UniqueConstraint(
+            "statement_id",
+            "fee_direction",
+            "product_scope",
+            "product_type",
+            name="uk_settlement_statement_line_dimension",
+        ),
+        CheckConstraint(
+            "fee_direction IN (1, 2)",
+            name="ck_settlement_statement_line_direction",
+        ),
+        CheckConstraint(
+            "original_entry_count >= 0 AND adjustment_entry_count >= 0",
+            name="ck_settlement_statement_line_counts",
+        ),
+        CheckConstraint(
+            "net_base_cent = original_base_cent + adjustment_base_cent",
+            name="ck_settlement_statement_line_net_base",
+        ),
+        CheckConstraint(
+            "net_fee_cent = original_fee_cent + adjustment_fee_cent",
+            name="ck_settlement_statement_line_net_fee",
+        ),
+        Index(
+            "idx_settlement_statement_line_statement", "statement_id", "fee_direction"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    statement_line_id: Mapped[str] = mapped_column(String(128))
+    statement_id: Mapped[str] = mapped_column(String(128))
+    fee_direction: Mapped[int] = mapped_column(Integer)
+    product_scope: Mapped[str] = mapped_column(String(128), default="")
+    product_type: Mapped[str] = mapped_column(String(128), default="")
+    original_entry_count: Mapped[int] = mapped_column(Integer, default=0)
+    adjustment_entry_count: Mapped[int] = mapped_column(Integer, default=0)
+    original_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    adjustment_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SettlementStatementEntry(Base):
+    __tablename__ = "settlement_statement_entry"
+    __table_args__ = (
+        UniqueConstraint(
+            "statement_entry_id", name="uk_settlement_statement_entry_id"
+        ),
+        UniqueConstraint(
+            "source_type",
+            "source_record_id",
+            name="uk_settlement_statement_entry_source",
+        ),
+        CheckConstraint(
+            "source_type IN (1, 2)", name="ck_settlement_statement_entry_source_type"
+        ),
+        CheckConstraint(
+            "fee_direction IN (1, 2)",
+            name="ck_settlement_statement_entry_direction",
+        ),
+        Index("idx_settlement_statement_entry_line", "statement_line_id"),
+        Index(
+            "idx_settlement_statement_entry_statement_order", "statement_id", "order_id"
+        ),
+        Index("idx_settlement_statement_entry_coupon", "coupon_id"),
+        Index("idx_settlement_statement_entry_original", "original_fee_result_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    statement_entry_id: Mapped[str] = mapped_column(String(128))
+    statement_id: Mapped[str] = mapped_column(String(128))
+    statement_line_id: Mapped[str] = mapped_column(String(128))
+    source_type: Mapped[int] = mapped_column(Integer)
+    source_record_id: Mapped[str] = mapped_column(String(128))
+    original_fee_result_id: Mapped[str] = mapped_column(String(128))
+    coupon_id: Mapped[str] = mapped_column(String(128))
+    order_id: Mapped[str] = mapped_column(String(128))
+    fee_direction: Mapped[int] = mapped_column(Integer)
+    original_business_month: Mapped[str] = mapped_column(String(7))
+    statement_posting_month: Mapped[str] = mapped_column(String(7))
+    product_scope: Mapped[str] = mapped_column(String(128), default="")
+    product_type: Mapped[str] = mapped_column(String(128), default="")
+    base_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    fee_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    rule_version: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class AggStoreRanking(Base):
     __tablename__ = "agg_store_ranking"
+    __table_args__ = (
+        UniqueConstraint(
+            "period_type",
+            "period_key",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uk_agg_store_ranking_slot",
+        ),
+        CheckConstraint(
+            "period_type IN (1, 2)", name="ck_agg_store_ranking_period_type"
+        ),
+        CheckConstraint(
+            "net_settlement_reference_cent = promotion_net_fee_cent - "
+            "management_net_fee_cent",
+            name="ck_agg_store_ranking_net_reference",
+        ),
+        Index(
+            "idx_agg_store_ranking_period_fee",
+            "period_type",
+            "period_key",
+            "promotion_net_fee_cent",
+        ),
+        Index(
+            "idx_agg_store_ranking_period_sales",
+            "period_type",
+            "period_key",
+            "sales_amount_cent",
+        ),
+        Index("idx_agg_store_ranking_month", "month"),
+    )
 
-    month: Mapped[str] = mapped_column(String(7), primary_key=True)
-    product_type: Mapped[str] = mapped_column(Text, primary_key=True)
-    store_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    store_name: Mapped[str | None] = mapped_column(Text)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    period_type: Mapped[int] = mapped_column(Integer, default=1)
+    period_key: Mapped[str] = mapped_column(String(7))
+    store_id: Mapped[str] = mapped_column(String(128))
+    store_name: Mapped[str] = mapped_column(String(255), default="")
+    product_scope: Mapped[str] = mapped_column(String(128), default="all")
+    product_type: Mapped[str] = mapped_column(String(128), default="all")
     sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_settlement_reference_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    projection_run_id: Mapped[str] = mapped_column(String(128))
+    # Compatibility columns for the legacy read APIs during the staged cutover.
+    month: Mapped[str] = mapped_column(String(7))
     self_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
     self_sold_other_verified_count: Mapped[int] = mapped_column(Integer, default=0)
     other_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
-    self_verify_income_cent: Mapped[int] = mapped_column(Integer, default=0)
-    effective_commission_income_cent: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    self_verify_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    effective_commission_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class AggStoreMonthlySettlement(Base):
     __tablename__ = "agg_store_monthly_settlement"
+    __table_args__ = (
+        UniqueConstraint(
+            "month",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uk_agg_store_monthly_settlement_slot",
+        ),
+        CheckConstraint(
+            "statement_status IN (1, 2, 3, 4)",
+            name="ck_agg_store_monthly_settlement_status",
+        ),
+        Index(
+            "idx_agg_store_monthly_settlement_store_month", "store_id", "month"
+        ),
+        Index("idx_agg_store_monthly_settlement_status", "statement_status"),
+    )
 
-    month: Mapped[str] = mapped_column(String(7), primary_key=True)
-    store_id: Mapped[str] = mapped_column(Text, primary_key=True)
-    product_type: Mapped[str] = mapped_column(Text, primary_key=True)
-    estimated_receivable_commission_cent: Mapped[int] = mapped_column(Integer, default=0)
-    commissionable_total_cent: Mapped[int] = mapped_column(Integer, default=0)
-    estimated_payable_commission_cent: Mapped[int] = mapped_column(Integer, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    month: Mapped[str] = mapped_column(String(7))
+    store_id: Mapped[str] = mapped_column(String(128))
+    product_scope: Mapped[str] = mapped_column(String(128), default="all")
+    product_type: Mapped[str] = mapped_column(String(128), default="all")
+    sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    statement_status: Mapped[int] = mapped_column(Integer, default=1)
+    projection_run_id: Mapped[str] = mapped_column(String(128))
+    # Compatibility columns for the legacy read APIs during the staged cutover.
+    estimated_receivable_commission_cent: Mapped[int] = mapped_column(
+        BigInteger, default=0
+    )
+    commissionable_total_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_payable_commission_cent: Mapped[int] = mapped_column(
+        BigInteger, default=0
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+@event.listens_for(AggStoreRanking, "before_insert")
+def _fill_legacy_ranking_projection_fields(
+    _mapper: Any, _connection: Any, target: AggStoreRanking
+) -> None:
+    if not target.period_key:
+        target.period_key = target.month
+    if not target.projection_run_id:
+        target.projection_run_id = "legacy-compat"
+
+
+@event.listens_for(AggStoreMonthlySettlement, "before_insert")
+def _fill_legacy_monthly_projection_fields(
+    _mapper: Any, _connection: Any, target: AggStoreMonthlySettlement
+) -> None:
+    if not target.projection_run_id:
+        target.projection_run_id = "legacy-compat"
 
 
 class JobRun(Base):
     __tablename__ = "job_runs"
+    __table_args__ = (
+        Index(
+            "uq_job_runs_product_sync_active_slot",
+            "job_name",
+            unique=True,
+            sqlite_where=text(
+                "job_name = 'product_sync' AND status IN ('queued', 'running')"
+            ),
+            postgresql_where=text(
+                "job_name = 'product_sync' AND status IN ('queued', 'running')"
+            ),
+        ),
+        Index(
+            "uq_job_runs_product_sync_idempotency_key",
+            "job_name",
+            "idempotency_key_hash",
+            unique=True,
+            sqlite_where=text(
+                "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
+            ),
+        ),
+    )
 
     job_id: Mapped[str] = mapped_column(Text, primary_key=True)
     job_name: Mapped[str] = mapped_column(Text, index=True)
@@ -332,6 +1244,7 @@ class JobRun(Base):
     success_count: Mapped[int] = mapped_column(Integer, default=0)
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
 
 

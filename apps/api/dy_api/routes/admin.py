@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+from hashlib import sha256
+import json
 import os
+import re
 from datetime import date, datetime, timedelta, timezone
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
 from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy.exc import IntegrityError
 
 from apps.api.dy_api.models import (
     ClueAllocationAuditLog,
@@ -20,9 +24,12 @@ from apps.api.dy_api.models import (
     ClueStoreGroup,
     ClueStoreGroupMember,
     DimAwemeAccount,
+    DimSkuProductRule,
     DimStore,
     DimStorePoiMapping,
+    DataQualityIssue,
     JobRun,
+    SkuProductSyncHistory,
     StoreScoreSnapshot,
     StoreScoreSnapshotRun,
     User,
@@ -58,6 +65,7 @@ from apps.worker.clue_rule_versions import (
     update_rule_version,
 )
 from apps.worker.pipeline import build_douyin_client_from_env
+from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
@@ -109,6 +117,7 @@ from dy_api.schemas import (
     Pagination,
     ProductTypeVisibilityData,
     ProductTypeVisibilityUpdate,
+    ProductSyncRunRequest,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -1191,6 +1200,258 @@ def update_product_type_visibility(
     }
 
 
+@router.get("/product-sync-runs")
+def list_product_sync_runs(
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize"),
+    run_status: str | None = Query(default=None, alias="status"),
+    mode: str | None = None,
+    started_from: datetime | None = Query(default=None, alias="startedFrom"),
+    started_to: datetime | None = Query(default=None, alias="startedTo"),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    conditions = [JobRun.job_name == PRODUCT_SYNC_JOB_NAME]
+    if run_status:
+        normalized_status = run_status.strip().lower()
+        if normalized_status not in {"queued", "running", "success", "failed", "partial"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid product sync status",
+            )
+        conditions.append(JobRun.status == normalized_status)
+    if mode:
+        normalized_mode = mode.strip().upper()
+        if normalized_mode not in {"INCREMENTAL", "FULL"}:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid product sync mode",
+            )
+        conditions.append(JobRun.metadata_json["mode"].as_string() == normalized_mode)
+    if started_from is not None:
+        conditions.append(JobRun.started_at >= started_from)
+    if started_to is not None:
+        conditions.append(JobRun.started_at <= started_to)
+
+    total = store.session.scalar(
+        select(func.count()).select_from(JobRun).where(*conditions)
+    ) or 0
+    rows = list(
+        store.session.scalars(
+            select(JobRun)
+            .where(*conditions)
+            .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    return _product_sync_success(
+        request,
+        {
+            "list": [_product_sync_run_item(store.session, row) for row in rows],
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+        },
+    )
+
+
+@router.post("/product-sync-runs")
+def create_product_sync_run(
+    payload: ProductSyncRunRequest,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    idempotency_key: str = Header(alias="Idempotency-Key", min_length=16, max_length=128),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    normalized_key = idempotency_key.strip()
+    if not normalized_key:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Idempotency-Key is required",
+        )
+    key_hash = sha256(normalized_key.encode("utf-8")).hexdigest()
+    request_hash = _canonical_payload_sha256(
+        {"mode": payload.mode, "reason": payload.reason}
+    )
+    existing = _find_product_sync_job_by_idempotency_hash(store.session, key_hash)
+    if existing is not None:
+        metadata = existing.metadata_json or {}
+        if metadata.get("request_payload_sha256") != request_hash:
+            raise _product_sync_error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key was already used with a different request",
+            )
+        return _product_sync_success(
+            request,
+            {
+                "syncRunId": existing.job_id,
+                "mode": str(metadata.get("mode") or payload.mode).upper(),
+                "status": "QUEUED",
+            },
+        )
+
+    active = store.session.scalar(
+        select(JobRun)
+        .where(JobRun.job_name == PRODUCT_SYNC_JOB_NAME)
+        .where(JobRun.status.in_(("queued", "running")))
+        .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+        .limit(1)
+    )
+    if active is not None:
+        raise _product_sync_error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "PRODUCT_SYNC_ALREADY_ACTIVE",
+            "A product sync run is already queued or running",
+        )
+
+    job_id = f"product-sync-{uuid4().hex}"
+    try:
+        queued_job = queue_job_run(
+            store.session,
+            job_id,
+            PRODUCT_SYNC_JOB_NAME,
+            metadata_json={
+                "mode": payload.mode,
+                "reason": payload.reason,
+                "idempotency_key_hash": key_hash,
+                "request_payload_sha256": request_hash,
+                "observed_count": 0,
+                "inserted_count": 0,
+                "updated_count": 0,
+                "unchanged_count": 0,
+                "phase_counts": {},
+                "next_cursor_masked": None,
+                "error_code": None,
+                "retryable": False,
+            },
+        )
+        queued_job.idempotency_key_hash = key_hash
+        store.session.commit()
+    except IntegrityError as exc:
+        store.session.rollback()
+        concurrent = _find_product_sync_job_by_idempotency_hash(
+            store.session,
+            key_hash,
+        )
+        if concurrent is not None:
+            metadata = concurrent.metadata_json or {}
+            if metadata.get("request_payload_sha256") != request_hash:
+                raise _product_sync_error(
+                    request,
+                    status.HTTP_409_CONFLICT,
+                    "IDEMPOTENCY_KEY_REUSED",
+                    "Idempotency-Key was already used with a different request",
+                ) from exc
+            return _product_sync_success(
+                request,
+                {
+                    "syncRunId": concurrent.job_id,
+                    "mode": str(metadata.get("mode") or payload.mode).upper(),
+                    "status": "QUEUED",
+                },
+            )
+        raise _product_sync_error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "PRODUCT_SYNC_ALREADY_ACTIVE",
+            "A product sync run is already queued or running",
+        ) from exc
+    background_tasks.add_task(run_product_sync_job, job_id=job_id)
+    return _product_sync_success(
+        request,
+        {"syncRunId": job_id, "mode": payload.mode, "status": "QUEUED"},
+    )
+
+
+@router.get("/product-sync-runs/{sync_run_id}")
+def get_product_sync_run(
+    sync_run_id: str,
+    request: Request,
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    job = store.session.get(JobRun, sync_run_id)
+    if job is None or job.job_name != PRODUCT_SYNC_JOB_NAME:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Product sync run not found")
+    affected_skus = list(
+        store.session.scalars(
+            select(SkuProductSyncHistory.sku_id)
+            .where(SkuProductSyncHistory.sync_run_id == sync_run_id)
+            .distinct()
+            .order_by(SkuProductSyncHistory.sku_id)
+            .limit(20)
+        )
+    )
+    issue_count = store.session.scalar(
+        select(func.count())
+        .select_from(DataQualityIssue)
+        .where(DataQualityIssue.source_run_id == sync_run_id)
+    ) or 0
+    metadata = job.metadata_json or {}
+    return _product_sync_success(
+        request,
+        {
+            "run": _product_sync_run_item(store.session, job),
+            "phaseCounts": metadata.get("phase_counts") or {},
+            "affectedSkuSample": affected_skus,
+            "dataQualityIssueCount": issue_count,
+            "retryable": bool(metadata.get("retryable", False)),
+        },
+    )
+
+
+@router.get("/sku-products/{sku_id}/sync-history")
+def list_sku_product_sync_history(
+    sku_id: str,
+    request: Request,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=200, alias="pageSize"),
+    observed_from: datetime | None = Query(default=None, alias="observedFrom"),
+    observed_to: datetime | None = Query(default=None, alias="observedTo"),
+    _username: str = Depends(get_current_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    conditions = [SkuProductSyncHistory.sku_id == sku_id]
+    if observed_from is not None:
+        conditions.append(SkuProductSyncHistory.observed_at >= observed_from)
+    if observed_to is not None:
+        conditions.append(SkuProductSyncHistory.observed_at <= observed_to)
+    total = store.session.scalar(
+        select(func.count()).select_from(SkuProductSyncHistory).where(*conditions)
+    ) or 0
+    rows = list(
+        store.session.scalars(
+            select(SkuProductSyncHistory)
+            .where(*conditions)
+            .order_by(
+                SkuProductSyncHistory.observed_at.desc(),
+                SkuProductSyncHistory.id.desc(),
+            )
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    return _product_sync_success(
+        request,
+        {
+            "list": [_sku_sync_history_item(row) for row in rows],
+            "total": total,
+            "page": page,
+            "pageSize": page_size,
+        },
+    )
+
+
 @router.get("/sync")
 def get_sync_admin(
     _username: str = Depends(get_current_admin),
@@ -1285,6 +1546,149 @@ def run_sync_now(
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
+
+
+def _product_sync_run_item(session, job: JobRun) -> dict[str, object]:
+    metadata = job.metadata_json or {}
+    latest_successful_synced_at = session.scalar(
+        select(func.max(DimSkuProductRule.last_synced_at)).where(
+            DimSkuProductRule.sync_run_id == job.job_id
+        )
+    )
+    return {
+        "syncRunId": job.job_id,
+        "mode": str(metadata.get("mode") or "INCREMENTAL").upper(),
+        "status": job.status.upper(),
+        "startedAt": job.started_at,
+        "finishedAt": job.finished_at,
+        "observedCount": _non_negative_int(metadata.get("observed_count")),
+        "insertedCount": _non_negative_int(metadata.get("inserted_count")),
+        "updatedCount": _non_negative_int(metadata.get("updated_count")),
+        "unchangedCount": _non_negative_int(metadata.get("unchanged_count")),
+        "failedCount": max(job.failed_count or 0, 0),
+        "latestSuccessfulSyncedAt": latest_successful_synced_at,
+        "nextCursorMasked": metadata.get("next_cursor_masked"),
+        "errorCode": metadata.get("error_code"),
+        "errorMessage": sanitize_error_message(job.error_message),
+    }
+
+
+def _sku_sync_history_item(row: SkuProductSyncHistory) -> dict[str, object]:
+    return {
+        "snapshotId": row.snapshot_id,
+        "syncRunId": row.sync_run_id,
+        "skuId": row.sku_id,
+        "productId": row.product_id,
+        "spuId": row.spu_id,
+        "skuName": row.sku_name,
+        "productName": row.product_name,
+        "creatorAccountId": row.creator_account_id,
+        "creatorAccountName": row.creator_account_name,
+        "ownerAccountId": row.owner_account_id,
+        "ownerAccountName": row.owner_account_name,
+        "productStatusRaw": row.product_status_raw,
+        "productStatus": row.product_status_normalized,
+        "payloadSha256": row.payload_sha256,
+        "observedAt": row.observed_at,
+    }
+
+
+def _camel_pagination(page: int, page_size: int, total: int) -> dict[str, int]:
+    return {
+        "page": page,
+        "pageSize": page_size,
+        "total": total,
+        "totalPages": max(1, (total + page_size - 1) // page_size),
+    }
+
+
+def _find_product_sync_job_by_idempotency_hash(
+    session,
+    key_hash: str,
+) -> JobRun | None:
+    current = session.scalar(
+        select(JobRun)
+        .where(JobRun.job_name == PRODUCT_SYNC_JOB_NAME)
+        .where(JobRun.idempotency_key_hash == key_hash)
+        .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+        .limit(1)
+    )
+    if current is not None:
+        return current
+
+    legacy_jobs = session.scalars(
+        select(JobRun)
+        .where(JobRun.job_name == PRODUCT_SYNC_JOB_NAME)
+        .where(JobRun.idempotency_key_hash.is_(None))
+        .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+    )
+    return next(
+        (
+            job
+            for job in legacy_jobs
+            if (job.metadata_json or {}).get("idempotency_key_hash") == key_hash
+        ),
+        None,
+    )
+
+
+def _product_sync_request_id(request: Request) -> str:
+    existing = getattr(request.state, "product_sync_request_id", None)
+    if existing:
+        return existing
+    provided = (request.headers.get("X-Request-ID") or "").strip()
+    if provided and re.fullmatch(r"[A-Za-z0-9._:-]{1,128}", provided):
+        request_id = provided
+    else:
+        request_id = f"req_{uuid4().hex}"
+    request.state.product_sync_request_id = request_id
+    return request_id
+
+
+def _product_sync_success(request: Request, data):
+    return {
+        "data": data,
+        "meta": {
+            "generatedAt": generated_at(),
+            "source": "postgres",
+            "requestId": _product_sync_request_id(request),
+        },
+    }
+
+
+def _product_sync_error(
+    request: Request,
+    http_status: int,
+    code: str,
+    message: str,
+) -> HTTPException:
+    return HTTPException(
+        status_code=http_status,
+        detail={
+            "code": code,
+            "message": message,
+            "errors": [],
+            "requestId": _product_sync_request_id(request),
+        },
+    )
+
+
+def _canonical_payload_sha256(payload: dict[str, object]) -> str:
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return sha256(encoded).hexdigest()
+
+
+def _non_negative_int(value: object) -> int:
+    try:
+        return max(0, int(value or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 def _sync_admin_data(store) -> SyncAdminData:

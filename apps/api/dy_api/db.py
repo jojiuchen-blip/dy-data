@@ -74,7 +74,18 @@ def session_scope(factory: sessionmaker[Session]) -> Iterator[Session]:
         yield session
         session.commit()
     except Exception:
+        post_rollback_callbacks = list(
+            session.info.pop("post_rollback_callbacks", [])
+        )
         session.rollback()
+        if post_rollback_callbacks:
+            try:
+                for callback in post_rollback_callbacks:
+                    callback(session)
+                session.commit()
+            except Exception as audit_error:
+                session.rollback()
+                session.info["post_rollback_callback_error"] = str(audit_error)
         raise
     finally:
         session.close()
