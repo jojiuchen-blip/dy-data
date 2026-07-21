@@ -10,6 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .constants import CLI_SCHEMA_VERSION
 from .errors import is_canonical_request_id
+from .url_security import normalize_safe_url
 
 
 _COUNT_FIELDS = {
@@ -123,7 +124,10 @@ def validate_stores(
 
 
 def validate_follow_up_stats(
-    payload: dict[str, Any], expected_request_id: str | None = None
+    payload: dict[str, Any],
+    expected_request_id: str | None = None,
+    *,
+    expected_store_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Validate and rebuild a clue follow-up aggregate success envelope."""
     _require_envelope(
@@ -169,6 +173,12 @@ def validate_follow_up_stats(
     effective_store_ids = _require_stable_identifier_list(
         scope["effective_store_ids"]
     )
+    if expected_store_ids is not None:
+        normalized_expected = normalize_store_ids(expected_store_ids)
+        if requested_store_ids != normalized_expected:
+            raise ContractError("requested store scope does not match the request")
+        if normalized_expected and effective_store_ids != normalized_expected:
+            raise ContractError("effective store scope does not match the request")
     _require_store_rows_consistent(stores, effective_store_ids)
     totals = _validate_metrics(_require_mapping(data["totals"]))
     if totals != _summed_metrics(stores):
@@ -342,7 +352,9 @@ def validate_device_start(payload: dict[str, Any], _: str | None = None) -> dict
     if not _URLSAFE_SECRET.fullmatch(device_code) or not _USER_CODE.fullmatch(user_code):
         raise ContractError("device authorization code is incompatible")
     verification_uri = _require_web_url(payload["verification_uri"])
-    verification_uri_complete = _require_web_url(payload["verification_uri_complete"])
+    verification_uri_complete = _require_web_url(
+        payload["verification_uri_complete"], allow_query=True
+    )
     complete = urlsplit(verification_uri_complete)
     base = urlsplit(verification_uri)
     if (
@@ -461,6 +473,16 @@ def _require_identifier_list(value: Any) -> list[str]:
     return [_require_identifier(item) for item in _require_list(value)]
 
 
+def normalize_store_ids(values: list[str]) -> list[str]:
+    """Normalize the caller's requested store scope for request/response binding."""
+    normalized: set[str] = set()
+    for value in values:
+        if not isinstance(value, str) or not value.strip():
+            raise ContractError("store identifier is invalid")
+        normalized.add(value.strip())
+    return sorted(normalized)
+
+
 def _require_stable_identifier_list(value: Any) -> list[str]:
     identifiers = _require_identifier_list(value)
     if len(identifiers) != len(set(identifiers)) or identifiers != sorted(identifiers):
@@ -468,18 +490,12 @@ def _require_stable_identifier_list(value: Any) -> list[str]:
     return identifiers
 
 
-def _require_web_url(value: Any) -> str:
+def _require_web_url(value: Any, *, allow_query: bool = False) -> str:
     text = _require_identifier(value)
-    parsed = urlsplit(text)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or not parsed.netloc
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.fragment
-    ):
+    try:
+        return normalize_safe_url(text, allow_query=allow_query)
+    except ValueError:
         raise ContractError("web URL is required")
-    return text
 
 
 def _require_date_text(value: Any) -> date:

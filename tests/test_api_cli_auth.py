@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import ANY
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from apps.api.dy_api.models import (  # noqa: E402
+    CliAuditEvent,
     CliDeviceAuthorization,
     CliRefreshToken,
     User,
@@ -21,6 +23,7 @@ from apps.api.dy_api.models import (  # noqa: E402
 )
 from apps.api.dy_api.user_auth_state import replace_user_store_scopes  # noqa: E402
 from dy_api.auth import create_session_token  # noqa: E402
+from dy_api.cli_audit import DatabaseCliAuditSink  # noqa: E402
 from dy_api.cli_auth import hash_cli_secret  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -32,6 +35,18 @@ class RecordingAuditSink:
 
     def record(self, event: dict) -> None:
         self.events.append(event)
+
+    def stage(self, session, event: dict) -> None:
+        DatabaseCliAuditSink().stage(session, event)
+        self.events.append(event)
+
+
+class FailingTransactionalAuditSink:
+    def stage(self, session, event: dict) -> None:
+        raise RuntimeError("transactional audit stage failed")
+
+    def record(self, event: dict) -> None:
+        raise RuntimeError("audit commit failed")
 
 
 @pytest.fixture()
@@ -82,6 +97,136 @@ def _set_user_cookie(client: TestClient, user: User) -> None:
             auth_type="user",
         ),
     )
+
+
+def _prepare_atomic_auth_action(
+    operation: str, client: TestClient, db_session
+):
+    if operation == "device_start":
+        def invoke():
+            return client.post("/api/v1/auth/cli/device/start")
+
+        def assert_unchanged():
+            assert db_session.scalars(select(CliDeviceAuthorization)).all() == []
+
+        return invoke, assert_unchanged
+
+    user = _add_user(db_session)
+    started = client.post("/api/v1/auth/cli/device/start").json()
+    _set_user_cookie(client, user)
+    grant = db_session.execute(select(CliDeviceAuthorization)).scalar_one()
+
+    if operation == "device_approve":
+        def invoke():
+            return client.post(
+                "/api/v1/auth/cli/device/approve",
+                json={"user_code": started["user_code"]},
+            )
+
+        def assert_unchanged():
+            db_session.refresh(grant)
+            assert grant.status == "pending"
+            assert grant.approved_at is None
+
+        return invoke, assert_unchanged
+
+    approved = client.post(
+        "/api/v1/auth/cli/device/approve",
+        json={"user_code": started["user_code"]},
+    )
+    assert approved.status_code == 200
+
+    if operation == "device_exchange":
+        def invoke():
+            return client.post(
+                "/api/v1/auth/cli/device/token",
+                json={"device_code": started["device_code"]},
+            )
+
+        def assert_unchanged():
+            db_session.refresh(grant)
+            assert grant.status == "approved"
+            assert grant.consumed_at is None
+            assert db_session.scalars(select(CliRefreshToken)).all() == []
+
+        return invoke, assert_unchanged
+
+    exchanged = client.post(
+        "/api/v1/auth/cli/device/token",
+        json={"device_code": started["device_code"]},
+    )
+    assert exchanged.status_code == 200
+    refresh_token = exchanged.json()["refresh_token"]
+    stored = db_session.execute(
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(refresh_token)
+        )
+    ).scalar_one()
+
+    if operation == "refresh":
+        def invoke():
+            return client.post(
+                "/api/v1/auth/cli/token/refresh",
+                json={"refresh_token": refresh_token},
+            )
+
+        def assert_unchanged():
+            db_session.refresh(stored)
+            assert stored.revoked_at is None
+            assert stored.replaced_by_token_id is None
+            assert len(db_session.scalars(select(CliRefreshToken)).all()) == 1
+
+        return invoke, assert_unchanged
+
+    assert operation == "revoke"
+
+    def invoke():
+        return client.post(
+            "/api/v1/auth/cli/revoke",
+            json={"refresh_token": refresh_token},
+        )
+
+    def assert_unchanged():
+        db_session.refresh(stored)
+        assert stored.revoked_at is None
+
+    return invoke, assert_unchanged
+
+
+@pytest.mark.parametrize(
+    "operation",
+    ["device_start", "device_approve", "device_exchange", "refresh", "revoke"],
+)
+@pytest.mark.parametrize("failure", ["sink", "commit"])
+def test_auth_state_and_audit_are_atomic_on_persistence_failure(
+    operation: str,
+    failure: str,
+    client: TestClient,
+    db_session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invoke, assert_unchanged = _prepare_atomic_auth_action(
+        operation, client, db_session
+    )
+    baseline_audits = len(db_session.scalars(select(CliAuditEvent)).all())
+    db_session.commit()
+
+    if failure == "sink":
+        client.app.state.cli_audit_sink = FailingTransactionalAuditSink()
+    else:
+        monkeypatch.setattr(
+            db_session,
+            "commit",
+            lambda: (_ for _ in ()).throw(RuntimeError("commit failed")),
+        )
+
+    response = invoke()
+
+    assert response.status_code == 503
+    assert response.json()["error"]["code"] == "API_UNAVAILABLE"
+    assert db_session.in_transaction() is False
+    assert_unchanged()
+    assert len(db_session.scalars(select(CliAuditEvent)).all()) == baseline_audits
 
 
 def _approve_and_exchange(client: TestClient, db_session) -> dict:
@@ -150,6 +295,44 @@ def test_complete_auth_lifecycle_is_audited_without_credentials(
     assert flow["tokens"]["refresh_token"] not in rendered
     assert refreshed.json()["access_token"] not in rendered
     assert refreshed.json()["refresh_token"] not in rendered
+    persisted_operations = [
+        event.operation for event in db_session.scalars(select(CliAuditEvent)).all()
+    ]
+    for operation in (
+        "device_start",
+        "device_approve",
+        "device_exchange",
+        "refresh",
+        "revoke",
+    ):
+        assert persisted_operations.count(operation) == 1
+
+
+def test_auth_audit_persistence_survives_failing_log_handler(
+    client: TestClient, db_session
+) -> None:
+    class RaisingHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            raise RuntimeError("log transport failed")
+
+    audit_logger = logging.getLogger("dy_api.cli_audit")
+    previous_handlers = list(audit_logger.handlers)
+    previous_propagate = audit_logger.propagate
+    previous_level = audit_logger.level
+    audit_logger.handlers = [RaisingHandler()]
+    audit_logger.propagate = False
+    audit_logger.setLevel(logging.INFO)
+    try:
+        response = client.post("/api/v1/auth/cli/device/start")
+    finally:
+        audit_logger.handlers = previous_handlers
+        audit_logger.propagate = previous_propagate
+        audit_logger.setLevel(previous_level)
+
+    assert response.status_code == 200
+    assert len(db_session.scalars(select(CliDeviceAuthorization)).all()) == 1
+    [event] = db_session.scalars(select(CliAuditEvent)).all()
+    assert event.operation == "device_start"
 
 
 def test_device_approve_returns_normalized_user_code_and_expiry(

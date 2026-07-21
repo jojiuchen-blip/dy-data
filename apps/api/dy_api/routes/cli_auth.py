@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import CliDeviceAuthorization, utcnow
 from dy_api.auth import AuthContext, get_current_user
+from dy_api.cli_audit import commit_auth_audit
 from dy_api.cli_auth import (
     CLI_ACCESS_SCOPE,
     _current_auth,
@@ -128,7 +129,7 @@ def start_device_authorization(
         + timedelta(seconds=DEVICE_AUTHORIZATION_TTL_SECONDS),
     )
     active_session.add(grant)
-    active_session.commit()
+    commit_auth_audit(request, active_session, operation="device_start")
     return CliDeviceStartResponse(
         device_code=device_code,
         user_code=user_code,
@@ -174,7 +175,7 @@ def approve_device_authorization(
     grant.username = current_user.username
     grant.auth_type = current_user.auth_type
     grant.approved_at = current_time
-    active_session.commit()
+    commit_auth_audit(request, active_session, operation="device_approve")
     return CliDeviceApproveResponse(
         user_code=payload.user_code,
         status="approved",
@@ -210,6 +211,12 @@ def exchange_device_code(
     ):
         raise _invalid_device_code()
     if grant.status == "pending":
+        commit_auth_audit(
+            request,
+            active_session,
+            operation="device_exchange",
+            result_status=status.HTTP_202_ACCEPTED,
+        )
         return JSONResponse(
             status_code=status.HTTP_202_ACCEPTED,
             content={"status": "authorization_pending"},
@@ -238,7 +245,7 @@ def exchange_device_code(
     )
     grant.status = "consumed"
     grant.consumed_at = current_time
-    active_session.commit()
+    commit_auth_audit(request, active_session, operation="device_exchange")
     return _token_response(access_token, refresh_token, access_expires_at)
 
 
@@ -254,10 +261,20 @@ def refresh_cli_tokens(
         request.state.cli_user_id,
         request.state.cli_auth_type,
     ) = refresh_token_audit_context(active_session, payload.refresh_token)
-    access_token, refresh_token, access_expires_at = rotate_refresh_token(
-        active_session, payload.refresh_token
-    )
-    active_session.commit()
+    try:
+        access_token, refresh_token, access_expires_at = rotate_refresh_token(
+            active_session, payload.refresh_token
+        )
+    except HTTPException as exc:
+        commit_auth_audit(
+            request,
+            active_session,
+            operation="refresh",
+            result_status=exc.status_code,
+            error_code="AUTH_EXPIRED",
+        )
+        raise
+    commit_auth_audit(request, active_session, operation="refresh")
     return _token_response(access_token, refresh_token, access_expires_at)
 
 
@@ -274,7 +291,7 @@ def revoke_cli_tokens(
         request.state.cli_auth_type,
     ) = refresh_token_audit_context(active_session, payload.refresh_token)
     revoke_refresh_token(active_session, payload.refresh_token)
-    active_session.commit()
+    commit_auth_audit(request, active_session, operation="revoke")
     return CliAuthorizationStatusResponse(status="revoked")
 
 

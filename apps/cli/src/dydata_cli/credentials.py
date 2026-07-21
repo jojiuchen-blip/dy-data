@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 import tempfile
 import time
+from contextlib import contextmanager
+from collections.abc import Iterator
 from typing import Protocol
 
 import keyring
@@ -105,22 +107,26 @@ class CredentialStore:
         *,
         keyring_backend: KeyringBackend | None = None,
         lock_path: Path | None = None,
+        lock_timeout: float = 30.0,
     ) -> None:
         self._keyring = keyring_backend or keyring
         self._lock_path = lock_path or (
             Path(tempfile.gettempdir()) / "dydata-cli" / "credentials.lock"
         )
+        self._lock_timeout = lock_timeout
+
+    @contextmanager
+    def _locked(self) -> Iterator["_LockedCredentialStore"]:
+        """Hold the process lock across a complete credential operation cycle."""
+        with _InterProcessFileLock(
+            self._lock_path, timeout=self._lock_timeout
+        ):
+            yield _LockedCredentialStore(self)
 
     def load(self) -> CredentialState | None:
         """Load the current credential state, clearing malformed data."""
-        with _InterProcessFileLock(self._lock_path):
-            raw_state = self._keyring.get_password(self.service, self.account)
-            if raw_state is None:
-                return None
-            state = self._deserialize(raw_state)
-            if state is None:
-                self._keyring.delete_password(self.service, self.account)
-            return state
+        with self._locked() as locked:
+            return locked.load()
 
     def save(
         self,
@@ -129,26 +135,15 @@ class CredentialStore:
         expected: CredentialState | None | object = _UNSET,
     ) -> bool:
         """Replace credentials only when the observed state still matches."""
-        raw_state = self._serialize(state)
-        with _InterProcessFileLock(self._lock_path):
-            current = self._keyring.get_password(self.service, self.account)
-            if expected is not _UNSET and current != self._expected_raw(expected):
-                return False
-            self._keyring.set_password(self.service, self.account, raw_state)
-            return True
+        with self._locked() as locked:
+            return locked.save(state, expected=expected)
 
     def clear(
         self, *, expected: CredentialState | None | object = _UNSET
     ) -> bool:
         """Compare-and-delete credentials without removing a newer state."""
-        with _InterProcessFileLock(self._lock_path):
-            current = self._keyring.get_password(self.service, self.account)
-            if expected is not _UNSET and current != self._expected_raw(expected):
-                return False
-            if current is None:
-                return False
-            self._keyring.delete_password(self.service, self.account)
-            return True
+        with self._locked() as locked:
+            return locked.clear(expected=expected)
 
     @staticmethod
     def _serialize(state: CredentialState) -> str:
@@ -198,3 +193,56 @@ class CredentialStore:
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
             return None
+
+
+class _LockedCredentialStore:
+    """Credential operations that assume the owning OS lock is already held."""
+
+    def __init__(self, store: CredentialStore) -> None:
+        self._store = store
+
+    def load(self) -> CredentialState | None:
+        raw_state = self._store._keyring.get_password(
+            self._store.service, self._store.account
+        )
+        if raw_state is None:
+            return None
+        state = self._store._deserialize(raw_state)
+        if state is None:
+            self._store._keyring.delete_password(
+                self._store.service, self._store.account
+            )
+        return state
+
+    def save(
+        self,
+        state: CredentialState,
+        *,
+        expected: CredentialState | None | object = _UNSET,
+    ) -> bool:
+        current = self._store._keyring.get_password(
+            self._store.service, self._store.account
+        )
+        if expected is not _UNSET and current != self._store._expected_raw(expected):
+            return False
+        self._store._keyring.set_password(
+            self._store.service,
+            self._store.account,
+            self._store._serialize(state),
+        )
+        return True
+
+    def clear(
+        self, *, expected: CredentialState | None | object = _UNSET
+    ) -> bool:
+        current = self._store._keyring.get_password(
+            self._store.service, self._store.account
+        )
+        if expected is not _UNSET and current != self._store._expected_raw(expected):
+            return False
+        if current is None:
+            return False
+        self._store._keyring.delete_password(
+            self._store.service, self._store.account
+        )
+        return True

@@ -318,7 +318,6 @@ def _revoke_invalid_refresh(
     session: Session, stored: CliRefreshToken, current_time: datetime
 ) -> None:
     _revoke_refresh_family(session, stored, current_time)
-    session.commit()
 
 
 def rotate_refresh_token(

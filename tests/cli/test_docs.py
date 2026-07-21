@@ -44,6 +44,9 @@ def test_agent_guide_covers_safe_agent_workflow() -> None:
         "Only GET requests are retried automatically",
         "authentication POST requests are single-submission",
         "compare-and-swap",
+        "refresh single-flight",
+        "lock timeout",
+        "operating system releases the lock",
         "transient revoke failure preserves the local credential",
     )
     assert all(concept in guide for concept in hardening_concepts)

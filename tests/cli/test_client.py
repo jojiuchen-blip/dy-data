@@ -43,13 +43,20 @@ def follow_up_envelope() -> dict[str, object]:
         "action_follow_rate": 0.0,
     }
     payload = envelope(
-        "clues.follow-up-stats", {"stores": [], "totals": metrics}
+        "clues.follow-up-stats",
+        {
+            "stores": [
+                {"store_id": "store-a", "store_name": "Alpha", **metrics},
+                {"store_id": "store-b", "store_name": "Beta", **metrics},
+            ],
+            "totals": metrics,
+        },
     )
     payload["metric_version"] = "clue-follow-up-v1"
     payload["scope"] = {
         "user_id": "user-1",
         "requested_store_ids": ["store-a", "store-b"],
-        "effective_store_ids": [],
+        "effective_store_ids": ["store-a", "store-b"],
     }
     payload["filters"] = {
         "assigned_date_start": "2026-07-01",
@@ -186,7 +193,7 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
         "access-secret",
         date_from=date(2026, 7, 1),
         date_to=date(2026, 7, 7),
-        store_ids=["store-b", "store-a"],
+        store_ids=[" store-b ", "store-a", "store-b"],
     )
 
     request = captured[0]
@@ -194,8 +201,8 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
     assert request.url.params.multi_items() == [
         ("assigned_date_start", "2026-07-01"),
         ("assigned_date_end", "2026-07-07"),
-        ("store_id", "store-b"),
         ("store_id", "store-a"),
+        ("store_id", "store-b"),
     ]
 
 
@@ -295,6 +302,78 @@ def test_auth_token_expiry_must_be_timezone_aware() -> None:
         client.refresh("r" * 64)
 
     assert raised.value.code == "SCHEMA_MISMATCH"
+
+
+@pytest.mark.parametrize(
+    ("verification_uri", "verification_uri_complete"),
+    [
+        (
+            "http://portal.example.test/auth/cli/authorize",
+            "http://portal.example.test/auth/cli/authorize?user_code=ABCD1234",
+        ),
+        (
+            "http://localhost/auth/cli/authorize",
+            "http://localhost/auth/cli/authorize?user_code=ABCD1234",
+        ),
+        (
+            "https://user:password@portal.example.test/auth/cli/authorize",
+            "https://user:password@portal.example.test/auth/cli/authorize?user_code=ABCD1234",
+        ),
+        (
+            "https://portal.example.test/auth%0acli/authorize",
+            "https://portal.example.test/auth%0acli/authorize?user_code=ABCD1234",
+        ),
+        (
+            "https://portal.example.test/auth/../authorize",
+            "https://portal.example.test/auth/../authorize?user_code=ABCD1234",
+        ),
+        (
+            "https://portal.example.test/auth/cli/authorize",
+            "https://evil.example.test/auth/cli/authorize?user_code=ABCD1234",
+        ),
+    ],
+)
+def test_device_verification_urls_reuse_transport_security_policy(
+    verification_uri: str, verification_uri_complete: str
+) -> None:
+    payload = device_start_payload()
+    payload["verification_uri"] = verification_uri
+    payload["verification_uri_complete"] = verification_uri_complete
+    client = DyDataClient(
+        base_url="http://localhost:8000/api/v1",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+    )
+
+    with pytest.raises(CliError) as raised:
+        client.start_device_authorization()
+
+    assert raised.value.code == "SCHEMA_MISMATCH"
+    assert verification_uri not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "verification_uri",
+    [
+        "https://portal.example.test/auth/cli/authorize",
+        "http://127.0.0.1:5173/auth/cli/authorize",
+        "http://localhost:5173/auth/cli/authorize",
+        "http://[::1]:5173/auth/cli/authorize",
+    ],
+)
+def test_device_verification_urls_accept_https_and_explicit_loopback(
+    verification_uri: str,
+) -> None:
+    payload = device_start_payload()
+    payload["verification_uri"] = verification_uri
+    payload["verification_uri_complete"] = (
+        f"{verification_uri}?user_code=ABCD1234"
+    )
+    client = DyDataClient(
+        base_url="http://localhost:8000/api/v1",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+    )
+
+    assert client.start_device_authorization()["verification_uri"] == verification_uri
 
 
 @pytest.mark.parametrize(
@@ -411,11 +490,16 @@ def test_refresh_post_does_not_retry_retryable_http_statuses(
 
 
 @pytest.mark.parametrize(
-    ("code", "retryable"),
-    [("API_UNAVAILABLE", True), ("SCOPE_DENIED", False)],
+    ("code", "remote_retryable", "expected_retryable"),
+    [
+        ("API_UNAVAILABLE", True, True),
+        ("SCOPE_DENIED", False, False),
+        ("API_UNAVAILABLE", False, True),
+        ("SCOPE_DENIED", True, False),
+    ],
 )
 def test_remote_error_preserves_safe_request_id_and_retryability(
-    code: str, retryable: bool
+    code: str, remote_retryable: bool, expected_retryable: bool
 ) -> None:
     echoed_request_id = ""
 
@@ -423,7 +507,7 @@ def test_remote_error_preserves_safe_request_id_and_retryability(
         nonlocal echoed_request_id
         echoed_request_id = request.headers["X-Request-ID"]
         return httpx.Response(
-            503 if retryable else 403,
+            503 if code == "API_UNAVAILABLE" else 403,
             json={
                 "ok": False,
                 "command": "stores.list",
@@ -431,7 +515,7 @@ def test_remote_error_preserves_safe_request_id_and_retryability(
                 "error": {
                     "code": code,
                     "message": "unsafe access-secret",
-                    "retryable": retryable,
+                    "retryable": remote_retryable,
                     "request_id": echoed_request_id,
                 },
             },
@@ -446,7 +530,7 @@ def test_remote_error_preserves_safe_request_id_and_retryability(
         client.list_stores("access-secret")
 
     assert raised.value.code == code
-    assert raised.value.retryable is retryable
+    assert raised.value.retryable is expected_retryable
     assert raised.value.request_id == echoed_request_id
     assert "access-secret" not in str(raised.value)
 

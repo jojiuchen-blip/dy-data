@@ -14,6 +14,10 @@ use a cross-process lock plus compare-and-swap semantics. A transient revoke
 failure is handled so that transient revoke failure preserves the local credential;
 successful or confirmed-invalid revoke
 compare-deletes only the credential state observed by that logout invocation.
+Expired credentials use refresh single-flight: the cross-process lock is held from
+the second credential read through refresh rotation and keyring replacement. The
+lock timeout bounds waiting, and the operating system releases the lock if the
+owning process crashes. The lock file contains no credential material.
 
 ## 定位与前提
 

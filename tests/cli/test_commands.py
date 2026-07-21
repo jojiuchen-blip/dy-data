@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from io import StringIO
 from typing import Any
@@ -44,6 +45,10 @@ class FakeCredentialStore:
         self.state = None
         self.clear_count += 1
         return True
+
+    @contextmanager
+    def _locked(self):
+        yield self
 
 
 class FakeClient:
@@ -155,7 +160,7 @@ def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[st
     payload["metric_version"] = "clue-follow-up-v1"
     payload["scope"] = {
         "user_id": "user-1",
-        "requested_store_ids": store_ids,
+        "requested_store_ids": [],
         "effective_store_ids": store_ids,
     }
     payload["filters"] = {

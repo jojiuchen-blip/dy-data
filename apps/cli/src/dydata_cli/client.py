@@ -6,10 +6,7 @@ import os
 import time
 from collections.abc import Callable
 from datetime import date
-from ipaddress import ip_address
-import re
 from typing import Any
-from urllib.parse import unquote, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -24,16 +21,14 @@ from .contracts import (
     validate_revoke_response,
     validate_stores,
     validate_token_response,
+    normalize_store_ids,
 )
 from .errors import error_message, error_retryable, safe_request_id
+from .url_security import normalize_safe_url
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8000/api/v1"
 _RETRYABLE_STATUS_CODES = {429}
-_LOOPBACK_HTTP_HOSTS = {"127.0.0.1", "::1", "localhost"}
-_DNS_HOSTNAME = re.compile(
-    r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$"
-)
 
 
 class CliError(Exception):
@@ -53,59 +48,10 @@ class CliError(Exception):
 
 
 def _normalize_base_url(value: str) -> str:
-    candidate = value.strip()
-    if (
-        not candidate
-        or any(ord(character) < 32 or ord(character) == 127 for character in candidate)
-        or "\\" in candidate
-    ):
-        raise CliError("INVALID_ARGUMENT")
     try:
-        parsed = urlsplit(candidate)
-        hostname = parsed.hostname
-        port = parsed.port
+        return normalize_safe_url(value, trailing_slash=True)
     except ValueError:
         raise CliError("INVALID_ARGUMENT") from None
-    scheme = parsed.scheme.lower()
-    if (
-        scheme not in {"http", "https"}
-        or not hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.query
-        or parsed.fragment
-        or port == 0
-    ):
-        raise CliError("INVALID_ARGUMENT")
-
-    normalized_host = hostname.lower()
-    if normalized_host != "localhost":
-        try:
-            ip_address(normalized_host)
-        except ValueError:
-            if not _DNS_HOSTNAME.fullmatch(normalized_host):
-                raise CliError("INVALID_ARGUMENT") from None
-    if scheme == "http" and (
-        normalized_host not in _LOOPBACK_HTTP_HOSTS or port is None
-    ):
-        raise CliError("INVALID_ARGUMENT")
-
-    decoded_path = unquote(parsed.path)
-    trimmed_path = decoded_path.rstrip("/")
-    path_segments = trimmed_path.split("/")
-    if (
-        "\\" in decoded_path
-        or any(ord(character) < 32 or ord(character) == 127 for character in decoded_path)
-        or "//" in trimmed_path
-        or any(segment in {".", ".."} for segment in path_segments)
-    ):
-        raise CliError("INVALID_ARGUMENT")
-    normalized_path = parsed.path.rstrip("/") + "/"
-    host_for_netloc = (
-        f"[{normalized_host}]" if ":" in normalized_host else normalized_host
-    )
-    netloc = host_for_netloc if port is None else f"{host_for_netloc}:{port}"
-    return urlunsplit((scheme, netloc, normalized_path, "", ""))
 
 
 class DyDataClient:
@@ -200,10 +146,11 @@ class DyDataClient:
         store_ids: list[str],
     ) -> dict[str, Any]:
         """Return aggregate clue follow-up statistics for authorized stores."""
+        normalized_store_ids = normalize_store_ids(store_ids)
         params = [
             ("assigned_date_start", date_from.isoformat()),
             ("assigned_date_end", date_to.isoformat()),
-            *(("store_id", store_id) for store_id in store_ids),
+            *(("store_id", store_id) for store_id in normalized_store_ids),
         ]
         return self._request(
             "GET",
@@ -211,7 +158,11 @@ class DyDataClient:
             command="clues.follow-up-stats",
             access_token=access_token,
             params=params,
-            validator=validate_follow_up_stats,
+            validator=lambda payload, request_id: validate_follow_up_stats(
+                payload,
+                request_id,
+                expected_store_ids=normalized_store_ids,
+            ),
         )
 
     def _request(
@@ -312,7 +263,6 @@ class DyDataClient:
     ) -> CliError:
         request_id = fallback_request_id
         server_code: str | None = None
-        retryable: bool | None = None
         try:
             payload = response.json()
         except ValueError:
@@ -326,14 +276,10 @@ class DyDataClient:
                 candidate_request_id = error.get("request_id")
                 if candidate_request_id == fallback_request_id:
                     request_id = candidate_request_id
-                candidate_retryable = error.get("retryable")
-                if isinstance(candidate_retryable, bool):
-                    retryable = candidate_retryable
         if server_code is not None:
             return CliError(
                 server_code,
                 request_id=request_id,
-                retryable=retryable,
             )
         status_code = response.status_code
         if status_code == 401:

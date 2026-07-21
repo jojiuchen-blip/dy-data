@@ -92,7 +92,7 @@ def follow_up_envelope() -> dict[str, Any]:
         "metric_version": "clue-follow-up-v1",
         "scope": {
             "user_id": "user-1",
-            "requested_store_ids": ["store-a"],
+            "requested_store_ids": [],
             "effective_store_ids": ["store-a"],
         },
         "filters": {
@@ -255,6 +255,22 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
     stores_unsorted["data"]["stores"].reverse()
     stores_unsorted["data"]["stores"][0]["store_name"] = "SENSITIVE_STORE_ORDER"
 
+    stats_wrong_requested = follow_up_envelope()
+    stats_wrong_requested["scope"]["requested_store_ids"] = ["store-b"]
+    stats_wrong_requested["scope"]["effective_store_ids"] = ["store-b"]
+    stats_wrong_requested["data"]["stores"][0]["store_id"] = "store-b"
+    stats_wrong_requested["data"]["stores"][0]["store_name"] = (
+        "SENSITIVE_REQUEST_SCOPE_DRIFT"
+    )
+
+    stats_wrong_effective = follow_up_envelope()
+    stats_wrong_effective["scope"]["requested_store_ids"] = ["store-a"]
+    stats_wrong_effective["scope"]["effective_store_ids"] = ["store-b"]
+    stats_wrong_effective["data"]["stores"][0]["store_id"] = "store-b"
+    stats_wrong_effective["data"]["stores"][0]["store_name"] = (
+        "SENSITIVE_EFFECTIVE_SCOPE_DRIFT"
+    )
+
     return [
         (["stores", "list", "--json"], partial, "SENSITIVE_PARTIAL"),
         (["auth", "status", "--json"], wrong_command, "SENSITIVE_COMMAND"),
@@ -301,6 +317,26 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
             ["stores", "list", "--json"],
             stores_unsorted,
             "SENSITIVE_STORE_ORDER",
+        ),
+        (
+            [
+                "clues",
+                "follow-up-stats",
+                "--store-id",
+                "store-a",
+            ],
+            stats_wrong_requested,
+            "SENSITIVE_REQUEST_SCOPE_DRIFT",
+        ),
+        (
+            [
+                "clues",
+                "follow-up-stats",
+                "--store-id",
+                "store-a",
+            ],
+            stats_wrong_effective,
+            "SENSITIVE_EFFECTIVE_SCOPE_DRIFT",
         ),
     ]
 

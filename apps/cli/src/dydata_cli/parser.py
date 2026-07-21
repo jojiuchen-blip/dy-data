@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, Sequence
 
 from .constants import BEIJING_TIMEZONE
+from .contracts import ContractError, normalize_store_ids
 from .registry import command_catalog
 
 
@@ -135,4 +136,9 @@ def parse_args(
     namespace = build_parser(catalog).parse_args(argv)
     metadata = next(item for item in catalog if item["command"] == namespace.command)
     _apply_date_range(namespace, metadata, today=today or beijing_today())
+    if hasattr(namespace, "store_ids"):
+        try:
+            namespace.store_ids = normalize_store_ids(namespace.store_ids)
+        except ContractError as exc:
+            raise CliArgumentError("--store-id must not be blank") from exc
     return namespace

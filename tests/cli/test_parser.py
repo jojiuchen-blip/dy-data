@@ -105,6 +105,25 @@ def test_follow_up_stats_preserves_repeatable_store_ids_and_table_output() -> No
     assert parsed.output == "table"
 
 
+def test_follow_up_stats_normalizes_store_ids_for_request_binding() -> None:
+    parsed = parse_args(
+        [
+            "clues",
+            "follow-up-stats",
+            "--store-id",
+            " store-b ",
+            "--store-id",
+            "store-a",
+            "--store-id",
+            "store-b",
+        ],
+        today=date(2026, 7, 21),
+    )
+
+    assert parsed.store_ids == ["store-a", "store-b"]
+    assert parsed.output == "json"
+
+
 @pytest.mark.parametrize(
     "argv",
     [

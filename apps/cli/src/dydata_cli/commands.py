@@ -111,7 +111,12 @@ def execute_command(
                     store_ids=parsed.store_ids,
                 ),
             )
-            response = _validated(response, validate_follow_up_stats)
+            response = _validated(
+                response,
+                lambda payload: validate_follow_up_stats(
+                    payload, expected_store_ids=parsed.store_ids
+                ),
+            )
             if parsed.output == "json":
                 emit_json(response, stream=stream)
             else:
@@ -209,20 +214,29 @@ def _usable_access_token(
     )
     if expires_at.astimezone(timezone.utc) > refresh_at:
         return state.access_token, state
-    try:
-        refreshed = client.refresh(state.refresh_token)
-        new_state = _credential_state_from_response(refreshed)
-        saved = store.save(new_state, expected=state)
-    except CliError as exc:
-        if exc.code in _AUTH_ERROR_CODES:
-            store.clear(expected=state)
-        raise
-    if not saved:
-        concurrent_state = store.load()
-        if concurrent_state is None:
+    with store._locked() as locked:
+        state = locked.load()
+        if state is None:
             raise CliError("AUTH_REQUIRED")
-        return concurrent_state.access_token, concurrent_state
-    return new_state.access_token, new_state
+        expires_at = state.access_token_expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at.astimezone(timezone.utc) > refresh_at:
+            return state.access_token, state
+        try:
+            refreshed = client.refresh(state.refresh_token)
+            new_state = _credential_state_from_response(refreshed)
+            saved = locked.save(new_state, expected=state)
+        except CliError as exc:
+            if exc.code in _AUTH_ERROR_CODES:
+                locked.clear(expected=state)
+            raise
+        if not saved:
+            concurrent_state = locked.load()
+            if concurrent_state is None:
+                raise CliError("AUTH_REQUIRED")
+            return concurrent_state.access_token, concurrent_state
+        return new_state.access_token, new_state
 
 
 def _protected_call(
