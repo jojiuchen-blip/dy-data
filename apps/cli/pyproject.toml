@@ -2,7 +2,11 @@
 name = "dydata-cli"
 version = "0.2.0"
 requires-python = ">=3.12"
-dependencies = ["httpx>=0.27,<1", "keyring>=25,<26"]
+dependencies = [
+    "httpx>=0.27,<1",
+    "keyring>=25,<26",
+    "tzdata>=2025.2; platform_system == 'Windows'",
+]
 
 [project.scripts]
 dydata = "dydata_cli.main:main"

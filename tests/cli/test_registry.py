@@ -180,3 +180,14 @@ def test_package_and_runtime_cli_versions_are_synchronized() -> None:
 
     assert CLI_VERSION == "0.2.0"
     assert package["project"]["version"] == CLI_VERSION
+
+
+def test_windows_package_installs_iana_timezone_data() -> None:
+    package = tomllib.loads(
+        (ROOT / "apps" / "cli" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert (
+        "tzdata>=2025.2; platform_system == 'Windows'"
+        in package["project"]["dependencies"]
+    )
