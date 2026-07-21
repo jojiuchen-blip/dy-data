@@ -79,7 +79,7 @@ def test_logged_in_user_can_submit_feedback(
     assert row.contact == "门店运营 张三"
     assert row.page_path == "/clues/details"
     assert row.username == "system-admin"
-    assert row.user_role == "admin"
+    assert row.user_role == "highest_admin"
     assert row.status == "new"
 
 

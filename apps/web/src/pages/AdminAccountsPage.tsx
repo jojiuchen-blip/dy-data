@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   createAccount,
+  fetchAccessControl,
+  fetchAccountPermissionAuditLogs,
   fetchAccounts,
   fetchFilterMeta,
   fetchUnactivatedAccountStores,
   resetManagedAccountPassword,
+  previewRolePagePermissions,
+  restoreAccountPagePermissions,
+  updateAccountPagePermissions,
   updateAccount,
+  updateRolePagePermissions,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
@@ -13,6 +19,9 @@ import { DataTable, type Column } from "../components/DataTable";
 import { MultiSelectField, SelectField } from "../components/FormControls";
 import type {
   AccountRow,
+  AccessControlData,
+  AccountPermissionAuditRow,
+  AdminUser,
   AccountUpsertPayload,
   StoreOption,
   UnactivatedStoreAccountRow,
@@ -26,6 +35,7 @@ const emptyDraft: AccountUpsertPayload = {
   display_name: "",
   role: "store",
   status: "active",
+  store_scope_mode: "specified",
   external_account_id: "",
   store_ids: [],
   password: "",
@@ -41,6 +51,7 @@ function accountDraft(account?: AccountRow | null): AccountUpsertPayload {
     display_name: account.display_name,
     role: account.role,
     status: account.status,
+    store_scope_mode: account.store_scope_mode,
     external_account_id: account.external_account_id ?? "",
     store_ids: account.stores.map((store) => store.store_id),
     password: "",
@@ -59,8 +70,10 @@ function compactPayload(
     display_name: draft.display_name.trim(),
     role: draft.role,
     status: draft.status,
+    store_scope_mode:
+      draft.role === "highest_admin" ? "all" : draft.store_scope_mode,
     external_account_id: draft.external_account_id?.trim() || null,
-    store_ids: draft.role === "store" ? draft.store_ids : [],
+    store_ids: draft.store_scope_mode === "specified" ? draft.store_ids : [],
     password: includePassword || password || passwordConfirm ? password : null,
     password_confirm:
       includePassword || password || passwordConfirm ? passwordConfirm : null,
@@ -68,17 +81,17 @@ function compactPayload(
 }
 
 function roleLabel(role: UserRole): string {
-  if (role === "admin") {
+  if (role === "highest_admin") {
     return "最高管理员";
   }
-  if (role === "viewer") {
-    return "全局查看";
+  if (role === "admin") {
+    return "管理员";
   }
   return "门店账号";
 }
 
 function storesLabel(account: AccountRow): string {
-  if (account.role !== "store") {
+  if (account.store_scope_mode === "all") {
     return "全部门店";
   }
   if (!account.stores.length) {
@@ -93,8 +106,20 @@ function idListLabel(values: string[]): string {
   return values.length ? values.join("、") : "-";
 }
 
-export function AdminAccountsPage() {
+interface AdminAccountsPageProps {
+  currentUser: AdminUser;
+}
+
+export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
+  const [activeTab, setActiveTab] = useState<"accounts" | "roles">("accounts");
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
+  const [accessControl, setAccessControl] = useState<AccessControlData | null>(null);
+  const [auditRows, setAuditRows] = useState<AccountPermissionAuditRow[]>([]);
+  const [roleDrafts, setRoleDrafts] = useState<Record<"admin" | "store", Set<string>>>(
+    { admin: new Set(), store: new Set() },
+  );
+  const [extraAllow, setExtraAllow] = useState<Set<string>>(new Set());
+  const [extraDeny, setExtraDeny] = useState<Set<string>>(new Set());
   const [stores, setStores] = useState<StoreOption[]>([]);
   const [unactivatedStores, setUnactivatedStores] = useState<
     UnactivatedStoreAccountRow[]
@@ -123,11 +148,19 @@ export function AdminAccountsPage() {
       fetchAccounts(),
       fetchFilterMeta(),
       fetchUnactivatedAccountStores(),
+      fetchAccessControl(),
+      fetchAccountPermissionAuditLogs(),
     ])
-      .then(([accountResponse, filterResponse, unactivatedResponse]) => {
+      .then(([accountResponse, filterResponse, unactivatedResponse, accessResponse, auditResponse]) => {
         setAccounts(accountResponse.data.rows);
         setStores(filterResponse.data.stores);
         setUnactivatedStores(unactivatedResponse.data.rows);
+        setAccessControl(accessResponse.data);
+        setAuditRows(auditResponse.data.rows);
+        setRoleDrafts({
+          admin: new Set(accessResponse.data.role_permissions.admin ?? []),
+          store: new Set(accessResponse.data.role_permissions.store ?? []),
+        });
       })
       .catch(() => {
         setStatusText("账号数据暂时无法读取，请确认当前账号具有管理员权限。");
@@ -151,11 +184,15 @@ export function AdminAccountsPage() {
     setEditingUserId(null);
     setDraft(accountDraft());
     setStatusText("");
+    setExtraAllow(new Set());
+    setExtraDeny(new Set());
   };
 
   const startEdit = (account: AccountRow) => {
     setEditingUserId(account.user_id);
     setDraft(accountDraft(account));
+    setExtraAllow(new Set(account.extra_allow));
+    setExtraDeny(new Set(account.extra_deny));
     setStatusText("");
   };
 
@@ -355,6 +392,103 @@ export function AdminAccountsPage() {
     }
   };
 
+  const toggleAccountPermission = (
+    pageKey: string,
+    effect: "allow" | "deny",
+  ) => {
+    const update = effect === "allow" ? setExtraAllow : setExtraDeny;
+    const clearOther = effect === "allow" ? setExtraDeny : setExtraAllow;
+    update((current) => {
+      const next = new Set(current);
+      next.has(pageKey) ? next.delete(pageKey) : next.add(pageKey);
+      return next;
+    });
+    clearOther((current) => {
+      const next = new Set(current);
+      next.delete(pageKey);
+      return next;
+    });
+  };
+
+  const saveAccountPermissions = async () => {
+    if (!editingAccount) return;
+    setSaving(true);
+    setStatusText("");
+    try {
+      const result = await updateAccountPagePermissions(editingAccount.user_id, {
+        extra_allow: Array.from(extraAllow),
+        extra_deny: Array.from(extraDeny),
+      });
+      setAccounts((current) =>
+        current.map((account) =>
+          account.user_id === result.data.user_id ? result.data : account,
+        ),
+      );
+      setStatusText("账号页面权限已保存并立即生效。");
+      const auditResponse = await fetchAccountPermissionAuditLogs();
+      setAuditRows(auditResponse.data.rows);
+    } catch {
+      setStatusText("页面权限保存失败，请检查权限项后重试。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const restoreAccountPermissions = async () => {
+    if (!editingAccount) return;
+    setSaving(true);
+    try {
+      const result = await restoreAccountPagePermissions(editingAccount.user_id);
+      setAccounts((current) =>
+        current.map((account) =>
+          account.user_id === result.data.user_id ? result.data : account,
+        ),
+      );
+      setExtraAllow(new Set());
+      setExtraDeny(new Set());
+      setStatusText("已恢复角色默认权限。");
+    } catch {
+      setStatusText("恢复角色默认权限失败。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleRolePermission = (role: "admin" | "store", pageKey: string) => {
+    setRoleDrafts((current) => {
+      const next = new Set(current[role]);
+      next.has(pageKey) ? next.delete(pageKey) : next.add(pageKey);
+      return { ...current, [role]: next };
+    });
+  };
+
+  const saveRolePermissions = async (role: "admin" | "store") => {
+    const pageKeys = Array.from(roleDrafts[role]);
+    setSaving(true);
+    try {
+      const preview = await previewRolePagePermissions(role, pageKeys);
+      const accepted = window.confirm(
+        `本次修改将影响 ${preview.data.inheriting_user_count} 个继承账号；` +
+          `${preview.data.customized_user_count} 个自定义账号将保持当前有效权限。确认保存吗？`,
+      );
+      if (!accepted) return;
+      await updateRolePagePermissions(role, pageKeys);
+      const [accessResponse, accountResponse, auditResponse] = await Promise.all([
+        fetchAccessControl(),
+        fetchAccounts(),
+        fetchAccountPermissionAuditLogs(),
+      ]);
+      setAccessControl(accessResponse.data);
+      setAccounts(accountResponse.data.rows);
+      setAuditRows(auditResponse.data.rows);
+      setStatusText("角色默认权限已保存并立即生效。");
+    } catch {
+      setStatusText("角色默认权限保存失败。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="admin-page">
       <section className="admin-header">
@@ -371,6 +505,25 @@ export function AdminAccountsPage() {
         </div>
       </section>
 
+      <div className="segmented-control" role="tablist" aria-label="账号权限管理视图">
+        <button
+          aria-selected={activeTab === "accounts"}
+          onClick={() => setActiveTab("accounts")}
+          role="tab"
+          type="button"
+        >
+          账号列表
+        </button>
+        <button
+          aria-selected={activeTab === "roles"}
+          onClick={() => setActiveTab("roles")}
+          role="tab"
+          type="button"
+        >
+          角色权限
+        </button>
+      </div>
+
       {statusText ? (
         <div
           aria-atomic="true"
@@ -382,7 +535,7 @@ export function AdminAccountsPage() {
         </div>
       ) : null}
 
-      <section className="content-section account-admin-layout">
+      <section className="content-section account-admin-layout" hidden={activeTab !== "accounts"}>
         <div className="account-admin-main">
           <div className="section-title">
             <div>
@@ -435,12 +588,23 @@ export function AdminAccountsPage() {
             </label>
             <SelectField
               label="角色"
-              onChange={(value) => setDraftField("role", value as UserRole)}
-              options={[
-                { value: "store", label: "门店账号" },
-                { value: "viewer", label: "全局查看" },
-                { value: "admin", label: "最高管理员" },
-              ]}
+              onChange={(value) => {
+                const role = value as UserRole;
+                setDraftField("role", role);
+                setDraftField(
+                  "store_scope_mode",
+                  role === "highest_admin" || role === "admin" ? "all" : "specified",
+                );
+              }}
+              options={
+                currentUser.is_highest_admin
+                  ? [
+                      { value: "store", label: "门店账号" },
+                      { value: "admin", label: "管理员" },
+                      { value: "highest_admin", label: "最高管理员" },
+                    ]
+                  : [{ value: "store", label: "门店账号" }]
+              }
               value={draft.role}
             />
             <SelectField
@@ -452,9 +616,29 @@ export function AdminAccountsPage() {
               ]}
               value={draft.status}
             />
+            <SelectField
+              label="门店范围模式"
+              onChange={(value) =>
+                setDraftField(
+                  "store_scope_mode",
+                  value as AccountUpsertPayload["store_scope_mode"],
+                )
+              }
+              options={
+                draft.role === "highest_admin"
+                  ? [{ value: "all", label: "全部门店" }]
+                  : draft.role === "admin"
+                    ? [
+                        { value: "all", label: "全部门店" },
+                        { value: "specified", label: "指定门店" },
+                      ]
+                    : [{ value: "specified", label: "指定门店" }]
+              }
+              value={draft.store_scope_mode}
+            />
             <MultiSelectField
-              disabled={draft.role !== "store"}
-              emptyLabel={draft.role === "store" ? "未绑定门店" : "全部门店"}
+              disabled={draft.store_scope_mode !== "specified"}
+              emptyLabel={draft.store_scope_mode === "specified" ? "未绑定门店" : "全部门店"}
               helperText={
                 draft.role === "store"
                   ? "门店账号只能查看和操作已绑定门店。"
@@ -466,7 +650,7 @@ export function AdminAccountsPage() {
                 label: `${store.store_name} (${store.store_id})`,
                 value: store.store_id,
               }))}
-              value={draft.role === "store" ? draft.store_ids : []}
+              value={draft.store_scope_mode === "specified" ? draft.store_ids : []}
             />
             <label className="filter-field">
               <span>{editingAccount ? "新密码（可选）" : "密码"}</span>
@@ -492,6 +676,48 @@ export function AdminAccountsPage() {
               保存账号
             </Button>
           </form>
+
+          {editingAccount && editingAccount.role !== "highest_admin" && accessControl ? (
+            <section className="content-section account-form permission-editor">
+              <div className="section-title">
+                <div>
+                  <h2>账号页面权限</h2>
+                  <p>有效权限 = 角色默认 + 额外允许 - 额外禁止</p>
+                </div>
+              </div>
+              <div className="permission-list">
+                {accessControl.pages.map((page) => (
+                  <div className="permission-list__row" key={page.page_key}>
+                    <span><strong>{page.page_key}</strong> {page.page_name}</span>
+                    <label>
+                      <input
+                        checked={extraAllow.has(page.page_key)}
+                        onChange={() => toggleAccountPermission(page.page_key, "allow")}
+                        type="checkbox"
+                      />
+                      额外允许
+                    </label>
+                    <label>
+                      <input
+                        checked={extraDeny.has(page.page_key)}
+                        onChange={() => toggleAccountPermission(page.page_key, "deny")}
+                        type="checkbox"
+                      />
+                      额外禁止
+                    </label>
+                  </div>
+                ))}
+              </div>
+              <div className="table-action-row">
+                <Button disabled={saving} onClick={saveAccountPermissions} type="button" variant="primary">
+                  保存页面权限
+                </Button>
+                <Button disabled={saving} onClick={restoreAccountPermissions} type="button">
+                  恢复角色默认
+                </Button>
+              </div>
+            </section>
+          ) : null}
 
           {resetTarget ? (
             <form
@@ -536,7 +762,71 @@ export function AdminAccountsPage() {
         </aside>
       </section>
 
-      <section className="content-section">
+      <section className="content-section" hidden={activeTab !== "roles"}>
+        <div className="section-title">
+          <div>
+            <h2>角色默认页面权限</h2>
+            <p>最高管理员固定拥有全部页面；已自定义账号在角色默认值变化后保持当前有效权限。</p>
+          </div>
+        </div>
+        {accessControl ? (
+          <div className="role-permission-table" role="table" aria-label="角色页面权限矩阵">
+            <div className="role-permission-table__header" role="row">
+              <strong>页面</strong>
+              <strong>最高管理员</strong>
+              <strong>管理员</strong>
+              <strong>门店账号</strong>
+            </div>
+            {accessControl.pages.map((page) => (
+              <div className="role-permission-table__row" key={page.page_key} role="row">
+                <span><strong>{page.page_key}</strong> {page.page_name}</span>
+                <input aria-label={`${page.page_name} 最高管理员`} checked disabled readOnly type="checkbox" />
+                <input
+                  aria-label={`${page.page_name} 管理员`}
+                  checked={roleDrafts.admin.has(page.page_key)}
+                  disabled={!currentUser.is_highest_admin}
+                  onChange={() => toggleRolePermission("admin", page.page_key)}
+                  type="checkbox"
+                />
+                <input
+                  aria-label={`${page.page_name} 门店账号`}
+                  checked={roleDrafts.store.has(page.page_key)}
+                  onChange={() => toggleRolePermission("store", page.page_key)}
+                  type="checkbox"
+                />
+              </div>
+            ))}
+            <div className="table-action-row role-permission-table__actions">
+              {currentUser.is_highest_admin ? (
+                <Button disabled={saving} onClick={() => saveRolePermissions("admin")} type="button">
+                  保存管理员默认权限
+                </Button>
+              ) : null}
+              <Button disabled={saving} onClick={() => saveRolePermissions("store")} type="button" variant="primary">
+                保存门店账号默认权限
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <div className="section-title account-audit-title">
+          <div>
+            <h2>账号与权限操作审计</h2>
+            <p>仅记录账号和权限变更，不记录密码内容。</p>
+          </div>
+        </div>
+        <div className="audit-list">
+          {auditRows.slice(0, 50).map((row) => (
+            <div className="audit-list__row" key={row.audit_id}>
+              <span>{formatDateTime(row.created_at)}</span>
+              <strong>{row.actor_username}</strong>
+              <span>{row.action}</span>
+              <span>{row.target_username ?? "角色默认权限"}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="content-section" hidden={activeTab !== "accounts"}>
         <div className="section-title">
           <div>
             <h2>未激活门店</h2>

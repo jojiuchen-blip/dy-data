@@ -15,10 +15,13 @@ import type {
   AccountActivationCheckPayload,
   AccountActivationPayload,
   AccountListData,
+  AccountPagePermissionPayload,
+  AccountPermissionAuditListData,
   AccountPasswordResetPayload,
   AccountPasswordPayload,
   AccountRow,
   AccountUpsertPayload,
+  AccessControlData,
   AdminUser,
   ClueAssignmentRoundData,
   ClueCenterMaterializationResult,
@@ -60,6 +63,7 @@ import type {
   OrderDetailsData,
   ProductTypeVisibilityData,
   ProductTypeVisibilityUpdate,
+  RolePermissionImpactData,
   SelectOption,
   SalesDashboardData,
   SettlementViewData,
@@ -1164,6 +1168,76 @@ export async function resetManagedAccountPassword(
     ...(await sendJson<AccountRow>(
       `/admin/accounts/${encodeURIComponent(userId)}/reset-password`,
       { body: payload },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAccessControl(): Promise<ApiLoadResult<AccessControlData>> {
+  return {
+    ...(await requestJson<AccessControlData>("/admin/access-control")),
+    usingMock: false,
+  };
+}
+
+export async function updateAccountPagePermissions(
+  userId: string,
+  payload: AccountPagePermissionPayload,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(
+      `/admin/accounts/${encodeURIComponent(userId)}/page-permissions`,
+      { body: payload, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function restoreAccountPagePermissions(
+  userId: string,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(
+      `/admin/accounts/${encodeURIComponent(userId)}/page-permissions/restore`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function previewRolePagePermissions(
+  role: "admin" | "store",
+  pageKeys: string[],
+): Promise<ApiLoadResult<RolePermissionImpactData>> {
+  return {
+    ...(await sendJson<RolePermissionImpactData>(
+      `/admin/access-control/roles/${role}/preview`,
+      { body: { page_keys: pageKeys, confirmed: false } },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function updateRolePagePermissions(
+  role: "admin" | "store",
+  pageKeys: string[],
+): Promise<ApiLoadResult<RolePermissionImpactData>> {
+  return {
+    ...(await sendJson<RolePermissionImpactData>(
+      `/admin/access-control/roles/${role}`,
+      { body: { page_keys: pageKeys, confirmed: true }, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAccountPermissionAuditLogs(
+  targetUserId?: string,
+): Promise<ApiLoadResult<AccountPermissionAuditListData>> {
+  return {
+    ...(await requestJson<AccountPermissionAuditListData>(
+      "/admin/access-control/audit-logs",
+      { target_user_id: targetUserId },
     )),
     usingMock: false,
   };

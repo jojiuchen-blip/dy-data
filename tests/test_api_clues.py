@@ -999,7 +999,7 @@ def test_store_change_request_closes_self_owned_round_for_reassignment(
     assert round_row.reassign_reason == "request_store_change"
 
 
-def test_viewer_cannot_record_follow_up(
+def test_legacy_viewer_is_mapped_to_admin_before_follow_up_authorization(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
@@ -1027,7 +1027,7 @@ def test_viewer_cannot_record_follow_up(
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 409
 
 
 def test_clue_assignment_rounds_fall_back_to_raw_masked_phone(

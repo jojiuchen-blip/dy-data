@@ -38,6 +38,7 @@ from apps.api.dy_api.models import (
     User,
     UserStoreScope,
 )
+from apps.api.dy_api.access_control import ALL_PAGE_KEYS, add_audit_log, effective_page_keys
 
 
 router = APIRouter()
@@ -60,6 +61,8 @@ def _session_response(auth: AuthContext) -> dict:
         status="active",
         is_initialized=True,
         store_ids=list(auth.store_ids),
+        store_scope_mode=auth.store_scope_mode,
+        page_keys=list(auth.page_keys),
         is_highest_admin=auth.is_highest_admin,
     )
     return {
@@ -76,13 +79,22 @@ def login(
 ):
     user = verify_user_credentials(session, payload.username, payload.password)
     if user is not None:
+        role = "admin" if user.role == "viewer" else user.role
+        scope_mode = (
+            "all"
+            if user.role == "viewer" or role == "highest_admin"
+            else user.store_scope_mode
+        )
         auth = AuthContext(
             user_id=user.user_id,
             username=user.username,
             display_name=user.display_name,
-            role=user.role,
+            role=role,
             store_ids=user_store_ids(session, user.user_id),
             auth_type="user",
+            store_scope_mode=scope_mode,
+            page_keys=effective_page_keys(session, user, role=role),
+            auth_version=user.auth_version,
         )
         set_auth_cookie(response, auth)
         return _session_response(auth)
@@ -105,9 +117,11 @@ def login(
             user_id=None,
             username=payload.username,
             display_name=payload.username,
-            role="admin",
+            role="highest_admin",
             store_ids=(),
             auth_type="env_admin",
+            store_scope_mode="all",
+            page_keys=effective_page_keys(session, None, role="highest_admin") if session is not None else ALL_PAGE_KEYS,
         )
     )
 
@@ -126,6 +140,7 @@ def logout(response: Response, current_user: AuthContext = Depends(get_current_u
 @router.post("/change-password")
 def change_password(
     payload: AccountPasswordUpdateRequest,
+    response: Response,
     current_user: AuthContext = Depends(get_current_user),
     session=Depends(get_session_dependency),
 ):
@@ -149,9 +164,29 @@ def change_password(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
     user.password_hash = hash_password_pbkdf2(payload.password)
     user.is_initialized = True
+    user.auth_version += 1
     user.updated_at = generated_at()
+    add_audit_log(
+        session,
+        action="account.password_changed",
+        actor=current_user,
+        target=user,
+        after={"password_changed": True},
+    )
     session.commit()
-    return _session_response(current_user)
+    auth = AuthContext(
+        user_id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        role=user.role,
+        store_ids=user_store_ids(session, user.user_id),
+        auth_type="user",
+        store_scope_mode=user.store_scope_mode,
+        page_keys=effective_page_keys(session, user),
+        auth_version=user.auth_version,
+    )
+    set_auth_cookie(response, auth)
+    return _session_response(auth)
 
 
 @router.post("/initialize")
@@ -168,6 +203,9 @@ def initialize_account(
         role=user.role,
         store_ids=user_store_ids(session, user.user_id),
         auth_type="user",
+        store_scope_mode=user.store_scope_mode,
+        page_keys=effective_page_keys(session, user),
+        auth_version=user.auth_version,
     )
     set_auth_cookie(response, auth)
     return _session_response(auth)
@@ -209,6 +247,9 @@ def reset_password(
         role=user.role,
         store_ids=user_store_ids(session, user.user_id),
         auth_type="user",
+        store_scope_mode=user.store_scope_mode,
+        page_keys=effective_page_keys(session, user),
+        auth_version=user.auth_version,
     )
     set_auth_cookie(response, auth)
     return _session_response(auth)
@@ -265,6 +306,7 @@ def _activate_account(
             external_account_id=external_account_id,
             display_name=store.store_name,
             role="store",
+            store_scope_mode="specified",
             status="active",
             is_initialized=True,
             password_hash=hash_password_pbkdf2(payload.password),
@@ -277,12 +319,21 @@ def _activate_account(
         target.external_account_id = external_account_id
         target.display_name = store.store_name
         target.status = "active"
+        target.store_scope_mode = "specified"
         target.is_initialized = True
         target.password_hash = hash_password_pbkdf2(payload.password)
+        target.auth_version += 1
         target.updated_at = now
 
     session.flush()
     _replace_store_scopes(session, target.user_id, [store.store_id])
+    add_audit_log(
+        session,
+        action="account.activated",
+        actor=target,
+        target=target,
+        after={"store_ids": [store.store_id], "activated": True},
+    )
     session.commit()
     return target
 
@@ -335,7 +386,16 @@ def _reset_account_password(
     now = generated_at()
     target.is_initialized = True
     target.password_hash = hash_password_pbkdf2(payload.password)
+    target.auth_version += 1
     target.updated_at = now
+
+    add_audit_log(
+        session,
+        action="account.password_reset_by_identity",
+        actor=target,
+        target=target,
+        after={"password_reset": True},
+    )
 
     session.commit()
     return target

@@ -238,7 +238,7 @@ def test_clue_center_filters_follow_store_scope_spec() -> None:
 
     assert "currentUser" in source
     assert "showStoreLocationFilters" in source
-    assert "currentUser.role !== \"store\" || currentUser.store_ids.length !== 1" in source
+    assert 'currentUser.store_scope_mode === "all" || currentUser.store_ids.length !== 1' in source
     assert "province" in source
     assert "assigned_store_id" in source
 
@@ -389,8 +389,8 @@ def test_clue_center_splits_dashboard_and_detail_routes() -> None:
     assert 'view="dashboard"' in app_source
     assert 'location.pathname === "/clues/details"' in app_source
     assert 'view="details"' in app_source
-    assert '{ href: "/clues", label: "线索看板" }' in shell_source
-    assert '{ href: "/clues/details", label: "线索明细" }' in shell_source
+    assert '{ href: "/clues", label: "线索看板", pageKey: "A01" }' in shell_source
+    assert '{ href: "/clues/details", label: "线索明细", pageKey: "A02" }' in shell_source
     secondary_nav = shell_source.split("const renderSecondaryNav", 1)[1].split(
         "const handleFeedbackSubmit", 1
     )[0]

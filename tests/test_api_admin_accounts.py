@@ -117,17 +117,18 @@ def test_admin_can_manage_store_account(client: TestClient) -> None:
     assert login.json()["data"]["store_ids"] == ["store-1", "store-2"]
 
 
-def test_admin_can_create_global_viewer_without_store_scopes(client: TestClient) -> None:
+def test_highest_admin_can_create_global_admin_without_store_scopes(client: TestClient) -> None:
     _login_admin(client)
 
     created = client.post(
         "/api/v1/admin/accounts",
         json={
-            "username": "viewer-one",
+            "username": "admin-one",
             "external_account_id": None,
-            "display_name": "Viewer One",
-            "role": "viewer",
+            "display_name": "Admin One",
+            "role": "admin",
             "status": "active",
+            "store_scope_mode": "all",
             "store_ids": ["store-1"],
             "password": "viewer-pass",
             "password_confirm": "viewer-pass",
@@ -135,16 +136,16 @@ def test_admin_can_create_global_viewer_without_store_scopes(client: TestClient)
     )
 
     assert created.status_code == 200
-    assert created.json()["data"]["role"] == "viewer"
+    assert created.json()["data"]["role"] == "admin"
     assert created.json()["data"]["stores"] == []
 
     client.post("/api/v1/auth/logout")
     login = client.post(
         "/api/v1/auth/login",
-        json={"username": "viewer-one", "password": "viewer-pass"},
+        json={"username": "admin-one", "password": "viewer-pass"},
     )
     assert login.status_code == 200
-    assert login.json()["data"]["role"] == "viewer"
+    assert login.json()["data"]["role"] == "admin"
 
 
 def test_admin_can_list_prepared_unactivated_stores_and_search(
