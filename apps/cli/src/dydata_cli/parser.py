@@ -5,9 +5,10 @@ from __future__ import annotations
 import argparse
 import re
 from datetime import date, datetime, timedelta
-from typing import Sequence
+from typing import Any, Sequence
 
 from .constants import BEIJING_TIMEZONE
+from .registry import command_catalog
 
 
 class CliArgumentError(ValueError):
@@ -23,41 +24,57 @@ def beijing_today() -> date:
     return datetime.now(BEIJING_TIMEZONE).date()
 
 
-def build_parser() -> argparse.ArgumentParser:
-    parser = CliArgumentParser(prog="dydata", allow_abbrev=False, add_help=True)
-    commands = parser.add_subparsers(dest="group", required=True)
+def _command_tree(catalog: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    tree: dict[str, Any] = {}
+    for metadata in catalog:
+        node = tree
+        for segment in metadata["command"].split("."):
+            node = node.setdefault(segment, {})
+        node["_metadata"] = metadata
+    return tree
 
-    commands_catalog = commands.add_parser("commands", allow_abbrev=False)
-    commands_catalog.add_argument("--json", action="store_true", required=True)
-    commands_catalog.set_defaults(command="commands")
 
-    auth = commands.add_parser("auth", allow_abbrev=False)
-    auth_actions = auth.add_subparsers(dest="auth_action", required=True)
-    for action in ("login", "logout"):
-        auth_action = auth_actions.add_parser(action, allow_abbrev=False)
-        auth_action.set_defaults(command=f"auth.{action}")
-    auth_status = auth_actions.add_parser("status", allow_abbrev=False)
-    auth_status.add_argument("--json", action="store_true", required=True)
-    auth_status.set_defaults(command="auth.status")
+def _add_declared_parameter(
+    parser: argparse.ArgumentParser, parameter: dict[str, Any]
+) -> None:
+    kwargs: dict[str, Any] = {"required": parameter.get("required", False)}
+    if "dest" in parameter:
+        kwargs["dest"] = parameter["dest"]
+    if "default" in parameter:
+        kwargs["default"] = parameter["default"]
+    if "choices" in parameter:
+        kwargs["choices"] = parameter["choices"]
+    if parameter["type"] == "flag":
+        kwargs["action"] = "store_true"
+    elif parameter.get("repeatable"):
+        kwargs["action"] = "append"
+        kwargs.setdefault("default", [])
+    parser.add_argument(parameter["name"], **kwargs)
 
-    stores = commands.add_parser("stores", allow_abbrev=False)
-    stores_actions = stores.add_subparsers(dest="stores_action", required=True)
-    stores_list = stores_actions.add_parser("list", allow_abbrev=False)
-    stores_list.add_argument("--json", action="store_true", required=True)
-    stores_list.set_defaults(command="stores.list")
 
-    clues = commands.add_parser("clues", allow_abbrev=False)
-    clues_actions = clues.add_subparsers(dest="clues_action", required=True)
-    follow_up_stats = clues_actions.add_parser("follow-up-stats", allow_abbrev=False)
-    follow_up_stats.add_argument("--from", dest="date_from_text")
-    follow_up_stats.add_argument("--to", dest="date_to_text")
-    follow_up_stats.add_argument("--store-id", dest="store_ids", action="append", default=[])
-    follow_up_stats.add_argument("--output", choices=("json", "table"), default="json")
-    follow_up_stats.set_defaults(command="clues.follow-up-stats")
+def _add_command_tree(
+    parser: argparse.ArgumentParser, tree: dict[str, Any], *, depth: int
+) -> None:
+    subparsers = parser.add_subparsers(dest=f"_command_path_{depth}", required=True)
+    for segment, node in tree.items():
+        command_parser = subparsers.add_parser(
+            segment, allow_abbrev=False, add_help=False
+        )
+        metadata = node.get("_metadata")
+        if metadata is not None:
+            for parameter in metadata["parameters"]:
+                _add_declared_parameter(command_parser, parameter)
+            command_parser.set_defaults(command=metadata["command"])
+        children = {key: value for key, value in node.items() if key != "_metadata"}
+        if children:
+            _add_command_tree(command_parser, children, depth=depth + 1)
 
-    version = commands.add_parser("version", allow_abbrev=False)
-    version.add_argument("--json", action="store_true", required=True)
-    version.set_defaults(command="version")
+
+def build_parser(
+    catalog: Sequence[dict[str, Any]] | None = None,
+) -> argparse.ArgumentParser:
+    parser = CliArgumentParser(prog="dydata", allow_abbrev=False, add_help=False)
+    _add_command_tree(parser, _command_tree(catalog or command_catalog()), depth=0)
     return parser
 
 
@@ -70,29 +87,52 @@ def _parse_iso_date(value: str, *, option: str) -> date:
         raise CliArgumentError(f"{option} must use YYYY-MM-DD") from exc
 
 
-def _apply_follow_up_date_range(namespace: argparse.Namespace, *, today: date) -> None:
-    date_from_text = namespace.date_from_text
-    date_to_text = namespace.date_to_text
+def _declared_parameter(metadata: dict[str, Any], name: str) -> dict[str, Any]:
+    return next(parameter for parameter in metadata["parameters"] if parameter["name"] == name)
+
+
+def _apply_date_range(
+    namespace: argparse.Namespace, metadata: dict[str, Any], *, today: date
+) -> None:
+    range_metadata = metadata.get("date_range")
+    if range_metadata is None:
+        return
+    start = _declared_parameter(metadata, range_metadata["start"])
+    end = _declared_parameter(metadata, range_metadata["end"])
+    date_from_text = getattr(namespace, start["dest"])
+    date_to_text = getattr(namespace, end["dest"])
     if bool(date_from_text) != bool(date_to_text):
-        raise CliArgumentError("--from and --to must be provided together")
+        raise CliArgumentError(
+            f"{start['name']} and {end['name']} must be provided together"
+        )
     if date_from_text is None:
-        namespace.date_to = today
-        namespace.date_from = today - timedelta(days=6)
+        setattr(namespace, end["normalized_dest"], today)
+        setattr(
+            namespace,
+            start["normalized_dest"],
+            today - timedelta(days=range_metadata["default_days"] - 1),
+        )
         return
 
-    namespace.date_from = _parse_iso_date(date_from_text, option="--from")
-    namespace.date_to = _parse_iso_date(date_to_text, option="--to")
-    if namespace.date_from > namespace.date_to:
-        raise CliArgumentError("--from must not be after --to")
-    if (namespace.date_to - namespace.date_from).days + 1 > 366:
-        raise CliArgumentError("The date range must not exceed 366 inclusive days")
+    date_from = _parse_iso_date(date_from_text, option=start["name"])
+    date_to = _parse_iso_date(date_to_text, option=end["name"])
+    if date_from > date_to:
+        raise CliArgumentError(f"{start['name']} must not be after {end['name']}")
+    if (date_to - date_from).days + 1 > range_metadata["max_inclusive_days"]:
+        raise CliArgumentError(
+            "The date range must not exceed "
+            f"{range_metadata['max_inclusive_days']} inclusive days"
+        )
+    setattr(namespace, start["normalized_dest"], date_from)
+    setattr(namespace, end["normalized_dest"], date_to)
 
 
 def parse_args(
     argv: Sequence[str] | None = None, *, today: date | None = None
 ) -> argparse.Namespace:
     """Parse the only supported command tree and validate date invariants."""
-    namespace = build_parser().parse_args(argv)
-    if namespace.command == "clues.follow-up-stats":
-        _apply_follow_up_date_range(namespace, today=today or beijing_today())
+    catalog = command_catalog()
+    namespace = build_parser(catalog).parse_args(argv)
+    metadata = next(item for item in catalog if item["command"] == namespace.command)
+    _apply_date_range(namespace, metadata, today=today or beijing_today())
     return namespace

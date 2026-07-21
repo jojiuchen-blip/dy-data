@@ -38,7 +38,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     return emit_error(
         parsed.command,
-        "NOT_IMPLEMENTED",
+        "INTERNAL_ERROR",
         "This command is registered but offline execution is not available yet.",
     )
 

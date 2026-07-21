@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import json
 
+from dydata_cli.constants import ERROR_EXIT_CODES
 from dydata_cli.output import emit_error, emit_json, render_aggregate_table
 
 
@@ -32,6 +33,22 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
         "ok": False,
         "schema_version": "1.0",
     }
+
+
+def test_error_exit_codes_match_the_public_contract() -> None:
+    assert ERROR_EXIT_CODES == {
+        "INVALID_ARGUMENT": 2,
+        "AUTH_REQUIRED": 3,
+        "AUTH_EXPIRED": 3,
+        "SCOPE_DENIED": 4,
+        "API_UNAVAILABLE": 5,
+        "RATE_LIMITED": 5,
+        "SCHEMA_MISMATCH": 6,
+        "INTERNAL_ERROR": 6,
+    }
+
+    for code, expected_exit in ERROR_EXIT_CODES.items():
+        assert emit_error("commands", code, "contract", stream=io.StringIO()) == expected_exit
 
 
 def test_aggregate_table_has_only_the_approved_summary_columns() -> None:
