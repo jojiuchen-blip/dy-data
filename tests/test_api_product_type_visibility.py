@@ -73,6 +73,12 @@ def _seed_product_visibility_data(session: Session) -> None:
                 store_id="store-1",
                 store_name="Store One",
                 sales_order_count=11,
+                sales_amount_cent=11000,
+                verified_order_count=11,
+                verified_amount_cent=11000,
+                promotion_net_fee_cent=1100,
+                management_net_fee_cent=0,
+                net_settlement_reference_cent=1100,
                 self_sold_self_verified_count=1,
                 self_sold_other_verified_count=10,
                 other_sold_self_verified_count=0,
@@ -86,6 +92,12 @@ def _seed_product_visibility_data(session: Session) -> None:
                 store_id="store-1",
                 store_name="Store One",
                 sales_order_count=4,
+                sales_amount_cent=4000,
+                verified_order_count=4,
+                verified_amount_cent=4000,
+                promotion_net_fee_cent=400,
+                management_net_fee_cent=0,
+                net_settlement_reference_cent=400,
                 self_sold_self_verified_count=1,
                 self_sold_other_verified_count=3,
                 other_sold_self_verified_count=0,
@@ -99,6 +111,12 @@ def _seed_product_visibility_data(session: Session) -> None:
                 store_id="store-1",
                 store_name="Store One",
                 sales_order_count=7,
+                sales_amount_cent=7000,
+                verified_order_count=7,
+                verified_amount_cent=7000,
+                promotion_net_fee_cent=700,
+                management_net_fee_cent=0,
+                net_settlement_reference_cent=700,
                 self_sold_self_verified_count=0,
                 self_sold_other_verified_count=7,
                 other_sold_self_verified_count=0,
@@ -113,6 +131,13 @@ def _seed_product_visibility_data(session: Session) -> None:
                 estimated_receivable_commission_cent=1100,
                 commissionable_total_cent=11000,
                 estimated_payable_commission_cent=0,
+                sales_order_count=11,
+                sales_amount_cent=11000,
+                verified_order_count=11,
+                verified_amount_cent=11000,
+                promotion_base_cent=11000,
+                promotion_original_fee_cent=1100,
+                promotion_net_fee_cent=1100,
                 updated_at=_dt(3),
             ),
             AggStoreMonthlySettlement(
@@ -122,6 +147,13 @@ def _seed_product_visibility_data(session: Session) -> None:
                 estimated_receivable_commission_cent=400,
                 commissionable_total_cent=4000,
                 estimated_payable_commission_cent=0,
+                sales_order_count=4,
+                sales_amount_cent=4000,
+                verified_order_count=4,
+                verified_amount_cent=4000,
+                promotion_base_cent=4000,
+                promotion_original_fee_cent=400,
+                promotion_net_fee_cent=400,
                 updated_at=_dt(3),
             ),
             AggStoreMonthlySettlement(
@@ -131,6 +163,13 @@ def _seed_product_visibility_data(session: Session) -> None:
                 estimated_receivable_commission_cent=700,
                 commissionable_total_cent=7000,
                 estimated_payable_commission_cent=0,
+                sales_order_count=7,
+                sales_amount_cent=7000,
+                verified_order_count=7,
+                verified_amount_cent=7000,
+                promotion_base_cent=7000,
+                promotion_original_fee_cent=700,
+                promotion_net_fee_cent=700,
                 updated_at=_dt(3),
             ),
             SettlementOrderDetail(
@@ -291,25 +330,24 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
 
     meta = client.get("/api/v1/meta/filters")
     assert meta.status_code == 200
-    assert meta.json()["data"]["product_types"] == ["all", JINGCHENG_PRODUCT]
-    assert meta.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
+    assert meta.json()["data"]["productTypes"] == ["all", JINGCHENG_PRODUCT]
+    assert meta.json()["data"]["defaultProductType"] == JINGCHENG_PRODUCT
 
     ranking = client.get(
         "/api/v1/dashboard/store-ranking",
-        params={"month": "2026-06", "product_type": "all"},
+        params={"periodKey": "2026-06", "productType": "all"},
     )
     assert ranking.status_code == 200
-    assert ranking.json()["data"]["totals"]["sales_order_count"] == 4
-    assert ranking.json()["data"]["rows"][0]["sales_order_count"] == 4
+    assert ranking.json()["data"]["totals"]["salesOrderCount"] == 4
+    assert ranking.json()["data"]["list"][0]["salesOrderCount"] == 4
 
     settlement = client.get(
         "/api/v1/stores/store-1/monthly-settlement",
-        params={"month": "2026-06", "product_type": "all"},
+        params={"month": "2026-06", "productType": "all"},
     )
     assert settlement.status_code == 200
-    assert settlement.json()["data"]["metrics"]["commissionable_total_cent"] == 4000
-    receivable_rows = settlement.json()["data"]["tables"]["receivable_commissions"]
-    assert [row["product_type"] for row in receivable_rows] == [JINGCHENG_PRODUCT]
+    assert settlement.json()["data"]["metrics"]["promotionBaseCent"] == 4000
+    assert settlement.json()["data"]["metrics"]["promotionNetFeeCent"] == 400
 
     details = client.get("/api/v1/order-details", params={"page": 1, "page_size": 50})
     assert details.status_code == 200

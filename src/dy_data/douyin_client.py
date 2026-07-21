@@ -88,6 +88,24 @@ class DouyinOpenApiClient:
         }
         return self._get_json(ORDER_QUERY_URL, params)
 
+    def query_product_page(
+        self,
+        *,
+        url: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send one authenticated product-page request.
+
+        The external product endpoint, request parameter names, and response mapping
+        are intentionally injected until a sanitized official sample freezes that
+        contract.  This method only provides the existing authenticated/retrying
+        transport boundary.
+        """
+
+        if not str(url or "").strip():
+            raise ValueError("Product sync URL is required")
+        return self._get_json(str(url).strip(), dict(params))
+
     def iter_orders(self, start: datetime, end: datetime, *, page_size: int = 100):
         cursor: str | None = "0"
         seen: set[str] = set()

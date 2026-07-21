@@ -62,6 +62,17 @@ def test_collect_orders_upserts_orders_and_coupons_idempotently(db_session: Sess
     client = FakeOrderClient()
 
     first = collect_orders(db_session, client, window(), source_run_id="run-1")
+    first_order = db_session.scalar(
+        select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-1")
+    )
+    first_coupon = db_session.scalar(
+        select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == "coupon-1")
+    )
+    assert first_order is not None
+    assert first_coupon is not None
+    first_order_internal_id = first_order.id
+    first_coupon_internal_id = first_coupon.id
+
     second = collect_orders(db_session, client, window(), source_run_id="run-1")
 
     assert first.fetched == 1
@@ -70,19 +81,60 @@ def test_collect_orders_upserts_orders_and_coupons_idempotently(db_session: Sess
     assert count(db_session, RawDouyinOrder) == 1
     assert count(db_session, RawDouyinOrderCoupon) == 1
 
-    order = db_session.get(RawDouyinOrder, "order-1")
+    order = db_session.scalar(
+        select(RawDouyinOrder).where(RawDouyinOrder.order_id == "order-1")
+    )
     assert order is not None
     assert order.sku_id == "sku-1"
     assert order.owner_account_id == "owner-1"
     assert order.owner_douyin_uid == "dy-1"
     assert order.owner_account_name == "Owner One"
     assert order.paid_amount_cent == 12345
+    assert order.order_status_raw == "paid"
+    assert order.order_status_normalized == "paid"
+    assert order.sale_time == order.pay_time
+    assert order.order_paid_amount_cent == 12345
+    assert order.sale_channel_raw == "short_video"
+    assert order.sale_channel_normalized == "short_video"
     assert order.raw_payload["order_sale_info"]["transfer_uid"] == "owner-1"
     assert order.source_run_id == "run-1"
+    assert order.id == first_order_internal_id
 
-    coupon = db_session.get(RawDouyinOrderCoupon, "coupon-1")
+    coupon = db_session.scalar(
+        select(RawDouyinOrderCoupon).where(
+            RawDouyinOrderCoupon.coupon_id == "coupon-1"
+        )
+    )
     assert coupon is not None
+    assert coupon.id == first_coupon_internal_id
     assert coupon.order_id == "order-1"
+    assert coupon.raw_order_id == order.id
     assert coupon.order_item_id == "item-1"
     assert coupon.coupon_status == "fulfilled"
+    assert coupon.coupon_status_raw == "fulfilled"
+    assert coupon.coupon_status_normalized == "verified"
+    assert coupon.coupon_paid_amount_cent == 12345
+    assert coupon.coupon_refunded_amount_cent == 0
     assert coupon.source_run_id == "run-1"
+
+
+def test_direct_coupon_insert_populates_internal_order_reference(db_session: Session) -> None:
+    created_at = datetime.fromisoformat("2026-01-01T00:00:00+08:00")
+    order = RawDouyinOrder(
+        order_id="legacy-order",
+        raw_payload={},
+        created_at=created_at,
+        updated_at=created_at,
+    )
+    db_session.add(order)
+    db_session.flush()
+
+    coupon = RawDouyinOrderCoupon(
+        coupon_id="legacy-coupon",
+        order_id="legacy-order",
+        raw_payload={},
+    )
+    db_session.add(coupon)
+    db_session.flush()
+
+    assert coupon.raw_order_id == order.id

@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +36,19 @@ from apps.worker.settlement import run_settlement_job  # noqa: E402
 
 def _dt(day: int) -> datetime:
     return datetime(2026, 6, day, 10, 0, tzinfo=timezone.utc)
+
+
+def _monthly_projection(
+    session: Session, month: str, store_id: str, product_type: str
+) -> AggStoreMonthlySettlement | None:
+    return session.scalar(
+        select(AggStoreMonthlySettlement).where(
+            AggStoreMonthlySettlement.month == month,
+            AggStoreMonthlySettlement.store_id == store_id,
+            AggStoreMonthlySettlement.product_scope == "all",
+            AggStoreMonthlySettlement.product_type == product_type,
+        )
+    )
 
 
 @pytest.fixture()
@@ -265,7 +279,7 @@ def test_admin_sku_rule_background_rebuild_materializes_settlement(
         job_id="before-admin-rule",
         source_run_id="before-admin-rule",
     )
-    assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+    assert _monthly_projection(db_session, "2026-06", "store-sale", "all") is None
 
     job_id = "admin-sku-rules-background-test"
     db_session.merge(
@@ -291,7 +305,7 @@ def test_admin_sku_rule_background_rebuild_materializes_settlement(
     admin_routes.run_admin_sku_rule_rebuild_job(job_id=job_id)
 
     db_session.expire_all()
-    monthly = db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all"))
+    monthly = _monthly_projection(db_session, "2026-06", "store-sale", "all")
     assert monthly is not None
     assert monthly.estimated_receivable_commission_cent == 1000
     job = db_session.get(JobRun, job_id)
@@ -310,7 +324,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
         job_id="before-admin-queued-rule",
         source_run_id="before-admin-queued-rule",
     )
-    assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+    assert _monthly_projection(db_session, "2026-06", "store-sale", "all") is None
     queued_jobs: list[str] = []
 
     def fake_rebuild_job(*, job_id: str) -> None:
@@ -346,7 +360,9 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
     assert payload["job_id"].startswith("admin-sku-rules-")
     assert queued_jobs == [payload["job_id"]]
 
-    rule = db_session.get(DimSkuProductRule, "sku-admin")
+    rule = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-admin")
+    )
     assert rule is not None
     assert rule.product_scope == "精诚养车"
     assert rule.product_type == "养车服务"
@@ -356,7 +372,65 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
     assert job.status == "queued"
     assert job.job_name == "settlement_rebuild"
     assert job.metadata_json["trigger"] == "admin_sku_rules"
-    assert db_session.get(AggStoreMonthlySettlement, ("2026-06", "store-sale", "all")) is None
+    assert _monthly_projection(db_session, "2026-06", "store-sale", "all") is None
+
+
+def test_admin_bulk_save_updates_existing_sku_rule_without_duplicates(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        admin_routes,
+        "run_admin_sku_rule_rebuild_job",
+        lambda *, job_id: None,
+        raising=False,
+    )
+    _login(client)
+
+    first_response = client.put(
+        "/api/v1/admin/sku-rules",
+        json={
+            "rules": [
+                {
+                    "sku_id": "stable-sku",
+                    "product_scope": "initial-scope",
+                    "product_type": "initial-type",
+                    "commission_rate": 0.1,
+                    "is_service_product": True,
+                }
+            ]
+        },
+    )
+    second_response = client.put(
+        "/api/v1/admin/sku-rules",
+        json={
+            "rules": [
+                {
+                    "sku_id": "stable-sku",
+                    "product_scope": "updated-scope",
+                    "product_type": "updated-type",
+                    "commission_rate": 0.2,
+                    "is_service_product": False,
+                }
+            ]
+        },
+    )
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    db_session.expire_all()
+    rule = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "stable-sku")
+    )
+    assert rule is not None
+    assert rule.product_scope == "updated-scope"
+    assert rule.product_type == "updated-type"
+    assert db_session.scalar(
+        select(func.count())
+        .select_from(DimSkuProductRule)
+        .where(DimSkuProductRule.sku_id == "stable-sku")
+    ) == 1
 
 
 def test_admin_can_replace_non_commission_owner_accounts_and_queue_rebuild(

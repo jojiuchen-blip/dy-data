@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from datetime import datetime
 from typing import Any, TypeVar
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -40,7 +41,15 @@ def _merge(
 
 
 def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyinOrder:
-    return _merge(session, RawDouyinOrder, {"order_id": order_id}, values)
+    row = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
+    if row is None:
+        row = RawDouyinOrder(order_id=order_id, **values)
+        session.add(row)
+    else:
+        for field_name, value in values.items():
+            setattr(row, field_name, value)
+    session.flush()
+    return row
 
 
 def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDouyinClue:
@@ -53,7 +62,22 @@ def upsert_order_coupon(
     order_id: str,
     **values: Any,
 ) -> RawDouyinOrderCoupon:
-    return _merge(session, RawDouyinOrderCoupon, {"coupon_id": coupon_id, "order_id": order_id}, values)
+    order = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
+    if order is None:
+        raise ValueError(f"raw order does not exist: order_id={order_id}")
+
+    row = session.scalar(
+        select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == coupon_id)
+    )
+    payload = {"order_id": order_id, "raw_order_id": order.id, **values}
+    if row is None:
+        row = RawDouyinOrderCoupon(coupon_id=coupon_id, **payload)
+        session.add(row)
+    else:
+        for field_name, value in payload.items():
+            setattr(row, field_name, value)
+    session.flush()
+    return row
 
 
 def upsert_verify_record(session: Session, verify_id: str, **values: Any) -> RawDouyinVerifyRecord:
@@ -83,7 +107,18 @@ def upsert_sku_product_rule(
     product_type: str,
     **values: Any,
 ) -> DimSkuProductRule:
-    return _merge(session, DimSkuProductRule, {"sku_id": sku_id, "product_type": product_type}, values)
+    row = session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
+    )
+    payload = {"product_type": product_type, **values}
+    if row is None:
+        row = DimSkuProductRule(sku_id=sku_id, **payload)
+        session.add(row)
+    else:
+        for field_name, value in payload.items():
+            setattr(row, field_name, value)
+    session.flush()
+    return row
 
 
 def upsert_aweme_account(session: Session, account_id: str, **values: Any) -> DimAwemeAccount:
