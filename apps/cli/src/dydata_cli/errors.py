@@ -5,8 +5,11 @@ from __future__ import annotations
 import re
 from uuid import uuid4
 
+from .constants import ERROR_CONTRACTS
 
-RETRYABLE_ERROR_CODES = {"API_UNAVAILABLE", "RATE_LIMITED"}
+RETRYABLE_ERROR_CODES = {
+    code for code, contract in ERROR_CONTRACTS.items() if contract["retryable"]
+}
 _CANONICAL_REQUEST_ID = re.compile(r"^req_[0-9a-f]{32}$")
 
 
@@ -28,3 +31,9 @@ def error_retryable(code: str, value: bool | None = None) -> bool:
     if isinstance(value, bool):
         return value
     return code in RETRYABLE_ERROR_CODES
+
+
+def error_message(code: str) -> str:
+    """Return the sanitized message from the authoritative public error table."""
+    contract = ERROR_CONTRACTS.get(code, ERROR_CONTRACTS["INTERNAL_ERROR"])
+    return str(contract["message"])

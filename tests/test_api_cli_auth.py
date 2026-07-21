@@ -26,6 +26,14 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 
 
+class RecordingAuditSink:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def record(self, event: dict) -> None:
+        self.events.append(event)
+
+
 @pytest.fixture()
 def client(monkeypatch: pytest.MonkeyPatch, db_session) -> TestClient:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
@@ -34,6 +42,7 @@ def client(monkeypatch: pytest.MonkeyPatch, db_session) -> TestClient:
     monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
     monkeypatch.delenv("DY_WEB_BASE_URL", raising=False)
     app = create_app()
+    app.state.cli_audit_sink = RecordingAuditSink()
 
     def override_session():
         yield db_session
@@ -100,6 +109,47 @@ def _approve_and_exchange(client: TestClient, db_session) -> dict:
     )
     assert exchanged.status_code == 200
     return {"started": start_data, "tokens": exchanged.json(), "user": user}
+
+
+def test_complete_auth_lifecycle_is_audited_without_credentials(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refreshed = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": flow["tokens"]["refresh_token"]},
+    )
+    assert refreshed.status_code == 200
+    revoked = client.post(
+        "/api/v1/auth/cli/revoke",
+        json={"refresh_token": refreshed.json()["refresh_token"]},
+    )
+    assert revoked.status_code == 200
+    denied = client.post(
+        "/api/v1/auth/cli/device/token",
+        json={"device_code": "unknown-device-code"},
+    )
+    assert denied.status_code == 400
+
+    events = client.app.state.cli_audit_sink.events
+    assert {event["operation"] for event in events} >= {
+        "device_start",
+        "device_approve",
+        "device_exchange",
+        "refresh",
+        "revoke",
+    }
+    assert any(
+        event["operation"] == "device_exchange"
+        and event["result"] == 400
+        and event["user_id"] is None
+        for event in events
+    )
+    rendered = __import__("json").dumps(events, ensure_ascii=False)
+    assert flow["tokens"]["access_token"] not in rendered
+    assert flow["tokens"]["refresh_token"] not in rendered
+    assert refreshed.json()["access_token"] not in rendered
+    assert refreshed.json()["refresh_token"] not in rendered
 
 
 def test_device_approve_returns_normalized_user_code_and_expiry(
@@ -194,7 +244,8 @@ def test_device_start_rejects_host_fallback_in_production(
     )
 
     assert response.status_code == 503
-    assert "DY_WEB_BASE_URL" in response.json()["detail"]
+    assert response.json()["error"]["code"] == "API_UNAVAILABLE"
+    assert "DY_WEB_BASE_URL" not in response.text
     assert (
         db_session.execute(select(CliDeviceAuthorization)).scalar_one_or_none()
         is None
@@ -216,7 +267,8 @@ def test_device_start_rejects_unsafe_production_web_base_url(
     response = client.post("/api/v1/auth/cli/device/start")
 
     assert response.status_code == 503
-    assert "https URL with a hostname" in response.json()["detail"]
+    assert response.json()["error"]["code"] == "API_UNAVAILABLE"
+    assert unsafe_base_url not in response.text
 
 
 def test_device_token_pending_then_approved_grant_is_consumed_once(
@@ -356,12 +408,70 @@ def test_refresh_rotates_once_and_reloads_active_user(
     db_session.refresh(old_row)
     assert old_row.revoked_at is not None
     assert old_row.replaced_by_token_id is not None
+    replacement_row = db_session.get(
+        CliRefreshToken, old_row.replaced_by_token_id
+    )
+    assert replacement_row is not None
+    assert replacement_row.family_id == old_row.family_id
 
     repeated = client.post(
         "/api/v1/auth/cli/token/refresh",
         json={"refresh_token": old_refresh_token},
     )
     assert repeated.status_code == 401
+
+
+def test_logout_with_rotated_ancestor_revokes_successor_family(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    original = flow["tokens"]["refresh_token"]
+    rotated = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": original},
+    )
+    assert rotated.status_code == 200
+    successor = rotated.json()["refresh_token"]
+
+    logout = client.post(
+        "/api/v1/auth/cli/revoke",
+        json={"refresh_token": original},
+    )
+    assert logout.status_code == 200
+
+    rejected = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": successor},
+    )
+    assert rejected.status_code == 401
+    rows = db_session.scalars(select(CliRefreshToken)).all()
+    assert len({row.family_id for row in rows}) == 1
+    assert all(row.revoked_at is not None for row in rows)
+
+
+def test_replaying_rotated_token_revokes_successor_family(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    original = flow["tokens"]["refresh_token"]
+    rotated = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": original},
+    )
+    assert rotated.status_code == 200
+    successor = rotated.json()["refresh_token"]
+
+    replay = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": original},
+    )
+    assert replay.status_code == 401
+
+    successor_attempt = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": successor},
+    )
+    assert successor_attempt.status_code == 401
 
 
 def test_disabled_user_cannot_refresh(client: TestClient, db_session) -> None:

@@ -1,5 +1,20 @@
 # dydata Agent 调用指南
 
+## Transport and credential hardening
+
+HTTPS is required for remote API URLs. The only cleartext exception is explicit loopback HTTP
+(`127.0.0.1`, `localhost`, or `::1`) with an explicit port for local development.
+URLs containing credentials, query strings, fragments, ambiguous
+paths, or non-loopback HTTP hosts are rejected before any request is sent.
+
+Only GET requests are retried automatically. All authentication POST requests are single-submission,
+so a dropped response cannot silently duplicate a device
+grant, refresh rotation, or revoke operation. Credential rotation and deletion
+use a cross-process lock plus compare-and-swap semantics. A transient revoke
+failure is handled so that transient revoke failure preserves the local credential;
+successful or confirmed-invalid revoke
+compare-deletes only the credential state observed by that logout invocation.
+
 ## 定位与前提
 
 `dydata` 是面向已授权账号的只读业务查询 CLI。Agent 可调用的命令不会写入业务数据；`auth login` 与 `auth logout` 只会改变本机的凭据状态，且必须由人交互执行。不要声称、尝试或暗示 CLI 可以写入订单、线索、门店或其他业务数据。

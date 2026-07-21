@@ -6,13 +6,48 @@ from zoneinfo import ZoneInfo
 CLI_VERSION = "0.1.0"
 CLI_SCHEMA_VERSION = "1.0"
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
+ERROR_CONTRACTS = {
+    "INVALID_ARGUMENT": {
+        "exit_code": 2,
+        "retryable": False,
+        "message": "The request arguments are invalid.",
+    },
+    "AUTH_REQUIRED": {
+        "exit_code": 3,
+        "retryable": False,
+        "message": "CLI authentication is required.",
+    },
+    "AUTH_EXPIRED": {
+        "exit_code": 3,
+        "retryable": False,
+        "message": "CLI authentication is invalid or expired.",
+    },
+    "SCOPE_DENIED": {
+        "exit_code": 4,
+        "retryable": False,
+        "message": "The requested scope is not permitted.",
+    },
+    "API_UNAVAILABLE": {
+        "exit_code": 5,
+        "retryable": True,
+        "message": "The dydata API is unavailable.",
+    },
+    "RATE_LIMITED": {
+        "exit_code": 5,
+        "retryable": True,
+        "message": "The dydata API rate limit was reached.",
+    },
+    "SCHEMA_MISMATCH": {
+        "exit_code": 6,
+        "retryable": False,
+        "message": "The dydata API schema is incompatible.",
+    },
+    "INTERNAL_ERROR": {
+        "exit_code": 6,
+        "retryable": False,
+        "message": "The request could not be completed.",
+    },
+}
 ERROR_EXIT_CODES = {
-    "INVALID_ARGUMENT": 2,
-    "AUTH_REQUIRED": 3,
-    "AUTH_EXPIRED": 3,
-    "SCOPE_DENIED": 4,
-    "API_UNAVAILABLE": 5,
-    "RATE_LIMITED": 5,
-    "SCHEMA_MISMATCH": 6,
-    "INTERNAL_ERROR": 6,
+    code: int(contract["exit_code"]) for code, contract in ERROR_CONTRACTS.items()
 }

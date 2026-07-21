@@ -447,3 +447,47 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
     assert {"cli_subject", "auth_generation"}.isdisjoint(
         {column["name"] for column in downgraded.get_columns("users")}
     )
+
+
+def test_cli_audit_and_refresh_family_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "cli-audit-family.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260721_0018")
+    command.upgrade(config, "head")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert "cli_audit_events" in upgraded.get_table_names()
+    assert {
+        "audit_event_id",
+        "event_type",
+        "operation",
+        "request_id",
+        "command",
+        "result_status",
+        "created_at",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("cli_audit_events")}
+    )
+    assert "family_id" in {
+        column["name"] for column in upgraded.get_columns("cli_refresh_tokens")
+    }
+    audit_indexes = {
+        index["name"] for index in upgraded.get_indexes("cli_audit_events")
+    }
+    refresh_indexes = {
+        index["name"] for index in upgraded.get_indexes("cli_refresh_tokens")
+    }
+    assert "ix_cli_audit_events_command_created" in audit_indexes
+    assert "ix_cli_refresh_tokens_family_id" in refresh_indexes
+
+    command.downgrade(config, "20260721_0018")
+
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert "cli_audit_events" not in downgraded.get_table_names()
+    assert "family_id" not in {
+        column["name"] for column in downgraded.get_columns("cli_refresh_tokens")
+    }

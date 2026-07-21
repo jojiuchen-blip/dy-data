@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import math
 from datetime import date, datetime
+import re
 from typing import Any
+from urllib.parse import parse_qs, urlsplit
 
 from .constants import CLI_SCHEMA_VERSION
 from .errors import is_canonical_request_id
@@ -20,6 +22,10 @@ _COUNT_FIELDS = {
 }
 _RATE_FIELDS = {"system_follow_up_rate", "action_follow_rate"}
 _METRIC_FIELDS = _COUNT_FIELDS | _RATE_FIELDS
+_ROLES = {"admin", "viewer", "store"}
+_AUTH_TYPES = {"user", "env_admin"}
+_URLSAFE_SECRET = re.compile(r"^[A-Za-z0-9_-]{40,128}$")
+_USER_CODE = re.compile(r"^[A-Z0-9]{8}$")
 
 
 class ContractError(ValueError):
@@ -50,6 +56,13 @@ def validate_auth_status(
     user_id = _require_optional_identifier(data["user_id"])
     expires_at = _require_datetime_text(data["expires_at"])
     meta = _validate_basic_meta(payload["meta"], expected_request_id)
+    role = _require_identifier(data["role"])
+    auth_type = _require_identifier(data["auth_type"])
+    store_ids = _require_stable_identifier_list(data["store_ids"])
+    if role not in _ROLES or auth_type not in _AUTH_TYPES:
+        raise ContractError("authorization identity is incompatible")
+    if (auth_type == "user") != (user_id is not None):
+        raise ContractError("authorization subject is incompatible")
     return {
         "ok": True,
         "command": "auth.status",
@@ -59,9 +72,9 @@ def validate_auth_status(
             "user_id": user_id,
             "username": _require_identifier(data["username"]),
             "display_name": _require_text(data["display_name"]),
-            "role": _require_identifier(data["role"]),
-            "auth_type": _require_identifier(data["auth_type"]),
-            "store_ids": _require_identifier_list(data["store_ids"]),
+            "role": role,
+            "auth_type": auth_type,
+            "store_ids": store_ids,
             "expires_at": expires_at,
         },
         "meta": meta,
@@ -92,15 +105,17 @@ def validate_stores(
                 "store_name": _require_text(row["store_name"]),
             }
         )
+    effective_store_ids = _require_stable_identifier_list(
+        scope["effective_store_ids"]
+    )
+    _require_store_rows_consistent(stores, effective_store_ids)
     return {
         "ok": True,
         "command": "stores.list",
         "schema_version": CLI_SCHEMA_VERSION,
         "scope": {
             "user_id": _require_optional_identifier(scope["user_id"]),
-            "effective_store_ids": _require_identifier_list(
-                scope["effective_store_ids"]
-            ),
+            "effective_store_ids": effective_store_ids,
         },
         "data": {"stores": stores},
         "meta": _validate_basic_meta(payload["meta"], expected_request_id),
@@ -148,6 +163,17 @@ def validate_follow_up_stats(
             }
         )
 
+    requested_store_ids = _require_stable_identifier_list(
+        scope["requested_store_ids"]
+    )
+    effective_store_ids = _require_stable_identifier_list(
+        scope["effective_store_ids"]
+    )
+    _require_store_rows_consistent(stores, effective_store_ids)
+    totals = _validate_metrics(_require_mapping(data["totals"]))
+    if totals != _summed_metrics(stores):
+        raise ContractError("aggregate totals are inconsistent")
+
     meta = _require_mapping(payload["meta"])
     _require_exact_keys(
         meta,
@@ -163,12 +189,8 @@ def validate_follow_up_stats(
         "metric_version": "clue-follow-up-v1",
         "scope": {
             "user_id": _require_optional_identifier(scope["user_id"]),
-            "requested_store_ids": _require_identifier_list(
-                scope["requested_store_ids"]
-            ),
-            "effective_store_ids": _require_identifier_list(
-                scope["effective_store_ids"]
-            ),
+            "requested_store_ids": requested_store_ids,
+            "effective_store_ids": effective_store_ids,
         },
         "filters": {
             "assigned_date_start": date_start.isoformat(),
@@ -177,7 +199,7 @@ def validate_follow_up_stats(
         },
         "data": {
             "stores": stores,
-            "totals": _validate_metrics(_require_mapping(data["totals"])),
+            "totals": totals,
         },
         "meta": {
             "partial": False,
@@ -244,7 +266,159 @@ def _validate_metrics(value: dict[str, Any]) -> dict[str, int | float]:
         ):
             raise ContractError("metric rate is invalid")
         metrics[field] = rate
+    total = int(metrics["total_count"])
+    if (
+        int(metrics["pending_count"])
+        + int(metrics["followed_count"])
+        + int(metrics["other_status_count"])
+        != total
+        or int(metrics["action_followed_count"]) > total
+        or int(metrics["effective_followed_count"]) > total
+    ):
+        raise ContractError("metric counts are inconsistent")
+    expected_system_rate = (
+        round(int(metrics["effective_followed_count"]) / total, 4)
+        if total
+        else 0.0
+    )
+    expected_action_rate = (
+        round(int(metrics["action_followed_count"]) / total, 4)
+        if total
+        else 0.0
+    )
+    if (
+        metrics["system_follow_up_rate"] != expected_system_rate
+        or metrics["action_follow_rate"] != expected_action_rate
+    ):
+        raise ContractError("metric rates are inconsistent")
     return metrics
+
+
+def _summed_metrics(stores: list[dict[str, Any]]) -> dict[str, int | float]:
+    counts = {
+        field: sum(int(store[field]) for store in stores) for field in _COUNT_FIELDS
+    }
+    total = counts["total_count"]
+    return {
+        **counts,
+        "system_follow_up_rate": (
+            round(counts["effective_followed_count"] / total, 4) if total else 0.0
+        ),
+        "action_follow_rate": (
+            round(counts["action_followed_count"] / total, 4) if total else 0.0
+        ),
+    }
+
+
+def _require_store_rows_consistent(
+    stores: list[dict[str, Any]], effective_store_ids: list[str]
+) -> None:
+    store_ids = [store["store_id"] for store in stores]
+    if len(store_ids) != len(set(store_ids)) or set(store_ids) != set(
+        effective_store_ids
+    ):
+        raise ContractError("store scope is inconsistent")
+    if stores != sorted(
+        stores, key=lambda store: (store["store_name"], store["store_id"])
+    ):
+        raise ContractError("store rows are not stable")
+
+
+def validate_device_start(payload: dict[str, Any], _: str | None = None) -> dict[str, Any]:
+    """Validate the anonymous device-authorization response."""
+    _require_exact_keys(
+        payload,
+        {
+            "device_code",
+            "user_code",
+            "verification_uri",
+            "verification_uri_complete",
+            "expires_in",
+            "interval",
+        },
+    )
+    device_code = _require_identifier(payload["device_code"])
+    user_code = _require_identifier(payload["user_code"])
+    if not _URLSAFE_SECRET.fullmatch(device_code) or not _USER_CODE.fullmatch(user_code):
+        raise ContractError("device authorization code is incompatible")
+    verification_uri = _require_web_url(payload["verification_uri"])
+    verification_uri_complete = _require_web_url(payload["verification_uri_complete"])
+    complete = urlsplit(verification_uri_complete)
+    base = urlsplit(verification_uri)
+    if (
+        (complete.scheme, complete.netloc, complete.path)
+        != (base.scheme, base.netloc, base.path)
+        or parse_qs(complete.query, strict_parsing=True) != {"user_code": [user_code]}
+        or base.query
+    ):
+        raise ContractError("device authorization URL is incompatible")
+    if payload["expires_in"] != 600 or payload["interval"] != 3:
+        raise ContractError("device authorization timing is incompatible")
+    return {
+        "device_code": device_code,
+        "user_code": user_code,
+        "verification_uri": verification_uri,
+        "verification_uri_complete": verification_uri_complete,
+        "expires_in": 600,
+        "interval": 3,
+    }
+
+
+def validate_authorization_pending(
+    payload: dict[str, Any], _: str | None = None
+) -> dict[str, Any]:
+    """Validate the only accepted HTTP 202 device-poll response."""
+    _require_exact_keys(payload, {"status"})
+    if payload["status"] != "authorization_pending":
+        raise ContractError("authorization state is incompatible")
+    return {"status": "authorization_pending"}
+
+
+def validate_token_response(
+    payload: dict[str, Any], _: str | None = None
+) -> dict[str, Any]:
+    """Validate a device exchange or refresh token response."""
+    _require_exact_keys(
+        payload,
+        {
+            "access_token",
+            "refresh_token",
+            "token_type",
+            "scope",
+            "expires_in",
+            "access_token_expires_at",
+        },
+    )
+    access_token = _require_identifier(payload["access_token"])
+    refresh_token = _require_identifier(payload["refresh_token"])
+    if (
+        not access_token.startswith("cli.")
+        or not _URLSAFE_SECRET.fullmatch(refresh_token)
+        or payload["token_type"] != "Bearer"
+        or payload["scope"] != "cli:read"
+        or payload["expires_in"] != 1800
+    ):
+        raise ContractError("token response is incompatible")
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "Bearer",
+        "scope": "cli:read",
+        "expires_in": 1800,
+        "access_token_expires_at": _require_datetime_text(
+            payload["access_token_expires_at"]
+        ),
+    }
+
+
+def validate_revoke_response(
+    payload: dict[str, Any], _: str | None = None
+) -> dict[str, Any]:
+    """Validate a successful refresh-family revocation response."""
+    _require_exact_keys(payload, {"status"})
+    if payload["status"] != "revoked":
+        raise ContractError("revocation state is incompatible")
+    return {"status": "revoked"}
 
 
 def _require_mapping(value: Any) -> dict[str, Any]:
@@ -285,6 +459,27 @@ def _require_optional_identifier(value: Any) -> str | None:
 
 def _require_identifier_list(value: Any) -> list[str]:
     return [_require_identifier(item) for item in _require_list(value)]
+
+
+def _require_stable_identifier_list(value: Any) -> list[str]:
+    identifiers = _require_identifier_list(value)
+    if len(identifiers) != len(set(identifiers)) or identifiers != sorted(identifiers):
+        raise ContractError("identifier list is not stable")
+    return identifiers
+
+
+def _require_web_url(value: Any) -> str:
+    text = _require_identifier(value)
+    parsed = urlsplit(text)
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.fragment
+    ):
+        raise ContractError("web URL is required")
+    return text
 
 
 def _require_date_text(value: Any) -> date:

@@ -18,9 +18,24 @@ CLI_SCHEMA_VERSION = "1.0"
 CLI_METRIC_VERSION = "clue-follow-up-v1"
 CLI_RETRYABLE_ERRORS = {"API_UNAVAILABLE", "RATE_LIMITED"}
 CLI_COMMANDS_BY_PATH = {
+    "/api/v1/auth/cli/device/start": "auth.login",
+    "/api/v1/auth/cli/device/approve": "auth.login",
+    "/api/v1/auth/cli/device/token": "auth.login",
+    "/api/v1/auth/cli/token/refresh": "auth.refresh",
+    "/api/v1/auth/cli/revoke": "auth.logout",
     "/api/v1/cli/auth/status": "auth.status",
     "/api/v1/cli/stores": "stores.list",
     "/api/v1/clues/store-follow-up-summary": "clues.follow-up-stats",
+}
+CLI_OPERATIONS_BY_PATH = {
+    "/api/v1/auth/cli/device/start": "device_start",
+    "/api/v1/auth/cli/device/approve": "device_approve",
+    "/api/v1/auth/cli/device/token": "device_exchange",
+    "/api/v1/auth/cli/token/refresh": "refresh",
+    "/api/v1/auth/cli/revoke": "revoke",
+    "/api/v1/cli/auth/status": "auth_status",
+    "/api/v1/cli/stores": "stores_list",
+    "/api/v1/clues/store-follow-up-summary": "follow_up_stats",
 }
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
@@ -29,11 +44,13 @@ def cli_command_for_path(path: str) -> str | None:
     return CLI_COMMANDS_BY_PATH.get(path.rstrip("/") or "/")
 
 
+def cli_operation_for_path(path: str) -> str | None:
+    return CLI_OPERATIONS_BY_PATH.get(path.rstrip("/") or "/")
+
+
 def is_cli_audit_path(path: str) -> bool:
     normalized = path.rstrip("/") or "/"
-    return normalized.startswith("/api/v1/cli/") or normalized == (
-        "/api/v1/clues/store-follow-up-summary"
-    )
+    return normalized in CLI_OPERATIONS_BY_PATH
 
 
 def request_id_for_header(value: str | None) -> str:
@@ -97,6 +114,8 @@ def cli_error_response(
     )
     request.state.cli_request_id = request_id
     request.state.cli_error_code = code
+    response_headers = dict(headers or {})
+    response_headers["X-Request-ID"] = request_id
     return JSONResponse(
         status_code=status_code,
         content=cli_error_payload(
@@ -105,7 +124,7 @@ def cli_error_response(
             command=resolved_command,
             request_id=request_id,
         ),
-        headers=headers,
+        headers=response_headers,
     )
 
 
@@ -121,7 +140,10 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
         request: Request, exc: StarletteHTTPException
     ):
         command = cli_command_for_path(request.url.path)
-        if not is_cli_audit_path(request.url.path):
+        is_cli_contract_path = is_cli_audit_path(
+            request.url.path
+        ) or request.url.path.startswith("/api/v1/cli/")
+        if not is_cli_contract_path:
             return await http_exception_handler(request, exc)
 
         if isinstance(exc.detail, dict) and set(exc.detail) == {

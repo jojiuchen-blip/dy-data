@@ -38,6 +38,24 @@ def test_agent_guide_covers_safe_agent_workflow() -> None:
 
     assert all(concept in guide for concept in required_concepts)
 
+    hardening_concepts = (
+        "HTTPS is required for remote API URLs",
+        "explicit loopback HTTP",
+        "Only GET requests are retried automatically",
+        "authentication POST requests are single-submission",
+        "compare-and-swap",
+        "transient revoke failure preserves the local credential",
+    )
+    assert all(concept in guide for concept in hardening_concepts)
+
+
+def test_readme_links_cli_discovery_and_transport_rules() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+
+    assert "dydata commands --json" in readme
+    assert "HTTPS is required for remote API URLs" in readme
+    assert "explicit loopback HTTP" in readme
+
 
 def test_generated_reference_has_no_drift() -> None:
     result = subprocess.run(

@@ -6,7 +6,7 @@ CLI version: `0.1.0`. Schema version: `1.0`.
 | --- | --- | --- |
 | `commands` | Discover every supported CLI command and its agent contract. | true |
 | `auth.login` | Sign in interactively and store credentials locally. | false |
-| `auth.logout` | Remove the locally stored CLI credential. | false |
+| `auth.logout` | Revoke the refresh family and remove the observed local credential. | false |
 | `auth.status` | Report whether a locally stored CLI credential is usable. | true |
 | `stores.list` | List stores available within the caller's data scope. | true |
 | `clues.follow-up-stats` | Summarize clue follow-up results for authorized stores. | true |
@@ -22,13 +22,37 @@ Discover every supported CLI command and its agent contract.
 | --- | --- | --- |
 | `--json` | true | `flag` |
 
-### Output schema
+### Roles
+
+`all`
+
+### Data scope
+
+`none`
+
+### Side effects
+
+Authentication/local: `none`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`none`
+
+### Output mode and schema
+
+Mode: `json`.
 
 `{"data": {"commands": "Command[]"}}`
 
-### Errors
+### Errors and exit codes
 
-`INTERNAL_ERROR`
+| Error | Exit code |
+| --- | --- |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -44,13 +68,43 @@ Sign in interactively and store credentials locally.
 | --- | --- | --- |
 | `None` | false | `-` |
 
-### Output schema
+### Roles
 
-`{"data": {"authenticated": "boolean"}}`
+`all`
 
-### Errors
+### Data scope
 
-`AUTH_REQUIRED`, `INTERNAL_ERROR`
+`none`
+
+### Side effects
+
+Authentication/local: `remote_auth_grant_and_local_credential`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `medium`. Confirmation: `interactive`. Agent callable: `false`.
+
+### Sensitive data
+
+`credential`
+
+### Output mode and schema
+
+Mode: `text`.
+
+`{"lines": ["Open: <url>", "Code: <user_code>", "Authorization complete."], "mode": "text"}`
+
+### Errors and exit codes
+
+| Error | Exit code |
+| --- | --- |
+| `AUTH_REQUIRED` | `3` |
+| `AUTH_EXPIRED` | `3` |
+| `INVALID_ARGUMENT` | `2` |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -58,7 +112,7 @@ Sign in interactively and store credentials locally.
 
 ## `auth.logout`
 
-Remove the locally stored CLI credential.
+Revoke the refresh family and remove the observed local credential.
 
 ### Parameters
 
@@ -66,13 +120,40 @@ Remove the locally stored CLI credential.
 | --- | --- | --- |
 | `None` | false | `-` |
 
-### Output schema
+### Roles
 
-`{"data": {"authenticated": "boolean"}}`
+`all`
 
-### Errors
+### Data scope
 
-`INTERNAL_ERROR`
+`none`
+
+### Side effects
+
+Authentication/local: `remote_auth_revoke_and_local_credential`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `interactive`. Agent callable: `false`.
+
+### Sensitive data
+
+`credential`
+
+### Output mode and schema
+
+Mode: `text`.
+
+`{"lines": ["Logged out."], "mode": "text"}`
+
+### Errors and exit codes
+
+| Error | Exit code |
+| --- | --- |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -88,13 +169,42 @@ Report whether a locally stored CLI credential is usable.
 | --- | --- | --- |
 | `--json` | true | `flag` |
 
-### Output schema
+### Roles
+
+`all`
+
+### Data scope
+
+`current_identity`
+
+### Side effects
+
+Authentication/local: `auth_refresh_possible`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`credential_metadata`
+
+### Output mode and schema
+
+Mode: `json`.
 
 `{"data": {"authenticated": "boolean", "expires_at": "datetime"}}`
 
-### Errors
+### Errors and exit codes
 
-`AUTH_REQUIRED`, `AUTH_EXPIRED`, `INTERNAL_ERROR`
+| Error | Exit code |
+| --- | --- |
+| `AUTH_REQUIRED` | `3` |
+| `AUTH_EXPIRED` | `3` |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -110,13 +220,43 @@ List stores available within the caller's data scope.
 | --- | --- | --- |
 | `--json` | true | `flag` |
 
-### Output schema
+### Roles
+
+`viewer`, `store`, `admin`
+
+### Data scope
+
+`authorized_stores`
+
+### Side effects
+
+Authentication/local: `auth_refresh_possible`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`store_identity`
+
+### Output mode and schema
+
+Mode: `json`.
 
 `{"data": {"stores": "Store[]"}}`
 
-### Errors
+### Errors and exit codes
 
-`AUTH_REQUIRED`, `SCOPE_DENIED`, `API_UNAVAILABLE`, `INTERNAL_ERROR`
+| Error | Exit code |
+| --- | --- |
+| `AUTH_REQUIRED` | `3` |
+| `AUTH_EXPIRED` | `3` |
+| `SCOPE_DENIED` | `4` |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -135,13 +275,44 @@ Summarize clue follow-up results for authorized stores.
 | `--store-id` | false | `string` |
 | `--output` | false | `json|table` |
 
-### Output schema
+### Roles
+
+`viewer`, `store`, `admin`
+
+### Data scope
+
+`authorized_stores`
+
+### Side effects
+
+Authentication/local: `auth_refresh_possible`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`store_metrics`
+
+### Output mode and schema
+
+Mode: `json_or_table`.
 
 `{"data": {"stores": "FollowUpStats[]", "totals": "FollowUpStats"}}`
 
-### Errors
+### Errors and exit codes
 
-`AUTH_REQUIRED`, `SCOPE_DENIED`, `INVALID_ARGUMENT`, `API_UNAVAILABLE`, `INTERNAL_ERROR`
+| Error | Exit code |
+| --- | --- |
+| `AUTH_REQUIRED` | `3` |
+| `AUTH_EXPIRED` | `3` |
+| `SCOPE_DENIED` | `4` |
+| `INVALID_ARGUMENT` | `2` |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 
@@ -158,13 +329,37 @@ Report the installed CLI and schema versions.
 | --- | --- | --- |
 | `--json` | true | `flag` |
 
-### Output schema
+### Roles
+
+`all`
+
+### Data scope
+
+`none`
+
+### Side effects
+
+Authentication/local: `none`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`none`
+
+### Output mode and schema
+
+Mode: `json`.
 
 `{"data": {"cli_version": "string", "schema_version": "string"}}`
 
-### Errors
+### Errors and exit codes
 
-`INTERNAL_ERROR`
+| Error | Exit code |
+| --- | --- |
+| `INTERNAL_ERROR` | `6` |
 
 ### Examples
 

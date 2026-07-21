@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
@@ -16,6 +17,7 @@ from apps.api.dy_api.models import User, UserStoreScope
 
 from dy_api.auth import AuthContext, create_session_token
 from dy_api.cli_auth import (
+    _locked_refresh_family,
     create_cli_access_token,
     get_current_cli_user,
     hash_cli_secret,
@@ -305,3 +307,26 @@ def test_hash_cli_secret_is_stable_sha256() -> None:
         "2bb80d537b1da3e38bd30361aa855686bde0eacd7"
         "162fef6a25fe97bf527a25b"
     )
+
+
+def test_refresh_family_lock_forces_identity_map_refresh() -> None:
+    stored = SimpleNamespace(family_id="family-1", refresh_token_id="token-1")
+
+    class CapturingSession:
+        statement = None
+
+        def scalars(self, statement):
+            self.statement = statement
+            return self
+
+        def all(self):
+            return [stored]
+
+    session = CapturingSession()
+
+    rows, locked = _locked_refresh_family(session, stored)
+
+    assert rows == [stored]
+    assert locked is stored
+    assert session.statement.get_execution_options()["populate_existing"] is True
+    assert session.statement._for_update_arg is not None

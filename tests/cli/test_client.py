@@ -26,7 +26,7 @@ def stores_envelope() -> dict[str, object]:
     payload = envelope("stores.list", {"stores": []})
     payload["scope"] = {
         "user_id": "user-1",
-        "effective_store_ids": ["store-a", "store-b"],
+        "effective_store_ids": [],
     }
     return payload
 
@@ -48,8 +48,8 @@ def follow_up_envelope() -> dict[str, object]:
     payload["metric_version"] = "clue-follow-up-v1"
     payload["scope"] = {
         "user_id": "user-1",
-        "requested_store_ids": ["store-b", "store-a"],
-        "effective_store_ids": ["store-b", "store-a"],
+        "requested_store_ids": ["store-a", "store-b"],
+        "effective_store_ids": [],
     }
     payload["filters"] = {
         "assigned_date_start": "2026-07-01",
@@ -114,6 +114,56 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
     assert request.headers["X-Request-ID"].startswith("req_")
 
 
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://127.0.0.1:8000/api/v1",
+        "http://localhost:8000/api/v1/",
+        "http://[::1]:8000/api/v1",
+        "https://api.example.test/api/v1",
+        "https://api.example.test:8443/api/v1///",
+    ],
+)
+def test_base_url_allows_https_and_explicit_loopback_http(base_url: str) -> None:
+    client = DyDataClient(base_url=base_url, transport=httpx.MockTransport(lambda _: httpx.Response(200)))
+
+    normalized = str(client._http.base_url)
+
+    assert normalized.endswith("/")
+    assert not normalized.endswith("//")
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://api.example.test/api/v1",
+        "http://0.0.0.0:8000/api/v1",
+        "http://127.0.0.2:8000/api/v1",
+        "http://127.0.0.1.evil.test:8000/api/v1",
+        "http://localhost/api/v1",
+        "https://user:password@api.example.test/api/v1",
+        "https:///api/v1",
+        "ftp://api.example.test/api/v1",
+        "api.example.test/api/v1",
+        "https://api.example.test/api/v1?token=secret",
+        "https://api.example.test/api/v1#fragment",
+        "https://api.example.test/api/../v1",
+        "https://api.example.test/api%0av1",
+        "https://api.example.test/api\\v1",
+        "https://api.example.test:0/api/v1",
+        "https://api.example.test:65536/api/v1",
+    ],
+)
+def test_base_url_rejects_cleartext_remote_and_ambiguous_urls(
+    base_url: str,
+) -> None:
+    with pytest.raises(CliError) as raised:
+        DyDataClient(base_url=base_url)
+
+    assert raised.value.code == "INVALID_ARGUMENT"
+    assert base_url not in str(raised.value)
+
+
 def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
     captured: list[httpx.Request] = []
 
@@ -149,20 +199,39 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
     ]
 
 
-def test_device_and_refresh_lifecycle_accept_bare_json_and_empty_revoke() -> None:
+def device_start_payload() -> dict[str, object]:
+    return {
+        "device_code": "d" * 43,
+        "user_code": "ABCD1234",
+        "verification_uri": "https://app.example.test/cli/authorize",
+        "verification_uri_complete": (
+            "https://app.example.test/cli/authorize?user_code=ABCD1234"
+        ),
+        "expires_in": 600,
+        "interval": 3,
+    }
+
+
+def token_payload() -> dict[str, object]:
+    return {
+        "access_token": f"cli.{'a' * 32}.{'b' * 64}",
+        "refresh_token": "r" * 64,
+        "token_type": "Bearer",
+        "scope": "cli:read",
+        "expires_in": 1800,
+        "access_token_expires_at": "2026-07-21T12:30:00Z",
+    }
+
+
+def test_device_and_refresh_lifecycle_accepts_only_documented_json() -> None:
+    start_payload = device_start_payload()
+    refreshed_payload = token_payload()
     responses = iter(
         [
-            httpx.Response(200, json={"device_code": "device-secret", "interval": 3}),
+            httpx.Response(200, json=start_payload),
             httpx.Response(202, json={"status": "authorization_pending"}),
-            httpx.Response(
-                200,
-                json={
-                    "access_token": "access-secret",
-                    "refresh_token": "refresh-secret",
-                    "access_token_expires_at": "2026-07-21T12:30:00Z",
-                },
-            ),
-            httpx.Response(204),
+            httpx.Response(200, json=refreshed_payload),
+            httpx.Response(200, json={"status": "revoked"}),
         ]
     )
 
@@ -172,12 +241,60 @@ def test_device_and_refresh_lifecycle_accept_bare_json_and_empty_revoke() -> Non
         sleep=lambda _: None,
     )
 
-    assert client.start_device_authorization()["device_code"] == "device-secret"
-    assert client.poll_device_token("device-secret") == {
+    assert client.start_device_authorization() == start_payload
+    assert client.poll_device_token("d" * 43) == {
         "status": "authorization_pending"
     }
-    assert client.refresh("refresh-secret")["access_token"] == "access-secret"
-    assert client.revoke("refresh-secret") is None
+    assert client.refresh("r" * 64) == refreshed_payload
+    assert client.revoke("r" * 64) is None
+
+
+@pytest.mark.parametrize(
+    ("operation", "status_code", "payload"),
+    [
+        ("start_device_authorization", 200, {**device_start_payload(), "secret": "SENSITIVE_AUTH_DRIFT"}),
+        ("poll_device_token", 202, {"status": "approved", "secret": "SENSITIVE_AUTH_DRIFT"}),
+        ("poll_device_token", 200, {**token_payload(), "scope": "admin"}),
+        ("refresh", 200, {**token_payload(), "expires_in": 60}),
+        ("revoke", 200, {"status": "revoked", "secret": "SENSITIVE_AUTH_DRIFT"}),
+    ],
+)
+def test_auth_success_contract_drift_is_rejected_without_secret_leakage(
+    operation: str, status_code: int, payload: dict[str, object]
+) -> None:
+    client = DyDataClient(
+        base_url="http://localhost:8000/api/v1",
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(status_code, json=payload)
+        ),
+    )
+    call = getattr(client, operation)
+
+    with pytest.raises(CliError) as raised:
+        if operation == "start_device_authorization":
+            call()
+        elif operation == "poll_device_token":
+            call("d" * 43)
+        else:
+            call("r" * 64)
+
+    assert raised.value.code == "SCHEMA_MISMATCH"
+    assert "cli.aaaaaaaa" not in str(raised.value)
+    assert ("r" * 64) not in repr(raised.value)
+
+
+def test_auth_token_expiry_must_be_timezone_aware() -> None:
+    payload = token_payload()
+    payload["access_token_expires_at"] = "2026-07-21T12:30:00"
+    client = DyDataClient(
+        base_url="http://localhost:8000/api/v1",
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, json=payload)),
+    )
+
+    with pytest.raises(CliError) as raised:
+        client.refresh("r" * 64)
+
+    assert raised.value.code == "SCHEMA_MISMATCH"
 
 
 @pytest.mark.parametrize(
@@ -237,6 +354,60 @@ def test_network_timeouts_are_retried_then_mapped_without_token_leakage() -> Non
     assert attempts == 3
     assert "access-secret" not in str(raised.value)
     assert "unsafe" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("operation", "argument"),
+    [
+        ("start_device_authorization", None),
+        ("poll_device_token", "device-secret"),
+        ("refresh", "refresh-secret"),
+        ("revoke", "refresh-secret"),
+    ],
+)
+def test_authentication_posts_are_single_submission_on_network_failure(
+    operation: str, argument: str | None
+) -> None:
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("connection dropped", request=request)
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+    call = getattr(client, operation)
+
+    with pytest.raises(CliError) as raised:
+        call() if argument is None else call(argument)
+
+    assert raised.value.code == "API_UNAVAILABLE"
+    assert attempts == 1
+
+
+@pytest.mark.parametrize("status_code", [429, 503])
+def test_refresh_post_does_not_retry_retryable_http_statuses(
+    status_code: int,
+) -> None:
+    attempts = 0
+
+    def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        return httpx.Response(status_code, json={})
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(CliError):
+        client.refresh("refresh-secret")
+
+    assert attempts == 1
 
 
 @pytest.mark.parametrize(

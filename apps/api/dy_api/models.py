@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -207,6 +208,7 @@ class CliRefreshToken(Base):
     __tablename__ = "cli_refresh_tokens"
 
     refresh_token_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    family_id: Mapped[str] = mapped_column(Text, index=True, default=lambda: uuid4().hex)
     token_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
     user_id: Mapped[str | None] = mapped_column(
         Text, ForeignKey("users.user_id", ondelete="CASCADE"), index=True
@@ -221,6 +223,34 @@ class CliRefreshToken(Base):
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     replaced_by_token_id: Mapped[str | None] = mapped_column(Text)
+
+
+class CliAuditEvent(Base):
+    __tablename__ = "cli_audit_events"
+    __table_args__ = (
+        Index("ix_cli_audit_events_command_created", "command", "created_at"),
+        Index("ix_cli_audit_events_operation_created", "operation", "created_at"),
+    )
+
+    audit_event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    event_type: Mapped[str] = mapped_column(String(32), index=True)
+    operation: Mapped[str] = mapped_column(String(64), index=True)
+    request_id: Mapped[str] = mapped_column(Text, index=True)
+    command: Mapped[str] = mapped_column(Text, index=True)
+    user_id: Mapped[str | None] = mapped_column(Text, index=True)
+    auth_type: Mapped[str | None] = mapped_column(String(32))
+    cli_version: Mapped[str | None] = mapped_column(String(64))
+    schema_version: Mapped[str | None] = mapped_column(String(32))
+    date_range: Mapped[list[str] | None] = mapped_column(JSON)
+    requested_store_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    effective_store_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    returned_store_count: Mapped[int] = mapped_column(Integer, default=0)
+    result_status: Mapped[int] = mapped_column(Integer)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    duration_ms: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
 
 
 class UserStoreScope(Base):

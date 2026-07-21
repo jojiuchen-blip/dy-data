@@ -21,6 +21,7 @@ from dy_api.cli_auth import (
     create_cli_access_token,
     hash_cli_secret,
     issue_refresh_token,
+    refresh_token_audit_context,
     revoke_refresh_token,
     rotate_refresh_token,
 )
@@ -142,12 +143,15 @@ def start_device_authorization(
 
 @router.post("/device/approve", response_model=CliDeviceApproveResponse)
 def approve_device_authorization(
+    request: Request,
     payload: CliDeviceApproveRequest,
     current_user: AuthContext = Depends(get_current_user),
     session: Session | None = Depends(get_session_dependency),
 ) -> CliDeviceApproveResponse:
     """Approve one pending user code using the existing Web cookie session."""
     active_session = _require_session(session)
+    request.state.cli_user_id = current_user.user_id
+    request.state.cli_auth_type = current_user.auth_type
     current_time = utcnow()
     grant = active_session.execute(
         select(CliDeviceAuthorization)
@@ -184,6 +188,7 @@ def approve_device_authorization(
     responses={202: {"model": CliAuthorizationStatusResponse}},
 )
 def exchange_device_code(
+    request: Request,
     payload: CliDeviceTokenRequest,
     session: Session | None = Depends(get_session_dependency),
 ) -> CliTokenResponse | JSONResponse:
@@ -223,6 +228,8 @@ def exchange_device_code(
         auth_type=grant.auth_type,
         user_id=grant.user_id,
     )
+    request.state.cli_user_id = auth.user_id
+    request.state.cli_auth_type = auth.auth_type
     access_token, access_expires_at = create_cli_access_token(
         auth, session=active_session, now=current_time
     )
@@ -237,11 +244,16 @@ def exchange_device_code(
 
 @router.post("/token/refresh", response_model=CliTokenResponse)
 def refresh_cli_tokens(
+    request: Request,
     payload: CliRefreshTokenRequest,
     session: Session | None = Depends(get_session_dependency),
 ) -> CliTokenResponse:
     """Rotate one valid refresh credential and issue a fresh access token."""
     active_session = _require_session(session)
+    (
+        request.state.cli_user_id,
+        request.state.cli_auth_type,
+    ) = refresh_token_audit_context(active_session, payload.refresh_token)
     access_token, refresh_token, access_expires_at = rotate_refresh_token(
         active_session, payload.refresh_token
     )
@@ -251,11 +263,16 @@ def refresh_cli_tokens(
 
 @router.post("/revoke", response_model=CliAuthorizationStatusResponse)
 def revoke_cli_tokens(
+    request: Request,
     payload: CliRefreshTokenRequest,
     session: Session | None = Depends(get_session_dependency),
 ) -> CliAuthorizationStatusResponse:
     """Revoke a refresh credential without echoing any secret."""
     active_session = _require_session(session)
+    (
+        request.state.cli_user_id,
+        request.state.cli_auth_type,
+    ) = refresh_token_audit_context(active_session, payload.refresh_token)
     revoke_refresh_token(active_session, payload.refresh_token)
     active_session.commit()
     return CliAuthorizationStatusResponse(status="revoked")

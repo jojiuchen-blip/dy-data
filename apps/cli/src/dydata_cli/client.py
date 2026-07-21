@@ -6,33 +6,34 @@ import os
 import time
 from collections.abc import Callable
 from datetime import date
+from ipaddress import ip_address
+import re
 from typing import Any
+from urllib.parse import unquote, urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
 
-from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
+from .constants import CLI_SCHEMA_VERSION, CLI_VERSION, ERROR_CONTRACTS
 from .contracts import (
     ContractError,
+    validate_authorization_pending,
     validate_auth_status,
+    validate_device_start,
     validate_follow_up_stats,
+    validate_revoke_response,
     validate_stores,
+    validate_token_response,
 )
-from .errors import error_retryable, safe_request_id
+from .errors import error_message, error_retryable, safe_request_id
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8000/api/v1"
-_ERROR_MESSAGES = {
-    "INVALID_ARGUMENT": "The request arguments are invalid.",
-    "AUTH_REQUIRED": "CLI authentication is required.",
-    "AUTH_EXPIRED": "CLI authentication is invalid or expired.",
-    "SCOPE_DENIED": "The requested scope is not permitted.",
-    "API_UNAVAILABLE": "The dydata API is unavailable.",
-    "RATE_LIMITED": "The dydata API rate limit was reached.",
-    "SCHEMA_MISMATCH": "The dydata API schema is incompatible.",
-    "INTERNAL_ERROR": "The request could not be completed.",
-}
 _RETRYABLE_STATUS_CODES = {429}
+_LOOPBACK_HTTP_HOSTS = {"127.0.0.1", "::1", "localhost"}
+_DNS_HOSTNAME = re.compile(
+    r"^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$"
+)
 
 
 class CliError(Exception):
@@ -45,10 +46,66 @@ class CliError(Exception):
         request_id: str | None = None,
         retryable: bool | None = None,
     ) -> None:
-        self.code = code if code in _ERROR_MESSAGES else "INTERNAL_ERROR"
+        self.code = code if code in ERROR_CONTRACTS else "INTERNAL_ERROR"
         self.request_id = safe_request_id(request_id)
         self.retryable = error_retryable(self.code, retryable)
-        super().__init__(_ERROR_MESSAGES[self.code])
+        super().__init__(error_message(self.code))
+
+
+def _normalize_base_url(value: str) -> str:
+    candidate = value.strip()
+    if (
+        not candidate
+        or any(ord(character) < 32 or ord(character) == 127 for character in candidate)
+        or "\\" in candidate
+    ):
+        raise CliError("INVALID_ARGUMENT")
+    try:
+        parsed = urlsplit(candidate)
+        hostname = parsed.hostname
+        port = parsed.port
+    except ValueError:
+        raise CliError("INVALID_ARGUMENT") from None
+    scheme = parsed.scheme.lower()
+    if (
+        scheme not in {"http", "https"}
+        or not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or port == 0
+    ):
+        raise CliError("INVALID_ARGUMENT")
+
+    normalized_host = hostname.lower()
+    if normalized_host != "localhost":
+        try:
+            ip_address(normalized_host)
+        except ValueError:
+            if not _DNS_HOSTNAME.fullmatch(normalized_host):
+                raise CliError("INVALID_ARGUMENT") from None
+    if scheme == "http" and (
+        normalized_host not in _LOOPBACK_HTTP_HOSTS or port is None
+    ):
+        raise CliError("INVALID_ARGUMENT")
+
+    decoded_path = unquote(parsed.path)
+    trimmed_path = decoded_path.rstrip("/")
+    path_segments = trimmed_path.split("/")
+    if (
+        "\\" in decoded_path
+        or any(ord(character) < 32 or ord(character) == 127 for character in decoded_path)
+        or "//" in trimmed_path
+        or any(segment in {".", ".."} for segment in path_segments)
+    ):
+        raise CliError("INVALID_ARGUMENT")
+    normalized_path = parsed.path.rstrip("/") + "/"
+    host_for_netloc = (
+        f"[{normalized_host}]" if ":" in normalized_host else normalized_host
+    )
+    netloc = host_for_netloc if port is None else f"{host_for_netloc}:{port}"
+    return urlunsplit((scheme, netloc, normalized_path, "", ""))
 
 
 class DyDataClient:
@@ -64,7 +121,7 @@ class DyDataClient:
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         configured_url = base_url or os.getenv("DYDATA_API_URL") or DEFAULT_API_URL
-        normalized_url = configured_url.strip().rstrip("/") + "/"
+        normalized_url = _normalize_base_url(configured_url)
         self._http = httpx.Client(
             base_url=normalized_url,
             timeout=timeout,
@@ -79,6 +136,7 @@ class DyDataClient:
             "POST",
             "auth/cli/device/start",
             command="auth.login",
+            validator=validate_device_start,
         )
 
     def poll_device_token(self, device_code: str) -> dict[str, Any]:
@@ -89,6 +147,8 @@ class DyDataClient:
             command="auth.login",
             json_body={"device_code": device_code},
             allow_pending=True,
+            validator=validate_token_response,
+            pending_validator=validate_authorization_pending,
         )
 
     def refresh(self, refresh_token: str) -> dict[str, Any]:
@@ -98,6 +158,7 @@ class DyDataClient:
             "auth/cli/token/refresh",
             command="auth.refresh",
             json_body={"refresh_token": refresh_token},
+            validator=validate_token_response,
         )
 
     def revoke(self, refresh_token: str) -> None:
@@ -107,7 +168,7 @@ class DyDataClient:
             "auth/cli/revoke",
             command="auth.logout",
             json_body={"refresh_token": refresh_token},
-            allow_empty=True,
+            validator=validate_revoke_response,
         )
 
     def auth_status(self, access_token: str) -> dict[str, Any]:
@@ -166,7 +227,9 @@ class DyDataClient:
             [dict[str, Any], str | None], dict[str, Any]
         ] | None = None,
         allow_pending: bool = False,
-        allow_empty: bool = False,
+        pending_validator: Callable[
+            [dict[str, Any], str | None], dict[str, Any]
+        ] | None = None,
     ) -> dict[str, Any]:
         # One logical call keeps one correlation ID across every retry attempt.
         request_id = f"req_{uuid4().hex}"
@@ -180,7 +243,8 @@ class DyDataClient:
             headers["Authorization"] = f"Bearer {access_token}"
 
         response: httpx.Response | None = None
-        for attempt in range(self._max_attempts):
+        max_attempts = self._max_attempts if method.upper() == "GET" else 1
+        for attempt in range(max_attempts):
             try:
                 response = self._http.request(
                     method,
@@ -190,12 +254,12 @@ class DyDataClient:
                     params=params,
                 )
             except httpx.RequestError:
-                if attempt + 1 >= self._max_attempts:
+                if attempt + 1 >= max_attempts:
                     raise CliError("API_UNAVAILABLE", request_id=request_id) from None
                 self._backoff(attempt)
                 continue
             if self._is_retryable_status(response.status_code):
-                if attempt + 1 < self._max_attempts:
+                if attempt + 1 < max_attempts:
                     self._backoff(attempt)
                     continue
             break
@@ -203,20 +267,25 @@ class DyDataClient:
         if response is None:
             raise CliError("API_UNAVAILABLE", request_id=request_id)
         if allow_pending and response.status_code == 202:
-            return self._json_object(response, request_id=request_id)
-        if 200 <= response.status_code < 300:
-            if allow_empty and not response.content:
-                return {}
             payload = self._json_object(response, request_id=request_id)
-            if validator is not None:
-                try:
-                    return validator(payload, request_id)
-                except ContractError:
-                    raise CliError(
-                        "SCHEMA_MISMATCH", request_id=request_id
-                    ) from None
-            return payload
+            return self._validated_payload(payload, pending_validator, request_id)
+        if 200 <= response.status_code < 300:
+            payload = self._json_object(response, request_id=request_id)
+            return self._validated_payload(payload, validator, request_id)
         raise self._response_error(response, fallback_request_id=request_id)
+
+    @staticmethod
+    def _validated_payload(
+        payload: dict[str, Any],
+        validator: Callable[[dict[str, Any], str | None], dict[str, Any]] | None,
+        request_id: str,
+    ) -> dict[str, Any]:
+        if validator is None:
+            return payload
+        try:
+            return validator(payload, request_id)
+        except ContractError:
+            raise CliError("SCHEMA_MISMATCH", request_id=request_id) from None
 
     def _backoff(self, attempt: int) -> None:
         self._sleep(min(0.1 * (2**attempt), 1.0))
@@ -252,7 +321,7 @@ class DyDataClient:
             error = payload.get("error")
             if isinstance(error, dict):
                 candidate = error.get("code")
-                if isinstance(candidate, str) and candidate in _ERROR_MESSAGES:
+                if isinstance(candidate, str) and candidate in ERROR_CONTRACTS:
                     server_code = candidate
                 candidate_request_id = error.get("request_id")
                 if candidate_request_id == fallback_request_id:

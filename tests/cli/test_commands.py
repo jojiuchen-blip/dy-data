@@ -26,13 +26,24 @@ class FakeCredentialStore:
         self.load_count += 1
         return self.state
 
-    def save(self, state: CredentialState) -> None:
+    def save(
+        self,
+        state: CredentialState,
+        *,
+        expected: CredentialState | None = None,
+    ) -> bool:
+        if expected is not None and self.state != expected:
+            return False
         self.state = state
         self.saved.append(state)
+        return True
 
-    def clear(self) -> None:
+    def clear(self, *, expected: CredentialState | None = None) -> bool:
+        if expected is not None and self.state != expected:
+            return False
         self.state = None
         self.clear_count += 1
+        return True
 
 
 class FakeClient:
@@ -93,7 +104,9 @@ def auth_status_envelope() -> dict[str, Any]:
 
 
 def stores_envelope() -> dict[str, Any]:
-    payload = success_envelope("stores.list", {"stores": []})
+    payload = success_envelope(
+        "stores.list", {"stores": [{"store_id": "s1", "store_name": "Store One"}]}
+    )
     payload["scope"] = {"user_id": "user-1", "effective_store_ids": ["s1"]}
     return payload
 
@@ -112,15 +125,38 @@ def metric_values(*, total_count: int = 0) -> dict[str, int | float]:
 
 
 def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    store_rows = stores or []
+    counts = {
+        field: sum(int(row[field]) for row in store_rows)
+        for field in (
+            "total_count",
+            "pending_count",
+            "followed_count",
+            "other_status_count",
+            "action_followed_count",
+            "effective_followed_count",
+        )
+    }
+    total = counts["total_count"]
+    totals = {
+        **counts,
+        "system_follow_up_rate": (
+            round(counts["effective_followed_count"] / total, 4) if total else 0.0
+        ),
+        "action_follow_rate": (
+            round(counts["action_followed_count"] / total, 4) if total else 0.0
+        ),
+    }
+    store_ids = sorted(row["store_id"] for row in store_rows)
     payload = success_envelope(
         "clues.follow-up-stats",
-        {"stores": stores or [], "totals": metric_values()},
+        {"stores": store_rows, "totals": totals},
     )
     payload["metric_version"] = "clue-follow-up-v1"
     payload["scope"] = {
         "user_id": "user-1",
-        "requested_store_ids": ["s1"],
-        "effective_store_ids": ["s1"],
+        "requested_store_ids": store_ids,
+        "effective_store_ids": store_ids,
     }
     payload["filters"] = {
         "assigned_date_start": "2026-07-01",
@@ -291,7 +327,7 @@ def test_login_opens_browser_polls_at_server_interval_and_never_prints_tokens() 
     assert len(store.saved) == 1
 
 
-def test_logout_always_clears_local_state_when_revoke_fails() -> None:
+def test_logout_preserves_local_state_when_revoke_is_transiently_unavailable() -> None:
     class FailingRevokeClient(FakeClient):
         def revoke(self, refresh_token: str) -> None:
             self.revoke_calls.append(refresh_token)
@@ -304,14 +340,14 @@ def test_logout_always_clears_local_state_when_revoke_fails() -> None:
         ["auth", "logout"], store=store, client=client
     )
 
-    assert exit_code == 0
+    assert exit_code == 5
     assert client.revoke_calls == ["old-refresh-secret"]
-    assert store.state is None
-    assert store.clear_count == 1
+    assert store.state is not None
+    assert store.clear_count == 0
     assert "secret" not in stdout
 
 
-def test_logout_still_clears_when_keyring_load_fails() -> None:
+def test_logout_does_not_attempt_a_destructive_clear_when_keyring_load_fails() -> None:
     class FailingLoadStore(FakeCredentialStore):
         def load(self) -> CredentialState | None:
             raise RuntimeError("unsafe refresh-secret")
@@ -322,9 +358,58 @@ def test_logout_still_clears_when_keyring_load_fails() -> None:
         ["auth", "logout"], store=store, client=FakeClient()
     )
 
-    assert exit_code == 0
-    assert store.clear_count == 1
+    assert exit_code == 6
+    assert store.clear_count == 0
     assert "secret" not in stdout
+
+
+def test_refresh_auth_failure_compare_deletes_only_the_observed_state() -> None:
+    original = state(expires_at=NOW - timedelta(seconds=1))
+    store = FakeCredentialStore(original)
+    newer = CredentialState(
+        access_token="parallel-access-secret",
+        access_token_expires_at=NOW + timedelta(minutes=30),
+        refresh_token="parallel-refresh-secret",
+    )
+
+    class ConcurrentFailureClient(FakeClient):
+        def refresh(self, refresh_token: str) -> dict[str, Any]:
+            assert refresh_token == original.refresh_token
+            store.state = newer
+            raise CliError("AUTH_EXPIRED")
+
+    exit_code, stdout = run(
+        ["auth", "status", "--json"],
+        store=store,
+        client=ConcurrentFailureClient(),
+    )
+
+    assert exit_code == 3
+    assert json.loads(stdout)["error"]["code"] == "AUTH_EXPIRED"
+    assert store.state == newer
+
+
+def test_logout_success_compare_deletes_only_the_observed_state() -> None:
+    original = state(expires_at=NOW + timedelta(minutes=5))
+    store = FakeCredentialStore(original)
+    newer = CredentialState(
+        access_token="parallel-access-secret",
+        access_token_expires_at=NOW + timedelta(minutes=30),
+        refresh_token="parallel-refresh-secret",
+    )
+
+    class ConcurrentLogoutClient(FakeClient):
+        def revoke(self, refresh_token: str) -> None:
+            assert refresh_token == original.refresh_token
+            store.state = newer
+
+    exit_code, stdout = run(
+        ["auth", "logout"], store=store, client=ConcurrentLogoutClient()
+    )
+
+    assert exit_code == 0
+    assert stdout == "Logged out.\n"
+    assert store.state == newer
 
 
 def test_follow_up_json_is_forwarded_as_one_document() -> None:

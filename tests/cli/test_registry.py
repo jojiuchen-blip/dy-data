@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 
 from dydata_cli.docs import render_command_reference
+from dydata_cli.constants import ERROR_EXIT_CODES
 from dydata_cli.main import main
 from dydata_cli.registry import command_catalog
 
@@ -30,6 +31,9 @@ REQUIRED_FIELDS = {
     "sensitive_data",
     "examples",
     "errors",
+    "exit_codes",
+    "output_mode",
+    "business_side_effect",
 }
 
 
@@ -43,10 +47,29 @@ def test_registry_is_the_complete_agent_command_catalog() -> None:
         item["command"] for item in catalog if not item["agent_callable"]
     } == {"auth.login", "auth.logout"}
     assert all(
-        item["side_effect"] == "none"
+        item["business_side_effect"] == "none"
         for item in catalog
         if item["command"].startswith(("stores.", "clues."))
     )
+    assert not any("manager" in item["roles"] for item in catalog)
+    assert next(item for item in catalog if item["command"] == "auth.login") == {
+        **next(item for item in catalog if item["command"] == "auth.login"),
+        "side_effect": "remote_auth_grant_and_local_credential",
+        "business_side_effect": "none",
+        "output_mode": "text",
+        "output_schema": {
+            "mode": "text",
+            "lines": ["Open: <url>", "Code: <user_code>", "Authorization complete."],
+        },
+    }
+    logout = next(item for item in catalog if item["command"] == "auth.logout")
+    assert logout["side_effect"] == "remote_auth_revoke_and_local_credential"
+    assert logout["output_mode"] == "text"
+    assert logout["output_schema"] == {"mode": "text", "lines": ["Logged out."]}
+    for item in catalog:
+        assert item["exit_codes"] == {
+            code: ERROR_EXIT_CODES[code] for code in item["errors"]
+        }
     assert not any(
         forbidden in item["command"]
         for item in catalog
@@ -87,3 +110,21 @@ def test_temporary_executable_fallback_is_declared_in_registry_and_catalog_json(
         for item in catalog_json
         if "INTERNAL_ERROR" in item["errors"]
     } >= expected_temporary
+    assert all(item["exit_codes"] for item in catalog_json)
+
+
+def test_reference_exposes_governance_and_exit_metadata() -> None:
+    reference = render_command_reference()
+
+    for heading in (
+        "### Roles",
+        "### Data scope",
+        "### Side effects",
+        "### Risk and confirmation",
+        "### Sensitive data",
+        "### Output mode and schema",
+        "### Errors and exit codes",
+    ):
+        assert heading in reference
+    assert "`manager`" not in reference
+    assert "`SCHEMA_MISMATCH` | `6`" in reference

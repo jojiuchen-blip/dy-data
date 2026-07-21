@@ -35,8 +35,47 @@ def render_command_reference() -> str:
             lines.append(
                 f"| `{parameter['name']}` | {str(parameter['required']).lower()} | `{parameter['type']}` |"
             )
-        lines.extend(("", "### Output schema", "", f"`{_json(item['output_schema'])}`"))
-        lines.extend(("", "### Errors", "", ", ".join(f"`{code}`" for code in item["errors"])))
+        lines.extend(("", "### Roles", "", ", ".join(f"`{role}`" for role in item["roles"])))
+        lines.extend(("", "### Data scope", "", f"`{item['data_scope']}`"))
+        lines.extend(
+            (
+                "",
+                "### Side effects",
+                "",
+                f"Authentication/local: `{item['side_effect']}`. Business data: `{item['business_side_effect']}`.",
+            )
+        )
+        lines.extend(
+            (
+                "",
+                "### Risk and confirmation",
+                "",
+                f"Risk: `{item['risk_level']}`. Confirmation: `{item['confirmation']}`. Agent callable: `{str(item['agent_callable']).lower()}`.",
+            )
+        )
+        lines.extend(("", "### Sensitive data", "", f"`{item['sensitive_data']}`"))
+        lines.extend(
+            (
+                "",
+                "### Output mode and schema",
+                "",
+                f"Mode: `{item['output_mode']}`.",
+                "",
+                f"`{_json(item['output_schema'])}`",
+            )
+        )
+        lines.extend(
+            (
+                "",
+                "### Errors and exit codes",
+                "",
+                "| Error | Exit code |",
+                "| --- | --- |",
+            )
+        )
+        lines.extend(
+            f"| `{code}` | `{item['exit_codes'][code]}` |" for code in item["errors"]
+        )
         lines.extend(("", "### Examples", ""))
         lines.extend(f"`{example}`" for example in item["examples"])
     return "\n".join(lines) + "\n"

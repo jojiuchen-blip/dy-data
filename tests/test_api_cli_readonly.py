@@ -18,6 +18,20 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_data_store  # noqa: E402
 
 
+class RecordingAuditSink:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def record(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+
+
+def _audited_app():
+    app = create_app()
+    app.state.cli_audit_sink = RecordingAuditSink()
+    return app
+
+
 class FakeStore:
     available = True
 
@@ -96,7 +110,7 @@ def _auth(*, role: str = "store", store_ids: tuple[str, ...] = ("store-a",)):
 
 
 def _client(auth: AuthContext, store: FakeStore | None = None) -> tuple[TestClient, FakeStore]:
-    app = create_app()
+    app = _audited_app()
     fake_store = store or FakeStore()
     app.dependency_overrides[get_current_cli_user] = lambda: auth
     app.dependency_overrides[get_data_store] = lambda: fake_store
@@ -316,7 +330,7 @@ def test_cli_auth_errors_use_top_level_contract(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
     monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
-    client = TestClient(create_app())
+    client = TestClient(_audited_app())
 
     missing = client.get("/api/v1/cli/auth/status")
     expired_auth = AuthContext(
@@ -356,7 +370,7 @@ def test_cli_auth_status_reports_access_expiration_without_exposing_token(
     )
     token, expires_at = create_cli_access_token(auth)
 
-    response = TestClient(create_app()).get(
+    response = TestClient(_audited_app()).get(
         "/api/v1/cli/auth/status",
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -384,7 +398,7 @@ def test_real_cli_access_token_cannot_call_existing_business_write(
         auth_type="env_admin",
     )
     token, _ = create_cli_access_token(auth)
-    client = TestClient(create_app())
+    client = TestClient(_audited_app())
 
     response = client.post(
         "/api/v1/clues/orders/order-1/follow-up",
@@ -440,7 +454,7 @@ def test_openapi_exposes_no_cli_business_writes_and_summary_has_no_detail_fields
 def test_cli_post_to_get_only_or_unknown_path_uses_top_level_405_or_404_envelope(
     path: str, command: str
 ) -> None:
-    client = TestClient(create_app())
+    client = TestClient(_audited_app())
 
     response = client.post(path, headers={"X-Request-ID": "req-method-test"})
 
@@ -455,7 +469,7 @@ def test_cli_post_to_get_only_or_unknown_path_uses_top_level_405_or_404_envelope
 
 
 def test_non_cli_404_and_405_keep_standard_error_shape() -> None:
-    client = TestClient(create_app())
+    client = TestClient(_audited_app())
 
     missing = client.get("/not-found")
     method_not_allowed = client.post("/api/v1/auth/me")

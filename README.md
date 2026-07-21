@@ -1,5 +1,13 @@
 # dy-data（抖音经营引擎）
 
+## CLI transport safety
+
+Install the CLI with `python -m pip install -e apps/cli`, then discover the live
+contract with `dydata commands --json`. HTTPS is required for remote API URLs;
+cleartext transport is accepted only as explicit loopback HTTP with a port for
+local development. See [the Agent guide](docs/cli-agent-guide.md) for retry,
+credential-concurrency, and logout behavior.
+
 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。
 
 系统当前覆盖四个业务域：

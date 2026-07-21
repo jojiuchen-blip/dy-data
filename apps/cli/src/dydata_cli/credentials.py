@@ -3,11 +3,72 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
+import tempfile
+import time
 from typing import Protocol
 
 import keyring
+
+
+_UNSET = object()
+
+
+class _InterProcessFileLock:
+    """Small cross-platform exclusive file lock containing no credentials."""
+
+    def __init__(self, path: Path, *, timeout: float = 10.0) -> None:
+        self._path = path
+        self._timeout = timeout
+        self._handle = None
+
+    def __enter__(self) -> "_InterProcessFileLock":
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        handle = self._path.open("a+b")
+        if handle.seek(0, os.SEEK_END) == 0:
+            handle.write(b"0")
+            handle.flush()
+        deadline = time.monotonic() + self._timeout
+        while True:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
+
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
+
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    handle.close()
+                    raise RuntimeError("Credential lock is unavailable") from None
+                time.sleep(0.05)
+        self._handle = handle
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        handle = self._handle
+        if handle is None:
+            return
+        try:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        finally:
+            handle.close()
+            self._handle = None
 
 
 class KeyringBackend(Protocol):
@@ -39,14 +100,78 @@ class CredentialStore:
     service = "dydata-cli"
     account = "default"
 
-    def __init__(self, *, keyring_backend: KeyringBackend | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        keyring_backend: KeyringBackend | None = None,
+        lock_path: Path | None = None,
+    ) -> None:
         self._keyring = keyring_backend or keyring
+        self._lock_path = lock_path or (
+            Path(tempfile.gettempdir()) / "dydata-cli" / "credentials.lock"
+        )
 
     def load(self) -> CredentialState | None:
         """Load the current credential state, clearing malformed data."""
-        raw_state = self._keyring.get_password(self.service, self.account)
-        if raw_state is None:
+        with _InterProcessFileLock(self._lock_path):
+            raw_state = self._keyring.get_password(self.service, self.account)
+            if raw_state is None:
+                return None
+            state = self._deserialize(raw_state)
+            if state is None:
+                self._keyring.delete_password(self.service, self.account)
+            return state
+
+    def save(
+        self,
+        state: CredentialState,
+        *,
+        expected: CredentialState | None | object = _UNSET,
+    ) -> bool:
+        """Replace credentials only when the observed state still matches."""
+        raw_state = self._serialize(state)
+        with _InterProcessFileLock(self._lock_path):
+            current = self._keyring.get_password(self.service, self.account)
+            if expected is not _UNSET and current != self._expected_raw(expected):
+                return False
+            self._keyring.set_password(self.service, self.account, raw_state)
+            return True
+
+    def clear(
+        self, *, expected: CredentialState | None | object = _UNSET
+    ) -> bool:
+        """Compare-and-delete credentials without removing a newer state."""
+        with _InterProcessFileLock(self._lock_path):
+            current = self._keyring.get_password(self.service, self.account)
+            if expected is not _UNSET and current != self._expected_raw(expected):
+                return False
+            if current is None:
+                return False
+            self._keyring.delete_password(self.service, self.account)
+            return True
+
+    @staticmethod
+    def _serialize(state: CredentialState) -> str:
+        return json.dumps(
+            {
+                "access_token": state.access_token,
+                "access_token_expires_at": state.access_token_expires_at.isoformat(),
+                "refresh_token": state.refresh_token,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+
+    @classmethod
+    def _expected_raw(cls, expected: CredentialState | None | object) -> str | None:
+        if expected is None:
             return None
+        if not isinstance(expected, CredentialState):
+            raise TypeError("expected credential state is invalid")
+        return cls._serialize(expected)
+
+    @staticmethod
+    def _deserialize(raw_state: str) -> CredentialState | None:
         try:
             payload = json.loads(raw_state)
             access_token = payload["access_token"]
@@ -61,31 +186,15 @@ class CredentialStore:
                 or not refresh_token
             ):
                 raise ValueError("invalid credential state")
+            expires_at = datetime.fromisoformat(
+                expires_at_text.replace("Z", "+00:00")
+            )
+            if expires_at.tzinfo is None:
+                raise ValueError("timezone-aware expiry is required")
             return CredentialState(
                 access_token=access_token,
-                access_token_expires_at=datetime.fromisoformat(
-                    expires_at_text.replace("Z", "+00:00")
-                ),
+                access_token_expires_at=expires_at,
                 refresh_token=refresh_token,
             )
         except (json.JSONDecodeError, KeyError, TypeError, ValueError):
-            self.clear()
             return None
-
-    def save(self, state: CredentialState) -> None:
-        """Atomically replace the keyring value with a complete state."""
-        payload = {
-            "access_token": state.access_token,
-            "access_token_expires_at": state.access_token_expires_at.isoformat(),
-            "refresh_token": state.refresh_token,
-        }
-        self._keyring.set_password(
-            self.service,
-            self.account,
-            json.dumps(payload, sort_keys=True, separators=(",", ":")),
-        )
-
-    def clear(self) -> None:
-        """Remove the locally stored credential state when present."""
-        if self._keyring.get_password(self.service, self.account) is not None:
-            self._keyring.delete_password(self.service, self.account)

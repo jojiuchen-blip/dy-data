@@ -79,26 +79,31 @@ def execute_command(
         if parsed.command == "auth.logout":
             return _logout(store, api_client, stream=stream)
 
-        access_token = _usable_access_token(
+        access_token, observed_state = _usable_access_token(
             store,
             api_client,
             now=now(),
         )
         if parsed.command == "auth.status":
             response = _protected_call(
-                store, lambda: api_client.auth_status(access_token)
+                store,
+                observed_state,
+                lambda: api_client.auth_status(access_token),
             )
             emit_json(_validated(response, validate_auth_status), stream=stream)
             return 0
         if parsed.command == "stores.list":
             response = _protected_call(
-                store, lambda: api_client.list_stores(access_token)
+                store,
+                observed_state,
+                lambda: api_client.list_stores(access_token),
             )
             emit_json(_validated(response, validate_stores), stream=stream)
             return 0
         if parsed.command == "clues.follow-up-stats":
             response = _protected_call(
                 store,
+                observed_state,
                 lambda: api_client.follow_up_stats(
                     access_token,
                     date_from=parsed.date_from,
@@ -174,20 +179,16 @@ def _logout(
     *,
     stream: TextIO | None,
 ) -> int:
-    revoke_confirmed = True
-    try:
-        state = store.load()
-        if state is not None:
+    state = store.load()
+    if state is not None:
+        try:
             client.revoke(state.refresh_token)
-    except Exception:
-        revoke_confirmed = False
-    finally:
-        store.clear()
+        except CliError as exc:
+            if exc.code not in _AUTH_ERROR_CODES:
+                raise
+        store.clear(expected=state)
     target = stream or sys.stdout
-    if revoke_confirmed:
-        target.write("Logged out.\n")
-    else:
-        target.write("Local credentials cleared; server revocation was not confirmed.\n")
+    target.write("Logged out.\n")
     return 0
 
 
@@ -196,7 +197,7 @@ def _usable_access_token(
     client: DyDataClient,
     *,
     now: datetime,
-) -> str:
+) -> tuple[str, CredentialState]:
     state = store.load()
     if state is None:
         raise CliError("AUTH_REQUIRED")
@@ -207,26 +208,33 @@ def _usable_access_token(
         seconds=_REFRESH_EARLY_SECONDS
     )
     if expires_at.astimezone(timezone.utc) > refresh_at:
-        return state.access_token
+        return state.access_token, state
     try:
         refreshed = client.refresh(state.refresh_token)
         new_state = _credential_state_from_response(refreshed)
-        store.save(new_state)
-    except Exception:
-        store.clear()
+        saved = store.save(new_state, expected=state)
+    except CliError as exc:
+        if exc.code in _AUTH_ERROR_CODES:
+            store.clear(expected=state)
         raise
-    return new_state.access_token
+    if not saved:
+        concurrent_state = store.load()
+        if concurrent_state is None:
+            raise CliError("AUTH_REQUIRED")
+        return concurrent_state.access_token, concurrent_state
+    return new_state.access_token, new_state
 
 
 def _protected_call(
     store: CredentialStore,
+    observed_state: CredentialState,
     operation: Callable[[], dict[str, Any]],
 ) -> dict[str, Any]:
     try:
         return operation()
     except CliError as exc:
         if exc.code in _AUTH_ERROR_CODES:
-            store.clear()
+            store.clear(expected=observed_state)
         raise
 
 

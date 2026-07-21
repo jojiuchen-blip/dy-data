@@ -11,7 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from fastapi import Depends, HTTPException, Request, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import CliRefreshToken, User, utcnow
@@ -224,7 +224,11 @@ def verify_cli_access_payload(
 
 
 def issue_refresh_token(
-    session: Session, auth: AuthContext, *, now: datetime | None = None
+    session: Session,
+    auth: AuthContext,
+    *,
+    now: datetime | None = None,
+    family_id: str | None = None,
 ) -> tuple[str, CliRefreshToken]:
     """Create a persisted refresh credential without storing its raw secret."""
     created_at = _utc(now)
@@ -246,6 +250,7 @@ def issue_refresh_token(
         raise _unauthorized()
     token = CliRefreshToken(
         refresh_token_id=uuid4().hex,
+        family_id=family_id or uuid4().hex,
         token_hash=hash_cli_secret(raw_token),
         user_id=current_auth.user_id,
         username=current_auth.username,
@@ -260,11 +265,59 @@ def issue_refresh_token(
     return raw_token, token
 
 
+def refresh_token_audit_context(
+    session: Session, raw_token: str
+) -> tuple[str | None, str | None]:
+    """Return only safe actor metadata for lifecycle audit correlation."""
+    stored = session.execute(
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(raw_token)
+        )
+    ).scalar_one_or_none()
+    if stored is None:
+        return None, None
+    return stored.user_id, stored.auth_type
+
+
+def _locked_refresh_family(
+    session: Session, stored: CliRefreshToken
+) -> tuple[list[CliRefreshToken], CliRefreshToken]:
+    """Lock a family from its stable root before mutating any member."""
+    family_rows = session.scalars(
+        select(CliRefreshToken)
+        .where(CliRefreshToken.family_id == stored.family_id)
+        .order_by(CliRefreshToken.created_at, CliRefreshToken.refresh_token_id)
+        .execution_options(populate_existing=True)
+        .with_for_update()
+    ).all()
+    locked_stored = next(
+        (
+            row
+            for row in family_rows
+            if row.refresh_token_id == stored.refresh_token_id
+        ),
+        stored,
+    )
+    return family_rows, locked_stored
+
+
+def _revoke_refresh_family(
+    session: Session, stored: CliRefreshToken, current_time: datetime
+) -> None:
+    _locked_refresh_family(session, stored)
+    stored.last_used_at = current_time
+    session.execute(
+        update(CliRefreshToken)
+        .where(CliRefreshToken.family_id == stored.family_id)
+        .values(revoked_at=current_time)
+    )
+    session.flush()
+
+
 def _revoke_invalid_refresh(
     session: Session, stored: CliRefreshToken, current_time: datetime
 ) -> None:
-    stored.last_used_at = current_time
-    stored.revoked_at = current_time
+    _revoke_refresh_family(session, stored, current_time)
     session.commit()
 
 
@@ -274,16 +327,19 @@ def rotate_refresh_token(
     """Consume one refresh credential and stage its replacement atomically."""
     current_time = _utc(now)
     stored = session.execute(
-        select(CliRefreshToken)
-        .where(CliRefreshToken.token_hash == hash_cli_secret(raw_token))
-        .with_for_update()
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(raw_token)
+        )
     ).scalar_one_or_none()
+    if stored is None:
+        raise _unauthorized()
+    _, stored = _locked_refresh_family(session, stored)
     if (
-        stored is None
-        or stored.scope != CLI_ACCESS_SCOPE
+        stored.scope != CLI_ACCESS_SCOPE
         or stored.revoked_at is not None
         or _utc(stored.expires_at) <= current_time
     ):
+        _revoke_invalid_refresh(session, stored, current_time)
         raise _unauthorized()
 
     try:
@@ -318,7 +374,7 @@ def rotate_refresh_token(
         auth, session=session, now=current_time
     )
     replacement_raw, replacement = issue_refresh_token(
-        session, auth, now=current_time
+        session, auth, now=current_time, family_id=stored.family_id
     )
     stored.last_used_at = current_time
     stored.revoked_at = current_time
@@ -328,15 +384,14 @@ def rotate_refresh_token(
 
 
 def revoke_refresh_token(session: Session, raw_token: str) -> None:
-    """Revoke a refresh credential when it exists; repeated calls are safe."""
+    """Revoke the complete refresh family; repeated calls are safe."""
     stored = session.execute(
-        select(CliRefreshToken)
-        .where(CliRefreshToken.token_hash == hash_cli_secret(raw_token))
-        .with_for_update()
+        select(CliRefreshToken).where(
+            CliRefreshToken.token_hash == hash_cli_secret(raw_token)
+        )
     ).scalar_one_or_none()
-    if stored is not None and stored.revoked_at is None:
-        stored.revoked_at = utcnow()
-        session.flush()
+    if stored is not None:
+        _revoke_refresh_family(session, stored, _utc())
 
 
 def get_current_cli_user(

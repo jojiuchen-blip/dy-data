@@ -224,6 +224,37 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
     stats_type["data"]["totals"]["total_count"] = True
     stats_type["meta"]["token"] = "SENSITIVE_TYPE"
 
+    stats_count_identity = follow_up_envelope()
+    stats_count_identity["data"]["stores"][0]["pending_count"] = 2
+    stats_count_identity["data"]["stores"][0]["store_name"] = "SENSITIVE_COUNT_IDENTITY"
+
+    stats_rate_identity = follow_up_envelope()
+    stats_rate_identity["data"]["stores"][0]["system_follow_up_rate"] = 0.75
+    stats_rate_identity["data"]["stores"][0]["store_name"] = "SENSITIVE_RATE_IDENTITY"
+
+    stats_total_identity = follow_up_envelope()
+    stats_total_identity["data"]["totals"]["total_count"] = 5
+    stats_total_identity["meta"]["source"] = "SENSITIVE_TOTAL_IDENTITY"
+
+    stats_duplicate_store = follow_up_envelope()
+    stats_duplicate_store["data"]["stores"].append(
+        deepcopy(stats_duplicate_store["data"]["stores"][0])
+    )
+    stats_duplicate_store["data"]["stores"][0]["store_name"] = "SENSITIVE_DUPLICATE_STORE"
+    stats_duplicate_store["data"]["stores"][1]["store_name"] = "SENSITIVE_DUPLICATE_STORE"
+
+    stats_scope_drift = follow_up_envelope()
+    stats_scope_drift["scope"]["effective_store_ids"] = ["store-b"]
+    stats_scope_drift["data"]["stores"][0]["store_name"] = "SENSITIVE_SCOPE_DRIFT"
+
+    stores_scope_drift = stores_envelope()
+    stores_scope_drift["scope"]["effective_store_ids"] = ["store-a"]
+    stores_scope_drift["data"]["stores"][0]["store_name"] = "SENSITIVE_STORE_SCOPE_DRIFT"
+
+    stores_unsorted = stores_envelope()
+    stores_unsorted["data"]["stores"].reverse()
+    stores_unsorted["data"]["stores"][0]["store_name"] = "SENSITIVE_STORE_ORDER"
+
     return [
         (["stores", "list", "--json"], partial, "SENSITIVE_PARTIAL"),
         (["auth", "status", "--json"], wrong_command, "SENSITIVE_COMMAND"),
@@ -236,6 +267,41 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
             "SENSITIVE_NOTE",
         ),
         (["clues", "follow-up-stats"], stats_type, "SENSITIVE_TYPE"),
+        (
+            ["clues", "follow-up-stats"],
+            stats_count_identity,
+            "SENSITIVE_COUNT_IDENTITY",
+        ),
+        (
+            ["clues", "follow-up-stats"],
+            stats_rate_identity,
+            "SENSITIVE_RATE_IDENTITY",
+        ),
+        (
+            ["clues", "follow-up-stats"],
+            stats_total_identity,
+            "SENSITIVE_TOTAL_IDENTITY",
+        ),
+        (
+            ["clues", "follow-up-stats"],
+            stats_duplicate_store,
+            "SENSITIVE_DUPLICATE_STORE",
+        ),
+        (
+            ["clues", "follow-up-stats"],
+            stats_scope_drift,
+            "SENSITIVE_SCOPE_DRIFT",
+        ),
+        (
+            ["stores", "list", "--json"],
+            stores_scope_drift,
+            "SENSITIVE_STORE_SCOPE_DRIFT",
+        ),
+        (
+            ["stores", "list", "--json"],
+            stores_unsorted,
+            "SENSITIVE_STORE_ORDER",
+        ),
     ]
 
 

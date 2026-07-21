@@ -5,7 +5,11 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from dy_api.cli_audit import CliAuditMiddleware
+from dy_api.cli_audit import (
+    CliAuditMiddleware,
+    DatabaseCliAuditSink,
+    configure_cli_audit_logging,
+)
 from dy_api.cli_contract import install_cli_exception_handlers
 from dy_api.routes import (
     admin,
@@ -21,7 +25,9 @@ from dy_api.routes import (
 
 
 def create_app() -> FastAPI:
+    configure_cli_audit_logging()
     app = FastAPI(title="Douyin Laike Dashboard API", version="0.1.0")
+    app.state.cli_audit_sink = DatabaseCliAuditSink()
 
     allowed_origins = [
         origin.strip()

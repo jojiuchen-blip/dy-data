@@ -46,8 +46,22 @@ class FailingListStore(AuditStore):
         raise RuntimeError("database connection failed")
 
 
-def _client(store=None) -> TestClient:
+class RecordingAuditSink:
+    def __init__(self) -> None:
+        self.events: list[dict] = []
+
+    def record(self, event: dict) -> None:
+        self.events.append(event)
+
+
+class FailingAuditSink:
+    def record(self, event: dict) -> None:
+        raise RuntimeError("audit database commit failed")
+
+
+def _client(store=None, *, audit_sink=None) -> TestClient:
     app = create_app()
+    app.state.cli_audit_sink = audit_sink or RecordingAuditSink()
     auth = AuthContext(
         user_id="user-1",
         username="operator",
@@ -59,6 +73,10 @@ def _client(store=None) -> TestClient:
     app.dependency_overrides[get_current_cli_user] = lambda: auth
     app.dependency_overrides[get_data_store] = lambda: store or AuditStore()
     return TestClient(app)
+
+
+def _persisted_events(client: TestClient) -> list[dict]:
+    return client.app.state.cli_audit_sink.events
 
 
 def _events(caplog) -> list[dict]:
@@ -93,6 +111,7 @@ def test_cli_audit_uses_same_valid_request_id_and_only_logs_summary(
     [event] = _events(caplog)
     assert event == {
         "event": "cli_request",
+        "operation": "follow_up_stats",
         "request_id": "req_client-123",
         "user_id": "user-1",
         "auth_type": "user",
@@ -116,7 +135,9 @@ def test_cli_audit_uses_same_valid_request_id_and_only_logs_summary(
 
 def test_cli_audit_replaces_unsafe_request_id_and_logs_auth_error(caplog) -> None:
     caplog.set_level(logging.INFO, logger="dy_api.cli_audit")
-    client = TestClient(create_app())
+    app = create_app()
+    app.state.cli_audit_sink = RecordingAuditSink()
+    client = TestClient(app)
 
     response = client.get(
         "/api/v1/cli/auth/status",
@@ -199,3 +220,86 @@ def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_i
     assert event["command"] == command
     assert event["result"] == 503
     assert event["error_code"] == "API_UNAVAILABLE"
+
+
+def test_persisted_audit_does_not_depend_on_effective_info_log_level() -> None:
+    audit_logger = logging.getLogger("dy_api.cli_audit")
+    previous_level = audit_logger.level
+    audit_logger.setLevel(logging.WARNING)
+    client = _client()
+
+    try:
+        response = client.get("/api/v1/cli/stores")
+    finally:
+        audit_logger.setLevel(previous_level)
+
+    assert response.status_code == 200
+    [event] = _persisted_events(client)
+    assert event["command"] == "stores.list"
+    assert event["result"] == 200
+
+
+def test_persisted_audit_does_not_depend_on_logger_enabled_state() -> None:
+    audit_logger = logging.getLogger("dy_api.cli_audit")
+    previous_disabled = audit_logger.disabled
+    audit_logger.disabled = True
+    client = _client()
+
+    try:
+        response = client.get("/api/v1/cli/stores")
+    finally:
+        audit_logger.disabled = previous_disabled
+
+    assert response.status_code == 200
+    assert len(_persisted_events(client)) == 1
+
+
+def test_persisted_audit_survives_a_failing_observability_handler() -> None:
+    class RaisingHandler(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            raise RuntimeError("log transport failed")
+
+    audit_logger = logging.getLogger("dy_api.cli_audit")
+    previous_handlers = list(audit_logger.handlers)
+    previous_propagate = audit_logger.propagate
+    previous_level = audit_logger.level
+    audit_logger.handlers = [RaisingHandler()]
+    audit_logger.propagate = False
+    audit_logger.setLevel(logging.INFO)
+    client = _client()
+
+    try:
+        response = client.get("/api/v1/cli/stores")
+    finally:
+        audit_logger.handlers = previous_handlers
+        audit_logger.propagate = previous_propagate
+        audit_logger.setLevel(previous_level)
+
+    assert response.status_code == 200
+    assert len(_persisted_events(client)) == 1
+
+
+def test_business_read_fails_closed_when_audit_sink_commit_fails() -> None:
+    client = _client(audit_sink=FailingAuditSink())
+
+    response = client.get("/api/v1/cli/stores")
+
+    assert response.status_code == 503
+    body = response.json()
+    assert body["ok"] is False
+    assert body["command"] == "stores.list"
+    assert body["error"]["code"] == "API_UNAVAILABLE"
+    assert "data" not in body
+
+
+def test_audit_command_is_derived_from_route_not_client_header() -> None:
+    client = _client()
+
+    response = client.get(
+        "/api/v1/cli/stores",
+        headers={"X-DyData-Command": "auth.logout"},
+    )
+
+    assert response.status_code == 200
+    [event] = _persisted_events(client)
+    assert event["command"] == "stores.list"
