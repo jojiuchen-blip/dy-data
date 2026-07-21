@@ -12,6 +12,19 @@ ERROR_CONTRACTS = {
         "retryable": False,
         "message": "The request arguments are invalid.",
     },
+    "INTERACTIVE_REQUIRED": {
+        "exit_code": 2,
+        "retryable": False,
+        "message": (
+            "A secure interactive terminal is required; use "
+            "dydata auth login --browser instead."
+        ),
+    },
+    "AUTH_FAILED": {
+        "exit_code": 3,
+        "retryable": False,
+        "message": "Interactive CLI authentication failed.",
+    },
     "AUTH_REQUIRED": {
         "exit_code": 3,
         "retryable": False,

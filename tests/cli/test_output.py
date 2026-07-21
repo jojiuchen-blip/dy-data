@@ -45,6 +45,8 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
 def test_error_exit_codes_match_the_public_contract() -> None:
     assert ERROR_EXIT_CODES == {
         "INVALID_ARGUMENT": 2,
+        "INTERACTIVE_REQUIRED": 2,
+        "AUTH_FAILED": 3,
         "AUTH_REQUIRED": 3,
         "AUTH_EXPIRED": 3,
         "SCOPE_DENIED": 4,
