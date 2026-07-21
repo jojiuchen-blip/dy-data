@@ -9,6 +9,7 @@ import {
   saveSyncConfig,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { AdminProductSyncPanel } from "../components/AdminProductSyncPanel";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { SelectField } from "../components/FormControls";
@@ -450,6 +451,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           {statusText}
         </div>
       ) : null}
+      <AdminProductSyncPanel />
       {remoteConfigChanged ? (
         <div
           aria-atomic="true"

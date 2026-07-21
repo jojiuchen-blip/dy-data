@@ -54,7 +54,12 @@ import type {
   FeedbackSubmissionReceipt,
   FeedbackStatus,
   FilterMetaData,
+  FeeDirection,
   MonthlySettlementData,
+  OrderFeeDetailsData,
+  PeriodType,
+  RankingSortBy,
+  SortOrder,
   NonCommissionOwnerAccountListData,
   NonCommissionOwnerAccountUpdateResult,
   OrderDetailsData,
@@ -65,6 +70,21 @@ import type {
   SettlementViewData,
   ManualSyncResult,
   ManualSyncTarget,
+  ImportBatchCommitData,
+  ImportBatchDetailData,
+  ImportBatchListData,
+  ImportBatchUploadData,
+  ProductSyncMode,
+  ProductSyncRunDetailData,
+  ProductSyncRunListData,
+  ProductSyncTriggerData,
+  SkuFeeRuleCreate,
+  SkuFeeRuleItem,
+  SkuFeeRuleListData,
+  SkuProductItem,
+  SkuProductListData,
+  SkuProductManualUpdate,
+  SkuSyncHistoryListData,
   SkuProductCommissionRule,
   SkuRuleListData,
   SkuRuleLookupData,
@@ -72,6 +92,9 @@ import type {
   SyncAdminData,
   SyncConfigUpdate,
   StoreRankingData,
+  SettlementFilterMetaData,
+  SettlementMonthlyData,
+  SettlementStoreRankingData,
   StoreScoreSnapshotData,
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
@@ -129,12 +152,42 @@ interface ClueRoundQuery {
 
 export class ApiRequestError extends Error {
   status: number;
+  code?: string;
+  requestId?: string;
+  fieldErrors?: unknown;
+  returnPath?: string;
 
-  constructor(status: number, message?: string) {
+  constructor(status: number, message?: string, detail?: Record<string, unknown>) {
     super(message ?? `API ${status}`);
     this.name = "ApiRequestError";
     this.status = status;
+    this.code = typeof detail?.code === "string" ? detail.code : undefined;
+    this.requestId = typeof detail?.requestId === "string" ? detail.requestId : undefined;
+    this.fieldErrors = detail?.fieldErrors ?? detail?.errors;
+    this.returnPath = typeof detail?.returnPath === "string" ? detail.returnPath : undefined;
   }
+}
+
+async function apiRequestError(response: Response): Promise<ApiRequestError> {
+  let payload: unknown;
+  try {
+    payload = await response.clone().json();
+  } catch {
+    payload = undefined;
+  }
+  const envelope = payload && typeof payload === "object"
+    ? payload as Record<string, unknown>
+    : undefined;
+  const detailValue = envelope?.detail ?? envelope?.error ?? envelope;
+  const detail = detailValue && typeof detailValue === "object"
+    ? detailValue as Record<string, unknown>
+    : undefined;
+  const message = typeof detailValue === "string"
+    ? detailValue
+    : typeof detail?.message === "string"
+      ? detail.message
+      : undefined;
+  return new ApiRequestError(response.status, message, detail);
 }
 
 function generatedAt(): string {
@@ -180,7 +233,7 @@ async function requestJson<T>(
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status);
+    throw await apiRequestError(response);
   }
 
   return response.json() as Promise<ApiResponse<T>>;
@@ -208,7 +261,7 @@ async function requestDownload(
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status);
+    throw await apiRequestError(response);
   }
 
   const blob = await response.blob();
@@ -228,10 +281,12 @@ async function sendJson<T>(
   path: string,
   {
     body,
+    headers,
     method = "POST",
     params,
   }: {
     body?: unknown;
+    headers?: Record<string, string>;
     method?: "DELETE" | "POST" | "PUT";
     params?: QueryParams;
   } = {},
@@ -242,12 +297,13 @@ async function sendJson<T>(
     headers: {
       Accept: "application/json",
       "Content-Type": "application/json",
+      ...headers,
     },
     method,
   });
 
   if (!response.ok) {
-    throw new ApiRequestError(response.status);
+    throw await apiRequestError(response);
   }
 
   return response.json() as Promise<ApiResponse<T>>;
@@ -829,9 +885,288 @@ function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneRevea
 
 export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
   return withMockFallback(
-    () => requestJson<FilterMetaData>("/meta/filters"),
+    async () => {
+      const response = await requestJson<SettlementFilterMetaData>("/meta/filters");
+      return {
+        ...response,
+        data: {
+          stores: response.data.stores.map((store) => ({
+            store_id: store.storeId,
+            store_name: store.storeName,
+          })),
+          product_scopes: response.data.productScopes,
+          product_scope_type_map: response.data.productScopeTypeMap,
+          product_types: response.data.productTypes,
+          default_product_type: response.data.defaultProductType,
+          sale_months: response.data.saleMonths,
+          verify_months: response.data.verifyMonths,
+        },
+      };
+    },
     mockMetaResponse,
   );
+}
+
+async function sendForm<T>(path: string, body: FormData): Promise<ApiResponse<T>> {
+  const response = await fetch(apiUrl(path), {
+    body,
+    credentials: "include",
+    headers: { Accept: "application/json" },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw await apiRequestError(response);
+  }
+  return response.json() as Promise<ApiResponse<T>>;
+}
+
+function mockSettlementFilterMetaResponse(): ApiResponse<SettlementFilterMetaData> {
+  const legacy = mockMetaResponse().data;
+  const targetDemoStore = {
+    storeId: "ST-SH-001",
+    storeName: "上海浦东体验中心",
+  };
+  return {
+    data: {
+      stores: [
+        targetDemoStore,
+        ...legacy.stores
+          .filter(
+            (store) =>
+              Boolean(store.store_id) && store.store_id !== targetDemoStore.storeId,
+          )
+          .map((store) => ({
+            storeId: store.store_id,
+            storeName: store.store_name,
+          })),
+      ],
+      productScopes: legacy.product_scopes ?? ["all"],
+      productScopeTypeMap: legacy.product_scope_type_map ?? {},
+      productTypes: legacy.product_types,
+      defaultProductType: legacy.default_product_type,
+      saleMonths: legacy.sale_months,
+      verifyMonths: legacy.verify_months,
+      statementMonths: legacy.verify_months,
+      periodTypes: ["MONTHLY", "CUMULATIVE"],
+      feeDirections: ["PROMOTION", "MANAGEMENT"],
+      formalPeriodStartMonth: "2026-08",
+      timezone: "Asia/Shanghai",
+    },
+    meta: { generated_at: generatedAt(), source: "mock" },
+  };
+}
+
+export function fetchSettlementFilterMeta(): Promise<
+  ApiLoadResult<SettlementFilterMetaData>
+> {
+  return withMockFallback(
+    () => requestJson<SettlementFilterMetaData>("/meta/filters"),
+    mockSettlementFilterMetaResponse,
+    { fallbackOnError: false },
+  );
+}
+
+export function fetchSettlementStoreRanking({
+  periodType,
+  periodKey,
+  productScope,
+  productType,
+  q,
+  sortBy,
+  sortOrder,
+  page,
+  pageSize,
+}: {
+  periodType: PeriodType;
+  periodKey: string;
+  productScope: string;
+  productType: string;
+  q?: string;
+  sortBy?: RankingSortBy;
+  sortOrder?: SortOrder;
+  page: number;
+  pageSize: number;
+}): Promise<ApiLoadResult<SettlementStoreRankingData>> {
+  return withMockFallback(
+    () =>
+      requestJson<SettlementStoreRankingData>("/dashboard/store-ranking", {
+        periodType,
+        periodKey,
+        productScope,
+        productType,
+        q,
+        sortBy,
+        sortOrder,
+        page,
+        pageSize,
+      }),
+    () => ({
+      data: {
+        periodType,
+        periodKey,
+        productScope,
+        productType,
+        scopeMode: "AUTHORIZED",
+        totals: {
+          salesOrderCount: 36,
+          salesAmountCent: 428600,
+          verifiedOrderCount: 31,
+          verifiedAmountCent: 368000,
+          promotionNetFeeCent: 28640,
+          managementNetFeeCent: 12480,
+          netSettlementReferenceCent: 16160,
+        },
+        list: [{
+          rank: 1,
+          storeId: "ST-SH-001",
+          storeName: "上海浦东体验中心",
+          salesOrderCount: 36,
+          salesAmountCent: 428600,
+          verifiedOrderCount: 31,
+          verifiedAmountCent: 368000,
+          promotionNetFeeCent: 28640,
+          managementNetFeeCent: 12480,
+          netSettlementReferenceCent: 16160,
+        }],
+        total: 1,
+        page,
+        pageSize,
+      },
+      meta: { generated_at: generatedAt(), source: "mock" },
+    }),
+    { fallbackOnError: false },
+  );
+}
+
+export function fetchSettlementMonthly({
+  storeId,
+  month,
+  productScope,
+  productType,
+}: {
+  storeId: string;
+  month: string;
+  productScope: string;
+  productType: string;
+}): Promise<ApiLoadResult<SettlementMonthlyData>> {
+  return withMockFallback(
+    () =>
+      requestJson<SettlementMonthlyData>(
+        `/stores/${encodeURIComponent(storeId)}/monthly-settlement`,
+        { month, productScope, productType },
+      ),
+    () => ({
+      data: {
+        store: { storeId, storeName: "上海浦东体验中心" },
+        month,
+        productScope,
+        productType,
+        isFormalPeriod: month >= "2026-08",
+        statement: null,
+        metrics: {
+          salesOrderCount: 36,
+          salesAmountCent: 428600,
+          verifiedOrderCount: 31,
+          verifiedAmountCent: 368000,
+          promotionBaseCent: 358000,
+          promotionOriginalFeeCent: 28640,
+          promotionAdjustmentFeeCent: -800,
+          promotionNetFeeCent: 27840,
+          managementBaseCent: 312000,
+          managementOriginalFeeCent: 12480,
+          managementAdjustmentFeeCent: 0,
+          managementNetFeeCent: 12480,
+          netSettlementReferenceCent: 15360,
+        },
+        lines: [
+          { statementLineId: null, feeDirection: "PROMOTION", productScope, productType, originalEntryCount: 28, adjustmentEntryCount: 1, originalBaseCent: 368000, adjustmentBaseCent: -10000, netBaseCent: 358000, originalFeeCent: 28640, adjustmentFeeCent: -800, netFeeCent: 27840, minFeeRate: "0.080000", maxFeeRate: "0.080000", ruleVersionCount: 1, feeRates: ["0.080000"], ruleVersions: ["V2026.08.1"] },
+          { statementLineId: null, feeDirection: "MANAGEMENT", productScope, productType, originalEntryCount: 24, adjustmentEntryCount: 0, originalBaseCent: 312000, adjustmentBaseCent: 0, netBaseCent: 312000, originalFeeCent: 12480, adjustmentFeeCent: 0, netFeeCent: 12480, minFeeRate: "0.040000", maxFeeRate: "0.040000", ruleVersionCount: 1, feeRates: ["0.040000"], ruleVersions: ["V2026.08.1"] },
+        ],
+      },
+      meta: { generated_at: generatedAt(), source: "mock" },
+    }),
+    { fallbackOnError: false },
+  );
+}
+
+export interface OrderFeeDetailsQuery {
+  statementId?: string;
+  statementLineId?: string;
+  storeId?: string;
+  month?: string;
+  saleMonth?: string;
+  verifyMonth?: string;
+  feeDirection: FeeDirection;
+  productScope?: string;
+  productType?: string;
+  feeRates?: string[];
+  ruleVersions?: string[];
+  dataStatus?: string;
+  q?: string;
+  page: number;
+  pageSize: number;
+}
+
+export function fetchOrderFeeDetails(
+  query: OrderFeeDetailsQuery,
+): Promise<ApiLoadResult<OrderFeeDetailsData>> {
+  return withMockFallback(
+    () => requestJson<OrderFeeDetailsData>("/order-fee-details", { ...query }),
+    () => ({
+      data: {
+        context: {
+          ...query,
+          productScope: query.productScope ?? "all",
+          productType: query.productType ?? "all",
+          feeRates: query.feeRates ?? [],
+          ruleVersions: query.ruleVersions ?? [],
+        },
+        list: [{
+          feeResultId: "fee-demo-1",
+          orderId: "ORDER-DEMO-001",
+          couponId: "COUPON-DEMO-001",
+          feeDirection: query.feeDirection,
+          originalBusinessMonth: query.month ?? "2026-08",
+          saleMonth: "2026-08",
+          verifyMonth: "2026-08",
+          saleTime: "2026-08-12T10:00:00+08:00",
+          verifyTime: "2026-08-18T15:30:00+08:00",
+          saleStoreId: query.storeId ?? "ST-SH-001",
+          saleStoreName: "上海浦东体验中心",
+          verifyStoreId: "ST-SH-002",
+          verifyStoreName: "上海虹桥服务中心",
+          skuId: "SKU-DEMO-001",
+          productName: "精诚养车基础保养服务",
+          productScope: query.productScope ?? "all",
+          productType: query.productType ?? "all",
+          saleChannel: "LIVE",
+          sourceAmountCent: 12800,
+          refundedAmountCent: 0,
+          originalBaseCent: 12800,
+          feeRate: query.feeDirection === "PROMOTION" ? "0.080000" : "0.040000",
+          originalFeeCent: query.feeDirection === "PROMOTION" ? 1024 : 512,
+          adjustmentBaseCent: 0,
+          adjustmentFeeCent: 0,
+          adjustedNetBaseCent: 12800,
+          adjustedNetFeeCent: query.feeDirection === "PROMOTION" ? 1024 : 512,
+          ruleVersion: "V2026.08.1",
+          resultStatus: "VALID",
+          dataStatus: "VALID",
+          adjustments: [],
+        }],
+        total: 1,
+        page: query.page,
+        pageSize: query.pageSize,
+      },
+      meta: { generated_at: generatedAt(), source: "mock" },
+    }),
+    { fallbackOnError: false },
+  );
+}
+
+export function exportOrderFeeDetails(query: OrderFeeDetailsQuery): Promise<void> {
+  const { page: _page, pageSize: _pageSize, ...exportQuery } = query;
+  return requestDownload("/order-fee-details/export", exportQuery);
 }
 
 export function fetchStoreRanking({
@@ -1164,6 +1499,179 @@ export async function resetManagedAccountPassword(
     ...(await sendJson<AccountRow>(
       `/admin/accounts/${encodeURIComponent(userId)}/reset-password`,
       { body: payload },
+    )),
+    usingMock: false,
+  };
+}
+
+export function createIdempotencyKey(prefix: string): string {
+  const suffix = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return `${prefix}-${suffix}`;
+}
+
+export async function fetchSkuProducts(params: {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  productScope?: string;
+  productType?: string;
+  productStatus?: string;
+} = {}): Promise<ApiLoadResult<SkuProductListData>> {
+  return {
+    ...(await requestJson<SkuProductListData>("/admin/sku-products", params)),
+    usingMock: false,
+  };
+}
+
+export async function updateSkuProduct(
+  skuId: string,
+  payload: SkuProductManualUpdate,
+): Promise<ApiLoadResult<SkuProductItem>> {
+  return {
+    ...(await sendJson<SkuProductItem>(
+      `/admin/sku-products/${encodeURIComponent(skuId)}`,
+      { body: payload, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchSkuFeeRules(params: {
+  page?: number;
+  pageSize?: number;
+  q?: string;
+  skuId?: string;
+  ruleStatus?: string;
+  asOfDate?: string;
+} = {}): Promise<ApiLoadResult<SkuFeeRuleListData>> {
+  return {
+    ...(await requestJson<SkuFeeRuleListData>("/admin/sku-fee-rules", params)),
+    usingMock: false,
+  };
+}
+
+export async function publishSkuFeeRule(
+  payload: SkuFeeRuleCreate,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<SkuFeeRuleItem>> {
+  return {
+    ...(await sendJson<SkuFeeRuleItem>("/admin/sku-fee-rules", {
+      body: payload,
+      headers: { "Idempotency-Key": idempotencyKey },
+    })),
+    usingMock: false,
+  };
+}
+
+export async function fetchSkuFeeRuleImports(params: {
+  page?: number;
+  pageSize?: number;
+  batchStatus?: string;
+} = {}): Promise<ApiLoadResult<ImportBatchListData>> {
+  return {
+    ...(await requestJson<ImportBatchListData>("/admin/sku-fee-rule-imports", params)),
+    usingMock: false,
+  };
+}
+
+export async function uploadSkuFeeRuleImport(
+  file: File,
+  effectiveDate: string,
+): Promise<ApiLoadResult<ImportBatchUploadData>> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("effectiveDate", effectiveDate);
+  return {
+    ...(await sendForm<ImportBatchUploadData>("/admin/sku-fee-rule-imports", form)),
+    usingMock: false,
+  };
+}
+
+export async function fetchSkuFeeRuleImportDetail(
+  batchId: string,
+): Promise<ApiLoadResult<ImportBatchDetailData>> {
+  return {
+    ...(await requestJson<ImportBatchDetailData>(
+      `/admin/sku-fee-rule-imports/${encodeURIComponent(batchId)}`,
+      { page: 1, pageSize: 200 },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function commitSkuFeeRuleImport(
+  batchId: string,
+  changeReason: string,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<ImportBatchCommitData>> {
+  return {
+    ...(await sendJson<ImportBatchCommitData>(
+      `/admin/sku-fee-rule-imports/${encodeURIComponent(batchId)}/commit`,
+      {
+        body: { changeReason },
+        headers: { "Idempotency-Key": idempotencyKey },
+      },
+    )),
+    usingMock: false,
+  };
+}
+
+export function downloadSkuFeeRuleImportTemplate(): Promise<void> {
+  return requestDownload("/admin/sku-fee-rule-imports/template");
+}
+
+export function downloadSkuFeeRuleImportResult(batchId: string): Promise<void> {
+  return requestDownload(
+    `/admin/sku-fee-rule-imports/${encodeURIComponent(batchId)}/result-file`,
+  );
+}
+
+export async function fetchProductSyncRuns(params: {
+  page?: number;
+  pageSize?: number;
+  status?: string;
+  mode?: ProductSyncMode | "";
+} = {}): Promise<ApiLoadResult<ProductSyncRunListData>> {
+  return {
+    ...(await requestJson<ProductSyncRunListData>("/admin/product-sync-runs", params)),
+    usingMock: false,
+  };
+}
+
+export async function triggerProductSync(
+  mode: ProductSyncMode,
+  reason: string,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<ProductSyncTriggerData>> {
+  return {
+    ...(await sendJson<ProductSyncTriggerData>("/admin/product-sync-runs", {
+      body: { mode, reason },
+      headers: { "Idempotency-Key": idempotencyKey },
+    })),
+    usingMock: false,
+  };
+}
+
+export async function fetchProductSyncRunDetail(
+  syncRunId: string,
+): Promise<ApiLoadResult<ProductSyncRunDetailData>> {
+  return {
+    ...(await requestJson<ProductSyncRunDetailData>(
+      `/admin/product-sync-runs/${encodeURIComponent(syncRunId)}`,
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchSkuSyncHistory(
+  skuId: string,
+): Promise<ApiLoadResult<SkuSyncHistoryListData>> {
+  return {
+    ...(await requestJson<SkuSyncHistoryListData>(
+      `/admin/sku-products/${encodeURIComponent(skuId)}/sync-history`,
+      { page: 1, pageSize: 50 },
     )),
     usingMock: false,
   };

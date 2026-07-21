@@ -662,10 +662,8 @@ def test_data_table_alignment_defaults_center_but_keeps_long_text_left() -> None
 
     assert_column_align(clue_page_source, "product_name", "left")
     assert_column_align(order_details_source, "order", "left")
-    assert_column_align(order_details_source, "coupon", "left")
-    assert_column_align(order_details_source, "productName", "left")
-    assert_column_align(order_details_source, "saleStore", "left")
-    assert_column_align(order_details_source, "verifyStore", "left")
+    assert_column_align(order_details_source, "product", "left")
+    assert_column_align(order_details_source, "stores", "left")
     assert_column_align(ranking_source, "store", "left")
 
 

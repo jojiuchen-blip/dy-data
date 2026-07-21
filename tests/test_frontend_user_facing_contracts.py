@@ -257,7 +257,6 @@ def test_design_system_records_copy_favicon_and_navigation_guardrails() -> None:
     assert favicon["darkBrowserChrome"] == "#fe5205"
     assert favicon["outerTile"] == "none"
     assert "static brand asset" in tokens["tokens"]["icon"]["brandAssetException"]
-
     internal_values = tokens["contentGuidelines"]["internalValues"]
     assert "never render the raw value" in internal_values["unknownFallback"]
     assert "developer logs" in internal_values["logging"]
@@ -279,6 +278,70 @@ def test_design_system_records_copy_favicon_and_navigation_guardrails() -> None:
     assert 'data-brand-asset="browser-favicon"' in favicon_demo
     assert 'data-solar-icon="brand"' not in favicon_demo
     assert 'data-solar-icon="brand-mark"' not in favicon_demo
+
+
+def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallback() -> None:
+    client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
+    ranking = read_source("pages/StoreRankingPage.tsx")
+    settlement = read_source("pages/StoreSettlementPage.tsx")
+    details = read_source("pages/OrderDetailsPage.tsx")
+    app = read_source("App.tsx")
+
+    for contract_field in [
+        "statementMonths", "periodTypes", "feeDirections",
+        "promotionNetFeeCent", "managementNetFeeCent",
+        "statementLineId", "adjustedNetFeeCent",
+    ]:
+        assert contract_field in types
+
+    settlement_ranking_client = client.split("export function fetchSettlementStoreRanking", 1)[1].split("export function fetchSettlementMonthly", 1)[0]
+    assert 'requestJson<SettlementStoreRankingData>("/dashboard/store-ranking"' in settlement_ranking_client
+    assert "periodType" in client and "periodKey" in client
+    assert 'requestJson<OrderFeeDetailsData>("/order-fee-details"' in client
+    assert 'requestDownload("/order-fee-details/export"' in client
+    assert "fallbackOnError: false" in client
+    assert "promotionNetFeeCent" in ranking
+    assert "managementNetFeeCent" in ranking
+    assert 'useState<RankingSortBy>("NET_SETTLEMENT_REFERENCE")' in ranking
+    assert 'useState<SortOrder>("DESC")' in ranking
+    assert "meta?.saleMonths[0]" in ranking
+    assert 'ranking.scopeMode === "AUTHORIZED" ? (row)' in ranking
+    for enum_value in [
+        "SALES_AMOUNT",
+        "VERIFIED_AMOUNT",
+        "PROMOTION_FEE",
+        "MANAGEMENT_FEE",
+        "NET_SETTLEMENT_REFERENCE",
+    ]:
+        assert enum_value in ranking
+    assert 'sortOrder?: SortOrder' in client
+    assert 'sortBy?: RankingSortBy' in client
+    assert "statementLineId" in settlement
+    assert 'focus: "workbench"' in settlement
+    assert "view.statement?.statementId" in settlement
+    assert 'if (!line.statementLineId) return ""' in settlement
+    assert "storeId: view.store.storeId" in settlement
+    assert "disabled={!meta}" in settlement
+    assert "feeRates" in settlement and "ruleVersions" in settlement
+    assert "feeDirection" in details
+    assert "adjustedNetFeeCent" in details
+    assert 'searchParams.get("month") ?? undefined' in details
+    assert "meta?.stores[0]" not in details
+    assert "directionIsFrozen" in details
+    api_errors = read_source("utils/apiErrors.ts")
+    assert "请求编号" in api_errors
+    assert "metaResource.rawError" in ranking
+    assert "metaResource.rawError" in settlement
+    assert "statusLabel(row.resultStatus)" in details
+    assert ".trim().toUpperCase()" in details
+    assert "DATA_QUALITY_BLOCKED" in details and "SUPERSEDED" in details
+    assert "adjustmentBaseCent" in details and "occurredAt" in details
+    assert "const { page: _page, pageSize: _pageSize, ...exportQuery }" in client
+    resource_hook = read_source("hooks/useApiResource.ts")
+    assert resource_hook.count("data: undefined") >= 3
+    assert 'location.pathname === "/invoice"' in app
+    assert 'from "./pages/InvoiceGuidePage"' in app
 
 
 def test_metric_cards_use_one_neutral_visual_treatment() -> None:

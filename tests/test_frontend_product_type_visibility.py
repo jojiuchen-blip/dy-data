@@ -61,10 +61,9 @@ def test_business_product_filters_use_metadata_default_product_type() -> None:
     clues_source = read_source("pages/ClueCenterPage.tsx")
 
     assert "defaultProductType" in options_source
-    assert "defaultProductType(meta)" in ranking_source
-    assert "defaultProductType(meta)" in settlement_source
-    assert "effectiveFilters" in details_source
-    assert "defaultProductType(meta)" in details_source
+    assert "meta?.defaultProductType" in ranking_source
+    assert "meta?.defaultProductType" in settlement_source
+    assert "meta?.defaultProductType" in details_source
     assert "clueDefaultProductType(meta)" in clues_source
 
 
@@ -96,19 +95,21 @@ def test_settlement_pages_have_product_scope_before_product_type_filters() -> No
     types_source = read_source("types/dashboard.ts")
     utils_source = read_source("utils/settlement.ts")
 
-    for source in [ranking_source, settlement_source, details_source]:
+    for source in [ranking_source, settlement_source]:
         assert 'label="产品范围"' in source
         assert 'label="商品类型"' in source
         assert source.index('label="产品范围"') < source.index('label="商品类型"')
-        assert "productScopeOptions(meta" in source
-        assert "productOptionsForScope(" in source
+        assert "meta?.productScopeTypeMap[productScope]" in source
+        assert "meta?.productTypes" in source
 
-    assert "productScope: activeProductScope" in ranking_source
-    assert "productScope: activeProductScope" in settlement_source
-    assert "product_scope: activeProductScope" in settlement_source
-    assert "updateProductScope" in details_source
-    assert "product_scope: activeProductScope" in details_source
+    assert "productScope," in ranking_source
+    assert "productScope," in settlement_source
+    assert 'searchParams.get("productScope")' in details_source
+    assert 'searchParams.get("productType")' in details_source
+    assert "productScope," in details_source
+    assert "productType," in details_source
     assert "product_scope: productScope" in client_source
     assert "productScope: string;" in client_source
+    assert "productScope: string;" in types_source
     assert "product_scope?: string;" in types_source
     assert '"product_scope"' in utils_source

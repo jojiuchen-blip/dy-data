@@ -307,8 +307,8 @@ a {
 }
 
 .workspace-subnav--desktop {
-  flex: 1 1 auto;
-  overflow-x: auto;
+  flex: 0 0 auto;
+  overflow-x: hidden;
 }
 
 .workspace-subnav--mobile {
@@ -3475,6 +3475,91 @@ a.metric-card:hover,
   gap: 18px;
 }
 
+.admin-governance-stack,
+.admin-history-block,
+.admin-sync-detail {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-form-grid,
+.admin-inline-editor {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-inline-editor {
+  margin-top: 16px;
+  margin-bottom: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-subtle);
+}
+
+.admin-inline-editor > strong,
+.admin-form-grid__wide {
+  grid-column: span 2;
+}
+
+.admin-batch-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-import-error {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.35fr) minmax(0, 1fr);
+  gap: 6px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+}
+
+.admin-import-error strong {
+  grid-row: 1 / span 8;
+}
+
+.admin-batch-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.admin-batch-list__item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: var(--control-height);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 12px;
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+}
+
+.admin-batch-list__item:hover {
+  border-color: var(--brand-orange);
+  background: var(--brand-orange-soft);
+}
+
+.admin-product-sync .resource-notice {
+  margin-bottom: 14px;
+}
+
+.admin-sync-detail .section-title h3,
+.admin-history-block .section-title h3 {
+  margin: 0;
+  font-size: 16px;
+}
+
 .tertiary-nav {
   display: flex;
   align-items: flex-end;
@@ -4631,6 +4716,11 @@ a.metric-card:hover,
 }
 
 @media (max-width: 920px) {
+  .admin-form-grid,
+  .admin-inline-editor {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .ui-button {
     min-height: var(--control-height-touch);
   }
@@ -4941,6 +5031,22 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
+  .admin-form-grid,
+  .admin-inline-editor,
+  .admin-import-error,
+  .admin-batch-list__item {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-inline-editor > strong,
+  .admin-form-grid__wide {
+    grid-column: auto;
+  }
+
+  .admin-import-error strong {
+    grid-row: auto;
+  }
+
   .tertiary-nav {
     gap: 2px;
   }
@@ -5360,5 +5466,110 @@ a.metric-card:hover,
 
   .admin-header-actions {
     justify-content: flex-start;
+  }
+}
+
+.settlement-context-banner {
+  align-items: center;
+  background: color-mix(in srgb, var(--brand-orange) 6%, var(--surface));
+  border: 1px solid color-mix(in srgb, var(--brand-orange) 22%, var(--border));
+  border-radius: var(--radius-md);
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 20px;
+}
+
+.settlement-context-banner div,
+.identifier-stack {
+  display: grid;
+  gap: 4px;
+}
+
+.settlement-context-banner span,
+.identifier-stack small {
+  color: var(--text-secondary);
+}
+
+.fee-direction-tabs {
+  display: flex;
+  gap: 8px;
+}
+
+.fee-direction-tabs [aria-pressed="true"] {
+  background: var(--brand-orange);
+  border-color: var(--brand-orange);
+  color: var(--surface);
+}
+
+.invoice-process {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.invoice-process li {
+  border-top: 2px solid var(--brand-orange);
+  display: grid;
+  gap: 8px;
+  padding: 18px 8px 0 0;
+}
+
+.invoice-process li > span,
+.invoice-process small {
+  color: var(--text-secondary);
+}
+
+.invoice-guide-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.invoice-guide ul {
+  display: grid;
+  gap: 10px;
+  margin: 16px 0 0;
+  padding-left: 20px;
+}
+
+.invoice-support {
+  display: grid;
+  gap: 28px;
+  grid-template-columns: minmax(220px, 0.7fr) minmax(0, 1.3fr);
+}
+
+.invoice-faq {
+  display: grid;
+  gap: 10px;
+}
+
+.invoice-faq details {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 0 14px;
+}
+
+.invoice-faq summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+@media (max-width: 900px) {
+  .invoice-process,
+  .invoice-guide-grid,
+  .invoice-support {
+    grid-template-columns: 1fr;
+  }
+
+  .settlement-context-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .fee-direction-tabs > * {
+    flex: 1;
   }
 }
