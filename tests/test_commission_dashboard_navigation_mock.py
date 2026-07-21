@@ -69,7 +69,8 @@ def test_store_contract_keeps_five_metrics_and_approved_fee_notes() -> None:
         assert metric in html
 
     assert "本店通过抖音直播、短视频等卖出的订单，在当月已被核销" in html
-    assert "本店在当月核销所有抖音渠道的订单" in html
+    assert "本店在当月核销的直播、短视频渠道有效商品订单" in html
+    assert "本店在当月核销所有抖音渠道的订单" not in html
     assert "<th>点击跳转</th>" in html
     assert "focus=workbench" in html
     for key in (

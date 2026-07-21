@@ -6,7 +6,8 @@
 
 - 套包阶段：`S4 代码实装`。
 - 当前状态：T1.1～T3.3 已完成本地实现与验证；T4.1 为唯一 `进行中（等待外部依赖）` Task，依赖关闭前只进行发布准备，不执行生产迁移或部署。
-- 当前 Linear issues：执行范围为 `DYDATA-1/21/30/31/33/38`；`DYDATA-23` 仅作为已完成设计证据，`DYDATA-39` 已 Done。
+- 当前 Linear issue：`DYDATA-1`，作为本轮集成、真实环境测试交接与发布主线。
+- 关联 Linear issues：`DYDATA-21/30/31/33/38`；`DYDATA-23` 仅作为已完成设计证据，`DYDATA-39` 已 Done。
 - 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dy-data.md) · [任务看板](delivery-plans/task-kanban-dy-data.md) · 12 份子开发计划。
 - 当前子开发计划：[T4.1 端到端核验与生产发布](delivery-plans/sub-delivery-plan-dy-data-T4.1-release-verification.md)；最近完成计划为 [T3.3 商品、费率、导入与同步后台](delivery-plans/sub-delivery-plan-dy-data-T3.3-admin-console.md)。
 
