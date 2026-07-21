@@ -13,6 +13,12 @@ from typing import Any, TextIO
 
 from .client import CliError, DyDataClient
 from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
+from .contracts import (
+    ContractError,
+    validate_auth_status,
+    validate_follow_up_stats,
+    validate_stores,
+)
 from .credentials import CredentialState, CredentialStore
 from .output import emit_error, emit_json, render_aggregate_table
 from .registry import command_catalog
@@ -20,17 +26,6 @@ from .registry import command_catalog
 
 _REFRESH_EARLY_SECONDS = 60
 _AUTH_ERROR_CODES = {"AUTH_REQUIRED", "AUTH_EXPIRED"}
-_AUTH_STATUS_FIELDS = {
-    "authenticated",
-    "user_id",
-    "username",
-    "display_name",
-    "role",
-    "auth_type",
-    "store_ids",
-    "expires_at",
-}
-_AUTH_STATUS_META_FIELDS = {"request_id", "partial"}
 
 
 def execute_command(
@@ -93,13 +88,13 @@ def execute_command(
             response = _protected_call(
                 store, lambda: api_client.auth_status(access_token)
             )
-            emit_json(_sanitized_auth_status(response), stream=stream)
+            emit_json(_validated(response, validate_auth_status), stream=stream)
             return 0
         if parsed.command == "stores.list":
             response = _protected_call(
                 store, lambda: api_client.list_stores(access_token)
             )
-            emit_json(response, stream=stream)
+            emit_json(_validated(response, validate_stores), stream=stream)
             return 0
         if parsed.command == "clues.follow-up-stats":
             response = _protected_call(
@@ -111,6 +106,7 @@ def execute_command(
                     store_ids=parsed.store_ids,
                 ),
             )
+            response = _validated(response, validate_follow_up_stats)
             if parsed.output == "json":
                 emit_json(response, stream=stream)
             else:
@@ -122,7 +118,14 @@ def execute_command(
             return 0
         raise CliError("INVALID_ARGUMENT")
     except CliError as exc:
-        return emit_error(parsed.command, exc.code, str(exc), stream=stream)
+        return emit_error(
+            parsed.command,
+            exc.code,
+            str(exc),
+            retryable=exc.retryable,
+            request_id=exc.request_id,
+            stream=stream,
+        )
     except Exception:
         return emit_error(
             parsed.command,
@@ -258,23 +261,11 @@ def _required_positive_integer(payload: dict[str, Any], key: str) -> int:
     return value
 
 
-def _sanitized_auth_status(response: dict[str, Any]) -> dict[str, Any]:
-    data = response.get("data")
-    if not isinstance(data, dict):
-        raise CliError("SCHEMA_MISMATCH")
-    sanitized = {
-        key: response[key]
-        for key in ("ok", "command", "schema_version")
-        if key in response
-    }
-    sanitized["data"] = {
-        key: value for key, value in data.items() if key in _AUTH_STATUS_FIELDS
-    }
-    meta = response.get("meta")
-    if isinstance(meta, dict):
-        sanitized["meta"] = {
-            key: value
-            for key, value in meta.items()
-            if key in _AUTH_STATUS_META_FIELDS
-        }
-    return sanitized
+def _validated(
+    response: dict[str, Any],
+    validator: Callable[[dict[str, Any]], dict[str, Any]],
+) -> dict[str, Any]:
+    try:
+        return validator(response)
+    except ContractError:
+        raise CliError("SCHEMA_MISMATCH") from None

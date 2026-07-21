@@ -37,15 +37,9 @@ class FakeCredentialStore:
 class FakeClient:
     def __init__(self) -> None:
         self.refresh_result: dict[str, Any] | Exception | None = None
-        self.status_result: dict[str, Any] = success_envelope(
-            "auth.status", {"authenticated": True, "username": "keith"}
-        )
-        self.stores_result: dict[str, Any] = success_envelope(
-            "stores.list", {"stores": []}
-        )
-        self.follow_result: dict[str, Any] = success_envelope(
-            "clues.follow-up-stats", {"stores": [], "totals": {}}
-        )
+        self.status_result: dict[str, Any] = auth_status_envelope()
+        self.stores_result: dict[str, Any] = stores_envelope()
+        self.follow_result: dict[str, Any] = follow_up_envelope()
         self.refresh_calls: list[str] = []
         self.status_calls: list[str] = []
         self.revoke_calls: list[str] = []
@@ -79,6 +73,67 @@ def success_envelope(command: str, data: dict[str, Any]) -> dict[str, Any]:
         "data": data,
         "meta": {"request_id": "req-server", "partial": False},
     }
+
+
+def auth_status_envelope() -> dict[str, Any]:
+    return success_envelope(
+        "auth.status",
+        {
+            "authenticated": True,
+            "user_id": "user-1",
+            "username": "keith",
+            "display_name": "Keith",
+            "role": "admin",
+            "auth_type": "user",
+            "store_ids": ["s1"],
+            "expires_at": "2026-07-21T12:30:00Z",
+        },
+    )
+
+
+def stores_envelope() -> dict[str, Any]:
+    payload = success_envelope("stores.list", {"stores": []})
+    payload["scope"] = {"user_id": "user-1", "effective_store_ids": ["s1"]}
+    return payload
+
+
+def metric_values(*, total_count: int = 0) -> dict[str, int | float]:
+    return {
+        "total_count": total_count,
+        "pending_count": 0,
+        "followed_count": total_count,
+        "other_status_count": 0,
+        "action_followed_count": total_count,
+        "effective_followed_count": total_count,
+        "system_follow_up_rate": 1.0 if total_count else 0.0,
+        "action_follow_rate": 1.0 if total_count else 0.0,
+    }
+
+
+def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    payload = success_envelope(
+        "clues.follow-up-stats",
+        {"stores": stores or [], "totals": metric_values()},
+    )
+    payload["metric_version"] = "clue-follow-up-v1"
+    payload["scope"] = {
+        "user_id": "user-1",
+        "requested_store_ids": ["s1"],
+        "effective_store_ids": ["s1"],
+    }
+    payload["filters"] = {
+        "assigned_date_start": "2026-07-01",
+        "assigned_date_end": "2026-07-21",
+        "timezone": "Asia/Shanghai",
+    }
+    payload["meta"] = {
+        "partial": False,
+        "request_id": "req-server",
+        "generated_at": "2026-07-21T12:00:00Z",
+        "data_as_of": "2026-07-21T12:00:00Z",
+        "source": "postgres",
+    }
+    return payload
 
 
 def state(*, expires_at: datetime) -> CredentialState:
@@ -274,9 +329,8 @@ def test_logout_still_clears_when_keyring_load_fails() -> None:
 def test_follow_up_json_is_forwarded_as_one_document() -> None:
     store = FakeCredentialStore(state(expires_at=NOW + timedelta(minutes=5)))
     client = FakeClient()
-    client.follow_result = success_envelope(
-        "clues.follow-up-stats",
-        {"stores": [{"store_id": "s1", "total_count": 2}], "totals": {}},
+    client.follow_result = follow_up_envelope(
+        stores=[{"store_id": "s1", "store_name": "Store One", **metric_values(total_count=2)}],
     )
 
     exit_code, stdout = run(
@@ -293,25 +347,14 @@ def test_follow_up_json_is_forwarded_as_one_document() -> None:
 def test_follow_up_table_renders_only_aggregate_fields() -> None:
     store = FakeCredentialStore(state(expires_at=NOW + timedelta(minutes=5)))
     client = FakeClient()
-    client.follow_result = success_envelope(
-        "clues.follow-up-stats",
-        {
-            "stores": [
-                {
-                    "store_id": "s1",
-                    "store_name": "Store One",
-                    "total_count": 2,
-                    "pending_count": 1,
-                    "followed_count": 1,
-                    "other_status_count": 0,
-                    "system_follow_up_rate": 0.5,
-                    "action_follow_rate": 0.5,
-                    "customer_phone": "13800000000",
-                    "notes": "private",
-                }
-            ],
-            "totals": {},
-        },
+    client.follow_result = follow_up_envelope(
+        stores=[
+            {
+                "store_id": "s1",
+                "store_name": "Store One",
+                **metric_values(total_count=2),
+            }
+        ],
     )
 
     exit_code, stdout = run(

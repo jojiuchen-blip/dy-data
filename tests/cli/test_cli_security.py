@@ -101,7 +101,7 @@ def test_auth_required_is_one_json_document_with_empty_stderr(
     assert captured.err == ""
 
 
-def test_auth_status_filters_any_unexpected_token_fields() -> None:
+def test_auth_status_rejects_any_unexpected_token_fields() -> None:
     state = CredentialState(
         access_token="access-secret",
         access_token_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
@@ -136,11 +136,9 @@ def test_auth_status_filters_any_unexpected_token_fields() -> None:
         stream=stream,
     )
 
-    assert exit_code == 0
+    assert exit_code == 6
     payload = json.loads(stream.getvalue())
-    assert payload["data"] == {"authenticated": True, "username": "keith"}
-    assert payload["meta"] == {"request_id": "req-safe", "partial": False}
-    assert "access_token" not in payload
+    assert payload["error"]["code"] == "SCHEMA_MISMATCH"
     assert "secret" not in stream.getvalue()
 
 
@@ -172,6 +170,37 @@ def test_server_error_payload_and_transport_exception_cannot_leak_tokens() -> No
     assert raised.value.code == "SCOPE_DENIED"
     assert "access-secret" not in str(raised.value)
     assert "unsafe" not in repr(raised.value)
+
+
+def test_remote_error_contract_survives_into_main_json_without_server_message(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    state = CredentialState(
+        access_token="access-secret",
+        access_token_expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        refresh_token="refresh-secret",
+    )
+
+    class FailingClient:
+        def list_stores(self, access_token: str) -> dict[str, object]:
+            assert access_token == "access-secret"
+            raise CliError(
+                "API_UNAVAILABLE", request_id="req-remote", retryable=True
+            )
+
+    assert main(
+        ["stores", "list", "--json"],
+        credential_store=FakeStore(state),
+        client=FailingClient(),  # type: ignore[arg-type]
+    ) == 5
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["error"] == {
+        "code": "API_UNAVAILABLE",
+        "message": "The dydata API is unavailable.",
+        "retryable": True,
+        "request_id": "req-remote",
+    }
+    assert "secret" not in captured.out
 
 
 def test_token_cannot_be_supplied_as_a_cli_argument(

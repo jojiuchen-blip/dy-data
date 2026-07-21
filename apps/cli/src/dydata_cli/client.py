@@ -12,6 +12,13 @@ from uuid import uuid4
 import httpx
 
 from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
+from .contracts import (
+    ContractError,
+    validate_auth_status,
+    validate_follow_up_stats,
+    validate_stores,
+)
+from .errors import error_retryable, safe_request_id
 
 
 DEFAULT_API_URL = "http://127.0.0.1:8000/api/v1"
@@ -31,9 +38,16 @@ _RETRYABLE_STATUS_CODES = {429}
 class CliError(Exception):
     """A sanitized, stable CLI error suitable for output mapping."""
 
-    def __init__(self, code: str, *, request_id: str | None = None) -> None:
+    def __init__(
+        self,
+        code: str,
+        *,
+        request_id: str | None = None,
+        retryable: bool | None = None,
+    ) -> None:
         self.code = code if code in _ERROR_MESSAGES else "INTERNAL_ERROR"
-        self.request_id = request_id
+        self.request_id = safe_request_id(request_id)
+        self.retryable = error_retryable(self.code, retryable)
         super().__init__(_ERROR_MESSAGES[self.code])
 
 
@@ -103,7 +117,7 @@ class DyDataClient:
             "cli/auth/status",
             command="auth.status",
             access_token=access_token,
-            expect_envelope=True,
+            validator=validate_auth_status,
         )
 
     def list_stores(self, access_token: str) -> dict[str, Any]:
@@ -113,7 +127,7 @@ class DyDataClient:
             "cli/stores",
             command="stores.list",
             access_token=access_token,
-            expect_envelope=True,
+            validator=validate_stores,
         )
 
     def follow_up_stats(
@@ -136,7 +150,7 @@ class DyDataClient:
             command="clues.follow-up-stats",
             access_token=access_token,
             params=params,
-            expect_envelope=True,
+            validator=validate_follow_up_stats,
         )
 
     def _request(
@@ -148,7 +162,7 @@ class DyDataClient:
         access_token: str | None = None,
         json_body: dict[str, str] | None = None,
         params: list[tuple[str, str]] | None = None,
-        expect_envelope: bool = False,
+        validator: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
         allow_pending: bool = False,
         allow_empty: bool = False,
     ) -> dict[str, Any]:
@@ -191,11 +205,13 @@ class DyDataClient:
             if allow_empty and not response.content:
                 return {}
             payload = self._json_object(response, request_id=request_id)
-            if expect_envelope and (
-                payload.get("schema_version") != CLI_SCHEMA_VERSION
-                or payload.get("ok") is not True
-            ):
-                raise CliError("SCHEMA_MISMATCH", request_id=request_id)
+            if validator is not None:
+                try:
+                    return validator(payload)
+                except ContractError:
+                    raise CliError(
+                        "SCHEMA_MISMATCH", request_id=request_id
+                    ) from None
             return payload
         raise self._response_error(response, fallback_request_id=request_id)
 
@@ -224,6 +240,7 @@ class DyDataClient:
     ) -> CliError:
         request_id = response.headers.get("X-Request-ID") or fallback_request_id
         server_code: str | None = None
+        retryable: bool | None = None
         try:
             payload = response.json()
         except ValueError:
@@ -237,8 +254,15 @@ class DyDataClient:
                 candidate_request_id = error.get("request_id")
                 if isinstance(candidate_request_id, str) and candidate_request_id:
                     request_id = candidate_request_id
+                candidate_retryable = error.get("retryable")
+                if isinstance(candidate_retryable, bool):
+                    retryable = candidate_retryable
         if server_code is not None:
-            return CliError(server_code, request_id=request_id)
+            return CliError(
+                server_code,
+                request_id=request_id,
+                retryable=retryable,
+            )
         status_code = response.status_code
         if status_code == 401:
             code = "AUTH_EXPIRED"

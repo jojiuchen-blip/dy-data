@@ -8,6 +8,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, TextIO
 
 from .constants import CLI_SCHEMA_VERSION, ERROR_EXIT_CODES
+from .errors import error_retryable, safe_request_id
 
 
 def emit_json(payload: Mapping[str, Any], *, stream: TextIO | None = None) -> None:
@@ -17,12 +18,24 @@ def emit_json(payload: Mapping[str, Any], *, stream: TextIO | None = None) -> No
     target.write(f"{document}\n")
 
 
-def error_envelope(command: str, code: str, message: str) -> dict[str, Any]:
+def error_envelope(
+    command: str,
+    code: str,
+    message: str,
+    *,
+    retryable: bool | None = None,
+    request_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "ok": False,
         "command": command,
         "schema_version": CLI_SCHEMA_VERSION,
-        "error": {"code": code, "message": message},
+        "error": {
+            "code": code,
+            "message": message,
+            "retryable": error_retryable(code, retryable),
+            "request_id": safe_request_id(request_id),
+        },
     }
 
 
@@ -31,9 +44,20 @@ def emit_error(
     code: str,
     message: str,
     *,
+    retryable: bool | None = None,
+    request_id: str | None = None,
     stream: TextIO | None = None,
 ) -> int:
-    emit_json(error_envelope(command, code, message), stream=stream)
+    emit_json(
+        error_envelope(
+            command,
+            code,
+            message,
+            retryable=retryable,
+            request_id=request_id,
+        ),
+        stream=stream,
+    )
     return ERROR_EXIT_CODES.get(code, ERROR_EXIT_CODES["INTERNAL_ERROR"])
 
 

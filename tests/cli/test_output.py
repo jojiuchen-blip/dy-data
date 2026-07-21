@@ -23,13 +23,20 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
         "clues.follow-up-stats",
         "INVALID_ARGUMENT",
         "Date range is invalid",
+        retryable=False,
+        request_id="req-local",
         stream=stream,
     )
 
     assert exit_code == 2
     assert json.loads(stream.getvalue()) == {
         "command": "clues.follow-up-stats",
-        "error": {"code": "INVALID_ARGUMENT", "message": "Date range is invalid"},
+        "error": {
+            "code": "INVALID_ARGUMENT",
+            "message": "Date range is invalid",
+            "retryable": False,
+            "request_id": "req-local",
+        },
         "ok": False,
         "schema_version": "1.0",
     }
@@ -49,6 +56,17 @@ def test_error_exit_codes_match_the_public_contract() -> None:
 
     for code, expected_exit in ERROR_EXIT_CODES.items():
         assert emit_error("commands", code, "contract", stream=io.StringIO()) == expected_exit
+
+
+def test_local_error_generates_a_safe_request_id_and_retryability() -> None:
+    stream = io.StringIO()
+
+    emit_error("stores.list", "API_UNAVAILABLE", "safe", stream=stream)
+
+    error = json.loads(stream.getvalue())["error"]
+    assert error["retryable"] is True
+    assert error["request_id"].startswith("req_")
+    assert len(error["request_id"]) == 36
 
 
 def test_aggregate_table_has_only_the_approved_summary_columns() -> None:

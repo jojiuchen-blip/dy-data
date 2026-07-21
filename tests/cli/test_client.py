@@ -19,6 +19,50 @@ def envelope(command: str, data: dict[str, object]) -> dict[str, object]:
     }
 
 
+def stores_envelope() -> dict[str, object]:
+    payload = envelope("stores.list", {"stores": []})
+    payload["scope"] = {
+        "user_id": "user-1",
+        "effective_store_ids": ["store-a", "store-b"],
+    }
+    return payload
+
+
+def follow_up_envelope() -> dict[str, object]:
+    metrics = {
+        "total_count": 0,
+        "pending_count": 0,
+        "followed_count": 0,
+        "other_status_count": 0,
+        "action_followed_count": 0,
+        "effective_followed_count": 0,
+        "system_follow_up_rate": 0.0,
+        "action_follow_rate": 0.0,
+    }
+    payload = envelope(
+        "clues.follow-up-stats", {"stores": [], "totals": metrics}
+    )
+    payload["metric_version"] = "clue-follow-up-v1"
+    payload["scope"] = {
+        "user_id": "user-1",
+        "requested_store_ids": ["store-b", "store-a"],
+        "effective_store_ids": ["store-b", "store-a"],
+    }
+    payload["filters"] = {
+        "assigned_date_start": "2026-07-01",
+        "assigned_date_end": "2026-07-07",
+        "timezone": "Asia/Shanghai",
+    }
+    payload["meta"] = {
+        "request_id": "req-server",
+        "partial": False,
+        "generated_at": "2026-07-21T12:00:00Z",
+        "data_as_of": "2026-07-21T12:00:00Z",
+        "source": "postgres",
+    }
+    return payload
+
+
 def test_client_exposes_only_approved_operations() -> None:
     public_methods = {
         name
@@ -46,7 +90,7 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
         captured.append(request)
         return httpx.Response(
             200,
-            json=envelope("stores.list", {"stores": []}),
+            json=stores_envelope(),
             headers={"X-Request-ID": "req-server"},
         )
 
@@ -72,7 +116,7 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
         captured.append(request)
         return httpx.Response(
             200,
-            json=envelope("clues.follow-up-stats", {"stores": [], "totals": {}}),
+            json=follow_up_envelope(),
         )
 
     client = DyDataClient(
@@ -186,6 +230,41 @@ def test_network_timeouts_are_retried_then_mapped_without_token_leakage() -> Non
     assert attempts == 3
     assert "access-secret" not in str(raised.value)
     assert "unsafe" not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    ("code", "retryable"),
+    [("API_UNAVAILABLE", True), ("SCOPE_DENIED", False)],
+)
+def test_remote_error_preserves_safe_request_id_and_retryability(
+    code: str, retryable: bool
+) -> None:
+    response = httpx.Response(
+        503 if retryable else 403,
+        json={
+            "ok": False,
+            "command": "stores.list",
+            "schema_version": "1.0",
+            "error": {
+                "code": code,
+                "message": "unsafe access-secret",
+                "retryable": retryable,
+                "request_id": "req-remote",
+            },
+        },
+    )
+    client = DyDataClient(
+        transport=httpx.MockTransport(lambda _: response),
+        max_attempts=1,
+    )
+
+    with pytest.raises(CliError) as raised:
+        client.list_stores("access-secret")
+
+    assert raised.value.code == code
+    assert raised.value.retryable is retryable
+    assert raised.value.request_id == "req-remote"
+    assert "access-secret" not in str(raised.value)
 
 
 @pytest.mark.parametrize(
