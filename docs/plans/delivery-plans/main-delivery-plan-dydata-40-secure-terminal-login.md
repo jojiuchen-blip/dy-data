@@ -15,7 +15,7 @@
 1. 先读本主计划和任务看板，只允许一个 Task 处于“进行中”。
 2. 再读当前 Task 子计划列出的设计章节与真实代码。
 3. 每个实现任务严格执行 Red -> Green -> Refactor，并保留命令证据。
-4. 用户已在 2026-07-22 明确批准计划后直接开发；任务按三处同步状态顺序推进，当前 T1.4 为唯一“进行中”任务。
+4. 用户已在 2026-07-22 明确批准计划后直接开发；四个 Task 已完成三处状态同步，真实生产 TTY 与业务数据 UAT 保留到部署后由用户执行。
 
 ### 0.1 PRD 加载约束
 
@@ -52,10 +52,10 @@
 
 | 差距 | 优先级 | 影响 | 对应任务 | 状态 |
 |---|---|---|---|---|
-| 登录只能通过浏览器当前会话授权，易绑定错账号 | P1 | 独立 CLI 账号授权不稳定 | T1.1、T1.2 | 待处理 |
-| 默认登录没有安全 TTY、隐藏密码和身份二次确认 | P1 | Agent 无法安全把输入权交给用户 | T1.2 | 待处理 |
-| 命令目录和文档只描述浏览器登录 | P1 | Agent 无法判断可用模式和边界 | T1.3 | 待处理 |
-| 新路径尚无全量回归、安全审查与真实 TTY 验证 | P1 | 不能形成可发布证据 | T1.4 | 待处理 |
+| 登录只能通过浏览器当前会话授权，易绑定错账号 | P1 | 独立 CLI 账号授权不稳定 | T1.1、T1.2 | 已处理 |
+| 默认登录没有安全 TTY、隐藏密码和身份二次确认 | P1 | Agent 无法安全把输入权交给用户 | T1.2 | 已处理 |
+| 命令目录和文档只描述浏览器登录 | P1 | Agent 无法判断可用模式和边界 | T1.3 | 已处理 |
+| 新路径尚无全量回归、安全审查与真实 TTY 验证 | P1 | 不能形成可发布证据 | T1.4 | 代码验证已完成；真实 TTY 待部署后人工 UAT |
 
 ## 2. 分工与边界
 
@@ -89,7 +89,7 @@
 | Task | 子开发计划 | 状态 |
 |---|---|---|
 | T1.3 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md) | 已完成（2026-07-22） |
-| T1.4 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md) | 进行中 |
+| T1.4 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md) | 已完成（2026-07-22） |
 
 ## 4. 任务看板
 
@@ -97,13 +97,15 @@
 
 ## 5. 发布闸门
 
-- [ ] 设计修订、注册表和实现行为一致
-- [ ] 终端路径只接受真实 TTY，密码隐藏且没有参数/环境变量入口
-- [ ] 临时 Web Cookie 与业务 HTTP 客户端隔离并在所有路径关闭
-- [ ] 已有凭据和并发新凭据均不会被静默覆盖
-- [ ] 浏览器回退和既有只读查询无回归
-- [ ] 目标测试、全量 pytest、Web build、文档漂移、diff 和安全检查均通过
-- [ ] 四个 Task 的 Evidence、完成日期和三处状态已同步
+- [x] 设计修订、注册表和实现行为一致
+- [x] 终端路径只接受真实 TTY，密码隐藏且没有参数/环境变量入口
+- [x] 临时 Web Cookie 与业务 HTTP 客户端隔离并在所有路径关闭
+- [x] 已有凭据和并发新凭据均不会被静默覆盖
+- [x] 浏览器回退和既有只读查询无回归
+- [x] 目标测试、全量 pytest、Web build、文档漂移、diff 和安全检查均通过
+- [x] 四个 Task 的 Evidence、完成日期和三处状态已同步
+
+代码交付闸门已通过；本计划不把未执行的生产部署和真实账号 UAT 写成已完成事实。
 
 ## 6. 风险与应对
 

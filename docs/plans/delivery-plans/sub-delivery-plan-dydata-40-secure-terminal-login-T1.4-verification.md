@@ -21,8 +21,10 @@
 - `apps/cli/src/dydata_cli/`
 - `tests/cli/`
 - `docs/cli-agent-guide.md`
+- `docs/cli-agent-acceptance.md`
 - `docs/cli-command-reference.md`
-- `docs/devlog/20260722_secure_terminal_cli_login_Keith_Chen.md`
+- `docs/security/2026-07-22-secure-terminal-cli-login-security-scan.md`
+- `docs/devlog/20260722_refactor_log_Keith_Chen.md`
 
 **完成标准**：
 - 规格审查和代码质量审查无未解决的 P0/P1；任何安全问题均有代码或明确阻塞记录。
@@ -55,8 +57,17 @@
 
 **前置**：T1.3
 
-**状态**：进行中
+**状态**：已完成（2026-07-22）
 
 ## Evidence Log
 
-- 待生成。
+- 目标回归：`python -m pytest tests/cli/test_interactive_auth.py tests/cli/test_terminal_login.py tests/cli/test_commands.py tests/cli/test_parser.py tests/cli/test_registry.py tests/cli/test_docs.py tests/cli/test_cli_security.py tests/test_api_auth.py tests/test_api_cli_auth.py -q` -> 137 passed。
+- 全量回归：`python -m pytest -q` -> 817 passed，69 个既有 Alembic/SQLite deprecation warnings。
+- Web 构建：`npm --prefix apps/web run build` -> TypeScript 与 Vite production build 通过。
+- 运行时 smoke：editable install 指向当前工作树；`dydata version --json` 为 CLI `0.2.0` / Schema `1.0`；`commands --json` 的安全人工交接字段符合设计。
+- 文档与静态门槛：生成文档 `--check`、compileall、`git diff --check`、`git diff main --check` 通过；Bandit 为 0 High / 0 Medium / 2 个既有 Low。
+- 依赖与秘密：根项目和 CLI 的 `pip-audit` 均为 0 已知漏洞；`npm audit` 为 1 个既有 Low、0 Moderate/High/Critical；生产代码未命中高置信秘密模式。
+- 独立审查：安全/规格代理最终 `APPROVE`，CLI Agent 契约验收 `PASS`（61 tests passed）；已按 TDD 修复 cleanup 异常掩盖原始 CAS/save 结果的问题。
+- 安全结论：`docs/security/2026-07-22-secure-terminal-cli-login-security-scan.md` -> `PASS`，无阻断项或 waiver。
+- 治理门槛：suite lock、global files、计划结构和 T1.4 进行中时的三处一致性均通过；日志追加后全局 S7 的阶段写回检查已通过，`route-check --target-stage S7` 仅因并行 FOUNDATION 主线没有 `docs/test-case/reports` 发布输入而保持 `security_scan_inputs_missing`，未伪造该无关主线材料。
+- Agent 验收交接：`docs/cli-agent-acceptance.md` 不含真实凭据；真实 TTY、keyring、生产门店范围和线索数据验收明确留给部署后用户本人执行。

@@ -25,7 +25,7 @@ owning process crashes. The lock file contains no credential material.
 
 按安装后的入口使用 `dydata`。Windows 上如果提示找不到该命令，请确认 Python Scripts 目录已在 `PATH`；在开发环境可用 `python -m dydata_cli.main` 作为等价入口。
 
-命令目录的运行时权威来源是 `dydata commands --json`。`docs/cli-command-reference.md` 只是从该目录自动生成的可读副本，不能替代发现命令或手工维护。
+命令目录的运行时权威来源是 `dydata commands --json`。`docs/cli-command-reference.md` 只是从该目录自动生成的可读副本，不能替代发现命令或手工维护。部署后的 Agent 接入验证按 [Agent CLI 使用验收](cli-agent-acceptance.md) 执行。
 
 ## 登录与人工交接
 

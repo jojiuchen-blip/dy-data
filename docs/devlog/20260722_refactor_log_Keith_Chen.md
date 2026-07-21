@@ -13,6 +13,7 @@
 | 1 | 确认 Phase 3 Schema | DYDATA-41 | 完成 |
 | 2 | 建立 Phase 4 API 契约 | DYDATA-41 | 待业务确认 |
 | 3 | 回填 23 张目标表的使用接口 | DYDATA-41 | 完成 |
+| 4 | DYDATA-40 安全终端 CLI 登录完成 | S7 | ✅ |
 
 **本日关键结论**：线索中心 FOUNDATION API 已按宿主项目现有协议拆分落盘，Schema 与接口映射已闭合。当前停在 Phase 4 用户确认门禁，未生成 DDL、未修改业务代码，也未进入 Phase 5。
 
@@ -79,3 +80,12 @@
 - [ ] 确认后进入 Phase 5，补齐状态迁移、定时任务、权限安全、迁移和运行方案。
 - [ ] 完成 DYDATA-42 PRD 与 DYDATA-43 正式交付计划。
 - [ ] S4 门禁通过后执行 DYDATA-34，全面删除旧线索分配引擎。
+---
+
+## 补充更新 1（04:27 · 窗口 1）
+
+### 任务 2：DYDATA-40 安全终端 CLI 登录完成
+- **目标**：完成 Agent 可启动、用户本人在安全 TTY 输入账号和隐藏密码的 CLI 登录，并保留浏览器回退
+- **操作**：在隔离 worktree 以 TDD 实现独立 Web Cookie 会话、身份/范围白名单、默认 TTY 交接、CAS 保存与异常撤销；更新运行时命令目录、Agent 指南和验收说明；执行全量测试、构建、依赖/秘密/静态扫描和双代理复核
+- **结果**：CLI 0.2.0 完成；目标测试 137 passed，全量 817 passed，Web build 通过，安全扫描 PASS，独立安全审查 APPROVE，Agent 契约验收 PASS；未部署、未推送、未合并，真实 TTY 与生产门店数据 UAT 留待部署后由用户执行
+- **涉及文件**：apps/cli/src/dydata_cli/interactive_auth.py、apps/cli/src/dydata_cli/commands.py、apps/cli/src/dydata_cli/registry.py、tests/cli/test_interactive_auth.py、tests/cli/test_terminal_login.py、docs/cli-agent-guide.md、docs/cli-agent-acceptance.md、docs/security/2026-07-22-secure-terminal-cli-login-security-scan.md、docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md

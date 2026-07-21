@@ -269,7 +269,7 @@ def _terminal_login(
         try:
             identity = auth_session.login(username, password)
         finally:
-            password = ""
+            del password
         _write_identity_summary(identity, stream=target)
         confirmation = _read_interactive_text(
             "Authorize this CLI credential? [y/N]: ", text_input
@@ -359,9 +359,9 @@ def _save_new_credential(
 def _best_effort_revoke(client: DyDataClient, refresh_token: str) -> None:
     try:
         client.revoke(refresh_token)
-    except CliError:
+    except Exception:
         # A cleanup failure must not mask the original local-save/CAS outcome.
-        pass
+        return
 
 
 def _logout(

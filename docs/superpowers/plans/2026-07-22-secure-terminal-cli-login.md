@@ -73,3 +73,4 @@
 4. 生成不含真实凭据的 Agent CLI 使用测试说明；真实 TTY 密码验收只在部署后由用户输入。
 5. 同步 devlog、正式计划和 Linear `DYDATA-40`，提交：`test(cli): verify secure terminal login`。
 
+<!-- secure-terminal-login implementation plan end -->

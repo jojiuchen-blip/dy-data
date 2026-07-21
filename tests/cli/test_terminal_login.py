@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from dydata_cli.client import CliError
-from dydata_cli.commands import execute_command
+from dydata_cli.commands import _save_new_credential, execute_command
 from dydata_cli.credentials import CredentialState
 from dydata_cli.interactive_auth import LoginIdentity
 from dydata_cli.parser import parse_args
@@ -406,6 +406,70 @@ def test_concurrent_credential_save_never_overwrites_and_revokes_new_token() -> 
     assert store.saved == []
     assert client.revoke_calls == [_token_value("login-refresh")]
     assert _token_value("login-refresh") not in output
+
+
+def test_revoke_cleanup_failure_does_not_mask_concurrent_save_outcome() -> None:
+    concurrent_state = _state("concurrent")
+
+    class RacingStore(FakeCredentialStore):
+        def save(
+            self,
+            state: CredentialState,
+            *,
+            expected: CredentialState | None | object = FakeCredentialStore._unset,
+        ) -> bool:
+            assert expected is None
+            self.state = concurrent_state
+            return False
+
+    class FailingRevokeClient(FakeDeviceClient):
+        def revoke(self, refresh_token: str) -> None:
+            self.revoke_calls.append(refresh_token)
+            raise RuntimeError("unsafe revoke failure sentinel")
+
+    store = RacingStore()
+    client = FailingRevokeClient()
+
+    exit_code, output, _, _ = _run_login(
+        ["auth", "login"],
+        store=store,
+        client=client,
+        auth_session=FakeInteractiveAuthSession(),
+    )
+
+    assert exit_code == 3
+    assert json.loads(output.splitlines()[-1])["error"]["code"] == "AUTH_FAILED"
+    assert store.state == concurrent_state
+    assert client.revoke_calls == [_token_value("login-refresh")]
+    assert "revoke failure sentinel" not in output
+
+
+def test_revoke_cleanup_failure_does_not_mask_keyring_save_exception() -> None:
+    class KeyringSaveError(RuntimeError):
+        pass
+
+    class FailingStore(FakeCredentialStore):
+        def save(
+            self,
+            state: CredentialState,
+            *,
+            expected: CredentialState | None | object = FakeCredentialStore._unset,
+        ) -> bool:
+            assert expected is None
+            raise KeyringSaveError("original keyring failure sentinel")
+
+    class FailingRevokeClient(FakeDeviceClient):
+        def revoke(self, refresh_token: str) -> None:
+            self.revoke_calls.append(refresh_token)
+            raise ValueError("cleanup revoke failure sentinel")
+
+    client = FailingRevokeClient()
+    new_state = _state("login")
+
+    with pytest.raises(KeyringSaveError, match="original keyring failure sentinel"):
+        _save_new_credential(FailingStore(), client, new_state)
+
+    assert client.revoke_calls == [new_state.refresh_token]
 
 
 def test_keyring_save_error_best_effort_revokes_the_unstored_new_token() -> None:

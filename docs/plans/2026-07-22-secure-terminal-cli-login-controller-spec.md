@@ -46,3 +46,4 @@
 3. 主 Agent 完成所有新鲜验证、计划三处同步、devlog 与 Linear 评论。
 4. 未经用户新授权，只交付分支与验证结果，不部署、不推送、不合并。
 
+<!-- secure-terminal-login controller spec end -->

@@ -66,7 +66,7 @@ python -m pytest
 
 ## CLI（Agent 只读查询）
 
-安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。
+安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。
 
 默认登录由用户在安全交互终端中完成：
 
