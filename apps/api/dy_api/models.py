@@ -176,6 +176,43 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class CliDeviceAuthorization(Base):
+    __tablename__ = "cli_device_authorizations"
+
+    device_authorization_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    device_code_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    user_code_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    scope: Mapped[str] = mapped_column(Text, default="cli:read")
+    user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), index=True
+    )
+    username: Mapped[str | None] = mapped_column(Text)
+    auth_type: Mapped[str | None] = mapped_column(String(32))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class CliRefreshToken(Base):
+    __tablename__ = "cli_refresh_tokens"
+
+    refresh_token_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    token_hash: Mapped[str] = mapped_column(Text, unique=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), index=True
+    )
+    username: Mapped[str] = mapped_column(Text)
+    auth_type: Mapped[str] = mapped_column(String(32))
+    scope: Mapped[str] = mapped_column(Text, default="cli:read")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    replaced_by_token_id: Mapped[str | None] = mapped_column(Text)
+
+
 class UserStoreScope(Base):
     __tablename__ = "user_store_scopes"
     __table_args__ = (Index("ix_user_store_scopes_store_id", "store_id"),)

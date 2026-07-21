@@ -318,3 +318,54 @@ def test_legacy_clue_reassign_rule_table_is_dropped_at_head(tmp_path: Path) -> N
     command.downgrade(config, "20260712_0016")
     downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
     assert "clue_reassign_rule_settings" in downgraded.get_table_names()
+
+
+def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "cli-authorizations.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "head")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {"cli_device_authorizations", "cli_refresh_tokens"}.issubset(upgraded.get_table_names())
+    assert {
+        "device_authorization_id",
+        "device_code_hash",
+        "user_code_hash",
+        "status",
+        "scope",
+        "user_id",
+        "expires_at",
+        "approved_at",
+        "consumed_at",
+    }.issubset({column["name"] for column in upgraded.get_columns("cli_device_authorizations")})
+    assert {
+        "refresh_token_id",
+        "token_hash",
+        "user_id",
+        "username",
+        "auth_type",
+        "scope",
+        "expires_at",
+        "last_used_at",
+        "revoked_at",
+        "replaced_by_token_id",
+    }.issubset({column["name"] for column in upgraded.get_columns("cli_refresh_tokens")})
+    assert {
+        "ix_cli_device_authorizations_device_code_hash",
+        "ix_cli_device_authorizations_user_code_hash",
+        "ix_cli_refresh_tokens_token_hash",
+    }.issubset(
+        {index["name"] for index in upgraded.get_indexes("cli_device_authorizations")}
+        | {index["name"] for index in upgraded.get_indexes("cli_refresh_tokens")}
+    )
+
+    command.downgrade(config, "20260713_0017")
+
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert not {"cli_device_authorizations", "cli_refresh_tokens"}.intersection(
+        downgraded.get_table_names()
+    )
