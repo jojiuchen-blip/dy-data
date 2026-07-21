@@ -110,6 +110,12 @@ class CliAuthorizationStatusResponse(BaseModel):
     status: Literal["authorization_pending", "approved", "revoked"]
 
 
+class CliDeviceApproveResponse(BaseModel):
+    user_code: str
+    status: Literal["approved"]
+    expires_at: datetime
+
+
 class AccountActivationIdentityRequest(BaseModel):
     external_account_id: str
 

@@ -1,10 +1,12 @@
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { ApiRequestError, approveCliAuthorization } from "../api/client";
 import { Button } from "../components/Button";
 import type { AdminUser } from "../types/dashboard";
+import { readCliAuthorizationCode } from "../utils/cliAuthorization";
 
 interface CliAuthorizePageProps {
   currentUser: AdminUser;
+  search: string;
 }
 
 type ApprovalState = "ready" | "approved" | "invalid";
@@ -19,15 +21,21 @@ function errorMessage(error: unknown): string {
   return "授权暂时未完成，请稍后重试。";
 }
 
-export function CliAuthorizePage({ currentUser }: CliAuthorizePageProps) {
+export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps) {
   const [approvalState, setApprovalState] = useState<ApprovalState>("ready");
   const [submitting, setSubmitting] = useState(false);
   const [message, setMessage] = useState("");
   const userCode = useMemo(
-    () => new URLSearchParams(window.location.search).get("user_code")?.trim() ?? "",
-    [],
+    () => readCliAuthorizationCode(search),
+    [search],
   );
   const accountName = currentUser.display_name || currentUser.username;
+
+  useEffect(() => {
+    setApprovalState("ready");
+    setSubmitting(false);
+    setMessage("");
+  }, [userCode]);
 
   const handleApprove = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();

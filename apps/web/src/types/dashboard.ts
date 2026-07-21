@@ -16,7 +16,9 @@ export interface ApiResponse<T> {
 }
 
 export interface CliAuthorizationApproval {
+  user_code: string;
   status: "approved";
+  expires_at: string;
 }
 
 export type UserRole = "admin" | "viewer" | "store";

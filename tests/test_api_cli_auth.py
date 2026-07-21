@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import timedelta
 import sys
 from pathlib import Path
+from unittest.mock import ANY
 
 import pytest
 from fastapi.testclient import TestClient
@@ -87,7 +88,11 @@ def _approve_and_exchange(client: TestClient, db_session) -> dict:
         json={"user_code": spaced_lower_code},
     )
     assert approved.status_code == 200
-    assert approved.json() == {"status": "approved"}
+    assert approved.json() == {
+        "user_code": start_data["user_code"],
+        "status": "approved",
+        "expires_at": ANY,
+    }
 
     exchanged = client.post(
         "/api/v1/auth/cli/device/token",
@@ -95,6 +100,27 @@ def _approve_and_exchange(client: TestClient, db_session) -> dict:
     )
     assert exchanged.status_code == 200
     return {"started": start_data, "tokens": exchanged.json(), "user": user}
+
+
+def test_device_approve_returns_normalized_user_code_and_expiry(
+    client: TestClient, db_session
+) -> None:
+    user = _add_user(db_session)
+    started = client.post("/api/v1/auth/cli/device/start").json()
+    _set_user_cookie(client, user)
+
+    response = client.post(
+        "/api/v1/auth/cli/device/approve",
+        json={"user_code": " ".join(started["user_code"].lower())},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "user_code": started["user_code"],
+        "status": "approved",
+        "expires_at": ANY,
+    }
+    assert response.json()["expires_at"]
 
 
 def test_device_start_returns_browser_urls_and_only_persists_hashes(

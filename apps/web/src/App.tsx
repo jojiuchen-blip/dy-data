@@ -192,7 +192,7 @@ export function App() {
     <AuthGate pathname={location.pathname}>
       {({ user, onLogout }) => {
         if (location.pathname === "/auth/cli/authorize") {
-          return <CliAuthorizePage currentUser={user} />;
+          return <CliAuthorizePage currentUser={user} search={location.search} />;
         }
 
         const clueAllocationSubview = clueAllocationSubviewFromPath(location.pathname);

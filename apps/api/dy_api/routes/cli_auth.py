@@ -27,6 +27,7 @@ from dy_api.cli_auth import (
 from dy_api.routes._data import get_session_dependency
 from dy_api.schemas import (
     CliAuthorizationStatusResponse,
+    CliDeviceApproveResponse,
     CliDeviceApproveRequest,
     CliDeviceStartResponse,
     CliDeviceTokenRequest,
@@ -139,12 +140,12 @@ def start_device_authorization(
     )
 
 
-@router.post("/device/approve", response_model=CliAuthorizationStatusResponse)
+@router.post("/device/approve", response_model=CliDeviceApproveResponse)
 def approve_device_authorization(
     payload: CliDeviceApproveRequest,
     current_user: AuthContext = Depends(get_current_user),
     session: Session | None = Depends(get_session_dependency),
-) -> CliAuthorizationStatusResponse:
+) -> CliDeviceApproveResponse:
     """Approve one pending user code using the existing Web cookie session."""
     active_session = _require_session(session)
     current_time = utcnow()
@@ -170,7 +171,11 @@ def approve_device_authorization(
     grant.auth_type = current_user.auth_type
     grant.approved_at = current_time
     active_session.commit()
-    return CliAuthorizationStatusResponse(status="approved")
+    return CliDeviceApproveResponse(
+        user_code=payload.user_code,
+        status="approved",
+        expires_at=grant.expires_at,
+    )
 
 
 @router.post(
