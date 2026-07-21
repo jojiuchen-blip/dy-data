@@ -20,6 +20,7 @@ change a self-managed production server.
 - `TENCENT_HOST`: server hostname or IP supplied through the repository variable, for example `<SERVER_HOST>`.
 - `TENCENT_SSH_PORT`: SSH port, usually `22`.
 - `TENCENT_SSH_USER`: SSH user, usually `ubuntu`.
+- `DY_WEB_BASE_URL`: public HTTPS dashboard base URL used by CLI browser authorization.
 - `TENCENT_DEPLOY_ON_PUSH`: set to `true` only after automatic deploys on every
   `main` push are desired.
 
@@ -53,7 +54,7 @@ It performs:
 7. Start `api`, `web`, `browser`, and `proxy`.
 8. Keep `worker` stopped unless `TENCENT_START_WORKER=true` is present in the
    workflow/server environment.
-9. Smoke test `/` and `/api/v1/auth/me`.
+9. Smoke test `/`, `/api/v1/auth/me`, and CLI device authorization startup.
 
 Set `TENCENT_START_WORKER=true` only when this deployment is intentionally the
 active collector. Leave it unset when another environment owns collection, so

@@ -10,10 +10,11 @@ START_WORKER="${TENCENT_START_WORKER:-false}"
 LOG_DIR="${LOG_DIR:-/opt/dy-dashboard/logs}"
 SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
 APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
-export APT_MIRROR
+DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"
+export APT_MIRROR DY_WEB_BASE_URL
 
 compose() {
-  sudo APT_MIRROR="$APT_MIRROR" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
+  sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose --env-file "$ENV_FILE" -f "$COMPOSE_FILE" "$@"
 }
 
 log() {
@@ -97,7 +98,8 @@ log "running smoke checks"
 for attempt in $(seq 1 30); do
   if curl --fail --silent --show-error "$HEALTH_URL/" >/dev/null; then
     auth_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$HEALTH_URL/api/v1/auth/me")"
-    if [ "$auth_status" = "401" ]; then
+    cli_start_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --request POST "$HEALTH_URL/api/v1/auth/cli/device/start")"
+    if [ "$auth_status" = "401" ] && [ "$cli_start_status" = "200" ]; then
       break
     fi
   fi

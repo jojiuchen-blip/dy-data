@@ -84,13 +84,43 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'scp -i ~/.ssh/tencent_lighthouse' in workflow
     assert "TENCENT_APT_MIRROR" in workflow
     assert "http://mirrors.tencentyun.com" in workflow
-    assert 'SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" bash deploy/tencent/deploy.sh' in workflow
+    assert (
+        'SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" '
+        'DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh'
+        in workflow
+    )
     assert "fetch_origin" not in deploy_step
     assert "git reset --hard" not in deploy_step
 
     assert 'SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"' in deploy_script
     assert 'APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"' in deploy_script
-    assert 'sudo APT_MIRROR="$APT_MIRROR" docker compose' in deploy_script
+    assert (
+        'sudo APT_MIRROR="$APT_MIRROR" DY_WEB_BASE_URL="$DY_WEB_BASE_URL" '
+        'docker compose'
+        in deploy_script
+    )
     assert "compose build --progress=plain api web browser" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
+
+
+def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "tencent-lighthouse-deploy.yml").read_text(
+        encoding="utf-8"
+    )
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert "DY_WEB_BASE_URL: ${DY_WEB_BASE_URL:?DY_WEB_BASE_URL is required}" in compose
+    assert "DY_WEB_BASE_URL=https://app.example.com" in env_example
+    assert "DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}" in workflow
+    assert "DY_WEB_BASE_URL" in workflow.split("required=(", 1)[1].split(")", 1)[0]
+    assert 'web_base_url="$3"' in workflow
+    assert 'DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh' in workflow
+    assert 'DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"' in deploy_script
+    assert 'DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose' in deploy_script
+    assert '"$HEALTH_URL/api/v1/auth/cli/device/start"' in deploy_script
+    assert 'if [ "$auth_status" = "401" ] && [ "$cli_start_status" = "200" ]; then' in deploy_script

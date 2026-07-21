@@ -93,6 +93,7 @@ jobs:
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
       TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
+      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
 
@@ -105,6 +106,7 @@ jobs:
           required=(
             TENCENT_HOST
             TENCENT_SSH_USER
+            DY_WEB_BASE_URL
             TENCENT_SSH_KEY
             TENCENT_KNOWN_HOSTS
           )
@@ -140,6 +142,7 @@ jobs:
           set -euo pipefail
           target_sha="$1"
           archive_path="$2"
+          web_base_url="$3"
           app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
           log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
           apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
@@ -156,11 +159,11 @@ jobs:
           tar -xzf "$archive_path" -C "$app_dir"
           rm -f "$archive_path"
 
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" bash deploy/tencent/deploy.sh "$target_sha"
+          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh "$target_sha"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA' '$archive'" < /tmp/tencent-deploy-bootstrap.sh
+            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL'" < /tmp/tencent-deploy-bootstrap.sh
