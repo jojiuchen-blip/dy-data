@@ -19,6 +19,8 @@ from dy_api.cli_auth import (
     create_cli_access_token,
     get_current_cli_user,
     hash_cli_secret,
+    issue_refresh_token,
+    rotate_refresh_token,
     verify_cli_access_payload,
 )
 from dy_api.main import create_app
@@ -65,7 +67,7 @@ def test_cli_access_token_reloads_current_user_scope(monkeypatch, db_session) ->
         store_ids=("historic-store",),
         auth_type="user",
     )
-    access_token, _ = create_cli_access_token(issued_auth)
+    access_token, _ = create_cli_access_token(issued_auth, session=db_session)
 
     current_auth = get_current_cli_user(
         _request(authorization=f"Bearer {access_token}"), db_session
@@ -92,7 +94,8 @@ def test_disabled_user_cli_token_is_rejected(monkeypatch, db_session) -> None:
             role=user.role,
             store_ids=("current-store",),
             auth_type="user",
-        )
+        ),
+        session=db_session,
     )
     user.status = "disabled"
     db_session.commit()
@@ -107,6 +110,8 @@ def test_disabled_user_cli_token_is_rejected(monkeypatch, db_session) -> None:
 
 def test_web_session_dependency_rejects_cli_bearer(monkeypatch) -> None:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
+    monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "test-password")
     access_token, _ = create_cli_access_token(
         AuthContext(
             user_id=None,
@@ -159,9 +164,12 @@ def test_cli_dependency_rejects_web_cookie(monkeypatch, db_session) -> None:
     assert exc_info.value.status_code == 401
 
 
-def test_cli_access_payload_has_fixed_type_scope_and_expiry(monkeypatch) -> None:
+def test_cli_access_payload_has_stable_subject_generation_and_no_database_ids(
+    monkeypatch, db_session
+) -> None:
     monkeypatch.setenv("DY_API_TEST_MODE", "true")
     now = datetime(2026, 7, 21, 8, 0, tzinfo=timezone.utc)
+    user = _active_user(db_session)
     access_token, expires_at = create_cli_access_token(
         AuthContext(
             user_id="user-1",
@@ -171,6 +179,7 @@ def test_cli_access_payload_has_fixed_type_scope_and_expiry(monkeypatch) -> None
             store_ids=("must-not-be-stored",),
             auth_type="user",
         ),
+        session=db_session,
         now=now,
     )
 
@@ -179,6 +188,9 @@ def test_cli_access_payload_has_fixed_type_scope_and_expiry(monkeypatch) -> None
     assert payload is not None
     assert payload["typ"] == "cli_access"
     assert payload["scope"] == "cli:read"
+    assert payload["sid"] == user.cli_subject
+    assert payload["sid"] != user.user_id
+    assert payload["gen"] == user.auth_generation
     assert "uid" not in payload
     assert "user_id" not in payload
     assert "user-1" not in payload.values()
@@ -186,6 +198,44 @@ def test_cli_access_payload_has_fixed_type_scope_and_expiry(monkeypatch) -> None
     assert "store_ids" not in payload
     assert expires_at == datetime(2026, 7, 21, 8, 30, tzinfo=timezone.utc)
     assert verify_cli_access_payload(access_token, now=expires_at) is None
+
+
+def test_renamed_user_access_token_never_authenticates_reused_username(
+    monkeypatch, db_session
+) -> None:
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    original_user = _active_user(db_session)
+    issued_auth = AuthContext(
+        user_id=original_user.user_id,
+        username=original_user.username,
+        display_name=original_user.display_name,
+        role=original_user.role,
+        store_ids=("current-store",),
+        auth_type="user",
+    )
+    access_token, _ = create_cli_access_token(issued_auth, session=db_session)
+
+    original_user.username = "renamed-user"
+    db_session.commit()
+    replacement_user = User(
+        user_id="user-2",
+        username="store-user",
+        external_account_id="store-2",
+        display_name="Replacement User",
+        role="viewer",
+        status="active",
+        is_initialized=True,
+        password_hash="unused",
+    )
+    db_session.add(replacement_user)
+    db_session.commit()
+
+    with pytest.raises(HTTPException) as exc_info:
+        get_current_cli_user(
+            _request(authorization=f"Bearer {access_token}"), db_session
+        )
+
+    assert exc_info.value.status_code == 401
 
 
 def test_environment_admin_cli_token_revalidates_current_username(
@@ -214,6 +264,40 @@ def test_environment_admin_cli_token_revalidates_current_username(
     with pytest.raises(HTTPException) as exc_info:
         get_current_cli_user(request, db_session)
     assert exc_info.value.status_code == 401
+
+
+def test_environment_admin_uses_opaque_subject_and_config_fingerprint(
+    monkeypatch, db_session
+) -> None:
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SUPER_ADMIN_USERNAME", "system-admin")
+    monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "first-password")
+    auth = AuthContext(
+        user_id=None,
+        username="system-admin",
+        display_name="system-admin",
+        role="admin",
+        store_ids=(),
+        auth_type="env_admin",
+    )
+    access_token, _ = create_cli_access_token(auth)
+    refresh_token, stored = issue_refresh_token(db_session, auth)
+    db_session.commit()
+
+    payload = verify_cli_access_payload(access_token)
+    assert payload is not None
+    assert payload["sid"] != "system-admin"
+    assert payload["gen"] == 1
+    assert payload["cfg"] == stored.authorization_fingerprint
+    assert stored.user_id is None
+    assert stored.issued_auth_generation is None
+
+    monkeypatch.setenv("DY_TEST_ADMIN_PASSWORD", "second-password")
+    with pytest.raises(HTTPException) as exc_info:
+        rotate_refresh_token(db_session, refresh_token)
+    assert exc_info.value.status_code == 401
+    db_session.refresh(stored)
+    assert stored.revoked_at is not None
 
 
 def test_hash_cli_secret_is_stable_sha256() -> None:

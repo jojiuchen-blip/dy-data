@@ -6,7 +6,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, status
-from sqlalchemy import delete, func, or_, select, text
+from sqlalchemy import func, or_, select, text
 
 from apps.api.dy_api.models import (
     ClueAllocationAuditLog,
@@ -30,6 +30,7 @@ from apps.api.dy_api.models import (
     UserStoreScope,
 )
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.api.dy_api.user_auth_state import replace_user_store_scopes
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
@@ -1610,10 +1611,7 @@ def _role_store_ids(role: str, store_ids: list[str]) -> list[str]:
 
 
 def _replace_user_scopes(session, user_id: str, store_ids: list[str]) -> None:
-    session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
-    for store_id in sorted(set(store_ids)):
-        session.add(UserStoreScope(user_id=user_id, store_id=store_id))
-    session.flush()
+    replace_user_store_scopes(session, user_id, store_ids)
 
 
 def _optional_account_value(value: str | None) -> str | None:

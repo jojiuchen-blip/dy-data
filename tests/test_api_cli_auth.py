@@ -238,6 +238,7 @@ def test_device_token_pending_then_approved_grant_is_consumed_once(
     refresh = db_session.execute(select(CliRefreshToken)).scalar_one()
     assert refresh.token_hash == hash_cli_secret(tokens["refresh_token"])
     assert refresh.token_hash != tokens["refresh_token"]
+    assert refresh.issued_auth_generation == user.auth_generation
 
     repeated = client.post(
         "/api/v1/auth/cli/device/token",
@@ -265,6 +266,43 @@ def test_expired_and_unknown_device_codes_do_not_issue_tokens(
 
     assert expired.status_code == 400
     assert unknown.status_code == 400
+    assert db_session.execute(select(CliRefreshToken)).scalar_one_or_none() is None
+
+
+def test_approved_device_grant_cannot_move_to_reused_username(
+    client: TestClient, db_session
+) -> None:
+    original_user = _add_user(db_session)
+    started = client.post("/api/v1/auth/cli/device/start").json()
+    _set_user_cookie(client, original_user)
+    approved = client.post(
+        "/api/v1/auth/cli/device/approve",
+        json={"user_code": started["user_code"]},
+    )
+    assert approved.status_code == 200
+
+    original_user.username = "renamed-user"
+    db_session.commit()
+    db_session.add(
+        User(
+            user_id="user-2",
+            username="store-user",
+            external_account_id="store-2",
+            display_name="Replacement User",
+            role="viewer",
+            status="active",
+            is_initialized=True,
+            password_hash="unused",
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/cli/device/token",
+        json={"device_code": started["device_code"]},
+    )
+
+    assert response.status_code == 401
     assert db_session.execute(select(CliRefreshToken)).scalar_one_or_none() is None
 
 
@@ -398,6 +436,47 @@ def test_failed_disabled_refresh_stays_revoked_after_user_is_reenabled(
         json={"refresh_token": refresh_token},
     )
     assert reenabled_response.status_code == 401
+
+
+def test_disable_then_reenable_before_first_refresh_invalidates_old_token(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refresh_token = flow["tokens"]["refresh_token"]
+
+    flow["user"].status = "disabled"
+    db_session.commit()
+    flow["user"].status = "active"
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 401
+
+
+def test_store_scope_round_trip_before_first_refresh_invalidates_old_token(
+    client: TestClient, db_session
+) -> None:
+    flow = _approve_and_exchange(client, db_session)
+    refresh_token = flow["tokens"]["refresh_token"]
+    user_id = flow["user"].user_id
+
+    db_session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
+    db_session.add(UserStoreScope(user_id=user_id, store_id="store-2"))
+    db_session.commit()
+    db_session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
+    db_session.add(UserStoreScope(user_id=user_id, store_id="store-1"))
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/cli/token/refresh",
+        json={"refresh_token": refresh_token},
+    )
+
+    assert response.status_code == 401
 
 
 def test_revoke_is_idempotent_and_never_echoes_token(

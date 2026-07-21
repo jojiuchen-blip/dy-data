@@ -3,6 +3,7 @@
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Any
+from uuid import uuid4
 
 from sqlalchemy import (
     Boolean,
@@ -16,10 +17,14 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
+    inspect,
     text,
+    update,
 )
 from sqlalchemy.dialects import postgresql
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.orm.attributes import NO_VALUE
 
 
 def utcnow() -> datetime:
@@ -165,6 +170,10 @@ class User(Base):
     )
 
     user_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    cli_subject: Mapped[str] = mapped_column(
+        Text, unique=True, index=True, default=lambda: uuid4().hex
+    )
+    auth_generation: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     username: Mapped[str] = mapped_column(Text, index=True)
     external_account_id: Mapped[str | None] = mapped_column(Text, index=True)
     display_name: Mapped[str] = mapped_column(Text)
@@ -206,6 +215,7 @@ class CliRefreshToken(Base):
     username: Mapped[str] = mapped_column(Text)
     auth_type: Mapped[str] = mapped_column(String(32))
     authorization_fingerprint: Mapped[str] = mapped_column(Text)
+    issued_auth_generation: Mapped[int | None] = mapped_column(Integer)
     scope: Mapped[str] = mapped_column(Text, default="cli:read")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -225,6 +235,68 @@ class UserStoreScope(Base):
         Text, ForeignKey("dim_stores.store_id", ondelete="CASCADE"), primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+_AUTH_GENERATION_FIELDS = (
+    "username",
+    "role",
+    "status",
+    "is_initialized",
+    "password_hash",
+)
+_SCOPE_GENERATION_SESSION_KEY = "user_scope_auth_generation_ids"
+
+
+@event.listens_for(User.cli_subject, "set", retval=True, active_history=True)
+def _prevent_cli_subject_reassignment(
+    _target: User, value: str, old_value: str | object, _initiator: object
+) -> str:
+    """Keep a user's opaque CLI subject stable for the lifetime of the identity."""
+    if old_value is not NO_VALUE and old_value is not None and value != old_value:
+        raise ValueError("cli_subject is immutable")
+    return value
+
+
+@event.listens_for(User, "before_update")
+def _increment_user_auth_generation_for_security_change(
+    _mapper: object, _connection: object, target: User
+) -> None:
+    """Advance the monotonic authorization version for security state changes."""
+    state = inspect(target)
+    if any(
+        state.attrs[field_name].history.has_changes()
+        for field_name in _AUTH_GENERATION_FIELDS
+    ):
+        target.auth_generation = (target.auth_generation or 1) + 1
+
+
+@event.listens_for(Session, "before_flush")
+def _collect_scope_membership_changes(
+    session: Session, _flush_context: object, _instances: object
+) -> None:
+    """Collect ORM scope membership changes so each affected user advances once."""
+    user_ids = session.info.setdefault(_SCOPE_GENERATION_SESSION_KEY, set())
+    for scope in session.new.union(session.deleted):
+        if isinstance(scope, UserStoreScope) and scope.user_id:
+            user_ids.add(scope.user_id)
+
+
+@event.listens_for(Session, "after_flush_postexec")
+def _increment_user_auth_generation_for_scope_changes(
+    session: Session, _flush_context: object
+) -> None:
+    """Persist one authorization-version increment per changed scope owner."""
+    user_ids = session.info.pop(_SCOPE_GENERATION_SESSION_KEY, set())
+    if not user_ids:
+        return
+    session.execute(
+        update(User)
+        .where(User.user_id.in_(user_ids))
+        .values(auth_generation=User.auth_generation + 1)
+    )
+    for instance in session.identity_map.values():
+        if isinstance(instance, User) and instance.user_id in user_ids:
+            session.expire(instance, ["auth_generation"])
 
 
 class UserFeedbackSubmission(Base):

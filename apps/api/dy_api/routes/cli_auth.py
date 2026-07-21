@@ -216,9 +216,10 @@ def exchange_device_code(
         active_session,
         username=grant.username,
         auth_type=grant.auth_type,
+        user_id=grant.user_id,
     )
     access_token, access_expires_at = create_cli_access_token(
-        auth, now=current_time
+        auth, session=active_session, now=current_time
     )
     refresh_token, _ = issue_refresh_token(
         active_session, auth, now=current_time

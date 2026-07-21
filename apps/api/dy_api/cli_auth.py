@@ -49,11 +49,25 @@ def _unauthorized() -> HTTPException:
     )
 
 
+def _auth_context_for_user(session: Session, user: User) -> AuthContext:
+    if user.status != "active" or not user.is_initialized:
+        raise _unauthorized()
+    return AuthContext(
+        user_id=user.user_id,
+        username=user.username,
+        display_name=user.display_name,
+        role=user.role,
+        store_ids=user_store_ids(session, user.user_id),
+        auth_type="user",
+    )
+
+
 def _current_auth(
     session: Session | None,
     *,
     username: str,
     auth_type: str,
+    user_id: str | None = None,
 ) -> AuthContext:
     if auth_type == "env_admin":
         settings = get_admin_settings()
@@ -73,19 +87,15 @@ def _current_auth(
 
     if auth_type != "user" or session is None:
         raise _unauthorized()
-    user = session.execute(
-        select(User).where(User.username == username)
-    ).scalar_one_or_none()
-    if user is None or user.status != "active" or not user.is_initialized:
+    if user_id is not None:
+        user = session.get(User, user_id)
+    else:
+        user = session.execute(
+            select(User).where(User.username == username)
+        ).scalar_one_or_none()
+    if user is None or not hmac.compare_digest(user.username, username):
         raise _unauthorized()
-    return AuthContext(
-        user_id=user.user_id,
-        username=user.username,
-        display_name=user.display_name,
-        role=user.role,
-        store_ids=user_store_ids(session, user.user_id),
-        auth_type="user",
-    )
+    return _auth_context_for_user(session, user)
 
 
 def hash_cli_secret(value: str) -> str:
@@ -93,59 +103,81 @@ def hash_cli_secret(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
-def _authorization_fingerprint(session: Session, auth: AuthContext) -> str:
-    if auth.auth_type == "env_admin":
-        settings = get_admin_settings()
-        if settings.password_hash:
-            credential_kind = "password_hash"
-            credential_value = settings.password_hash
-        elif settings.test_mode and settings.test_password:
-            credential_kind = "test_password"
-            credential_value = settings.test_password
-        else:
-            credential_kind = "unconfigured"
-            credential_value = ""
-        state: dict[str, Any] = {
-            "auth_type": "env_admin",
-            "username": settings.username,
-            "configured": _admin_credentials_configured(settings),
-            "credential_kind": credential_kind,
-            "credential_state": hash_cli_secret(credential_value),
-        }
+def _environment_authorization_fingerprint(auth: AuthContext) -> str:
+    """Fingerprint the separate, database-less environment-admin branch."""
+    if auth.auth_type != "env_admin":
+        raise _unauthorized()
+    settings = get_admin_settings()
+    if settings.password_hash:
+        credential_kind = "password_hash"
+        credential_value = settings.password_hash
+    elif settings.test_mode and settings.test_password:
+        credential_kind = "test_password"
+        credential_value = settings.test_password
     else:
-        user = session.get(User, auth.user_id) if auth.user_id else None
-        if user is None:
-            raise _unauthorized()
-        state = {
-            "auth_type": "user",
-            "username": user.username,
-            "role": user.role,
-            "status": user.status,
-            "is_initialized": bool(user.is_initialized),
-            "password_credential_state": hash_cli_secret(user.password_hash or ""),
-            "store_ids": sorted(user_store_ids(session, user.user_id)),
-        }
+        credential_kind = "unconfigured"
+        credential_value = ""
+    state: dict[str, Any] = {
+        "auth_type": "env_admin",
+        "username": settings.username,
+        "configured": _admin_credentials_configured(settings),
+        "credential_kind": credential_kind,
+        "credential_state": hash_cli_secret(credential_value),
+    }
     encoded_state = json.dumps(
         state, ensure_ascii=False, separators=(",", ":"), sort_keys=True
     )
-    return hash_cli_secret(encoded_state)
+    return _sign_payload(f"cli-env-config:{encoded_state}")
+
+
+def _environment_cli_subject(username: str) -> str:
+    """Derive an opaque keyed subject without manufacturing a database user ID."""
+    return _sign_payload(f"cli-env-subject:{username}")
 
 
 def create_cli_access_token(
-    auth: AuthContext, *, now: datetime | None = None
+    auth: AuthContext,
+    *,
+    session: Session | None = None,
+    now: datetime | None = None,
 ) -> tuple[str, datetime]:
     """Create a signed, short-lived token restricted to the CLI read scope."""
     issued_at = _utc(now)
     expires_at = issued_at + timedelta(seconds=CLI_ACCESS_TTL_SECONDS)
+    if auth.auth_type == "user":
+        user = (
+            session.get(User, auth.user_id)
+            if session is not None and auth.user_id
+            else None
+        )
+        if user is None:
+            raise _unauthorized()
+        current_auth = _auth_context_for_user(session, user)
+        subject = user.cli_subject
+        generation = user.auth_generation
+        config_fingerprint = None
+    elif auth.auth_type == "env_admin":
+        current_auth = _current_auth(
+            None, username=auth.username, auth_type="env_admin"
+        )
+        subject = _environment_cli_subject(current_auth.username)
+        generation = 1
+        config_fingerprint = _environment_authorization_fingerprint(current_auth)
+    else:
+        raise _unauthorized()
     payload: dict[str, Any] = {
-        "sub": auth.username,
+        "sub": current_auth.username,
+        "sid": subject,
+        "gen": generation,
         "iat": int(issued_at.timestamp()),
         "exp": int(expires_at.timestamp()),
         "typ": CLI_ACCESS_TOKEN_TYPE,
         "scope": CLI_ACCESS_SCOPE,
-        "auth_type": auth.auth_type,
+        "auth_type": current_auth.auth_type,
         "jti": uuid4().hex,
     }
+    if config_fingerprint is not None:
+        payload["cfg"] = config_fingerprint
     encoded_payload = _b64encode(
         json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
     )
@@ -175,6 +207,10 @@ def verify_cli_access_payload(
         or payload.get("scope") != CLI_ACCESS_SCOPE
         or payload.get("auth_type") not in {"user", "env_admin"}
         or not isinstance(payload.get("sub"), str)
+        or not isinstance(payload.get("sid"), str)
+        or not payload["sid"]
+        or type(payload.get("gen")) is not int
+        or payload["gen"] < 1
         or not isinstance(payload.get("exp"), int)
         or not isinstance(payload.get("jti"), str)
         or not payload["jti"]
@@ -193,13 +229,29 @@ def issue_refresh_token(
     """Create a persisted refresh credential without storing its raw secret."""
     created_at = _utc(now)
     raw_token = secrets.token_urlsafe(48)
+    if auth.auth_type == "user":
+        user = session.get(User, auth.user_id) if auth.user_id else None
+        if user is None:
+            raise _unauthorized()
+        current_auth = _auth_context_for_user(session, user)
+        authorization_fingerprint = ""
+        issued_auth_generation = user.auth_generation
+    elif auth.auth_type == "env_admin":
+        current_auth = _current_auth(
+            None, username=auth.username, auth_type="env_admin"
+        )
+        authorization_fingerprint = _environment_authorization_fingerprint(current_auth)
+        issued_auth_generation = None
+    else:
+        raise _unauthorized()
     token = CliRefreshToken(
         refresh_token_id=uuid4().hex,
         token_hash=hash_cli_secret(raw_token),
-        user_id=auth.user_id,
-        username=auth.username,
-        auth_type=auth.auth_type,
-        authorization_fingerprint=_authorization_fingerprint(session, auth),
+        user_id=current_auth.user_id,
+        username=current_auth.username,
+        auth_type=current_auth.auth_type,
+        authorization_fingerprint=authorization_fingerprint,
+        issued_auth_generation=issued_auth_generation,
         scope=CLI_ACCESS_SCOPE,
         created_at=created_at,
         expires_at=created_at + timedelta(seconds=CLI_REFRESH_TTL_SECONDS),
@@ -235,21 +287,36 @@ def rotate_refresh_token(
         raise _unauthorized()
 
     try:
-        auth = _current_auth(
-            session,
-            username=stored.username,
-            auth_type=stored.auth_type,
-        )
-        current_fingerprint = _authorization_fingerprint(session, auth)
+        if stored.auth_type == "user":
+            user = session.get(User, stored.user_id) if stored.user_id else None
+            if user is None:
+                raise _unauthorized()
+            auth = _auth_context_for_user(session, user)
+            is_current = (
+                stored.issued_auth_generation is not None
+                and user.auth_generation == stored.issued_auth_generation
+            )
+        elif stored.auth_type == "env_admin":
+            auth = _current_auth(
+                None,
+                username=stored.username,
+                auth_type="env_admin",
+            )
+            is_current = hmac.compare_digest(
+                stored.authorization_fingerprint,
+                _environment_authorization_fingerprint(auth),
+            )
+        else:
+            raise _unauthorized()
     except HTTPException:
         _revoke_invalid_refresh(session, stored, current_time)
         raise
-    if auth.user_id != stored.user_id or not hmac.compare_digest(
-        stored.authorization_fingerprint, current_fingerprint
-    ):
+    if not is_current:
         _revoke_invalid_refresh(session, stored, current_time)
         raise _unauthorized()
-    access_token, access_expires_at = create_cli_access_token(auth, now=current_time)
+    access_token, access_expires_at = create_cli_access_token(
+        auth, session=session, now=current_time
+    )
     replacement_raw, replacement = issue_refresh_token(
         session, auth, now=current_time
     )
@@ -285,8 +352,32 @@ def get_current_cli_user(
     if payload is None:
         raise _unauthorized()
 
-    return _current_auth(
-        session,
+    if payload["auth_type"] == "user":
+        if session is None:
+            raise _unauthorized()
+        user = session.execute(
+            select(User).where(User.cli_subject == payload["sid"])
+        ).scalar_one_or_none()
+        if (
+            user is None
+            or user.auth_generation != payload["gen"]
+            or not hmac.compare_digest(user.username, payload["sub"])
+        ):
+            raise _unauthorized()
+        return _auth_context_for_user(session, user)
+
+    auth = _current_auth(
+        None,
         username=payload["sub"],
-        auth_type=payload["auth_type"],
+        auth_type="env_admin",
     )
+    expected_subject = _environment_cli_subject(auth.username)
+    expected_fingerprint = _environment_authorization_fingerprint(auth)
+    if (
+        payload["gen"] != 1
+        or not hmac.compare_digest(payload["sid"], expected_subject)
+        or not isinstance(payload.get("cfg"), str)
+        or not hmac.compare_digest(payload["cfg"], expected_fingerprint)
+    ):
+        raise _unauthorized()
+    return auth

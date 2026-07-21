@@ -327,9 +327,35 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
     config.set_main_option("script_location", str(repo_root / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
 
+    command.upgrade(config, "20260713_0017")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    now = datetime.now(timezone.utc)
+    with engine.begin() as connection:
+        for user_id, username in (("legacy-1", "legacy-one"), ("legacy-2", "legacy-two")):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO users (
+                        user_id, username, display_name, role, status,
+                        is_initialized, created_at, updated_at
+                    ) VALUES (
+                        :user_id, :username, :display_name, 'viewer', 'active',
+                        1, :created_at, :updated_at
+                    )
+                    """
+                ),
+                {
+                    "user_id": user_id,
+                    "username": username,
+                    "display_name": username,
+                    "created_at": now,
+                    "updated_at": now,
+                },
+            )
+
     command.upgrade(config, "head")
 
-    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    upgraded = inspect(engine)
     assert {"cli_device_authorizations", "cli_refresh_tokens"}.issubset(upgraded.get_table_names())
     assert {
         "device_authorization_id",
@@ -349,6 +375,7 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
         "username",
         "auth_type",
         "authorization_fingerprint",
+        "issued_auth_generation",
         "scope",
         "expires_at",
         "last_used_at",
@@ -360,6 +387,21 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
         for column in upgraded.get_columns("cli_refresh_tokens")
     }
     assert not refresh_columns["authorization_fingerprint"]["nullable"]
+    user_columns = {column["name"]: column for column in upgraded.get_columns("users")}
+    assert not user_columns["cli_subject"]["nullable"]
+    assert not user_columns["auth_generation"]["nullable"]
+    with engine.connect() as connection:
+        migrated_users = connection.execute(
+            text(
+                "SELECT user_id, cli_subject, auth_generation FROM users ORDER BY user_id"
+            )
+        ).mappings().all()
+    assert [row["user_id"] for row in migrated_users] == ["legacy-1", "legacy-2"]
+    assert all(row["cli_subject"] for row in migrated_users)
+    assert len({row["cli_subject"] for row in migrated_users}) == 2
+    assert {row["auth_generation"] for row in migrated_users} == {1}
+    user_indexes = {index["name"]: index for index in upgraded.get_indexes("users")}
+    assert user_indexes["ix_users_cli_subject"]["unique"]
     device_indexes = {
         index["name"]: index for index in upgraded.get_indexes("cli_device_authorizations")
     }
@@ -380,4 +422,7 @@ def test_cli_authorization_migration_is_reversible(tmp_path: Path) -> None:
     downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
     assert not {"cli_device_authorizations", "cli_refresh_tokens"}.intersection(
         downgraded.get_table_names()
+    )
+    assert {"cli_subject", "auth_generation"}.isdisjoint(
+        {column["name"] for column in downgraded.get_columns("users")}
     )
