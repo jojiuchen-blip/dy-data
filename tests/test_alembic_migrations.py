@@ -1,12 +1,33 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
 import pytest
 from sqlalchemy import create_engine, inspect, text
+
+
+def test_migration_logging_config_keeps_existing_application_loggers_enabled(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "logger-isolation.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+    application_logger = logging.getLogger("dy_api.cli_audit")
+    previous_disabled = application_logger.disabled
+    application_logger.disabled = False
+
+    try:
+        command.upgrade(config, "head")
+
+        assert application_logger.disabled is False
+    finally:
+        application_logger.disabled = previous_disabled
 
 
 def test_clue_allocation_m1_migration_upgrades_existing_schema(tmp_path: Path) -> None:

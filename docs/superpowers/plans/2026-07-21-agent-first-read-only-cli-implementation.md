@@ -760,6 +760,15 @@ node .agent/project-manager-suite/tools/route-check.mjs . --target-stage S3 --js
 
 预期：全局文件校验 0 error；route-check 仍可能报告页面型 Foundation/PRD 缺失，按 DYDATA-40 已批准的单事项例外记录，不伪造产物。读取并执行所有 `companionActions`；如索引器把用户未跟踪台账写入生成索引，只还原本轮生成的 `docs/index/*` 变更。
 
+**2026-07-21 验收记录：**
+
+- 完整 `pytest` 为 `666 passed, 1 failed, 55 warnings`；唯一失败是基线已存在的治理版本断言（测试期待 `2.0.0`，base/lock/manifest/installed suite 均为 `2.0.1`）。精确 deselect 该断言后为 `666 passed, 1 deselected, 55 warnings`。
+- 全量顺序曾暴露 Alembic `fileConfig()` 禁用既有 CLI audit logger；已先新增迁移级 RED 回归，再以 `disable_existing_loggers=False` 单行修复。正反顺序各 `2 passed`，迁移与 audit 组合为 `14 passed`。
+- Web TypeScript/Vite build、editable CLI 安装、API/CLI `compileall`、生成文档 `--check` 均 exit 0。module 与 installed exe 的 `version --json`、`commands --json` 均为单 JSON、stderr 空、Schema `1.0`；版本为 `0.1.0`，命令数为 7。
+- 使用真实有效 Bearer token 和 FastAPI `TestClient` 的 in-process `stores`/`clues.follow-up-stats` smoke 均为 200，并通过精确 Schema、指标版本、字段集合、排序和 totals 断言；未访问真实凭据或网络。
+- token/PII/通用命令扫描只命中字段名、实现路径、文档禁令和负向测试；高熵凭据模式 0 命中，不存在通用 shell/SQL/HTTP 可调用入口。
+- `validate-global-files` 为 0 error/0 warning；S3 route-check 的 PRD、foundation 和阶段写回阻断按 DYDATA-40 已批准单事项例外记录。`project-link-indexer` companion action 为 noop，未改 `docs/index/*`，当前输出保留 2 个历史坏链。
+
 **Step 7: Linear 写回**
 
 在 DYDATA-40 评论中写入：实现提交、测试数量、Web build、CLI smoke、已验证的只读隔离、已知非阻断项。只有全部验收通过才把 issue 改为 Done；否则保持 In Progress 并记录具体失败。
@@ -775,13 +784,13 @@ git commit -m "chore(cli): record DYDATA-40 verification"
 
 ## 计划自检清单
 
-- [ ] 设计第 3 节全部首版范围均映射到 Task 2–8。
-- [ ] 设计第 7 节 7 个命令与 registry 测试精确一致。
-- [ ] 设计第 9 节成功信封、统计公式、排序、零数据门店和全成全败均有测试。
-- [ ] 设计第 10 节 30 分钟 access、30 天 refresh、轮换、实时权限重算均有实现步骤。
-- [ ] 设计第 11 节 Bearer 与 Web Cookie 写接口隔离有负向测试。
-- [ ] 设计第 12 节审计字段、错误码、退出码均有单一常量和测试。
-- [ ] `docs/cli-command-reference.md` 由 registry 生成并有 `--check` 门禁。
-- [ ] 没有 TBD、TODO、伪代码占位符、未命名的“相关文件”或“类似实现”。
-- [ ] 所有新增 API、CLI 方法、模型字段和测试引用的名称一致。
-- [ ] 用户未跟踪的两份线索中心台账未修改、未暂存、未提交。
+- [x] 设计第 3 节全部首版范围均映射到 Task 2–8。
+- [x] 设计第 7 节 7 个命令与 registry 测试精确一致。
+- [x] 设计第 9 节成功信封、统计公式、排序、零数据门店和全成全败均有测试。
+- [x] 设计第 10 节 30 分钟 access、30 天 refresh、轮换、实时权限重算均有实现步骤。
+- [x] 设计第 11 节 Bearer 与 Web Cookie 写接口隔离有负向测试。
+- [x] 设计第 12 节审计字段、错误码、退出码均有单一常量和测试。
+- [x] `docs/cli-command-reference.md` 由 registry 生成并有 `--check` 门禁。
+- [x] 没有 TBD、TODO、伪代码占位符、未命名的“相关文件”或“类似实现”。
+- [x] 所有新增 API、CLI 方法、模型字段和测试引用的名称一致。
+- [x] 用户未跟踪的两份线索中心台账未修改、未暂存、未提交。
