@@ -423,3 +423,46 @@ def test_openapi_exposes_no_cli_business_writes_and_summary_has_no_detail_fields
     assert not {"phone", "name", "order", "note", "token"}.intersection(
         all_keys(summary)
     )
+
+
+@pytest.mark.parametrize(
+    ("path", "command"),
+    [
+        ("/api/v1/cli/auth/status", "auth.status"),
+        ("/api/v1/cli/stores", "stores.list"),
+        (
+            "/api/v1/clues/store-follow-up-summary",
+            "clues.follow-up-stats",
+        ),
+        ("/api/v1/cli/not-a-command", "unknown"),
+    ],
+)
+def test_cli_post_to_get_only_or_unknown_path_uses_top_level_405_or_404_envelope(
+    path: str, command: str
+) -> None:
+    client = TestClient(create_app())
+
+    response = client.post(path, headers={"X-Request-ID": "req-method-test"})
+
+    expected_status = 404 if command == "unknown" else 405
+    _assert_error(
+        response,
+        status_code=expected_status,
+        command=command,
+        code="INVALID_ARGUMENT",
+    )
+    assert response.headers["x-request-id"] == "req-method-test"
+
+
+def test_non_cli_404_and_405_keep_standard_error_shape() -> None:
+    client = TestClient(create_app())
+
+    missing = client.get("/not-found")
+    method_not_allowed = client.post("/api/v1/auth/me")
+
+    assert missing.status_code == 404
+    assert missing.json() == {"detail": "Not Found"}
+    assert "x-request-id" not in missing.headers
+    assert method_not_allowed.status_code == 405
+    assert method_not_allowed.json() == {"detail": "Method Not Allowed"}
+    assert "x-request-id" not in method_not_allowed.headers

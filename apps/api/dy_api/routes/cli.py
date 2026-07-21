@@ -4,7 +4,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 
 from dy_api.auth import AuthContext
 from dy_api.cli_auth import get_current_cli_user, verify_cli_access_payload
@@ -66,11 +66,29 @@ def _meta(request: Request, **values: Any) -> dict[str, Any]:
     return {"partial": False, "request_id": _request_id(request), **values}
 
 
-def _authorized_stores(current_user: AuthContext, store) -> list[dict[str, str]]:
+def _authorized_stores(
+    request: Request,
+    current_user: AuthContext,
+    store,
+    *,
+    command: str,
+) -> list[dict[str, str]]:
     scope = None if current_user.has_global_data_access else tuple(
         _stable_ids(current_user.store_ids)
     )
-    return _stable_stores(store.list_stores(scope))
+    try:
+        stores = store.list_stores(scope)
+    except HTTPException:
+        raise
+    except Exception:
+        cli_error(
+            "API_UNAVAILABLE",
+            "The data service is unavailable",
+            command=command,
+            request_id=_request_id(request),
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    return _stable_stores(stores)
 
 
 @router.get("/cli/auth/status", name="auth.status")
@@ -112,7 +130,9 @@ def cli_stores(
     store=Depends(get_data_store),
 ):
     store = _require_store(request, store, command="stores.list")
-    stores = _authorized_stores(current_user, store)
+    stores = _authorized_stores(
+        request, current_user, store, command="stores.list"
+    )
     effective_store_ids = sorted(row["store_id"] for row in stores)
     request.state.cli_effective_store_ids = effective_store_ids
     request.state.cli_returned_store_count = len(stores)
@@ -214,7 +234,12 @@ def cli_store_follow_up_summary(
             request_id=_request_id(request),
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         )
-    available_stores = _authorized_stores(current_user, store)
+    available_stores = _authorized_stores(
+        request,
+        current_user,
+        store,
+        command="clues.follow-up-stats",
+    )
     if current_user.has_global_data_access:
         authorized_ids = {row["store_id"] for row in available_stores}
     else:

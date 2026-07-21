@@ -47,7 +47,8 @@ class CliAuditMiddleware(BaseHTTPMiddleware):
             "auth_type": getattr(request.state, "cli_auth_type", None),
             "cli_version": request.headers.get("x-dydata-cli-version"),
             "command": request.headers.get("x-dydata-command")
-            or cli_command_for_path(request.url.path),
+            or cli_command_for_path(request.url.path)
+            or "unknown",
             "schema_version": request.headers.get("x-dydata-schema-version"),
             "date_range": getattr(request.state, "cli_date_range", None),
             "requested_store_ids": getattr(
@@ -66,4 +67,3 @@ class CliAuditMiddleware(BaseHTTPMiddleware):
         logger.info(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
         response.headers["X-Request-ID"] = request_id
         return response
-

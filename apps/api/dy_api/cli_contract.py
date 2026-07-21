@@ -11,6 +11,7 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 CLI_SCHEMA_VERSION = "1.0"
@@ -115,10 +116,12 @@ def _auth_error_code(request: Request) -> tuple[str, str]:
 
 
 def install_cli_exception_handlers(app: FastAPI) -> None:
-    @app.exception_handler(HTTPException)
-    async def cli_http_exception_handler(request: Request, exc: HTTPException):
+    @app.exception_handler(StarletteHTTPException)
+    async def cli_http_exception_handler(
+        request: Request, exc: StarletteHTTPException
+    ):
         command = cli_command_for_path(request.url.path)
-        if command is None:
+        if not is_cli_audit_path(request.url.path):
             return await http_exception_handler(request, exc)
 
         if isinstance(exc.detail, dict) and set(exc.detail) == {
@@ -135,7 +138,12 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
                 headers=exc.headers,
             )
 
-        if exc.status_code == status.HTTP_401_UNAUTHORIZED:
+        if exc.status_code in {
+            status.HTTP_404_NOT_FOUND,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        }:
+            code, message = "INVALID_ARGUMENT", "Unknown CLI path or method"
+        elif exc.status_code == status.HTTP_401_UNAUTHORIZED:
             code, message = _auth_error_code(request)
         elif exc.status_code == status.HTTP_403_FORBIDDEN:
             code, message = "SCOPE_DENIED", "Requested scope is not permitted"
@@ -150,7 +158,7 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
             code=code,
             message=message,
             status_code=exc.status_code,
-            command=command,
+            command=command or "unknown",
             headers=exc.headers,
         )
 
@@ -168,4 +176,3 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             command=command,
         )
-

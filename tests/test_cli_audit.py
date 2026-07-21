@@ -5,6 +5,7 @@ import logging
 import sys
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 
@@ -38,6 +39,11 @@ class AuditStore:
                 "action_follow_rate": 0,
             }
         ]
+
+
+class FailingListStore(AuditStore):
+    def list_stores(self, scope_store_ids=None):
+        raise RuntimeError("database connection failed")
 
 
 def _client(store=None) -> TestClient:
@@ -155,3 +161,41 @@ def test_non_cli_paths_keep_existing_error_shape_and_are_not_audited(caplog) -> 
     assert response.json() == {"detail": "Not authenticated"}
     assert "x-request-id" not in response.headers
     assert _events(caplog) == []
+
+
+@pytest.mark.parametrize(
+    ("path", "command"),
+    [
+        ("/api/v1/cli/stores", "stores.list"),
+        (
+            "/api/v1/clues/store-follow-up-summary",
+            "clues.follow-up-stats",
+        ),
+    ],
+)
+def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_id(
+    caplog, path: str, command: str
+) -> None:
+    caplog.set_level(logging.INFO, logger="dy_api.cli_audit")
+    client = _client(FailingListStore())
+
+    response = client.get(path, headers={"X-Request-ID": "req-db-failure"})
+
+    assert response.status_code == 503
+    body = response.json()
+    assert set(body) == {"ok", "command", "schema_version", "error"}
+    assert body["ok"] is False
+    assert body["command"] == command
+    assert body["schema_version"] == "1.0"
+    assert body["error"] == {
+        "code": "API_UNAVAILABLE",
+        "message": "The data service is unavailable",
+        "retryable": True,
+        "request_id": "req-db-failure",
+    }
+    assert response.headers["x-request-id"] == "req-db-failure"
+    [event] = _events(caplog)
+    assert event["request_id"] == "req-db-failure"
+    assert event["command"] == command
+    assert event["result"] == 503
+    assert event["error_code"] == "API_UNAVAILABLE"
