@@ -67,4 +67,11 @@
 
 ## 使用接口
 
-Phase 4 回填，管理端只读。
+- `GET /api/v1/clues/orders/{order_id}` — 从创建轮次的正式决策生成真实策略标题。
+- `GET /api/v1/admin/clue-allocation/decisions` — 分页读取分配决策摘要。
+- `GET /api/v1/admin/clue-allocation/decisions/{decision_id}` — 读取决策上下文与候选证据。
+- `GET /api/v1/admin/clue-allocation/cycles/{cycle_id}` — 关联批次项决策结果。
+- `POST /api/v1/admin/clue-allocation/trial-cycles` — 写入不可变试运行决策。
+- `POST /api/v1/admin/clue-allocation/rebuild-cycles` — 写入不可变试运行重建决策。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 写入正式策略步骤决策，实际选中才关联轮次。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 以新批次写新决策，不覆盖历史。

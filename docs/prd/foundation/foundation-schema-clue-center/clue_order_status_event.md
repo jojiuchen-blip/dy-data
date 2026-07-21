@@ -52,4 +52,7 @@
 
 ## 使用接口
 
-Phase 4 回填。事件写入仅由内部任务调用，管理端只读。
+- `POST /api/v1/internal/clue-center/materializations` — 从线索、订单、核销和退款证据追加幂等状态事件。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 按优先级消费事件并迁移主线索、轮次、总部池和指标。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 从原始事实重建可证明事件流。
+- 不提供页面写接口；原事件禁止更新或删除。

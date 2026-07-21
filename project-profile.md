@@ -7,7 +7,7 @@
 - 项目名称：`【用户确认】 dy-data（抖音经营引擎）`
 - 项目 slug：`【主入口回写】 dy-data`
 - 项目一句话目标：`【用户确认】 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。`
-- 当前阶段：`【主入口回写】 S2 线索中心 FOUNDATION 进行中；Phase 2 术语表已确认，Phase 3 Schema 已生成并等待业务确认，尚未进入 API、PRD、S3 或 S4`
+- 当前阶段：`【主入口回写】 S2 线索中心 FOUNDATION Phase 4 进行中；Phase 2 术语表与 Phase 3 Schema 已确认，Phase 4 API 已生成并等待业务确认，尚未进入 Phase 5、PRD、S3 或 S4`
 - 当前 Linear issue：`【主入口回写】 DYDATA-41 In Progress；DYDATA-36 已完成；DYDATA-42 PRD 与 DYDATA-43 正式交付计划按顺序等待，S4 通过后再进入 DYDATA-34 下线旧引擎；DYDATA-35 记录门店地理数据质量闭环`
 - 协作模式：`【系统推断】 业务单人 + AI执行`
 
@@ -71,7 +71,7 @@
 - 当前架构入口：`【主入口回写】 docs/architecture.md`
 - 部署与运行入口：`【主入口回写】 docs/runbook.md、deploy/ 与 .github/workflows/`
 - 规格与历史材料：`【系统推断】 docs/superpowers/specs/、docs/plans/ 及 docs/governance/authority-map.md 中映射的 evidence / legacy 文件`
-- 套包标准产物：`【主入口回写】 PROJECT_PROFILE、项目级权威 BRD、page-delivery 与 PAGE_EXPLAINER 已建立；DYDATA-20 和 DYDATA-36 的 BRD 适用 P0 字段、四项前提挑战、七项质量门和终稿确认均已完成，页面交付与交互基线覆盖 14 个现有页面组件；线索中心 FOUNDATION 术语表已确认、Schema 待确认，API 与 PRD 待后续阶段补齐`
+- 套包标准产物：`【主入口回写】 PROJECT_PROFILE、项目级权威 BRD、page-delivery 与 PAGE_EXPLAINER 已建立；DYDATA-20 和 DYDATA-36 的 BRD 适用 P0 字段、四项前提挑战、七项质量门和终稿确认均已完成，页面交付与交互基线覆盖 14 个现有页面组件；线索中心 FOUNDATION 术语表与 Schema 已确认，API 契约已生成并等待确认，PRD 待后续阶段补齐`
 - 当前扫描证据：`【系统推断】 页面文件 14 个，API 文件 9 个，API 端点 63 个，模型定义 37 个，迁移 17 个`
 - 已有文档：`【系统推断】 docs/brd/BRD-dy-data-20260716-1255.md、docs/brd/brd-ledger-dy-data.md、src/frontend/page-preview/page-delivery-dy-data.md、src/frontend/page-preview/explainer-flow-dy-data.md、src/frontend/page-preview/explainer-b-interaction-dy-data.md、src/frontend/page-preview/explainer-delivery-dy-data.md`
 - 已有原型 / 截图：`【主入口回写】 现有 React 页面即交互原型；线索看板、线索明细桌面端及线索明细移动端验收截图位于 src/frontend/page-preview/screenshots/`
@@ -95,7 +95,7 @@
 ## 8. 当前判断
 
 - 当前最适合进入的阶段：`【主入口回写】 以已冻结的线索中心 BRD 为输入，进入 FOUNDATION、PRD 与正式交付计划补齐阶段`
-- 当前轮应输出的交付物：`【主入口回写】 FOUNDATION Schema 已定义事实层、分配账本、查询投影、审计及一次性迁移目标，待确认后继续接口、状态迁移、任务、权限和运行方案；PRD 定义页面细则与验收条件；正式交付计划把追踪矩阵缺口映射到 Linear、代码、测试和上线门禁`
+- 当前轮应输出的交付物：`【主入口回写】 FOUNDATION Schema 已定义事实层、分配账本、查询投影、审计及一次性迁移目标；Phase 4 API 已定义公共契约、查询与联系方式、跟进与轮次、规则与门店组、正式分配与总部池、任务安全与迁移边界，待确认后进入 Phase 5；PRD 定义页面细则与验收条件；正式交付计划把追踪矩阵缺口映射到 Linear、代码、测试和上线门禁`
 - 当前最大不确定项：`【主入口回写】 总体核销率新口径、自动正式分配闭环、地理数据质量和旧引擎删除仍需在下游规格中形成可执行验收方案`
 - 当前任务执行主体：`【主入口回写】 ai-project-manager 路由 foundation-builder、prd-chief/prd-writer 与 delivery-planner；S4 门禁通过后由 coding-standards 承接 DYDATA-34 实现`
 

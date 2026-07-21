@@ -49,4 +49,10 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/admin/clue-allocation/rules` — 分页读取规则及当前发布版本摘要。
+- `POST /api/v1/admin/clue-allocation/rules` — 最高管理员创建唯一范围规则。
+- `GET /api/v1/admin/clue-allocation/rules/{rule_id}` — 读取规则、版本和绑定数量。
+- `PUT /api/v1/admin/clue-allocation/rules/{rule_id}` — 更新名称、说明和启用状态，范围不可变。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/publish` — 原子更新当前发布版本指针。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/retire` — 退役后影响新线索范围回退。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 按范围优先级解析新线索规则。

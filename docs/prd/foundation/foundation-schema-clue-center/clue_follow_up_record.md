@@ -62,4 +62,8 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖创建、查询和最高管理员软删除。
+- `GET /api/v1/clues/orders/{order_id}` — 按真实轮次返回未删除跟进历史。
+- `POST /api/v1/clues/orders/{order_id}/follow-ups` — 幂等创建五类动作记录并同步轮次摘要。
+- `DELETE /api/v1/clues/follow-up-records/{follow_up_record_id}` — 最高管理员带原因软删除并审计。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 计算 24 小时有效跟进率与门店评分。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 迁移可证明枚举，模糊旧值进入质量清单。

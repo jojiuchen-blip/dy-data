@@ -42,4 +42,8 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/admin/clue-allocation/rule-options` — 返回门店组活动成员数。
+- `GET /api/v1/admin/clue-allocation/store-groups/{store_group_id}` — 读取当前和历史成员。
+- `POST /api/v1/admin/clue-allocation/store-groups` — 可写初始活动成员。
+- `PUT /api/v1/admin/clue-allocation/store-groups/{store_group_id}/members` — 关闭移除关系并新增成员历史，不覆盖旧行。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 首次规则范围匹配时读取当前活动关系。

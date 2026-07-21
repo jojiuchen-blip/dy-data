@@ -82,4 +82,16 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖列表、详情、跟进保存和内部状态迁移。
+- `GET /api/v1/clues/overview` — 聚合门店池、跟进率和待处理轮次。
+- `GET /api/v1/clues/metrics/stores` — 计算门店跟进和核销转化诊断。
+- `GET /api/v1/clues/assignment-rounds` — 分页读取真实轮次明细。
+- `GET /api/v1/clues/orders/{order_id}` — 读取全部真实轮次与策略标题。
+- `POST /api/v1/clues/assignment-round-exports` — 导出账号范围内真实轮次。
+- `POST /api/v1/clues/orders/{order_id}/phone-access` — 校验请求轮次为当前活动轮次。
+- `POST /api/v1/clues/orders/{order_id}/follow-ups` — 原子更新本轮摘要、保护期或关闭状态。
+- `DELETE /api/v1/clues/follow-up-records/{follow_up_record_id}` — 受控重算未删除记录摘要，不回滚历史流转。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 核销/退款优先关闭活动轮。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 仅实际选中门店时创建连续真实轮次。
+- `POST /api/v1/internal/clue-allocation/round-expirations` — 关闭 SLA/保护期到期轮次。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 刷新成熟轮次和评分输入。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 只重建新引擎正式轮次，删除 legacy 轮次。
