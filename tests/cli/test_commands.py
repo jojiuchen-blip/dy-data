@@ -164,7 +164,7 @@ def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[st
         "effective_store_ids": store_ids,
     }
     payload["filters"] = {
-        "assigned_date_start": "2026-07-01",
+        "assigned_date_start": "2026-07-15",
         "assigned_date_end": "2026-07-21",
         "timezone": "Asia/Shanghai",
     }

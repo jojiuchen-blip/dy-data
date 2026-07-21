@@ -128,6 +128,8 @@ def validate_follow_up_stats(
     expected_request_id: str | None = None,
     *,
     expected_store_ids: list[str] | None = None,
+    expected_date_start: date | None = None,
+    expected_date_end: date | None = None,
 ) -> dict[str, Any]:
     """Validate and rebuild a clue follow-up aggregate success envelope."""
     _require_envelope(
@@ -152,6 +154,15 @@ def validate_follow_up_stats(
     date_end = _require_date_text(filters["assigned_date_end"])
     if date_start > date_end or filters["timezone"] != "Asia/Shanghai":
         raise ContractError("filters are incompatible")
+    if (expected_date_start is None) != (expected_date_end is None):
+        raise ContractError("expected date scope is incomplete")
+    if expected_date_start is not None and (
+        type(expected_date_start) is not date
+        or type(expected_date_end) is not date
+        or date_start != expected_date_start
+        or date_end != expected_date_end
+    ):
+        raise ContractError("response date scope does not match the request")
 
     data = _require_mapping(payload["data"])
     _require_exact_keys(data, {"stores", "totals"})

@@ -114,7 +114,10 @@ def execute_command(
             response = _validated(
                 response,
                 lambda payload: validate_follow_up_stats(
-                    payload, expected_store_ids=parsed.store_ids
+                    payload,
+                    expected_store_ids=parsed.store_ids,
+                    expected_date_start=parsed.date_from,
+                    expected_date_end=parsed.date_to,
                 ),
             )
             if parsed.output == "json":

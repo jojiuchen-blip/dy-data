@@ -162,6 +162,8 @@ class DyDataClient:
                 payload,
                 request_id,
                 expected_store_ids=normalized_store_ids,
+                expected_date_start=date_from,
+                expected_date_end=date_to,
             ),
         )
 

@@ -206,6 +206,31 @@ def test_follow_up_stats_sends_dates_and_repeated_store_ids() -> None:
     ]
 
 
+def test_follow_up_stats_rejects_response_date_scope_mismatch() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = follow_up_envelope()
+        payload["filters"]["assigned_date_end"] = "2026-07-08"
+        payload["meta"]["source"] = "SENSITIVE_WRONG_PERIOD"
+        payload["meta"]["request_id"] = request.headers["X-Request-ID"]
+        return httpx.Response(200, json=payload)
+
+    client = DyDataClient(
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(CliError) as raised:
+        client.follow_up_stats(
+            "access-secret",
+            date_from=date(2026, 7, 1),
+            date_to=date(2026, 7, 7),
+            store_ids=["store-a", "store-b"],
+        )
+
+    assert raised.value.code == "SCHEMA_MISMATCH"
+    assert "SENSITIVE_WRONG_PERIOD" not in str(raised.value)
+
+
 def device_start_payload() -> dict[str, object]:
     return {
         "device_code": "d" * 43,

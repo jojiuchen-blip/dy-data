@@ -271,6 +271,17 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
         "SENSITIVE_EFFECTIVE_SCOPE_DRIFT"
     )
 
+    stats_wrong_default_dates = follow_up_envelope()
+    stats_wrong_default_dates["filters"]["assigned_date_start"] = "2026-07-14"
+    stats_wrong_default_dates["data"]["stores"][0]["store_name"] = (
+        "SENSITIVE_DEFAULT_DATE_DRIFT"
+    )
+
+    stats_wrong_explicit_dates = follow_up_envelope()
+    stats_wrong_explicit_dates["data"]["stores"][0]["store_name"] = (
+        "SENSITIVE_EXPLICIT_DATE_DRIFT"
+    )
+
     return [
         (["stores", "list", "--json"], partial, "SENSITIVE_PARTIAL"),
         (["auth", "status", "--json"], wrong_command, "SENSITIVE_COMMAND"),
@@ -337,6 +348,23 @@ def invalid_success_cases() -> list[tuple[list[str], dict[str, Any], str]]:
             ],
             stats_wrong_effective,
             "SENSITIVE_EFFECTIVE_SCOPE_DRIFT",
+        ),
+        (
+            ["clues", "follow-up-stats"],
+            stats_wrong_default_dates,
+            "SENSITIVE_DEFAULT_DATE_DRIFT",
+        ),
+        (
+            [
+                "clues",
+                "follow-up-stats",
+                "--from",
+                "2026-07-01",
+                "--to",
+                "2026-07-07",
+            ],
+            stats_wrong_explicit_dates,
+            "SENSITIVE_EXPLICIT_DATE_DRIFT",
         ),
     ]
 
