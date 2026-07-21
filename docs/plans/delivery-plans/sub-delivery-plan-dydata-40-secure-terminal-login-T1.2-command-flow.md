@@ -22,6 +22,7 @@
 - `apps/cli/src/dydata_cli/parser.py`
 - `apps/cli/src/dydata_cli/registry.py`
 - `tests/cli/test_commands.py`
+- `tests/cli/test_terminal_login.py`
 - `tests/cli/test_parser.py`
 - `tests/cli/test_cli_security.py`
 
@@ -51,9 +52,14 @@
 
 **前置**：T1.1
 
-**状态**：待开发
+**状态**：已完成（2026-07-22）
 
 ## Evidence Log
 
-- 待生成。
-
+- 初始 RED：默认终端路径、`--browser`、新错误契约尚未实现，目标集 `11 failed, 41 passed`。
+- GetPass 安全 RED：fallback warning、取消/无效凭据不创建 grant 的新增断言 `3 failed`。
+- EOF/终端注入 RED：用户名 EOF、确认 EOF、OSC 控制字符身份共 `3 failed`。
+- Keyring 清理 RED：保存异常未撤销新 token，`1 failed`。
+- 最终 GREEN：terminal/interative/commands/parser/security/output 相关目标 `81 passed`；完整 `tests/cli` 为 `188 passed, 2 failed`，两项仅是 T1.3 尚未生成的命令参考漂移。
+- 规格复审先发现 `GetPassWarning` 明文回退风险，修复后 PASS；质量复审发现 EOF 映射和 ANSI/OSC 注入，修复后 APPROVE；保存异常撤销增量复审 APPROVE。
+- Foundation 漂移：无；实现只收紧本地终端与凭据生命周期，不修改业务 API/Schema。

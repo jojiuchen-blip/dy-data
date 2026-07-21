@@ -29,7 +29,14 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
     {
         "command": "auth.login",
         "purpose": "Sign in interactively and store credentials locally.",
-        "parameters": [],
+        "parameters": [
+            {
+                "name": "--browser",
+                "required": False,
+                "type": "flag",
+                "default": False,
+            }
+        ],
         "roles": ["all"],
         "data_scope": "none",
         "side_effect": "remote_auth_grant_and_local_credential",

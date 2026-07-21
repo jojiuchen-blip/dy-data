@@ -15,7 +15,7 @@
 1. 先读本主计划和任务看板，只允许一个 Task 处于“进行中”。
 2. 再读当前 Task 子计划列出的设计章节与真实代码。
 3. 每个实现任务严格执行 Red -> Green -> Refactor，并保留命令证据。
-4. 用户已在 2026-07-22 明确批准计划后直接开发，因此 T1.1 已由“待审阅”转为“进行中”，其余任务为“待开发”。
+4. 用户已在 2026-07-22 明确批准计划后直接开发；任务按三处同步状态顺序推进，当前 T1.3 为唯一“进行中”任务。
 
 ### 0.1 PRD 加载约束
 
@@ -77,8 +77,8 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T1.1 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md) | 进行中 |
-| T1.2 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md) | 待开发 |
+| T1.1 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md) | 已完成（2026-07-22） |
+| T1.2 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md) | 已完成（2026-07-22） |
 
 ### Phase 2：发现、文档与发布证据
 
@@ -88,7 +88,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T1.3 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md) | 待开发 |
+| T1.3 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md) | 进行中 |
 | T1.4 | [sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md](sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md) | 待开发 |
 
 ## 4. 任务看板

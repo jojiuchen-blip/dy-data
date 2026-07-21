@@ -50,9 +50,13 @@
 
 **前置**：无
 
-**状态**：进行中
+**状态**：已完成（2026-07-22）
 
 ## Evidence Log
 
-- 待生成。
-
+- RED 1：`python -m pytest tests/cli/test_interactive_auth.py tests/cli/test_output.py -q` 因 `dydata_cli.interactive_auth` 尚不存在而在收集阶段失败。
+- GREEN 1：实现独立会话后同一目标集 `21 passed`。
+- 审查 RED：规格审查补充非法角色/范围组合后 `7 failed`；跨端契约审查补充 legacy `admin/all` 归一化后 `2 failed`。
+- 最终 GREEN：`tests/cli/test_interactive_auth.py`、`test_output.py`、`test_api_auth.py`、`test_api_cli_auth.py` 合计 `81 passed`；独立代码质量/安全复审结论 `APPROVE`。
+- Cookie 隔离、认证 POST 单次提交、严格字段白名单、错误脱敏和所有异常路径清理均有自动断言。
+- Foundation 漂移：无；本任务只实现已确认的增量 CLI 设计，不要求回改 `docs/prd/foundation/`。

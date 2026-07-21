@@ -15,7 +15,12 @@ from dydata_cli.registry import command_catalog
 
 def test_parser_accepts_only_the_approved_command_tree() -> None:
     assert parse_args(["commands", "--json"]).command == "commands"
-    assert parse_args(["auth", "login"]).command == "auth.login"
+    terminal_login = parse_args(["auth", "login"])
+    browser_login = parse_args(["auth", "login", "--browser"])
+    assert terminal_login.command == "auth.login"
+    assert terminal_login.browser is False
+    assert browser_login.command == "auth.login"
+    assert browser_login.browser is True
     assert parse_args(["auth", "logout"]).command == "auth.logout"
     assert parse_args(["auth", "status", "--json"]).command == "auth.status"
     assert parse_args(["stores", "list", "--json"]).command == "stores.list"

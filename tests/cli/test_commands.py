@@ -312,7 +312,7 @@ def test_login_opens_browser_polls_at_server_interval_and_never_prints_tokens() 
     sleeps: list[float] = []
 
     exit_code, stdout = run(
-        ["auth", "login"],
+        ["auth", "login", "--browser"],
         store=store,
         client=LoginClient(),
         browser_open=lambda url: browser_urls.append(url) or True,

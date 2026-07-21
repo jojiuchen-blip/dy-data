@@ -3,16 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import math
 import sys
 import time
+import warnings
 import webbrowser
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from typing import Any, TextIO
 
 from .client import CliError, DyDataClient
-from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
+from .constants import CLI_SCHEMA_VERSION, CLI_VERSION, ERROR_EXIT_CODES
 from .contracts import (
     ContractError,
     validate_auth_status,
@@ -20,12 +22,21 @@ from .contracts import (
     validate_stores,
 )
 from .credentials import CredentialState, CredentialStore
+from .interactive_auth import InteractiveAuthSession, LoginIdentity
 from .output import emit_error, emit_json, render_aggregate_table
 from .registry import command_catalog
 
 
 _REFRESH_EARLY_SECONDS = 60
 _AUTH_ERROR_CODES = {"AUTH_REQUIRED", "AUTH_EXPIRED"}
+
+
+def _standard_streams_are_tty() -> bool:
+    streams = (sys.stdin, sys.stdout, sys.stderr)
+    try:
+        return all(stream.isatty() for stream in streams)
+    except (AttributeError, OSError):
+        return False
 
 
 def execute_command(
@@ -37,6 +48,12 @@ def execute_command(
     sleep: Callable[[float], None] = time.sleep,
     now: Callable[[], datetime] = lambda: datetime.now(timezone.utc),
     stream: TextIO | None = None,
+    interactive_auth_factory: Callable[[], InteractiveAuthSession] = (
+        InteractiveAuthSession
+    ),
+    text_input: Callable[[str], str] = input,
+    password_input: Callable[[str], str] = getpass.getpass,
+    is_interactive_terminal: Callable[[], bool] = _standard_streams_are_tty,
 ) -> int:
     """Execute one parsed command and return its stable process exit code."""
     try:
@@ -72,9 +89,14 @@ def execute_command(
             return _login(
                 store,
                 api_client,
+                browser=parsed.browser,
                 browser_open=browser_open,
                 sleep=sleep,
                 stream=stream,
+                interactive_auth_factory=interactive_auth_factory,
+                text_input=text_input,
+                password_input=password_input,
+                is_interactive_terminal=is_interactive_terminal,
             )
         if parsed.command == "auth.logout":
             return _logout(store, api_client, stream=stream)
@@ -152,6 +174,47 @@ def _login(
     store: CredentialStore,
     client: DyDataClient,
     *,
+    browser: bool,
+    browser_open: Callable[[str], Any],
+    sleep: Callable[[float], None],
+    stream: TextIO | None,
+    interactive_auth_factory: Callable[[], InteractiveAuthSession],
+    text_input: Callable[[str], str],
+    password_input: Callable[[str], str],
+    is_interactive_terminal: Callable[[], bool],
+) -> int:
+    target = stream or sys.stdout
+    if store.load() is not None:
+        target.write(
+            "A local CLI credential already exists. Run `dydata auth logout` "
+            "before signing in as another account.\n"
+        )
+        return 0
+    if browser:
+        return _browser_login(
+            store,
+            client,
+            browser_open=browser_open,
+            sleep=sleep,
+            stream=stream,
+        )
+    if not is_interactive_terminal():
+        raise CliError("INTERACTIVE_REQUIRED")
+    return _terminal_login(
+        store,
+        client,
+        sleep=sleep,
+        stream=stream,
+        interactive_auth_factory=interactive_auth_factory,
+        text_input=text_input,
+        password_input=password_input,
+    )
+
+
+def _browser_login(
+    store: CredentialStore,
+    client: DyDataClient,
+    *,
     browser_open: Callable[[str], Any],
     sleep: Callable[[float], None],
     stream: TextIO | None,
@@ -167,6 +230,105 @@ def _login(
     target.write(f"Code: {user_code}\n")
     browser_open(verification_uri)
 
+    state = _poll_for_credential(
+        client,
+        device_code=device_code,
+        expires_in=expires_in,
+        interval=interval,
+        sleep=sleep,
+    )
+    _save_new_credential(store, client, state)
+    target.write("Authorization complete.\n")
+    return 0
+
+
+def _terminal_login(
+    store: CredentialStore,
+    client: DyDataClient,
+    *,
+    sleep: Callable[[float], None],
+    stream: TextIO | None,
+    interactive_auth_factory: Callable[[], InteractiveAuthSession],
+    text_input: Callable[[str], str],
+    password_input: Callable[[str], str],
+) -> int:
+    username = _read_interactive_text("Username: ", text_input).strip()
+    if not username:
+        raise CliError("INVALID_ARGUMENT")
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", getpass.GetPassWarning)
+            password = password_input("Password: ")
+    except (EOFError, getpass.GetPassWarning):
+        raise CliError("INTERACTIVE_REQUIRED") from None
+    if not isinstance(password, str) or not password:
+        raise CliError("AUTH_FAILED")
+
+    target = stream or sys.stdout
+    with interactive_auth_factory() as auth_session:
+        try:
+            identity = auth_session.login(username, password)
+        finally:
+            password = ""
+        _write_identity_summary(identity, stream=target)
+        confirmation = _read_interactive_text(
+            "Authorize this CLI credential? [y/N]: ", text_input
+        ).strip().lower()
+        if confirmation not in {"y", "yes"}:
+            target.write("Authorization cancelled.\n")
+            return ERROR_EXIT_CODES["AUTH_FAILED"]
+        start = client.start_device_authorization()
+        device_code = _required_text(start, "device_code")
+        user_code = _required_text(start, "user_code")
+        expires_in = _required_positive_integer(start, "expires_in")
+        interval = _required_positive_integer(start, "interval")
+        auth_session.approve_device_authorization(user_code)
+
+    state = _poll_for_credential(
+        client,
+        device_code=device_code,
+        expires_in=expires_in,
+        interval=interval,
+        sleep=sleep,
+    )
+    _save_new_credential(store, client, state)
+    target.write("Authorization complete.\n")
+    return 0
+
+
+def _read_interactive_text(
+    prompt: str, reader: Callable[[str], str]
+) -> str:
+    try:
+        value = reader(prompt)
+    except EOFError:
+        raise CliError("INTERACTIVE_REQUIRED") from None
+    if not isinstance(value, str):
+        raise CliError("INTERACTIVE_REQUIRED")
+    return value
+
+
+def _write_identity_summary(identity: LoginIdentity, *, stream: TextIO) -> None:
+    if identity.store_scope_mode == "all":
+        store_scope = "all stores"
+    elif identity.store_scope_mode == "specified":
+        store_count = len(identity.store_ids)
+        store_scope = f"{store_count} store" if store_count == 1 else f"{store_count} stores"
+    else:
+        store_scope = "no stores"
+    stream.write(f"Signed in as: {identity.username}\n")
+    stream.write(f"Role: {identity.role}\n")
+    stream.write(f"Store scope: {store_scope}\n")
+
+
+def _poll_for_credential(
+    client: DyDataClient,
+    *,
+    device_code: str,
+    expires_in: int,
+    interval: int,
+    sleep: Callable[[float], None],
+) -> CredentialState:
     poll_count = max(1, math.ceil(expires_in / interval))
     for poll_index in range(poll_count):
         response = client.poll_device_token(device_code)
@@ -174,11 +336,32 @@ def _login(
             if poll_index + 1 < poll_count:
                 sleep(interval)
             continue
-        state = _credential_state_from_response(response)
-        store.save(state)
-        target.write("Authorization complete.\n")
-        return 0
+        return _credential_state_from_response(response)
     raise CliError("AUTH_EXPIRED")
+
+
+def _save_new_credential(
+    store: CredentialStore,
+    client: DyDataClient,
+    state: CredentialState,
+) -> None:
+    try:
+        saved = store.save(state, expected=None)
+    except Exception:
+        _best_effort_revoke(client, state.refresh_token)
+        raise
+    if saved:
+        return
+    _best_effort_revoke(client, state.refresh_token)
+    raise CliError("AUTH_FAILED")
+
+
+def _best_effort_revoke(client: DyDataClient, refresh_token: str) -> None:
+    try:
+        client.revoke(refresh_token)
+    except CliError:
+        # A cleanup failure must not mask the original local-save/CAS outcome.
+        pass
 
 
 def _logout(

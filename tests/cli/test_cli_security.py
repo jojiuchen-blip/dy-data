@@ -215,3 +215,25 @@ def test_token_cannot_be_supplied_as_a_cli_argument(
     assert json.loads(captured.out)["error"]["code"] == "INVALID_ARGUMENT"
     assert "access-secret" not in captured.out
     assert captured.err == ""
+
+
+@pytest.mark.parametrize(
+    ("option", "sensitive_value"),
+    [
+        ("--username", "injected-user-sentinel"),
+        ("--password", "injected-password-sentinel"),
+        ("--token", "injected-token-sentinel"),
+    ],
+)
+def test_login_credentials_cannot_be_supplied_as_arguments(
+    option: str,
+    sensitive_value: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    exit_code = main(["auth", "login", option, sensitive_value])
+
+    captured = capsys.readouterr()
+    assert exit_code == 2
+    assert json.loads(captured.out)["error"]["code"] == "INVALID_ARGUMENT"
+    assert sensitive_value not in captured.out
+    assert captured.err == ""
