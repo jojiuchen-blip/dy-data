@@ -174,7 +174,7 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     assert [row["order_id"] for row in rows] == ["order-sale"]
 
 
-def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> None:
+def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient) -> None:
     _login_viewer(client)
 
     other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
@@ -197,4 +197,5 @@ def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> N
     }
 
     admin_accounts = client.get("/api/v1/admin/accounts")
-    assert admin_accounts.status_code == 403
+    assert admin_accounts.status_code == 200
+    assert all(row["role"] == "store" for row in admin_accounts.json()["data"]["rows"])

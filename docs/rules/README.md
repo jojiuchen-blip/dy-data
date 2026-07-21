@@ -10,6 +10,7 @@
 - `debugging.md`：从症状到数据、服务、页面和生产环境的逐层取证。
 - `docs-and-plans.md`：Linear、执行驾驶舱、项目画像和文档权威同步。
 - `devlog.md`：`docs/devlog/` 的可提交开发日志和 `/logs/` 的运行日志边界。
+- `account-access-control.md`：三类账号、页面权限、门店范围、门店激活兼容和权限变更记录。
 
 ## 使用方式
 

@@ -169,6 +169,8 @@ class User(Base):
     external_account_id: Mapped[str | None] = mapped_column(Text, index=True)
     display_name: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(32), default="store", index=True)
+    store_scope_mode: Mapped[str] = mapped_column(String(16), default="specified", index=True)
+    auth_version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     is_initialized: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     password_hash: Mapped[str | None] = mapped_column(Text)
@@ -186,6 +188,67 @@ class UserStoreScope(Base):
     store_id: Mapped[str] = mapped_column(
         Text, ForeignKey("dim_stores.store_id", ondelete="CASCADE"), primary_key=True
     )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AccessPage(Base):
+    __tablename__ = "access_pages"
+
+    page_key: Mapped[str] = mapped_column(String(8), primary_key=True)
+    page_name: Mapped[str] = mapped_column(Text)
+    module_name: Mapped[str] = mapped_column(Text)
+    route_patterns: Mapped[list[str]] = mapped_column(JSON_TYPE, default=list)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RolePagePermission(Base):
+    __tablename__ = "role_page_permissions"
+
+    role: Mapped[str] = mapped_column(String(32), primary_key=True)
+    page_key: Mapped[str] = mapped_column(
+        String(8), ForeignKey("access_pages.page_key", ondelete="CASCADE"), primary_key=True
+    )
+    is_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class UserPagePermissionOverride(Base):
+    __tablename__ = "user_page_permission_overrides"
+    __table_args__ = (Index("ix_user_page_permission_overrides_page_key", "page_key"),)
+
+    user_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("users.user_id", ondelete="CASCADE"), primary_key=True
+    )
+    page_key: Mapped[str] = mapped_column(
+        String(8), ForeignKey("access_pages.page_key", ondelete="CASCADE"), primary_key=True
+    )
+    effect: Mapped[str] = mapped_column(String(8))
+    updated_by: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class AccountPermissionAuditLog(Base):
+    __tablename__ = "account_permission_audit_logs"
+    __table_args__ = (
+        Index("ix_account_permission_audit_logs_created_at", "created_at"),
+        Index("ix_account_permission_audit_logs_target_user_id", "target_user_id"),
+        Index("ix_account_permission_audit_logs_actor_user_id", "actor_user_id"),
+    )
+
+    audit_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    action: Mapped[str] = mapped_column(String(96), index=True)
+    result: Mapped[str] = mapped_column(String(16), default="success")
+    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_username: Mapped[str] = mapped_column(Text)
+    actor_role: Mapped[str] = mapped_column(String(32))
+    target_user_id: Mapped[str | None] = mapped_column(Text)
+    target_username: Mapped[str | None] = mapped_column(Text)
+    before_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    after_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

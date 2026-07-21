@@ -140,11 +140,16 @@ def install_api_routes(page: Page) -> None:
         "username": "visual-admin",
         "user_id": "visual-admin",
         "display_name": "Visual Admin",
-        "role": "admin",
+        "role": "highest_admin",
         "is_highest_admin": True,
         "status": "active",
         "is_initialized": True,
         "store_ids": [],
+        "store_scope_mode": "all",
+        "page_keys": [
+            "A01", "A02", "B01", "B02", "B03", "C01",
+            "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
+        ],
     }
     empty_pagination = {
         "page": 1,

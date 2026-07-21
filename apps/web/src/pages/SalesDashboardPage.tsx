@@ -145,7 +145,7 @@ function selectedStore(
 }
 
 function canViewAllStores(currentUser: AdminUser): boolean {
-  return currentUser.role !== "store";
+  return currentUser.store_scope_mode === "all";
 }
 
 function defaultStoreIdForUser(

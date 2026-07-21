@@ -36,6 +36,8 @@ class AdminUser(BaseModel):
     status: str = "active"
     is_initialized: bool = True
     store_ids: list[str] = Field(default_factory=list)
+    store_scope_mode: Literal["all", "specified", "none"] = "all"
+    page_keys: list[str] = Field(default_factory=list)
     is_highest_admin: bool = False
 
 
@@ -100,10 +102,16 @@ class AccountRow(BaseModel):
     username: str
     external_account_id: str | None = None
     display_name: str
-    role: Literal["admin", "viewer", "store"] = "store"
+    role: Literal["highest_admin", "admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
+    store_scope_mode: Literal["all", "specified", "none"] = "specified"
     is_initialized: bool = False
     stores: list[AccountStoreScopeRow] = Field(default_factory=list)
+    default_page_keys: list[str] = Field(default_factory=list)
+    extra_allow: list[str] = Field(default_factory=list)
+    extra_deny: list[str] = Field(default_factory=list)
+    effective_page_keys: list[str] = Field(default_factory=list)
+    inherits_role_defaults: bool = True
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -128,8 +136,9 @@ class UnactivatedStoreAccountListData(BaseModel):
 class AccountUpsertRequest(BaseModel):
     username: str
     display_name: str
-    role: Literal["admin", "viewer", "store"] = "store"
+    role: Literal["highest_admin", "admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
+    store_scope_mode: Literal["all", "specified", "none"] = "specified"
     external_account_id: str | None = None
     store_ids: list[str] = Field(default_factory=list)
     password: str | None = None
@@ -153,6 +162,53 @@ class AccountPasswordUpdateRequest(BaseModel):
         if not value:
             raise ValueError("password is required")
         return value
+
+
+class AccountPagePermissionUpdateRequest(BaseModel):
+    extra_allow: list[str] = Field(default_factory=list)
+    extra_deny: list[str] = Field(default_factory=list)
+
+
+class RolePagePermissionUpdateRequest(BaseModel):
+    page_keys: list[str] = Field(default_factory=list)
+    confirmed: bool = False
+
+
+class AccessPageRow(BaseModel):
+    page_key: str
+    page_name: str
+    module_name: str
+    route_patterns: list[str] = Field(default_factory=list)
+
+
+class AccessControlData(BaseModel):
+    pages: list[AccessPageRow]
+    role_permissions: dict[str, list[str]]
+
+
+class RolePermissionImpactData(BaseModel):
+    role: Literal["admin", "store"]
+    page_keys: list[str]
+    inheriting_user_count: int
+    customized_user_count: int
+
+
+class AccountPermissionAuditRow(BaseModel):
+    audit_id: str
+    action: str
+    result: Literal["success", "failed"] = "success"
+    actor_user_id: str | None = None
+    actor_username: str
+    actor_role: str
+    target_user_id: str | None = None
+    target_username: str | None = None
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AccountPermissionAuditListData(BaseModel):
+    rows: list[AccountPermissionAuditRow]
 
 
 FeedbackCategory = Literal["experience", "data", "feature", "other"]

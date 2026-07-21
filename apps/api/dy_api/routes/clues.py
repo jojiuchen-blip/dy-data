@@ -36,7 +36,7 @@ def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
 
 def _operation_actor(current_user: AuthContext) -> dict:
     return {
-        "role": current_user.role,
+        "role": "admin" if current_user.is_highest_admin else current_user.role,
         "store_ids": current_user.store_ids,
         "user_id": current_user.user_id,
         "username": current_user.username,
