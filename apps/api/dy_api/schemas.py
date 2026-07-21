@@ -196,6 +196,7 @@ class RolePermissionImpactData(BaseModel):
 class AccountPermissionAuditRow(BaseModel):
     audit_id: str
     action: str
+    result: Literal["success", "failed"] = "success"
     actor_user_id: str | None = None
     actor_username: str
     actor_role: str

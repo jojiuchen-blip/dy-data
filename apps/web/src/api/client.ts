@@ -1232,12 +1232,24 @@ export async function updateRolePagePermissions(
 }
 
 export async function fetchAccountPermissionAuditLogs(
-  targetUserId?: string,
+  filters: {
+    targetUserId?: string;
+    action?: string;
+    actorUsername?: string;
+    createdFrom?: string;
+    createdTo?: string;
+  } = {},
 ): Promise<ApiLoadResult<AccountPermissionAuditListData>> {
   return {
     ...(await requestJson<AccountPermissionAuditListData>(
       "/admin/access-control/audit-logs",
-      { target_user_id: targetUserId },
+      {
+        target_user_id: filters.targetUserId,
+        action: filters.action,
+        actor_username: filters.actorUsername,
+        created_from: filters.createdFrom,
+        created_to: filters.createdTo,
+      },
     )),
     usingMock: false,
   };

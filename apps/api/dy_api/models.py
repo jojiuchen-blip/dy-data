@@ -241,6 +241,7 @@ class AccountPermissionAuditLog(Base):
 
     audit_id: Mapped[str] = mapped_column(Text, primary_key=True)
     action: Mapped[str] = mapped_column(String(96), index=True)
+    result: Mapped[str] = mapped_column(String(16), default="success")
     actor_user_id: Mapped[str | None] = mapped_column(Text)
     actor_username: Mapped[str] = mapped_column(Text)
     actor_role: Mapped[str] = mapped_column(String(32))

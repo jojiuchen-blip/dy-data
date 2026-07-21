@@ -568,6 +568,9 @@ def update_role_page_permissions(
 def list_account_permission_audit_logs(
     target_user_id: str | None = None,
     action: str | None = None,
+    actor_username: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
     actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
@@ -578,6 +581,16 @@ def list_account_permission_audit_logs(
         statement = statement.where(AccountPermissionAuditLog.target_user_id == target_user_id)
     if action:
         statement = statement.where(AccountPermissionAuditLog.action == action)
+    if actor_username:
+        statement = statement.where(
+            func.lower(AccountPermissionAuditLog.actor_username).contains(
+                actor_username.strip().lower()
+            )
+        )
+    if created_from:
+        statement = statement.where(AccountPermissionAuditLog.created_at >= created_from)
+    if created_to:
+        statement = statement.where(AccountPermissionAuditLog.created_at <= created_to)
     if not actor.is_highest_admin:
         store_user_ids = select(User.user_id).where(User.role == "store")
         statement = statement.where(AccountPermissionAuditLog.target_user_id.in_(store_user_ids))
@@ -589,6 +602,7 @@ def list_account_permission_audit_logs(
             AccountPermissionAuditRow(
                 audit_id=row.audit_id,
                 action=row.action,
+                result=row.result,
                 actor_user_id=row.actor_user_id,
                 actor_username=row.actor_username,
                 actor_role=row.actor_role,

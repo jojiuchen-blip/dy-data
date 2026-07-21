@@ -150,6 +150,25 @@ def test_page_override_is_effective_immediately_and_is_audited(client: TestClien
     )
     assert audits.status_code == 200
     assert audits.json()["data"]["rows"][0]["action"] == "account.page_permissions.updated"
+    assert audits.json()["data"]["rows"][0]["result"] == "success"
+
+    filtered = client.get(
+        "/api/v1/admin/access-control/audit-logs",
+        params={
+            "actor_username": "SYSTEM",
+            "action": "account.page_permissions.updated",
+            "created_from": "2000-01-01T00:00:00Z",
+            "created_to": "2100-01-01T00:00:00Z",
+        },
+    )
+    assert filtered.status_code == 200
+    assert [row["target_user_id"] for row in filtered.json()["data"]["rows"]] == [
+        "store-user"
+    ]
+    assert client.get(
+        "/api/v1/admin/access-control/audit-logs",
+        params={"actor_username": "no-such-operator"},
+    ).json()["data"]["rows"] == []
 
     client.post("/api/v1/auth/logout")
     _login(client, "store-user")

@@ -106,6 +106,22 @@ function idListLabel(values: string[]): string {
   return values.length ? values.join("、") : "-";
 }
 
+const auditActionOptions = [
+  { value: "", label: "全部操作类型" },
+  { value: "account.created", label: "创建账号" },
+  { value: "account.updated", label: "修改账号" },
+  { value: "account.activated", label: "激活账号" },
+  { value: "account.password_reset", label: "管理员重置密码" },
+  { value: "account.password_changed", label: "个人修改密码" },
+  { value: "account.password_reset_by_identity", label: "身份核验重置密码" },
+  { value: "account.page_permissions.updated", label: "修改账号页面权限" },
+  { value: "role.page_permissions.updated", label: "修改角色默认权限" },
+];
+
+function auditActionLabel(action: string): string {
+  return auditActionOptions.find((option) => option.value === action)?.label ?? action;
+}
+
 interface AdminAccountsPageProps {
   currentUser: AdminUser;
 }
@@ -115,6 +131,15 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [accessControl, setAccessControl] = useState<AccessControlData | null>(null);
   const [auditRows, setAuditRows] = useState<AccountPermissionAuditRow[]>([]);
+  const [auditOpen, setAuditOpen] = useState(false);
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditFilters, setAuditFilters] = useState({
+    targetUserId: "",
+    actorUsername: "",
+    action: "",
+    createdFrom: "",
+    createdTo: "",
+  });
   const [roleDrafts, setRoleDrafts] = useState<Record<"admin" | "store", Set<string>>>(
     { admin: new Set(), store: new Set() },
   );
@@ -139,6 +164,45 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     () => accounts.find((account) => account.user_id === editingUserId) ?? null,
     [accounts, editingUserId],
   );
+
+  const queryAuditRows = async (filters = auditFilters) => {
+    setAuditLoading(true);
+    try {
+      const response = await fetchAccountPermissionAuditLogs({
+        targetUserId: filters.targetUserId || undefined,
+        actorUsername: filters.actorUsername.trim() || undefined,
+        action: filters.action || undefined,
+        createdFrom: filters.createdFrom
+          ? `${filters.createdFrom}T00:00:00+08:00`
+          : undefined,
+        createdTo: filters.createdTo
+          ? `${filters.createdTo}T23:59:59+08:00`
+          : undefined,
+      });
+      setAuditRows(response.data.rows);
+    } catch {
+      setStatusText("变更记录读取失败，请稍后重试。");
+    } finally {
+      setAuditLoading(false);
+    }
+  };
+
+  const handleAuditSearch = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    void queryAuditRows();
+  };
+
+  const resetAuditSearch = () => {
+    const emptyFilters = {
+      targetUserId: "",
+      actorUsername: "",
+      action: "",
+      createdFrom: "",
+      createdTo: "",
+    };
+    setAuditFilters(emptyFilters);
+    void queryAuditRows(emptyFilters);
+  };
 
   const loadData = () => {
     setLoading(true);
@@ -499,6 +563,14 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
           </p>
         </div>
         <div className="admin-header-actions">
+          <Button
+            onClick={() => {
+              setAuditOpen((current) => !current);
+            }}
+            type="button"
+          >
+            变更记录
+          </Button>
           <Button onClick={startCreate} type="button" variant="primary">
             新建账号
           </Button>
@@ -533,6 +605,98 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         >
           {statusText}
         </div>
+      ) : null}
+
+      {auditOpen ? (
+        <section className="content-section account-audit-panel">
+          <div className="section-title">
+            <div>
+              <h2>账号与权限变更记录</h2>
+              <p>记录账号和权限变更及执行结果，不记录密码内容。</p>
+            </div>
+            {auditLoading ? <span className="source-pill">加载中</span> : null}
+          </div>
+          <form className="filter-bar filter-bar--compact audit-filter-bar" onSubmit={handleAuditSearch}>
+            <SelectField
+              label="账号"
+              onChange={(value) =>
+                setAuditFilters((current) => ({ ...current, targetUserId: value }))
+              }
+              options={[
+                { value: "", label: "全部账号" },
+                ...accounts.map((account) => ({
+                  value: account.user_id,
+                  label: account.display_name || account.username,
+                })),
+              ]}
+              value={auditFilters.targetUserId}
+            />
+            <label className="filter-field">
+              <span>操作者</span>
+              <input
+                onChange={(event) =>
+                  setAuditFilters((current) => ({
+                    ...current,
+                    actorUsername: event.target.value,
+                  }))
+                }
+                placeholder="输入账号名"
+                value={auditFilters.actorUsername}
+              />
+            </label>
+            <SelectField
+              label="操作类型"
+              onChange={(value) =>
+                setAuditFilters((current) => ({ ...current, action: value }))
+              }
+              options={auditActionOptions}
+              value={auditFilters.action}
+            />
+            <label className="filter-field">
+              <span>开始日期</span>
+              <input
+                onChange={(event) =>
+                  setAuditFilters((current) => ({ ...current, createdFrom: event.target.value }))
+                }
+                type="date"
+                value={auditFilters.createdFrom}
+              />
+            </label>
+            <label className="filter-field">
+              <span>结束日期</span>
+              <input
+                onChange={(event) =>
+                  setAuditFilters((current) => ({ ...current, createdTo: event.target.value }))
+                }
+                type="date"
+                value={auditFilters.createdTo}
+              />
+            </label>
+            <Button disabled={auditLoading} type="submit" variant="primary">查询</Button>
+            <Button disabled={auditLoading} onClick={resetAuditSearch} type="button">重置</Button>
+          </form>
+          <div className="audit-list">
+            <div className="audit-list__row audit-list__header">
+              <strong>时间</strong>
+              <strong>操作者</strong>
+              <strong>操作类型</strong>
+              <strong>对象</strong>
+              <strong>结果</strong>
+            </div>
+            {auditRows.slice(0, 500).map((row) => (
+              <div className="audit-list__row" key={row.audit_id}>
+                <span>{formatDateTime(row.created_at)}</span>
+                <strong>{row.actor_username}</strong>
+                <span>{auditActionLabel(row.action)}</span>
+                <span>{row.target_username ?? "角色默认权限"}</span>
+                <StatusChip tone={row.result === "success" ? "success" : "danger"}>
+                  {row.result === "success" ? "成功" : "失败"}
+                </StatusChip>
+              </div>
+            ))}
+            {!auditRows.length && !auditLoading ? <p className="audit-list__empty">暂无符合条件的记录</p> : null}
+          </div>
+        </section>
       ) : null}
 
       <section className="content-section account-admin-layout" hidden={activeTab !== "accounts"}>
@@ -808,22 +972,6 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </div>
           </div>
         ) : null}
-        <div className="section-title account-audit-title">
-          <div>
-            <h2>账号与权限操作审计</h2>
-            <p>仅记录账号和权限变更，不记录密码内容。</p>
-          </div>
-        </div>
-        <div className="audit-list">
-          {auditRows.slice(0, 50).map((row) => (
-            <div className="audit-list__row" key={row.audit_id}>
-              <span>{formatDateTime(row.created_at)}</span>
-              <strong>{row.actor_username}</strong>
-              <span>{row.action}</span>
-              <span>{row.target_username ?? "角色默认权限"}</span>
-            </div>
-          ))}
-        </div>
       </section>
 
       <section className="content-section" hidden={activeTab !== "accounts"}>

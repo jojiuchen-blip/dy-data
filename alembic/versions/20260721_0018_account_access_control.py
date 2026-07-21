@@ -119,6 +119,7 @@ def upgrade() -> None:
             "account_permission_audit_logs",
             sa.Column("audit_id", sa.Text(), primary_key=True),
             sa.Column("action", sa.String(96), nullable=False),
+            sa.Column("result", sa.String(16), nullable=False, server_default="success"),
             sa.Column("actor_user_id", sa.Text()),
             sa.Column("actor_username", sa.Text(), nullable=False),
             sa.Column("actor_role", sa.String(32), nullable=False),

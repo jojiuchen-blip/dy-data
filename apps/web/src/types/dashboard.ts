@@ -112,6 +112,7 @@ export interface RolePermissionImpactData {
 export interface AccountPermissionAuditRow {
   audit_id: string;
   action: string;
+  result: "success" | "failed";
   actor_user_id: string | null;
   actor_username: string;
   actor_role: UserRole;

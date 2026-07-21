@@ -247,10 +247,12 @@ def add_audit_log(
     target: User | None = None,
     before: dict[str, Any] | None = None,
     after: dict[str, Any] | None = None,
+    result: str = "success",
 ) -> AccountPermissionAuditLog:
     row = AccountPermissionAuditLog(
         audit_id=uuid4().hex,
         action=action,
+        result=result,
         actor_user_id=getattr(actor, "user_id", None),
         actor_username=str(getattr(actor, "username", "system")),
         actor_role=str(getattr(actor, "role", "highest_admin")),

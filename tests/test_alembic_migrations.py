@@ -373,6 +373,9 @@ def test_account_access_control_migration_maps_legacy_roles_and_is_reversible(
     assert {"store_scope_mode", "auth_version"}.issubset(
         {column["name"] for column in upgraded.get_columns("users")}
     )
+    assert "result" in {
+        column["name"] for column in upgraded.get_columns("account_permission_audit_logs")
+    }
     with engine.connect() as connection:
         users = connection.execute(
             text(

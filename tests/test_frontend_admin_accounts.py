@@ -38,6 +38,11 @@ def test_dydata32_account_permission_page_uses_live_api() -> None:
     assert "updateAccountPagePermissions" in page_source
     assert "updateRolePagePermissions" in page_source
     assert "fetchAccountPermissionAuditLogs" in page_source
+    assert "变更记录" in page_source
+    assert "actorUsername" in page_source
+    assert "createdFrom" in page_source
+    assert "createdTo" in page_source
+    assert "操作类型" in page_source
     assert '"/admin/access-control"' in client_source
     assert "/page-permissions" in client_source
     assert "AccessControlData" in types_source
