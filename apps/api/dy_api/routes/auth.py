@@ -41,7 +41,12 @@ from apps.api.dy_api.models import (
 
 
 router = APIRouter()
-SUB_ACCOUNT_TYPES = {"子机构经营号", "子机构账号"}
+SUB_ACCOUNT_TYPES = {
+    "子机构经营号",
+    "子机构账号",
+    "子机构门店号",
+    "子机构区域号",
+}
 SUCCESSFUL_BINDING_STATUS = "认证成功"
 ACCOUNT_TYPE_KEYS = ("账号类型", "账户类型", "account_type")
 
