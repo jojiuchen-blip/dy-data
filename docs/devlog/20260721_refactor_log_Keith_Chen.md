@@ -11,6 +11,8 @@
 | # | 任务 | 关联 | 状态 |
 |---|------|------|------|
 | 1 | DYDATA-36 线索中心 BRD V1.0 冻结 | 本轮推进 | ✅ |
+| 2 | DYDATA-41 FOUNDATION 术语阶段 | 补充更新 | ✅ |
+| 3 | DYDATA-41 FOUNDATION Schema 阶段 | 补充更新 | ⏳ 待确认 |
 
 **本日关键结论**：生成 docs/brd/BRD-clue-center-20260721-2134.md；专项台账进入 DONE；未修改业务代码。下一步补齐线索中心 FOUNDATION、PRD 和正式交付计划，再进入 DYDATA-34 旧引擎下线
 
@@ -79,7 +81,27 @@
 
 ## 六、待跟进事项
 
-- [ ] 补齐线索中心 FOUNDATION。
+- [ ] 确认 Schema 并继续补齐线索中心 FOUNDATION API、任务、权限与运行方案。
 - [ ] 补齐线索中心 PRD。
 - [ ] 生成正式交付计划，将追踪矩阵缺口映射到 Linear、代码、测试和上线门禁。
 - [ ] S4 门禁通过后执行 DYDATA-34，全面删除旧线索分配引擎。
+---
+
+## 补充更新 1（22:21 · 窗口 1）
+
+### 任务 2：DYDATA-41 FOUNDATION 术语阶段
+- **目标**：以已冻结线索中心 BRD 为权威源建立统一术语，进入 FOUNDATION 技术规格
+- **操作**：完成现有模型与接口覆盖评估；生成 foundation-glossary-clue-center.md；将项目画像和执行计划切换到 DYDATA-41 Phase 2
+- **结果**：术语表 212 行已落盘并通过 git diff --check；当前等待业务确认，未提前进入 Schema/API，也未修改业务代码
+- **涉及文件**：`docs/prd/foundation/foundation-glossary-clue-center.md`、`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260721_refactor_log_Keith_Chen.md`
+
+---
+
+## 补充更新 2（Phase 3 · 窗口 1）
+
+### 任务 3：DYDATA-41 FOUNDATION Schema 阶段
+- **目标**：把已确认术语和 BRD 业务规则落成唯一数据模型、状态分层、索引、页面字段来源及一次性迁移边界
+- **操作**：读取现有 SQLAlchemy 模型、迁移、页面类型、BRD 与数据库规范；建立 Schema 索引及 23 个单表定义；将现有混合结构拆分为原始证据、业务事实、分配账本、查询投影和操作审计五层
+- **结果**：Schema 共 23 张目标表，新增原始线索逐行映射、退款原始证据、联系方式隔离、完整主池指标事实、批次明细和候选快照；明确只迁移新引擎正式轮次并在 DYDATA-34 删除旧引擎，不生成 DDL、不修改业务代码；当前等待业务确认后进入 Phase 4 API
+- **验证**：23/23 单表文件齐全；必备三字段、索引定义和使用接口占位完整；索引页 23 个链接有效；所有文档均低于 400 行
+- **涉及文件**：`docs/prd/foundation/foundation-schema-clue-center.md`、`docs/prd/foundation/foundation-schema-clue-center/*.md`、`project-profile.md`、`docs/plans/execution-plan.md`、`docs/devlog/20260721_refactor_log_Keith_Chen.md`
