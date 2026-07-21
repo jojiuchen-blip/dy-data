@@ -64,4 +64,16 @@
 
 ## 使用接口
 
-Phase 4 回填，管理端只读；业务动作在同一事务或可靠 outbox 中写入。
+- `GET /api/v1/admin/clue-allocation/audit-logs` — 最高管理员或审计权限分页读取脱敏日志。
+- `POST /api/v1/clues/orders/{order_id}/phone-access` — 记录 reveal/copy 成功或拒绝。
+- `POST /api/v1/clues/assignment-round-exports` — 记录明文导出范围与数量摘要。
+- `DELETE /api/v1/clues/follow-up-records/{follow_up_record_id}` — 记录软删除前后脱敏快照和原因。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/publish` — 记录规则发布。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/retire` — 记录规则退役。
+- `POST /api/v1/admin/clue-allocation/trial-cycles` — 记录试运行。
+- `POST /api/v1/admin/clue-allocation/rebuild-cycles` — 记录试运行重建。
+- `POST /api/v1/admin/clue-allocation/store-score-snapshot-runs` — 记录人工评分刷新。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 记录正式分配服务身份和批次。
+- `POST /api/v1/admin/sync/clue-center/rebuild-previews` — 记录高风险预览。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 记录正式重建确认与结果。
+- 所有写入均禁止保存手机号明文、token、client_secret 或未脱敏原始 payload。

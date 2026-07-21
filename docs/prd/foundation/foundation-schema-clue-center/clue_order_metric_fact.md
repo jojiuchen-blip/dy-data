@@ -61,4 +61,9 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖看板指标和经营效果查询。
+- `GET /api/v1/clues/overview` — 返回完整主池、核销数和总体核销率摘要。
+- `GET /api/v1/clues/metrics/monthly` — 返回基线、过渡月和成熟月经营效果。
+- `GET /api/v1/clues/metrics/stores` — 与正式轮次关联形成门店诊断指标。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 订单终态事件增量回补事实。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 按订单或月份重算指标事实。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 从完整主池和状态事件全量重建。

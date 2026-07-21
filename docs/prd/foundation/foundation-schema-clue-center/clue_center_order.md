@@ -77,4 +77,12 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖看板、明细、详情和导出读取。
+- `GET /api/v1/clues/filters` — 读取组织、商品和店端状态候选。
+- `GET /api/v1/clues/overview` — 聚合当前筛选摘要。
+- `GET /api/v1/clues/assignment-rounds` — 分页读取线索明细投影。
+- `GET /api/v1/clues/orders/{order_id}` — 读取订单、商品、脱敏联系方式和当前摘要。
+- `POST /api/v1/clues/assignment-round-exports` — 按账号范围与筛选导出投影。
+- `POST /api/v1/internal/clue-center/materializations` — 原始证据变化后刷新投影。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 终态迁移后刷新投影。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 批量重算查询投影。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 从事实表全量重建，禁止客户端直接写投影。

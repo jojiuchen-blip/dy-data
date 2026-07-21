@@ -3,7 +3,7 @@ from __future__ import annotations
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
-from sqlalchemy import delete, select
+from sqlalchemy import select
 
 from dy_api.auth import (
     AuthContext,
@@ -36,9 +36,9 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     RawAwemeBinding,
     User,
-    UserStoreScope,
 )
 from apps.api.dy_api.access_control import ALL_PAGE_KEYS, add_audit_log, effective_page_keys
+from apps.api.dy_api.user_auth_state import replace_user_store_scopes
 
 
 router = APIRouter()
@@ -458,7 +458,4 @@ def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
 
 
 def _replace_store_scopes(session, user_id: str, store_ids: list[str]) -> None:
-    session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
-    for store_id in sorted(set(store_ids)):
-        session.add(UserStoreScope(user_id=user_id, store_id=store_id))
-    session.flush()
+    replace_user_store_scopes(session, user_id, store_ids)

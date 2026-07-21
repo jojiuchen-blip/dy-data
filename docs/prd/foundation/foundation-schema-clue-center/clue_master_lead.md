@@ -74,4 +74,16 @@
 
 ## 使用接口
 
-Phase 4 回填。业务接口不得直接允许任意修改本表状态。
+- `GET /api/v1/clues/overview` — 按账号范围聚合完整主池与池位置。
+- `GET /api/v1/clues/orders/{order_id}` — 读取订单终态、池位置和当前轮次。
+- `GET /api/v1/admin/clue-allocation/eligible-leads` — 查询可试运行活跃线索。
+- `GET /api/v1/admin/clue-allocation/master-leads` — 管理端分页排查主池。
+- `GET /api/v1/admin/clue-allocation/data-quality` — 汇总锚点、池位置和活动轮次异常。
+- `GET /api/v1/admin/clue-allocation/headquarters-pool` — 关联总部池订单与锚点事实。
+- `POST /api/v1/clues/orders/{order_id}/follow-ups` — 在事务内校验并更新当前轮摘要/待分配状态。
+- `POST /api/v1/internal/clue-center/materializations` — 幂等创建或更新主线索事实。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 原子执行终态关闭。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 原子更新正式池位置和当前轮次。
+- `POST /api/v1/internal/clue-allocation/round-expirations` — 关闭到期轮并写下一策略待办。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 按已确认预览受控重建。
+- 不提供任意修改生命周期、池位置或当前轮次的通用 CRUD。

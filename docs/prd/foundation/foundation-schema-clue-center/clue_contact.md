@@ -51,4 +51,8 @@
 
 ## 使用接口
 
-Phase 4 回填，至少覆盖 reveal、copy 授权和导出审计契约。
+- `POST /api/v1/clues/orders/{order_id}/phone-access` — 按 reveal/copy 目的临时读取明文并审计。
+- `POST /api/v1/clues/assignment-round-exports` — 逐行授权读取明文并记录导出摘要。
+- `POST /api/v1/internal/clue-center/materializations` — 解密后集中写入明文、脱敏号和解密状态。
+- `POST /api/v1/internal/clue-allocation/data-quality-checks` — 检查明文仅存在本表且脱敏投影一致。
+- 列表/详情接口只读取 `clue_center_order.phone_masked`，不直接读取本表明文。

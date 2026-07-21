@@ -1666,6 +1666,82 @@ h2 {
   justify-content: flex-start;
 }
 
+.cli-authorize-panel {
+  gap: 16px;
+}
+
+.cli-authorize-eyebrow {
+  margin: 0;
+  color: var(--brand-deep-orange);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.cli-authorize-copy {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.cli-authorize-details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.cli-authorize-details > div {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.75fr) minmax(0, 1.6fr);
+  gap: 12px;
+  padding: 12px;
+  background: var(--surface-muted);
+}
+
+.cli-authorize-details > div + div {
+  border-top: 1px solid var(--line);
+}
+
+.cli-authorize-details dt {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.cli-authorize-details dd {
+  display: grid;
+  gap: 3px;
+  margin: 0;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.cli-authorize-details dd span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.cli-authorize-code {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 15px !important;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.cli-authorize-form {
+  display: grid;
+  gap: 10px;
+}
+
+.cli-authorize-form .ui-button {
+  width: 100%;
+}
+
 @media (prefers-color-scheme: dark) {
   .auth-shell {
     --auth-backdrop-image: url("/auth/login-background-dark.webp");

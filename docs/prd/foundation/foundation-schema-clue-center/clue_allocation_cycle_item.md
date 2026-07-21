@@ -56,4 +56,8 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `POST /api/v1/admin/clue-allocation/trial-cycles` — 为每条试运行线索写执行项。
+- `POST /api/v1/admin/clue-allocation/rebuild-cycles` — 为试运行重建写新执行项。
+- `GET /api/v1/admin/clue-allocation/cycles/{cycle_id}` — 分页读取逐线索状态、原因和结果 ID。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 按单线索事务记录正式结果与失败重试状态。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 记录正式重建逐线索结果。

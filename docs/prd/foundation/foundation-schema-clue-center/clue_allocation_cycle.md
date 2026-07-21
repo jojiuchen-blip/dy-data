@@ -65,4 +65,11 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖预览、执行、列表和详情。
+- `POST /api/v1/admin/clue-allocation/cycle-previews` — 生成绑定选择范围和状态版本的短时预览。
+- `POST /api/v1/admin/clue-allocation/trial-cycles` — 创建试运行批次。
+- `POST /api/v1/admin/clue-allocation/rebuild-cycles` — 创建新的试运行重建批次。
+- `GET /api/v1/admin/clue-allocation/cycles` — 分页读取试运行、正式和重建批次。
+- `GET /api/v1/admin/clue-allocation/cycles/{cycle_id}` — 读取批次摘要和逐线索执行项。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 创建唯一正式分配批次。
+- `POST /api/v1/admin/sync/clue-center/rebuild-previews` — 预览正式重建范围。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 创建 `formal_rebuild` 批次并异步执行。

@@ -65,4 +65,9 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/clues/metrics/stores` — 返回授权范围内最近综合分及诊断指标。
+- `GET /api/v1/admin/clue-allocation/store-scores` — 分页读取两个分子/分母、比率、来源、权重和综合分。
+- `GET /api/v1/admin/clue-allocation/decisions/{decision_id}` — 读取候选当时引用的评分快照证据。
+- `POST /api/v1/admin/clue-allocation/store-score-snapshot-runs` — 创建新运行及其门店快照。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 候选排序时只读当时快照。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 定时计算新快照，历史不可改写。

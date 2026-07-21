@@ -58,4 +58,15 @@
 
 ## 使用接口
 
-Phase 4 回填，覆盖草稿、更新、发布和退役。
+- `GET /api/v1/admin/clue-allocation/rules` — 返回当前发布版本摘要。
+- `GET /api/v1/admin/clue-allocation/rules/{rule_id}` — 返回全部版本和绑定数量。
+- `POST /api/v1/admin/clue-allocation/rules/{rule_id}/versions` — 创建完整草稿版本。
+- `PUT /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}` — 全量更新未发布草稿。
+- `DELETE /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}` — 删除未发布、未引用草稿。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/publish` — 校验、哈希并发布不可变版本。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/retire` — 退役版本但不切换已绑定线索。
+- `GET /api/v1/admin/clue-allocation/store-scores` — 按规则版本读取评分证据。
+- `POST /api/v1/admin/clue-allocation/store-score-snapshot-runs` — 触发该版本评分运行。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 读取线索锁定版本执行后续策略。
+- `POST /api/v1/admin/sync/clue-center/rebuild-previews` — 预览是否重新绑定版本。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 按确认结果受控重建绑定。

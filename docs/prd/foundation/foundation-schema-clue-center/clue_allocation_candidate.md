@@ -66,4 +66,8 @@
 
 ## 使用接口
 
-Phase 4 回填，管理端只读。
+- `GET /api/v1/admin/clue-allocation/decisions/{decision_id}` — 按当时排名返回资格、排除、距离、评分和选中证据。
+- `POST /api/v1/admin/clue-allocation/trial-cycles` — 写入试运行候选快照。
+- `POST /api/v1/admin/clue-allocation/rebuild-cycles` — 写入试运行重建候选快照。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 写入正式候选快照并由选中项创建轮次。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 写入新重建批次候选，历史不可改写。

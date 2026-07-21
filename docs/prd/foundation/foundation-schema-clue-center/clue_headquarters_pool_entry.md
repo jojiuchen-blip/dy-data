@@ -62,4 +62,11 @@
 
 ## 使用接口
 
-Phase 4 回填，V1 仅查询。
+- `GET /api/v1/clues/overview` — 总部范围聚合当前总部池库存。
+- `GET /api/v1/clues/orders/{order_id}` — 管理范围内展示池位置和来源轮次摘要。
+- `GET /api/v1/admin/clue-allocation/headquarters-pool` — 分页查询库存、原因和来源证据；V1 页面只读。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 订单核销/退款时关闭活动条目。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 锚点异常、无规则、无候选或策略耗尽时幂等入池。
+- `POST /api/v1/internal/clue-allocation/round-expirations` — 最后策略结束后写入总部池待办结果。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 按事实重建条目和来源证据。
+- 不提供再次投放、领取或人工分配写接口。

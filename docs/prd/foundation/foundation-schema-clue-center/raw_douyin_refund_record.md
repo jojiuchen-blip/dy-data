@@ -49,4 +49,7 @@
 
 ## 使用接口
 
-Phase 4 回填。该表不提供通用前端接口。
+- `EXTERNAL GET /goodlife/v1/akte/after_sale/order/query/` — 采集退款原始证据。
+- `POST /api/v1/internal/clue-center/materializations` — 读取退款证据并追加归一化状态事件。
+- `POST /api/v1/internal/clue-center/order-status-transitions` — 消费已退款终态，关闭主线索与活动轮次。
+- 不提供通用前端读写接口；原始 payload 仅限内部任务和受控排查。

@@ -1,0 +1,169 @@
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
+import { ApiRequestError, approveCliAuthorization } from "../api/client";
+import { Button } from "../components/Button";
+import type { AdminUser } from "../types/dashboard";
+import {
+  isCurrentCliAuthorizationRequest,
+  readCliAuthorizationCode,
+} from "../utils/cliAuthorization";
+
+interface CliAuthorizePageProps {
+  currentUser: AdminUser;
+  search: string;
+}
+
+type ApprovalState = "ready" | "approved" | "invalid";
+
+function errorMessage(error: unknown): string {
+  if (error instanceof ApiRequestError && error.status === 401) {
+    return "登录状态已失效，请重新登录后再确认授权。";
+  }
+  if (error instanceof ApiRequestError && error.status === 400) {
+    return "此验证码无效、已过期或已被使用。请返回 CLI 重新发起授权。";
+  }
+  return "授权暂时未完成，请稍后重试。";
+}
+
+export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps) {
+  const [approvalState, setApprovalState] = useState<ApprovalState>("ready");
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState("");
+  const requestGenerationRef = useRef(0);
+  const latestUserCodeRef = useRef("");
+  const submittingRef = useRef(false);
+  const userCode = useMemo(
+    () => readCliAuthorizationCode(search),
+    [search],
+  );
+  const accountName = currentUser.display_name || currentUser.username;
+
+  useLayoutEffect(() => {
+    latestUserCodeRef.current = userCode;
+    requestGenerationRef.current += 1;
+    submittingRef.current = false;
+    setApprovalState("ready");
+    setSubmitting(false);
+    setMessage("");
+  }, [userCode]);
+
+  const handleApprove = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!userCode || submittingRef.current) {
+      return;
+    }
+
+    const request = {
+      generation: requestGenerationRef.current,
+      userCode,
+    };
+    const isCurrentRequest = (responseUserCode?: string) =>
+      isCurrentCliAuthorizationRequest(
+        request,
+        {
+          generation: requestGenerationRef.current,
+          userCode: latestUserCodeRef.current,
+        },
+        responseUserCode,
+      );
+
+    submittingRef.current = true;
+    setSubmitting(true);
+    setMessage("");
+    try {
+      const response = await approveCliAuthorization(userCode);
+      if (!isCurrentRequest()) {
+        return;
+      }
+      if (!isCurrentRequest(response.user_code)) {
+        setApprovalState("invalid");
+        setMessage("授权响应与当前验证码不匹配，请返回 CLI 重新发起授权。");
+        return;
+      }
+      setApprovalState("approved");
+    } catch (error) {
+      if (!isCurrentRequest()) {
+        return;
+      }
+      setApprovalState("invalid");
+      setMessage(errorMessage(error));
+    } finally {
+      if (isCurrentRequest()) {
+        submittingRef.current = false;
+        setSubmitting(false);
+      }
+    }
+  };
+
+  if (!userCode) {
+    return (
+      <main className="auth-shell cli-authorize-shell">
+        <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+          <p className="cli-authorize-eyebrow">CLI 设备授权</p>
+          <h1 id="cli-authorize-title">缺少授权码</h1>
+          <p className="cli-authorize-copy">
+            请回到 CLI，重新打开其提供的浏览器授权链接。
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  if (approvalState === "approved") {
+    return (
+      <main className="auth-shell cli-authorize-shell">
+        <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+          <p className="cli-authorize-eyebrow">CLI 设备授权</p>
+          <h1 id="cli-authorize-title">授权已完成</h1>
+          <p className="cli-authorize-copy">
+            CLI 将获得门店线索汇总的只读权限。你可以关闭此页面并返回 CLI。
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  return (
+    <main className="auth-shell cli-authorize-shell">
+      <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+        <p className="cli-authorize-eyebrow">CLI 设备授权</p>
+        <h1 id="cli-authorize-title">允许 CLI 读取门店线索汇总？</h1>
+        <p className="cli-authorize-copy">
+          请确认当前账号和授权范围；授权后，CLI 只能读取你有权限访问的数据。
+        </p>
+
+        <dl className="cli-authorize-details">
+          <div>
+            <dt>当前账号</dt>
+            <dd>
+              <strong>{accountName}</strong>
+              <span>用户名：{currentUser.username}</span>
+            </dd>
+          </div>
+          <div>
+            <dt>一次性验证码</dt>
+            <dd className="cli-authorize-code">{userCode}</dd>
+          </div>
+          <div>
+            <dt>授权范围</dt>
+            <dd>只读 · 门店线索汇总</dd>
+          </div>
+        </dl>
+
+        <form className="cli-authorize-form" onSubmit={handleApprove}>
+          {approvalState === "invalid" ? (
+            <p className="auth-field-error" role="alert">{message}</p>
+          ) : null}
+          <Button loading={submitting} type="submit" variant="primary">
+            允许此 CLI 读取门店线索汇总
+          </Button>
+        </form>
+      </section>
+    </main>
+  );
+}

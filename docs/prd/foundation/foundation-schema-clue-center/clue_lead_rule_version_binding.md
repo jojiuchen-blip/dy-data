@@ -49,4 +49,11 @@
 
 ## 使用接口
 
-Phase 4 回填。仅正式分配引擎写入，管理端只读。
+- `GET /api/v1/admin/clue-allocation/rules/{rule_id}` — 聚合规则/版本绑定线索数。
+- `GET /api/v1/admin/clue-allocation/cycles/{cycle_id}` — 读取逐线索绑定结果。
+- `GET /api/v1/admin/clue-allocation/decisions` — 展示决策使用的锁定版本。
+- `GET /api/v1/admin/clue-allocation/decisions/{decision_id}` — 展示命中范围和绑定证据。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 首次正式分配写入并在后续轮次只读沿用。
+- `POST /api/v1/admin/sync/clue-center/rebuild-previews` — 展示重新绑定前后差异。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 仅在明确确认后创建新绑定证据。
+- 不提供单独管理端写绑定接口。

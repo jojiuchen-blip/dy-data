@@ -49,4 +49,9 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/admin/clue-allocation/rules/{rule_id}` — 返回每个版本三类固定策略。
+- `POST /api/v1/admin/clue-allocation/rules/{rule_id}/versions` — 随草稿版本创建完整策略集合。
+- `PUT /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}` — 随草稿全量更新启停、顺序和参数。
+- `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/publish` — 校验三类固定策略并冻结。
+- `GET /api/v1/admin/clue-allocation/decisions/{decision_id}` — 解释当时命中策略及参数。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 按启用顺序执行固定策略模块。

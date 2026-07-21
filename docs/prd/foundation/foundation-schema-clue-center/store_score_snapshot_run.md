@@ -51,4 +51,8 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/admin/clue-allocation/store-scores` — 读取评分运行时间、窗口、口径、数量和状态。
+- `POST /api/v1/admin/clue-allocation/store-score-snapshot-runs` — 最高管理员幂等触发评分运行。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 新轮次引用创建当时可用的评分快照运行。
+- `POST /api/v1/internal/clue-allocation/metric-refreshes` — 定时创建评分运行并刷新快照。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 按受控范围重算；历史运行不可改写。

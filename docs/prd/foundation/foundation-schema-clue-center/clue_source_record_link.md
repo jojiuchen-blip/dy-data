@@ -52,4 +52,8 @@
 
 ## 使用接口
 
-Phase 4 回填。仅数据质量和受控修复接口可访问。
+- `GET /api/v1/admin/clue-allocation/data-quality` — 汇总已映射、隔离和冲突源记录。
+- `POST /api/v1/internal/clue-center/materializations` — 为每条原始线索幂等写入唯一映射。
+- `POST /api/v1/internal/clue-allocation/data-quality-checks` — 全量反连接和唯一性检查。
+- `POST /api/v1/admin/sync/clue-center/rebuild-previews` — 预览重建对源映射的影响。
+- `POST /api/v1/admin/sync/clue-center/rebuilds` — 受控重放映射；人工修复接口留给 DYDATA-35。

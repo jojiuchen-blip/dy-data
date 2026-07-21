@@ -6,7 +6,7 @@ import json
 import math
 import os
 import re
-from collections.abc import Generator, Iterable
+from collections.abc import Generator, Iterable, Sequence
 from datetime import datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -1973,6 +1973,92 @@ class DashboardDataStore:
             "self_store_verify_rate": _ratio(self_verified, total),
             "pending_reassign_count": _to_int(row.get("pending_reassign_count")),
         }
+
+    def clue_store_follow_up_summary(
+        self,
+        *,
+        store_ids: Sequence[str],
+        assigned_date_start: str,
+        assigned_date_end: str,
+    ) -> list[dict[str, Any]]:
+        """Return stable per-store assignment-round metrics for an inclusive Shanghai date range."""
+
+        scoped_store_ids = tuple(store_ids)
+        stores = self.list_stores(scoped_store_ids)
+        if not stores:
+            return []
+
+        placeholders, params = _in_clause_params("store_scope", scoped_store_ids)
+        if not placeholders:
+            return []
+
+        clauses = [f"r.assigned_store_id IN ({placeholders})"]
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is not None:
+            visible_placeholders, visible_params = _in_clause_params(
+                "clue_visible_product", visible_product_types
+            )
+            if visible_placeholders:
+                clauses.append(f"c.product_type IN ({visible_placeholders})")
+                params.update(visible_params)
+            else:
+                clauses.append("1 = 0")
+        assigned_start = _parse_filter_datetime(assigned_date_start)
+        if assigned_start is not None:
+            clauses.append("r.assigned_at >= :assigned_date_start")
+            params["assigned_date_start"] = assigned_start
+        assigned_end_exclusive = _parse_filter_date_end(assigned_date_end)
+        if assigned_end_exclusive is not None:
+            clauses.append("r.assigned_at < :assigned_date_end_exclusive")
+            params["assigned_date_end_exclusive"] = assigned_end_exclusive
+
+        display_status_sql = self._store_display_status_sql(include_round=True)
+        rows = self._execute(
+            f"""
+            SELECT r.assigned_store_id,
+                   COUNT(*) AS total_count,
+                   COALESCE(SUM(CASE WHEN {display_status_sql} = '待跟进'
+                       THEN 1 ELSE 0 END), 0) AS pending_count,
+                   COALESCE(SUM(CASE WHEN {display_status_sql} = '已跟进'
+                       THEN 1 ELSE 0 END), 0) AS followed_count,
+                   COALESCE(SUM(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END), 0)
+                       AS action_followed_count,
+                   COALESCE(SUM(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END), 0)
+                       AS effective_followed_count
+            FROM clue_assignment_rounds r
+            JOIN clue_center_orders c ON c.order_id = r.order_id
+            WHERE {' AND '.join(clauses)}
+            GROUP BY r.assigned_store_id
+            """,
+            params,
+        )
+        metrics_by_store = {
+            _to_str(row.get("assigned_store_id")): row
+            for row in rows
+        }
+        summary_rows = []
+        for store in stores:
+            metrics = metrics_by_store.get(store["store_id"], {})
+            total = _to_int(metrics.get("total_count"))
+            pending = _to_int(metrics.get("pending_count"))
+            followed = _to_int(metrics.get("followed_count"))
+            action_followed = _to_int(metrics.get("action_followed_count"))
+            effective_followed = _to_int(metrics.get("effective_followed_count"))
+            summary_rows.append(
+                {
+                    "store_id": store["store_id"],
+                    "store_name": store["store_name"],
+                    "total_count": total,
+                    "pending_count": pending,
+                    "followed_count": followed,
+                    "other_status_count": total - pending - followed,
+                    "action_followed_count": action_followed,
+                    "effective_followed_count": effective_followed,
+                    "system_follow_up_rate": _ratio(effective_followed, total),
+                    "action_follow_rate": _ratio(action_followed, total),
+                }
+            )
+        return summary_rows
 
     def clue_assignment_rounds(
         self,

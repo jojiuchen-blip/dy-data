@@ -39,4 +39,10 @@
 
 ## 使用接口
 
-Phase 4 回填。
+- `GET /api/v1/admin/clue-allocation/rule-options` — 作为规则范围候选。
+- `GET /api/v1/admin/clue-allocation/store-groups` — 分页读取门店组摘要。
+- `POST /api/v1/admin/clue-allocation/store-groups` — 创建门店组。
+- `GET /api/v1/admin/clue-allocation/store-groups/{store_group_id}` — 读取门店组和成员历史。
+- `PUT /api/v1/admin/clue-allocation/store-groups/{store_group_id}` — 更新名称、说明、排序和启用状态。
+- `PUT /api/v1/admin/clue-allocation/store-groups/{store_group_id}/members` — 在行锁内替换活动成员集合。
+- `POST /api/v1/internal/clue-allocation/formal-cycles` — 首次规则范围匹配时读取活动门店组。

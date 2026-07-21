@@ -1,0 +1,60 @@
+# dydata Agent 调用指南
+
+## Transport and credential hardening
+
+HTTPS is required for remote API URLs. The only cleartext exception is explicit loopback HTTP
+(`127.0.0.1`, `localhost`, or `::1`) with an explicit port for local development.
+URLs containing credentials, query strings, fragments, ambiguous
+paths, or non-loopback HTTP hosts are rejected before any request is sent.
+
+Only GET requests are retried automatically. All authentication POST requests are single-submission,
+so a dropped response cannot silently duplicate a device
+grant, refresh rotation, or revoke operation. Credential rotation and deletion
+use a cross-process lock plus compare-and-swap semantics. A transient revoke
+failure is handled so that transient revoke failure preserves the local credential;
+successful or confirmed-invalid revoke
+compare-deletes only the credential state observed by that logout invocation.
+Expired credentials use refresh single-flight: the cross-process lock is held from
+the second credential read through refresh rotation and keyring replacement. The
+lock timeout bounds waiting, and the operating system releases the lock if the
+owning process crashes. The lock file contains no credential material.
+
+## 定位与前提
+
+`dydata` 是面向已授权账号的只读业务查询 CLI。Agent 可调用的命令不会写入业务数据；`auth login` 与 `auth logout` 只会改变本机的凭据状态，且必须由人交互执行。不要声称、尝试或暗示 CLI 可以写入订单、线索、门店或其他业务数据。
+
+按安装后的入口使用 `dydata`。Windows 上如果提示找不到该命令，请确认 Python Scripts 目录已在 `PATH`；在开发环境可用 `python -m dydata_cli.main` 作为等价入口。
+
+命令目录的运行时权威来源是 `dydata commands --json`。`docs/cli-command-reference.md` 只是从该目录自动生成的可读副本，不能替代发现命令或手工维护。
+
+## 安全调用顺序
+
+先发现，再核验身份和范围，最后做一次明确、只读的查询：
+
+```powershell
+dydata commands --json
+dydata auth status --json
+dydata stores list --json
+dydata clues follow-up-stats --from 2026-07-14 --to 2026-07-20 --output json
+```
+
+1. **发现。** 每个新任务先执行 `dydata commands --json`，只使用返回目录中 `agent_callable: true` 的命令和参数；不能猜测、拼接或探测未声明的命令。
+2. **认证。** 仅由人工执行 `dydata auth login`。Agent 不接收、读取、传递、保存或展示凭据，也不能要求用户把 token、Cookie、密码或密钥粘贴到对话、参数或文件中。`auth status` 只用于确认本机登录状态，不输出凭据。
+3. **范围。** 每次数据查询都以服务端的实时权限和当次 `stores list` 的可见门店为准。Agent 不得自动扩大门店范围；指定 `--store-id` 时也只能使用已授权范围内的门店。权限或范围失败时停止并如实报告。
+4. **查询。** 只发起目录中明确声明的只读查询。一次请求失败时按全成全败处理：不得把部分结果当成完整答案，不得伪造、补全或跨门店重试。
+
+## 线索跟进统计
+
+默认对外展示 `system_follow_up_rate`：它代表系统认定的有效跟进率，是业务汇报的默认指标。`action_follow_rate` 仅用于回答“是否联系过”或解释两者差异，不能替代默认指标。
+
+`clues follow-up-stats` 的日期必须成对提供 `--from` 和 `--to`，格式为 `YYYY-MM-DD`。未提供日期时按北京时间取含当天在内最近 7 天；开始日期不能晚于结束日期，区间最多 366 个自然日（含首尾）。结果为零时，如实报告零数据；不得为了产出结论而扩展日期、门店或补造数据。
+
+## 错误与退出码
+
+任何错误都要保留命令输出中的结构化错误信息并停止当前结论：`2` 是参数错误，`3` 是未登录或登录过期，`4` 是范围拒绝，`5` 是服务不可用或限流，`6` 是响应契约不匹配或内部错误。退出码为 `0` 才表示本次命令成功；成功也只代表该次只读查询完成，不代表拥有额外权限。
+
+限流与系统故障的语义不同：限流应等待或由人工决定稍后重试；系统错误应报告故障，不能自行切换账号、跨门店扩展查询或用旧数据填充。无论哪种错误，都不得伪造、补全或跨门店重试。
+
+## 输出原则
+
+只陈述命令实际返回的数据、日期范围和门店范围；无法取得数据时明确说明原因。不要把零数据解释为业务不存在，也不要从未返回的字段推导事实。需要了解参数、输出契约或支持范围时，重新执行 `dydata commands --json`，并以其返回内容为准。

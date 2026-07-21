@@ -3,7 +3,7 @@
 > 生成时间: 2026-07-21
 > 来源: foundation-builder Phase 3
 > 业务基线: [BRD](../../brd/BRD-clue-center-20260721-2134.md) · [术语表](foundation-glossary-clue-center.md)
-> 下游产物: API 规格将在 Phase 4 确认后回填
+> 下游产物: [API 接口设计](foundation-api-clue-center.md)（Phase 4，待用户确认）
 
 ---
 
@@ -226,11 +226,12 @@ erDiagram
 
 ---
 
-## 9. 待 Phase 4 回填
+## 9. Phase 4 API 回填结果
 
-- 每张表对应的读写接口、请求字段和响应字段。
-- 服务端权限校验点、错误码和幂等响应。
-- 状态迁移接口与定时任务之间的事务边界。
-- 导出、手机号读取和高风险管理操作的审计事件映射。
+- 23 张单表定义的“使用接口”已逐表回填，覆盖公开查询、管理接口、内部任务和外部事实来源。
+- [公共接口契约](foundation-api-clue-center/common-contract.md) 已定义页面权限、账号数据范围、当前有效轮次授权、错误码、幂等和事务边界。
+- [跟进与轮次契约](foundation-api-clue-center/follow-up-and-rounds.md) 已固定五类动作及订单终态、保护期、SLA 的迁移优先级。
+- [任务与迁移契约](foundation-api-clue-center/jobs-security-and-migration.md) 已固定唯一正式分配入口、试运行隔离、受控重建、审计和旧引擎一次性删除顺序。
+- 导出、手机号查看/复制、规则发布/退役、试运行、正式分配、重建和跟进删除均已映射到 `clue_operation_audit_log`。
 
-本文件经用户确认后方可进入 FOUNDATION Phase 4 API 设计。
+Schema 已于 2026-07-22 获用户确认并进入 Phase 4。API 规格仍需用户确认后方可进入 FOUNDATION Phase 5 全量一致性自查。
