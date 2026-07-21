@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import tomllib
+from pathlib import Path
 
 from dydata_cli.docs import render_command_reference
-from dydata_cli.constants import ERROR_EXIT_CODES
+from dydata_cli.constants import CLI_VERSION, ERROR_EXIT_CODES
 from dydata_cli.main import main
 from dydata_cli.registry import command_catalog
 
@@ -17,6 +19,7 @@ EXPECTED = {
     "clues.follow-up-stats",
     "version",
 }
+ROOT = Path(__file__).resolve().parents[2]
 REQUIRED_FIELDS = {
     "command",
     "purpose",
@@ -52,16 +55,50 @@ def test_registry_is_the_complete_agent_command_catalog() -> None:
         if item["command"].startswith(("stores.", "clues."))
     )
     assert not any("manager" in item["roles"] for item in catalog)
-    assert next(item for item in catalog if item["command"] == "auth.login") == {
-        **next(item for item in catalog if item["command"] == "auth.login"),
+    login = next(item for item in catalog if item["command"] == "auth.login")
+    assert login == {
+        **login,
         "side_effect": "remote_auth_grant_and_local_credential",
         "business_side_effect": "none",
         "output_mode": "text",
         "output_schema": {
             "mode": "text",
-            "lines": ["Open: <url>", "Code: <user_code>", "Authorization complete."],
+            "variants": {
+                "terminal": [
+                    "Signed in as: <username>",
+                    "Role: <role>",
+                    "Store scope: <scope>",
+                    "Authorization complete.",
+                ],
+                "browser": [
+                    "Open: <url>",
+                    "Code: <user_code>",
+                    "Authorization complete.",
+                ],
+                "existing_credential": [
+                    "A local CLI credential already exists. Run `dydata auth logout` before signing in as another account."
+                ],
+            },
         },
     }
+    assert login["parameters"] == [
+        {
+            "name": "--browser",
+            "required": False,
+            "type": "flag",
+            "default": False,
+        }
+    ]
+    assert login["confirmation"] == "human_secure_tty_or_browser"
+    assert login["human_handoff"] == {
+        "agent_may_launch": True,
+        "agent_must_not_supply_credentials": True,
+        "browser_fallback": "dydata auth login --browser",
+        "default_mode": "secure_terminal",
+        "requires_explicit_user_request": True,
+        "requires_user_input": True,
+    }
+    assert {"AUTH_FAILED", "INTERACTIVE_REQUIRED"} <= set(login["errors"])
     logout = next(item for item in catalog if item["command"] == "auth.logout")
     assert logout["side_effect"] == "remote_auth_revoke_and_local_credential"
     assert logout["output_mode"] == "text"
@@ -128,3 +165,18 @@ def test_reference_exposes_governance_and_exit_metadata() -> None:
         assert heading in reference
     assert "`manager`" not in reference
     assert "`SCHEMA_MISMATCH` | `6`" in reference
+    assert "### Human handoff" in reference
+    assert "dydata auth login --browser" in reference
+    assert (
+        "An Agent may launch this command only after an explicit user request"
+        in reference
+    )
+
+
+def test_package_and_runtime_cli_versions_are_synchronized() -> None:
+    package = tomllib.loads(
+        (ROOT / "apps" / "cli" / "pyproject.toml").read_text(encoding="utf-8")
+    )
+
+    assert CLI_VERSION == "0.2.0"
+    assert package["project"]["version"] == CLI_VERSION

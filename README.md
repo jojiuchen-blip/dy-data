@@ -68,6 +68,20 @@ python -m pytest
 
 安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。
 
+默认登录由用户在安全交互终端中完成：
+
+```powershell
+dydata auth login
+```
+
+密码使用终端隐藏输入，不接受命令参数、环境变量、配置文件或管道。Agent 可以在用户明确要求后启动命令，但必须在凭据提示出现前把输入权交给用户；这只是人工交接例外，不表示 Agent 可以自主登录。若当前命令工具不支持安全交互 TTY，使用浏览器回退：
+
+```powershell
+dydata auth login --browser
+```
+
+CLI 不会静默覆盖已有本地凭据。切换账号前先执行 `dydata auth logout`，再重新登录；不要把账号、密码、Token 或 Cookie 粘贴到 Agent 对话中。
+
 启动前端：
 
 ```powershell

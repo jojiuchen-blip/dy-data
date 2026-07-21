@@ -1,11 +1,11 @@
 # dydata command reference
 
-CLI version: `0.1.0`. Schema version: `1.0`.
+CLI version: `0.2.0`. Schema version: `1.0`.
 
 | Command | Purpose | Agent callable |
 | --- | --- | --- |
 | `commands` | Discover every supported CLI command and its agent contract. | true |
-| `auth.login` | Sign in interactively and store credentials locally. | false |
+| `auth.login` | Let a human sign in through secure terminal input, with an explicit browser fallback. | false |
 | `auth.logout` | Revoke the refresh family and remove the observed local credential. | false |
 | `auth.status` | Report whether a locally stored CLI credential is usable. | true |
 | `stores.list` | List stores available within the caller's data scope. | true |
@@ -60,13 +60,13 @@ Mode: `json`.
 
 ## `auth.login`
 
-Sign in interactively and store credentials locally.
+Let a human sign in through secure terminal input, with an explicit browser fallback.
 
 ### Parameters
 
 | Name | Required | Type |
 | --- | --- | --- |
-| `None` | false | `-` |
+| `--browser` | false | `flag` |
 
 ### Roles
 
@@ -82,22 +82,30 @@ Authentication/local: `remote_auth_grant_and_local_credential`. Business data: `
 
 ### Risk and confirmation
 
-Risk: `medium`. Confirmation: `interactive`. Agent callable: `false`.
+Risk: `medium`. Confirmation: `human_secure_tty_or_browser`. Agent callable: `false`.
+
+### Human handoff
+
+An Agent may launch this command only after an explicit user request and must hand credential input to the user; it is not autonomously agent-callable.
+
+`{"agent_may_launch": true, "agent_must_not_supply_credentials": true, "browser_fallback": "dydata auth login --browser", "default_mode": "secure_terminal", "requires_explicit_user_request": true, "requires_user_input": true}`
 
 ### Sensitive data
 
-`credential`
+`human_entered_credential`
 
 ### Output mode and schema
 
 Mode: `text`.
 
-`{"lines": ["Open: <url>", "Code: <user_code>", "Authorization complete."], "mode": "text"}`
+`{"mode": "text", "variants": {"browser": ["Open: <url>", "Code: <user_code>", "Authorization complete."], "existing_credential": ["A local CLI credential already exists. Run `dydata auth logout` before signing in as another account."], "terminal": ["Signed in as: <username>", "Role: <role>", "Store scope: <scope>", "Authorization complete."]}}`
 
 ### Errors and exit codes
 
 | Error | Exit code |
 | --- | --- |
+| `INTERACTIVE_REQUIRED` | `2` |
+| `AUTH_FAILED` | `3` |
 | `AUTH_REQUIRED` | `3` |
 | `AUTH_EXPIRED` | `3` |
 | `INVALID_ARGUMENT` | `2` |
@@ -109,6 +117,7 @@ Mode: `text`.
 ### Examples
 
 `dydata auth login`
+`dydata auth login --browser`
 
 ## `auth.logout`
 

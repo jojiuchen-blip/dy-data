@@ -28,7 +28,10 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
     },
     {
         "command": "auth.login",
-        "purpose": "Sign in interactively and store credentials locally.",
+        "purpose": (
+            "Let a human sign in through secure terminal input, with an "
+            "explicit browser fallback."
+        ),
         "parameters": [
             {
                 "name": "--browser",
@@ -43,19 +46,40 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "business_side_effect": "none",
         "risk_level": "medium",
         "agent_callable": False,
-        "confirmation": "interactive",
+        "confirmation": "human_secure_tty_or_browser",
+        "human_handoff": {
+            "agent_may_launch": True,
+            "agent_must_not_supply_credentials": True,
+            "browser_fallback": "dydata auth login --browser",
+            "default_mode": "secure_terminal",
+            "requires_explicit_user_request": True,
+            "requires_user_input": True,
+        },
         "output_mode": "text",
         "output_schema": {
             "mode": "text",
-            "lines": [
-                "Open: <url>",
-                "Code: <user_code>",
-                "Authorization complete.",
-            ],
+            "variants": {
+                "terminal": [
+                    "Signed in as: <username>",
+                    "Role: <role>",
+                    "Store scope: <scope>",
+                    "Authorization complete.",
+                ],
+                "browser": [
+                    "Open: <url>",
+                    "Code: <user_code>",
+                    "Authorization complete.",
+                ],
+                "existing_credential": [
+                    "A local CLI credential already exists. Run `dydata auth logout` before signing in as another account."
+                ],
+            },
         },
-        "sensitive_data": "credential",
-        "examples": ["dydata auth login"],
+        "sensitive_data": "human_entered_credential",
+        "examples": ["dydata auth login", "dydata auth login --browser"],
         "errors": [
+            "INTERACTIVE_REQUIRED",
+            "AUTH_FAILED",
             "AUTH_REQUIRED",
             "AUTH_EXPIRED",
             "INVALID_ARGUMENT",

@@ -54,8 +54,14 @@
 
 **前置**：T1.2
 
-**状态**：进行中
+**状态**：已完成（2026-07-22）
 
 ## Evidence Log
 
-- 待生成。
+- 初始 RED：注册表交接元数据、0.2.0 版本、指南、README 和生成参考未同步，目标 `8 failed, 63 passed`。
+- 机器契约 RED：新增 `requires_explicit_user_request` 精确断言后 `1 failed`。
+- 文档事实 RED：`device_code` / `user_code` 区分和 handoff 窄例外说明新增断言后 `2 failed`。
+- 最终 GREEN：`python -m pytest tests/cli -q` 为 `194 passed`；`python scripts/generate_cli_docs.py --check` 通过。
+- 运行时 `human_handoff` 同时声明 `agent_callable=false`、`agent_may_launch=true`、`requires_explicit_user_request=true`、用户输入和浏览器回退；生成 reference 与注册表一致。
+- 规格复审和文档质量复审均 APPROVE；未重装环境可能仍解析旧 0.1 安装包的风险移交 T1.4 做 fresh editable install 验收。
+- Foundation 漂移：无；CLI Schema 仍为 1.0，CLI 包版本按非破坏性业务契约增量升级为 0.2.0。

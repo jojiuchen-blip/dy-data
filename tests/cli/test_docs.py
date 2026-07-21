@@ -25,7 +25,17 @@ def test_agent_guide_covers_safe_agent_workflow() -> None:
 
     required_concepts = (
         "`dydata commands --json`",
-        "仅由人工执行 `dydata auth login`",
+        "Agent 可以在用户明确要求后启动 `dydata auth login`",
+        "凭据输入和授权确认仅由人工执行",
+        "`dydata auth login --browser`",
+        "隐藏输入",
+        "`INTERACTIVE_REQUIRED`",
+        "已有本地凭据",
+        "先执行 `dydata auth logout`",
+        "不得把账号或密码粘贴到对话",
+        "默认终端流程不显示内部 `device_code`",
+        "浏览器回退会显示一次性 `user_code`",
+        "`human_handoff.agent_may_launch` 是唯一窄例外",
         "实时权限",
         "`system_follow_up_rate`",
         "`action_follow_rate`",
@@ -56,6 +66,9 @@ def test_readme_links_cli_discovery_and_transport_rules() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
 
     assert "dydata commands --json" in readme
+    assert "dydata auth login" in readme
+    assert "dydata auth login --browser" in readme
+    assert "密码使用终端隐藏输入" in readme
     assert "HTTPS is required for remote API URLs" in readme
     assert "explicit loopback HTTP" in readme
 

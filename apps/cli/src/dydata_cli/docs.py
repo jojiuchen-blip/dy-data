@@ -53,6 +53,21 @@ def render_command_reference() -> str:
                 f"Risk: `{item['risk_level']}`. Confirmation: `{item['confirmation']}`. Agent callable: `{str(item['agent_callable']).lower()}`.",
             )
         )
+        if "human_handoff" in item:
+            lines.extend(
+                (
+                    "",
+                    "### Human handoff",
+                    "",
+                    (
+                        "An Agent may launch this command only after an explicit "
+                        "user request and must hand credential input to the user; "
+                        "it is not autonomously agent-callable."
+                    ),
+                    "",
+                    f"`{_json(item['human_handoff'])}`",
+                )
+            )
         lines.extend(("", "### Sensitive data", "", f"`{item['sensitive_data']}`"))
         lines.extend(
             (
