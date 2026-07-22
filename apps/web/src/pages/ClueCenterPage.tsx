@@ -352,7 +352,7 @@ export function ClueCenterPage({
   const isDetailsView = view === "details";
   const pageHeadingTitle = isDetailsView ? "线索跟进列表" : "经营线索概览";
   const showStoreLocationFilters =
-    currentUser.role !== "store" || currentUser.store_ids.length !== 1;
+    currentUser.store_scope_mode === "all" || currentUser.store_ids.length !== 1;
   const [province, setProvince] = useState(searchParams.get("province") ?? "");
   const [city, setCity] = useState(searchParams.get("city") ?? "");
   const [assignedStoreId, setAssignedStoreId] = useState(

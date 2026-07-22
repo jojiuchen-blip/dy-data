@@ -251,6 +251,32 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["remaining_reassign_seconds"] is None
 
 
+def test_clue_overview_separates_action_and_effective_follow_rates(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    order = db_session.get(ClueCenterOrder, "order-2")
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert order is not None
+    assert round_row is not None
+    order.follow_result = "lost"
+    order.is_followed = True
+    order.is_follow_success = False
+    round_row.follow_result = "lost"
+    round_row.is_followed = True
+    round_row.is_follow_success = False
+    round_row.round_status = "failed_pending_reassign"
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
+
+    assert response.status_code == 200
+    metrics = response.json()["data"]
+    assert metrics["follow_rate"] == 1
+    assert metrics["follow_success_rate"] == 0.5
+
+
 def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
     client: TestClient, db_session: Session
 ) -> None:
@@ -999,7 +1025,7 @@ def test_store_change_request_closes_self_owned_round_for_reassignment(
     assert round_row.reassign_reason == "request_store_change"
 
 
-def test_viewer_cannot_record_follow_up(
+def test_legacy_viewer_is_mapped_to_admin_before_follow_up_authorization(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
@@ -1027,7 +1053,7 @@ def test_viewer_cannot_record_follow_up(
         },
     )
 
-    assert response.status_code == 403
+    assert response.status_code == 409
 
 
 def test_clue_assignment_rounds_fall_back_to_raw_masked_phone(

@@ -99,13 +99,16 @@ still govern routing and delivery.
 
 ## 3. Repository Context
 
-The active application repository is the Git repository root (`.`), not its
-parent workspace. All repository instructions and commands must use relative
-paths so the checkout remains portable across machines and worktrees.
+The active application repository is the directory containing this `AGENTS.md`
+and the repository `.git` directory. It is the repository root for commands and
+file references unless a task explicitly states another working directory.
 
-```text
-.
-```
+Use repository-relative paths in long-lived instructions, issues, documents,
+and comments so the checkout remains portable across collaborators' machines
+and Codex worktrees. Do not add machine-specific absolute paths such as
+drive-letter paths, user home directories, temporary folders, or personal
+archive locations unless the task is explicitly documenting a local-only
+runtime detail.
 
 The product is the Douyin business/settlement engine. It covers Douyin order
 settlement dashboards, store ranking, store monthly settlement, order details,

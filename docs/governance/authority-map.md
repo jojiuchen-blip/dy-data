@@ -35,8 +35,10 @@
 | `docs/superpowers/specs/` | 已确认功能和视觉设计证据 | `evidence` | 按对应 issue 与日期读取，不合并成总 PRD。 |
 | `docs/superpowers/plans/`、`docs/plans/` 中既有日期计划 | 历史实施计划与控制规格 | `legacy` | 保留当时事实，不覆盖 Linear、项目画像或当前执行驾驶舱。 |
 | `docs/devlog/` | 按天追加的开发执行记录 | `evidence` | 提供执行与验证证据，不替代 Linear 和当前计划。 |
-| `docs/brd/BRD-dy-data-20260716-1255.md` | S1 业务目标、角色、痛点、价值、范围、成功标准、风险与下游边界 | `authority` | 当前唯一权威 BRD；修改业务口径时须重开 BRD 台账并重新完成质量门与终稿确认。 |
+| `docs/brd/BRD-dy-data-20260716-1255.md` | 项目级 S1 业务目标、角色、痛点、价值、范围、成功标准、风险与下游边界 | `authority` | 当前项目级权威 BRD；专项 BRD 可在明确业务域内细化，但不得改写项目级边界。 |
 | `docs/brd/ledger-state-dy-data.json`、`docs/brd/brd-ledger-dy-data.md` | BRD 决策状态与追溯记录 | `evidence` | JSON 是决策状态源，Markdown 是脚本渲染的只读展示层；二者不替代 BRD 正文。 |
+| `docs/brd/BRD-clue-center-20260721-2134.md` | 线索中心业务对象、生命周期、分配、跟进、权限、指标、页面职责与现状追踪矩阵 | `authority` | 当前线索中心专项权威 BRD；修改线索业务语义时须重开专项台账并重新完成质量门与终稿确认。 |
+| `docs/brd/ledger-state-clue-center.json`、`docs/brd/brd-ledger-clue-center.md` | 线索中心 BRD 决策状态与追溯记录 | `evidence` | JSON 是专项决策状态源，Markdown 是脚本渲染的只读展示层；二者不替代专项 BRD 正文。 |
 | `src/frontend/page-preview/explainer-*-dy-data.md` | S2 页面交互语义 | `missing` | 现有页面和设计规格只作 evidence，不冒充页面说明产物。 |
 | `docs/prd/foundation/foundation-*-dy-data.md` | S2 术语、Schema、API FOUNDATION | `missing` | 现有数据与 API 索引不冒充正式 foundation。 |
 | `docs/prd/mainprd-dy-data.md`、`docs/prd/subprd/` | S2 正式 PRD | `missing` | 现有 specs 与计划不复制为 PRD。 |

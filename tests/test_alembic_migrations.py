@@ -6,8 +6,19 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import create_engine, inspect, text
+
+
+def test_alembic_migration_graph_has_single_head() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+
+    heads = ScriptDirectory.from_config(config).get_heads()
+
+    assert len(heads) == 1, f"expected one Alembic head, got {heads}"
 from sqlalchemy.exc import IntegrityError
 
 
@@ -597,7 +608,7 @@ def test_raw_order_internal_id_cutover_postgresql_ddl_is_short_lock_safe() -> No
         "sqlalchemy.url", "postgresql+psycopg://user:pass@localhost/test"
     )
 
-    command.upgrade(config, "20260720_0023:head", sql=True)
+    command.upgrade(config, "20260720_0023:20260721_0026", sql=True)
 
     ddl = output.getvalue()
     assert "CREATE UNIQUE INDEX CONCURRENTLY" in ddl

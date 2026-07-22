@@ -13,6 +13,8 @@ from sqlalchemy import delete, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
 
 from apps.api.dy_api.models import (
+    AccessPage,
+    AccountPermissionAuditLog,
     ClueAllocationAuditLog,
     ClueAllocationCycle,
     ClueAllocationDecision,
@@ -35,8 +37,20 @@ from apps.api.dy_api.models import (
     User,
     UserFeedbackSubmission,
     UserStoreScope,
+    UserPagePermissionOverride,
+)
+from apps.api.dy_api.access_control import (
+    add_audit_log,
+    effective_page_keys,
+    page_rows,
+    replace_user_overrides,
+    role_default_page_keys,
+    update_role_defaults_preserving_customizations,
+    user_override_sets,
+    validate_page_keys,
 )
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.api.dy_api.user_auth_state import replace_user_store_scopes
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
@@ -69,14 +83,26 @@ from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
-from dy_api.auth import hash_password_pbkdf2, normalize_account_value, get_current_admin, get_current_super_admin
+from dy_api.auth import (
+    AuthContext,
+    get_current_admin,
+    get_current_super_admin,
+    get_current_user,
+    hash_password_pbkdf2,
+    normalize_account_value,
+)
 from dy_api.routes._data import get_data_store, generated_at, sanitize_error_message
 from dy_api.schemas import (
     AccountListData,
+    AccountPagePermissionUpdateRequest,
+    AccountPermissionAuditListData,
+    AccountPermissionAuditRow,
     AccountPasswordUpdateRequest,
     AccountRow,
     AccountStoreScopeRow,
     AccountUpsertRequest,
+    AccessControlData,
+    AccessPageRow,
     ManualSyncRequest,
     ManualSyncResult,
     ClueRebuildResult,
@@ -95,6 +121,8 @@ from dy_api.schemas import (
     ClueAllocationEligibleLeadRow,
     ClueHeadquartersPoolData,
     ClueHeadquartersPoolEntryRow,
+    ClueHeadquartersPoolFilterOptions,
+    ClueHeadquartersPoolSummary,
     ClueMasterLeadData,
     ClueMasterLeadRow,
     ClueAllocationRuleCreateRequest,
@@ -118,6 +146,8 @@ from dy_api.schemas import (
     ProductTypeVisibilityData,
     ProductTypeVisibilityUpdate,
     ProductSyncRunRequest,
+    RolePagePermissionUpdateRequest,
+    RolePermissionImpactData,
     SkuRuleBulkUpdateRequest,
     SkuRuleBulkUpdateResult,
     SkuRuleListData,
@@ -174,6 +204,10 @@ def _require_available_store(store):
     return store
 
 
+def _shanghai_day_start(value: date) -> datetime:
+    return datetime.combine(value, datetime.min.time(), tzinfo=SHANGHAI_TZ).astimezone(timezone.utc)
+
+
 def _rule_version_http_error(error: RuleVersionError) -> HTTPException:
     if isinstance(error, RuleNotFoundError):
         return HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(error))
@@ -191,11 +225,15 @@ def _allocation_cycle_http_error(error: AllocationCycleError) -> HTTPException:
 
 @router.get("/accounts")
 def list_accounts(
-    _username: str = Depends(get_current_admin),
+    actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    users = store.session.execute(select(User).order_by(User.created_at, User.username)).scalars().all()
+    _require_account_manager(actor)
+    statement = select(User).order_by(User.created_at, User.username)
+    if not actor.is_highest_admin:
+        statement = statement.where(User.role == "store")
+    users = store.session.execute(statement).scalars().all()
     data = AccountListData(rows=[_account_row(store.session, user) for user in users])
     return {
         "data": dump_model(data),
@@ -206,10 +244,11 @@ def list_accounts(
 @router.get("/accounts/unactivated-stores")
 def list_unactivated_store_accounts(
     q: str | None = None,
-    _username: str = Depends(get_current_admin),
+    actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    _require_account_manager(actor)
     data = UnactivatedStoreAccountListData(
         rows=_unactivated_store_account_rows(store.session, q=q)
     )
@@ -222,10 +261,12 @@ def list_unactivated_store_accounts(
 @router.post("/accounts")
 def create_account(
     payload: AccountUpsertRequest,
-    _username: str = Depends(get_current_admin),
+    actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    _require_account_manager(actor)
+    _ensure_actor_can_manage_role(actor, payload.role)
     _validate_password_payload(payload.password, payload.password_confirm, required=True)
     _ensure_unique_user_fields(
         store.session,
@@ -233,7 +274,9 @@ def create_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=None,
     )
-    store_ids = _role_store_ids(payload.role, payload.store_ids)
+    store_ids = _validated_scope_store_ids(
+        payload.role, payload.store_scope_mode, payload.store_ids
+    )
     _ensure_store_ids_exist(store.session, store_ids)
     now = generated_at()
     user = User(
@@ -242,6 +285,7 @@ def create_account(
         external_account_id=_optional_account_value(payload.external_account_id),
         display_name=normalize_account_value(payload.display_name),
         role=payload.role,
+        store_scope_mode=_normalized_scope_mode(payload.role, payload.store_scope_mode),
         status=payload.status,
         is_initialized=True,
         password_hash=hash_password_pbkdf2(payload.password or ""),
@@ -251,6 +295,13 @@ def create_account(
     store.session.add(user)
     store.session.flush()
     _replace_user_scopes(store.session, user.user_id, store_ids)
+    add_audit_log(
+        store.session,
+        action="account.created",
+        actor=actor,
+        target=user,
+        after=_account_audit_snapshot(store.session, user),
+    )
     store.session.commit()
     data = _account_row(store.session, user)
     return {
@@ -263,13 +314,27 @@ def create_account(
 def update_account(
     user_id: str,
     payload: AccountUpsertRequest,
-    _username: str = Depends(get_current_admin),
+    actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    _require_account_manager(actor)
     user = store.session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    _ensure_actor_can_manage_user(actor, user)
+    _ensure_actor_can_manage_role(actor, payload.role)
+    if user.role == "highest_admin" and payload.role != "highest_admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Highest administrator accounts cannot be downgraded",
+        )
+    if actor.user_id == user.user_id and payload.status != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You cannot disable your own account",
+        )
+    before = _account_audit_snapshot(store.session, user)
     _validate_password_payload(payload.password, payload.password_confirm, required=False)
     _ensure_unique_user_fields(
         store.session,
@@ -277,18 +342,30 @@ def update_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=user_id,
     )
-    store_ids = _role_store_ids(payload.role, payload.store_ids)
+    store_ids = _validated_scope_store_ids(
+        payload.role, payload.store_scope_mode, payload.store_ids
+    )
     _ensure_store_ids_exist(store.session, store_ids)
     user.username = normalize_account_value(payload.username)
     user.external_account_id = _optional_account_value(payload.external_account_id)
     user.display_name = normalize_account_value(payload.display_name)
     user.role = payload.role
+    user.store_scope_mode = _normalized_scope_mode(payload.role, payload.store_scope_mode)
     user.status = payload.status
     user.is_initialized = True if payload.password else user.is_initialized
     if payload.password:
         user.password_hash = hash_password_pbkdf2(payload.password)
+    user.auth_version += 1
     user.updated_at = generated_at()
     _replace_user_scopes(store.session, user.user_id, store_ids)
+    add_audit_log(
+        store.session,
+        action="account.updated",
+        actor=actor,
+        target=user,
+        before=before,
+        after=_account_audit_snapshot(store.session, user),
+    )
     store.session.commit()
     data = _account_row(store.session, user)
     return {
@@ -301,13 +378,15 @@ def update_account(
 def admin_reset_account_password(
     user_id: str,
     payload: AccountPasswordUpdateRequest,
-    _username: str = Depends(get_current_admin),
+    actor: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
+    _require_account_manager(actor)
     user = store.session.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    _ensure_actor_can_manage_user(actor, user)
     if payload.password != payload.password_confirm:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
@@ -315,9 +394,243 @@ def admin_reset_account_password(
         )
     user.password_hash = hash_password_pbkdf2(payload.password)
     user.is_initialized = True
+    user.auth_version += 1
     user.updated_at = generated_at()
+    add_audit_log(
+        store.session,
+        action="account.password_reset",
+        actor=actor,
+        target=user,
+        after={"password_reset": True},
+    )
     store.session.commit()
     data = _account_row(store.session, user)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/accounts/{user_id}/page-permissions")
+def update_account_page_permissions(
+    user_id: str,
+    payload: AccountPagePermissionUpdateRequest,
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    user = store.session.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    _ensure_actor_can_manage_user(actor, user)
+    if user.role == "highest_admin":
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Highest administrator permissions are fixed",
+        )
+    before = _account_audit_snapshot(store.session, user)
+    try:
+        replace_user_overrides(
+            store.session,
+            user,
+            extra_allow=payload.extra_allow,
+            extra_deny=payload.extra_deny,
+            updated_by=actor.username,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    user.auth_version += 1
+    user.updated_at = generated_at()
+    after = _account_audit_snapshot(store.session, user)
+    add_audit_log(
+        store.session,
+        action="account.page_permissions.updated",
+        actor=actor,
+        target=user,
+        before=before,
+        after=after,
+    )
+    store.session.commit()
+    return {
+        "data": dump_model(_account_row(store.session, user)),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/accounts/{user_id}/page-permissions/restore")
+def restore_account_page_permissions(
+    user_id: str,
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    return update_account_page_permissions(
+        user_id,
+        AccountPagePermissionUpdateRequest(extra_allow=[], extra_deny=[]),
+        actor,
+        store,
+    )
+
+
+@router.get("/access-control")
+def get_access_control(
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    pages = page_rows(store.session)
+    data = AccessControlData(
+        pages=[
+            AccessPageRow(
+                page_key=row.page_key,
+                page_name=row.page_name,
+                module_name=row.module_name,
+                route_patterns=list(row.route_patterns or []),
+            )
+            for row in pages
+        ],
+        role_permissions={
+            role: list(role_default_page_keys(store.session, role))
+            for role in ("highest_admin", "admin", "store")
+        },
+    )
+    store.session.commit()
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/access-control/roles/{role}/preview")
+def preview_role_page_permissions(
+    role: str,
+    payload: RolePagePermissionUpdateRequest,
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _ensure_actor_can_manage_role_defaults(actor, role)
+    try:
+        page_keys = validate_page_keys(payload.page_keys)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    customized = set(
+        store.session.scalars(
+            select(UserPagePermissionOverride.user_id)
+            .join(User, User.user_id == UserPagePermissionOverride.user_id)
+            .where(User.role == role)
+            .distinct()
+        ).all()
+    )
+    total = int(store.session.scalar(select(func.count()).select_from(User).where(User.role == role)) or 0)
+    data = RolePermissionImpactData(
+        role=role,
+        page_keys=sorted(page_keys),
+        inheriting_user_count=total - len(customized),
+        customized_user_count=len(customized),
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.put("/access-control/roles/{role}")
+def update_role_page_permissions(
+    role: str,
+    payload: RolePagePermissionUpdateRequest,
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _ensure_actor_can_manage_role_defaults(actor, role)
+    if not payload.confirmed:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Role permission change must be previewed and confirmed",
+        )
+    before = {"page_keys": list(role_default_page_keys(store.session, role))}
+    try:
+        impact = update_role_defaults_preserving_customizations(
+            store.session,
+            role=role,
+            page_keys=payload.page_keys,
+            updated_by=actor.username,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    for user in store.session.scalars(select(User).where(User.role == role)).all():
+        user.auth_version += 1
+    after = {"page_keys": list(role_default_page_keys(store.session, role))}
+    add_audit_log(
+        store.session,
+        action="role.page_permissions.updated",
+        actor=actor,
+        before={"role": role, **before},
+        after={"role": role, **after, **impact},
+    )
+    store.session.commit()
+    data = RolePermissionImpactData(role=role, page_keys=after["page_keys"], **impact)
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/access-control/audit-logs")
+def list_account_permission_audit_logs(
+    target_user_id: str | None = None,
+    action: str | None = None,
+    actor_username: str | None = None,
+    created_from: datetime | None = None,
+    created_to: datetime | None = None,
+    actor: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    statement = select(AccountPermissionAuditLog)
+    if target_user_id:
+        statement = statement.where(AccountPermissionAuditLog.target_user_id == target_user_id)
+    if action:
+        statement = statement.where(AccountPermissionAuditLog.action == action)
+    if actor_username:
+        statement = statement.where(
+            func.lower(AccountPermissionAuditLog.actor_username).contains(
+                actor_username.strip().lower()
+            )
+        )
+    if created_from:
+        statement = statement.where(AccountPermissionAuditLog.created_at >= created_from)
+    if created_to:
+        statement = statement.where(AccountPermissionAuditLog.created_at <= created_to)
+    if not actor.is_highest_admin:
+        store_user_ids = select(User.user_id).where(User.role == "store")
+        statement = statement.where(AccountPermissionAuditLog.target_user_id.in_(store_user_ids))
+    rows = store.session.scalars(
+        statement.order_by(AccountPermissionAuditLog.created_at.desc()).limit(500)
+    ).all()
+    data = AccountPermissionAuditListData(
+        rows=[
+            AccountPermissionAuditRow(
+                audit_id=row.audit_id,
+                action=row.action,
+                result=row.result,
+                actor_user_id=row.actor_user_id,
+                actor_username=row.actor_username,
+                actor_role=row.actor_role,
+                target_user_id=row.target_user_id,
+                target_username=row.target_username,
+                before=row.before_json or {},
+                after=row.after_json or {},
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+    )
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
@@ -623,17 +936,54 @@ def list_clue_allocation_eligible_leads(
 @router.get("/clue-allocation/headquarters-pool")
 def list_clue_headquarters_pool(
     pool_status: str | None = None,
+    reason: str | None = None,
+    entered_date_start: date | None = None,
+    entered_date_end: date | None = None,
+    order_status: str | None = None,
+    order_id: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     _username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    statement = select(ClueHeadquartersPoolEntry)
+    if entered_date_start and entered_date_end and entered_date_end < entered_date_start:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="entered_date_end must be on or after entered_date_start",
+        )
+
+    filters = []
     if pool_status:
-        statement = statement.where(ClueHeadquartersPoolEntry.status == pool_status)
-    total = int(store.session.scalar(select(func.count()).select_from(statement.subquery())) or 0)
-    rows = store.session.scalars(
+        filters.append(ClueHeadquartersPoolEntry.status == pool_status)
+    if reason:
+        filters.append(ClueHeadquartersPoolEntry.reason == reason)
+    if entered_date_start:
+        filters.append(ClueHeadquartersPoolEntry.entered_at >= _shanghai_day_start(entered_date_start))
+    if entered_date_end:
+        filters.append(
+            ClueHeadquartersPoolEntry.entered_at
+            < _shanghai_day_start(entered_date_end + timedelta(days=1))
+        )
+    if order_status:
+        filters.append(ClueMasterLead.normalized_order_status == order_status)
+    normalized_order_id = (order_id or "").strip()
+    if normalized_order_id:
+        filters.append(ClueMasterLead.order_id.contains(normalized_order_id, autoescape=True))
+
+    statement = (
+        select(ClueHeadquartersPoolEntry, ClueMasterLead)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueHeadquartersPoolEntry.lead_key)
+        .where(*filters)
+    )
+    total_statement = (
+        select(func.count())
+        .select_from(ClueHeadquartersPoolEntry)
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueHeadquartersPoolEntry.lead_key)
+        .where(*filters)
+    )
+    total = int(store.session.scalar(total_statement) or 0)
+    rows = store.session.execute(
         statement.order_by(
             ClueHeadquartersPoolEntry.entered_at.desc(),
             ClueHeadquartersPoolEntry.headquarters_pool_entry_id.desc(),
@@ -644,11 +994,49 @@ def list_clue_headquarters_pool(
     data = ClueHeadquartersPoolData(
         rows=[
             ClueHeadquartersPoolEntryRow(
-                **_clue_headquarters_pool_entry_payload(store.session, row)
+                **_clue_headquarters_pool_entry_payload(entry, lead)
             )
-            for row in rows
+            for entry, lead in rows
         ],
         pagination=_pagination(page, page_size, total),
+        summary=ClueHeadquartersPoolSummary(
+            current_inventory=int(
+                store.session.scalar(
+                    select(func.count())
+                    .select_from(ClueHeadquartersPoolEntry)
+                    .where(ClueHeadquartersPoolEntry.status == "active")
+                )
+                or 0
+            ),
+            filtered_total=total,
+        ),
+        filter_options=ClueHeadquartersPoolFilterOptions(
+            pool_statuses=list(
+                store.session.scalars(
+                    select(ClueHeadquartersPoolEntry.status)
+                    .distinct()
+                    .order_by(ClueHeadquartersPoolEntry.status)
+                ).all()
+            ),
+            reasons=list(
+                store.session.scalars(
+                    select(ClueHeadquartersPoolEntry.reason)
+                    .distinct()
+                    .order_by(ClueHeadquartersPoolEntry.reason)
+                ).all()
+            ),
+            order_statuses=list(
+                store.session.scalars(
+                    select(ClueMasterLead.normalized_order_status)
+                    .join(
+                        ClueHeadquartersPoolEntry,
+                        ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key,
+                    )
+                    .distinct()
+                    .order_by(ClueMasterLead.normalized_order_status)
+                ).all()
+            ),
+        ),
     )
     return {
         "data": dump_model(data),
@@ -1711,6 +2099,7 @@ def _account_row(session, user: User) -> AccountRow:
         .where(UserStoreScope.user_id == user.user_id)
         .order_by(DimStore.store_name, UserStoreScope.store_id)
     ).all()
+    allow, deny = user_override_sets(session, user.user_id)
     return AccountRow(
         user_id=user.user_id,
         username=user.username,
@@ -1718,11 +2107,17 @@ def _account_row(session, user: User) -> AccountRow:
         display_name=user.display_name,
         role=user.role,
         status=user.status,
+        store_scope_mode=user.store_scope_mode,
         is_initialized=user.is_initialized,
         stores=[
             AccountStoreScopeRow(store_id=row.store_id, store_name=row.store_name)
             for row in rows
         ],
+        default_page_keys=list(role_default_page_keys(session, user.role)),
+        extra_allow=sorted(allow),
+        extra_deny=sorted(deny),
+        effective_page_keys=list(effective_page_keys(session, user)),
+        inherits_role_defaults=not allow and not deny,
         created_at=user.created_at,
         updated_at=user.updated_at,
     )
@@ -1928,15 +2323,103 @@ def _ensure_store_ids_exist(session, store_ids: list[str]) -> None:
         )
 
 
-def _role_store_ids(role: str, store_ids: list[str]) -> list[str]:
-    return store_ids if role == "store" else []
+def _require_account_manager(actor: AuthContext) -> None:
+    if actor.role not in {"highest_admin", "admin"}:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account management access required",
+        )
+
+
+def _ensure_actor_can_manage_role(actor: AuthContext, role: str) -> None:
+    if actor.is_highest_admin:
+        return
+    if actor.role == "admin" and role == "store":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Administrators can manage store accounts only",
+    )
+
+
+def _ensure_actor_can_manage_user(actor: AuthContext, user: User) -> None:
+    if actor.is_highest_admin:
+        return
+    if actor.role == "admin" and user.role == "store":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Administrators can manage store accounts only",
+    )
+
+
+def _ensure_actor_can_manage_role_defaults(actor: AuthContext, role: str) -> None:
+    if role not in {"admin", "store"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Highest administrator permissions are fixed",
+        )
+    if actor.is_highest_admin or (actor.role == "admin" and role == "store"):
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Role permission management access required",
+    )
+
+
+def _normalized_scope_mode(role: str, scope_mode: str) -> str:
+    return "all" if role == "highest_admin" else scope_mode
+
+
+def _validated_scope_store_ids(
+    role: str, scope_mode: str, store_ids: list[str]
+) -> list[str]:
+    normalized_ids = sorted({normalize_account_value(value) for value in store_ids if normalize_account_value(value)})
+    if role == "highest_admin":
+        if scope_mode != "all":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Highest administrators must have all-store scope",
+            )
+        return []
+    if scope_mode == "all":
+        if role != "admin":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Store accounts cannot have all-store scope",
+            )
+        return []
+    if scope_mode != "specified" or not normalized_ids:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="At least one store is required for specified scope",
+        )
+    return normalized_ids
+
+
+def _account_audit_snapshot(session, user: User) -> dict:
+    allow, deny = user_override_sets(session, user.user_id)
+    return {
+        "username": user.username,
+        "display_name": user.display_name,
+        "role": user.role,
+        "status": user.status,
+        "store_scope_mode": user.store_scope_mode,
+        "store_ids": list(
+            session.scalars(
+                select(UserStoreScope.store_id)
+                .where(UserStoreScope.user_id == user.user_id)
+                .order_by(UserStoreScope.store_id)
+            ).all()
+        ),
+        "extra_allow": sorted(allow),
+        "extra_deny": sorted(deny),
+        "effective_page_keys": list(effective_page_keys(session, user)),
+    }
 
 
 def _replace_user_scopes(session, user_id: str, store_ids: list[str]) -> None:
-    session.execute(delete(UserStoreScope).where(UserStoreScope.user_id == user_id))
-    for store_id in sorted(set(store_ids)):
-        session.add(UserStoreScope(user_id=user_id, store_id=store_id))
-    session.flush()
+    replace_user_store_scopes(session, user_id, store_ids)
 
 
 def _optional_account_value(value: str | None) -> str | None:
@@ -2136,21 +2619,25 @@ def _clue_allocation_eligible_lead_payload(row: ClueMasterLead) -> dict:
     }
 
 
-def _clue_headquarters_pool_entry_payload(session, row: ClueHeadquartersPoolEntry) -> dict:
-    lead = session.get(ClueMasterLead, row.lead_key)
+def _clue_headquarters_pool_entry_payload(
+    row: ClueHeadquartersPoolEntry,
+    lead: ClueMasterLead,
+) -> dict:
     return {
         "headquarters_pool_entry_id": row.headquarters_pool_entry_id,
         "lead_key": row.lead_key,
-        "canonical_clue_id": lead.canonical_clue_id if lead is not None else None,
-        "order_id": lead.order_id if lead is not None else None,
+        "canonical_clue_id": lead.canonical_clue_id,
+        "order_id": lead.order_id,
+        "order_status": lead.normalized_order_status,
+        "raw_order_status": lead.raw_order_status,
         "status": row.status,
         "reason": row.reason,
         "entered_at": row.entered_at,
         "closed_at": row.closed_at,
         "close_reason": row.close_reason,
-        "anchor_store_id": lead.anchor_store_id if lead is not None else None,
-        "anchor_city": lead.anchor_city if lead is not None else None,
-        "anchor_city_code": lead.anchor_city_code if lead is not None else None,
+        "anchor_store_id": lead.anchor_store_id,
+        "anchor_city": lead.anchor_city,
+        "anchor_city_code": lead.anchor_city_code,
         "source_assignment_round_id": row.source_assignment_round_id,
         "source_decision_id": row.source_decision_id,
         "source_rule_version_id": row.source_rule_version_id,

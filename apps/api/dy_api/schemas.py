@@ -37,7 +37,86 @@ class AdminUser(BaseModel):
     status: str = "active"
     is_initialized: bool = True
     store_ids: list[str] = Field(default_factory=list)
+    store_scope_mode: Literal["all", "specified", "none"] = "all"
+    page_keys: list[str] = Field(default_factory=list)
     is_highest_admin: bool = False
+
+
+class CliDeviceStartResponse(BaseModel):
+    device_code: str
+    user_code: str
+    verification_uri: str
+    verification_uri_complete: str
+    expires_in: Literal[600] = 600
+    interval: Literal[3] = 3
+
+
+class CliFollowUpMetrics(BaseModel):
+    total_count: int = 0
+    pending_count: int = 0
+    followed_count: int = 0
+    other_status_count: int = 0
+    action_followed_count: int = 0
+    effective_followed_count: int = 0
+    system_follow_up_rate: float = 0
+    action_follow_rate: float = 0
+
+
+class CliFollowUpData(CliFollowUpMetrics):
+    store_id: str
+    store_name: str
+
+
+class CliDeviceApproveRequest(BaseModel):
+    user_code: str
+
+    @field_validator("user_code")
+    def normalize_user_code(cls, value: str) -> str:
+        normalized = "".join(value.split()).upper()
+        if not normalized:
+            raise ValueError("user_code is required")
+        return normalized
+
+
+class CliDeviceTokenRequest(BaseModel):
+    device_code: str
+
+    @field_validator("device_code")
+    def non_empty_device_code(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("device_code is required")
+        return normalized
+
+
+class CliRefreshTokenRequest(BaseModel):
+    refresh_token: str
+
+    @field_validator("refresh_token")
+    def non_empty_refresh_token(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("refresh_token is required")
+        return normalized
+
+
+class CliTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: Literal["Bearer"] = "Bearer"
+    scope: Literal["cli:read"] = "cli:read"
+    expires_in: Literal[1800] = 1800
+    access_token_expires_at: datetime
+
+
+class CliAuthorizationStatusResponse(BaseModel):
+    status: Literal["authorization_pending", "approved", "revoked"]
+
+
+class CliDeviceApproveResponse(BaseModel):
+    user_code: str
+    status: Literal["approved"]
+    expires_at: datetime
 
 
 class AccountActivationIdentityRequest(BaseModel):
@@ -101,10 +180,16 @@ class AccountRow(BaseModel):
     username: str
     external_account_id: str | None = None
     display_name: str
-    role: Literal["admin", "viewer", "store"] = "store"
+    role: Literal["highest_admin", "admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
+    store_scope_mode: Literal["all", "specified", "none"] = "specified"
     is_initialized: bool = False
     stores: list[AccountStoreScopeRow] = Field(default_factory=list)
+    default_page_keys: list[str] = Field(default_factory=list)
+    extra_allow: list[str] = Field(default_factory=list)
+    extra_deny: list[str] = Field(default_factory=list)
+    effective_page_keys: list[str] = Field(default_factory=list)
+    inherits_role_defaults: bool = True
     created_at: datetime | None = None
     updated_at: datetime | None = None
 
@@ -129,8 +214,9 @@ class UnactivatedStoreAccountListData(BaseModel):
 class AccountUpsertRequest(BaseModel):
     username: str
     display_name: str
-    role: Literal["admin", "viewer", "store"] = "store"
+    role: Literal["highest_admin", "admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
+    store_scope_mode: Literal["all", "specified", "none"] = "specified"
     external_account_id: str | None = None
     store_ids: list[str] = Field(default_factory=list)
     password: str | None = None
@@ -154,6 +240,53 @@ class AccountPasswordUpdateRequest(BaseModel):
         if not value:
             raise ValueError("password is required")
         return value
+
+
+class AccountPagePermissionUpdateRequest(BaseModel):
+    extra_allow: list[str] = Field(default_factory=list)
+    extra_deny: list[str] = Field(default_factory=list)
+
+
+class RolePagePermissionUpdateRequest(BaseModel):
+    page_keys: list[str] = Field(default_factory=list)
+    confirmed: bool = False
+
+
+class AccessPageRow(BaseModel):
+    page_key: str
+    page_name: str
+    module_name: str
+    route_patterns: list[str] = Field(default_factory=list)
+
+
+class AccessControlData(BaseModel):
+    pages: list[AccessPageRow]
+    role_permissions: dict[str, list[str]]
+
+
+class RolePermissionImpactData(BaseModel):
+    role: Literal["admin", "store"]
+    page_keys: list[str]
+    inheriting_user_count: int
+    customized_user_count: int
+
+
+class AccountPermissionAuditRow(BaseModel):
+    audit_id: str
+    action: str
+    result: Literal["success", "failed"] = "success"
+    actor_user_id: str | None = None
+    actor_username: str
+    actor_role: str
+    target_user_id: str | None = None
+    target_username: str | None = None
+    before: dict[str, Any] = Field(default_factory=dict)
+    after: dict[str, Any] = Field(default_factory=dict)
+    created_at: datetime
+
+
+class AccountPermissionAuditListData(BaseModel):
+    rows: list[AccountPermissionAuditRow]
 
 
 FeedbackCategory = Literal["experience", "data", "feature", "other"]
@@ -881,6 +1014,8 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     lead_key: str
     canonical_clue_id: str | None = None
     order_id: str | None = None
+    order_status: str
+    raw_order_status: str | None = None
     status: str
     reason: str
     entered_at: datetime
@@ -895,9 +1030,22 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     allocation_cycle_id: str | None = None
 
 
+class ClueHeadquartersPoolSummary(BaseModel):
+    current_inventory: int = 0
+    filtered_total: int = 0
+
+
+class ClueHeadquartersPoolFilterOptions(BaseModel):
+    pool_statuses: list[str] = Field(default_factory=list)
+    reasons: list[str] = Field(default_factory=list)
+    order_statuses: list[str] = Field(default_factory=list)
+
+
 class ClueHeadquartersPoolData(BaseModel):
     rows: list[ClueHeadquartersPoolEntryRow] = Field(default_factory=list)
     pagination: Pagination
+    summary: ClueHeadquartersPoolSummary
+    filter_options: ClueHeadquartersPoolFilterOptions
 
 
 class ClueAllocationCycleRow(BaseModel):

@@ -52,7 +52,7 @@
       "evidence_paths": [],
       "expected_location": "docs/prd/foundation/",
       "recommended_skill": "foundation-builder",
-      "reason": "缺少术语表、Schema、API 与交付清单；代码中发现 API 端点线索 64 个、模型定义 37 个、迁移 19 个"
+      "reason": "缺少术语表、Schema、API 与交付清单；代码中发现 API 端点线索 64 个、模型定义 37 个、迁移 17 个"
     },
     {
       "type": "PRD",
@@ -105,23 +105,19 @@
       "alembic/versions/20260626_0009_product_type_visibility.py",
       "alembic/versions/20260626_0010_product_type_default.py",
       "alembic/versions/20260706_0011_product_scope_visibility.py",
-      "alembic/versions/20260707_0012_sku_product_scope.py",
       "alembic/versions/20260712_0012_clue_allocation_m1_foundation.py",
       "alembic/versions/20260712_0013_clue_allocation_rule_versions.py",
       "alembic/versions/20260712_0014_clue_allocation_engine.py",
       "alembic/versions/20260712_0015_clue_follow_up_state_machine.py",
       "alembic/versions/20260712_0016_clue_allocation_cycles.py",
       "alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py",
-      "alembic/versions/20260715_0018_merge_sku_and_clue_heads.py",
       "apps/api/dy_api/models.py",
       "apps/api/dy_api/schemas.py"
     ],
     "configs": [
       "apps/web/tsconfig.json",
-      "apps/web/tsconfig.tsbuildinfo",
       "apps/web/vite.config.ts",
       "config.example.json",
-      "config.local.json",
       "deploy/.env.example",
       "src/dy_data/config.py"
     ],
@@ -129,9 +125,9 @@
       "page_files": 14,
       "api_files": 9,
       "api_endpoints": 64,
-      "model_files": 21,
+      "model_files": 19,
       "model_definitions": 37,
-      "migration_files": 19
+      "migration_files": 17
     }
   }
 }

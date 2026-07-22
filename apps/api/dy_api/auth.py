@@ -14,6 +14,11 @@ from fastapi import Depends, HTTPException, Request, Response, status
 from sqlalchemy import or_, select
 
 from apps.api.dy_api.models import DimAwemeAccount, DimStorePoiMapping, User, UserStoreScope
+from apps.api.dy_api.access_control import (
+    ALL_PAGE_KEYS,
+    effective_page_keys,
+    required_page_key_for_api_path,
+)
 from dy_api.routes._data import get_session_dependency
 
 
@@ -56,18 +61,21 @@ class AuthContext:
     role: str
     store_ids: tuple[str, ...]
     auth_type: str
+    store_scope_mode: str = "all"
+    page_keys: tuple[str, ...] = ()
+    auth_version: int = 1
 
     @property
     def is_admin(self) -> bool:
-        return self.role == "admin"
+        return self.role in {"highest_admin", "admin"}
 
     @property
     def is_highest_admin(self) -> bool:
-        return self.auth_type == "env_admin"
+        return self.auth_type == "env_admin" or self.role == "highest_admin"
 
     @property
     def has_global_data_access(self) -> bool:
-        return self.role in {"admin", "viewer"}
+        return self.store_scope_mode == "all"
 
 
 def _truthy(value: str | None) -> bool:
@@ -355,6 +363,7 @@ def create_session_token(
     user_id: str | None = None,
     role: str = "admin",
     auth_type: str = "env_admin",
+    auth_version: int = 1,
 ) -> str:
     issued_at = now or int(time.time())
     ttl = get_cookie_config().max_age
@@ -364,6 +373,7 @@ def create_session_token(
         "exp": issued_at + ttl,
         "role": role,
         "auth_type": auth_type,
+        "auth_version": auth_version,
     }
     if user_id:
         payload["uid"] = user_id
@@ -411,6 +421,7 @@ def set_session_cookie(
     user_id: str | None = None,
     role: str = "admin",
     auth_type: str = "env_admin",
+    auth_version: int = 1,
 ) -> None:
     config = get_cookie_config()
     response.set_cookie(
@@ -420,6 +431,7 @@ def set_session_cookie(
             user_id=user_id,
             role=role,
             auth_type=auth_type,
+            auth_version=auth_version,
         ),
         max_age=config.max_age,
         httponly=True,
@@ -436,6 +448,7 @@ def set_auth_cookie(response: Response, auth: AuthContext) -> None:
         user_id=auth.user_id,
         role=auth.role,
         auth_type=auth.auth_type,
+        auth_version=auth.auth_version,
     )
 
 
@@ -476,14 +489,18 @@ def get_current_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
             )
-        return AuthContext(
+        auth = AuthContext(
             user_id=None,
             username=username,
             display_name=username,
-            role="admin",
+            role="highest_admin",
             store_ids=(),
             auth_type="env_admin",
+            store_scope_mode="all",
+            page_keys=effective_page_keys(session, None, role="highest_admin") if session is not None else ALL_PAGE_KEYS,
         )
+        _enforce_page_permission(request, auth)
+        return auth
 
     user_id = payload.get("uid")
     if not isinstance(user_id, str) or session is None:
@@ -495,23 +512,44 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated"
         )
-    return AuthContext(
+    token_auth_version = payload.get("auth_version", 1)
+    if not isinstance(token_auth_version, int) or token_auth_version != user.auth_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Session is no longer valid"
+        )
+    role = "admin" if user.role == "viewer" else user.role
+    scope_mode = user.store_scope_mode
+    if user.role == "viewer":
+        scope_mode = "all"
+    if role == "highest_admin":
+        scope_mode = "all"
+    auth = AuthContext(
         user_id=user.user_id,
         username=user.username,
         display_name=user.display_name,
-        role=user.role,
+        role=role,
         store_ids=user_store_ids(session, user.user_id),
         auth_type="user",
+        store_scope_mode=scope_mode,
+        page_keys=effective_page_keys(session, user, role=role),
+        auth_version=user.auth_version,
     )
+    _enforce_page_permission(request, auth)
+    return auth
+
+
+def _enforce_page_permission(request: Request, auth: AuthContext) -> None:
+    page_key = required_page_key_for_api_path(request.url.path, request.method)
+    if page_key is not None and page_key not in auth.page_keys:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Page access denied: {page_key}",
+        )
 
 
 def get_current_admin(
     current_user: AuthContext = Depends(get_current_user),
 ) -> str:
-    if not current_user.is_admin:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required"
-        )
     return current_user.username
 
 
@@ -519,7 +557,7 @@ def get_current_super_admin(
     current_user: AuthContext = Depends(get_current_user),
 ) -> str:
     """Allow M1 allocation controls only for the environment-backed highest administrator."""
-    if current_user.auth_type != "env_admin":
+    if not current_user.is_highest_admin:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Highest administrator access required",

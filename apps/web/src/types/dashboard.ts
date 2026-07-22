@@ -17,8 +17,15 @@ export interface ApiResponse<T> {
   meta: ApiMeta;
 }
 
-export type UserRole = "admin" | "viewer" | "store";
+export interface CliAuthorizationApproval {
+  user_code: string;
+  status: "approved";
+  expires_at: string;
+}
+
+export type UserRole = "highest_admin" | "admin" | "store";
 export type UserStatus = "active" | "disabled";
+export type StoreScopeMode = "all" | "specified" | "none";
 
 export interface AdminUser {
   username: string;
@@ -28,6 +35,8 @@ export interface AdminUser {
   status: UserStatus;
   is_initialized: boolean;
   store_ids: string[];
+  store_scope_mode: StoreScopeMode;
+  page_keys: string[];
   is_highest_admin?: boolean;
 }
 
@@ -43,8 +52,14 @@ export interface AccountRow {
   display_name: string;
   role: UserRole;
   status: UserStatus;
+  store_scope_mode: StoreScopeMode;
   is_initialized: boolean;
   stores: AccountStoreScope[];
+  default_page_keys: string[];
+  extra_allow: string[];
+  extra_deny: string[];
+  effective_page_keys: string[];
+  inherits_role_defaults: boolean;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -71,10 +86,53 @@ export interface AccountUpsertPayload {
   display_name: string;
   role: UserRole;
   status: UserStatus;
+  store_scope_mode: StoreScopeMode;
   external_account_id?: string | null;
   store_ids: string[];
   password?: string | null;
   password_confirm?: string | null;
+}
+
+export interface AccessPageRow {
+  page_key: string;
+  page_name: string;
+  module_name: string;
+  route_patterns: string[];
+}
+
+export interface AccessControlData {
+  pages: AccessPageRow[];
+  role_permissions: Record<UserRole, string[]>;
+}
+
+export interface AccountPagePermissionPayload {
+  extra_allow: string[];
+  extra_deny: string[];
+}
+
+export interface RolePermissionImpactData {
+  role: "admin" | "store";
+  page_keys: string[];
+  inheriting_user_count: number;
+  customized_user_count: number;
+}
+
+export interface AccountPermissionAuditRow {
+  audit_id: string;
+  action: string;
+  result: "success" | "failed";
+  actor_user_id: string | null;
+  actor_username: string;
+  actor_role: UserRole;
+  target_user_id: string | null;
+  target_username: string | null;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface AccountPermissionAuditListData {
+  rows: AccountPermissionAuditRow[];
 }
 
 export interface AccountPasswordPayload {
@@ -1067,6 +1125,8 @@ export interface ClueHeadquartersPoolEntry {
   lead_key: string;
   canonical_clue_id: string | null;
   order_id: string | null;
+  order_status: string;
+  raw_order_status: string | null;
   status: string;
   reason: string;
   entered_at: string;
@@ -1081,9 +1141,22 @@ export interface ClueHeadquartersPoolEntry {
   allocation_cycle_id: string | null;
 }
 
+export interface ClueHeadquartersPoolSummary {
+  current_inventory: number;
+  filtered_total: number;
+}
+
+export interface ClueHeadquartersPoolFilterOptions {
+  pool_statuses: string[];
+  reasons: string[];
+  order_statuses: string[];
+}
+
 export interface ClueHeadquartersPoolData {
   rows: ClueHeadquartersPoolEntry[];
   pagination: Pagination;
+  summary: ClueHeadquartersPoolSummary;
+  filter_options: ClueHeadquartersPoolFilterOptions;
 }
 
 export interface ClueAllocationCycle {

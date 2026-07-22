@@ -74,5 +74,5 @@ def test_allocation_module_has_exactly_four_subviews_and_sync_owns_maintenance_a
     assert "rebuildClueAllocationTrial" in allocation_source
     assert '"/admin/clue-allocation/cycles/rebuild"' in client_source
     assert "<AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />" in app_source
-    assert 'user.role === "admin"' in app_source
+    assert "hasPageAccess(user, location.pathname)" in app_source
     assert 'user.is_highest_admin ? "最高管理员" : "管理员"' in shell_source

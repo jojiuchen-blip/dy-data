@@ -1,5 +1,13 @@
 # dy-data（抖音经营引擎）
 
+## CLI transport safety
+
+Install the CLI with `python -m pip install -e apps/cli`, then discover the live
+contract with `dydata commands --json`. HTTPS is required for remote API URLs;
+cleartext transport is accepted only as explicit loopback HTTP with a port for
+local development. See [the Agent guide](docs/cli-agent-guide.md) for retry,
+credential-concurrency, and logout behavior.
+
 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。
 
 系统当前覆盖四个业务域：
@@ -55,6 +63,24 @@ tests/                        后端、数据、治理和回归测试
 python -m pip install -r requirements.txt
 python -m pytest
 ```
+
+## CLI（Agent 只读查询）
+
+安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。
+
+默认登录由用户在安全交互终端中完成：
+
+```powershell
+dydata auth login
+```
+
+密码使用终端隐藏输入，不接受命令参数、环境变量、配置文件或管道。Agent 可以在用户明确要求后启动命令，但必须在凭据提示出现前把输入权交给用户；这只是人工交接例外，不表示 Agent 可以自主登录。若当前命令工具不支持安全交互 TTY，使用浏览器回退：
+
+```powershell
+dydata auth login --browser
+```
+
+CLI 不会静默覆盖已有本地凭据。切换账号前先执行 `dydata auth logout`，再重新登录；不要把账号、密码、Token 或 Cookie 粘贴到 Agent 对话中。
 
 启动前端：
 

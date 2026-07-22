@@ -402,7 +402,7 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     assert stale_context.json()["detail"]["code"] == "VALIDATION_FAILED"
 
 
-def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> None:
+def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient) -> None:
     _login_viewer(client)
 
     other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
@@ -425,19 +425,8 @@ def test_viewer_can_see_all_data_but_cannot_enter_admin(client: TestClient) -> N
     }
 
     admin_accounts = client.get("/api/v1/admin/accounts")
-    assert admin_accounts.status_code == 403
-    assert client.get("/api/v1/admin/sku-products").status_code == 403
-    high_risk_publish = client.post(
-        "/api/v1/admin/settlement-scope-rules",
-        headers={"Idempotency-Key": "permission-key-001"},
-        json={
-            "effectiveMonth": "2026-08",
-            "ownerAccountId": "owner-stable",
-            "allowedSaleChannels": ["LIVE"],
-            "changeReason": "权限验证",
-        },
-    )
-    assert high_risk_publish.status_code == 403
+    assert admin_accounts.status_code == 200
+    assert all(row["role"] == "store" for row in admin_accounts.json()["data"]["rows"])
 
 
 def test_unlocked_monthly_statement_reads_current_preview_not_frozen_lines(

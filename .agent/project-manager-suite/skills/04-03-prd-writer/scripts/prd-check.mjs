@@ -1313,7 +1313,7 @@ function normalizeCircledList(items) {
 
 function extractSchemaFieldRefs(content) {
     const refs = new Set();
-    const sections = extractSubsections(content, /^#{2,3}\s+.+?`([^`]+)`.*$/u);
+    const sections = extractSubsections(content, /^### .+?`([^`]+)`.*$/u);
     for (const section of sections) {
         const tableName = section.titleMatch[1];
         const table = parseMarkdownTables(section.content).find((item) => item.headers.includes('字段'));

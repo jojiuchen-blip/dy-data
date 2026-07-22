@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
+import { CLUE_DEMO_MODE } from "./demo/clueDemoMode";
 import type { AdminUser } from "./types/dashboard";
 import { AdminHomePage } from "./pages/AdminHomePage";
 import {
@@ -14,6 +15,7 @@ import { Shell } from "./components/Shell";
 import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
 import { AdminSyncPage } from "./pages/AdminSyncPage";
 import { ClueCenterPage } from "./pages/ClueCenterPage";
+import { CliAuthorizePage } from "./pages/CliAuthorizePage";
 import { HomePage } from "./pages/HomePage";
 import { InvoiceGuidePage } from "./pages/InvoiceGuidePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
@@ -59,6 +61,42 @@ function clueAllocationSubviewFromPath(pathname: string): AllocationSubview | nu
   return null;
 }
 
+const pageKeyByPath: Array<[string, string]> = [
+  ["/admin/clue-allocation/headquarters", "D08"],
+  ["/admin/clue-allocation/records", "D07"],
+  ["/admin/clue-allocation/trial", "D06"],
+  ["/admin/clue-allocation/rules", "D05"],
+  ["/admin/clue-allocation", "D05"],
+  ["/admin/product-types", "D04"],
+  ["/admin/feedback", "D09"],
+  ["/admin/accounts", "D02"],
+  ["/admin/rules", "D03"],
+  ["/rule-admin", "D03"],
+  ["/admin/sync", "D10"],
+  ["/sync-admin", "D10"],
+  ["/admin", "D01"],
+  ["/clues/details", "A02"],
+  ["/clues", "A01"],
+  ["/ranking", "B01"],
+  ["/settlement", "B02"],
+  ["/details", "B03"],
+  ["/sales", "C01"],
+];
+
+function firstAccessiblePath(user: AdminUser): string {
+  const preferred = ["/ranking", "/clues", "/settlement", "/details", "/sales", "/admin"];
+  return preferred.find((path) => hasPageAccess(user, path)) ?? "/login";
+}
+
+export function hasPageAccess(user: AdminUser, pathname: string): boolean {
+  const match = pageKeyByPath.find(
+    ([path]) => pathname === path,
+  );
+  return match
+    ? user.page_keys.includes(match[1])
+    : pathname === "/" || pathname === "/login";
+}
+
 function AuthGate({ children, pathname }: AuthGateProps) {
   const [checking, setChecking] = useState(true);
   const [user, setUser] = useState<AdminUser | null>(null);
@@ -93,8 +131,11 @@ function AuthGate({ children, pathname }: AuthGateProps) {
 
   const handleAuthenticated = (nextUser: AdminUser) => {
     setUser(nextUser);
-    if (pathname === "/login" || pathname.startsWith("/auth/")) {
-      window.history.pushState(null, "", "/ranking");
+    if (
+      (pathname === "/login" || pathname.startsWith("/auth/")) &&
+      pathname !== "/auth/cli/authorize"
+    ) {
+      window.history.pushState(null, "", firstAccessiblePath(nextUser));
       window.dispatchEvent(new PopStateEvent("popstate"));
     }
   };
@@ -119,15 +160,15 @@ function AuthGate({ children, pathname }: AuthGateProps) {
   return <>{children({ user, onLogout: handleLogout })}</>;
 }
 
-function AdminForbiddenPage() {
+function PageForbiddenPage() {
   return (
     <div className="page-stack">
       <section className="content-section">
         <div className="section-title">
           <div>
             <p className="eyebrow">无权访问</p>
-            <h1>当前账号没有最高管理员权限</h1>
-            <p>请使用最高管理员账号登录后进入系统后台，不能通过地址直接进入。</p>
+            <h1>当前账号没有此页面权限</h1>
+            <p>页面菜单、直接地址和接口使用同一套权限结果，请联系管理员调整。</p>
           </div>
         </div>
       </section>
@@ -187,12 +228,16 @@ export function App() {
   return (
     <AuthGate pathname={location.pathname}>
       {({ user, onLogout }) => {
+        if (location.pathname === "/auth/cli/authorize") {
+          return <CliAuthorizePage currentUser={user} search={location.search} />;
+        }
+
         const clueAllocationSubview = clueAllocationSubviewFromPath(location.pathname);
         const adminPage =
           location.pathname === "/admin" ? (
             <AdminHomePage />
           ) : location.pathname === "/admin/accounts" ? (
-            <AdminAccountsPage />
+            <AdminAccountsPage currentUser={user} />
           ) : location.pathname === "/rule-admin" ||
             location.pathname === "/admin/rules" ? (
             <AdminSkuRulesPage />
@@ -215,12 +260,13 @@ export function App() {
             <Shell
               currentPath={location.pathname}
               currentUser={user}
-              onLogout={onLogout}
+              isDemoMode={CLUE_DEMO_MODE}
+              onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
             >
-              {user.role === "admin" ? (
+              {hasPageAccess(user, location.pathname) ? (
                 adminPage
               ) : (
-                <AdminForbiddenPage />
+                <PageForbiddenPage />
               )}
             </Shell>
           );
@@ -259,9 +305,10 @@ export function App() {
           <Shell
             currentPath={location.pathname}
             currentUser={user}
-            onLogout={onLogout}
+            isDemoMode={CLUE_DEMO_MODE}
+            onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
           >
-            {page}
+            {hasPageAccess(user, location.pathname) ? page : <PageForbiddenPage />}
           </Shell>
         );
       }}

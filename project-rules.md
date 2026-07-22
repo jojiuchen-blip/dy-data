@@ -36,6 +36,7 @@
 - 当前宿主技术事实以代码、`requirements.txt`、`apps/web/package.json`、迁移和部署配置为准。
 - 后端为 FastAPI / SQLAlchemy / PostgreSQL，前端为 React / TypeScript / Vite；具体任务规则见 `docs/rules/`。
 - 业务 API 默认需要登录，管理员能力必须使用后端角色和门店范围校验，不能只依赖前端隐藏入口。
+- 账号角色、页面权限、门店范围、门店激活兼容和权限变更记录以 `docs/rules/account-access-control.md` 为长期规则入口。
 - 视觉系统以 `docs/design-system/tokens.json` 和 `docs/design-system/README.md` 为权威入口。
 - 套包默认示例中的其他技术栈规则不得直接成为 dy-data 宿主规则。
 

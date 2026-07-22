@@ -27,6 +27,7 @@ type NavSection = "settlement" | "verification" | "clues" | "admin";
 interface NavItem {
   href: string;
   label: string;
+  pageKey?: string;
 }
 
 interface ModuleNavItem extends NavItem {
@@ -34,11 +35,14 @@ interface ModuleNavItem extends NavItem {
   section: NavSection;
   description: string;
   badge?: string;
+  pageKeys: string[];
 }
 
 const moduleNavItems: ModuleNavItem[] = [
   {
     href: "/clues",
+    pageKey: "A01",
+    pageKeys: ["A01", "A02"],
     icon: "clues",
     label: "线索中心",
     section: "clues",
@@ -46,6 +50,8 @@ const moduleNavItems: ModuleNavItem[] = [
   },
   {
     href: "/sales",
+    pageKey: "C01",
+    pageKeys: ["C01"],
     icon: "chart",
     label: "核销表现",
     section: "verification",
@@ -53,6 +59,8 @@ const moduleNavItems: ModuleNavItem[] = [
   },
   {
     href: "/ranking",
+    pageKey: "B01",
+    pageKeys: ["B01", "B02", "B03"],
     icon: "chart",
     label: "订单分佣",
     section: "settlement",
@@ -61,6 +69,8 @@ const moduleNavItems: ModuleNavItem[] = [
   },
   {
     href: "/admin",
+    pageKey: "D01",
+    pageKeys: ["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10"],
     icon: "admin",
     label: "后台",
     section: "admin",
@@ -69,25 +79,28 @@ const moduleNavItems: ModuleNavItem[] = [
 ];
 
 const settlementNavItems: NavItem[] = [
-  { href: "/ranking", label: "全国门店榜单" },
-  { href: "/settlement", label: "单店分账" },
-  { href: "/details", label: "订单费用明细" },
-  { href: "/invoice", label: "开票确认" },
+  { href: "/ranking", label: "全国门店榜单", pageKey: "B01" },
+  { href: "/settlement", label: "单店分账", pageKey: "B02" },
+  { href: "/details", label: "订单费用明细", pageKey: "B03" },
+  { href: "/invoice", label: "开票确认", pageKey: "B04" },
 ];
 
 const clueNavItems: NavItem[] = [
-  { href: "/clues", label: "线索看板" },
-  { href: "/clues/details", label: "线索明细" },
+  { href: "/clues", label: "线索看板", pageKey: "A01" },
+  { href: "/clues/details", label: "线索明细", pageKey: "A02" },
 ];
 
 const adminNavItems: NavItem[] = [
-  { href: "/admin", label: "后台首页" },
-  { href: "/admin/accounts", label: "账号管理" },
-  { href: "/admin/rules", label: "分佣规则" },
-  { href: "/admin/product-types", label: "商品口径" },
-  { href: "/admin/clue-allocation", label: "线索分配" },
-  { href: "/admin/feedback", label: "用户建议" },
-  { href: "/admin/sync", label: "数据同步" },
+  { href: "/admin", label: "后台首页", pageKey: "D01" },
+  { href: "/admin/accounts", label: "账号管理", pageKey: "D02" },
+  { href: "/admin/rules", label: "分佣规则", pageKey: "D03" },
+  { href: "/admin/product-types", label: "商品口径", pageKey: "D04" },
+  { href: "/admin/clue-allocation", label: "线索分配规则", pageKey: "D05" },
+  { href: "/admin/clue-allocation/trial", label: "分配试运行", pageKey: "D06" },
+  { href: "/admin/clue-allocation/records", label: "分配记录", pageKey: "D07" },
+  { href: "/admin/clue-allocation/headquarters", label: "总部线索池", pageKey: "D08" },
+  { href: "/admin/feedback", label: "用户建议", pageKey: "D09" },
+  { href: "/admin/sync", label: "数据同步", pageKey: "D10" },
 ];
 
 const secondaryNavPathAliases: Record<string, string> = {
@@ -115,6 +128,7 @@ const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
 interface ShellProps {
   currentPath: string;
   currentUser?: AdminUser | null;
+  isDemoMode?: boolean;
   onLogout?: () => void;
   children: ReactNode;
 }
@@ -153,6 +167,31 @@ function secondaryNav(section: NavSection): NavItem[] {
   return settlementNavItems;
 }
 
+const pageKeyByNavHref: Record<string, string> = {
+  "/clues": "A01",
+  "/clues/details": "A02",
+  "/ranking": "B01",
+  "/settlement": "B02",
+  "/details": "B03",
+  "/sales": "C01",
+  "/admin": "D01",
+  "/admin/accounts": "D02",
+  "/admin/rules": "D03",
+  "/admin/product-types": "D04",
+  "/admin/clue-allocation": "D05",
+  "/admin/feedback": "D09",
+  "/admin/sync": "D10",
+};
+
+const defaultHrefByPageKey: Record<string, string> = Object.fromEntries(
+  Object.entries(pageKeyByNavHref).map(([href, pageKey]) => [pageKey, href]),
+);
+
+function accessibleModuleHref(item: ModuleNavItem, user?: AdminUser | null): string {
+  const pageKey = item.pageKeys.find((key) => user?.page_keys.includes(key));
+  return (pageKey && defaultHrefByPageKey[pageKey]) || item.href;
+}
+
 function activeSecondaryNavHref(
   items: NavItem[],
   currentPath: string,
@@ -168,16 +207,22 @@ function activeSecondaryNavHref(
 }
 
 function roleLabel(user: AdminUser): string {
+  if (user.role === "highest_admin") {
+    return "最高管理员";
+  }
   if (user.role === "admin") {
     return user.is_highest_admin ? "最高管理员" : "管理员";
-  }
-  if (user.role === "viewer") {
-    return "全局查看";
   }
   return "门店账号";
 }
 
-export function Shell({ currentPath, currentUser, onLogout, children }: ShellProps) {
+export function Shell({
+  currentPath,
+  currentUser,
+  isDemoMode = false,
+  onLogout,
+  children,
+}: ShellProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [mineOpen, setMineOpen] = useState(false);
   const [password, setPassword] = useState("");
@@ -195,7 +240,10 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   >(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   const section = activeSection(currentPath);
-  const sectionNavItems = secondaryNav(section);
+  const sectionNavItems = secondaryNav(section).filter((item) => {
+    const pageKey = item.pageKey ?? pageKeyByNavHref[item.href];
+    return pageKey ? currentUser?.page_keys.includes(pageKey) : false;
+  });
   const activeSecondaryHref = activeSecondaryNavHref(
     sectionNavItems,
     currentPath,
@@ -206,9 +254,12 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   ]
     .filter(Boolean)
     .join(" ");
-  const visibleModuleItems = moduleNavItems.filter(
-    (item) => item.section !== "admin" || currentUser?.role === "admin",
+  const visibleModuleItems = moduleNavItems.filter((item) =>
+    item.pageKeys.some((pageKey) => currentUser?.page_keys.includes(pageKey)),
   );
+  const shellClassName = isDemoMode
+    ? "app-shell app-shell--rail app-shell--demo"
+    : "app-shell app-shell--rail";
 
   const openFeedback = () => {
     setFeedbackOpen(true);
@@ -312,7 +363,7 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
   };
 
   return (
-    <div className="app-shell app-shell--rail">
+    <div className={shellClassName}>
       <aside className="app-rail" aria-label="主模块导航">
         <a className="rail-brand" href="/">
           <SolarIcon className="rail-brand__mark" name="brand" size={42} />
@@ -321,11 +372,12 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
         <nav className="rail-nav">
           {visibleModuleItems.map((item) => {
             const active = item.section === section;
+            const href = accessibleModuleHref(item, currentUser);
             return (
               <a
                 aria-current={active ? "page" : undefined}
                 className="rail-nav__item"
-                href={item.href}
+                href={href}
                 key={item.href}
               >
                 {item.icon ? <SolarIcon name={item.icon} size={19} /> : null}
@@ -402,16 +454,25 @@ export function Shell({ currentPath, currentUser, onLogout, children }: ShellPro
           </div>
         ) : null}
 
+        {isDemoMode ? (
+          <div className="demo-mode-notice" role="note">
+            <SolarIcon name="question" size={16} />
+            <span>演示数据 · 全部为合成数据 · 不写入数据库</span>
+            <small>操作仅在当前浏览器会话生效，刷新后重置</small>
+          </div>
+        ) : null}
+
         <main className={pageFrameClassName}>{children}</main>
       </div>
 
       <nav className="mobile-bottom-nav" aria-label="一级导航">
-        {visibleModuleItems.map((item) => {
-          const active = item.section === section;
-          return (
+          {visibleModuleItems.map((item) => {
+            const active = item.section === section;
+            const href = accessibleModuleHref(item, currentUser);
+            return (
             <a
               aria-current={active ? "page" : undefined}
-              href={item.href}
+                href={href}
               key={item.href}
             >
               {item.icon ? <SolarIcon name={item.icon} size={21} /> : null}

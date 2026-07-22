@@ -50,8 +50,8 @@ def test_project_manager_suite_install_is_locked_and_portable() -> None:
     lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
     manifest = json.loads((SUITE_ROOT / ".install-manifest.json").read_text(encoding="utf-8"))
 
-    assert package_metadata["version"] == "2.0.0"
-    assert lock["suite_version"] == "2.0.0"
+    assert package_metadata["version"] == "2.0.1"
+    assert lock["suite_version"] == "2.0.1"
     assert lock["target_path"] == ".agent/project-manager-suite"
     assert lock["content_hash_algorithm"] == "sha256-path-null-lf-v1"
     assert re.fullmatch(r"[a-f0-9]{64}", lock["content_sha256"])

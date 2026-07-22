@@ -9,16 +9,27 @@ import {
   skuProductRulesResponse,
   storeRankingResponse,
 } from "../data/mockData";
+import {
+  CLUE_DEMO_ADMIN_USER,
+  CLUE_DEMO_MODE,
+} from "../demo/clueDemoMode";
+import {
+  ClueDemoRepositoryError,
+  clueDemoRepository,
+} from "../demo/clueDemoRepository";
 import type {
   ApiResponse,
   AccountActivationCheckData,
   AccountActivationCheckPayload,
   AccountActivationPayload,
   AccountListData,
+  AccountPagePermissionPayload,
+  AccountPermissionAuditListData,
   AccountPasswordResetPayload,
   AccountPasswordPayload,
   AccountRow,
   AccountUpsertPayload,
+  AccessControlData,
   AdminUser,
   ClueAssignmentRoundData,
   ClueCenterMaterializationResult,
@@ -37,6 +48,7 @@ import type {
   ClueAllocationRuleListData,
   ClueAllocationRuleVersion,
   ClueAllocationRuleVersionWrite,
+  CliAuthorizationApproval,
   ClueFilterMetadata,
   ClueFollowUpPayload,
   ClueFollowUpRecord,
@@ -65,6 +77,7 @@ import type {
   OrderDetailsData,
   ProductTypeVisibilityData,
   ProductTypeVisibilityUpdate,
+  RolePermissionImpactData,
   SelectOption,
   SalesDashboardData,
   SettlementViewData,
@@ -111,7 +124,8 @@ import {
 } from "../utils/settlement";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
-const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
+const USE_MOCKS =
+  CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
 const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
@@ -190,6 +204,30 @@ async function apiRequestError(response: Response): Promise<ApiRequestError> {
   return new ApiRequestError(response.status, message, detail);
 }
 
+function demoLoad<T>(factory: () => ApiResponse<T>): Promise<ApiLoadResult<T>> {
+  try {
+    return Promise.resolve({
+      ...factory(),
+      usingMock: true,
+      fallbackReason: "当前展示合成演示数据。",
+    });
+  } catch (error) {
+    if (error instanceof ClueDemoRepositoryError) {
+      return Promise.reject(new ApiRequestError(error.status, error.message));
+    }
+    return Promise.reject(error);
+  }
+}
+
+function blockDemoNetwork(): void {
+  if (CLUE_DEMO_MODE) {
+    throw new ApiRequestError(
+      503,
+      "演示模式未提供该接口，已阻止真实网络请求。",
+    );
+  }
+}
+
 function generatedAt(): string {
   return new Date().toISOString();
 }
@@ -227,6 +265,7 @@ async function requestJson<T>(
   path: string,
   params?: QueryParams,
 ): Promise<ApiResponse<T>> {
+  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "application/json" },
@@ -255,6 +294,7 @@ async function requestDownload(
   path: string,
   params?: QueryParams,
 ): Promise<void> {
+  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "text/csv" },
@@ -291,6 +331,7 @@ async function sendJson<T>(
     params?: QueryParams;
   } = {},
 ): Promise<ApiResponse<T>> {
+  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "include",
@@ -307,6 +348,34 @@ async function sendJson<T>(
   }
 
   return response.json() as Promise<ApiResponse<T>>;
+}
+
+async function sendBareJson<T>(
+  path: string,
+  {
+    body,
+    method = "POST",
+  }: {
+    body?: unknown;
+    method?: "POST" | "PUT";
+  } = {},
+): Promise<T> {
+  blockDemoNetwork();
+  const response = await fetch(apiUrl(path), {
+    body: body === undefined ? undefined : JSON.stringify(body),
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+    },
+    method,
+  });
+
+  if (!response.ok) {
+    throw new ApiRequestError(response.status);
+  }
+
+  return response.json() as Promise<T>;
 }
 
 async function withMockFallback<T>(
@@ -1241,6 +1310,9 @@ export function fetchSalesDashboard(
 }
 
 export function fetchClueFilters(): Promise<ApiLoadResult<ClueFilterMetadata>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getFilters());
+  }
   return withMockFallback(
     () => requestJson<ClueFilterMetadata>("/clues/filters"),
     mockClueFiltersResponse,
@@ -1250,6 +1322,9 @@ export function fetchClueFilters(): Promise<ApiLoadResult<ClueFilterMetadata>> {
 export function fetchClueOverview(
   filters: ClueOverviewFilters,
 ): Promise<ApiLoadResult<ClueOverviewMetrics>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getOverview(filters));
+  }
   return withMockFallback(
     () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
     () => mockClueOverviewResponse(filters),
@@ -1263,6 +1338,9 @@ export function exportOrderDetails(filters: DetailFilters): Promise<void> {
 export function fetchClueAssignmentRounds(
   query: ClueRoundQuery,
 ): Promise<ApiLoadResult<ClueAssignmentRoundData>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getAssignmentRounds(query));
+  }
   return withMockFallback(
     () =>
       requestJson<ClueAssignmentRoundData>("/clues/assignment-rounds", {
@@ -1277,6 +1355,9 @@ export function fetchClueAssignmentRounds(
 export function fetchClueOrderDetail(
   orderId: string,
 ): Promise<ApiLoadResult<ClueOrderDetail>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getOrderDetail(orderId));
+  }
   return withMockFallback(
     () =>
       requestJson<ClueOrderDetail>(
@@ -1289,12 +1370,28 @@ export function fetchClueOrderDetail(
 export function exportClueAssignmentRounds(
   filters: ClueOverviewFilters,
 ): Promise<void> {
+  if (CLUE_DEMO_MODE) {
+    const file = clueDemoRepository.exportAssignmentRounds(filters);
+    const blob = new Blob([file.content], { type: file.mimeType });
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = file.filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+    return Promise.resolve();
+  }
   return requestDownload("/clues/assignment-rounds/export", { ...filters });
 }
 
 export function fetchClueOrderPhone(
   orderId: string,
 ): Promise<ApiLoadResult<CluePhoneReveal>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getOrderPhone(orderId));
+  }
   return withMockFallback(
     () =>
       requestJson<CluePhoneReveal>(
@@ -1309,6 +1406,9 @@ export function saveClueFollowUp(
   orderId: string,
   payload: ClueFollowUpPayload,
 ): Promise<ApiLoadResult<ClueFollowUpRecord>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.saveFollowUp(orderId, payload));
+  }
   return withMockFallback(
     () =>
       sendJson<ClueFollowUpRecord>(
@@ -1326,6 +1426,11 @@ export function saveClueFollowUp(
 export function deleteClueFollowUpRecord(
   followUpRecordId: string,
 ): Promise<ApiLoadResult<ClueFollowUpRecord>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() =>
+      clueDemoRepository.deleteFollowUpRecord(followUpRecordId),
+    );
+  }
   return withMockFallback(
     () =>
       sendJson<ClueFollowUpRecord>(
@@ -1341,6 +1446,12 @@ export async function loginAdmin(
   usernameOrPassword: string,
   password?: string,
 ): Promise<ApiLoadResult<AdminUser>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => ({
+      data: CLUE_DEMO_ADMIN_USER,
+      meta: { generated_at: generatedAt(), source: "demo" },
+    }));
+  }
   const username = password === undefined ? "admin" : usernameOrPassword;
   const resolvedPassword = password === undefined ? usernameOrPassword : password;
   return {
@@ -1352,14 +1463,34 @@ export async function loginAdmin(
 }
 
 export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => ({
+      data: CLUE_DEMO_ADMIN_USER,
+      meta: { generated_at: generatedAt(), source: "demo" },
+    }));
+  }
   return { ...(await requestJson<AdminUser>("/auth/me")), usingMock: false };
 }
 
 export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => ({
+      data: CLUE_DEMO_ADMIN_USER,
+      meta: { generated_at: generatedAt(), source: "demo" },
+    }));
+  }
   return {
     ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
     usingMock: false,
   };
+}
+
+export function approveCliAuthorization(
+  userCode: string,
+): Promise<CliAuthorizationApproval> {
+  return sendBareJson<CliAuthorizationApproval>("/auth/cli/device/approve", {
+    body: { user_code: userCode },
+  });
 }
 
 export async function initializeAccount(
@@ -1525,6 +1656,13 @@ export async function fetchSkuProducts(params: {
   };
 }
 
+export async function fetchAccessControl(): Promise<ApiLoadResult<AccessControlData>> {
+  return {
+    ...(await requestJson<AccessControlData>("/admin/access-control")),
+    usingMock: false,
+  };
+}
+
 export async function updateSkuProduct(
   skuId: string,
   payload: SkuProductManualUpdate,
@@ -1532,6 +1670,19 @@ export async function updateSkuProduct(
   return {
     ...(await sendJson<SkuProductItem>(
       `/admin/sku-products/${encodeURIComponent(skuId)}`,
+      { body: payload, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function updateAccountPagePermissions(
+  userId: string,
+  payload: AccountPagePermissionPayload,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(
+      `/admin/accounts/${encodeURIComponent(userId)}/page-permissions`,
       { body: payload, method: "PUT" },
     )),
     usingMock: false,
@@ -1601,6 +1752,18 @@ export async function fetchSkuFeeRuleImportDetail(
   };
 }
 
+export async function restoreAccountPagePermissions(
+  userId: string,
+): Promise<ApiLoadResult<AccountRow>> {
+  return {
+    ...(await sendJson<AccountRow>(
+      `/admin/accounts/${encodeURIComponent(userId)}/page-permissions/restore`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
 export async function commitSkuFeeRuleImport(
   batchId: string,
   changeReason: string,
@@ -1612,6 +1775,56 @@ export async function commitSkuFeeRuleImport(
       {
         body: { changeReason },
         headers: { "Idempotency-Key": idempotencyKey },
+      },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function previewRolePagePermissions(
+  role: "admin" | "store",
+  pageKeys: string[],
+): Promise<ApiLoadResult<RolePermissionImpactData>> {
+  return {
+    ...(await sendJson<RolePermissionImpactData>(
+      `/admin/access-control/roles/${role}/preview`,
+      { body: { page_keys: pageKeys, confirmed: false } },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function updateRolePagePermissions(
+  role: "admin" | "store",
+  pageKeys: string[],
+): Promise<ApiLoadResult<RolePermissionImpactData>> {
+  return {
+    ...(await sendJson<RolePermissionImpactData>(
+      `/admin/access-control/roles/${role}`,
+      { body: { page_keys: pageKeys, confirmed: true }, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAccountPermissionAuditLogs(
+  filters: {
+    targetUserId?: string;
+    action?: string;
+    actorUsername?: string;
+    createdFrom?: string;
+    createdTo?: string;
+  } = {},
+): Promise<ApiLoadResult<AccountPermissionAuditListData>> {
+  return {
+    ...(await requestJson<AccountPermissionAuditListData>(
+      "/admin/access-control/audit-logs",
+      {
+        target_user_id: filters.targetUserId,
+        action: filters.action,
+        actor_username: filters.actorUsername,
+        created_from: filters.createdFrom,
+        created_to: filters.createdTo,
       },
     )),
     usingMock: false,
@@ -1811,6 +2024,9 @@ export async function rebuildClueCenterMaterialization(): Promise<
 export async function fetchClueAllocationEligibleLeads(): Promise<
   ApiLoadResult<ClueAllocationEligibleLeadData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getEligibleLeads());
+  }
   return {
     ...(await requestJson<ClueAllocationEligibleLeadData>(
       "/admin/clue-allocation/eligible-leads",
@@ -1819,12 +2035,29 @@ export async function fetchClueAllocationEligibleLeads(): Promise<
   };
 }
 
-export async function fetchClueHeadquartersPool(): Promise<
+export interface ClueHeadquartersPoolFilters extends QueryParams {
+  pool_status?: string;
+  reason?: string;
+  entered_date_start?: string;
+  entered_date_end?: string;
+  order_status?: string;
+  order_id?: string;
+  page?: number;
+  page_size?: number;
+}
+
+export async function fetchClueHeadquartersPool(
+  filters: ClueHeadquartersPoolFilters = {},
+): Promise<
   ApiLoadResult<ClueHeadquartersPoolData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getHeadquartersPool(filters));
+  }
   return {
     ...(await requestJson<ClueHeadquartersPoolData>(
       "/admin/clue-allocation/headquarters-pool",
+      filters,
     )),
     usingMock: false,
   };
@@ -1833,6 +2066,9 @@ export async function fetchClueHeadquartersPool(): Promise<
 export async function fetchClueAllocationCycles(): Promise<
   ApiLoadResult<ClueAllocationCycleData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getCycles());
+  }
   return {
     ...(await requestJson<ClueAllocationCycleData>(
       "/admin/clue-allocation/cycles",
@@ -1844,6 +2080,9 @@ export async function fetchClueAllocationCycles(): Promise<
 export async function fetchClueAllocationAuditLogs(): Promise<
   ApiLoadResult<ClueAllocationAuditLogData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getAuditLogs());
+  }
   return {
     ...(await requestJson<ClueAllocationAuditLogData>(
       "/admin/clue-allocation/audit-logs",
@@ -1855,6 +2094,9 @@ export async function fetchClueAllocationAuditLogs(): Promise<
 export async function previewClueAllocationCycle(
   payload: ClueAllocationCyclePreviewRequest,
 ): Promise<ApiLoadResult<ClueAllocationCyclePreview>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.previewCycle(payload));
+  }
   return {
     ...(await sendJson<ClueAllocationCyclePreview>(
       "/admin/clue-allocation/cycles/preview",
@@ -1867,6 +2109,9 @@ export async function previewClueAllocationCycle(
 export async function runClueAllocationTrial(
   payload: ClueAllocationCycleRequest,
 ): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.runTrial(payload));
+  }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
       "/admin/clue-allocation/cycles/trial",
@@ -1879,6 +2124,9 @@ export async function runClueAllocationTrial(
 export async function rebuildClueAllocationTrial(
   payload: ClueAllocationCycleRebuildRequest,
 ): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.rebuildTrial(payload));
+  }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
       "/admin/clue-allocation/cycles/rebuild",
@@ -1891,6 +2139,9 @@ export async function rebuildClueAllocationTrial(
 export async function fetchClueAllocationRules(): Promise<
   ApiLoadResult<ClueAllocationRuleListData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getRules());
+  }
   return {
     ...(await requestJson<ClueAllocationRuleListData>("/admin/clue-allocation/rules")),
     usingMock: false,
@@ -1900,6 +2151,9 @@ export async function fetchClueAllocationRules(): Promise<
 export async function fetchClueAllocationRuleDetail(
   ruleId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleDetailData>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getRuleDetail(ruleId));
+  }
   return {
     ...(await requestJson<ClueAllocationRuleDetailData>(
       `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}`,
@@ -1911,6 +2165,9 @@ export async function fetchClueAllocationRuleDetail(
 export async function fetchClueAllocationDecisions(): Promise<
   ApiLoadResult<ClueAllocationDecisionData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getDecisions());
+  }
   return {
     ...(await requestJson<ClueAllocationDecisionData>("/admin/clue-allocation/decisions")),
     usingMock: false,
@@ -1920,6 +2177,9 @@ export async function fetchClueAllocationDecisions(): Promise<
 export async function fetchClueAllocationStoreScores(): Promise<
   ApiLoadResult<StoreScoreSnapshotData>
 > {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.getStoreScores());
+  }
   return {
     ...(await requestJson<StoreScoreSnapshotData>("/admin/clue-allocation/store-scores")),
     usingMock: false,
@@ -1929,6 +2189,9 @@ export async function fetchClueAllocationStoreScores(): Promise<
 export async function createClueAllocationRule(
   payload: ClueAllocationRuleCreate,
 ): Promise<ApiLoadResult<ClueAllocationRule>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => clueDemoRepository.createRule(payload));
+  }
   return {
     ...(await sendJson<ClueAllocationRule>("/admin/clue-allocation/rules", {
       body: payload,
@@ -1942,6 +2205,11 @@ export async function createClueAllocationRuleVersion(
   ruleId: string,
   payload: ClueAllocationRuleVersionWrite,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() =>
+      clueDemoRepository.createRuleVersion(ruleId, payload),
+    );
+  }
   return {
     ...(await sendJson<ClueAllocationRuleVersion>(
       `/admin/clue-allocation/rules/${encodeURIComponent(ruleId)}/versions`,
@@ -1954,6 +2222,11 @@ export async function createClueAllocationRuleVersion(
 export async function publishClueAllocationRuleVersion(
   ruleVersionId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() =>
+      clueDemoRepository.publishRuleVersion(ruleVersionId),
+    );
+  }
   return {
     ...(await sendJson<ClueAllocationRuleVersion>(
       `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/publish`,
@@ -1966,6 +2239,11 @@ export async function publishClueAllocationRuleVersion(
 export async function retireClueAllocationRuleVersion(
   ruleVersionId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() =>
+      clueDemoRepository.retireRuleVersion(ruleVersionId),
+    );
+  }
   return {
     ...(await sendJson<ClueAllocationRuleVersion>(
       `/admin/clue-allocation/rule-versions/${encodeURIComponent(ruleVersionId)}/retire`,

@@ -3,24 +3,45 @@ from __future__ import annotations
 import os
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from dy_api.routes import admin, auth, clues, dashboard, fee_admin, feedback, jobs, meta
+from dy_api.cli_audit import (
+    CliAuditMiddleware,
+    DatabaseCliAuditSink,
+    configure_cli_audit_logging,
+)
+from dy_api.cli_contract import install_cli_exception_handlers
+from dy_api.routes import (
+    admin,
+    auth,
+    cli,
+    cli_auth,
+    clues,
+    dashboard,
+    fee_admin,
+    feedback,
+    jobs,
+    meta,
+)
 
 
 def create_app() -> FastAPI:
+    configure_cli_audit_logging()
     app = FastAPI(title="Douyin Laike Dashboard API", version="0.1.0")
+    app.state.cli_audit_sink = DatabaseCliAuditSink()
+    install_cli_exception_handlers(app)
+    cli_http_exception_handler = app.exception_handlers[StarletteHTTPException]
+    cli_validation_exception_handler = app.exception_handlers[RequestValidationError]
 
     @app.exception_handler(StarletteHTTPException)
     async def structured_fee_admin_http_error(
         request: Request, exc: StarletteHTTPException
     ):
         if not _is_structured_contract_path(request.url.path):
-            return await http_exception_handler(request, exc)
+            return await cli_http_exception_handler(request, exc)
         if isinstance(exc.detail, dict) and exc.detail.get("code"):
             detail = exc.detail
         else:
@@ -41,7 +62,7 @@ def create_app() -> FastAPI:
         request: Request, exc: RequestValidationError
     ):
         if not _is_structured_contract_path(request.url.path):
-            return await request_validation_exception_handler(request, exc)
+            return await cli_validation_exception_handler(request, exc)
         errors = []
         for item in exc.errors():
             location = item.get("loc") or ()
@@ -77,8 +98,14 @@ def create_app() -> FastAPI:
             allow_headers=["*"],
         )
 
+    app.add_middleware(CliAuditMiddleware)
+
     app.include_router(auth.router, prefix="/api/v1/auth", tags=["auth"])
     app.include_router(fee_admin.router, prefix="/api/v1/admin", tags=["fee-admin"])
+    app.include_router(
+        cli_auth.router, prefix="/api/v1/auth/cli", tags=["cli-auth"]
+    )
+    app.include_router(cli.router, prefix="/api/v1", tags=["cli-readonly"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
     app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])

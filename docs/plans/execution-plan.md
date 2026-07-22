@@ -4,56 +4,56 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S4 代码实装`。
-- 当前状态：T1.1～T3.3 已完成本地实现与验证；T4.1 为唯一 `进行中（等待外部依赖）` Task，依赖关闭前只进行发布准备，不执行生产迁移或部署。
-- 当前 Linear issue：`DYDATA-1`，作为本轮集成、真实环境测试交接与发布主线。
-- 关联 Linear issues：`DYDATA-21/30/31/33/38`；`DYDATA-23` 仅作为已完成设计证据，`DYDATA-39` 已 Done。
-- 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dy-data.md) · [任务看板](delivery-plans/task-kanban-dy-data.md) · 12 份子开发计划。
-- 当前子开发计划：[T4.1 端到端核验与生产发布](delivery-plans/sub-delivery-plan-dy-data-T4.1-release-verification.md)；最近完成计划为 [T3.3 商品、费率、导入与同步后台](delivery-plans/sub-delivery-plan-dy-data-T3.3-admin-console.md)。
+- 套包阶段：`S2 线索中心 FOUNDATION Phase 4`；术语表与 Schema 已确认，API 契约已生成并等待业务确认，当前尚未进入 Phase 5、PRD、S3/S4。
+- 当前 Linear issue：`DYDATA-41` 建立线索中心 FOUNDATION 技术地基，状态为 In Progress；`DYDATA-36` 已完成并关闭。
+- 当前子开发计划：无；本轮只建立线索中心技术规格，未修改业务代码。
+- 当前正式计划文件组：无；进入代码实施前，仍需由下游能力补齐 FOUNDATION、PRD 和正式交付计划。
+- 紧邻顺序：`DYDATA-41` FOUNDATION -> `DYDATA-42` PRD -> `DYDATA-43` 正式交付计划与 S4 门禁 -> `DYDATA-34` 全面下线旧线索分配引擎。
+- 关联需求：`DYDATA-35` 门店地理与 POI 数据质量闭环。
 
 ## 2. 当前目标
 
-- 等待并关闭 T4.1 的外部生产依赖，再执行目标 PostgreSQL 迁移核验、真实商品 API 联调、全量回归、部署 smoke test 与业务验收。
+- 以已冻结的《线索中心业务模型 V1.0》为输入，先冻结术语，再依次补齐 Schema、API、运行交付、产品细则和正式交付计划。
 
 ## 3. 进行中任务
 
-- S2 已完成：功能列表、mainprd、4/4 subprd、Foundation 与 Phase 5 一致性检查全部确认。
-- `DYDATA-39` 的实现、验证和用户验收已闭合，可在 Linear 标记 Done。
-- T1.1～T3.3 已在主计划、任务看板和子计划三处同步完成事实；T4.1 已三处同步为唯一 `进行中（等待外部依赖）` Task，但尚不满足生产执行 Entry Criteria。
+- DYDATA-41 FOUNDATION Phase 4 进行中；API 索引及 6 份拆分契约已生成，23 张目标单表定义已回填使用接口，等待用户确认后进入 Phase 5。
 
 ## 4. 下一步任务
 
-- 人类 Owner 提供或确认：抖音商品在线 API 脱敏成功/空页/错误样例、稳定归属账号 ID、真实渠道枚举和 DYDATA-32 最终权限矩阵。
-- 准备可执行 Alembic 升降级与双会话核验的目标 PostgreSQL/脱敏副本环境，以及生产部署与 smoke test 权限。
+- 用户确认 FOUNDATION API；未确认前不进入 Phase 5。
+- FOUNDATION Phase 5 按已确认 Schema 与 API 继续定义状态迁移、定时任务、权限安全、迁移和运行方案。
+- PRD 按 BRD 定义页面字段、操作反馈、异常状态、角色交互和逐项验收条件。
+- 正式交付计划把追踪矩阵中的 `部分实现`、`未实现` 和 `应删除` 映射到 Linear、代码、测试和上线门禁；S4 门禁通过后进入 `DYDATA-34`。
 
 ## 5. 完成标准
 
-- `docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 和 12 份 sub delivery plans 已存在且结构有效。
-- main plan、kanban 与 sub plans 的 Task ID、状态、依赖和文件范围一致；当前仅 T4.1 为 `进行中`，且外部依赖关闭前不得执行生产迁移或部署。
-- 每个 Task 可追溯到 Linear issue、PRD 区块、Foundation 契约、核心文件、验证命令和风险边界。
-- 计划明确区分目标契约与当前实现，不把 Mock、历史字段或未关闭外部依赖写成已完成事实。
-- 每个 Task 完成实现、验证、Foundation 漂移判断、Linear 与开发日志回填后，才允许切换下一 Task 为唯一 `进行中`。
+- 每个实体、状态、策略、时间规则、指标和权限只有一个明确口径。
+- 第 0 轮、策略阶段和实际第 N 轮等历史术语歧义全部消除。
+- DYDATA-8～17 均映射到 BRD 条款、实现位置、自动化测试和浏览器验收场景。
+- 待分配、双第 1 轮、未知枚举、CORS、性能和退款断点均有明确验收门槛。
+- 用户逐章确认并冻结 V1.0；本轮不修改业务代码，不执行 DYDATA-34 的旧引擎删除。
 
 ## 6. 状态与权威边界
 
 - issue 范围、优先级、负责人、状态和验收以 Linear 为准。
 - 当前阶段快照以 `project-profile.md` 为准。
-- Foundation 权威入口为 `docs/prd/foundation/foundation-delivery-dy-data.md`。
-- 历史计划保留其时间点事实，不反向覆盖本文件或 Linear。
-- 本文件只保留当前阶段和紧邻下一步，不提前扩写 S3 任务正文。
+- 历史计划只记录当时事实，不反向覆盖本文件或 Linear。
+- 本文件只保留当前 issue 和紧邻下一步，不扩写未来 Backlog。
 
 ## 7. 本轮验证证据
 
-- 套包版本锁：`project-manager-suite@2.0.0` 有效。
-- 全局治理：0 错误、0 警告。
-- 页面环节：`pageStageClosedForPrd.pass = true`，9 条交互语义全部 locked，未解决 gap 为 0。
-- Foundation：`foundationReadyForPrd.pass = true`，交付清单及声明产物均存在。
-- PRD Phase 2：`prd-check structure` 为 0 fail、0 warn、0 needs_ai_review。
-- PRD Phase 3：`mainprd-dy-data.md` 的 `prd-check structure` 为 0 fail、0 warn、0 needs_ai_review。
-- PRD Phase 4：4/4 subprd 已确认；`04-subprd-invoice-guide.md` 的 `prd-check structure` 为 0 fail、0 warn、0 needs_ai_review；双索引状态均为 `已确认`。
-- PRD Phase 5：progress 显示 4/4 已确认且 pending 为空；Foundation 增量补档后 crosscheck 为 0 fail、0 warn、0 needs_ai_review；P1/P2/P4/P5/P6/P9 量化覆盖全部闭合，P3/P8 已人工复核，并已获用户确认。
-- S3 路由：`route-check --target-stage S3` 可进入，`fullPrdReady.pass = true`、`foundationReadyForDevelopmentPlan.pass = true`，目标 skill 为 `delivery-planner`。
-- S3 计划结构：`validate-plan-structure.mjs` 通过，13/13 必需章节、12/12 Task、0 错误、0 警告。
-- 项目索引：已收录功能列表、mainprd 和全部 4 份 subprd；PRD 产物断链为 0，剩余两条 DYDATA-22 历史计划坏链与本轮无关。
-- T3.2：前端契约 65 passed、API dashboard 17 passed、浏览器/视觉 102 passed（含真实 FastAPI 两角色、空态、403、422 requestId、409 导出），Web build 通过；390/768/1440 截图已复核；独立代码复审 Critical/Important/Minor 均为 0；Foundation 无漂移。
-- T3.3：后端/API/Schema/Alembic 回归 56 passed；完整浏览器/视觉 112 passed，数据库级商品同步幂等加固后的真实同步浏览器路径 1 passed；Web build 与 `git diff --check` 通过；独立代码复审 Critical/Important 均为 0；Foundation 业务契约无漂移。
+- 项目管理套包锁校验通过，版本 `2.0.1`，内容哈希为 `737ff2de9242febf1b8da301138a1e095c6b881f40adaa7aa4ca2b2cb9077bb9`。
+- PAGE_EXPLAINER 已覆盖 8 条流程和 57 条交互语义，全部 `locked`；结算中心相关内容仅作为当前版本历史基线。
+- V0.2 设计系统文档测试 25 项通过；交互卡片与机读表 57/57 一致。
+- baseline 已刷新并识别 PAGE_EXPLAINER 为 `present`，维护文档下一缺口为 FOUNDATION。
+- 项目链接索引已刷新为 470 个节点、154 条边；仍有 16 条历史 QA 截图或旧计划路径坏链，本轮不改写历史材料。
+- Linear：`DYDATA-36` 已补充交付证据并关闭；`DYDATA-41` 已进入 In Progress，`DYDATA-42`、`DYDATA-43` 按顺序阻塞，`DYDATA-34` 继续等待 S4 门禁。
+- 《线索中心业务模型 V1.0》已生成，BRD 决策台账为 `DONE`，包含截至 2026-07-21 的现状追踪矩阵。
+- FOUNDATION 术语表已生成，共 212 行，明确主池、状态、池位置、策略步骤、真实轮次、跟进动作、权限和指标的统一含义。
+- FOUNDATION Schema 已生成：1 个索引、23 个单表定义，覆盖原始证据、完整主池、真实轮次、规则版本、评分、候选决策、总部池、指标事实和安全审计；本阶段未生成 DDL 或修改业务代码。
+- FOUNDATION API 已生成：1 个索引、6 份拆分契约，覆盖公共响应与错误、自然日筛选、线索查询与联系方式、跟进与轮次、规则与门店组、正式分配与总部池、任务安全及一次性迁移；23/23 单表文档已回填使用接口。
+- API 延续宿主项目 `/api/v1`、snake_case 与 `data/meta` 契约；完整手机号查看、复制和明文导出均独立鉴权并审计，正式分配仅允许内部任务触发，试运行不写正式轮次。
+- 全量测试 516 项通过；仅出现现有 Alembic/SQLite 弃用警告，未发现本轮文档变更导致的回归。
+- S2 路由检查仍推荐停留 S2；当前 `canEnter=false` 来自项目画像三个既有页面任务字段待确认，不是 Foundation API 结构或内容校验错误，须在后续页面/PRD 门禁前补齐。
+- 业务代码尚未修改；DYDATA-34 继续等待 FOUNDATION、PRD、正式交付计划和 S4 门禁。

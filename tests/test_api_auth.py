@@ -89,7 +89,7 @@ def test_login_sets_http_only_cookie_and_logout_clears_session(client: TestClien
 
     assert response.status_code == 200
     assert response.json()["data"]["username"] == "system-admin"
-    assert response.json()["data"]["role"] == "admin"
+    assert response.json()["data"]["role"] == "highest_admin"
     set_cookie = response.headers["set-cookie"].lower()
     assert "httponly" in set_cookie
     assert "samesite=lax" in set_cookie
@@ -100,6 +100,49 @@ def test_login_sets_http_only_cookie_and_logout_clears_session(client: TestClien
     logout = client.post("/api/v1/auth/logout")
     assert logout.status_code == 200
     assert client.get("/api/v1/auth/me").status_code == 401
+
+
+def test_admin_login_preserves_specified_store_scope(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+    db_session.add(
+        DimStore(
+            store_id="store-admin-scope",
+            store_name="Scoped admin store",
+            certified_subject_name="Scoped admin subject",
+            is_active=True,
+        )
+    )
+    db_session.add(
+        User(
+            user_id="scoped-admin",
+            username="scoped-admin",
+            display_name="Scoped admin",
+            role="admin",
+            store_scope_mode="specified",
+            status="active",
+            is_initialized=True,
+            password_hash=hash_password_pbkdf2("test-password"),
+        )
+    )
+    db_session.add(
+        UserStoreScope(user_id="scoped-admin", store_id="store-admin-scope")
+    )
+    db_session.commit()
+    client = create_database_client(db_session)
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "scoped-admin", "password": "test-password"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["store_scope_mode"] == "specified"
+    assert response.json()["data"]["store_ids"] == ["store-admin-scope"]
+    assert client.get("/api/v1/auth/me").json()["data"]["store_scope_mode"] == "specified"
 
 
 def test_activation_status_requires_same_verified_sub_account_record(
