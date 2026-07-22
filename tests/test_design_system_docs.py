@@ -40,17 +40,17 @@ def test_v02_is_the_active_runtime_design_system() -> None:
 
     assert tokens["meta"] == {
         "name": "dy-data UI Design System",
-        "version": "0.2.0",
+        "version": "0.2.1",
         "status": "active",
-        "lastUpdated": "2026-07-14",
+        "lastUpdated": "2026-07-23",
         "language": "zh-CN",
-        "colorMode": "light-only",
-        "darkModeStatus": "not-supported-in-v0.2",
+        "colorMode": "light-dark-system",
+        "darkModeStatus": "runtime-active",
         "sourceOfTruth": "docs/design-system/tokens.json",
         "currentImplementationSource": "apps/web/src/design-tokens.css",
         "purpose": "Provide the formal V0.2 design system and runtime contract for dy-data product UI.",
-        "issue": "DYDATA-4",
-        "relatedIssues": ["DYDATA-3", "DYDATA-5"],
+        "issue": "DYDATA-47",
+        "relatedIssues": ["DYDATA-3", "DYDATA-4", "DYDATA-5"],
         "stage": "runtime-active",
         "runtimeApplied": True,
     }
@@ -93,6 +93,21 @@ def test_v02_is_the_active_runtime_design_system() -> None:
     assert candidate["meta"]["status"] == "pending-human-approval"
     assert candidate["meta"]["runtimeApplied"] is False
 
+    dark_colors = tokens["tokens"]["colorDark"]
+    assert dark_colors["bg"]["value"] == "#10110f"
+    assert dark_colors["surface"]["value"] == "#181a17"
+    assert dark_colors["surfaceMuted"]["value"] == "#22241f"
+    assert dark_colors["ink"]["value"] == "#f3f4ef"
+    assert dark_colors["muted"]["value"] == "#b7b9b1"
+    assert dark_colors["brandOrange"]["value"] == colors["brandOrange"]["value"]
+    assert dark_colors["green"]["role"] == "Success and verified state on dark surfaces"
+
+    theme_contract = tokens["themeContract"]
+    assert theme_contract["preferences"] == ["system", "light", "dark"]
+    assert theme_contract["storageKey"] == "dydata.theme.preference"
+    assert theme_contract["resolvedAttribute"] == "data-theme"
+    assert theme_contract["preferenceAttribute"] == "data-theme-preference"
+
 
 def css_variable_value(source: str, variable_name: str) -> str:
     match = re.search(rf"{re.escape(variable_name)}:\s*([^;]+);", source)
@@ -104,14 +119,14 @@ def test_formal_v02_artifacts_identify_the_active_runtime_contract() -> None:
     tokens = load_tokens()
     html = read_text(HTML_PATH)
 
-    assert tokens["meta"]["version"] == "0.2.0"
+    assert tokens["meta"]["version"] == "0.2.1"
     assert tokens["meta"]["status"] == "active"
-    assert tokens["meta"]["colorMode"] == "light-only"
-    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.2"
+    assert tokens["meta"]["colorMode"] == "light-dark-system"
+    assert tokens["meta"]["darkModeStatus"] == "runtime-active"
     assert "dy-data UI 设计规范 V0.2" in html
     assert "状态：active" in html
-    assert "模式：light-only" in html
-    assert "更新：2026-07-14" in html
+    assert "模式：light / dark / system" in html
+    assert "更新：2026-07-23" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
     assert "pending-human-approval" not in html
@@ -189,9 +204,15 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
 
     assert html.count('class="token-card"') >= 12
     assert html.count('class="component-card"') >= 4
-    assert "color-scheme: light;" in html
-    assert "color-scheme: light dark" not in html
-    assert "prefers-color-scheme" not in html
+    assert "color-scheme: light dark;" in html
+    assert 'html[data-theme="dark"]' in html
+    assert 'data-color-theme-button="system"' in html
+    assert 'data-color-theme-button="light"' in html
+    assert 'data-color-theme-button="dark"' in html
+    assert "dydata.theme.preference" in html
+    assert "SPACE AI Native" in html
+    assert "Ethnocentric Regular" in html
+    assert "仅用于 dy-data" in html
     assert 'class="button-like primary"' in html
     assert 'class="button-like is-disabled"' in html
     assert '<span class="button-like' not in html
@@ -327,9 +348,9 @@ def test_candidate_design_system_is_machine_readable_and_preview_only() -> None:
     assert candidate["meta"]["stage"] == "design-system-preview-only"
     assert candidate["meta"]["runtimeApplied"] is False
     assert candidate["meta"]["colorMode"] == "light-only"
-    assert set(candidate["tokens"]) == set(active["tokens"])
-    assert set(active["components"]) <= set(candidate["components"])
-    assert set(active["pageTemplates"]) <= set(candidate["pageTemplates"])
+    assert set(candidate["tokens"]) <= set(active["tokens"])
+    assert set(candidate["components"]) <= set(active["components"])
+    assert set(candidate["pageTemplates"]) <= set(active["pageTemplates"])
 
     palette = candidate["candidateDecision"]["palette"]
     expected_palette = {

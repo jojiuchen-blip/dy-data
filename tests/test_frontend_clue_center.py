@@ -477,7 +477,7 @@ def test_shell_has_feedback_submission_entry() -> None:
     assert "handleFeedbackSubmit" in shell_source
     assert "submitFeedback" in shell_source
     assert "page_path: currentPath" in shell_source
-    assert "grid-template-rows: auto 1fr auto;" in styles_source
+    assert "grid-template-rows: auto 1fr auto auto;" in styles_source
     assert ".rail-feedback-button" in styles_source
     assert ".mobile-bottom-nav__mine" in styles_source
     assert ".mine-panel" in styles_source

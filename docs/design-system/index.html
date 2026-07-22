@@ -1,13 +1,39 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light" data-theme-preference="system">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f6f3" />
     <link rel="icon" href="data:," />
     <title>dy-data UI 设计规范 V0.2</title>
+    <script>
+      (() => {
+        const storageKey = "dydata.theme.preference";
+        const allowed = new Set(["system", "light", "dark"]);
+        let preference = "system";
+        try {
+          const stored = window.localStorage.getItem(storageKey);
+          if (allowed.has(stored)) preference = stored;
+        } catch {}
+        const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themePreference = preference;
+        document.querySelector('meta[name="theme-color"]').content =
+          resolved === "dark" ? "#10110f" : "#f6f6f3";
+      })();
+    </script>
     <style>
+      @font-face {
+        font-family: "Ethnocentric Regular";
+        src: url("./assets/space-ai-native/Ethnocentric-Regular.otf") format("opentype");
+        font-style: normal;
+        font-weight: 400;
+        font-display: swap;
+      }
+
       :root {
-        color-scheme: light;
+        color-scheme: light dark;
         --bg: #f6f6f3;
         --surface: #ffffff;
         --surface-muted: #f2f2ee;
@@ -31,6 +57,9 @@
         --amber: #76470f;
         --amber-soft: #f0e5d6;
         --danger: #a0443e;
+        --danger-soft: #f8e5e2;
+        --space-neutral: #70747a;
+        --page-glow: rgb(255 255 255 / 72%);
         --target-min: 24px;
         --touch-target: 44px;
         --workspace-topbar-height: 58px;
@@ -80,6 +109,38 @@
         text-rendering: optimizeLegibility;
       }
 
+      html[data-theme="dark"] {
+        --bg: #10110f;
+        --surface: #181a17;
+        --surface-muted: #22241f;
+        --surface-subtle: #141613;
+        --ink: #f3f4ef;
+        --muted: #b7b9b1;
+        --line: #32352f;
+        --line-strong: #4a4e45;
+        --green: #74cdb0;
+        --green-soft: #173a30;
+        --blue: #8fbae8;
+        --blue-soft: #1d344c;
+        --amber: #e9b66d;
+        --amber-soft: #3f2f1b;
+        --danger: #f49a91;
+        --danger-soft: #452320;
+        --brand-soft: #3b2118;
+        --brand-ink: #ffb08d;
+        --disabled-bg: #2b2e29;
+        --disabled-text: #858981;
+        --space-neutral: #d8dad4;
+        --page-glow: rgb(255 255 255 / 2%);
+        --shadow-card: 0 2px 10px rgb(0 0 0 / 18%), 0 12px 28px rgb(0 0 0 / 14%);
+        --shadow-popover: 0 10px 28px rgb(0 0 0 / 34%), 0 2px 8px rgb(0 0 0 / 24%);
+        --shadow-dialog: 0 18px 48px rgb(0 0 0 / 44%), 0 4px 14px rgb(0 0 0 / 30%);
+        --shadow-workbench: 0 30px 80px rgb(0 0 0 / 52%), 0 8px 24px rgb(0 0 0 / 34%);
+        --shadow-navigation: 0 -8px 24px rgb(0 0 0 / 28%);
+        --shadow-sticky-header: 0 calc(var(--table-sticky-gap) * -1) 0 var(--bg),
+          0 1px 0 var(--line), 0 12px 20px -18px rgb(0 0 0 / 70%);
+      }
+
       * {
         box-sizing: border-box;
       }
@@ -94,7 +155,7 @@
         min-width: 320px;
         overflow-x: clip;
         background:
-          linear-gradient(180deg, rgb(255 255 255 / 72%), transparent 280px),
+          linear-gradient(180deg, var(--page-glow), transparent 280px),
           var(--bg);
         font-size: var(--font-body);
         font-weight: var(--weight-regular);
@@ -131,7 +192,7 @@
         margin: 18px 0 30px;
         border: 1px solid var(--line);
         border-radius: var(--radius-lg);
-        background: rgb(255 255 255 / 96%);
+        background: color-mix(in srgb, var(--surface) 96%, transparent);
         box-shadow: var(--shadow-card);
       }
 
@@ -249,7 +310,7 @@
         box-shadow: var(--shadow-none);
       }
 
-      body[data-theme="current"] {
+      body[data-palette="current"] {
         --bg: #f7f8f5;
         --surface-muted: #f1f5f1;
         --surface-subtle: #fafbf8;
@@ -316,6 +377,106 @@
         box-shadow: var(--focus-ring);
       }
 
+      .theme-contract-card {
+        display: grid;
+        gap: 12px;
+      }
+
+      .theme-contract-card__actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 4px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 4px;
+        background: var(--surface-subtle);
+      }
+
+      .theme-contract-card__actions .theme-button {
+        min-width: 0;
+        padding-inline: 10px;
+      }
+
+      .space-signature-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .space-signature-demo {
+        display: grid;
+        min-height: 150px;
+        place-items: center;
+        gap: 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        padding: 20px;
+        background: var(--surface-subtle);
+      }
+
+      .space-signature {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        color: var(--space-neutral);
+        white-space: nowrap;
+      }
+
+      .space-signature--stacked {
+        flex-direction: column;
+        text-align: center;
+      }
+
+      .space-signature__mark {
+        width: 84px;
+        height: auto;
+      }
+
+      .space-signature__mark--dark {
+        display: none;
+      }
+
+      html[data-theme="dark"] .space-signature__mark--light {
+        display: none;
+      }
+
+      html[data-theme="dark"] .space-signature__mark--dark {
+        display: block;
+      }
+
+      .space-signature__copy,
+      .space-signature__native {
+        color: var(--muted);
+        font-family: "Ethnocentric Regular", "Arial Black", sans-serif;
+        font-size: 13px;
+        font-weight: normal;
+        letter-spacing: 0;
+      }
+
+      .dark-palette-preview {
+        border-color: #32352f;
+        background: #10110f;
+        color: #f3f4ef;
+      }
+
+      .dark-palette-preview .token-card {
+        border-color: #32352f;
+        background: #181a17;
+        color: #f3f4ef;
+      }
+
+      .dark-palette-preview .token-meta span {
+        color: #b7b9b1;
+      }
+
+      html[data-theme="dark"] .browser-tab-demo,
+      html[data-theme="dark"] .copy-contract-example,
+      html[data-theme="dark"] .mobile-data-page,
+      html[data-theme="dark"] .desktop-page-template {
+        background: var(--surface);
+        color: var(--ink);
+      }
+
       .pill-row {
         display: flex;
         flex-wrap: wrap;
@@ -354,11 +515,20 @@
         margin-top: 22px;
       }
 
+      .section > * {
+        min-width: 0;
+      }
+
       .section-head {
         display: grid;
+        min-width: 0;
         grid-template-columns: minmax(0, 1fr) auto;
         align-items: end;
         gap: 18px;
+      }
+
+      .section-head > * {
+        min-width: 0;
       }
 
       .section-head p {
@@ -3327,6 +3497,14 @@
           grid-template-columns: 1fr;
         }
 
+        .space-signature-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .theme-contract-card__actions {
+          grid-template-columns: 1fr;
+        }
+
         .elevation-scale {
           grid-template-columns: 1fr;
         }
@@ -3472,26 +3650,31 @@
               <use href="#solar-icon-brand"></use>
             </svg>
             <div>
-              <p class="eyebrow">DYDATA-4 · 状态：active · runtime-active</p>
+              <p class="eyebrow">DYDATA-47 · 状态：active · runtime-active</p>
               <h1>dy-data UI 设计规范 V0.2</h1>
             </div>
           </div>
           <p class="summary">
-            这是一份可独立阅读、可直接执行的正式规范。它固化品牌橙、黑白灰体系，以及完整的 token、组件、图标、表格、弹层和页面模板。
+            这是一份可独立阅读、可直接执行的正式规范。它固化品牌橙、浅色与深色语义 token、组件、图标、表格、弹层、项目署名和页面模板。
           </p>
           <div class="pill-row">
             <span class="badge">Active</span>
             <span class="pill">状态：active</span>
-            <span class="pill">模式：light-only</span>
-            <span class="pill">更新：2026-07-14</span>
+            <span class="pill">模式：light / dark / system</span>
+            <span class="pill">更新：2026-07-23</span>
             <span class="pill">源文件：tokens.json</span>
           </div>
         </div>
-        <aside class="status-card">
+        <aside class="status-card theme-contract-card">
           <h3>运行时契约</h3>
           <p class="summary">
-            V0.2 是当前正式设计系统，运行时 CSS 来源为 <code>apps/web/src/design-tokens.css</code>。移动端信息架构和移动端明细样例仅记录为 DYDATA-5 的未来范围，不代表现有运行时行为。
+            V0.2 是当前正式设计系统，运行时 CSS 来源为 <code>apps/web/src/design-tokens.css</code>。默认跟随系统，手动选择使用 <code>dydata.theme.preference</code> 持久化。
           </p>
+          <div class="theme-contract-card__actions" role="group" aria-label="规范预览主题">
+            <button class="theme-button" type="button" data-color-theme-button="system" aria-pressed="true">跟随系统</button>
+            <button class="theme-button" type="button" data-color-theme-button="light" aria-pressed="false">浅色</button>
+            <button class="theme-button" type="button" data-color-theme-button="dark" aria-pressed="false">深色</button>
+          </div>
         </aside>
       </header>
 
@@ -3504,8 +3687,8 @@
           </p>
         </div>
         <div class="candidate-callout__actions" role="group" aria-label="切换重点色方案">
-          <button class="theme-button" type="button" data-theme-button="current" aria-pressed="false">V0.1 历史绿色</button>
-          <button class="theme-button" type="button" data-theme-button="candidate" aria-pressed="true">V0.2 品牌橙</button>
+          <button class="theme-button" type="button" data-palette-button="current" aria-pressed="false">V0.1 历史绿色</button>
+          <button class="theme-button" type="button" data-palette-button="candidate" aria-pressed="true">V0.2 品牌橙</button>
         </div>
       </section>
 
@@ -3513,6 +3696,7 @@
         <nav class="spec-toc" aria-label="规范章节">
           <a href="#workflow" aria-current="true">落地方式</a>
           <a href="#color">颜色</a>
+          <a href="#brand-signature">项目署名</a>
           <a href="#typography">排版</a>
           <a href="#spacing-radius">间距与圆角</a>
           <a href="#components">组件</a>
@@ -3564,7 +3748,7 @@
             <h2>颜色 token</h2>
             <p>品牌橙承担品牌、主操作、选中和聚焦；黑白灰建立高密度后台骨架，语义色保持原义。</p>
           </div>
-          <code>formal V0.2 palette · light-only</code>
+          <code>formal V0.2 palette · light + dark</code>
         </div>
         <div class="grid grid-4">
           <article class="token-card">
@@ -3644,6 +3828,66 @@
             <span class="status-chip danger">错误 · 保持红色</span>
             <span class="status-chip pending">信息 · 保持蓝色</span>
           </div>
+        </div>
+        <div class="panel dark-palette-preview">
+          <div class="component-family-head">
+            <div>
+              <h3>深色语义 token</h3>
+              <p>深色主题不是反相处理；背景、表面、边界、文字和状态背景分别定义，品牌橙保持稳定。</p>
+            </div>
+            <code>dark surfaces · semantic colors</code>
+          </div>
+          <div class="grid grid-4">
+            <article class="token-card"><div class="token-swatch" style="--swatch: #10110f"></div><div class="token-meta"><strong>bg</strong><span>#10110F</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #181a17"></div><div class="token-meta"><strong>surface</strong><span>#181A17</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #22241f"></div><div class="token-meta"><strong>surface-muted</strong><span>#22241F</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #f3f4ef"></div><div class="token-meta"><strong>ink</strong><span>#F3F4EF</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #b7b9b1"></div><div class="token-meta"><strong>muted</strong><span>#B7B9B1</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #74cdb0"></div><div class="token-meta"><strong>success</strong><span>#74CDB0 / #173A30</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #8fbae8"></div><div class="token-meta"><strong>info</strong><span>#8FBAE8 / #1D344C</span></div></article>
+            <article class="token-card"><div class="token-swatch" style="--swatch: #e9b66d"></div><div class="token-meta"><strong>warning</strong><span>#E9B66D / #3F2F1B</span></div></article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" id="brand-signature">
+        <div class="section-head">
+          <div>
+            <h2>Powered by SPACE AI Native</h2>
+            <p>项目署名仅用于 dy-data。SPACE 使用确认的 SVG 图形字，POWERED BY 与 AI NATIVE 使用 Ethnocentric Regular。</p>
+          </div>
+          <code>dy-data only · light + dark</code>
+        </div>
+        <div class="panel">
+          <div class="space-signature-grid">
+            <div class="space-signature-demo">
+              <div class="space-signature" aria-label="Powered by SPACE AI Native">
+                <span class="space-signature__copy">POWERED BY</span>
+                <span aria-hidden="true">
+                  <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
+                  <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                </span>
+                <span class="space-signature__native">AI NATIVE</span>
+              </div>
+              <span class="summary">横排：登录、授权、移动端“我的”和首页页脚。</span>
+            </div>
+            <div class="space-signature-demo">
+              <div class="space-signature space-signature--stacked" aria-label="Powered by SPACE AI Native">
+                <span class="space-signature__copy">POWERED BY</span>
+                <span aria-hidden="true">
+                  <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
+                  <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                </span>
+                <span class="space-signature__native">AI NATIVE</span>
+              </div>
+              <span class="summary">纵排：桌面侧栏底部，位于“建议”入口之后。</span>
+            </div>
+          </div>
+          <ul class="rule-list" style="margin-top: 16px">
+            <li><strong>图形：</strong>保持用户提供的轨道 SVG 几何不变；橙色固定为 #FE5205，中性灰随主题切换。</li>
+            <li><strong>排版：</strong>SPACE 只使用确认的 SVG 图形字；Ethnocentric Regular 仅用于 POWERED BY 与 AI NATIVE，普通界面文案不得使用该字体。</li>
+            <li><strong>可访问性：</strong>整体提供一个可读名称，装饰图形不重复朗读；不得只放无说明的 mark。</li>
+          </ul>
         </div>
       </section>
 
@@ -3996,7 +4240,7 @@
                 <code>#fe5205 · 无外层色块</code>
               </div>
             </div>
-            <p>应用界面仍是 light-only；浏览器标签图标使用已版本化的静态品牌资产，仅适配浏览器 chrome。业务界面图标仍必须通过 SolarIcon；图形或配色变化时必须更换 favicon 文件名，避免缓存继续显示旧绿色版本。</p>
+            <p>应用界面支持浅色与深色；浏览器标签图标使用已版本化的静态品牌资产，并同步更新 <code>theme-color</code>。业务界面图标仍必须通过 SolarIcon；图形或配色变化时必须更换 favicon 文件名，避免缓存继续显示旧版本。</p>
           </article>
           <article class="component-card component-card--wide">
             <h3>ContentPresenter / 用户可见值</h3>
@@ -5185,6 +5429,18 @@
                 <td>作为正式设计系统和运行时契约维护。</td>
               </tr>
               <tr>
+                <td>主题模式</td>
+                <td>system / light / dark；偏好持久化，解析结果写入 html[data-theme]</td>
+                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>所有页面消费同一套语义 token，不建立页面级暗色分支。</td>
+              </tr>
+              <tr>
+                <td>项目署名</td>
+                <td>POWERED BY + SPACE SVG + AI NATIVE；两侧文字使用 Ethnocentric Regular；仅用于 dy-data</td>
+                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>通过共享组件覆盖侧栏、移动端“我的”、登录/授权和首页。</td>
+              </tr>
+              <tr>
                 <td>表头冻结</td>
                 <td>容器内 thead top 0；桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
                 <td><span class="status-chip success">已落地</span></td>
@@ -5236,7 +5492,7 @@
                 <td>浏览器标签图标</td>
                 <td>浅色浏览器 #d63b00；深色浏览器 #fe5205；无外层色块；版本化文件名</td>
                 <td><span class="status-chip success">已落地</span></td>
-                <td>浏览器 chrome 适配不改变应用 light-only 边界。</td>
+                <td>浏览器 chrome 与应用主题同步验证对比度。</td>
               </tr>
               <tr>
                 <td>用户可见值</td>
@@ -5265,6 +5521,9 @@
         </div>
         <ul class="rule-list">
           <li><strong>新增颜色：</strong>同步更新 <code>tokens.json</code>、本页和相关测试；候选工件只作为不可变历史记录。</li>
+          <li><strong>主题实现：</strong>只通过共享 ThemeProvider 和 ThemePicker 读写 <code>dydata.theme.preference</code>；页面不得直接读取系统主题或 localStorage。</li>
+          <li><strong>双主题验收：</strong>新增组件必须同时检查 light 和 dark，状态色继续表达成功、警告、错误和信息，不得统一替换成品牌橙。</li>
+          <li><strong>项目署名：</strong><code>Powered by SPACE AI Native</code> 仅用于 dy-data；SPACE 只使用确认的 SVG，POWERED BY 与 AI NATIVE 使用 Ethnocentric Regular。</li>
           <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
           <li><strong>新增 KPI：</strong>复用统一白底圆角指标卡，不增加 tone、彩色顶线或彩色卡面；优先级通过顺序、标签、数值和说明表达。</li>
           <li><strong>用户文案：</strong>内部生产值不得直接展示；通过共享映射转换，未知状态 / 未知类型 / 未知原因不得回显原值。</li>
@@ -5279,18 +5538,52 @@
       </section>
     </main>
     <script>
-      document.querySelectorAll("[data-theme-button]").forEach((button) => {
+      document.querySelectorAll("[data-palette-button]").forEach((button) => {
         button.addEventListener("click", () => {
-          const theme = button.dataset.themeButton;
-          document.body.dataset.theme = theme;
-          document.querySelectorAll("[data-theme-button]").forEach((item) => {
+          const palette = button.dataset.paletteButton;
+          document.body.dataset.palette = palette;
+          document.querySelectorAll("[data-palette-button]").forEach((item) => {
             item.setAttribute(
               "aria-pressed",
-              String(item.dataset.themeButton === theme),
+              String(item.dataset.paletteButton === palette),
             );
           });
         });
       });
+
+      const themeStorageKey = "dydata.theme.preference";
+      const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+      const resolveColorTheme = (preference) =>
+        preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
+      const applyColorTheme = (preference, persist = true) => {
+        const resolved = resolveColorTheme(preference);
+        document.documentElement.dataset.theme = resolved;
+        document.documentElement.dataset.themePreference = preference;
+        document.querySelector('meta[name="theme-color"]').content =
+          resolved === "dark" ? "#10110f" : "#f6f6f3";
+        document.querySelectorAll("[data-color-theme-button]").forEach((item) => {
+          item.setAttribute(
+            "aria-pressed",
+            String(item.dataset.colorThemeButton === preference),
+          );
+        });
+        if (persist) {
+          try {
+            window.localStorage.setItem(themeStorageKey, preference);
+          } catch {}
+        }
+      };
+
+      document.querySelectorAll("[data-color-theme-button]").forEach((button) => {
+        button.addEventListener("click", () => applyColorTheme(button.dataset.colorThemeButton));
+      });
+
+      systemTheme.addEventListener("change", () => {
+        if (document.documentElement.dataset.themePreference === "system") {
+          applyColorTheme("system", false);
+        }
+      });
+      applyColorTheme(document.documentElement.dataset.themePreference || "system", false);
 
       const revealCurrentTertiaryItem = (nav) => {
         const currentItem = nav.querySelector('[aria-current="page"]');

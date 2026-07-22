@@ -1,4 +1,5 @@
 import { SolarIcon } from "../components/SolarIcon";
+import { SpaceAiSignature } from "../components/SpaceAiSignature";
 
 const modules = [
   {
@@ -50,6 +51,7 @@ export function HomePage() {
           </a>
         ))}
       </section>
+      <SpaceAiSignature className="home-space-signature" />
     </main>
   );
 }

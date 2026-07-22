@@ -1,11 +1,31 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="light" data-theme-preference="system">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="no-referrer" />
+    <meta name="theme-color" content="#f6f6f3" />
     <link rel="icon" type="image/svg+xml" sizes="any" href="/business-engine-icon-v2.svg" />
     <title>抖音经营数据引擎</title>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const storageKey = "dydata.theme.preference";
+        const allowed = new Set(["system", "light", "dark"]);
+        let preference = "system";
+        try {
+          const stored = window.localStorage.getItem(storageKey);
+          if (allowed.has(stored)) preference = stored;
+        } catch {}
+        const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+        const resolved = preference === "system" ? (systemDark ? "dark" : "light") : preference;
+        document.documentElement.dataset.theme = resolved;
+        root.setAttribute("data-theme-preference", preference);
+        root.style.colorScheme = resolved;
+        document.querySelector('meta[name="theme-color"]').content =
+          resolved === "dark" ? "#10110f" : "#f6f6f3";
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

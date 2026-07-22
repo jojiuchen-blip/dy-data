@@ -59,9 +59,13 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "apps/web/src/design-tokens.css",
         "tests/test_design_system_docs.py",
         "tests/test_design_system_enforcement.py",
-        "V0.2 是正式生效的浅色设计系统",
+        "V0.2 是正式生效的浅色与深色设计系统",
         "状态为 `active`",
-        "只支持 `light-only`",
+        "支持 `system | light | dark`",
+        "dydata.theme.preference",
+        "Powered by SPACE AI Native",
+        "Ethnocentric Regular",
+        "仅用于 dy-data",
         "先更新 `tokens.json`",
         "同步更新 `index.html`",
         "同步更新 `apps/web/src/design-tokens.css` 和业务 UI",
@@ -96,8 +100,8 @@ def test_tokens_declare_current_enforcement_scope() -> None:
     follow_up_modal = tokens["pageTemplates"]["clueFollowUpWorkbenchModal"]
     follow_up_mobile_template = tokens["pageTemplates"]["clueFollowUpMobileDetail"]
 
-    assert tokens["meta"]["colorMode"] == "light-only"
-    assert tokens["meta"]["darkModeStatus"] == "not-supported-in-v0.2"
+    assert tokens["meta"]["colorMode"] == "light-dark-system"
+    assert tokens["meta"]["darkModeStatus"] == "runtime-active"
     assert layout_tokens["workspacePageWidth"]["value"] == "100%"
     assert "authenticated workspace pages fill" in layout_tokens["workspacePageWidth"]["usage"]
     assert layout_tokens["dataWorkspaceWidth"]["value"] == "100%"
@@ -149,7 +153,7 @@ def test_tokens_declare_current_enforcement_scope() -> None:
         "unauthorized hex",
         "legacy status-chip",
         "div or span click handlers",
-        "light-only",
+        "system, light and dark",
         "390, 768 and 1440",
     ]
     for phrase in current_required:
@@ -164,13 +168,15 @@ def test_tokens_declare_current_enforcement_scope() -> None:
         assert phrase in next_rules
 
 
-def test_design_system_preview_is_light_only() -> None:
+def test_design_system_preview_supports_explicit_light_dark_and_system_modes() -> None:
     html = read_text(HTML_PATH)
 
-    assert "color-scheme: light;" in html
-    assert "color-scheme: light dark" not in html
-    assert "prefers-color-scheme" not in html
-    assert "data-theme=\"dark\"" not in html
+    assert "color-scheme: light dark;" in html
+    assert 'html[data-theme="dark"]' in html
+    assert 'data-color-theme-button="system"' in html
+    assert 'data-color-theme-button="light"' in html
+    assert 'data-color-theme-button="dark"' in html
+    assert "window.matchMedia" in html
 
 
 def test_iconify_imports_are_centralized_in_solar_icon_component() -> None:

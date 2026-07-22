@@ -5,6 +5,8 @@ import {
   fetchMcpAuthorizationRequest,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { ThemePicker } from "../components/ThemePicker";
 import type {
   AdminUser,
   McpAuthorizationRequestDetails,
@@ -144,6 +146,7 @@ export function McpAuthorizePage({
           className="auth-panel cli-authorize-panel"
           aria-labelledby="mcp-authorize-title"
         >
+          <ThemePicker className="auth-theme-picker" compact />
           <p className="cli-authorize-eyebrow">Agent 安全授权</p>
           <h1 id="mcp-authorize-title">
             {pageState === "loading" ? "正在读取授权信息" : "无法继续授权"}
@@ -153,6 +156,7 @@ export function McpAuthorizePage({
               ? `正在确认 ${currentUser.display_name || currentUser.username} 的账号范围…`
               : message}
           </p>
+          <SpaceAiSignature className="authorize-space-signature" />
         </section>
       </main>
     );
@@ -165,6 +169,7 @@ export function McpAuthorizePage({
         className="auth-panel cli-authorize-panel"
         aria-labelledby="mcp-authorize-title"
       >
+        <ThemePicker className="auth-theme-picker" compact />
         <p className="cli-authorize-eyebrow">Agent 安全授权</p>
         <h1 id="mcp-authorize-title">允许这个 Agent 读取门店数据？</h1>
         <p className="cli-authorize-copy">
@@ -222,6 +227,7 @@ export function McpAuthorizePage({
             允许只读访问
           </Button>
         </div>
+        <SpaceAiSignature className="authorize-space-signature" />
       </section>
     </main>
   );

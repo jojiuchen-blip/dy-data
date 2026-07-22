@@ -11,6 +11,7 @@
 | # | 任务 | 关联 | 状态 |
 |---|------|------|------|
 | 1 | DYDATA-45 腾讯云部署与独立 Agent UAT 收口 | 本轮推进 | ✅ |
+| 2 | DYDATA-47 SPACE AI Native 署名与明暗主题交付 | S2 | ✅ |
 
 **本日关键结论**：部署 workflow 29934737788 成功；CLI/MCP 重试 PASS，测试账号仅见 3 家授权门店，统计不变量、整单越权拒绝与跨通道脱敏聚合一致；DYDATA-45 转 In Review，DYDATA-46 继续承接 production 切换
 
@@ -86,3 +87,12 @@
 - [ ] 人类 Owner 审核 `DYDATA-45`，确认后再由 In Review 转 Done。
 - [ ] `DYDATA-46` 在企业内网生产服务器上线后，一次性切换 CLI 默认环境、MCP、OAuth issuer/resource、keyring、文档、示例与 smoke；不得迁移测试凭据。
 - [ ] 评估是否另建低优先级兼容性改进，支持 CLI 顶层 `--help` / `--version`。
+---
+
+## 补充更新 1（03:36 · 窗口 1）
+
+### 任务 2：DYDATA-47 SPACE AI Native 署名与明暗主题交付
+- **目标**：完成 DYDATA-47 视觉规范、运行时主题和品牌署名的全站接入，并进入提交部署验证
+- **操作**：新增 light/dark/system 主题运行时、SPACE AI Native 署名组件与资源，更新设计 token、规范 HTML、全站入口和视觉回归；运行完整测试、构建与治理门禁
+- **结果**：991 项测试通过、2 项跳过；前端生产构建通过；当前继续执行提交、main 推送和腾讯轻量云部署
+- **涉及文件**：apps/web/src/components/SpaceAiSignature.tsx、apps/web/src/theme/ThemeProvider.tsx、apps/web/src/design-tokens.css、docs/design-system/index.html、docs/design-system/tokens.json、tests/test_frontend_theme_brand.py、tests/test_visual_smoke.py

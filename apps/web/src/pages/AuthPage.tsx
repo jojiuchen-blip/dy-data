@@ -7,6 +7,8 @@ import {
 } from "../api/client";
 import { Button, IconButton } from "../components/Button";
 import { SolarIcon } from "../components/SolarIcon";
+import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { ThemePicker } from "../components/ThemePicker";
 import type {
   AccountActivationCheckPayload,
   AccountActivationPayload,
@@ -374,6 +376,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
   return (
     <main className={authShellClassName}>
       <section className="auth-panel" aria-labelledby="auth-title">
+        <ThemePicker className="auth-theme-picker" compact />
         <div className="auth-brand">
           <SolarIcon className="brand__mark" name="brand" size={44} />
           <div>
@@ -711,6 +714,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </a>
           </form>
         )}
+        <SpaceAiSignature className="auth-space-signature" />
       </section>
       {activeActivationHintDetail ? (
         <aside className="auth-help-card" aria-live="polite">

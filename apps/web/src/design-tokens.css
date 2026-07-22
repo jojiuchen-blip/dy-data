@@ -1,6 +1,8 @@
 :root {
-  color: #181818;
-  background: #f6f6f3;
+  color-scheme: light;
+  --browser-theme-color: #f6f6f3;
+  color: var(--ink);
+  background: var(--bg);
   font-family:
     "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
   font-synthesis: none;
@@ -35,6 +37,7 @@
   --amber: #76470f;
   --amber-soft: #f0e5d6;
   --danger: #a0443e;
+  --danger-soft: #f8e5e2;
 
   /* Sizing and layers */
   --target-min: 24px;
@@ -174,4 +177,115 @@
   --auth-dark-danger: #ff9187;
   --auth-dark-focus-ring: 0 0 0 3px rgb(239 107 53 / 28%);
   --auth-dark-primary-text: #fff9f5;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --browser-theme-color: #10110f;
+
+  /* Neutral foundation */
+  --bg: #10110f;
+  --surface: #181a17;
+  --surface-muted: #22241f;
+  --surface-subtle: #141613;
+  --ink: #f3f4ef;
+  --muted: #b7b9b1;
+  --line: #32352f;
+  --line-strong: #4a4e45;
+
+  /* Brand and interaction */
+  --brand-deep-orange: #d63b00;
+  --brand-deep-orange-hover: #c73700;
+  --brand-deep-orange-active: #ad3000;
+  --brand-orange: #fe5205;
+  --brand-orange-soft: #3b2118;
+  --brand-orange-ink: #ffb08d;
+  --disabled-bg: #2b2e29;
+  --disabled-text: #858981;
+
+  /* Semantic status colors */
+  --green: #74cdb0;
+  --green-soft: #173a30;
+  --green-hover: #9addc6;
+  --blue: #8fbae8;
+  --blue-soft: #1d344c;
+  --amber: #e9b66d;
+  --amber-soft: #3f2f1b;
+  --danger: #f49a91;
+  --danger-soft: #452320;
+
+  /* Elevation */
+  --shadow-card: 0 2px 10px rgb(0 0 0 / 18%), 0 12px 28px rgb(0 0 0 / 14%);
+  --shadow-popover: 0 10px 28px rgb(0 0 0 / 34%), 0 2px 8px rgb(0 0 0 / 24%);
+  --shadow-dialog: 0 18px 48px rgb(0 0 0 / 44%), 0 4px 14px rgb(0 0 0 / 30%);
+  --shadow-workbench: 0 30px 80px rgb(0 0 0 / 52%), 0 8px 24px rgb(0 0 0 / 34%);
+  --focus-ring: 0 0 0 3px rgb(254 82 5 / 30%);
+
+  /* Runtime surface roles */
+  --surface-page-top: #141613;
+  --surface-page-end: #10110f;
+  --surface-warm: #181a17;
+  --surface-cream: #181a17;
+  --surface-hover: #22241f;
+  --surface-row: #141613;
+  --surface-table-head: #22241f;
+  --surface-subtle-strong: #1c1e1a;
+  --surface-rail-muted: #22241f;
+  --surface-control-muted: #22241f;
+  --surface-active: #3b2118;
+  --surface-danger: #452320;
+  --surface-warning: #3f2f1b;
+  --ink-deep: #f3f4ef;
+  --ink-subtle: #d8dad4;
+
+  /* Theme-adjusted alpha roles */
+  --green-accent-12: rgb(116 205 176 / 12%);
+  --green-accent-18: rgb(116 205 176 / 18%);
+  --green-accent-22: rgb(116 205 176 / 22%);
+  --green-accent-24: rgb(116 205 176 / 24%);
+  --green-accent-30: rgb(116 205 176 / 30%);
+  --green-accent-32: rgb(116 205 176 / 32%);
+  --green-vivid-8: rgb(116 205 176 / 8%);
+  --green-vivid-10: rgb(116 205 176 / 10%);
+  --green-vivid-14: rgb(116 205 176 / 14%);
+  --green-vivid-16: rgb(116 205 176 / 16%);
+  --green-vivid-18: rgb(116 205 176 / 18%);
+  --green-vivid-22: rgb(116 205 176 / 22%);
+  --green-token-28: rgb(116 205 176 / 28%);
+  --green-token-30: rgb(116 205 176 / 30%);
+  --green-shadow-10: rgb(116 205 176 / 10%);
+  --blue-shadow-16: rgb(143 186 232 / 16%);
+  --blue-shadow-18: rgb(143 186 232 / 18%);
+  --blue-token-24: rgb(143 186 232 / 24%);
+  --amber-token-8: rgb(233 182 109 / 8%);
+  --amber-token-13: rgb(233 182 109 / 13%);
+  --amber-token-24: rgb(233 182 109 / 24%);
+  --amber-token-28: rgb(233 182 109 / 28%);
+  --amber-token-35: rgb(233 182 109 / 35%);
+  --amber-token-45: rgb(233 182 109 / 45%);
+  --danger-token-28: rgb(244 154 145 / 28%);
+  --danger-token-35: rgb(244 154 145 / 35%);
+  --danger-token-36: rgb(244 154 145 / 36%);
+  --danger-token-40: rgb(244 154 145 / 40%);
+  --muted-token-28: rgb(183 185 177 / 28%);
+  --ink-shadow-45: rgb(0 0 0 / 45%);
+  --ink-shadow-48: rgb(0 0 0 / 48%);
+  --ink-shadow-55: rgb(0 0 0 / 55%);
+  --surface-subtle-94: rgb(20 22 19 / 94%);
+  --surface-cream-70: rgb(24 26 23 / 70%);
+  --surface-cream-76: rgb(24 26 23 / 76%);
+  --surface-cream-94: rgb(24 26 23 / 94%);
+  --surface-cream-96: rgb(24 26 23 / 96%);
+  --surface-white-70: rgb(24 26 23 / 70%);
+  --surface-white-92: rgb(24 26 23 / 92%);
+  --surface-white-96: rgb(24 26 23 / 96%);
+
+  /* Authentication surfaces use the same global theme contract. */
+  --auth-shell-background: #10110f;
+  --auth-backdrop-overlay: rgb(9 11 13 / 10%);
+  --auth-panel-surface: rgb(24 26 23 / 96%);
+  --auth-panel-outline: rgb(255 255 255 / 10%);
+  --auth-panel-elevation:
+    0 28px 80px rgb(0 0 0 / 42%),
+    0 4px 18px rgb(0 0 0 / 28%);
 }

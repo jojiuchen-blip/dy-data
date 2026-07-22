@@ -18,10 +18,13 @@ import graphNewUpBoldDuotone from "@iconify-icons/solar/graph-new-up-bold-duoton
 import home2Linear from "@iconify-icons/solar/home-2-linear";
 import keyMinimalisticSquareLinear from "@iconify-icons/solar/key-minimalistic-square-linear";
 import logout3Linear from "@iconify-icons/solar/logout-3-linear";
+import monitorLinear from "@iconify-icons/solar/monitor-linear";
+import moonLinear from "@iconify-icons/solar/moon-linear";
 import questionCircleLinear from "@iconify-icons/solar/question-circle-linear";
 import refreshCircleLinear from "@iconify-icons/solar/refresh-circle-linear";
 import settingsMinimalisticLinear from "@iconify-icons/solar/settings-minimalistic-linear";
 import shieldCheckBoldDuotone from "@iconify-icons/solar/shield-check-bold-duotone";
+import sunLinear from "@iconify-icons/solar/sun-linear";
 import trashBinMinimalisticLinear from "@iconify-icons/solar/trash-bin-minimalistic-linear";
 import userCircleLinear from "@iconify-icons/solar/user-circle-linear";
 
@@ -43,11 +46,14 @@ const solarIcons = {
   home: home2Linear,
   key: keyMinimalisticSquareLinear,
   logout: logout3Linear,
+  monitor: monitorLinear,
+  moon: moonLinear,
   question: questionCircleLinear,
   ranking: chart2Linear,
   rules: settingsMinimalisticLinear,
   settlement: buildings2Linear,
   sync: refreshCircleLinear,
+  sun: sunLinear,
   trash: trashBinMinimalisticLinear,
   clues: chatRoundDotsBoldDuotone,
   cluesLine: chatRoundDotsLinear,

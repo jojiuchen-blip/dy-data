@@ -7,6 +7,8 @@ import {
 } from "react";
 import { ApiRequestError, approveCliAuthorization } from "../api/client";
 import { Button } from "../components/Button";
+import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { ThemePicker } from "../components/ThemePicker";
 import type { AdminUser } from "../types/dashboard";
 import {
   isCurrentCliAuthorizationRequest,
@@ -104,11 +106,13 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
     return (
       <main className="auth-shell cli-authorize-shell">
         <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+          <ThemePicker className="auth-theme-picker" compact />
           <p className="cli-authorize-eyebrow">CLI 设备授权</p>
           <h1 id="cli-authorize-title">缺少授权码</h1>
           <p className="cli-authorize-copy">
             请回到 CLI，重新打开其提供的浏览器授权链接。
           </p>
+          <SpaceAiSignature className="authorize-space-signature" />
         </section>
       </main>
     );
@@ -118,11 +122,13 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
     return (
       <main className="auth-shell cli-authorize-shell">
         <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+          <ThemePicker className="auth-theme-picker" compact />
           <p className="cli-authorize-eyebrow">CLI 设备授权</p>
           <h1 id="cli-authorize-title">授权已完成</h1>
           <p className="cli-authorize-copy">
             CLI 将获得门店线索汇总的只读权限。你可以关闭此页面并返回 CLI。
           </p>
+          <SpaceAiSignature className="authorize-space-signature" />
         </section>
       </main>
     );
@@ -131,6 +137,7 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
   return (
     <main className="auth-shell cli-authorize-shell">
       <section className="auth-panel cli-authorize-panel" aria-labelledby="cli-authorize-title">
+        <ThemePicker className="auth-theme-picker" compact />
         <p className="cli-authorize-eyebrow">CLI 设备授权</p>
         <h1 id="cli-authorize-title">允许 CLI 读取门店线索汇总？</h1>
         <p className="cli-authorize-copy">
@@ -163,6 +170,7 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
             允许此 CLI 读取门店线索汇总
           </Button>
         </form>
+        <SpaceAiSignature className="authorize-space-signature" />
       </section>
     </main>
   );

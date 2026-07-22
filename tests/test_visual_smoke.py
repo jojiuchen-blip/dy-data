@@ -26,6 +26,52 @@ VIEWPORTS = [
     (1440, 900),
 ]
 
+RUNTIME_SURFACES = [
+    ("home", "/", "抖音经营数据引擎", "heading"),
+    ("ranking", "/ranking", "全国门店销售情况榜单", "heading"),
+    ("sales", "/sales", "核销表现", "heading"),
+    ("clues", "/clues", "经营线索概览", "text"),
+    ("clue-details", "/clues/details", "线索跟进列表", "text"),
+    ("settlement", "/settlement", "单店月度分账看板", "text"),
+    ("order-details", "/details", "门店月度数据明细表", "text"),
+    ("admin-home", "/admin", "抖音经营中枢后台", "heading"),
+    ("admin-accounts", "/admin/accounts", "账号管理", "heading"),
+    ("admin-rules", "/admin/rules", "商品分账规则管理", "heading"),
+    ("admin-sync", "/admin/sync", "数据同步管理", "text"),
+    ("admin-clue-allocation", "/admin/clue-allocation", "线索分配", "heading"),
+    (
+        "admin-clue-allocation-rules",
+        "/admin/clue-allocation/rules",
+        "线索分配",
+        "heading",
+    ),
+    (
+        "admin-clue-allocation-trial",
+        "/admin/clue-allocation/trial",
+        "线索分配",
+        "heading",
+    ),
+    (
+        "admin-clue-allocation-records",
+        "/admin/clue-allocation/records",
+        "线索分配",
+        "heading",
+    ),
+    (
+        "admin-clue-allocation-headquarters",
+        "/admin/clue-allocation/headquarters",
+        "线索分配",
+        "heading",
+    ),
+    ("admin-feedback", "/admin/feedback", "用户建议", "heading"),
+    (
+        "admin-product-types",
+        "/admin/product-types",
+        "商品口径控制",
+        "heading",
+    ),
+]
+
 
 def find_free_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -405,6 +451,79 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
 
 
 @pytest.mark.parametrize("width,height", VIEWPORTS)
+@pytest.mark.parametrize(
+    ("name", "url_path", "expected_text", "ready_target"),
+    RUNTIME_SURFACES,
+)
+def test_all_runtime_surfaces_render_in_dark_theme(
+    browser: Browser,
+    vite_base_url: str,
+    tmp_path: Path,
+    name: str,
+    url_path: str,
+    expected_text: str,
+    ready_target: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(
+        viewport={"width": width, "height": height},
+        color_scheme="dark",
+    )
+    context.add_init_script(
+        "window.localStorage.setItem('dydata.theme.preference', 'dark')",
+    )
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    http_errors: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on(
+        "response",
+        lambda response: record_unexpected_http_failure(response, http_errors),
+    )
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        if ready_target == "heading":
+            page.get_by_role("heading", name=expected_text, exact=True).wait_for(
+                timeout=10000,
+            )
+        else:
+            page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+
+        page.screenshot(
+            path=tmp_path / f"{name}-dark-{width}.png",
+            full_page=True,
+        )
+        metrics = page.evaluate(
+            """() => ({
+              bodyBackground: getComputedStyle(document.body).backgroundColor,
+              horizontalOverflow:
+                Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) -
+                window.innerWidth,
+              textLength: document.body.innerText.trim().length,
+              theme: document.documentElement.dataset.theme,
+              preference: document.documentElement.dataset.themePreference,
+            })""",
+        )
+
+        assert metrics["theme"] == "dark"
+        assert metrics["preference"] == "dark"
+        assert metrics["bodyBackground"] == "rgb(16, 17, 15)"
+        assert metrics["textLength"] > 20
+        assert metrics["horizontalOverflow"] <= 2
+        assert page.locator("h1").count() == 1
+        assert console_errors == []
+        assert page_errors == []
+        assert http_errors == []
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
 def test_commission_dashboard_mock_peer_routes_and_cumulative_state(
     browser: Browser,
     width: int,
@@ -675,6 +794,87 @@ def test_auth_surfaces_follow_the_v02_visual_contract(
         assert console_errors == []
         assert page_errors == []
         assert http_errors == []
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+@pytest.mark.parametrize(
+    ("url_path", "expected_heading", "authenticated"),
+    [
+        ("/login", "账号登录", False),
+        ("/auth/activate", "账号激活", False),
+        ("/auth/reset-password", "重置密码", False),
+        ("/auth/cli/authorize", "缺少授权码", True),
+        ("/auth/mcp/authorize", "无法继续授权", True),
+    ],
+)
+def test_auth_and_authorization_surfaces_render_dark_signature_contract(
+    browser: Browser,
+    vite_base_url: str,
+    tmp_path: Path,
+    url_path: str,
+    expected_heading: str,
+    authenticated: bool,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(
+        viewport={"width": width, "height": height},
+        color_scheme="dark",
+    )
+    context.add_init_script(
+        "window.localStorage.setItem('dydata.theme.preference', 'dark')",
+    )
+    page = context.new_page()
+
+    try:
+        if authenticated:
+            install_api_routes(page)
+        else:
+            install_unauthenticated_route(page)
+
+        page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        page.get_by_role("heading", name=expected_heading, exact=True).wait_for(
+            timeout=10000,
+        )
+        signature = page.get_by_role("img", name="Powered by SPACE AI Native")
+        signature.wait_for(timeout=10000)
+        signature_contract = signature.evaluate(
+            """(node) => {
+              const copy = node.querySelector(".space-ai-signature__copy");
+              const native = node.querySelector(".space-ai-signature__native");
+              const visibleMark = Array.from(
+                node.querySelectorAll(".space-ai-signature__mark"),
+              ).filter((mark) => getComputedStyle(mark).display !== "none");
+              return {
+                copyColor: copy ? getComputedStyle(copy).color : "",
+                copyFont: copy ? getComputedStyle(copy).fontFamily : "",
+                copyText: copy?.textContent?.trim() ?? "",
+                nativeColor: native ? getComputedStyle(native).color : "",
+                nativeFont: native ? getComputedStyle(native).fontFamily : "",
+                nativeText: native?.textContent?.trim() ?? "",
+                visibleMarkCount: visibleMark.length,
+              };
+            }""",
+        )
+        horizontal_overflow = page.evaluate(
+            "() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth",
+        )
+
+        page.screenshot(
+            path=tmp_path / f"auth-dark-{expected_heading}-{width}.png",
+            full_page=True,
+        )
+        assert page.locator("html").get_attribute("data-theme") == "dark"
+        assert signature_contract["copyText"] == "POWERED BY"
+        assert signature_contract["nativeText"] == "AI NATIVE"
+        assert signature_contract["visibleMarkCount"] == 1
+        assert "Ethnocentric Regular" in signature_contract["copyFont"]
+        assert "Ethnocentric Regular" in signature_contract["nativeFont"]
+        assert signature_contract["copyColor"] == signature_contract["nativeColor"]
+        assert horizontal_overflow <= 2
+        assert page.locator("h1").count() == 1
     finally:
         context.close()
 

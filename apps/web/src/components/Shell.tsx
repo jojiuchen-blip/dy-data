@@ -6,6 +6,8 @@ import { Dialog } from "./Dialog";
 import { SelectField } from "./FormControls";
 import { Button } from "./Button";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
+import { SpaceAiSignature } from "./SpaceAiSignature";
+import { ThemePicker } from "./ThemePicker";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
 const verificationPaths = new Set(["/sales"]);
@@ -398,6 +400,10 @@ export function Shell({
           <span>建议</span>
           <small>提交体验</small>
         </button>
+        <SpaceAiSignature
+          className="rail-space-signature"
+          variant="stacked"
+        />
       </aside>
 
       <div className="workspace-shell">
@@ -528,6 +534,11 @@ export function Shell({
               <dd>{currentUser.is_initialized ? "已激活" : "未激活"}</dd>
             </div>
           </dl>
+          <section className="mine-panel__theme" aria-labelledby="mine-theme-title">
+            <strong id="mine-theme-title">界面主题</strong>
+            <ThemePicker />
+          </section>
+          <SpaceAiSignature className="mine-space-signature" />
           <div className="mine-panel__actions" aria-label="我的操作">
             <Button
               className="mine-panel__action"
@@ -641,6 +652,10 @@ export function Shell({
           title="个人设置"
         >
           <form className="auth-form personal-settings-form" onSubmit={handlePasswordChange}>
+            <section className="personal-settings-theme" aria-labelledby="personal-theme-title">
+              <strong id="personal-theme-title">界面主题</strong>
+              <ThemePicker />
+            </section>
             <label className="filter-field">
               <span>新密码</span>
               <input
