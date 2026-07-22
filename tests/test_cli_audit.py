@@ -213,6 +213,7 @@ def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_i
         "environment",
         "schema_version",
         "error",
+        "meta",
     }
     assert body["ok"] is False
     assert body["command"] == command
@@ -224,6 +225,7 @@ def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_i
         "retryable": True,
         "request_id": "req-db-failure",
     }
+    assert body["meta"] == {"channel": "cli"}
     assert response.headers["x-request-id"] == "req-db-failure"
     [event] = _events(caplog)
     assert event["request_id"] == "req-db-failure"

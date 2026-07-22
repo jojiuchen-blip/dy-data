@@ -85,7 +85,7 @@ def render_agent_guide() -> str:
     )
     return f"""# dydata Agent 接入
 
-环境：`test`。本服务只提供只读查询。
+环境：`test`，即当前已部署的腾讯云测试环境。本服务只提供只读查询。企业内网生产服务器尚未部署，在 DYDATA-46 完成切换前不得尝试或声称存在可用的 `production` 入口。
 
 1. 先读取机器清单：{manifest_url}
 2. 支持远程 MCP 时，添加 `{TEST_ENVIRONMENT.mcp_url}`，由用户在 dydata 官方页面完成 OAuth 授权。
@@ -118,6 +118,8 @@ description: 查询当前账号授权门店及门店线索跟进统计。
 - Capabilities: {capabilities_url}
 - MCP: {TEST_ENVIRONMENT.mcp_url}
 - CLI diagnostic: `dydata agent doctor --json`
+
+当前端点属于腾讯云测试环境。企业内网生产服务器尚未部署；在 DYDATA-46 完成整体切换前，不得把当前地址当作 `production`，也不得猜测生产入口。
 
 ## Allowed tools
 

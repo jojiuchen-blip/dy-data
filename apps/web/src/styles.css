@@ -1745,7 +1745,6 @@ h2 {
 .mcp-authorize-uri {
   overflow-wrap: anywhere;
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
-  font-size: 12px !important;
 }
 
 .mcp-authorize-actions {

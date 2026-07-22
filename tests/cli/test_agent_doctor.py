@@ -98,6 +98,7 @@ def test_doctor_treats_missing_credentials_as_a_safe_diagnostic_state() -> None:
     assert body["command"] == "agent.doctor"
     assert body["environment"] == "test"
     assert body["schema_version"] == "1.1"
+    assert body["meta"] == {"channel": "cli"}
     assert body["data"]["credential"] == {
         "status": "not_configured",
         "identity": None,
@@ -173,7 +174,11 @@ def test_doctor_returns_current_identity_and_store_scope_when_authorized() -> No
                         "store_ids": ["store-a"],
                         "expires_at": (now + timedelta(minutes=20)).isoformat(),
                     },
-                    "meta": {"request_id": request_id, "partial": False},
+                    "meta": {
+                        "channel": "cli",
+                        "request_id": request_id,
+                        "partial": False,
+                    },
                 },
             )
         if request.url.path == "/api/v1/cli/stores":
@@ -193,7 +198,11 @@ def test_doctor_returns_current_identity_and_store_scope_when_authorized() -> No
                             {"store_id": "store-a", "store_name": "Alpha"}
                         ]
                     },
-                    "meta": {"request_id": request_id, "partial": False},
+                    "meta": {
+                        "channel": "cli",
+                        "request_id": request_id,
+                        "partial": False,
+                    },
                 },
             )
         raise AssertionError(request.url)

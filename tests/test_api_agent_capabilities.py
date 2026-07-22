@@ -234,6 +234,8 @@ def test_shared_capabilities_keep_cli_metric_semantics() -> None:
         "store-a",
         "store-b",
     ]
+    assert stores["meta"] == {"partial": False, "request_id": "request-stores"}
+    assert "channel" not in stats["meta"]
     assert stats["scope"] == {
         "user_id": "mcp-user-1",
         "requested_store_ids": ["store-a", "store-b"],
@@ -311,6 +313,8 @@ def test_mcp_consent_details_approve_and_single_use(consent_stack) -> None:
         "/api/v1/auth/mcp/request", params={"request_id": request_id}
     )
     assert details.status_code == 200, details.text
+    assert details.headers["cache-control"] == "no-store"
+    assert details.headers["pragma"] == "no-cache"
     body = details.json()["data"]
     assert body == {
         "request_id": request_id,
@@ -341,6 +345,8 @@ def test_mcp_consent_details_approve_and_single_use(consent_stack) -> None:
         json={"request_id": request_id, "decision": "approve"},
     )
     assert approval.status_code == 200, approval.text
+    assert approval.headers["cache-control"] == "no-store"
+    assert approval.headers["pragma"] == "no-cache"
     callback = urlsplit(approval.json()["redirect_uri"])
     params = parse_qs(callback.query)
     assert params["state"] == ["state-123"]
@@ -354,6 +360,36 @@ def test_mcp_consent_details_approve_and_single_use(consent_stack) -> None:
     with factory() as session:
         grant = session.execute(select(McpAuthorizationRequest)).scalar_one()
         assert grant.status == "approved"
+
+
+@pytest.mark.parametrize("decision", ["approve", "deny"])
+def test_tampered_consent_redirect_fails_without_consuming_grant(
+    consent_stack, decision: str
+) -> None:
+    client, _, factory = consent_stack
+    request_id, _ = _start_authorization(client)
+    with factory() as session:
+        grant = session.execute(select(McpAuthorizationRequest)).scalar_one()
+        grant.redirect_uri = "javascript:alert(document.domain)"
+        session.commit()
+
+    details = client.get(
+        "/api/v1/auth/mcp/request", params={"request_id": request_id}
+    )
+    decision_response = client.post(
+        "/api/v1/auth/mcp/approve",
+        json={"request_id": request_id, "decision": decision},
+    )
+
+    assert details.status_code == 400
+    assert decision_response.status_code == 400
+    assert "redirect_uri" not in decision_response.json()
+    with factory() as session:
+        grant = session.execute(select(McpAuthorizationRequest)).scalar_one()
+        assert grant.status == "pending"
+        assert grant.code_hash is None
+        assert grant.approved_at is None
+        assert grant.consumed_at is None
 
 
 def test_mcp_consent_deny_and_expiry_are_stable(consent_stack) -> None:

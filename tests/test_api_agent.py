@@ -95,6 +95,8 @@ def test_agent_markdown_and_skill_point_back_to_machine_contracts() -> None:
         assert "https://dy-business-engine.com/.well-known/dydata-agent.json" in text
         assert "https://dy-business-engine.com/api/v1/agent/capabilities" in text
         assert "https://dy-business-engine.com/mcp" in text
+        assert "腾讯云测试环境" in text
+        assert "企业内网生产服务器尚未部署" in text
         assert "dydata agent doctor --json" in text
         assert "不得索取、读取、转发或保存用户的账号、密码、Cookie 或 Token" in text
         assert "stores_list" in text

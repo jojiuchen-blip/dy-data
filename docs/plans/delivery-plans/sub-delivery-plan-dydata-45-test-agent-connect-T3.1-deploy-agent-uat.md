@@ -64,5 +64,5 @@
 - `docker compose --env-file deploy/.env.example -f deploy/compose.yaml config --quiet` 与 `bash -n deploy/tencent/deploy.sh` 通过。
 - API/Web 镜像构建成功；API 镜像内 `dydata_cli.registry`、MCP SDK 与 `dy_api.main` 可导入，SQLite 空库从首个版本迁移到 `20260722_0022` 成功；两套 Nginx 配置均通过真实 `nginx -t`。
 - 环境口径已锁定：`test` 是当前腾讯云部署，`production` 是未来尚未部署的企业内网服务器；本任务不写入可用 production 入口。
-- 最新发布前回归：`python -m pytest -q` 为 874 passed、77 warnings；`npm --prefix apps/web run build` 通过；`git diff --check origin/main` 通过。
+- 最新发布前回归：`python -m pytest -q` 为 909 passed、2 skipped、77 warnings；2 项 skipped 是 opt-in PostgreSQL 并发测试，已另在真实 PostgreSQL 18 连续 5 轮通过。`npm --prefix apps/web run build`、增量 Bandit Medium/High 扫描、基于 `requirements.txt` 的 `pip-audit`、API/Web 镜像构建、空库迁移、Compose、两套真实 `nginx -t`、部署脚本 Bash 语法与 `git diff --check` 均通过；最终独立安全复审为 `ALLOW`，Critical/Important/Minor 均为 0。
 - 待执行：提交并合入 main、腾讯云测试环境部署、公开端点 smoke、独立 Agent CLI/MCP 黑盒验收。

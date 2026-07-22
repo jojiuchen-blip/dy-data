@@ -48,7 +48,20 @@ def get_audited_current_cli_user(
 
 
 def _meta(request: Request, **values):
-    return {"partial": False, "request_id": _request_id(request), **values}
+    return {
+        "channel": "cli",
+        "partial": False,
+        "request_id": _request_id(request),
+        **values,
+    }
+
+
+def _with_cli_channel(payload: dict) -> dict:
+    """Add the transport marker without coupling shared capabilities to CLI."""
+    return {
+        **payload,
+        "meta": {**payload.get("meta", {}), "channel": "cli"},
+    }
 
 
 def _raise_cli_capability_error(
@@ -115,7 +128,7 @@ def cli_stores(
         _raise_cli_capability_error(request, exc, command="stores.list")
     request.state.cli_effective_store_ids = payload["scope"]["effective_store_ids"]
     request.state.cli_returned_store_count = len(payload["data"]["stores"])
-    return payload
+    return _with_cli_channel(payload)
 
 
 @router.get("/clues/store-follow-up-summary", name="clues.follow-up-stats")
@@ -152,4 +165,4 @@ def cli_store_follow_up_summary(
         payload["filters"]["assigned_date_end"],
     ]
     request.state.cli_returned_store_count = len(payload["data"]["stores"])
-    return payload
+    return _with_cli_channel(payload)

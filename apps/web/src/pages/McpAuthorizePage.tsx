@@ -21,6 +21,38 @@ function readRequestId(search: string): string {
   return new URLSearchParams(search).get("request_id")?.trim() ?? "";
 }
 
+function isSafeOAuthRedirect(redirectUri: string): boolean {
+  if (
+    !redirectUri ||
+    !/^https?:\/\//i.test(redirectUri) ||
+    /[\u0000-\u0020\u007f\\]/.test(redirectUri) ||
+    redirectUri.includes("#") ||
+    redirectUri
+      .slice(redirectUri.indexOf("://") + 3)
+      .split(/[/?]/, 1)[0]
+      .includes("@")
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(redirectUri);
+    if (!parsed.hostname) {
+      return false;
+    }
+    if (parsed.protocol === "https:") {
+      return true;
+    }
+    return (
+      parsed.protocol === "http:" &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(
+        parsed.hostname.toLowerCase(),
+      )
+    );
+  } catch {
+    return false;
+  }
+}
+
 function failureMessage(error: unknown): string {
   if (error instanceof ApiRequestError && error.status === 401) {
     return "登录状态已失效，请重新登录后再确认授权。";
@@ -63,6 +95,11 @@ export function McpAuthorizePage({
         if (requestGenerationRef.current !== generation) {
           return;
         }
+        if (!isSafeOAuthRedirect(response.data.redirect_uri)) {
+          setPageState("invalid");
+          setMessage("这次 Agent 授权请求包含不安全的回调地址，已停止授权。");
+          return;
+        }
         setDetails(response.data);
         setPageState("ready");
       })
@@ -86,6 +123,12 @@ export function McpAuthorizePage({
         details.request_id,
         nextDecision,
       );
+      if (!isSafeOAuthRedirect(response.redirect_uri)) {
+        setDecision(null);
+        setPageState("invalid");
+        setMessage("授权服务返回了不安全的回调地址，已停止跳转。");
+        return;
+      }
       window.location.assign(response.redirect_uri);
     } catch (error) {
       setDecision(null);

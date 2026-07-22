@@ -163,7 +163,7 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "api": [
             {"path": "/api/v1/cli/stores", "operation": "stores_list"},
         ],
-        "mcp": {"tool": "stores_list", "read_only": True},
+        "mcp": {"tool": "stores_list", "read_only": True, "arguments": {}},
         "roles": ["store", "admin", "highest_admin"],
         "data_scope": "authorized_stores",
         "side_effect": "auth_refresh_possible",
@@ -224,7 +224,15 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
                 "operation": "follow_up_stats",
             },
         ],
-        "mcp": {"tool": "clues_follow_up_stats", "read_only": True},
+        "mcp": {
+            "tool": "clues_follow_up_stats",
+            "read_only": True,
+            "arguments": {
+                "date_from": "assigned_date_start",
+                "date_to": "assigned_date_end",
+                "store_ids": "store_ids",
+            },
+        },
         "date_range": {
             "start": "--from",
             "end": "--to",
@@ -335,13 +343,41 @@ def api_command_mappings() -> tuple[dict[str, str], dict[str, str]]:
 
 def mcp_capability_catalog() -> list[dict[str, Any]]:
     """Return the fixed read-only MCP tool bindings in stable order."""
-    capabilities = [
-        {
-            "command": item["command"],
-            "tool": item["mcp"]["tool"],
-            "read_only": item["mcp"]["read_only"],
-        }
-        for item in _COMMAND_CATALOG
-        if item["mcp"] is not None
-    ]
+    capabilities: list[dict[str, Any]] = []
+    seen_tools: set[str] = set()
+    for item in _COMMAND_CATALOG:
+        binding = item["mcp"]
+        if binding is None:
+            continue
+        command = str(item["command"])
+        if item.get("agent_callable") is not True:
+            raise ValueError(f"MCP binding {command} must be agent-callable")
+        if item.get("business_side_effect") != "none":
+            raise ValueError(f"MCP binding {command} must be side-effect-free")
+        if not isinstance(binding, dict) or binding.get("read_only") is not True:
+            raise ValueError(f"MCP binding {command} must be read-only")
+        tool = binding.get("tool")
+        arguments = binding.get("arguments")
+        if not isinstance(tool, str) or not tool or tool in seen_tools:
+            raise ValueError(f"MCP binding {command} has an invalid or duplicate tool")
+        if not isinstance(arguments, dict) or not all(
+            isinstance(source, str)
+            and source
+            and not source.startswith("-")
+            and isinstance(target, str)
+            and target
+            for source, target in arguments.items()
+        ):
+            raise ValueError(f"MCP binding {command} has an invalid argument mapping")
+        if len(set(arguments.values())) != len(arguments):
+            raise ValueError(f"MCP binding {command} has duplicate argument targets")
+        seen_tools.add(tool)
+        capabilities.append(
+            {
+                "command": command,
+                "tool": tool,
+                "read_only": True,
+                "arguments": deepcopy(arguments),
+            }
+        )
     return sorted(capabilities, key=lambda item: item["tool"])

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import hashlib
+import json
 import sys
 from datetime import timedelta
 from pathlib import Path
@@ -28,6 +29,8 @@ from apps.api.dy_api.models import (  # noqa: E402
     utcnow,
 )
 from dy_api.cli_auth import _auth_context_for_user, hash_cli_secret  # noqa: E402
+from dy_api.cli_auth import create_cli_access_token  # noqa: E402
+from dy_api.cli_audit import DatabaseCliAuditSink  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.mcp_oauth import (  # noqa: E402
     MCP_ACCESS_SCOPE,
@@ -35,6 +38,10 @@ from dy_api.mcp_oauth import (  # noqa: E402
     TEST_ISSUER_URL,
     DatabaseMcpOAuthProvider,
     McpAccessAuthorizationError,
+)
+from dy_api.mcp_server import (  # noqa: E402
+    DCR_MAX_BODY_BYTES,
+    _read_limited_request_body,
 )
 
 
@@ -74,6 +81,7 @@ def mcp_stack(monkeypatch: pytest.MonkeyPatch):
 
     provider = DatabaseMcpOAuthProvider(session_factory=factory)
     app = create_app(mcp_provider=provider)
+    app.state.cli_audit_sink = DatabaseCliAuditSink(session_factory=factory)
     with TestClient(app, base_url=TEST_ISSUER_URL) as client:
         yield client, provider, factory
 
@@ -95,6 +103,19 @@ def _register_public_client(client: TestClient) -> dict:
     assert body["token_endpoint_auth_method"] == "none"
     assert "client_secret" not in body
     return body
+
+
+def _registration_payload(**overrides) -> dict:
+    payload = {
+        "redirect_uris": ["https://agent.example/callback"],
+        "token_endpoint_auth_method": "none",
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "scope": MCP_ACCESS_SCOPE,
+        "client_name": "Agent Test Client",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def _pkce(verifier: str) -> str:
@@ -252,6 +273,176 @@ def test_dynamic_registration_accepts_only_explicit_public_clients(mcp_stack) ->
     assert len(rows) == 1
     assert rows[0].client_id == registered["client_id"]
     assert "client_secret" not in rows[0].metadata_json
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "javascript:alert(document.domain)",
+        "data:text/html,<script>alert(document.domain)</script>",
+        "file:///tmp/callback",
+        "http://agent.example/callback",
+        "https://agent.example/callback#fragment",
+        "https://user:password@agent.example/callback",
+        "https://agent.example:invalid/callback",
+    ],
+)
+def test_dynamic_registration_rejects_unsafe_redirect_uris(
+    mcp_stack, redirect_uri: str
+) -> None:
+    client, _, factory = mcp_stack
+
+    response = client.post(
+        "/register",
+        json=_registration_payload(redirect_uris=[redirect_uri]),
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client_metadata"
+    with factory() as session:
+        assert session.scalars(select(McpOAuthClient)).all() == []
+
+
+@pytest.mark.parametrize(
+    "redirect_uri",
+    [
+        "https://agent.example/callback",
+        "http://127.0.0.1:8765/callback",
+        "http://localhost:8765/callback",
+        "http://[::1]:8765/callback",
+    ],
+)
+def test_dynamic_registration_accepts_safe_redirect_uris(
+    mcp_stack, redirect_uri: str
+) -> None:
+    client, _, factory = mcp_stack
+
+    response = client.post(
+        "/register",
+        json=_registration_payload(redirect_uris=[redirect_uri]),
+    )
+
+    assert response.status_code == 201, response.text
+    assert response.json()["redirect_uris"] == [redirect_uri]
+    with factory() as session:
+        stored = session.execute(select(McpOAuthClient)).scalar_one()
+        assert stored.metadata_json["redirect_uris"] == [redirect_uri]
+
+
+def test_tampered_client_redirect_cannot_emit_unsafe_authorize_location(
+    mcp_stack,
+) -> None:
+    client, _, factory = mcp_stack
+    registration = _register_public_client(client)
+    unsafe_redirect = "javascript:alert(document.domain)"
+    with factory() as session:
+        stored = session.get(McpOAuthClient, registration["client_id"])
+        assert stored is not None
+        stored.metadata_json = {
+            **stored.metadata_json,
+            "redirect_uris": [unsafe_redirect],
+        }
+        session.commit()
+
+    response = client.get(
+        "/authorize",
+        params={
+            "response_type": "code",
+            "client_id": registration["client_id"],
+            "redirect_uri": unsafe_redirect,
+            "scope": MCP_ACCESS_SCOPE,
+            "state": "state-123",
+            "code_challenge": _pkce("v" * 64),
+            "code_challenge_method": "S256",
+            "resource": MCP_RESOURCE_URL,
+        },
+        follow_redirects=False,
+    )
+
+    assert response.status_code == 400
+    assert "location" not in response.headers
+    with factory() as session:
+        assert session.scalars(select(McpAuthorizationRequest)).all() == []
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"client_name": "n" * 129},
+        {"redirect_uris": []},
+        {"redirect_uris": [f"https://agent.example/callback/{i}" for i in range(11)]},
+        {"redirect_uris": ["https://agent.example/" + "r" * 2027]},
+        {"contacts": [f"ops{i}@example.com" for i in range(6)]},
+        {"contacts": ["c" * 255]},
+        {"jwks_uri": "https://agent.example/jwks.json"},
+        {"jwks": {"keys": []}},
+    ],
+)
+def test_dynamic_registration_rejects_oversized_client_metadata(
+    mcp_stack, overrides: dict
+) -> None:
+    client, _, factory = mcp_stack
+
+    response = client.post("/register", json=_registration_payload(**overrides))
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client_metadata"
+    assert response.headers["cache-control"] == "no-store"
+    with factory() as session:
+        assert session.scalars(select(McpOAuthClient)).all() == []
+
+
+def test_dynamic_registration_rejects_body_larger_than_16_kib(mcp_stack) -> None:
+    client, _, factory = mcp_stack
+    secret_marker = "registration-secret-marker"
+    body = json.dumps(
+        {
+            **_registration_payload(),
+            "software_statement": secret_marker + "x" * 17_000,
+        }
+    ).encode("utf-8")
+
+    response = client.post(
+        "/register",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json() == {
+        "error": "invalid_client_metadata",
+        "error_description": "Client metadata is too large",
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert secret_marker not in response.text
+    with factory() as session:
+        assert session.scalars(select(McpOAuthClient)).all() == []
+
+
+def test_dynamic_registration_chunked_body_is_read_with_bounded_memory() -> None:
+    class ChunkedRequest:
+        def __init__(self) -> None:
+            self.yielded_chunks: list[bytes] = []
+
+        async def stream(self):
+            for chunk in (
+                b"a" * (DCR_MAX_BODY_BYTES // 2),
+                b"b" * (DCR_MAX_BODY_BYTES // 2),
+                b"c",
+                b"d" * DCR_MAX_BODY_BYTES,
+            ):
+                self.yielded_chunks.append(chunk)
+                yield chunk
+
+    request = ChunkedRequest()
+
+    body, too_large = asyncio.run(
+        _read_limited_request_body(request, max_bytes=DCR_MAX_BODY_BYTES)
+    )
+
+    assert too_large is True
+    assert len(body) <= DCR_MAX_BODY_BYTES
+    assert len(request.yielded_chunks) == 3
 
 
 def test_authorization_code_pkce_is_single_use_and_secrets_are_hashed(mcp_stack) -> None:
@@ -519,6 +710,34 @@ def test_authorized_mcp_streamable_http_transport_initializes(mcp_stack) -> None
 
     assert response.status_code == 200, response.text
     assert response.json()["result"]["serverInfo"]["name"] == "dydata-read-only"
+
+
+def test_cli_and_mcp_access_tokens_are_rejected_across_channels(mcp_stack) -> None:
+    client, _, factory, _, mcp_tokens = _issue_tokens(mcp_stack)
+    with factory() as session:
+        user = session.get(User, "mcp-user-1")
+        assert user is not None
+        cli_auth = _auth_context_for_user(session, user)
+        cli_access_token, _ = create_cli_access_token(cli_auth, session=session)
+
+    cli_token_on_mcp = client.post(
+        "/mcp",
+        headers={
+            "Authorization": f"Bearer {cli_access_token}",
+            "Accept": "application/json, text/event-stream",
+            "MCP-Protocol-Version": "2025-06-18",
+        },
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}},
+    )
+    mcp_token_on_cli = client.get(
+        "/api/v1/cli/stores",
+        headers={"Authorization": f"Bearer {mcp_tokens['access_token']}"},
+    )
+
+    assert cli_token_on_mcp.status_code == 401
+    assert mcp_token_on_cli.status_code == 401
+    assert mcp_token_on_cli.json()["error"]["code"] == "AUTH_EXPIRED"
+    assert mcp_token_on_cli.json()["meta"]["channel"] == "cli"
 
 
 def test_disabled_account_invalidates_persisted_mcp_tokens(mcp_stack) -> None:

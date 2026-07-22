@@ -19,7 +19,11 @@ def envelope(command: str, data: dict[str, object]) -> dict[str, object]:
         "environment": "test",
         "schema_version": "1.1",
         "data": data,
-        "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
+        "meta": {
+            "channel": "cli",
+            "request_id": CANONICAL_REQUEST_ID,
+            "partial": False,
+        },
     }
 
 
@@ -65,6 +69,7 @@ def follow_up_envelope() -> dict[str, object]:
         "timezone": "Asia/Shanghai",
     }
     payload["meta"] = {
+        "channel": "cli",
         "request_id": CANONICAL_REQUEST_ID,
         "partial": False,
         "generated_at": "2026-07-21T12:00:00Z",

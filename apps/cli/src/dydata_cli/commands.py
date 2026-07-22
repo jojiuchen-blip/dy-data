@@ -68,6 +68,7 @@ def execute_command(
                     "environment": selected_environment.name,
                     "schema_version": CLI_SCHEMA_VERSION,
                     "data": {"commands": command_catalog()},
+                    "meta": {"channel": "cli"},
                 },
                 stream=stream,
             )
@@ -83,6 +84,7 @@ def execute_command(
                         "cli_version": CLI_VERSION,
                         "schema_version": CLI_SCHEMA_VERSION,
                     },
+                    "meta": {"channel": "cli"},
                 },
                 stream=stream,
             )
@@ -299,6 +301,7 @@ def _doctor(
                 "credential": credential,
                 "next_action": next_action,
             },
+            "meta": {"channel": "cli"},
         },
         stream=stream,
     )

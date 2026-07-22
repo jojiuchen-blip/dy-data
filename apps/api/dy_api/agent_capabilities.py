@@ -124,7 +124,8 @@ def _date_range(
     if date_start is None:
         date_end = today or generated_at().astimezone(SHANGHAI_TZ).date()
         date_start = date_end - timedelta(days=6)
-    assert date_end is not None
+    if date_end is None:
+        raise RuntimeError("date range normalization invariant failed")
     if date_start > date_end:
         raise AgentCapabilityError(
             "INVALID_ARGUMENT",

@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：439
-- 文件关系：275
+- 文件节点：467
+- 文件关系：309
 - 诊断问题：4
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -38,17 +38,25 @@
 | 20260721_0018_account_access_control.py | source_code | coding-standards | [[alembic/versions/20260721_0018_account_access_control.py|20260721_0018_account_access_control.py]] | [20260721_0018_account_access_control.py](../../alembic/versions/20260721_0018_account_access_control.py) |
 | 20260722_0019_add_cli_authorizations.py | source_code | coding-standards | [[alembic/versions/20260722_0019_add_cli_authorizations.py|20260722_0019_add_cli_authorizations.py]] | [20260722_0019_add_cli_authorizations.py](../../alembic/versions/20260722_0019_add_cli_authorizations.py) |
 | 20260722_0020_cli_audit_and_refresh_families.py | source_code | coding-standards | [[alembic/versions/20260722_0020_cli_audit_and_refresh_families.py|20260722_0020_cli_audit_and_refresh_families.py]] | [20260722_0020_cli_audit_and_refresh_families.py](../../alembic/versions/20260722_0020_cli_audit_and_refresh_families.py) |
+| 20260722_0021_mcp_oauth.py | source_code | coding-standards | [[alembic/versions/20260722_0021_mcp_oauth.py|20260722_0021_mcp_oauth.py]] | [20260722_0021_mcp_oauth.py](../../alembic/versions/20260722_0021_mcp_oauth.py) |
+| 20260722_0022_agent_audit_context.py | source_code | coding-standards | [[alembic/versions/20260722_0022_agent_audit_context.py|20260722_0022_agent_audit_context.py]] | [20260722_0022_agent_audit_context.py](../../alembic/versions/20260722_0022_agent_audit_context.py) |
 | __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
 | access_control.py | source_code | coding-standards | [[apps/api/dy_api/access_control.py|access_control.py]] | [access_control.py](../../apps/api/dy_api/access_control.py) |
+| agent_capabilities.py | source_code | coding-standards | [[apps/api/dy_api/agent_capabilities.py|agent_capabilities.py]] | [agent_capabilities.py](../../apps/api/dy_api/agent_capabilities.py) |
+| dydata read-only Agent Skill | source_code | coding-standards | [[apps/api/dy_api/agent_contract.py|dydata read-only Agent Skill]] | [dydata read-only Agent Skill](../../apps/api/dy_api/agent_contract.py) |
+| agent_environment.py | source_code | coding-standards | [[apps/api/dy_api/agent_environment.py|agent_environment.py]] | [agent_environment.py](../../apps/api/dy_api/agent_environment.py) |
 | auth.py | source_code | coding-standards | [[apps/api/dy_api/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/auth.py) |
 | cli_audit.py | source_code | coding-standards | [[apps/api/dy_api/cli_audit.py|cli_audit.py]] | [cli_audit.py](../../apps/api/dy_api/cli_audit.py) |
 | cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/cli_auth.py) |
 | cli_contract.py | source_code | coding-standards | [[apps/api/dy_api/cli_contract.py|cli_contract.py]] | [cli_contract.py](../../apps/api/dy_api/cli_contract.py) |
 | db.py | source_code | coding-standards | [[apps/api/dy_api/db.py|db.py]] | [db.py](../../apps/api/dy_api/db.py) |
 | main.py | source_code | coding-standards | [[apps/api/dy_api/main.py|main.py]] | [main.py](../../apps/api/dy_api/main.py) |
+| mcp_oauth.py | source_code | coding-standards | [[apps/api/dy_api/mcp_oauth.py|mcp_oauth.py]] | [mcp_oauth.py](../../apps/api/dy_api/mcp_oauth.py) |
+| mcp_server.py | source_code | coding-standards | [[apps/api/dy_api/mcp_server.py|mcp_server.py]] | [mcp_server.py](../../apps/api/dy_api/mcp_server.py) |
 | models.py | source_code | coding-standards | [[apps/api/dy_api/models.py|models.py]] | [models.py](../../apps/api/dy_api/models.py) |
 | _data.py | source_code | coding-standards | [[apps/api/dy_api/routes/_data.py|_data.py]] | [_data.py](../../apps/api/dy_api/routes/_data.py) |
 | admin.py | source_code | coding-standards | [[apps/api/dy_api/routes/admin.py|admin.py]] | [admin.py](../../apps/api/dy_api/routes/admin.py) |
+| agent.py | source_code | coding-standards | [[apps/api/dy_api/routes/agent.py|agent.py]] | [agent.py](../../apps/api/dy_api/routes/agent.py) |
 | auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/routes/auth.py) |
 | cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/routes/cli_auth.py) |
 | cli.py | source_code | coding-standards | [[apps/api/dy_api/routes/cli.py|cli.py]] | [cli.py](../../apps/api/dy_api/routes/cli.py) |
@@ -56,6 +64,7 @@
 | dashboard.py | source_code | coding-standards | [[apps/api/dy_api/routes/dashboard.py|dashboard.py]] | [dashboard.py](../../apps/api/dy_api/routes/dashboard.py) |
 | feedback.py | source_code | coding-standards | [[apps/api/dy_api/routes/feedback.py|feedback.py]] | [feedback.py](../../apps/api/dy_api/routes/feedback.py) |
 | jobs.py | source_code | coding-standards | [[apps/api/dy_api/routes/jobs.py|jobs.py]] | [jobs.py](../../apps/api/dy_api/routes/jobs.py) |
+| mcp_auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/mcp_auth.py|mcp_auth.py]] | [mcp_auth.py](../../apps/api/dy_api/routes/mcp_auth.py) |
 | meta.py | source_code | coding-standards | [[apps/api/dy_api/routes/meta.py|meta.py]] | [meta.py](../../apps/api/dy_api/routes/meta.py) |
 | rule_utils.py | source_code | coding-standards | [[apps/api/dy_api/rule_utils.py|rule_utils.py]] | [rule_utils.py](../../apps/api/dy_api/rule_utils.py) |
 | schemas.py | source_code | coding-standards | [[apps/api/dy_api/schemas.py|schemas.py]] | [schemas.py](../../apps/api/dy_api/schemas.py) |
@@ -67,6 +76,7 @@
 | contracts.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/contracts.py|contracts.py]] | [contracts.py](../../apps/cli/src/dydata_cli/contracts.py) |
 | credentials.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/credentials.py|credentials.py]] | [credentials.py](../../apps/cli/src/dydata_cli/credentials.py) |
 | docs.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/docs.py|docs.py]] | [docs.py](../../apps/cli/src/dydata_cli/docs.py) |
+| environments.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/environments.py|environments.py]] | [environments.py](../../apps/cli/src/dydata_cli/environments.py) |
 | errors.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/errors.py|errors.py]] | [errors.py](../../apps/cli/src/dydata_cli/errors.py) |
 | interactive_auth.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/interactive_auth.py|interactive_auth.py]] | [interactive_auth.py](../../apps/cli/src/dydata_cli/interactive_auth.py) |
 | main.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/main.py|main.py]] | [main.py](../../apps/cli/src/dydata_cli/main.py) |
@@ -84,16 +94,6 @@
 | dy-data Web | readme | host-project | [[apps/web/README.md|dy-data Web]] | [dy-data Web](../../apps/web/README.md) |
 | client.ts | source_code | coding-standards | [[apps/web/src/api/client.ts|client.ts]] | [client.ts](../../apps/web/src/api/client.ts) |
 | App.tsx | source_code | coding-standards | [[apps/web/src/App.tsx|App.tsx]] | [App.tsx](../../apps/web/src/App.tsx) |
-| Button.tsx | source_code | coding-standards | [[apps/web/src/components/Button.tsx|Button.tsx]] | [Button.tsx](../../apps/web/src/components/Button.tsx) |
-| Chips.tsx | source_code | coding-standards | [[apps/web/src/components/Chips.tsx|Chips.tsx]] | [Chips.tsx](../../apps/web/src/components/Chips.tsx) |
-| CommissionRulesButton.tsx | source_code | coding-standards | [[apps/web/src/components/CommissionRulesButton.tsx|CommissionRulesButton.tsx]] | [CommissionRulesButton.tsx](../../apps/web/src/components/CommissionRulesButton.tsx) |
-| DataTable.tsx | source_code | coding-standards | [[apps/web/src/components/DataTable.tsx|DataTable.tsx]] | [DataTable.tsx](../../apps/web/src/components/DataTable.tsx) |
-| DefinitionList.tsx | source_code | coding-standards | [[apps/web/src/components/DefinitionList.tsx|DefinitionList.tsx]] | [DefinitionList.tsx](../../apps/web/src/components/DefinitionList.tsx) |
-| Dialog.tsx | source_code | coding-standards | [[apps/web/src/components/Dialog.tsx|Dialog.tsx]] | [Dialog.tsx](../../apps/web/src/components/Dialog.tsx) |
-| Filters.tsx | source_code | coding-standards | [[apps/web/src/components/Filters.tsx|Filters.tsx]] | [Filters.tsx](../../apps/web/src/components/Filters.tsx) |
-| FormControls.tsx | source_code | coding-standards | [[apps/web/src/components/FormControls.tsx|FormControls.tsx]] | [FormControls.tsx](../../apps/web/src/components/FormControls.tsx) |
-| MetricCard.tsx | source_code | coding-standards | [[apps/web/src/components/MetricCard.tsx|MetricCard.tsx]] | [MetricCard.tsx](../../apps/web/src/components/MetricCard.tsx) |
-| ResourceState.tsx | source_code | coding-standards | [[apps/web/src/components/ResourceState.tsx|ResourceState.tsx]] | [ResourceState.tsx](../../apps/web/src/components/ResourceState.tsx) |
 
 ## 3. 关系
 
@@ -149,10 +149,10 @@
 | docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-glossary-clue-center.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:96 |
 | docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-schema-clue-center.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:107 |
 | docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
-| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
-| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-api-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
-| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-schema-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
-| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:32 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-api-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:32 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-schema-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:32 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:32 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -201,6 +201,14 @@
 | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:96 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:22 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:23 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:85 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:86 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:96 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:97 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:107 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:111 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:23 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md | links_to | docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:22 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:5 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:6 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:14 |
@@ -211,14 +219,6 @@
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:5 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:6 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | depends_on | docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:14 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | depends_on | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:13 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:5 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:6 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | depends_on | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:13 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/cli-agent-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:25 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/cli-command-reference.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:26 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:5 |
-| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:6 |
 
 ## 4. 诊断问题
 

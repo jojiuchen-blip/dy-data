@@ -40,6 +40,7 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
         },
         "ok": False,
         "schema_version": "1.1",
+        "meta": {"channel": "cli"},
     }
 
 

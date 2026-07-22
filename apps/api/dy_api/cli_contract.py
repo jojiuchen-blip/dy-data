@@ -62,6 +62,7 @@ def cli_error_payload(
             "retryable": code in CLI_RETRYABLE_ERRORS,
             "request_id": request_id,
         },
+        "meta": {"channel": "cli"},
     }
 
 
@@ -137,6 +138,7 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
             "environment",
             "schema_version",
             "error",
+            "meta",
         }:
             code = str(exc.detail.get("error", {}).get("code") or "INTERNAL_ERROR")
             request.state.cli_error_code = code

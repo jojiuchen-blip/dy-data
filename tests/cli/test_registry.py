@@ -4,6 +4,8 @@ import json
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from dydata_cli.docs import render_command_reference
 from dydata_cli.constants import CLI_VERSION, ERROR_EXIT_CODES
 from dydata_cli.main import main
@@ -148,7 +150,9 @@ def test_temporary_executable_fallback_is_declared_in_registry_and_catalog_json(
     )
 
     assert main(["commands", "--json"]) == 0
-    catalog_json = json.loads(capsys.readouterr().out)["data"]["commands"]
+    document = json.loads(capsys.readouterr().out)
+    assert document["meta"] == {"channel": "cli"}
+    catalog_json = document["data"]["commands"]
     assert {
         item["command"]
         for item in catalog_json
@@ -219,10 +223,40 @@ def test_registry_is_the_only_api_and_mcp_capability_map() -> None:
             "command": "clues.follow-up-stats",
             "tool": "clues_follow_up_stats",
             "read_only": True,
+            "arguments": {
+                "date_from": "assigned_date_start",
+                "date_to": "assigned_date_end",
+                "store_ids": "store_ids",
+            },
         },
         {
             "command": "stores.list",
             "tool": "stores_list",
             "read_only": True,
+            "arguments": {},
         },
     ]
+
+
+@pytest.mark.parametrize(
+    ("unsafe_override", "message"),
+    [
+        ({"agent_callable": False}, "agent-callable"),
+        ({"business_side_effect": "write"}, "side-effect-free"),
+        ({"mcp": {"tool": "stores_list", "read_only": False, "arguments": {}}}, "read-only"),
+    ],
+)
+def test_mcp_catalog_fails_closed_for_unsafe_registry_bindings(
+    monkeypatch: pytest.MonkeyPatch,
+    unsafe_override: dict,
+    message: str,
+) -> None:
+    from dydata_cli import registry
+
+    catalog = list(registry._COMMAND_CATALOG)
+    index = next(i for i, item in enumerate(catalog) if item["command"] == "stores.list")
+    catalog[index] = {**catalog[index], **unsafe_override}
+    monkeypatch.setattr(registry, "_COMMAND_CATALOG", tuple(catalog))
+
+    with pytest.raises(ValueError, match=message):
+        registry.mcp_capability_catalog()

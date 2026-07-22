@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import re
 import json
+from inspect import signature
 from time import perf_counter
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -27,7 +28,7 @@ from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from fastapi.encoders import jsonable_encoder
 
-from apps.api.dy_api.cli_audit import DatabaseCliAuditSink
+from dy_api.cli_audit import CliAuditSink, DatabaseCliAuditSink
 from apps.cli.src.dydata_cli.constants import CLI_SCHEMA_VERSION
 from apps.cli.src.dydata_cli.registry import command_catalog, mcp_capability_catalog
 from dy_api.agent_capabilities import (
@@ -48,6 +49,8 @@ from dy_api.mcp_oauth import (
 
 
 PKCE_VERIFIER_PATTERN = re.compile(r"^[A-Za-z0-9._~-]{43,128}$")
+DCR_MAX_BODY_BYTES = 16 * 1024
+OAUTH_NO_STORE_HEADERS = {"Cache-Control": "no-store", "Pragma": "no-cache"}
 
 
 def _truthy(value: str | None) -> bool:
@@ -81,10 +84,48 @@ def protected_resource_metadata() -> dict[str, Any]:
     }
 
 
+def _oauth_json_error(
+    error: str, description: str, *, status_code: int
+) -> JSONResponse:
+    return JSONResponse(
+        {"error": error, "error_description": description},
+        status_code=status_code,
+        headers={**OAUTH_NO_STORE_HEADERS, "Access-Control-Allow-Origin": "*"},
+    )
+
+
+async def _read_limited_request_body(
+    request: Request, *, max_bytes: int
+) -> tuple[bytes, bool]:
+    """Read a bounded request body and stop at the first over-limit chunk."""
+    body = bytearray()
+    too_large = False
+    async for chunk in request.stream():
+        if len(body) + len(chunk) > max_bytes:
+            too_large = True
+            break
+        body.extend(chunk)
+    return bytes(body), too_large
+
+
+def _request_with_replayed_body(request: Request, body: bytes) -> Request:
+    sent = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal sent
+        if sent:
+            return {"type": "http.request", "body": b"", "more_body": False}
+        sent = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    return Request(request.scope, receive)
+
+
 def create_mcp_server(
     provider: DatabaseMcpOAuthProvider,
     *,
     data_store_factory: Callable[[Any], Any] | None = None,
+    audit_sink: CliAuditSink | None = None,
 ) -> FastMCP:
     """Create the stateless Streamable HTTP server for the test environment."""
     allowed_hosts = ["dy-business-engine.com", "dy-business-engine.com:*"]
@@ -124,6 +165,7 @@ def create_mcp_server(
         server,
         provider,
         data_store_factory=data_store_factory or DashboardDataStore,
+        audit_sink=audit_sink,
     )
     return server
 
@@ -189,11 +231,39 @@ def _mcp_audit_event(
     }
 
 
+def _validate_mcp_binding(
+    binding: dict[str, Any],
+    public_handler: Callable[..., Any],
+    shared_capability: Callable[..., Any],
+) -> None:
+    """Fail startup if registry mappings drift from either callable boundary."""
+    mapping = binding.get("arguments")
+    if not isinstance(mapping, dict):
+        raise RuntimeError("MCP registry arguments must be an object")
+
+    public_arguments = set(signature(public_handler).parameters) - {"context"}
+    if set(mapping) != public_arguments:
+        raise RuntimeError(
+            f"MCP registry arguments for {binding.get('tool')} do not match "
+            "the public handler"
+        )
+
+    reserved = {"current_user", "store", "request_id", "today"}
+    shared_arguments = set(signature(shared_capability).parameters) - reserved
+    mapped_targets = set(mapping.values())
+    if not mapped_targets.issubset(shared_arguments):
+        raise RuntimeError(
+            f"MCP registry arguments for {binding.get('tool')} do not match "
+            "the shared capability"
+        )
+
+
 def _install_read_only_tools(
     server: FastMCP,
     provider: DatabaseMcpOAuthProvider,
     *,
     data_store_factory: Callable[[Any], Any],
+    audit_sink: CliAuditSink | None,
 ) -> None:
     catalog = {item["command"]: item for item in command_catalog()}
     bindings = mcp_capability_catalog()
@@ -208,6 +278,10 @@ def _install_read_only_tools(
         destructiveHint=False,
         idempotentHint=True,
         openWorldHint=False,
+    )
+    bindings_by_command = {binding["command"]: binding for binding in bindings}
+    committed_audit_sink = audit_sink or DatabaseCliAuditSink(
+        session_factory=lambda: provider._factory()()
     )
 
     async def run_capability(
@@ -231,41 +305,35 @@ def _install_read_only_tools(
                 is_error=True,
             )
 
-        with provider.session() as session:
-            try:
+        claims = token.claims or {}
+        auth = SimpleNamespace(
+            user_id=claims.get("user_id"),
+            auth_type=claims.get("auth_type"),
+        )
+        requested: list[str] = []
+        effective: list[str] = []
+        date_range: list[str] | None = None
+        returned_count = 0
+        result_status = 500
+        error_code: str | None = "INTERNAL_ERROR"
+        is_error = True
+        payload = cli_error_payload(
+            "INTERNAL_ERROR",
+            "The request could not be completed",
+            command=command,
+            request_id=request_id,
+        )
+
+        try:
+            with provider.session() as session:
                 auth = provider.current_auth_for_access_token(session, token)
-            except McpAccessAuthorizationError:
-                claims = token.claims or {}
-                auth = SimpleNamespace(
-                    user_id=claims.get("user_id"),
-                    auth_type=claims.get("auth_type"),
-                )
-                payload = cli_error_payload(
-                    "AUTH_EXPIRED",
-                    "MCP authorization is no longer valid",
-                    command=command,
-                    request_id=request_id,
-                )
-                DatabaseCliAuditSink().stage(
-                    session,
-                    _mcp_audit_event(
-                        token=token,
-                        auth=auth,
-                        request_id=request_id,
-                        command=command,
-                        operation=operation,
-                        result_status=401,
-                        error_code="AUTH_EXPIRED",
-                        started=started,
-                        requested_store_ids=[],
-                        effective_store_ids=[],
-                        date_range=None,
-                        returned_store_count=0,
-                    ),
-                )
-                return _tool_result(payload, is_error=True)
-            store = data_store_factory(session)
-            try:
+                store = data_store_factory(session)
+                binding = bindings_by_command[command]
+                mapped_arguments = {
+                    target: arguments[source]
+                    for source, target in binding["arguments"].items()
+                    if source in arguments
+                }
                 if command == "stores.list":
                     payload = shared_stores_list(
                         current_user=auth,
@@ -277,23 +345,8 @@ def _install_read_only_tools(
                         current_user=auth,
                         store=store,
                         request_id=request_id,
-                        **arguments,
+                        **mapped_arguments,
                     )
-            except AgentCapabilityError as exc:
-                requested = exc.requested_store_ids
-                effective = exc.effective_store_ids
-                date_range = exc.date_range
-                result_status = exc.status_code
-                error_code = exc.code
-                payload = cli_error_payload(
-                    exc.code,
-                    exc.message,
-                    command=command,
-                    request_id=request_id,
-                )
-                returned_count = 0
-                is_error = True
-            else:
                 scope = payload.get("scope", {})
                 requested = list(scope.get("requested_store_ids", []))
                 effective = list(scope.get("effective_store_ids", []))
@@ -310,30 +363,69 @@ def _install_read_only_tools(
                 error_code = None
                 returned_count = len(payload["data"]["stores"])
                 is_error = False
+        except McpAccessAuthorizationError:
+            result_status = 401
+            error_code = "AUTH_EXPIRED"
+            payload = cli_error_payload(
+                "AUTH_EXPIRED",
+                "MCP authorization is no longer valid",
+                command=command,
+                request_id=request_id,
+            )
+        except AgentCapabilityError as exc:
+            requested = exc.requested_store_ids
+            effective = exc.effective_store_ids
+            date_range = exc.date_range
+            result_status = exc.status_code
+            error_code = exc.code
+            payload = cli_error_payload(
+                exc.code,
+                exc.message,
+                command=command,
+                request_id=request_id,
+            )
+        except Exception:
+            result_status = 500
+            error_code = "INTERNAL_ERROR"
+            payload = cli_error_payload(
+                "INTERNAL_ERROR",
+                "The request could not be completed",
+                command=command,
+                request_id=request_id,
+            )
 
-            DatabaseCliAuditSink().stage(
-                session,
-                _mcp_audit_event(
-                    token=token,
-                    auth=auth,
-                    request_id=request_id,
+        event = _mcp_audit_event(
+            token=token,
+            auth=auth,
+            request_id=request_id,
+            command=command,
+            operation=operation,
+            result_status=result_status,
+            error_code=error_code,
+            started=started,
+            requested_store_ids=requested,
+            effective_store_ids=effective,
+            date_range=date_range,
+            returned_store_count=returned_count,
+        )
+        try:
+            committed_audit_sink.record(event)
+        except Exception:
+            return _tool_result(
+                cli_error_payload(
+                    "API_UNAVAILABLE",
+                    "The audit service is unavailable",
                     command=command,
-                    operation=operation,
-                    result_status=result_status,
-                    error_code=error_code,
-                    started=started,
-                    requested_store_ids=requested,
-                    effective_store_ids=effective,
-                    date_range=date_range,
-                    returned_store_count=returned_count,
+                    request_id=request_id,
                 ),
+                is_error=True,
             )
         return _tool_result(payload, is_error=is_error)
 
     async def clues_follow_up_stats(
         context: Context,
-        assigned_date_start: str | None = None,
-        assigned_date_end: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         store_ids: list[str] | None = None,
     ) -> CallToolResult:
         """Read clue follow-up statistics for stores authorized to the current account."""
@@ -342,8 +434,8 @@ def _install_read_only_tools(
             command="clues.follow-up-stats",
             operation="follow_up_stats",
             arguments={
-                "assigned_date_start": assigned_date_start,
-                "assigned_date_end": assigned_date_end,
+                "date_from": date_from,
+                "date_to": date_to,
                 "store_ids": store_ids,
             },
         )
@@ -361,14 +453,25 @@ def _install_read_only_tools(
         "clues_follow_up_stats": clues_follow_up_stats,
         "stores_list": stores_list,
     }
+    shared_capabilities = {
+        "clues.follow-up-stats": shared_clues_follow_up_stats,
+        "stores.list": shared_stores_list,
+    }
     for binding in bindings:
-        item = catalog[binding["command"]]
+        command = binding["command"]
+        try:
+            item = catalog[command]
+            handler = handlers[binding["tool"]]
+            shared_capability = shared_capabilities[command]
+        except KeyError as exc:
+            raise RuntimeError("MCP registry references an unknown capability") from exc
+        _validate_mcp_binding(binding, handler, shared_capability)
         server.tool(
             name=binding["tool"],
             description=item["purpose"],
             annotations=annotations,
             structured_output=False,
-        )(handlers[binding["tool"]])
+        )(handler)
 
 
 def install_mcp_public_routes(
@@ -404,8 +507,42 @@ def install_mcp_public_routes(
 
     @app.post("/register", include_in_schema=False)
     async def oauth_register(request: Request) -> Response:
-        response = await registration_handler.handle(request)
+        content_length = request.headers.get("content-length")
+        if content_length is not None:
+            try:
+                declared_length = int(content_length)
+            except ValueError:
+                return _oauth_json_error(
+                    "invalid_client_metadata",
+                    "Client metadata is invalid",
+                    status_code=400,
+                )
+            if declared_length < 0:
+                return _oauth_json_error(
+                    "invalid_client_metadata",
+                    "Client metadata is invalid",
+                    status_code=400,
+                )
+            if declared_length > DCR_MAX_BODY_BYTES:
+                return _oauth_json_error(
+                    "invalid_client_metadata",
+                    "Client metadata is too large",
+                    status_code=413,
+                )
+        body, too_large = await _read_limited_request_body(
+            request, max_bytes=DCR_MAX_BODY_BYTES
+        )
+        if too_large:
+            return _oauth_json_error(
+                "invalid_client_metadata",
+                "Client metadata is too large",
+                status_code=413,
+            )
+        response = await registration_handler.handle(
+            _request_with_replayed_body(request, body)
+        )
         response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers.update(OAUTH_NO_STORE_HEADERS)
         return response
 
     @app.options("/register", include_in_schema=False)
@@ -423,7 +560,9 @@ def install_mcp_public_routes(
         "/authorize", methods=["GET", "POST"], include_in_schema=False
     )
     async def oauth_authorize(request: Request) -> Response:
-        return await authorization_handler.handle(request)
+        response = await authorization_handler.handle(request)
+        response.headers.update(OAUTH_NO_STORE_HEADERS)
+        return response
 
     @app.post("/token", include_in_schema=False)
     async def oauth_token(request: Request) -> Response:
@@ -458,6 +597,7 @@ def install_mcp_public_routes(
                 )
         response = await token_handler.handle(request)
         response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers.update(OAUTH_NO_STORE_HEADERS)
         return response
 
     @app.options("/token", include_in_schema=False)

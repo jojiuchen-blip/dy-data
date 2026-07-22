@@ -39,6 +39,7 @@ def error_envelope(
             "retryable": error_retryable(code, retryable),
             "request_id": safe_request_id(request_id),
         },
+        "meta": {"channel": "cli"},
     }
 
 

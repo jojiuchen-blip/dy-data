@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+import json
 import re
 import secrets
 from contextlib import contextmanager
@@ -53,6 +54,8 @@ TEST_ISSUER_URL = TEST_ENVIRONMENT.web_url
 MCP_RESOURCE_URL = TEST_ENVIRONMENT.mcp_url
 MCP_ENVIRONMENT = TEST_ENVIRONMENT.name
 PKCE_CHALLENGE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
+DCR_MAX_METADATA_BYTES = 16 * 1024
+LOOPBACK_REDIRECT_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
 
 
 class McpAuthorizationRequestError(ValueError):
@@ -86,6 +89,50 @@ def _utc(value: datetime | None = None) -> datetime:
     if current.tzinfo is None:
         return current.replace(tzinfo=timezone.utc)
     return current.astimezone(timezone.utc)
+
+
+def _is_safe_oauth_redirect_uri(redirect_uri: str) -> bool:
+    if (
+        not redirect_uri
+        or "#" in redirect_uri
+        or "\\" in redirect_uri
+        or any(
+            ord(character) <= 0x20 or ord(character) == 0x7F
+            for character in redirect_uri
+        )
+    ):
+        return False
+    try:
+        parsed = urlsplit(redirect_uri)
+        hostname = parsed.hostname
+        parsed.port
+    except ValueError:
+        return False
+    if (
+        not hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        return False
+    scheme = parsed.scheme.lower()
+    if scheme == "https":
+        return True
+    return scheme == "http" and hostname.lower() in LOOPBACK_REDIRECT_HOSTNAMES
+
+
+def _metadata_has_safe_redirect_uris(metadata: object) -> bool:
+    if not isinstance(metadata, dict):
+        return False
+    redirect_uris = metadata.get("redirect_uris")
+    return (
+        isinstance(redirect_uris, list)
+        and bool(redirect_uris)
+        and all(
+            isinstance(redirect_uri, str)
+            and _is_safe_oauth_redirect_uri(redirect_uri)
+            for redirect_uri in redirect_uris
+        )
+    )
 
 
 def _redirect_with_params(url: str, **params: str | None) -> str:
@@ -147,7 +194,12 @@ class DatabaseMcpOAuthProvider(
                     "Authorization request is invalid or expired"
                 )
             client = session.get(McpOAuthClient, grant.client_id)
-            if client is None or client.environment != MCP_ENVIRONMENT:
+            if (
+                client is None
+                or client.environment != MCP_ENVIRONMENT
+                or not _metadata_has_safe_redirect_uris(client.metadata_json)
+                or not _is_safe_oauth_redirect_uri(grant.redirect_uri)
+            ):
                 raise McpAuthorizationRequestError(
                     "Authorization request is invalid or expired"
                 )
@@ -168,7 +220,12 @@ class DatabaseMcpOAuthProvider(
             stored = session.get(McpOAuthClient, client_id)
             if stored is None or stored.environment != MCP_ENVIRONMENT:
                 return None
-            return OAuthClientInformationFull.model_validate(stored.metadata_json)
+            if not _metadata_has_safe_redirect_uris(stored.metadata_json):
+                return None
+            try:
+                return OAuthClientInformationFull.model_validate(stored.metadata_json)
+            except ValueError:
+                return None
 
     async def register_client(self, client_info: OAuthClientInformationFull) -> None:
         if (
@@ -193,12 +250,50 @@ class DatabaseMcpOAuthProvider(
             raise RegistrationError(
                 "invalid_client_metadata", f"Scope must be {MCP_ACCESS_SCOPE}"
             )
+        client_name = client_info.client_name or ""
+        redirect_uris = list(client_info.redirect_uris or [])
+        contacts = list(client_info.contacts or [])
+        if len(client_name) > 128:
+            raise RegistrationError(
+                "invalid_client_metadata", "client_name must not exceed 128 characters"
+            )
+        if (
+            not redirect_uris
+            or len(redirect_uris) > 10
+            or any(len(str(uri)) > 2048 for uri in redirect_uris)
+            or any(
+                not _is_safe_oauth_redirect_uri(str(uri)) for uri in redirect_uris
+            )
+        ):
+            raise RegistrationError(
+                "invalid_client_metadata", "redirect_uris is invalid or unsafe"
+            )
+        if client_info.jwks is not None or client_info.jwks_uri is not None:
+            raise RegistrationError(
+                "invalid_client_metadata",
+                "JWKS metadata is not supported for public clients",
+            )
+        if len(contacts) > 5 or any(len(str(contact)) > 254 for contact in contacts):
+            raise RegistrationError(
+                "invalid_client_metadata", "contacts exceeds the supported limit"
+            )
 
         metadata = client_info.model_dump(
             mode="json",
             exclude_none=True,
             exclude={"client_secret", "client_secret_expires_at"},
         )
+        if len(
+            json.dumps(
+                metadata,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            ).encode("utf-8")
+        ) > DCR_MAX_METADATA_BYTES:
+            raise RegistrationError(
+                "invalid_client_metadata", "Client metadata is too large"
+            )
         registration_error: RegistrationError | None = None
         with session_scope(self._factory()) as session:
             if session.get(McpOAuthClient, client_info.client_id) is not None:
@@ -224,6 +319,11 @@ class DatabaseMcpOAuthProvider(
     ) -> str:
         if client.client_id is None or client.token_endpoint_auth_method != "none":
             raise AuthorizeError("unauthorized_client", "Public client is required")
+        redirect_uri = str(params.redirect_uri)
+        if not _is_safe_oauth_redirect_uri(redirect_uri):
+            raise AuthorizeError(
+                "invalid_request", "redirect_uri is invalid or unsafe"
+            )
         scopes = params.scopes or [MCP_ACCESS_SCOPE]
         if scopes != [MCP_ACCESS_SCOPE]:
             raise AuthorizeError("invalid_scope", f"Scope must be {MCP_ACCESS_SCOPE}")
@@ -245,7 +345,7 @@ class DatabaseMcpOAuthProvider(
                     request_token_hash=hash_cli_secret(request_id),
                     client_id=client.client_id,
                     environment=MCP_ENVIRONMENT,
-                    redirect_uri=str(params.redirect_uri),
+                    redirect_uri=redirect_uri,
                     redirect_uri_provided_explicitly=(
                         params.redirect_uri_provided_explicitly
                     ),
@@ -312,6 +412,7 @@ class DatabaseMcpOAuthProvider(
                 or grant.status != "pending"
                 or grant.code_hash is not None
                 or _utc(grant.expires_at) <= _utc(current_time)
+                or not _is_safe_oauth_redirect_uri(grant.redirect_uri)
             ):
                 raise McpAuthorizationRequestError(
                     "Authorization request is invalid or expired"
@@ -357,6 +458,7 @@ class DatabaseMcpOAuthProvider(
                 or grant.status != "pending"
                 or grant.code_hash is not None
                 or _utc(grant.expires_at) <= _utc(current_time)
+                or not _is_safe_oauth_redirect_uri(grant.redirect_uri)
             ):
                 raise McpAuthorizationRequestError(
                     "Authorization request is invalid or expired"
@@ -607,7 +709,8 @@ class DatabaseMcpOAuthProvider(
                     )
         if failure is not None:
             raise failure
-        assert tokens is not None
+        if tokens is None:
+            raise RuntimeError("OAuth authorization exchange invariant failed")
         return tokens
 
     async def load_refresh_token(
@@ -735,7 +838,8 @@ class DatabaseMcpOAuthProvider(
                     )
         if failure is not None:
             raise failure
-        assert tokens is not None
+        if tokens is None:
+            raise RuntimeError("OAuth refresh exchange invariant failed")
         return tokens
 
     async def load_access_token(self, token: str) -> DyDataAccessToken | None:

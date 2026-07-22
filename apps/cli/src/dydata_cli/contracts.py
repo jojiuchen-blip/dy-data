@@ -312,9 +312,9 @@ def validate_follow_up_stats(
     meta = _require_mapping(payload["meta"])
     _require_exact_keys(
         meta,
-        {"partial", "request_id", "generated_at", "data_as_of", "source"},
+        {"channel", "partial", "request_id", "generated_at", "data_as_of", "source"},
     )
-    if meta["partial"] is not False:
+    if meta["channel"] != "cli" or meta["partial"] is not False:
         raise ContractError("partial responses are forbidden")
     request_id = _require_request_id(meta["request_id"], expected_request_id)
     return {
@@ -338,6 +338,7 @@ def validate_follow_up_stats(
             "totals": totals,
         },
         "meta": {
+            "channel": "cli",
             "partial": False,
             "request_id": request_id,
             "generated_at": _require_datetime_text(meta["generated_at"]),
@@ -367,10 +368,11 @@ def _validate_basic_meta(
     value: Any, expected_request_id: str | None
 ) -> dict[str, Any]:
     meta = _require_mapping(value)
-    _require_exact_keys(meta, {"partial", "request_id"})
-    if meta["partial"] is not False:
+    _require_exact_keys(meta, {"channel", "partial", "request_id"})
+    if meta["channel"] != "cli" or meta["partial"] is not False:
         raise ContractError("partial responses are forbidden")
     return {
+        "channel": "cli",
         "partial": False,
         "request_id": _require_request_id(meta["request_id"], expected_request_id),
     }

@@ -38,13 +38,35 @@ def test_compose_proxy_and_railway_web_proxy_route_all_agent_root_endpoints() ->
 
     for source in (compose_nginx, railway_web):
         assert "location ^~ /.well-known/" in source
-        assert "agent\\.md" in source
-        assert "agent/SKILL\\.md" in source
+        assert "agent.md" in source
+        assert "agent/SKILL.md" in source
         for path in PUBLIC_AGENT_ROOT_PATHS[:5]:
             assert path.removeprefix("/") in source
         assert "proxy_pass" in source
         assert "proxy_buffering off;" in source
         assert "proxy_set_header Host $host;" in source
+
+
+def test_public_oauth_write_and_mcp_routes_have_separate_small_limits() -> None:
+    compose_nginx = (ROOT / "deploy/nginx.conf").read_text(encoding="utf-8")
+    railway_web = (ROOT / "apps/web/Dockerfile").read_text(encoding="utf-8")
+
+    for source in (compose_nginx, railway_web):
+        assert "zone=oauth_write_per_ip" in source
+        assert "zone=mcp_per_ip" in source
+        assert "location = /register" in source
+        assert "client_max_body_size 16k;" in source
+        assert "limit_req zone=oauth_write_per_ip" in source
+        assert "location = /mcp" in source
+        assert "client_max_body_size 1m;" in source
+        assert "limit_req zone=mcp_per_ip" in source
+        assert "location = /agent.md" in source
+        assert "location = /agent/SKILL.md" in source
+
+    compose_docs = compose_nginx.split("location = /agent.md", 1)[1].split("}", 1)[0]
+    assert "limit_req" not in compose_docs
+    railway_docs = railway_web.split("location = /agent.md", 1)[1].split("}'", 1)[0]
+    assert "limit_req" not in railway_docs
 
 
 def test_deploy_smoke_checks_discovery_oauth_and_protected_mcp() -> None:

@@ -135,6 +135,7 @@ def _assert_error(response, *, status_code: int, command: str, code: str) -> Non
         "environment",
         "schema_version",
         "error",
+        "meta",
     }
     assert body["ok"] is False
     assert body["command"] == command
@@ -143,6 +144,7 @@ def _assert_error(response, *, status_code: int, command: str, code: str) -> Non
     assert body["error"]["code"] == code
     assert body["error"]["retryable"] is False
     assert body["error"]["request_id"] == response.headers["x-request-id"]
+    assert body["meta"] == {"channel": "cli"}
     assert "detail" not in body
 
 
@@ -168,6 +170,7 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
             "store_ids": ["store-a", "store-b"],
         },
         "meta": {
+            "channel": "cli",
             "partial": False,
             "request_id": auth_status.headers["x-request-id"],
         },
@@ -189,6 +192,7 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
             ]
         },
         "meta": {
+            "channel": "cli",
             "partial": False,
             "request_id": stores.headers["x-request-id"],
         },
@@ -258,6 +262,7 @@ def test_follow_up_summary_uses_authorized_subset_and_stable_metric_contract() -
         "action_follow_rate": 0.75,
     }
     assert body["meta"]["partial"] is False
+    assert body["meta"]["channel"] == "cli"
     assert body["meta"]["source"] == "postgres"
     assert body["meta"]["request_id"] == response.headers["x-request-id"]
     assert store.summary_calls == [

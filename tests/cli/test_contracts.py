@@ -52,7 +52,11 @@ def auth_status_envelope() -> dict[str, Any]:
             "store_ids": ["store-a", "store-b"],
             "expires_at": "2026-07-21T12:30:00+00:00",
         },
-        "meta": {"partial": False, "request_id": CANONICAL_REQUEST_ID},
+        "meta": {
+            "channel": "cli",
+            "partial": False,
+            "request_id": CANONICAL_REQUEST_ID,
+        },
     }
 
 
@@ -72,7 +76,11 @@ def stores_envelope() -> dict[str, Any]:
                 {"store_id": "store-b", "store_name": "Beta"},
             ]
         },
-        "meta": {"partial": False, "request_id": CANONICAL_REQUEST_ID},
+        "meta": {
+            "channel": "cli",
+            "partial": False,
+            "request_id": CANONICAL_REQUEST_ID,
+        },
     }
 
 
@@ -110,6 +118,7 @@ def follow_up_envelope() -> dict[str, Any]:
             "totals": metrics,
         },
         "meta": {
+            "channel": "cli",
             "partial": False,
             "request_id": CANONICAL_REQUEST_ID,
             "generated_at": "2026-07-21T12:00:00+00:00",

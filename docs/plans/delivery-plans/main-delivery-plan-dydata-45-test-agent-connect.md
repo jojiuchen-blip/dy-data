@@ -127,6 +127,7 @@
 |---|---|---|---|---|
 | MCP Python SDK v2 仍为预发布 | 协议接口漂移 | 生产依赖锁定 `mcp>=1.27,<2` 并写协议测试 | AI 执行 -> 人审核 | 已控制 |
 | OAuth token 或授权码泄漏 | 账号数据越权 | 仅存哈希、短 access token、单次 code、refresh family rotation、日志脱敏 | AI 执行 -> 人审核 | 已验证 |
+| 公开 DCR/OAuth 写入口被滥用 | 腾讯云测试库或服务资源持续增长 | 测试环境限制请求体、元数据和每 IP 速率；DYDATA-46 上生产前补过期数据清理、容量指标、告警与生产限流标定 | AI 执行 -> 人审核 | 测试版已控制，生产待 DYDATA-46 |
 | 不同接入面复制业务统计逻辑 | 跟进率口径漂移 | 抽取共享能力服务并执行 CLI/MCP 等价测试 | AI 执行 -> 人审核 | 已验证 |
 | 腾讯云测试版与未来企业内网生产版是不同部署环境 | 误用测试凭据访问生产，或把未部署的内网版描述成已上线 | 固定命名环境与 server identity keyring；DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换 | 人类 Owner | 已隔离 |
 | Agent 不支持远程 MCP OAuth | 无法自动接入 | manifest 同时提供 CLI fallback 和复制即用 Skill | AI 执行 -> 人审核 | 待验证 |

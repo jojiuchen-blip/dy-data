@@ -89,7 +89,11 @@ def success_envelope(command: str, data: dict[str, Any]) -> dict[str, Any]:
         "environment": "test",
         "schema_version": "1.1",
         "data": data,
-        "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
+        "meta": {
+            "channel": "cli",
+            "request_id": CANONICAL_REQUEST_ID,
+            "partial": False,
+        },
     }
 
 
@@ -170,6 +174,7 @@ def follow_up_envelope(*, stores: list[dict[str, Any]] | None = None) -> dict[st
         "timezone": "Asia/Shanghai",
     }
     payload["meta"] = {
+        "channel": "cli",
         "partial": False,
         "request_id": CANONICAL_REQUEST_ID,
         "generated_at": "2026-07-21T12:00:00Z",

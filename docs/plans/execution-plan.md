@@ -6,7 +6,7 @@
 
 - 当前正在隔离 worktree `feat/dydata-45-agent-connect` 执行腾讯云测试环境 Agent 一句话接入层；Linear `DYDATA-45` 为 In Progress。这里的 `production` 专指未来尚未部署的企业内网服务器版本。
 - 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2 已完成，当前唯一进行中任务为 T3.1。
-- T2.2 已交付 CLI/MCP 共用只读能力、严格两项 MCP 工具、登录后 Web 同意页与跨 channel 审计；当前增量全量 874 项回归、Web production build、API/Web 镜像、空库迁移、Compose 与两套 Nginx 检查通过。下一步提交到 main、部署腾讯云测试环境，并由独立 Agent 黑盒验收。
+- T2.2 已交付 CLI/MCP 共用只读能力、严格两项 MCP 工具、登录后 Web 同意页与跨 channel 审计；复审补齐 MCP 参数映射、失败审计隔离、DCR/OAuth 入口限额、危险 redirect URI 拒绝与跨 channel token 负向门禁。最终安全复审为 `ALLOW`，Critical/Important/Minor 均为 0。当前增量全量 909 项通过、2 项 opt-in PostgreSQL 用例另在真实 PostgreSQL 连续 5 轮通过；Web production build、API/Web 镜像、空库迁移、Compose、两套 Nginx、锁定依赖审计与增量 Bandit 检查通过。下一步提交到 main、部署腾讯云测试环境，并由独立 Agent 黑盒验收。
 - 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。
 - 本增量不改变下文 DYDATA-41 线索中心 Foundation 的业务基线与依赖顺序；完成后按正式计划回写验证和部署事实。
 

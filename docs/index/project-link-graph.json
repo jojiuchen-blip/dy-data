@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-07-22T06:34:00.883Z",
+  "generatedAt": "2026-07-22T08:19:03.011Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,21 +9,21 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 439,
-    "edges": 275,
+    "nodes": 467,
+    "edges": 309,
     "issues": 4,
     "errors": 4,
     "warnings": 0,
     "nodesByKind": {
       "config": 21,
-      "doc": 71,
-      "source_code": 282,
+      "doc": 72,
+      "source_code": 302,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
       "brd_ledger": 2,
       "project_index": 2,
-      "delivery_plan": 11,
+      "delivery_plan": 18,
       "foundation": 32,
       "project_profile": 1,
       "project_rules": 1,
@@ -32,8 +32,8 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 205,
-      "depends_on": 70
+      "links_to": 233,
+      "depends_on": 76
     }
   },
   "nodes": [
@@ -254,6 +254,24 @@
       "title": "20260722_0020_cli_audit_and_refresh_families.py"
     },
     {
+      "id": "alembic/versions/20260722_0021_mcp_oauth.py",
+      "path": "alembic/versions/20260722_0021_mcp_oauth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260722_0021_mcp_oauth.py"
+    },
+    {
+      "id": "alembic/versions/20260722_0022_agent_audit_context.py",
+      "path": "alembic/versions/20260722_0022_agent_audit_context.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "20260722_0022_agent_audit_context.py"
+    },
+    {
       "id": "apps/api/dy_api/__init__.py",
       "path": "apps/api/dy_api/__init__.py",
       "kind": "source_code",
@@ -270,6 +288,33 @@
       "authority": true,
       "slug": null,
       "title": "access_control.py"
+    },
+    {
+      "id": "apps/api/dy_api/agent_capabilities.py",
+      "path": "apps/api/dy_api/agent_capabilities.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "agent_capabilities.py"
+    },
+    {
+      "id": "apps/api/dy_api/agent_contract.py",
+      "path": "apps/api/dy_api/agent_contract.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "dydata read-only Agent Skill"
+    },
+    {
+      "id": "apps/api/dy_api/agent_environment.py",
+      "path": "apps/api/dy_api/agent_environment.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "agent_environment.py"
     },
     {
       "id": "apps/api/dy_api/auth.py",
@@ -326,6 +371,24 @@
       "title": "main.py"
     },
     {
+      "id": "apps/api/dy_api/mcp_oauth.py",
+      "path": "apps/api/dy_api/mcp_oauth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "mcp_oauth.py"
+    },
+    {
+      "id": "apps/api/dy_api/mcp_server.py",
+      "path": "apps/api/dy_api/mcp_server.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "mcp_server.py"
+    },
+    {
       "id": "apps/api/dy_api/models.py",
       "path": "apps/api/dy_api/models.py",
       "kind": "source_code",
@@ -351,6 +414,15 @@
       "authority": true,
       "slug": null,
       "title": "admin.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/agent.py",
+      "path": "apps/api/dy_api/routes/agent.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "agent.py"
     },
     {
       "id": "apps/api/dy_api/routes/auth.py",
@@ -414,6 +486,15 @@
       "authority": true,
       "slug": null,
       "title": "jobs.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/mcp_auth.py",
+      "path": "apps/api/dy_api/routes/mcp_auth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "mcp_auth.py"
     },
     {
       "id": "apps/api/dy_api/routes/meta.py",
@@ -513,6 +594,15 @@
       "authority": true,
       "slug": null,
       "title": "docs.py"
+    },
+    {
+      "id": "apps/cli/src/dydata_cli/environments.py",
+      "path": "apps/cli/src/dydata_cli/environments.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "environments.py"
     },
     {
       "id": "apps/cli/src/dydata_cli/errors.py",
@@ -1053,6 +1143,15 @@
       "authority": true,
       "slug": null,
       "title": "HomePage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/McpAuthorizePage.tsx",
+      "path": "apps/web/src/pages/McpAuthorizePage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "McpAuthorizePage.tsx"
     },
     {
       "id": "apps/web/src/pages/OrderDetailsPage.tsx",
@@ -1883,6 +1982,15 @@
       "title": "DYDATA-40 安全终端 CLI 登录主开发计划"
     },
     {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 测试环境 Agent 一句话接入层主开发计划"
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
       "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
       "kind": "delivery_plan",
@@ -1946,6 +2054,51 @@
       "title": "DYDATA-40 T1.4 完整验证与安全审查"
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 T1.1 CLI 命名环境、凭据隔离与共享注册表"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 T1.2 Agent 发现入口、Skill 与诊断"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 T2.1 远程 MCP OAuth 2.1 与持久凭据"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 T2.2 共享只读能力、MCP 工具与 Web 授权页"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 T3.1 测试环境部署与独立 Agent 黑盒验收"
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
       "path": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
       "kind": "delivery_plan",
@@ -1962,6 +2115,15 @@
       "authority": true,
       "slug": "dydata-40-secure-terminal-login",
       "title": "DYDATA-40 安全终端 CLI 登录任务看板"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-45-test-agent-connect",
+      "title": "DYDATA-45 测试环境 Agent 接入任务看板"
     },
     {
       "id": "docs/plans/execution-plan.md",
@@ -2520,6 +2682,15 @@
       "authority": false,
       "slug": null,
       "title": "Agent-first 严格只读 CLI：门店线索跟进统计设计"
+    },
+    {
+      "id": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "path": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-45 测试环境 Agent 一句话接入层设计"
     },
     {
       "id": "docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md",
@@ -3287,6 +3458,15 @@
       "title": "conftest.py"
     },
     {
+      "id": "tests/cli/test_agent_doctor.py",
+      "path": "tests/cli/test_agent_doctor.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_agent_doctor.py"
+    },
+    {
       "id": "tests/cli/test_cli_security.py",
       "path": "tests/cli/test_cli_security.py",
       "kind": "source_code",
@@ -3339,6 +3519,15 @@
       "authority": true,
       "slug": null,
       "title": "test_docs.py"
+    },
+    {
+      "id": "tests/cli/test_environments.py",
+      "path": "tests/cli/test_environments.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_environments.py"
     },
     {
       "id": "tests/cli/test_interactive_auth.py",
@@ -3449,6 +3638,24 @@
       "title": "test_api_admin_sync.py"
     },
     {
+      "id": "tests/test_api_agent_capabilities.py",
+      "path": "tests/test_api_agent_capabilities.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_agent_capabilities.py"
+    },
+    {
+      "id": "tests/test_api_agent.py",
+      "path": "tests/test_api_agent.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_agent.py"
+    },
+    {
       "id": "tests/test_api_auth.py",
       "path": "tests/test_api_auth.py",
       "kind": "source_code",
@@ -3539,6 +3746,24 @@
       "title": "test_api_feedback.py"
     },
     {
+      "id": "tests/test_api_mcp_oauth.py",
+      "path": "tests/test_api_mcp_oauth.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_mcp_oauth.py"
+    },
+    {
+      "id": "tests/test_api_mcp_tools.py",
+      "path": "tests/test_api_mcp_tools.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_api_mcp_tools.py"
+    },
+    {
       "id": "tests/test_api_product_type_visibility.py",
       "path": "tests/test_api_product_type_visibility.py",
       "kind": "source_code",
@@ -3609,6 +3834,15 @@
       "authority": true,
       "slug": null,
       "title": "test_cli_auth_tokens.py"
+    },
+    {
+      "id": "tests/test_cli_contract_registry.py",
+      "path": "tests/test_cli_contract_registry.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_cli_contract_registry.py"
     },
     {
       "id": "tests/test_clue_allocation_cycles.py",
@@ -3708,6 +3942,15 @@
       "authority": true,
       "slug": null,
       "title": "test_db_config.py"
+    },
+    {
+      "id": "tests/test_deploy_agent_config.py",
+      "path": "tests/test_deploy_agent_config.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_deploy_agent_config.py"
     },
     {
       "id": "tests/test_deploy_compose_config.py",
@@ -3906,6 +4149,15 @@
       "authority": true,
       "slug": null,
       "title": "test_visual_smoke.py"
+    },
+    {
+      "id": "tests/test_web_mcp_authorize_contract.py",
+      "path": "tests/test_web_mcp_authorize_contract.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_web_mcp_authorize_contract.py"
     },
     {
       "id": "tests/test_worker_aweme_binding_collector.py",
@@ -4999,13 +5251,13 @@
       "evidence": [
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 31,
+          "line": 32,
           "text": "- **涉及文件**：`docs/prd/foundation/foundation-api-clue-center.md`、`docs/prd/foundation/foundation-api-clue-center/*.md`、`docs/prd/foundation/foundation-schema-clue-center.md`、`docs/prd/foundation/foundation-schema-clue-center/*.md`、`project-profile.md`、`docs/plans/execution-plan.md`。",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 44,
+          "line": 45,
           "text": "| 修改 | `docs/plans/execution-plan.md` | 更新执行驾驶舱和验证证据 |",
           "syntax": "backtick"
         }
@@ -5022,13 +5274,13 @@
       "evidence": [
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 31,
+          "line": 32,
           "text": "- **涉及文件**：`docs/prd/foundation/foundation-api-clue-center.md`、`docs/prd/foundation/foundation-api-clue-center/*.md`、`docs/prd/foundation/foundation-schema-clue-center.md`、`docs/prd/foundation/foundation-schema-clue-center/*.md`、`project-profile.md`、`docs/plans/execution-plan.md`。",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 39,
+          "line": 40,
           "text": "| 新建 | `docs/prd/foundation/foundation-api-clue-center.md` | API 总索引、宿主协议覆写与端点总览 |",
           "syntax": "backtick"
         }
@@ -5045,13 +5297,13 @@
       "evidence": [
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 31,
+          "line": 32,
           "text": "- **涉及文件**：`docs/prd/foundation/foundation-api-clue-center.md`、`docs/prd/foundation/foundation-api-clue-center/*.md`、`docs/prd/foundation/foundation-schema-clue-center.md`、`docs/prd/foundation/foundation-schema-clue-center/*.md`、`project-profile.md`、`docs/plans/execution-plan.md`。",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 41,
+          "line": 42,
           "text": "| 修改 | `docs/prd/foundation/foundation-schema-clue-center.md` | 登记 Phase 4 回填结果 |",
           "syntax": "backtick"
         }
@@ -5068,13 +5320,13 @@
       "evidence": [
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 31,
+          "line": 32,
           "text": "- **涉及文件**：`docs/prd/foundation/foundation-api-clue-center.md`、`docs/prd/foundation/foundation-api-clue-center/*.md`、`docs/prd/foundation/foundation-schema-clue-center.md`、`docs/prd/foundation/foundation-schema-clue-center/*.md`、`project-profile.md`、`docs/plans/execution-plan.md`。",
           "syntax": "backtick"
         },
         {
           "path": "docs/devlog/20260722_refactor_log_Keith_Chen.md",
-          "line": 43,
+          "line": 44,
           "text": "| 修改 | `project-profile.md` | 当前阶段切换到 FOUNDATION Phase 4 |",
           "syntax": "backtick"
         }
@@ -5987,6 +6239,172 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 85,
+          "text": "| T1.1 | [sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md](sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md) | 已完成（2026-07-22） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 143,
+          "text": "| 设计 §4-§5 | T1.1 | [CLI 环境与注册表](sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 86,
+          "text": "| T1.2 | [sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md](sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md) | 已完成（2026-07-22） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 144,
+          "text": "| 设计 §8-§9 | T1.2 | [Agent 发现与诊断](sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 96,
+          "text": "| T2.1 | [sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md](sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md) | 已完成（2026-07-22） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 145,
+          "text": "| 设计 §6 | T2.1 | [MCP OAuth](sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 97,
+          "text": "| T2.2 | [sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md](sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md) | 已完成（2026-07-22） |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 146,
+          "text": "| 设计 §7、§10 | T2.2 | [共享能力与授权页](sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 107,
+          "text": "| T3.1 | [sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | 进行中 |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 147,
+          "text": "| 设计 §11-§12 | T3.1 | [部署与 Agent UAT](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 111,
+          "text": "- 看板入口：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md",
+      "target": "docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 23,
+          "text": "- 既有只读 CLI 基线：`docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+          "line": 22,
+          "text": "- 增量权威：`docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` 全文。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md->docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md:depends_on",
       "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
       "to": null,
@@ -6543,6 +6961,329 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-45-test-agent-connect.md](main-delivery-plan-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+          "line": 13,
+          "text": "- `docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` §4-§5、§10",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md->docs/cli-command-reference.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "to": "docs/cli-command-reference.md",
+      "target": "docs/cli-command-reference.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+          "line": 61,
+          "text": "- `docs/cli-command-reference.md` 已由注册表重新生成；README 与 Agent 指南已指向稳定 manifest、MCP 和 doctor。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-45-test-agent-connect.md](main-delivery-plan-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+          "line": 13,
+          "text": "- `docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` §8-§9",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-45-test-agent-connect.md](main-delivery-plan-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+          "line": 13,
+          "text": "- `docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` §6、§10",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-45-test-agent-connect.md](main-delivery-plan-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md->docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "to": "docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md",
+      "target": "docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+          "line": 14,
+          "text": "- `docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md` 跟进率与门店范围章节",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+          "line": 13,
+          "text": "- `docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` §7、§10",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md->docs/cli-agent-guide.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "to": "docs/cli-agent-guide.md",
+      "target": "docs/cli-agent-guide.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+          "line": 27,
+          "text": "- `docs/cli-agent-guide.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-45-test-agent-connect.md](main-delivery-plan-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md->docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-45-test-agent-connect.md](task-kanban-dydata-45-test-agent-connect.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+          "line": 13,
+          "text": "- `docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md` §11-§12",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md->README.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "to": "README.md",
+      "target": "README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+          "line": 26,
+          "text": "- `README.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:links_to",
       "from": "docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md",
@@ -6662,6 +7403,137 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+          "line": 5,
+          "text": "| T1.1 | [CLI 环境与注册表](sub-delivery-plan-dydata-45-test-agent-connect-T1.1-cli-environment-registry.md) | AI 执行 -> 人审核 | 无 | 已完成（2026-07-22） | 2026-07-22 | 155 项目标回归通过；环境、凭据与 API 映射已隔离 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+          "line": 6,
+          "text": "| T1.2 | [Agent 发现与诊断](sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md) | AI 执行 -> 人审核 | T1.1 | 已完成（2026-07-22） | 2026-07-22 | 四个公开发现入口与 doctor；243 项组合回归通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+          "line": 7,
+          "text": "| T2.1 | [MCP OAuth](sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md) | AI 执行 -> 人审核 | T1.2 | 已完成（2026-07-22） | 2026-07-22 | 16 项 OAuth 协议测试、可逆迁移和 256 项组合回归通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+          "line": 8,
+          "text": "| T2.2 | [共享能力与授权页](sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md) | AI 执行 -> 人审核 | T2.1 | 已完成（2026-07-22） | 2026-07-22 | 两项 MCP 工具、共享统计口径、Web 同意页、审计迁移；869 项全量回归与 Web build 通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-45-test-agent-connect.md",
+          "line": 9,
+          "text": "| T3.1 | [部署与 Agent UAT](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | AI 执行 -> 人审核 | T2.2 | 进行中 | - | 测试环境部署、独立 Agent 黑盒验收 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 8,
+          "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2 已完成，当前唯一进行中任务为 T3.1。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 8,
+          "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2 已完成，当前唯一进行中任务为 T3.1。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "target": "docs/superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 10,
+          "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 10,
+          "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/execution-plan.md->project-profile.md:links_to",
       "from": "docs/plans/execution-plan.md",
       "to": "project-profile.md",
@@ -6672,7 +7544,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 48,
           "text": "- 当前阶段快照以 `project-profile.md` 为准。",
           "syntax": "backtick"
         }
@@ -8625,7 +9497,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 114,
+          "line": 123,
           "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
           "syntax": "markdown"
         }
@@ -8642,13 +9514,13 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 20,
+          "line": 21,
           "text": "系统输出经营与分账参考，不执行真实资金划拨。产品总览以 [项目产品介绍书](docs/项目产品介绍书.md) 为准；项目级业务目标、角色、范围、成功标准和风险边界以 [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md) 为准。",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 33,
+          "line": 34,
           "text": "- [项目产品介绍书](docs/项目产品介绍书.md)：当前产品总览与四个业务域导航。",
           "syntax": "markdown"
         }
@@ -8665,7 +9537,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 36,
+          "line": 37,
           "text": "- [API 契约](docs/api-contract.md)：认证、响应包络和接口分组。",
           "syntax": "markdown"
         }
@@ -8682,7 +9554,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 35,
+          "line": 36,
           "text": "- [系统架构](docs/architecture.md)：当前代码结构、服务边界和数据链路。",
           "syntax": "markdown"
         }
@@ -8699,13 +9571,13 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 20,
+          "line": 21,
           "text": "系统输出经营与分账参考，不执行真实资金划拨。产品总览以 [项目产品介绍书](docs/项目产品介绍书.md) 为准；项目级业务目标、角色、范围、成功标准和风险边界以 [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md) 为准。",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 34,
+          "line": 35,
           "text": "- [权威 BRD](docs/brd/BRD-dy-data-20260716-1255.md)：项目级业务目标、角色、痛点、范围、成功标准、风险与下游边界。",
           "syntax": "markdown"
         }
@@ -8722,7 +9594,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 69,
+          "line": 70,
           "text": "安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。",
           "syntax": "markdown"
         }
@@ -8739,13 +9611,13 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 8,
-          "text": "local development. See [the Agent guide](docs/cli-agent-guide.md) for retry,",
+          "line": 9,
+          "text": "See [the Agent guide](docs/cli-agent-guide.md) for retry, credential-concurrency,",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 69,
+          "line": 70,
           "text": "安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。",
           "syntax": "markdown"
         }
@@ -8762,7 +9634,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 69,
+          "line": 70,
           "text": "安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。",
           "syntax": "markdown"
         }
@@ -8779,7 +9651,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 38,
+          "line": 39,
           "text": "- [视觉系统](docs/design-system/README.md)：设计令牌、组件和页面视觉规范。",
           "syntax": "markdown"
         }
@@ -8796,7 +9668,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 39,
+          "line": 40,
           "text": "- [文档权威映射](docs/governance/authority-map.md)：现有文档的 authority、evidence、legacy 和 stale 角色。",
           "syntax": "markdown"
         }
@@ -8813,7 +9685,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 114,
+          "line": 123,
           "text": "项目工作从 [AGENTS.md](AGENTS.md) 进入，需求生命周期以 Linear 的 `DYDATA` 团队为准，宿主实现规则位于 [docs/rules](docs/rules/README.md)。`/.worktrees/` 和 `/logs/` 只承载本地工作树与运行日志；可提交的开发过程日志统一写入 `docs/devlog/`。",
           "syntax": "markdown"
         }
@@ -8830,13 +9702,13 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 37,
+          "line": 38,
           "text": "- [运行手册](docs/runbook.md)：生产部署、迁移、运维和恢复。",
           "syntax": "markdown"
         },
         {
           "path": "README.md",
-          "line": 110,
+          "line": 119,
           "text": "完整迁移、健康检查、备份和恢复步骤见 [运行手册](docs/runbook.md)。",
           "syntax": "markdown"
         }
@@ -8853,7 +9725,7 @@
       "evidence": [
         {
           "path": "README.md",
-          "line": 32,
+          "line": 33,
           "text": "- [项目画像](project-profile.md)：项目身份、当前阶段、范围和治理状态。",
           "syntax": "markdown"
         }

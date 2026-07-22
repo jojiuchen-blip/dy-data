@@ -62,5 +62,6 @@
 - 组合回归：`python -m pytest tests/cli tests/test_api_agent.py tests/test_cli_contract_registry.py tests/test_api_cli_readonly.py tests/test_cli_audit.py tests/test_api_mcp_oauth.py -q`，`256 passed`。
 - 安全事实：客户端只允许显式 `token_endpoint_auth_method=none`；scope 固定 `mcp:read`，resource 固定测试环境 `/mcp`；数据库只保存 request/code/access/refresh 的 SHA-256 摘要；refresh 重放撤销完整 family。
 - SDK 兼容：依赖锁定 `mcp>=1.27,<2`；针对 SDK v1 metadata 和 revoke handler 的 confidential-client 默认行为，父 FastAPI 显式发布 public-client metadata 和无密钥 revoke 端点，协议测试覆盖真实响应。
+- 合并前安全复审：OAuth 协议文件现收集 40 项测试；DCR 在 16 KiB 首个超限 chunk 处立即停止读取，并限制 client metadata、拒绝 JWKS；redirect URI 仅允许 HTTPS 或精确本机回环 HTTP，注册、存量客户端、授权请求、同意详情、批准/拒绝及浏览器导航前均 fail closed；同时覆盖 no-store 与 CLI/MCP token 双向隔离。opt-in PostgreSQL 用例验证授权码并发单次消费和 refresh rotation/replay，真实 PostgreSQL 连续 5 轮共 10 项并发断言全部通过。最终独立安全复审为 `ALLOW`，无 Critical、Important 或 Minor。
 - `git diff --check` 与 Python compileall 通过，仅有 Git LF/CRLF 工作区提示，无 whitespace error。
 - Foundation 漂移：无。本 Task 新增独立协议与持久化表，未复用 CLI token 表，也未改变既有业务 Schema/API 口径；建议 T2.2 直接复用现有 CLI 查询服务并补 Web 授权确认页。
