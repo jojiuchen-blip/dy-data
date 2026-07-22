@@ -60,7 +60,7 @@
 | 缺少稳定 Agent 发现入口和一键诊断 | P1 | Agent 无法自然语言自助接入 | T1.2 | 已处理 |
 | 服务端没有标准远程 MCP 与 OAuth 2.1 | P1 | 手机 Agent、Manus、Claw 等无法直接授权 | T2.1 | 已处理 |
 | CLI 路由业务逻辑无法由 MCP 安全复用 | P1 | 两条接入口径或权限可能不一致 | T2.2 | 已处理 |
-| 镜像、反代、部署和跨 Agent 实测尚未覆盖新入口 | P1 | 测试环境不可交付 | T3.1 | 待处理 |
+| 镜像、反代、部署和跨 Agent 实测尚未覆盖新入口 | P1 | 测试环境不可交付 | T3.1 | 已处理 |
 
 ## 2. 分工与边界
 
@@ -104,7 +104,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T3.1 | [sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | 进行中 |
+| T3.1 | [sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | 已完成（2026-07-23） |
 
 ## 4. 任务看板
 
@@ -118,8 +118,8 @@
 - [x] `/mcp` 只暴露 `stores_list` 和 `clues_follow_up_stats`
 - [x] manifest、Agent 文档、Skill、doctor 与真实端点一致
 - [x] Python 全量测试、Web build、迁移、Docker/Nginx 配置检查通过
-- [ ] 独立 Agent 对测试账号仅看到授权门店，CLI/MCP 同口径
-- [ ] 五个 Task 的 Evidence、完成日期与三处状态全部同步
+- [x] 独立 Agent 对测试账号仅看到授权门店，CLI/MCP 同口径
+- [x] 五个 Task 的 Evidence、完成日期与三处状态全部同步
 
 ## 6. 风险与应对
 
@@ -130,7 +130,7 @@
 | 公开 DCR/OAuth 写入口被滥用 | 腾讯云测试库或服务资源持续增长 | 测试环境限制请求体、元数据和每 IP 速率；DYDATA-46 上生产前补过期数据清理、容量指标、告警与生产限流标定 | AI 执行 -> 人审核 | 测试版已控制，生产待 DYDATA-46 |
 | 不同接入面复制业务统计逻辑 | 跟进率口径漂移 | 抽取共享能力服务并执行 CLI/MCP 等价测试 | AI 执行 -> 人审核 | 已验证 |
 | 腾讯云测试版与未来企业内网生产版是不同部署环境 | 误用测试凭据访问生产，或把未部署的内网版描述成已上线 | 固定命名环境与 server identity keyring；DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换 | 人类 Owner | 已隔离 |
-| Agent 不支持远程 MCP OAuth | 无法自动接入 | manifest 同时提供 CLI fallback 和复制即用 Skill | AI 执行 -> 人审核 | 待验证 |
+| Agent 不支持远程 MCP OAuth | 无法自动接入 | manifest 同时提供 CLI fallback 和复制即用 Skill | AI 执行 -> 人审核 | 已验证（CLI fallback + 官方 Node MCP SDK） |
 
 ## 7. AI 执行示例
 

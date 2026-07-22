@@ -55,7 +55,7 @@
 
 **前置**：T2.2
 
-**状态**：进行中
+**状态**：已完成（2026-07-23）
 
 ## Evidence Log
 
@@ -65,4 +65,10 @@
 - API/Web 镜像构建成功；API 镜像内 `dydata_cli.registry`、MCP SDK 与 `dy_api.main` 可导入，SQLite 空库从首个版本迁移到 `20260722_0022` 成功；两套 Nginx 配置均通过真实 `nginx -t`。
 - 环境口径已锁定：`test` 是当前腾讯云部署，`production` 是未来尚未部署的企业内网服务器；本任务不写入可用 production 入口。
 - 最新发布前回归：`python -m pytest -q` 为 916 passed、2 skipped、77 warnings；2 项 skipped 是 opt-in PostgreSQL 并发测试，已另在真实 PostgreSQL 18 连续 5 轮通过。`npm --prefix apps/web run build`、增量 Bandit Medium/High 扫描、基于 `requirements.txt` 的 `pip-audit`、API/Web 镜像构建、空库迁移、Compose、两套真实 `nginx -t`、部署脚本 Bash 语法与 `git diff --check` 均通过；部署后公网 smoke 追加发现并修复 DCR 畸形 JSON 500，最终独立安全复审仍为 `ALLOW`，Critical/Important/Minor 均为 0。
-- 待执行：提交并合入 main、腾讯云测试环境部署、公开端点 smoke、独立 Agent CLI/MCP 黑盒验收。
+- 运行时代码已通过 `cab6aecbf1ae7a36ab262522b466bdd4e6b9017b` 合入远端 `main`；GitHub Actions `Tencent Lighthouse Deploy` run `29934737788` 的 Verify 与 Deploy Tencent Lighthouse 均成功，腾讯云测试环境部署完成。
+- 部署后公开 smoke 通过：manifest、Agent guide、Skill、capabilities 与两份 OAuth metadata 均返回预期测试环境契约；未认证 MCP initialize 返回 401；畸形 JSON DCR 与非 loopback HTTP redirect 均返回通用 `invalid_client_metadata` 400，并保留 no-store/no-cache/CORS 头。
+- 首轮独立黑盒验收如实发现本机遗留 `dydata-cli==0.2.0` 与 0.3.0 授权槽位不一致；由人类 Owner 通过 0.3.0 官方浏览器流程重新授权后，另起全新子代理重跑，最终 verdict 为 `PASS`。
+- CLI 0.3.0 验收通过：doctor 3/3、测试账号授权门店数为 3；默认范围与 `2026-07-20..2026-07-23` 显式范围均返回 3 行、`partial=false`，`total = pending + followed` 与系统跟进率公式/舍入成立；不存在门店 ID 以 `SCOPE_DENIED` 整单拒绝且无 partial/data 载荷。
+- MCP 使用官方 `@modelcontextprotocol/sdk` 1.29.0 完成 OAuth/PKCE、initialize、tools/list 与两项工具调用；工具严格为 `stores_list`、`clues_follow_up_stats`，公开参数严格为 `date_from`、`date_to`、`store_ids`，只读提示正确；门店数、统计行数与完整脱敏聚合元组和 CLI 一致。
+- 全程未向 Agent 输出账号、密码、Cookie、授权码、Token、真实门店标识或原始经营指标；当前入口仍全部为腾讯云 `test`，未来企业内网 production 继续由 `DYDATA-46` 阻塞承接。
+- 非阻断观察：CLI 0.3.0 顶层 `--help` / `--version` 返回 `INVALID_ARGUMENT`；manifest 声明的 `commands --json` 与 `version --json` 正常，机器发现与自然语言映射不受影响。

@@ -6,4 +6,4 @@
 | T1.2 | [Agent 发现与诊断](sub-delivery-plan-dydata-45-test-agent-connect-T1.2-agent-discovery-doctor.md) | AI 执行 -> 人审核 | T1.1 | 已完成（2026-07-22） | 2026-07-22 | 四个公开发现入口与 doctor；243 项组合回归通过 |
 | T2.1 | [MCP OAuth](sub-delivery-plan-dydata-45-test-agent-connect-T2.1-mcp-oauth.md) | AI 执行 -> 人审核 | T1.2 | 已完成（2026-07-22） | 2026-07-22 | 16 项 OAuth 协议测试、可逆迁移和 256 项组合回归通过 |
 | T2.2 | [共享能力与授权页](sub-delivery-plan-dydata-45-test-agent-connect-T2.2-shared-capabilities-consent.md) | AI 执行 -> 人审核 | T2.1 | 已完成（2026-07-22） | 2026-07-22 | 两项 MCP 工具、共享统计口径、Web 同意页、审计迁移；869 项全量回归与 Web build 通过 |
-| T3.1 | [部署与 Agent UAT](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | AI 执行 -> 人审核 | T2.2 | 进行中 | - | 测试环境部署、独立 Agent 黑盒验收 |
+| T3.1 | [部署与 Agent UAT](sub-delivery-plan-dydata-45-test-agent-connect-T3.1-deploy-agent-uat.md) | AI 执行 -> 人审核 | T2.2 | 已完成（2026-07-23） | 2026-07-23 | `cab6aec` 已部署腾讯云；独立 Agent 的 CLI/MCP 黑盒重试 PASS，3 家授权门店、口径等价与整单越权拒绝通过 |
