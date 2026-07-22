@@ -95,11 +95,24 @@ else
 fi
 
 log "running smoke checks"
+expected_mcp_url="${DY_WEB_BASE_URL%/}/mcp"
 for attempt in $(seq 1 30); do
   if curl --fail --silent --show-error "$HEALTH_URL/" >/dev/null; then
     auth_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$HEALTH_URL/api/v1/auth/me")"
     cli_start_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --request POST "$HEALTH_URL/api/v1/auth/cli/device/start")"
-    if [ "$auth_status" = "401" ] && [ "$cli_start_status" = "200" ]; then
+    oauth_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$HEALTH_URL/.well-known/oauth-authorization-server")"
+    protected_resource_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$HEALTH_URL/.well-known/oauth-protected-resource/mcp")"
+    agent_doc_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" "$HEALTH_URL/agent.md")"
+    mcp_status="$(curl --silent --show-error --output /dev/null --write-out "%{http_code}" --request POST --header "Content-Type: application/json" --data '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' "$HEALTH_URL/mcp")"
+    if agent_manifest="$(curl --fail --silent --show-error "$HEALTH_URL/.well-known/dydata-agent.json")" \
+      && [ "$auth_status" = "401" ] \
+      && [ "$cli_start_status" = "200" ] \
+      && [ "$oauth_status" = "200" ] \
+      && [ "$protected_resource_status" = "200" ] \
+      && [ "$agent_doc_status" = "200" ] \
+      && [ "$mcp_status" = "401" ] \
+      && printf '%s' "$agent_manifest" | grep -Fq '"environment":"test"' \
+      && printf '%s' "$agent_manifest" | grep -Fq "\"url\":\"$expected_mcp_url\""; then
       break
     fi
   fi

@@ -62,8 +62,11 @@ class DatabaseCliAuditSink:
                 operation=event["operation"],
                 request_id=event["request_id"],
                 command=event["command"],
+                environment=event.get("environment", "test"),
+                channel=event.get("channel", "cli"),
                 user_id=event["user_id"],
                 auth_type=event["auth_type"],
+                authorization_scopes=event.get("authorization_scopes", []),
                 cli_version=event["cli_version"],
                 schema_version=event["schema_version"],
                 date_range=event["date_range"],
@@ -127,8 +130,11 @@ def _audit_event(
         "operation": operation,
         "request_id": getattr(request.state, "cli_request_id", None)
         or request_id_for_header(request.headers.get("x-request-id")),
+        "environment": "test",
+        "channel": "cli",
         "user_id": getattr(request.state, "cli_user_id", None),
         "auth_type": getattr(request.state, "cli_auth_type", None),
+        "authorization_scopes": ["cli:read"],
         "cli_version": _safe_client_metadata(
             request.headers.get("x-dydata-cli-version")
         ),

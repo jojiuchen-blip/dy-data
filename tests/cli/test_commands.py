@@ -86,7 +86,8 @@ def success_envelope(command: str, data: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "command": command,
-        "schema_version": "1.0",
+        "environment": "test",
+        "schema_version": "1.1",
         "data": data,
         "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
     }

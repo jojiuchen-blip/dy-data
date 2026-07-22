@@ -113,8 +113,11 @@ def test_cli_audit_uses_same_valid_request_id_and_only_logs_summary(
         "event": "cli_request",
         "operation": "follow_up_stats",
         "request_id": "req_client-123",
+        "environment": "test",
+        "channel": "cli",
         "user_id": "user-1",
         "auth_type": "user",
+        "authorization_scopes": ["cli:read"],
         "cli_version": "0.1.0",
         "command": "clues.follow-up-stats",
         "schema_version": "1.0",
@@ -204,10 +207,17 @@ def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_i
 
     assert response.status_code == 503
     body = response.json()
-    assert set(body) == {"ok", "command", "schema_version", "error"}
+    assert set(body) == {
+        "ok",
+        "command",
+        "environment",
+        "schema_version",
+        "error",
+    }
     assert body["ok"] is False
     assert body["command"] == command
-    assert body["schema_version"] == "1.0"
+    assert body["environment"] == "test"
+    assert body["schema_version"] == "1.1"
     assert body["error"] == {
         "code": "API_UNAVAILABLE",
         "message": "The data service is unavailable",

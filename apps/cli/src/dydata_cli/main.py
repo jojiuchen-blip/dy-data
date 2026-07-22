@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from .client import DyDataClient
 from .commands import execute_command
 from .credentials import CredentialStore
+from .environments import EnvironmentConfigError, resolve_environment
 from .output import emit_error
 from .parser import CliArgumentError, parse_args
 
@@ -19,6 +20,14 @@ def main(
 ) -> int:
     """Parse and execute one approved CLI command."""
     try:
+        environment = resolve_environment()
+    except EnvironmentConfigError:
+        return emit_error(
+            "unknown",
+            "INVALID_ARGUMENT",
+            "Unknown dydata environment.",
+        )
+    try:
         parsed = parse_args(argv)
     except CliArgumentError:
         return emit_error(
@@ -28,6 +37,7 @@ def main(
         parsed,
         credential_store=credential_store,
         client=client,
+        environment=environment,
     )
 
 

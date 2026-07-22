@@ -22,6 +22,7 @@ from .contracts import (
     validate_stores,
 )
 from .credentials import CredentialState, CredentialStore
+from .environments import EnvironmentConfig, resolve_environment
 from .interactive_auth import InteractiveAuthSession, LoginIdentity
 from .output import emit_error, emit_json, render_aggregate_table
 from .registry import command_catalog
@@ -54,14 +55,17 @@ def execute_command(
     text_input: Callable[[str], str] = input,
     password_input: Callable[[str], str] = getpass.getpass,
     is_interactive_terminal: Callable[[], bool] = _standard_streams_are_tty,
+    environment: EnvironmentConfig | None = None,
 ) -> int:
     """Execute one parsed command and return its stable process exit code."""
+    selected_environment = environment or resolve_environment()
     try:
         if parsed.command == "commands":
             emit_json(
                 {
                     "ok": True,
                     "command": "commands",
+                    "environment": selected_environment.name,
                     "schema_version": CLI_SCHEMA_VERSION,
                     "data": {"commands": command_catalog()},
                 },
@@ -73,6 +77,7 @@ def execute_command(
                 {
                     "ok": True,
                     "command": "version",
+                    "environment": selected_environment.name,
                     "schema_version": CLI_SCHEMA_VERSION,
                     "data": {
                         "cli_version": CLI_VERSION,
@@ -83,8 +88,16 @@ def execute_command(
             )
             return 0
 
-        store = credential_store or CredentialStore()
-        api_client = client or DyDataClient()
+        store = credential_store or CredentialStore(environment=selected_environment)
+        api_client = client or DyDataClient(environment=selected_environment)
+        if parsed.command == "agent.doctor":
+            return _doctor(
+                store,
+                api_client,
+                environment=selected_environment,
+                now=now(),
+                stream=stream,
+            )
         if parsed.command == "auth.login":
             return _login(
                 store,
@@ -159,6 +172,7 @@ def execute_command(
             str(exc),
             retryable=exc.retryable,
             request_id=exc.request_id,
+            environment=selected_environment.name,
             stream=stream,
         )
     except Exception:
@@ -166,8 +180,129 @@ def execute_command(
             parsed.command,
             "INTERNAL_ERROR",
             "The command could not be completed.",
+            environment=selected_environment.name,
             stream=stream,
         )
+
+
+def _doctor(
+    store: CredentialStore,
+    client: DyDataClient,
+    *,
+    environment: EnvironmentConfig,
+    now: datetime,
+    stream: TextIO | None,
+) -> int:
+    """Diagnose public discovery and the current environment credential."""
+    manifest = client.get_agent_manifest()
+    client.get_mcp_resource_metadata()
+    checks: list[dict[str, str]] = [
+        {
+            "name": "agent_manifest",
+            "status": "pass",
+            "message": "The Agent manifest is reachable and compatible.",
+        },
+        {
+            "name": "mcp_protected_resource_metadata",
+            "status": "pass",
+            "message": "MCP OAuth resource metadata is reachable and compatible.",
+        },
+    ]
+    state = store.load()
+    if state is None:
+        credential: dict[str, Any] = {
+            "status": "not_configured",
+            "identity": None,
+            "stores": [],
+        }
+        checks.append(
+            {
+                "name": "credential",
+                "status": "not_configured",
+                "message": "No credential exists for this environment.",
+            }
+        )
+        next_action = "dydata auth login"
+    else:
+        try:
+            access_token, observed_state = _usable_access_token(
+                store,
+                client,
+                now=now,
+            )
+            status_response = _protected_call(
+                store,
+                observed_state,
+                lambda: client.auth_status(access_token),
+            )
+            stores_response = _protected_call(
+                store,
+                observed_state,
+                lambda: client.list_stores(access_token),
+            )
+        except CliError as exc:
+            if exc.code not in _AUTH_ERROR_CODES:
+                raise
+            credential = {
+                "status": "not_configured",
+                "identity": None,
+                "stores": [],
+            }
+            checks.append(
+                {
+                    "name": "credential",
+                    "status": "not_configured",
+                    "message": "The stored authorization is no longer usable.",
+                }
+            )
+            next_action = "dydata auth login"
+        else:
+            status_data = status_response["data"]
+            credential = {
+                "status": "authenticated",
+                "identity": {
+                    "user_id": status_data["user_id"],
+                    "username": status_data["username"],
+                    "display_name": status_data["display_name"],
+                    "role": status_data["role"],
+                },
+                "stores": stores_response["data"]["stores"],
+            }
+            checks.append(
+                {
+                    "name": "credential",
+                    "status": "pass",
+                    "message": "The current authorization and store scope are usable.",
+                }
+            )
+            next_action = "none"
+    emit_json(
+        {
+            "ok": True,
+            "command": "agent.doctor",
+            "environment": environment.name,
+            "schema_version": CLI_SCHEMA_VERSION,
+            "data": {
+                "cli_version": CLI_VERSION,
+                "manifest_version": manifest["manifest_version"],
+                "public_urls": {
+                    "base_url": environment.web_url,
+                    "manifest": (
+                        f"{environment.web_url}/.well-known/dydata-agent.json"
+                    ),
+                    "mcp": environment.mcp_url,
+                    "capabilities": (
+                        f"{environment.web_url}/api/v1/agent/capabilities"
+                    ),
+                },
+                "checks": checks,
+                "credential": credential,
+                "next_action": next_action,
+            },
+        },
+        stream=stream,
+    )
+    return 0
 
 
 def _login(

@@ -16,7 +16,8 @@ def envelope(command: str, data: dict[str, object]) -> dict[str, object]:
     return {
         "ok": True,
         "command": command,
-        "schema_version": "1.0",
+        "environment": "test",
+        "schema_version": "1.1",
         "data": data,
         "meta": {"request_id": CANONICAL_REQUEST_ID, "partial": False},
     }
@@ -83,6 +84,8 @@ def test_client_exposes_only_approved_operations() -> None:
     assert public_methods == {
         "auth_status",
         "follow_up_stats",
+        "get_agent_manifest",
+        "get_mcp_resource_metadata",
         "list_stores",
         "poll_device_token",
         "refresh",
@@ -106,8 +109,12 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
             headers={"X-Request-ID": request.headers["X-Request-ID"]},
         )
 
-    monkeypatch.setenv("DYDATA_API_URL", "https://api.example.test/api/v1///")
-    client = DyDataClient(transport=httpx.MockTransport(handler), sleep=lambda _: None)
+    monkeypatch.setenv("DYDATA_API_URL", "https://attacker.example/api/v1")
+    client = DyDataClient(
+        base_url="https://api.example.test/api/v1///",
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
 
     result = client.list_stores("access-secret")
 
@@ -115,9 +122,9 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
     request = captured[0]
     assert str(request.url) == "https://api.example.test/api/v1/cli/stores"
     assert request.headers["Authorization"] == "Bearer access-secret"
-    assert request.headers["X-DyData-CLI-Version"] == "0.2.0"
+    assert request.headers["X-DyData-CLI-Version"] == "0.3.0"
     assert request.headers["X-DyData-Command"] == "stores.list"
-    assert request.headers["X-DyData-Schema-Version"] == "1.0"
+    assert request.headers["X-DyData-Schema-Version"] == "1.1"
     assert request.headers["X-Request-ID"].startswith("req_")
 
 
@@ -588,11 +595,11 @@ def test_retries_use_one_stable_logical_request_id_and_require_its_echo() -> Non
     "payload",
     [
         {"ok": True, "schema_version": "2.0", "data": {}},
-        {"ok": False, "schema_version": "1.0", "data": {}},
+        {"ok": False, "schema_version": "1.1", "data": {}},
         {"ok": True, "data": {}},
     ],
 )
-def test_success_envelope_requires_schema_1_0_and_ok_true(
+def test_success_envelope_requires_schema_1_1_and_ok_true(
     payload: dict[str, object],
 ) -> None:
     attempts = 0

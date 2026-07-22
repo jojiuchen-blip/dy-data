@@ -3,10 +3,11 @@
 ## CLI transport safety
 
 Install the CLI with `python -m pip install -e apps/cli`, then discover the live
-contract with `dydata commands --json`. HTTPS is required for remote API URLs;
-cleartext transport is accepted only as explicit loopback HTTP with a port for
-local development. See [the Agent guide](docs/cli-agent-guide.md) for retry,
-credential-concurrency, and logout behavior.
+contract with `dydata commands --json`. The current named environment is the
+fixed test service; HTTPS is required for remote API URLs. Programmatic test
+injection accepts cleartext transport only as explicit loopback HTTP with a port.
+See [the Agent guide](docs/cli-agent-guide.md) for retry, credential-concurrency,
+and logout behavior.
 
 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。
 
@@ -67,6 +68,14 @@ python -m pytest
 ## CLI（Agent 只读查询）
 
 安装入口：`python -m pip install -e apps/cli`。安装后以 `dydata commands --json` 作为命令发现和运行时权威来源；使用边界见 [Agent 调用指南](docs/cli-agent-guide.md)，部署后验证见 [Agent CLI 使用验收](docs/cli-agent-acceptance.md)，参数与输出参考见自动生成的 [命令参考](docs/cli-command-reference.md)。
+
+测试环境的一句话接入入口是 `https://dy-business-engine.com/.well-known/dydata-agent.json`。兼容远程 MCP 的 Agent 优先添加 `https://dy-business-engine.com/mcp` 并由用户在官方页面授权；需要 CLI fallback 时，安装后先运行：
+
+```powershell
+dydata agent doctor --json
+```
+
+当前 CLI 只接受命名环境 `test`，这里的测试环境明确指已部署在腾讯云、对外地址为 `https://dy-business-engine.com` 的版本，凭据按环境和服务端身份隔离。`production` 明确指未来尚未部署的企业内网服务器版本；本次不提供可用生产入口，也不把任何内网地址当成已上线地址。企业内网生产版上线时，由 DYDATA-46 一次性切换入口、OAuth issuer/resource、部署配置、凭据槽位、文档和 smoke 验证。
 
 默认登录由用户在安全交互终端中完成：
 

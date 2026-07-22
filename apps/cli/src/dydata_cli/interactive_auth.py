@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -10,8 +9,9 @@ from uuid import uuid4
 
 import httpx
 
-from .client import DEFAULT_API_URL, CliError
+from .client import CliError
 from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
+from .environments import EnvironmentConfig, resolve_environment
 from .url_security import normalize_safe_url
 
 
@@ -47,11 +47,13 @@ class InteractiveAuthSession:
     def __init__(
         self,
         *,
+        environment: EnvironmentConfig | None = None,
         base_url: str | None = None,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
     ) -> None:
-        configured_url = base_url or os.getenv("DYDATA_API_URL") or DEFAULT_API_URL
+        self.environment = environment or resolve_environment()
+        configured_url = base_url or self.environment.api_url
         try:
             normalized_url = normalize_safe_url(configured_url, trailing_slash=True)
         except ValueError:

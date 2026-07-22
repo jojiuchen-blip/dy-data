@@ -563,3 +563,106 @@ def test_cli_audit_and_refresh_family_migration_is_reversible(tmp_path: Path) ->
     assert "family_id" not in {
         column["name"] for column in downgraded.get_columns("cli_refresh_tokens")
     }
+
+
+def test_mcp_oauth_migration_is_at_head_and_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "mcp-oauth.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260722_0020")
+    command.upgrade(config, "head")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {
+        "mcp_oauth_clients",
+        "mcp_authorization_requests",
+        "mcp_access_tokens",
+        "mcp_refresh_tokens",
+    }.issubset(upgraded.get_table_names())
+    assert {
+        "request_token_hash",
+        "code_hash",
+        "code_challenge",
+        "resource",
+        "environment",
+        "consumed_at",
+    }.issubset(
+        {
+            column["name"]
+            for column in upgraded.get_columns("mcp_authorization_requests")
+        }
+    )
+    assert {
+        "family_id",
+        "token_hash",
+        "resource",
+        "environment",
+        "revoked_at",
+        "replaced_by_token_id",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("mcp_refresh_tokens")}
+    )
+    assert "ix_mcp_access_tokens_token_hash" in {
+        index["name"] for index in upgraded.get_indexes("mcp_access_tokens")
+    }
+    assert "ix_mcp_refresh_tokens_family_id" in {
+        index["name"] for index in upgraded.get_indexes("mcp_refresh_tokens")
+    }
+
+    command.downgrade(config, "20260722_0020")
+
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert not {
+        "mcp_oauth_clients",
+        "mcp_authorization_requests",
+        "mcp_access_tokens",
+        "mcp_refresh_tokens",
+    }.intersection(downgraded.get_table_names())
+
+    command.upgrade(config, "head")
+    reupgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {
+        "mcp_oauth_clients",
+        "mcp_authorization_requests",
+        "mcp_access_tokens",
+        "mcp_refresh_tokens",
+    }.issubset(reupgraded.get_table_names())
+
+
+def test_agent_audit_context_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "agent-audit-context.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260722_0021")
+    command.upgrade(config, "head")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    columns = {
+        column["name"] for column in upgraded.get_columns("cli_audit_events")
+    }
+    assert {"environment", "channel", "authorization_scopes"}.issubset(columns)
+    assert "ix_cli_audit_events_channel" in {
+        index["name"] for index in upgraded.get_indexes("cli_audit_events")
+    }
+
+    command.downgrade(config, "20260722_0021")
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    columns = {
+        column["name"] for column in downgraded.get_columns("cli_audit_events")
+    }
+    assert {"environment", "channel", "authorization_scopes"}.isdisjoint(columns)
+
+    command.upgrade(config, "head")
+    reupgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {"environment", "channel", "authorization_scopes"}.issubset(
+        {
+            column["name"]
+            for column in reupgraded.get_columns("cli_audit_events")
+        }
+    )

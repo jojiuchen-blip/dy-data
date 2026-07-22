@@ -115,7 +115,7 @@ def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     )
 
     assert "DY_WEB_BASE_URL: ${DY_WEB_BASE_URL:?DY_WEB_BASE_URL is required}" in compose
-    assert "DY_WEB_BASE_URL=https://app.example.com" in env_example
+    assert "DY_WEB_BASE_URL=https://dy-business-engine.com" in env_example
     assert "DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}" in workflow
     assert "DY_WEB_BASE_URL" in workflow.split("required=(", 1)[1].split(")", 1)[0]
     assert 'web_base_url="$3"' in workflow
@@ -123,4 +123,6 @@ def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     assert 'DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"' in deploy_script
     assert 'DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose' in deploy_script
     assert '"$HEALTH_URL/api/v1/auth/cli/device/start"' in deploy_script
-    assert 'if [ "$auth_status" = "401" ] && [ "$cli_start_status" = "200" ]; then' in deploy_script
+    assert '[ "$auth_status" = "401" ]' in deploy_script
+    assert '[ "$cli_start_status" = "200" ]' in deploy_script
+    assert '[ "$mcp_status" = "401" ]' in deploy_script

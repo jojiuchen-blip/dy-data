@@ -3,8 +3,8 @@ from __future__ import annotations
 from zoneinfo import ZoneInfo
 
 
-CLI_VERSION = "0.2.0"
-CLI_SCHEMA_VERSION = "1.0"
+CLI_VERSION = "0.3.0"
+CLI_SCHEMA_VERSION = "1.1"
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 ERROR_CONTRACTS = {
     "INVALID_ARGUMENT": {

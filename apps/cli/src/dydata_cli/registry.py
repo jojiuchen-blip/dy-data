@@ -13,6 +13,8 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "command": "commands",
         "purpose": "Discover every supported CLI command and its agent contract.",
         "parameters": [{"name": "--json", "required": True, "type": "flag"}],
+        "api": [],
+        "mcp": None,
         "roles": ["all"],
         "data_scope": "none",
         "side_effect": "none",
@@ -40,6 +42,12 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
                 "default": False,
             }
         ],
+        "api": [
+            {"path": "/api/v1/auth/cli/device/start", "operation": "device_start"},
+            {"path": "/api/v1/auth/cli/device/approve", "operation": "device_approve"},
+            {"path": "/api/v1/auth/cli/device/token", "operation": "device_exchange"},
+        ],
+        "mcp": None,
         "roles": ["all"],
         "data_scope": "none",
         "side_effect": "remote_auth_grant_and_local_credential",
@@ -93,6 +101,10 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "command": "auth.logout",
         "purpose": "Revoke the refresh family and remove the observed local credential.",
         "parameters": [],
+        "api": [
+            {"path": "/api/v1/auth/cli/revoke", "operation": "revoke"},
+        ],
+        "mcp": None,
         "roles": ["all"],
         "data_scope": "none",
         "side_effect": "remote_auth_revoke_and_local_credential",
@@ -115,6 +127,15 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "command": "auth.status",
         "purpose": "Report whether a locally stored CLI credential is usable.",
         "parameters": [{"name": "--json", "required": True, "type": "flag"}],
+        "api": [
+            {
+                "path": "/api/v1/auth/cli/token/refresh",
+                "operation": "refresh",
+                "command": "auth.refresh",
+            },
+            {"path": "/api/v1/cli/auth/status", "operation": "auth_status"},
+        ],
+        "mcp": None,
         "roles": ["all"],
         "data_scope": "current_identity",
         "side_effect": "auth_refresh_possible",
@@ -139,6 +160,10 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         "command": "stores.list",
         "purpose": "List stores available within the caller's data scope.",
         "parameters": [{"name": "--json", "required": True, "type": "flag"}],
+        "api": [
+            {"path": "/api/v1/cli/stores", "operation": "stores_list"},
+        ],
+        "mcp": {"tool": "stores_list", "read_only": True},
         "roles": ["store", "admin", "highest_admin"],
         "data_scope": "authorized_stores",
         "side_effect": "auth_refresh_possible",
@@ -193,6 +218,13 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
                 "default": "json",
             },
         ],
+        "api": [
+            {
+                "path": "/api/v1/clues/store-follow-up-summary",
+                "operation": "follow_up_stats",
+            },
+        ],
+        "mcp": {"tool": "clues_follow_up_stats", "read_only": True},
         "date_range": {
             "start": "--from",
             "end": "--to",
@@ -225,9 +257,42 @@ _COMMAND_CATALOG: tuple[dict[str, Any], ...] = (
         ],
     },
     {
+        "command": "agent.doctor",
+        "purpose": "Diagnose the fixed Agent manifest, MCP metadata, and local authorization state.",
+        "parameters": [{"name": "--json", "required": True, "type": "flag"}],
+        "api": [],
+        "mcp": None,
+        "roles": ["all"],
+        "data_scope": "current_identity_and_authorized_stores",
+        "side_effect": "auth_refresh_possible",
+        "business_side_effect": "none",
+        "risk_level": "low",
+        "agent_callable": True,
+        "confirmation": "none",
+        "output_mode": "json",
+        "output_schema": {
+            "data": {
+                "checks": "DiagnosticCheck[]",
+                "credential": "CredentialDiagnostic",
+                "next_action": "string",
+            }
+        },
+        "sensitive_data": "credential_metadata_and_store_identity",
+        "examples": ["dydata agent doctor --json"],
+        "errors": [
+            "AUTH_EXPIRED",
+            "API_UNAVAILABLE",
+            "RATE_LIMITED",
+            "SCHEMA_MISMATCH",
+            "INTERNAL_ERROR",
+        ],
+    },
+    {
         "command": "version",
         "purpose": "Report the installed CLI and schema versions.",
         "parameters": [{"name": "--json", "required": True, "type": "flag"}],
+        "api": [],
+        "mcp": None,
         "roles": ["all"],
         "data_scope": "none",
         "side_effect": "none",
@@ -252,3 +317,31 @@ def command_catalog() -> list[dict[str, Any]]:
             code: ERROR_EXIT_CODES[code] for code in item["errors"]
         }
     return catalog
+
+
+def api_command_mappings() -> tuple[dict[str, str], dict[str, str]]:
+    """Build API command and audit-operation maps from the command registry."""
+    commands: dict[str, str] = {}
+    operations: dict[str, str] = {}
+    for item in _COMMAND_CATALOG:
+        for binding in item["api"]:
+            path = binding["path"]
+            if path in commands:
+                raise ValueError(f"Duplicate API binding: {path}")
+            commands[path] = binding.get("command", item["command"])
+            operations[path] = binding["operation"]
+    return commands, operations
+
+
+def mcp_capability_catalog() -> list[dict[str, Any]]:
+    """Return the fixed read-only MCP tool bindings in stable order."""
+    capabilities = [
+        {
+            "command": item["command"],
+            "tool": item["mcp"]["tool"],
+            "read_only": item["mcp"]["read_only"],
+        }
+        for item in _COMMAND_CATALOG
+        if item["mcp"] is not None
+    ]
+    return sorted(capabilities, key=lambda item: item["tool"])

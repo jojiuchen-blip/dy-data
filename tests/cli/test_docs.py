@@ -44,6 +44,10 @@ def test_agent_guide_covers_safe_agent_workflow() -> None:
         "不接收、读取、传递、保存或展示凭据",
         "不得伪造、补全或跨门店重试",
         "退出码",
+        "https://dy-business-engine.com/.well-known/dydata-agent.json",
+        "`dydata agent doctor --json`",
+        "`DYDATA_ENV=test`",
+        "`DYDATA_API_URL` 不再是正式覆盖入口",
     )
 
     assert all(concept in guide for concept in required_concepts)
@@ -71,6 +75,9 @@ def test_readme_links_cli_discovery_and_transport_rules() -> None:
     assert "密码使用终端隐藏输入" in readme
     assert "HTTPS is required for remote API URLs" in readme
     assert "explicit loopback HTTP" in readme
+    assert "https://dy-business-engine.com/.well-known/dydata-agent.json" in readme
+    assert "dydata agent doctor --json" in readme
+    assert "https://dy-business-engine.com/mcp" in readme
 
 
 def test_generated_reference_has_no_drift() -> None:

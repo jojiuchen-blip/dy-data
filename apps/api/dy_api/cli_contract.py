@@ -13,30 +13,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from apps.cli.src.dydata_cli.constants import CLI_SCHEMA_VERSION
+from apps.cli.src.dydata_cli.environments import TEST_ENVIRONMENT
+from apps.cli.src.dydata_cli.registry import api_command_mappings
 
-CLI_SCHEMA_VERSION = "1.0"
 CLI_METRIC_VERSION = "clue-follow-up-v1"
+CLI_ENVIRONMENT = TEST_ENVIRONMENT.name
 CLI_RETRYABLE_ERRORS = {"API_UNAVAILABLE", "RATE_LIMITED"}
-CLI_COMMANDS_BY_PATH = {
-    "/api/v1/auth/cli/device/start": "auth.login",
-    "/api/v1/auth/cli/device/approve": "auth.login",
-    "/api/v1/auth/cli/device/token": "auth.login",
-    "/api/v1/auth/cli/token/refresh": "auth.refresh",
-    "/api/v1/auth/cli/revoke": "auth.logout",
-    "/api/v1/cli/auth/status": "auth.status",
-    "/api/v1/cli/stores": "stores.list",
-    "/api/v1/clues/store-follow-up-summary": "clues.follow-up-stats",
-}
-CLI_OPERATIONS_BY_PATH = {
-    "/api/v1/auth/cli/device/start": "device_start",
-    "/api/v1/auth/cli/device/approve": "device_approve",
-    "/api/v1/auth/cli/device/token": "device_exchange",
-    "/api/v1/auth/cli/token/refresh": "refresh",
-    "/api/v1/auth/cli/revoke": "revoke",
-    "/api/v1/cli/auth/status": "auth_status",
-    "/api/v1/cli/stores": "stores_list",
-    "/api/v1/clues/store-follow-up-summary": "follow_up_stats",
-}
+CLI_COMMANDS_BY_PATH, CLI_OPERATIONS_BY_PATH = api_command_mappings()
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")
 
 
@@ -70,6 +54,7 @@ def cli_error_payload(
     return {
         "ok": False,
         "command": command,
+        "environment": CLI_ENVIRONMENT,
         "schema_version": CLI_SCHEMA_VERSION,
         "error": {
             "code": code,
@@ -149,6 +134,7 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
         if isinstance(exc.detail, dict) and set(exc.detail) == {
             "ok",
             "command",
+            "environment",
             "schema_version",
             "error",
         }:

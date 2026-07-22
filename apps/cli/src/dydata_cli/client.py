@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import time
 from collections.abc import Callable
 from datetime import date
@@ -14,20 +13,23 @@ import httpx
 from .constants import CLI_SCHEMA_VERSION, CLI_VERSION, ERROR_CONTRACTS
 from .contracts import (
     ContractError,
+    validate_agent_manifest,
     validate_authorization_pending,
     validate_auth_status,
     validate_device_start,
     validate_follow_up_stats,
+    validate_mcp_resource_metadata,
     validate_revoke_response,
     validate_stores,
     validate_token_response,
     normalize_store_ids,
 )
 from .errors import error_message, error_retryable, safe_request_id
+from .environments import EnvironmentConfig, resolve_environment
 from .url_security import normalize_safe_url
 
 
-DEFAULT_API_URL = "http://127.0.0.1:8000/api/v1"
+DEFAULT_API_URL = "https://dy-business-engine.com/api/v1"
 _RETRYABLE_STATUS_CODES = {429}
 
 
@@ -60,13 +62,15 @@ class DyDataClient:
     def __init__(
         self,
         *,
+        environment: EnvironmentConfig | None = None,
         base_url: str | None = None,
         transport: httpx.BaseTransport | None = None,
         timeout: float = 10.0,
         max_attempts: int = 3,
         sleep: Callable[[float], None] = time.sleep,
     ) -> None:
-        configured_url = base_url or os.getenv("DYDATA_API_URL") or DEFAULT_API_URL
+        self.environment = environment or resolve_environment()
+        configured_url = base_url or self.environment.api_url
         normalized_url = _normalize_base_url(configured_url)
         self._http = httpx.Client(
             base_url=normalized_url,
@@ -83,6 +87,27 @@ class DyDataClient:
             "auth/cli/device/start",
             command="auth.login",
             validator=validate_device_start,
+        )
+
+    def get_agent_manifest(self) -> dict[str, Any]:
+        """Return the validated public Agent manifest for this environment."""
+        return self._request(
+            "GET",
+            f"{self.environment.web_url}/.well-known/dydata-agent.json",
+            command="agent.doctor",
+            validator=validate_agent_manifest,
+        )
+
+    def get_mcp_resource_metadata(self) -> dict[str, Any]:
+        """Return validated OAuth protected-resource metadata for MCP."""
+        return self._request(
+            "GET",
+            (
+                f"{self.environment.web_url}"
+                "/.well-known/oauth-protected-resource/mcp"
+            ),
+            command="agent.doctor",
+            validator=validate_mcp_resource_metadata,
         )
 
     def poll_device_token(self, device_code: str) -> dict[str, Any]:

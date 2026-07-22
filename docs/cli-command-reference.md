@@ -1,6 +1,6 @@
 # dydata command reference
 
-CLI version: `0.2.0`. Schema version: `1.0`.
+CLI version: `0.3.0`. Schema version: `1.1`.
 
 | Command | Purpose | Agent callable |
 | --- | --- | --- |
@@ -10,6 +10,7 @@ CLI version: `0.2.0`. Schema version: `1.0`.
 | `auth.status` | Report whether a locally stored CLI credential is usable. | true |
 | `stores.list` | List stores available within the caller's data scope. | true |
 | `clues.follow-up-stats` | Summarize clue follow-up results for authorized stores. | true |
+| `agent.doctor` | Diagnose the fixed Agent manifest, MCP metadata, and local authorization state. | true |
 | `version` | Report the installed CLI and schema versions. | true |
 
 ## `commands`
@@ -327,6 +328,56 @@ Mode: `json_or_table`.
 
 `dydata clues follow-up-stats`
 `dydata clues follow-up-stats --from 2026-07-01 --to 2026-07-07 --store-id store-a --output table`
+
+## `agent.doctor`
+
+Diagnose the fixed Agent manifest, MCP metadata, and local authorization state.
+
+### Parameters
+
+| Name | Required | Type |
+| --- | --- | --- |
+| `--json` | true | `flag` |
+
+### Roles
+
+`all`
+
+### Data scope
+
+`current_identity_and_authorized_stores`
+
+### Side effects
+
+Authentication/local: `auth_refresh_possible`. Business data: `none`.
+
+### Risk and confirmation
+
+Risk: `low`. Confirmation: `none`. Agent callable: `true`.
+
+### Sensitive data
+
+`credential_metadata_and_store_identity`
+
+### Output mode and schema
+
+Mode: `json`.
+
+`{"data": {"checks": "DiagnosticCheck[]", "credential": "CredentialDiagnostic", "next_action": "string"}}`
+
+### Errors and exit codes
+
+| Error | Exit code |
+| --- | --- |
+| `AUTH_EXPIRED` | `3` |
+| `API_UNAVAILABLE` | `5` |
+| `RATE_LIMITED` | `5` |
+| `SCHEMA_MISMATCH` | `6` |
+| `INTERNAL_ERROR` | `6` |
+
+### Examples
+
+`dydata agent doctor --json`
 
 ## `version`
 

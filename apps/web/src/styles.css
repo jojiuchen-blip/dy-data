@@ -1742,6 +1742,22 @@ h2 {
   width: 100%;
 }
 
+.mcp-authorize-uri {
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 12px !important;
+}
+
+.mcp-authorize-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  gap: 10px;
+}
+
+.mcp-authorize-actions .ui-button {
+  width: 100%;
+}
+
 @media (prefers-color-scheme: dark) {
   .auth-shell {
     --auth-backdrop-image: url("/auth/login-background-dark.webp");

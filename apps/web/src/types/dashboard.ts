@@ -21,6 +21,34 @@ export interface CliAuthorizationApproval {
   expires_at: string;
 }
 
+export interface McpAuthorizationStore {
+  store_id: string;
+  store_name: string;
+}
+
+export interface McpAuthorizationRequestDetails {
+  request_id: string;
+  agent_name: string;
+  redirect_uri: string;
+  scopes: string[];
+  environment: "test";
+  resource: string;
+  expires_at: string;
+  account: {
+    user_id: string | null;
+    username: string;
+    display_name: string;
+  };
+  data_scope: {
+    mode: StoreScopeMode;
+    stores: McpAuthorizationStore[];
+  };
+}
+
+export interface McpAuthorizationDecisionResponse {
+  redirect_uri: string;
+}
+
 export type UserRole = "highest_admin" | "admin" | "store";
 export type UserStatus = "active" | "disabled";
 export type StoreScopeMode = "all" | "specified" | "none";

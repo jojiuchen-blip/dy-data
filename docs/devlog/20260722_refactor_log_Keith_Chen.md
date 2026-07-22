@@ -14,6 +14,7 @@
 | 2 | 建立 Phase 4 API 契约 | DYDATA-41 | 待业务确认 |
 | 3 | 回填 23 张目标表的使用接口 | DYDATA-41 | 完成 |
 | 4 | DYDATA-40 安全终端 CLI 登录完成 | S7 | ✅ |
+| 5 | DYDATA-45 T2.1 MCP OAuth 完成 | S4 | ✅ |
 
 **本日关键结论**：线索中心 FOUNDATION API 已按宿主项目现有协议拆分落盘，Schema 与接口映射已闭合。当前停在 Phase 4 用户确认门禁，未生成 DDL、未修改业务代码，也未进入 Phase 5。
 
@@ -89,3 +90,12 @@
 - **操作**：在隔离 worktree 以 TDD 实现独立 Web Cookie 会话、身份/范围白名单、默认 TTY 交接、CAS 保存与异常撤销；更新运行时命令目录、Agent 指南和验收说明；执行全量测试、构建、依赖/秘密/静态扫描和双代理复核
 - **结果**：CLI 0.2.0 完成；目标测试 137 passed，全量 817 passed，Web build 通过，安全扫描 PASS，独立安全审查 APPROVE，Agent 契约验收 PASS；未部署、未推送、未合并，真实 TTY 与生产门店数据 UAT 留待部署后由用户执行
 - **涉及文件**：apps/cli/src/dydata_cli/interactive_auth.py、apps/cli/src/dydata_cli/commands.py、apps/cli/src/dydata_cli/registry.py、tests/cli/test_interactive_auth.py、tests/cli/test_terminal_login.py、docs/cli-agent-guide.md、docs/cli-agent-acceptance.md、docs/security/2026-07-22-secure-terminal-cli-login-security-scan.md、docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md
+---
+
+## 补充更新 2（15:22 · 窗口 2）
+
+### 任务 3：DYDATA-45 T2.1 MCP OAuth 完成
+- **目标**：建立测试环境标准远程 MCP 与持久化 OAuth 2.1 安全边界
+- **操作**：以 TDD 实现 public-client DCR、PKCE S256、固定 resource/scope、四张独立凭据表、单次授权码、刷新轮换重放撤销、协议发现及 Streamable HTTP lifespan
+- **结果**：T2.1 完成；16 项 OAuth 测试、完整 Alembic 往返和 256 项组合回归通过；状态已切换到 T2.2
+- **涉及文件**：apps/api/dy_api/mcp_oauth.py、apps/api/dy_api/mcp_server.py、apps/api/dy_api/models.py、alembic/versions/20260722_0021_mcp_oauth.py、tests/test_api_mcp_oauth.py、docs/plans/delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md

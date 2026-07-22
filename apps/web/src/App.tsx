@@ -16,6 +16,7 @@ import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
 import { AdminSyncPage } from "./pages/AdminSyncPage";
 import { ClueCenterPage } from "./pages/ClueCenterPage";
 import { CliAuthorizePage } from "./pages/CliAuthorizePage";
+import { McpAuthorizePage } from "./pages/McpAuthorizePage";
 import { HomePage } from "./pages/HomePage";
 import { OrderDetailsPage } from "./pages/OrderDetailsPage";
 import { SalesDashboardPage } from "./pages/SalesDashboardPage";
@@ -132,7 +133,8 @@ function AuthGate({ children, pathname }: AuthGateProps) {
     setUser(nextUser);
     if (
       (pathname === "/login" || pathname.startsWith("/auth/")) &&
-      pathname !== "/auth/cli/authorize"
+      pathname !== "/auth/cli/authorize" &&
+      pathname !== "/auth/mcp/authorize"
     ) {
       window.history.pushState(null, "", firstAccessiblePath(nextUser));
       window.dispatchEvent(new PopStateEvent("popstate"));
@@ -229,6 +231,9 @@ export function App() {
       {({ user, onLogout }) => {
         if (location.pathname === "/auth/cli/authorize") {
           return <CliAuthorizePage currentUser={user} search={location.search} />;
+        }
+        if (location.pathname === "/auth/mcp/authorize") {
+          return <McpAuthorizePage currentUser={user} search={location.search} />;
         }
 
         const clueAllocationSubview = clueAllocationSubviewFromPath(location.pathname);

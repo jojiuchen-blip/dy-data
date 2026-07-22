@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from dydata_cli.credentials import CredentialState, CredentialStore
+from dydata_cli.environments import EnvironmentConfig
 
 
 class ProcessKeyring:
@@ -90,14 +91,16 @@ def credential_state() -> CredentialState:
     )
 
 
-def test_credential_store_uses_one_keyring_json_value() -> None:
+def test_credential_store_uses_one_environment_scoped_keyring_json_value() -> None:
     keyring = FakeKeyring()
     store = CredentialStore(keyring_backend=keyring)
 
     store.save(credential_state())
 
-    assert set(keyring.values) == {("dydata-cli", "default")}
-    payload = json.loads(keyring.values[("dydata-cli", "default")])
+    assert set(keyring.values) == {("dydata-cli", store.account)}
+    assert store.account.startswith("env:test:")
+    assert store.account != "default"
+    payload = json.loads(keyring.values[("dydata-cli", store.account)])
     assert payload == {
         "access_token": "access-secret",
         "access_token_expires_at": "2026-07-21T12:30:00+00:00",
@@ -118,11 +121,41 @@ def test_credential_store_clear_removes_only_keyring_value() -> None:
 
 def test_credential_store_clears_invalid_state_without_echoing_it() -> None:
     keyring = FakeKeyring()
-    keyring.values[("dydata-cli", "default")] = "not-json-access-secret"
     store = CredentialStore(keyring_backend=keyring)
+    keyring.values[("dydata-cli", store.account)] = "not-json-access-secret"
 
     assert store.load() is None
     assert keyring.values == {}
+
+
+def test_credentials_are_isolated_by_environment_and_server_identity() -> None:
+    keyring = FakeKeyring()
+    test_environment = EnvironmentConfig(
+        name="test",
+        web_url="https://test.example",
+        api_url="https://test.example/api/v1",
+        mcp_url="https://test.example/mcp",
+    )
+    future_production = EnvironmentConfig(
+        name="production",
+        web_url="https://prod.example",
+        api_url="https://prod.example/api/v1",
+        mcp_url="https://prod.example/mcp",
+    )
+    test_store = CredentialStore(
+        keyring_backend=keyring,
+        environment=test_environment,
+    )
+    production_store = CredentialStore(
+        keyring_backend=keyring,
+        environment=future_production,
+    )
+
+    assert test_store.account != production_store.account
+    test_store.save(credential_state())
+
+    assert production_store.load() is None
+    assert ("dydata-cli", "default") not in keyring.values
 
 
 def test_credential_state_repr_never_contains_tokens() -> None:

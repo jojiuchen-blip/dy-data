@@ -49,6 +49,8 @@ import type {
   ClueAllocationRuleVersion,
   ClueAllocationRuleVersionWrite,
   CliAuthorizationApproval,
+  McpAuthorizationDecisionResponse,
+  McpAuthorizationRequestDetails,
   ClueFilterMetadata,
   ClueFollowUpPayload,
   ClueFollowUpRecord,
@@ -1155,6 +1157,26 @@ export function approveCliAuthorization(
 ): Promise<CliAuthorizationApproval> {
   return sendBareJson<CliAuthorizationApproval>("/auth/cli/device/approve", {
     body: { user_code: userCode },
+  });
+}
+
+export async function fetchMcpAuthorizationRequest(
+  requestId: string,
+): Promise<ApiLoadResult<McpAuthorizationRequestDetails>> {
+  return {
+    ...(await requestJson<McpAuthorizationRequestDetails>("/auth/mcp/request", {
+      request_id: requestId,
+    })),
+    usingMock: false,
+  };
+}
+
+export function decideMcpAuthorization(
+  requestId: string,
+  decision: "approve" | "deny",
+): Promise<McpAuthorizationDecisionResponse> {
+  return sendBareJson<McpAuthorizationDecisionResponse>("/auth/mcp/approve", {
+    body: { request_id: requestId, decision },
   });
 }
 

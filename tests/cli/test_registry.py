@@ -7,10 +7,15 @@ from pathlib import Path
 from dydata_cli.docs import render_command_reference
 from dydata_cli.constants import CLI_VERSION, ERROR_EXIT_CODES
 from dydata_cli.main import main
-from dydata_cli.registry import command_catalog
+from dydata_cli.registry import (
+    api_command_mappings,
+    command_catalog,
+    mcp_capability_catalog,
+)
 
 
 EXPECTED = {
+    "agent.doctor",
     "commands",
     "auth.login",
     "auth.logout",
@@ -37,6 +42,8 @@ REQUIRED_FIELDS = {
     "exit_codes",
     "output_mode",
     "business_side_effect",
+    "api",
+    "mcp",
 }
 
 
@@ -178,7 +185,7 @@ def test_package_and_runtime_cli_versions_are_synchronized() -> None:
         (ROOT / "apps" / "cli" / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert CLI_VERSION == "0.2.0"
+    assert CLI_VERSION == "0.3.0"
     assert package["project"]["version"] == CLI_VERSION
 
 
@@ -191,3 +198,31 @@ def test_windows_package_installs_iana_timezone_data() -> None:
         "tzdata>=2025.2; platform_system == 'Windows'"
         in package["project"]["dependencies"]
     )
+
+
+def test_registry_is_the_only_api_and_mcp_capability_map() -> None:
+    command_by_path, operation_by_path = api_command_mappings()
+
+    assert command_by_path == {
+        "/api/v1/auth/cli/device/start": "auth.login",
+        "/api/v1/auth/cli/device/approve": "auth.login",
+        "/api/v1/auth/cli/device/token": "auth.login",
+        "/api/v1/auth/cli/token/refresh": "auth.refresh",
+        "/api/v1/auth/cli/revoke": "auth.logout",
+        "/api/v1/cli/auth/status": "auth.status",
+        "/api/v1/cli/stores": "stores.list",
+        "/api/v1/clues/store-follow-up-summary": "clues.follow-up-stats",
+    }
+    assert set(command_by_path) == set(operation_by_path)
+    assert mcp_capability_catalog() == [
+        {
+            "command": "clues.follow-up-stats",
+            "tool": "clues_follow_up_stats",
+            "read_only": True,
+        },
+        {
+            "command": "stores.list",
+            "tool": "stores_list",
+            "read_only": True,
+        },
+    ]

@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：470
-- 文件关系：154
-- 诊断问题：16
+- 文件节点：439
+- 文件关系：275
+- 诊断问题：4
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -16,90 +16,89 @@
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
-| clue-allocation-2026-07-18.json | config | host-project | [[.gstack/qa-baselines/clue-allocation-2026-07-18.json|clue-allocation-2026-07-18.json]] | [clue-allocation-2026-07-18.json](../../.gstack/qa-baselines/clue-allocation-2026-07-18.json) |
-| clue-allocation-round2-2026-07-18.json | config | host-project | [[.gstack/qa-baselines/clue-allocation-round2-2026-07-18.json|clue-allocation-round2-2026-07-18.json]] | [clue-allocation-round2-2026-07-18.json](../../.gstack/qa-baselines/clue-allocation-round2-2026-07-18.json) |
-| 线索分配中心 DYDATA-8～14 综合验收报告 | doc | host-project | [[.gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md|线索分配中心 DYDATA-8～14 综合验收报告]] | [线索分配中心 DYDATA-8～14 综合验收报告](../../.gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md) |
-| 线索分配中心 DYDATA-8～14 第二轮验收报告 | doc | host-project | [[.gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md|线索分配中心 DYDATA-8～14 第二轮验收报告]] | [线索分配中心 DYDATA-8～14 第二轮验收报告](../../.gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md) |
-| page-2026-07-13T09-00-50-420Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-00-50-420Z.yml|page-2026-07-13T09-00-50-420Z.yml]] | [page-2026-07-13T09-00-50-420Z.yml](../../.playwright-cli/page-2026-07-13T09-00-50-420Z.yml) |
-| page-2026-07-13T09-07-13-098Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-07-13-098Z.yml|page-2026-07-13T09-07-13-098Z.yml]] | [page-2026-07-13T09-07-13-098Z.yml](../../.playwright-cli/page-2026-07-13T09-07-13-098Z.yml) |
-| page-2026-07-13T09-11-25-978Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-25-978Z.yml|page-2026-07-13T09-11-25-978Z.yml]] | [page-2026-07-13T09-11-25-978Z.yml](../../.playwright-cli/page-2026-07-13T09-11-25-978Z.yml) |
-| page-2026-07-13T09-11-50-842Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-11-50-842Z.yml|page-2026-07-13T09-11-50-842Z.yml]] | [page-2026-07-13T09-11-50-842Z.yml](../../.playwright-cli/page-2026-07-13T09-11-50-842Z.yml) |
-| page-2026-07-13T09-12-36-088Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-36-088Z.yml|page-2026-07-13T09-12-36-088Z.yml]] | [page-2026-07-13T09-12-36-088Z.yml](../../.playwright-cli/page-2026-07-13T09-12-36-088Z.yml) |
-| page-2026-07-13T09-12-48-957Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-12-48-957Z.yml|page-2026-07-13T09-12-48-957Z.yml]] | [page-2026-07-13T09-12-48-957Z.yml](../../.playwright-cli/page-2026-07-13T09-12-48-957Z.yml) |
-| page-2026-07-13T09-13-42-406Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-13-42-406Z.yml|page-2026-07-13T09-13-42-406Z.yml]] | [page-2026-07-13T09-13-42-406Z.yml](../../.playwright-cli/page-2026-07-13T09-13-42-406Z.yml) |
-| page-2026-07-13T09-16-46-395Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-16-46-395Z.yml|page-2026-07-13T09-16-46-395Z.yml]] | [page-2026-07-13T09-16-46-395Z.yml](../../.playwright-cli/page-2026-07-13T09-16-46-395Z.yml) |
-| page-2026-07-13T09-17-10-910Z.yml | config | host-project | [[.playwright-cli/page-2026-07-13T09-17-10-910Z.yml|page-2026-07-13T09-17-10-910Z.yml]] | [page-2026-07-13T09-17-10-910Z.yml](../../.playwright-cli/page-2026-07-13T09-17-10-910Z.yml) |
-| page-2026-07-16T15-22-59-298Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-22-59-298Z.yml|page-2026-07-16T15-22-59-298Z.yml]] | [page-2026-07-16T15-22-59-298Z.yml](../../.playwright-cli/page-2026-07-16T15-22-59-298Z.yml) |
-| page-2026-07-16T15-25-04-778Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-25-04-778Z.yml|page-2026-07-16T15-25-04-778Z.yml]] | [page-2026-07-16T15-25-04-778Z.yml](../../.playwright-cli/page-2026-07-16T15-25-04-778Z.yml) |
-| page-2026-07-16T15-25-22-221Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-25-22-221Z.yml|page-2026-07-16T15-25-22-221Z.yml]] | [page-2026-07-16T15-25-22-221Z.yml](../../.playwright-cli/page-2026-07-16T15-25-22-221Z.yml) |
-| page-2026-07-16T15-26-06-543Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-26-06-543Z.yml|page-2026-07-16T15-26-06-543Z.yml]] | [page-2026-07-16T15-26-06-543Z.yml](../../.playwright-cli/page-2026-07-16T15-26-06-543Z.yml) |
-| page-2026-07-16T15-32-04-128Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-32-04-128Z.yml|page-2026-07-16T15-32-04-128Z.yml]] | [page-2026-07-16T15-32-04-128Z.yml](../../.playwright-cli/page-2026-07-16T15-32-04-128Z.yml) |
-| page-2026-07-16T15-34-14-523Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-34-14-523Z.yml|page-2026-07-16T15-34-14-523Z.yml]] | [page-2026-07-16T15-34-14-523Z.yml](../../.playwright-cli/page-2026-07-16T15-34-14-523Z.yml) |
-| page-2026-07-16T15-34-32-275Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-34-32-275Z.yml|page-2026-07-16T15-34-32-275Z.yml]] | [page-2026-07-16T15-34-32-275Z.yml](../../.playwright-cli/page-2026-07-16T15-34-32-275Z.yml) |
-| page-2026-07-16T15-47-26-442Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-47-26-442Z.yml|page-2026-07-16T15-47-26-442Z.yml]] | [page-2026-07-16T15-47-26-442Z.yml](../../.playwright-cli/page-2026-07-16T15-47-26-442Z.yml) |
-| page-2026-07-16T15-47-58-499Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-47-58-499Z.yml|page-2026-07-16T15-47-58-499Z.yml]] | [page-2026-07-16T15-47-58-499Z.yml](../../.playwright-cli/page-2026-07-16T15-47-58-499Z.yml) |
-| page-2026-07-16T15-48-11-076Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-48-11-076Z.yml|page-2026-07-16T15-48-11-076Z.yml]] | [page-2026-07-16T15-48-11-076Z.yml](../../.playwright-cli/page-2026-07-16T15-48-11-076Z.yml) |
-| page-2026-07-16T15-48-35-818Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-48-35-818Z.yml|page-2026-07-16T15-48-35-818Z.yml]] | [page-2026-07-16T15-48-35-818Z.yml](../../.playwright-cli/page-2026-07-16T15-48-35-818Z.yml) |
-| page-2026-07-16T15-49-06-169Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-49-06-169Z.yml|page-2026-07-16T15-49-06-169Z.yml]] | [page-2026-07-16T15-49-06-169Z.yml](../../.playwright-cli/page-2026-07-16T15-49-06-169Z.yml) |
-| page-2026-07-16T15-49-47-357Z.yml | config | host-project | [[.playwright-cli/page-2026-07-16T15-49-47-357Z.yml|page-2026-07-16T15-49-47-357Z.yml]] | [page-2026-07-16T15-49-47-357Z.yml](../../.playwright-cli/page-2026-07-16T15-49-47-357Z.yml) |
-| page-2026-07-17T13-22-44-308Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-22-44-308Z.yml|page-2026-07-17T13-22-44-308Z.yml]] | [page-2026-07-17T13-22-44-308Z.yml](../../.playwright-cli/page-2026-07-17T13-22-44-308Z.yml) |
-| page-2026-07-17T13-25-09-864Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-25-09-864Z.yml|page-2026-07-17T13-25-09-864Z.yml]] | [page-2026-07-17T13-25-09-864Z.yml](../../.playwright-cli/page-2026-07-17T13-25-09-864Z.yml) |
-| page-2026-07-17T13-25-46-159Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-25-46-159Z.yml|page-2026-07-17T13-25-46-159Z.yml]] | [page-2026-07-17T13-25-46-159Z.yml](../../.playwright-cli/page-2026-07-17T13-25-46-159Z.yml) |
-| page-2026-07-17T13-27-18-499Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-27-18-499Z.yml|page-2026-07-17T13-27-18-499Z.yml]] | [page-2026-07-17T13-27-18-499Z.yml](../../.playwright-cli/page-2026-07-17T13-27-18-499Z.yml) |
-| page-2026-07-17T13-28-52-950Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-28-52-950Z.yml|page-2026-07-17T13-28-52-950Z.yml]] | [page-2026-07-17T13-28-52-950Z.yml](../../.playwright-cli/page-2026-07-17T13-28-52-950Z.yml) |
-| page-2026-07-17T13-29-11-625Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-29-11-625Z.yml|page-2026-07-17T13-29-11-625Z.yml]] | [page-2026-07-17T13-29-11-625Z.yml](../../.playwright-cli/page-2026-07-17T13-29-11-625Z.yml) |
-| page-2026-07-17T13-31-30-529Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-31-30-529Z.yml|page-2026-07-17T13-31-30-529Z.yml]] | [page-2026-07-17T13-31-30-529Z.yml](../../.playwright-cli/page-2026-07-17T13-31-30-529Z.yml) |
-| page-2026-07-17T13-32-12-958Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-32-12-958Z.yml|page-2026-07-17T13-32-12-958Z.yml]] | [page-2026-07-17T13-32-12-958Z.yml](../../.playwright-cli/page-2026-07-17T13-32-12-958Z.yml) |
-| page-2026-07-17T13-32-56-432Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-32-56-432Z.yml|page-2026-07-17T13-32-56-432Z.yml]] | [page-2026-07-17T13-32-56-432Z.yml](../../.playwright-cli/page-2026-07-17T13-32-56-432Z.yml) |
-| page-2026-07-17T13-36-51-709Z.yml | config | host-project | [[.playwright-cli/page-2026-07-17T13-36-51-709Z.yml|page-2026-07-17T13-36-51-709Z.yml]] | [page-2026-07-17T13-36-51-709Z.yml](../../.playwright-cli/page-2026-07-17T13-36-51-709Z.yml) |
-| page-2026-07-18T09-05-10-327Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-05-10-327Z.yml|page-2026-07-18T09-05-10-327Z.yml]] | [page-2026-07-18T09-05-10-327Z.yml](../../.playwright-cli/page-2026-07-18T09-05-10-327Z.yml) |
-| page-2026-07-18T09-06-39-329Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-06-39-329Z.yml|page-2026-07-18T09-06-39-329Z.yml]] | [page-2026-07-18T09-06-39-329Z.yml](../../.playwright-cli/page-2026-07-18T09-06-39-329Z.yml) |
-| page-2026-07-18T09-08-21-263Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-08-21-263Z.yml|page-2026-07-18T09-08-21-263Z.yml]] | [page-2026-07-18T09-08-21-263Z.yml](../../.playwright-cli/page-2026-07-18T09-08-21-263Z.yml) |
-| page-2026-07-18T09-08-42-732Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-08-42-732Z.yml|page-2026-07-18T09-08-42-732Z.yml]] | [page-2026-07-18T09-08-42-732Z.yml](../../.playwright-cli/page-2026-07-18T09-08-42-732Z.yml) |
-| page-2026-07-18T09-08-57-859Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-08-57-859Z.yml|page-2026-07-18T09-08-57-859Z.yml]] | [page-2026-07-18T09-08-57-859Z.yml](../../.playwright-cli/page-2026-07-18T09-08-57-859Z.yml) |
-| page-2026-07-18T09-09-25-150Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-09-25-150Z.yml|page-2026-07-18T09-09-25-150Z.yml]] | [page-2026-07-18T09-09-25-150Z.yml](../../.playwright-cli/page-2026-07-18T09-09-25-150Z.yml) |
-| page-2026-07-18T09-10-34-246Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-10-34-246Z.yml|page-2026-07-18T09-10-34-246Z.yml]] | [page-2026-07-18T09-10-34-246Z.yml](../../.playwright-cli/page-2026-07-18T09-10-34-246Z.yml) |
-| page-2026-07-18T09-10-49-906Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-10-49-906Z.yml|page-2026-07-18T09-10-49-906Z.yml]] | [page-2026-07-18T09-10-49-906Z.yml](../../.playwright-cli/page-2026-07-18T09-10-49-906Z.yml) |
-| page-2026-07-18T09-11-21-469Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-11-21-469Z.yml|page-2026-07-18T09-11-21-469Z.yml]] | [page-2026-07-18T09-11-21-469Z.yml](../../.playwright-cli/page-2026-07-18T09-11-21-469Z.yml) |
-| page-2026-07-18T09-11-36-222Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-11-36-222Z.yml|page-2026-07-18T09-11-36-222Z.yml]] | [page-2026-07-18T09-11-36-222Z.yml](../../.playwright-cli/page-2026-07-18T09-11-36-222Z.yml) |
-| page-2026-07-18T09-13-13-883Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-13-13-883Z.yml|page-2026-07-18T09-13-13-883Z.yml]] | [page-2026-07-18T09-13-13-883Z.yml](../../.playwright-cli/page-2026-07-18T09-13-13-883Z.yml) |
-| page-2026-07-18T09-15-06-802Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-15-06-802Z.yml|page-2026-07-18T09-15-06-802Z.yml]] | [page-2026-07-18T09-15-06-802Z.yml](../../.playwright-cli/page-2026-07-18T09-15-06-802Z.yml) |
-| page-2026-07-18T09-20-26-705Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-20-26-705Z.yml|page-2026-07-18T09-20-26-705Z.yml]] | [page-2026-07-18T09-20-26-705Z.yml](../../.playwright-cli/page-2026-07-18T09-20-26-705Z.yml) |
-| page-2026-07-18T09-23-48-794Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-23-48-794Z.yml|page-2026-07-18T09-23-48-794Z.yml]] | [page-2026-07-18T09-23-48-794Z.yml](../../.playwright-cli/page-2026-07-18T09-23-48-794Z.yml) |
-| page-2026-07-18T09-24-15-370Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-24-15-370Z.yml|page-2026-07-18T09-24-15-370Z.yml]] | [page-2026-07-18T09-24-15-370Z.yml](../../.playwright-cli/page-2026-07-18T09-24-15-370Z.yml) |
-| page-2026-07-18T09-25-33-847Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-25-33-847Z.yml|page-2026-07-18T09-25-33-847Z.yml]] | [page-2026-07-18T09-25-33-847Z.yml](../../.playwright-cli/page-2026-07-18T09-25-33-847Z.yml) |
-| page-2026-07-18T09-27-14-182Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-27-14-182Z.yml|page-2026-07-18T09-27-14-182Z.yml]] | [page-2026-07-18T09-27-14-182Z.yml](../../.playwright-cli/page-2026-07-18T09-27-14-182Z.yml) |
-| page-2026-07-18T09-27-21-686Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-27-21-686Z.yml|page-2026-07-18T09-27-21-686Z.yml]] | [page-2026-07-18T09-27-21-686Z.yml](../../.playwright-cli/page-2026-07-18T09-27-21-686Z.yml) |
-| page-2026-07-18T09-28-00-026Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-28-00-026Z.yml|page-2026-07-18T09-28-00-026Z.yml]] | [page-2026-07-18T09-28-00-026Z.yml](../../.playwright-cli/page-2026-07-18T09-28-00-026Z.yml) |
-| page-2026-07-18T09-28-38-467Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-28-38-467Z.yml|page-2026-07-18T09-28-38-467Z.yml]] | [page-2026-07-18T09-28-38-467Z.yml](../../.playwright-cli/page-2026-07-18T09-28-38-467Z.yml) |
-| page-2026-07-18T09-28-50-976Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-28-50-976Z.yml|page-2026-07-18T09-28-50-976Z.yml]] | [page-2026-07-18T09-28-50-976Z.yml](../../.playwright-cli/page-2026-07-18T09-28-50-976Z.yml) |
-| page-2026-07-18T09-29-11-396Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-29-11-396Z.yml|page-2026-07-18T09-29-11-396Z.yml]] | [page-2026-07-18T09-29-11-396Z.yml](../../.playwright-cli/page-2026-07-18T09-29-11-396Z.yml) |
-| page-2026-07-18T09-32-01-279Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-32-01-279Z.yml|page-2026-07-18T09-32-01-279Z.yml]] | [page-2026-07-18T09-32-01-279Z.yml](../../.playwright-cli/page-2026-07-18T09-32-01-279Z.yml) |
-| page-2026-07-18T09-32-05-224Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-32-05-224Z.yml|page-2026-07-18T09-32-05-224Z.yml]] | [page-2026-07-18T09-32-05-224Z.yml](../../.playwright-cli/page-2026-07-18T09-32-05-224Z.yml) |
-| page-2026-07-18T09-38-31-443Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-38-31-443Z.yml|page-2026-07-18T09-38-31-443Z.yml]] | [page-2026-07-18T09-38-31-443Z.yml](../../.playwright-cli/page-2026-07-18T09-38-31-443Z.yml) |
-| page-2026-07-18T09-39-09-460Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-39-09-460Z.yml|page-2026-07-18T09-39-09-460Z.yml]] | [page-2026-07-18T09-39-09-460Z.yml](../../.playwright-cli/page-2026-07-18T09-39-09-460Z.yml) |
-| page-2026-07-18T09-54-37-519Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-54-37-519Z.yml|page-2026-07-18T09-54-37-519Z.yml]] | [page-2026-07-18T09-54-37-519Z.yml](../../.playwright-cli/page-2026-07-18T09-54-37-519Z.yml) |
-| page-2026-07-18T09-55-23-103Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-55-23-103Z.yml|page-2026-07-18T09-55-23-103Z.yml]] | [page-2026-07-18T09-55-23-103Z.yml](../../.playwright-cli/page-2026-07-18T09-55-23-103Z.yml) |
-| page-2026-07-18T09-55-57-665Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-55-57-665Z.yml|page-2026-07-18T09-55-57-665Z.yml]] | [page-2026-07-18T09-55-57-665Z.yml](../../.playwright-cli/page-2026-07-18T09-55-57-665Z.yml) |
-| page-2026-07-18T09-58-15-925Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T09-58-15-925Z.yml|page-2026-07-18T09-58-15-925Z.yml]] | [page-2026-07-18T09-58-15-925Z.yml](../../.playwright-cli/page-2026-07-18T09-58-15-925Z.yml) |
-| page-2026-07-18T10-02-03-013Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-02-03-013Z.yml|page-2026-07-18T10-02-03-013Z.yml]] | [page-2026-07-18T10-02-03-013Z.yml](../../.playwright-cli/page-2026-07-18T10-02-03-013Z.yml) |
-| page-2026-07-18T10-02-29-174Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-02-29-174Z.yml|page-2026-07-18T10-02-29-174Z.yml]] | [page-2026-07-18T10-02-29-174Z.yml](../../.playwright-cli/page-2026-07-18T10-02-29-174Z.yml) |
-| page-2026-07-18T10-10-11-494Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-10-11-494Z.yml|page-2026-07-18T10-10-11-494Z.yml]] | [page-2026-07-18T10-10-11-494Z.yml](../../.playwright-cli/page-2026-07-18T10-10-11-494Z.yml) |
-| page-2026-07-18T10-10-48-668Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-10-48-668Z.yml|page-2026-07-18T10-10-48-668Z.yml]] | [page-2026-07-18T10-10-48-668Z.yml](../../.playwright-cli/page-2026-07-18T10-10-48-668Z.yml) |
-| page-2026-07-18T10-11-59-866Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-11-59-866Z.yml|page-2026-07-18T10-11-59-866Z.yml]] | [page-2026-07-18T10-11-59-866Z.yml](../../.playwright-cli/page-2026-07-18T10-11-59-866Z.yml) |
-| page-2026-07-18T10-14-25-789Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-14-25-789Z.yml|page-2026-07-18T10-14-25-789Z.yml]] | [page-2026-07-18T10-14-25-789Z.yml](../../.playwright-cli/page-2026-07-18T10-14-25-789Z.yml) |
-| page-2026-07-18T10-22-55-942Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-22-55-942Z.yml|page-2026-07-18T10-22-55-942Z.yml]] | [page-2026-07-18T10-22-55-942Z.yml](../../.playwright-cli/page-2026-07-18T10-22-55-942Z.yml) |
-| page-2026-07-18T10-23-30-357Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-23-30-357Z.yml|page-2026-07-18T10-23-30-357Z.yml]] | [page-2026-07-18T10-23-30-357Z.yml](../../.playwright-cli/page-2026-07-18T10-23-30-357Z.yml) |
-| page-2026-07-18T10-24-02-985Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T10-24-02-985Z.yml|page-2026-07-18T10-24-02-985Z.yml]] | [page-2026-07-18T10-24-02-985Z.yml](../../.playwright-cli/page-2026-07-18T10-24-02-985Z.yml) |
-| page-2026-07-18T12-39-43-619Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T12-39-43-619Z.yml|page-2026-07-18T12-39-43-619Z.yml]] | [page-2026-07-18T12-39-43-619Z.yml](../../.playwright-cli/page-2026-07-18T12-39-43-619Z.yml) |
-| page-2026-07-18T12-41-04-999Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T12-41-04-999Z.yml|page-2026-07-18T12-41-04-999Z.yml]] | [page-2026-07-18T12-41-04-999Z.yml](../../.playwright-cli/page-2026-07-18T12-41-04-999Z.yml) |
-| page-2026-07-18T12-46-43-867Z.yml | config | host-project | [[.playwright-cli/page-2026-07-18T12-46-43-867Z.yml|page-2026-07-18T12-46-43-867Z.yml]] | [page-2026-07-18T12-46-43-867Z.yml](../../.playwright-cli/page-2026-07-18T12-46-43-867Z.yml) |
+| AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
+| env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
+| 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
+| 20260616_0002_sync_settings.py | source_code | coding-standards | [[alembic/versions/20260616_0002_sync_settings.py|20260616_0002_sync_settings.py]] | [20260616_0002_sync_settings.py](../../alembic/versions/20260616_0002_sync_settings.py) |
+| 20260616_0003_clue_center_mvp.py | source_code | coding-standards | [[alembic/versions/20260616_0003_clue_center_mvp.py|20260616_0003_clue_center_mvp.py]] | [20260616_0003_clue_center_mvp.py](../../alembic/versions/20260616_0003_clue_center_mvp.py) |
+| 20260617_0004_non_commission_rules.py | source_code | coding-standards | [[alembic/versions/20260617_0004_non_commission_rules.py|20260617_0004_non_commission_rules.py]] | [20260617_0004_non_commission_rules.py](../../alembic/versions/20260617_0004_non_commission_rules.py) |
+| 20260618_0005_account_module.py | source_code | coding-standards | [[alembic/versions/20260618_0005_account_module.py|20260618_0005_account_module.py]] | [20260618_0005_account_module.py](../../alembic/versions/20260618_0005_account_module.py) |
+| 20260622_0006_clue_phone_plain.py | source_code | coding-standards | [[alembic/versions/20260622_0006_clue_phone_plain.py|20260622_0006_clue_phone_plain.py]] | [20260622_0006_clue_phone_plain.py](../../alembic/versions/20260622_0006_clue_phone_plain.py) |
+| 20260624_0007_clue_follow_up_records.py | source_code | coding-standards | [[alembic/versions/20260624_0007_clue_follow_up_records.py|20260624_0007_clue_follow_up_records.py]] | [20260624_0007_clue_follow_up_records.py](../../alembic/versions/20260624_0007_clue_follow_up_records.py) |
+| 20260624_0008_user_feedback_submissions.py | source_code | coding-standards | [[alembic/versions/20260624_0008_user_feedback_submissions.py|20260624_0008_user_feedback_submissions.py]] | [20260624_0008_user_feedback_submissions.py](../../alembic/versions/20260624_0008_user_feedback_submissions.py) |
+| 20260626_0009_product_type_visibility.py | source_code | coding-standards | [[alembic/versions/20260626_0009_product_type_visibility.py|20260626_0009_product_type_visibility.py]] | [20260626_0009_product_type_visibility.py](../../alembic/versions/20260626_0009_product_type_visibility.py) |
+| 20260626_0010_product_type_default.py | source_code | coding-standards | [[alembic/versions/20260626_0010_product_type_default.py|20260626_0010_product_type_default.py]] | [20260626_0010_product_type_default.py](../../alembic/versions/20260626_0010_product_type_default.py) |
+| 20260706_0011_product_scope_visibility.py | source_code | coding-standards | [[alembic/versions/20260706_0011_product_scope_visibility.py|20260706_0011_product_scope_visibility.py]] | [20260706_0011_product_scope_visibility.py](../../alembic/versions/20260706_0011_product_scope_visibility.py) |
+| 20260712_0012_clue_allocation_m1_foundation.py | source_code | coding-standards | [[alembic/versions/20260712_0012_clue_allocation_m1_foundation.py|20260712_0012_clue_allocation_m1_foundation.py]] | [20260712_0012_clue_allocation_m1_foundation.py](../../alembic/versions/20260712_0012_clue_allocation_m1_foundation.py) |
+| 20260712_0013_clue_allocation_rule_versions.py | source_code | coding-standards | [[alembic/versions/20260712_0013_clue_allocation_rule_versions.py|20260712_0013_clue_allocation_rule_versions.py]] | [20260712_0013_clue_allocation_rule_versions.py](../../alembic/versions/20260712_0013_clue_allocation_rule_versions.py) |
+| 20260712_0014_clue_allocation_engine.py | source_code | coding-standards | [[alembic/versions/20260712_0014_clue_allocation_engine.py|20260712_0014_clue_allocation_engine.py]] | [20260712_0014_clue_allocation_engine.py](../../alembic/versions/20260712_0014_clue_allocation_engine.py) |
+| 20260712_0015_clue_follow_up_state_machine.py | source_code | coding-standards | [[alembic/versions/20260712_0015_clue_follow_up_state_machine.py|20260712_0015_clue_follow_up_state_machine.py]] | [20260712_0015_clue_follow_up_state_machine.py](../../alembic/versions/20260712_0015_clue_follow_up_state_machine.py) |
+| 20260712_0016_clue_allocation_cycles.py | source_code | coding-standards | [[alembic/versions/20260712_0016_clue_allocation_cycles.py|20260712_0016_clue_allocation_cycles.py]] | [20260712_0016_clue_allocation_cycles.py](../../alembic/versions/20260712_0016_clue_allocation_cycles.py) |
+| 20260713_0017_drop_clue_reassign_rule_settings.py | source_code | coding-standards | [[alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py|20260713_0017_drop_clue_reassign_rule_settings.py]] | [20260713_0017_drop_clue_reassign_rule_settings.py](../../alembic/versions/20260713_0017_drop_clue_reassign_rule_settings.py) |
+| 20260721_0018_account_access_control.py | source_code | coding-standards | [[alembic/versions/20260721_0018_account_access_control.py|20260721_0018_account_access_control.py]] | [20260721_0018_account_access_control.py](../../alembic/versions/20260721_0018_account_access_control.py) |
+| 20260722_0019_add_cli_authorizations.py | source_code | coding-standards | [[alembic/versions/20260722_0019_add_cli_authorizations.py|20260722_0019_add_cli_authorizations.py]] | [20260722_0019_add_cli_authorizations.py](../../alembic/versions/20260722_0019_add_cli_authorizations.py) |
+| 20260722_0020_cli_audit_and_refresh_families.py | source_code | coding-standards | [[alembic/versions/20260722_0020_cli_audit_and_refresh_families.py|20260722_0020_cli_audit_and_refresh_families.py]] | [20260722_0020_cli_audit_and_refresh_families.py](../../alembic/versions/20260722_0020_cli_audit_and_refresh_families.py) |
+| __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
+| access_control.py | source_code | coding-standards | [[apps/api/dy_api/access_control.py|access_control.py]] | [access_control.py](../../apps/api/dy_api/access_control.py) |
+| auth.py | source_code | coding-standards | [[apps/api/dy_api/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/auth.py) |
+| cli_audit.py | source_code | coding-standards | [[apps/api/dy_api/cli_audit.py|cli_audit.py]] | [cli_audit.py](../../apps/api/dy_api/cli_audit.py) |
+| cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/cli_auth.py) |
+| cli_contract.py | source_code | coding-standards | [[apps/api/dy_api/cli_contract.py|cli_contract.py]] | [cli_contract.py](../../apps/api/dy_api/cli_contract.py) |
+| db.py | source_code | coding-standards | [[apps/api/dy_api/db.py|db.py]] | [db.py](../../apps/api/dy_api/db.py) |
+| main.py | source_code | coding-standards | [[apps/api/dy_api/main.py|main.py]] | [main.py](../../apps/api/dy_api/main.py) |
+| models.py | source_code | coding-standards | [[apps/api/dy_api/models.py|models.py]] | [models.py](../../apps/api/dy_api/models.py) |
+| _data.py | source_code | coding-standards | [[apps/api/dy_api/routes/_data.py|_data.py]] | [_data.py](../../apps/api/dy_api/routes/_data.py) |
+| admin.py | source_code | coding-standards | [[apps/api/dy_api/routes/admin.py|admin.py]] | [admin.py](../../apps/api/dy_api/routes/admin.py) |
+| auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/routes/auth.py) |
+| cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/routes/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/routes/cli_auth.py) |
+| cli.py | source_code | coding-standards | [[apps/api/dy_api/routes/cli.py|cli.py]] | [cli.py](../../apps/api/dy_api/routes/cli.py) |
+| clues.py | source_code | coding-standards | [[apps/api/dy_api/routes/clues.py|clues.py]] | [clues.py](../../apps/api/dy_api/routes/clues.py) |
+| dashboard.py | source_code | coding-standards | [[apps/api/dy_api/routes/dashboard.py|dashboard.py]] | [dashboard.py](../../apps/api/dy_api/routes/dashboard.py) |
+| feedback.py | source_code | coding-standards | [[apps/api/dy_api/routes/feedback.py|feedback.py]] | [feedback.py](../../apps/api/dy_api/routes/feedback.py) |
+| jobs.py | source_code | coding-standards | [[apps/api/dy_api/routes/jobs.py|jobs.py]] | [jobs.py](../../apps/api/dy_api/routes/jobs.py) |
+| meta.py | source_code | coding-standards | [[apps/api/dy_api/routes/meta.py|meta.py]] | [meta.py](../../apps/api/dy_api/routes/meta.py) |
+| rule_utils.py | source_code | coding-standards | [[apps/api/dy_api/rule_utils.py|rule_utils.py]] | [rule_utils.py](../../apps/api/dy_api/rule_utils.py) |
+| schemas.py | source_code | coding-standards | [[apps/api/dy_api/schemas.py|schemas.py]] | [schemas.py](../../apps/api/dy_api/schemas.py) |
+| user_auth_state.py | source_code | coding-standards | [[apps/api/dy_api/user_auth_state.py|user_auth_state.py]] | [user_auth_state.py](../../apps/api/dy_api/user_auth_state.py) |
+| __init__.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/__init__.py|__init__.py]] | [__init__.py](../../apps/cli/src/dydata_cli/__init__.py) |
+| client.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/client.py|client.py]] | [client.py](../../apps/cli/src/dydata_cli/client.py) |
+| commands.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/commands.py|commands.py]] | [commands.py](../../apps/cli/src/dydata_cli/commands.py) |
+| constants.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/constants.py|constants.py]] | [constants.py](../../apps/cli/src/dydata_cli/constants.py) |
+| contracts.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/contracts.py|contracts.py]] | [contracts.py](../../apps/cli/src/dydata_cli/contracts.py) |
+| credentials.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/credentials.py|credentials.py]] | [credentials.py](../../apps/cli/src/dydata_cli/credentials.py) |
+| docs.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/docs.py|docs.py]] | [docs.py](../../apps/cli/src/dydata_cli/docs.py) |
+| errors.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/errors.py|errors.py]] | [errors.py](../../apps/cli/src/dydata_cli/errors.py) |
+| interactive_auth.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/interactive_auth.py|interactive_auth.py]] | [interactive_auth.py](../../apps/cli/src/dydata_cli/interactive_auth.py) |
+| main.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/main.py|main.py]] | [main.py](../../apps/cli/src/dydata_cli/main.py) |
+| output.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/output.py|output.py]] | [output.py](../../apps/cli/src/dydata_cli/output.py) |
+| parser.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/parser.py|parser.py]] | [parser.py](../../apps/cli/src/dydata_cli/parser.py) |
+| registry.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/registry.py|registry.py]] | [registry.py](../../apps/cli/src/dydata_cli/registry.py) |
+| url_security.py | source_code | coding-standards | [[apps/cli/src/dydata_cli/url_security.py|url_security.py]] | [url_security.py](../../apps/cli/src/dydata_cli/url_security.py) |
+| index.html | doc | host-project | [[apps/web/index.html|index.html]] | [index.html](../../apps/web/index.html) |
+| package-lock.json | config | host-project | [[apps/web/package-lock.json|package-lock.json]] | [package-lock.json](../../apps/web/package-lock.json) |
+| package.json | config | host-project | [[apps/web/package.json|package.json]] | [package.json](../../apps/web/package.json) |
+| app.js | source_code | coding-standards | [[apps/web/public/account-activation-guide/assets/app.js|app.js]] | [app.js](../../apps/web/public/account-activation-guide/assets/app.js) |
+| print.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/print.css|print.css]] | [print.css](../../apps/web/public/account-activation-guide/assets/print.css) |
+| styles.css | doc | host-project | [[apps/web/public/account-activation-guide/assets/styles.css|styles.css]] | [styles.css](../../apps/web/public/account-activation-guide/assets/styles.css) |
+| index.html | doc | host-project | [[apps/web/public/account-activation-guide/index.html|index.html]] | [index.html](../../apps/web/public/account-activation-guide/index.html) |
+| dy-data Web | readme | host-project | [[apps/web/README.md|dy-data Web]] | [dy-data Web](../../apps/web/README.md) |
+| client.ts | source_code | coding-standards | [[apps/web/src/api/client.ts|client.ts]] | [client.ts](../../apps/web/src/api/client.ts) |
+| App.tsx | source_code | coding-standards | [[apps/web/src/App.tsx|App.tsx]] | [App.tsx](../../apps/web/src/App.tsx) |
+| Button.tsx | source_code | coding-standards | [[apps/web/src/components/Button.tsx|Button.tsx]] | [Button.tsx](../../apps/web/src/components/Button.tsx) |
+| Chips.tsx | source_code | coding-standards | [[apps/web/src/components/Chips.tsx|Chips.tsx]] | [Chips.tsx](../../apps/web/src/components/Chips.tsx) |
+| CommissionRulesButton.tsx | source_code | coding-standards | [[apps/web/src/components/CommissionRulesButton.tsx|CommissionRulesButton.tsx]] | [CommissionRulesButton.tsx](../../apps/web/src/components/CommissionRulesButton.tsx) |
+| DataTable.tsx | source_code | coding-standards | [[apps/web/src/components/DataTable.tsx|DataTable.tsx]] | [DataTable.tsx](../../apps/web/src/components/DataTable.tsx) |
+| DefinitionList.tsx | source_code | coding-standards | [[apps/web/src/components/DefinitionList.tsx|DefinitionList.tsx]] | [DefinitionList.tsx](../../apps/web/src/components/DefinitionList.tsx) |
+| Dialog.tsx | source_code | coding-standards | [[apps/web/src/components/Dialog.tsx|Dialog.tsx]] | [Dialog.tsx](../../apps/web/src/components/Dialog.tsx) |
+| Filters.tsx | source_code | coding-standards | [[apps/web/src/components/Filters.tsx|Filters.tsx]] | [Filters.tsx](../../apps/web/src/components/Filters.tsx) |
+| FormControls.tsx | source_code | coding-standards | [[apps/web/src/components/FormControls.tsx|FormControls.tsx]] | [FormControls.tsx](../../apps/web/src/components/FormControls.tsx) |
+| MetricCard.tsx | source_code | coding-standards | [[apps/web/src/components/MetricCard.tsx|MetricCard.tsx]] | [MetricCard.tsx](../../apps/web/src/components/MetricCard.tsx) |
+| ResourceState.tsx | source_code | coding-standards | [[apps/web/src/components/ResourceState.tsx|ResourceState.tsx]] | [ResourceState.tsx](../../apps/web/src/components/ResourceState.tsx) |
 
 ## 3. 关系
 
 | 来源 | 关系 | 目标 | 证据 |
 |---|---|---|---|
-| .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | links_to | .gstack/qa-baselines/clue-allocation-round2-2026-07-18.json | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md:136 |
 | AGENTS.md | links_to | AGENTS.md | AGENTS.md:80 |
 | AGENTS.md | links_to | docs/governance/authority-map.md | AGENTS.md:92 |
 | AGENTS.md | links_to | docs/plans/execution-plan.md | AGENTS.md:88 |
@@ -121,8 +120,12 @@
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | docs/governance/authority-map.md | docs/baseline/dydata-6-baseline-dry-run-review.md:50 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | project-profile.md | docs/baseline/dydata-6-baseline-dry-run-review.md:16 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | README.md | docs/baseline/dydata-6-baseline-dry-run-review.md:41 |
+| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m1-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:228 |
+| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:228 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/brd/BRD-dy-data-20260716-1255.md:7 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | project-profile.md | docs/brd/BRD-dy-data-20260716-1255.md:6 |
+| docs/cli-agent-guide.md | links_to | docs/cli-agent-acceptance.md | docs/cli-agent-guide.md:28 |
+| docs/cli-agent-guide.md | links_to | docs/cli-command-reference.md | docs/cli-agent-guide.md:28 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | AGENTS.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:52 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | docs/项目产品介绍书.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:50 |
 | docs/devlog/20260714_refactor_log_Keith_Chen.md | links_to | docs/api-contract.md | docs/devlog/20260714_refactor_log_Keith_Chen.md:51 |
@@ -138,6 +141,18 @@
 | docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:27 |
 | docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:27 |
 | docs/devlog/20260719_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260719_refactor_log_Keith_Chen.md:81 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/brd/BRD-clue-center-20260721-2134.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/brd/brd-ledger-clue-center.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/devlog/20260721_refactor_log_Keith_Chen.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:96 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/governance/authority-map.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-glossary-clue-center.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:96 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-schema-clue-center.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:107 |
+| docs/devlog/20260721_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260721_refactor_log_Keith_Chen.md:27 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-api-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | docs/prd/foundation/foundation-schema-clue-center.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
+| docs/devlog/20260722_refactor_log_Keith_Chen.md | links_to | project-profile.md | docs/devlog/20260722_refactor_log_Keith_Chen.md:31 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -145,7 +160,9 @@
 | docs/governance/authority-map.md | links_to | docs/项目产品介绍书.md | docs/governance/authority-map.md:23 |
 | docs/governance/authority-map.md | links_to | docs/api-contract.md | docs/governance/authority-map.md:31 |
 | docs/governance/authority-map.md | links_to | docs/architecture.md | docs/governance/authority-map.md:25 |
+| docs/governance/authority-map.md | links_to | docs/brd/BRD-clue-center-20260721-2134.md | docs/governance/authority-map.md:40 |
 | docs/governance/authority-map.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | docs/governance/authority-map.md:38 |
+| docs/governance/authority-map.md | links_to | docs/brd/brd-ledger-clue-center.md | docs/governance/authority-map.md:41 |
 | docs/governance/authority-map.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/governance/authority-map.md:39 |
 | docs/governance/authority-map.md | links_to | docs/data-model.md | docs/governance/authority-map.md:34 |
 | docs/governance/authority-map.md | links_to | docs/design-system/README.md | docs/governance/authority-map.md:24 |
@@ -170,11 +187,20 @@
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/data-model.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:973 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/runbook.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:975 |
 | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:3 |
+| docs/plans/2026-07-22-secure-terminal-cli-login-controller-spec.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/2026-07-22-secure-terminal-cli-login-controller-spec.md:10 |
+| docs/plans/2026-07-22-secure-terminal-cli-login-controller-spec.md | links_to | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/2026-07-22-secure-terminal-cli-login-controller-spec.md:11 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:12 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:78 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:79 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:80 |
 | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md:84 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:80 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:81 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:91 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.4-verification.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:92 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:96 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:22 |
+| docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | links_to | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md:23 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:5 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md:6 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | depends_on | docs/brd/BRD-dy-data-20260716-1255.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:14 |
@@ -182,61 +208,23 @@
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md:6 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:5 |
 | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md:6 |
-| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:5 |
-| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.2-backend.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:6 |
-| docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/task-kanban-dydata-22-dual-id-activation.md:7 |
-| docs/plans/execution-plan.md | links_to | project-profile.md | docs/plans/execution-plan.md:39 |
-| docs/plans/execution-plan.md | links_to | src/frontend/page-preview/page-delivery-dy-data.md | docs/plans/execution-plan.md:30 |
-| docs/rules/backend-tasks.md | links_to | docs/api-contract.md | docs/rules/backend-tasks.md:17 |
-| docs/rules/backend-tasks.md | links_to | docs/rules/database-tasks.md | docs/rules/backend-tasks.md:11 |
-| docs/rules/backend-tasks.md | links_to | docs/rules/frontend-tasks.md | docs/rules/backend-tasks.md:11 |
-| docs/rules/devlog.md | links_to | docs/plans/execution-plan.md | docs/rules/devlog.md:19 |
-| docs/rules/devlog.md | links_to | project-profile.md | docs/rules/devlog.md:5 |
-| docs/rules/docs-and-plans.md | links_to | docs/governance/authority-map.md | docs/rules/docs-and-plans.md:9 |
-| docs/rules/docs-and-plans.md | links_to | docs/plans/execution-plan.md | docs/rules/docs-and-plans.md:7 |
-| docs/rules/docs-and-plans.md | links_to | project-profile.md | docs/rules/docs-and-plans.md:6 |
-| docs/rules/frontend-tasks.md | links_to | docs/design-system/README.md | docs/rules/frontend-tasks.md:10 |
-| docs/rules/README.md | links_to | AGENTS.md | docs/rules/README.md:16 |
-| docs/rules/README.md | links_to | docs/rules/backend-tasks.md | docs/rules/README.md:7 |
-| docs/rules/README.md | links_to | docs/rules/database-tasks.md | docs/rules/README.md:8 |
-| docs/rules/README.md | links_to | docs/rules/debugging.md | docs/rules/README.md:10 |
-| docs/rules/README.md | links_to | docs/rules/devlog.md | docs/rules/README.md:12 |
-| docs/rules/README.md | links_to | docs/rules/docs-and-plans.md | docs/rules/README.md:11 |
-| docs/rules/README.md | links_to | docs/rules/frontend-tasks.md | docs/rules/README.md:9 |
-| docs/runbook.md | links_to | docs/项目产品介绍书.md | docs/runbook.md:3 |
-| docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md | links_to | docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md | docs/superpowers/plans/2026-07-12-clue-allocation-m2-m3.md:3 |
-| docs/superpowers/plans/2026-07-17-clue-allocation-demo-mode.md | links_to | apps/web/README.md | docs/superpowers/plans/2026-07-17-clue-allocation-demo-mode.md:46 |
-| docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md:3 |
-| docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | links_to | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:9 |
-| docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | links_to | docs/superpowers/specs/2026-06-23-clue-follow-up-center-design.md | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md:10 |
-| docs/superpowers/specs/2026-07-17-clue-allocation-demo-mode-design.md | links_to | docs/superpowers/specs/2026-07-12-clue-allocation-engine-product-design.md | docs/superpowers/specs/2026-07-17-clue-allocation-demo-mode-design.md:7 |
-| docs/tencent-edgeone-migration.md | links_to | docs/runbook.md | docs/tencent-edgeone-migration.md:5 |
-| mock/README.md | links_to | docs/api-contract.md | mock/README.md:5 |
-| mock/README.md | links_to | docs/data-model.md | mock/README.md:5 |
-| project-rules.md | links_to | AGENTS.md | project-rules.md:3 |
-| project-rules.md | links_to | docs/design-system/README.md | project-rules.md:39 |
-| project-rules.md | links_to | docs/governance/authority-map.md | project-rules.md:13 |
-| project-rules.md | links_to | docs/plans/execution-plan.md | project-rules.md:10 |
-| project-rules.md | links_to | project-profile.md | project-rules.md:12 |
-| project-rules.md | links_to | project-rules.md | project-rules.md:65 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | depends_on | docs/superpowers/specs/2026-07-21-agent-first-read-only-cli-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:14 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md | depends_on | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.1-auth-session.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:6 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md | depends_on | docs/superpowers/specs/2026-07-22-secure-terminal-cli-login-design.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.2-command-flow.md:13 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/cli-agent-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:25 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/cli-command-reference.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:26 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/plans/delivery-plans/main-delivery-plan-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:5 |
+| docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md | links_to | docs/plans/delivery-plans/task-kanban-dydata-40-secure-terminal-login.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-40-secure-terminal-login-T1.3-docs-contract.md:6 |
 
 ## 4. 诊断问题
 
 | 级别 | code | 位置 | 说明 |
 |---|---|---|---|
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/admin-headquarters-pool.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/admin-rules.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/admin-trial.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/store-desktop-detail.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/store-desktop-list.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md references missing file output/playwright/clue-allocation-qa-20260718/store-mobile-detail.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/admin-allocation-records.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/admin-headquarters-pool.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/admin-rules.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/store-clue-detail-desktop.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/store-clue-detail-mobile-scrolled-verified.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/store-clue-detail-mobile.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/store-clue-list-desktop.png |
-| error | broken_link | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md | .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md references missing file output/playwright/clue-allocation-qa-round2-20260718/store-reassigned-old-store-readonly.png |
+| error | broken_link | docs/brd/BRD-clue-center-20260721-2134.md | docs/brd/BRD-clue-center-20260721-2134.md references missing file .gstack/qa-reports/qa-report-clue-allocation-2026-07-18.md |
+| error | broken_link | docs/brd/BRD-clue-center-20260721-2134.md | docs/brd/BRD-clue-center-20260721-2134.md references missing file .gstack/qa-reports/qa-report-clue-allocation-round2-2026-07-18.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |

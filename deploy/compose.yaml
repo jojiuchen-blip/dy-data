@@ -39,6 +39,7 @@ services:
       DY_SESSION_SECRET: ${DY_SESSION_SECRET:-CHANGE_ME_SESSION_SECRET}
       DY_SESSION_COOKIE_SECURE: ${DY_SESSION_COOKIE_SECURE:-true}
       DY_WEB_BASE_URL: ${DY_WEB_BASE_URL:?DY_WEB_BASE_URL is required}
+      DY_AGENT_ENVIRONMENT: test
       TZ: Asia/Shanghai
     expose:
       - "8000"

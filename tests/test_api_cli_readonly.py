@@ -129,10 +129,17 @@ def _client(auth: AuthContext, store: FakeStore | None = None) -> tuple[TestClie
 def _assert_error(response, *, status_code: int, command: str, code: str) -> None:
     assert response.status_code == status_code
     body = response.json()
-    assert set(body) == {"ok", "command", "schema_version", "error"}
+    assert set(body) == {
+        "ok",
+        "command",
+        "environment",
+        "schema_version",
+        "error",
+    }
     assert body["ok"] is False
     assert body["command"] == command
-    assert body["schema_version"] == "1.0"
+    assert body["environment"] == "test"
+    assert body["schema_version"] == "1.1"
     assert body["error"]["code"] == code
     assert body["error"]["retryable"] is False
     assert body["error"]["request_id"] == response.headers["x-request-id"]
@@ -149,7 +156,8 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
     assert auth_status.json() == {
         "ok": True,
         "command": "auth.status",
-        "schema_version": "1.0",
+        "environment": "test",
+        "schema_version": "1.1",
         "data": {
             "authenticated": True,
             "user_id": "user-1",
@@ -168,7 +176,8 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
     assert stores.json() == {
         "ok": True,
         "command": "stores.list",
-        "schema_version": "1.0",
+        "environment": "test",
+        "schema_version": "1.1",
         "scope": {
             "user_id": "user-1",
             "effective_store_ids": ["store-a", "store-b"],
@@ -220,7 +229,8 @@ def test_follow_up_summary_uses_authorized_subset_and_stable_metric_contract() -
     assert response.status_code == 200
     body = response.json()
     assert body["command"] == "clues.follow-up-stats"
-    assert body["schema_version"] == "1.0"
+    assert body["environment"] == "test"
+    assert body["schema_version"] == "1.1"
     assert body["metric_version"] == "clue-follow-up-v1"
     assert body["scope"] == {
         "user_id": "user-1",

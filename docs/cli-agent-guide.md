@@ -27,6 +27,18 @@ owning process crashes. The lock file contains no credential material.
 
 命令目录的运行时权威来源是 `dydata commands --json`。`docs/cli-command-reference.md` 只是从该目录自动生成的可读副本，不能替代发现命令或手工维护。部署后的 Agent 接入验证按 [Agent CLI 使用验收](cli-agent-acceptance.md) 执行。
 
+## 测试环境与 Agent 发现
+
+本文中的 `test` 明确指已经部署在腾讯云的当前版本，公开根地址为 `https://dy-business-engine.com`。`production` 明确指未来尚未部署的企业内网服务器版本；在 DYDATA-46 完成生产上线前，不存在可供 Agent 使用的生产入口，任何内网地址都不能被当成当前可用端点。
+
+当前正式支持的命名环境只有 `test`，机器入口为 `https://dy-business-engine.com/.well-known/dydata-agent.json`。Agent 应先读取该 manifest，再按自身能力选择远程 MCP 或 CLI fallback；远程 MCP 地址为 `https://dy-business-engine.com/mcp`，授权必须交给用户在 dydata 官方页面完成。
+
+CLI 默认等价于 `DYDATA_ENV=test`。未知环境会快速失败，`DYDATA_API_URL` 不再是正式覆盖入口，避免 Agent 或本机环境变量把测试凭据误送到其他服务。keyring 账号同时绑定环境名和服务端身份；旧 `default` 槽位不会被自动读取或迁移。
+
+未来企业内网生产版上线时，不能只替换一个域名：DYDATA-46 必须同步切换命名环境注册表、manifest、MCP/OAuth issuer 与 resource、动态客户端和回调策略、服务端部署变量、keyring 命名空间、安装文档及部署后 smoke；测试凭据不得自动迁入生产槽位。
+
+安装或更新后先执行 `dydata agent doctor --json`。该诊断会验证 manifest、MCP protected-resource metadata、CLI/schema 版本、本环境凭据状态以及当前账号门店范围；未登录是正常诊断状态。诊断不会输出请求 header、Cookie、Token、refresh token、device code、授权 code 或 keyring 原文。
+
 ## 登录与人工交接
 
 Agent 可以在用户明确要求后启动 `dydata auth login`，前提是 Agent 的命令工具提供可由用户接管的真实安全交互 TTY。命令启动后，凭据输入和授权确认仅由人工执行；Agent 必须在 `Username:` 出现前停止代填并把输入权交给用户。`human_handoff.agent_may_launch` 是唯一窄例外：它只解除“不得启动”这一点，不把命令变成 Agent 可自主完成的调用，也不允许 Agent 提供任何凭据。

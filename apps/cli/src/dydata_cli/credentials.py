@@ -15,6 +15,8 @@ from typing import Protocol
 
 import keyring
 
+from .environments import EnvironmentConfig, resolve_environment
+
 
 _UNSET = object()
 
@@ -100,18 +102,22 @@ class CredentialStore:
     """Persist one atomic JSON credential state in the OS keyring."""
 
     service = "dydata-cli"
-    account = "default"
 
     def __init__(
         self,
         *,
         keyring_backend: KeyringBackend | None = None,
+        environment: EnvironmentConfig | None = None,
         lock_path: Path | None = None,
         lock_timeout: float = 30.0,
     ) -> None:
+        self.environment = environment or resolve_environment()
+        self.account = self.environment.credential_account
         self._keyring = keyring_backend or keyring
         self._lock_path = lock_path or (
-            Path(tempfile.gettempdir()) / "dydata-cli" / "credentials.lock"
+            Path(tempfile.gettempdir())
+            / "dydata-cli"
+            / f"credentials-{self.environment.name}-{self.account.rsplit(':', 1)[-1]}.lock"
         )
         self._lock_timeout = lock_timeout
 
