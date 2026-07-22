@@ -304,6 +304,53 @@ def test_dynamic_registration_rejects_unsafe_redirect_uris(
 
 
 @pytest.mark.parametrize(
+    "body, marker",
+    [
+        (b'{"client_name": invalid-json-secret-marker}', "invalid-json-secret-marker"),
+        (b"", ""),
+        (
+            b'{"client_name":"invalid-utf8-secret-marker\xff"}',
+            "invalid-utf8-secret-marker",
+        ),
+        (b'{"software_id": NaN}', "NaN"),
+        (b"[" * 4000 + b"{}" + b"]" * 4000, "RecursionError"),
+        (b'["top-level-array-secret-marker"]', "top-level-array-secret-marker"),
+        (b'"top-level-string-secret-marker"', "top-level-string-secret-marker"),
+    ],
+    ids=[
+        "malformed-json",
+        "empty",
+        "invalid-utf8",
+        "non-json-constant",
+        "deeply-nested",
+        "array",
+        "string",
+    ],
+)
+def test_dynamic_registration_rejects_invalid_json_metadata_bodies(
+    mcp_stack, body: bytes, marker: str
+) -> None:
+    client, _, factory = mcp_stack
+
+    response = client.post(
+        "/register",
+        content=body,
+        headers={"Content-Type": "application/json"},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_client_metadata"
+    assert response.json()["error_description"] == "Client metadata is invalid"
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["pragma"] == "no-cache"
+    assert response.headers["access-control-allow-origin"] == "*"
+    if marker:
+        assert marker not in response.text
+    with factory() as session:
+        assert session.scalars(select(McpOAuthClient)).all() == []
+
+
+@pytest.mark.parametrize(
     "redirect_uri",
     [
         "https://agent.example/callback",

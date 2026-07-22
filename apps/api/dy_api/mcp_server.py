@@ -94,6 +94,10 @@ def _oauth_json_error(
     )
 
 
+def _reject_non_json_constant(_value: str) -> None:
+    raise ValueError
+
+
 async def _read_limited_request_body(
     request: Request, *, max_bytes: int
 ) -> tuple[bytes, bool]:
@@ -537,6 +541,22 @@ def install_mcp_public_routes(
                 "invalid_client_metadata",
                 "Client metadata is too large",
                 status_code=413,
+            )
+        try:
+            metadata = json.loads(
+                body.decode("utf-8"), parse_constant=_reject_non_json_constant
+            )
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, ValueError):
+            return _oauth_json_error(
+                "invalid_client_metadata",
+                "Client metadata is invalid",
+                status_code=400,
+            )
+        if not isinstance(metadata, dict):
+            return _oauth_json_error(
+                "invalid_client_metadata",
+                "Client metadata is invalid",
+                status_code=400,
             )
         response = await registration_handler.handle(
             _request_with_replayed_body(request, body)
