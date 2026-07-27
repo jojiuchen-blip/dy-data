@@ -19,10 +19,12 @@ export function SpaceAiSignature({
   ]
     .filter(Boolean)
     .join(" ");
+  const accessibleName =
+    variant === "mark" ? "SPACE" : "Powered by SPACE AI Native";
 
   return (
     <div
-      aria-label="Powered by SPACE AI Native"
+      aria-label={accessibleName}
       className={classes}
       role="img"
     >

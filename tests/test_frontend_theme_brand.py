@@ -91,7 +91,8 @@ def test_space_ai_signature_is_a_shared_dual_theme_component() -> None:
     assert dark_mark.is_file()
     assert font.is_file()
     assert 'export type SpaceAiSignatureVariant = "horizontal" | "stacked" | "mark"' in signature
-    assert 'aria-label="Powered by SPACE AI Native"' in signature
+    assert 'variant === "mark" ? "SPACE" : "Powered by SPACE AI Native"' in signature
+    assert "aria-label={accessibleName}" in signature
     assert '>\n          POWERED BY\n        </span>' in signature
     assert '>\n          AI NATIVE\n        </span>' in signature
     assert signature.count("space-ai-signature__mark-wrap") == 1

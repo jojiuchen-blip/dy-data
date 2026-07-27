@@ -328,7 +328,7 @@ def install_api_routes(page: Page) -> None:
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
-            "dy-data UI 设计规范 V0.2",
+            "dy-data UI 设计规范 V0.2.1",
             "heading",
         ),
         (

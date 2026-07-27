@@ -59,7 +59,7 @@ def test_design_system_readme_declares_the_workflow_contract() -> None:
         "apps/web/src/design-tokens.css",
         "tests/test_design_system_docs.py",
         "tests/test_design_system_enforcement.py",
-        "V0.2 是正式生效的浅色与深色设计系统",
+        "V0.2.1 是 V0.2 系列当前正式生效的浅色与深色设计系统",
         "状态为 `active`",
         "支持 `system | light | dark`",
         "dydata.theme.preference",
@@ -276,10 +276,6 @@ def test_legacy_green_is_reserved_for_semantic_success_styles() -> None:
         ".clue-allocation-version-status.is-published",
         ".clue-followup-toast",
         ".feedback-form__message--success",
-        ".sales-monthly-chart__area--verified",
-        ".sales-monthly-chart__dot--verified",
-        ".sales-monthly-chart__legend-item--verified::before",
-        ".sales-monthly-chart__line--verified",
         ".ui-chip--success",
     }
     offenders: list[str] = []

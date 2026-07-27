@@ -23,6 +23,14 @@ DESIGN_TOKENS_CSS_PATH = REPO_ROOT / "apps" / "web" / "src" / "design-tokens.css
 WEB_PACKAGE_PATH = REPO_ROOT / "apps" / "web" / "package.json"
 SOLAR_ICON_PATH = REPO_ROOT / "apps" / "web" / "src" / "components" / "SolarIcon.tsx"
 FAVICON_PATH = REPO_ROOT / "apps" / "web" / "public" / "business-engine-icon-v2.svg"
+SALES_CHARTS_PATH = (
+    REPO_ROOT / "apps" / "web" / "src" / "components" / "charts" / "SalesCharts.tsx"
+)
+ECHARTS_FIGURE_PATH = (
+    REPO_ROOT / "apps" / "web" / "src" / "components" / "charts" / "EChartsFigure.tsx"
+)
+SALES_PAGE_PATH = REPO_ROOT / "apps" / "web" / "src" / "pages" / "SalesDashboardPage.tsx"
+CHART_NOTICES_PATH = DESIGN_SYSTEM_DIR / "THIRD_PARTY_NOTICES.md"
 
 
 def read_text(path: Path) -> str:
@@ -42,7 +50,7 @@ def test_v02_is_the_active_runtime_design_system() -> None:
         "name": "dy-data UI Design System",
         "version": "0.2.1",
         "status": "active",
-        "lastUpdated": "2026-07-23",
+        "lastUpdated": "2026-07-25",
         "language": "zh-CN",
         "colorMode": "light-dark-system",
         "darkModeStatus": "runtime-active",
@@ -80,12 +88,27 @@ def test_v02_is_the_active_runtime_design_system() -> None:
     assert "Solar chevronDown" in components["field"]["selectIndicator"]
     assert "CSS or text chevron" in components["field"]["selectIndicator"]
 
+    signature = components["spaceAiSignature"]
+    assert signature["visualComposition"] == "POWERED BY + SPACE SVG + AI NATIVE"
+    assert signature["supportingTypeface"] == "Ethnocentric Regular"
+    assert signature["supportingTextTargets"] == ["POWERED BY", "AI NATIVE"]
+    assert signature["horizontalMarkWidth"] == "84px"
+    assert signature["horizontalSupportingFontSize"] == "11px"
+    assert signature["stackedRailMarkWidth"] == "70px"
+    assert signature["stackedSupportingFontSize"] == "8px"
+    assert signature["markOnlyWidth"] == "64px"
+    assert signature["background"] == "transparent"
+    assert signature["accessibleNames"]["mark"] == "SPACE"
+    assert "navigation" in signature["forbiddenTypefaceTargets"]
+    assert "secondary and tertiary navigation" in signature["excludedPlacements"]
+
     assert colors["green"]["value"] == candidate["tokens"]["color"]["green"]["value"]
     assert colors["blue"]["value"] == candidate["tokens"]["color"]["blue"]["value"]
     assert colors["amber"]["value"] == candidate["tokens"]["color"]["amber"]["value"]
     assert colors["danger"]["value"] == candidate["tokens"]["color"]["danger"]["value"]
 
-    assert "dy-data UI 设计规范 V0.2" in html
+    assert f"dy-data UI 设计规范 V{tokens['meta']['version']}" in html
+    assert f'<meta name="dydata-design-system-version" content="{tokens["meta"]["version"]}"' in html
     assert "状态：active" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
@@ -123,10 +146,11 @@ def test_formal_v02_artifacts_identify_the_active_runtime_contract() -> None:
     assert tokens["meta"]["status"] == "active"
     assert tokens["meta"]["colorMode"] == "light-dark-system"
     assert tokens["meta"]["darkModeStatus"] == "runtime-active"
-    assert "dy-data UI 设计规范 V0.2" in html
+    assert f"dy-data UI 设计规范 V{tokens['meta']['version']}" in html
+    assert f'<meta name="dydata-design-system-version" content="{tokens["meta"]["version"]}"' in html
     assert "状态：active" in html
     assert "模式：light / dark / system" in html
-    assert "更新：2026-07-23" in html
+    assert "更新：2026-07-25" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
     assert "pending-human-approval" not in html
@@ -175,10 +199,120 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
         ("--shadow-popover", tokens["shadow"]["shadowPopover"]["value"]),
         ("--shadow-dialog", tokens["shadow"]["shadowDialog"]["value"]),
         ("--shadow-workbench", tokens["shadow"]["shadowWorkbench"]["value"]),
+        ("--chart-primary", tokens["chart"]["primary"]["value"]),
+        ("--chart-accent", tokens["chart"]["accent"]["value"]),
+        ("--chart-info", tokens["chart"]["info"]["value"]),
+        ("--chart-positive", tokens["chart"]["positive"]["value"]),
+        ("--chart-warning", tokens["chart"]["warning"]["value"]),
+        ("--chart-danger", tokens["chart"]["danger"]["value"]),
+        ("--chart-neutral", tokens["chart"]["neutral"]["value"]),
+        ("--chart-grid", tokens["chart"]["grid"]["value"]),
+        ("--chart-axis", tokens["chart"]["axis"]["value"]),
+        ("--chart-label", tokens["chart"]["label"]["value"]),
+        ("--chart-surface", tokens["chart"]["surface"]["value"]),
+        ("--chart-inspector-surface", tokens["chart"]["inspectorSurface"]["value"]),
+        ("--chart-hover-surface", tokens["chart"]["hoverSurface"]["value"]),
+        ("--chart-primary-fill", tokens["chart"]["primaryFill"]["value"]),
+        ("--chart-info-fill", tokens["chart"]["infoFill"]["value"]),
+        ("--chart-positive-fill", tokens["chart"]["positiveFill"]["value"]),
+        ("--chart-focus-shadow", tokens["chart"]["focusShadow"]["value"]),
     ]
 
     for variable_name, expected_value in app_variables:
         assert css_variable_value(runtime_tokens, variable_name) == expected_value
+
+
+def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
+    tokens = load_tokens()
+    chart_tokens = tokens["tokens"]["chart"]
+    chart_figure = tokens["components"]["chartFigure"]
+    styles = read_text(APP_STYLES_PATH)
+    token_css = read_text(DESIGN_TOKENS_CSS_PATH)
+    sales_charts = read_text(SALES_CHARTS_PATH)
+    chart_runtime = read_text(ECHARTS_FIGURE_PATH)
+    sales_page = read_text(SALES_PAGE_PATH)
+    notices = read_text(CHART_NOTICES_PATH)
+    web_package = json.loads(read_text(WEB_PACKAGE_PATH))
+
+    assert set(chart_tokens) == {
+        "primary",
+        "accent",
+        "info",
+        "positive",
+        "warning",
+        "danger",
+        "neutral",
+        "neutralMid",
+        "neutralFaint",
+        "grid",
+        "axis",
+        "label",
+        "surface",
+        "inspectorSurface",
+        "hoverSurface",
+        "primaryFill",
+        "primaryTransparent",
+        "infoFill",
+        "positiveFill",
+        "focusShadow",
+    }
+    assert chart_figure["titleRule"].startswith("State the finding")
+    assert chart_figure["readingModes"] == {
+        "operational": "3-10 second scan for monitoring and exception finding.",
+        "analytical": "20-60 second read for distribution, comparison and explanation.",
+        "specialist": "Dedicated page for network, flow or high-density relationship analysis.",
+    }
+    assert "lieflat-charts" in chart_figure["sourceMethod"]
+    assert chart_figure["integratedTemplates"] == [
+        "G8 Rainfall Dual Area",
+        "G15 Jitter Strip",
+    ]
+    assert "Apache ECharts 6" in chart_figure["runtime"]
+    assert "PolyForm Noncommercial 1.0.0" in chart_figure["licenseBoundary"]
+    assert "commercial use requires separate authorization" in chart_figure["licenseBoundary"]
+    assert "hover and keyboard focus reveal the same detail" in chart_figure["interaction"]
+    assert "prefers-reduced-motion" in chart_figure["motion"]
+
+    chart_css = styles.split(".sales-chart-gallery", 1)[1].split(
+        ".table-wrap {", 1
+    )[0]
+    for variable_name in (
+        "--chart-label",
+        "--chart-primary",
+        "--chart-neutral",
+    ):
+        assert f"var({variable_name})" in chart_css
+    for palette_role in (
+        "palette.grid",
+        "palette.axis",
+        "palette.label",
+        "palette.neutral",
+        "palette.neutralMid",
+        "palette.neutralFaint",
+        "palette.primary",
+        "palette.primaryFill",
+        "palette.primaryTransparent",
+        "palette.surface",
+    ):
+        assert palette_role in sales_charts
+    assert "var(--blue)" not in chart_css
+    assert "var(--green)" not in chart_css
+    assert "var(--amber)" not in chart_css
+    assert "--chart-primary: var(--brand-orange);" in token_css
+    assert "--chart-primary-transparent: rgb(254 82 5 / 0%);" in token_css
+    assert web_package["dependencies"]["echarts"].startswith("^6.1")
+    assert "G8 Rainfall Dual Area" in sales_charts
+    assert "G15 Jitter Strip" in sales_charts
+    assert 'animationEasing: "quarticOut"' in sales_charts
+    assert 'animationEasing: "cubicOut"' in sales_charts
+    assert 'renderer: "svg"' in chart_runtime
+    assert "ResizeObserver" in chart_runtime
+    assert "MonthlyRainfallChart" in sales_page
+    assert "CycleJitterChart" in sales_page
+    assert "<svg" not in sales_page
+    assert "PolyForm Noncommercial License 1.0.0" in notices
+    assert "commercial purposes" in notices
+    assert "Apache ECharts" in notices
 
 
 def test_design_system_html_renders_key_decision_surfaces() -> None:
@@ -187,10 +321,12 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     required_sections = [
         'id="workflow"',
         'id="color"',
+        'id="brand-signature"',
         'id="typography"',
         'id="spacing-radius"',
         'id="components"',
         'id="iconography"',
+        'id="charts"',
         'id="table-sticky"',
         'id="mobile-card"',
         'id="clue-followup-workbench"',
@@ -213,6 +349,16 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "SPACE AI Native" in html
     assert "Ethnocentric Regular" in html
     assert "仅用于 dy-data" in html
+    assert "字体与图形职责" in html
+    assert "三种锁定形式" in html
+    assert "标准横排" in html
+    assert "紧凑堆叠" in html
+    assert "仅标志" in html
+    assert "页面覆盖矩阵" in html
+    assert "SpaceAiSignature" in html
+    assert "不得使用 Ethnocentric Regular" in html
+    assert 'aria-label="SPACE" role="img"' in html
+    assert html.count('aria-label="Powered by SPACE AI Native" role="img"') >= 6
     assert 'class="button-like primary"' in html
     assert 'class="button-like is-disabled"' in html
     assert '<span class="button-like' not in html
@@ -235,6 +381,21 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "默认变体为 Solar" in html
     assert "bold-duotone" in html
     assert "cluesLine" in html
+    assert "ChartFigure / 数据图表" in html
+    assert "直接接入已实现图表" in html
+    assert "G8 Rainfall Dual Area" in html
+    assert "G15 Jitter Strip" in html
+    assert "ECharts option integration" in html
+    assert "PolyForm Noncommercial" in html
+    assert "运营快读" in html
+    assert "分析细读" in html
+    assert "专项关系" in html
+    assert "结论先行" in html
+    assert "固定解释条" in html
+    assert "横向条形图最多展示 8 个可见类别" in html
+    assert "热力图必须同时提供数值或可访问替代" in html
+    assert 'class="chart-inspector-demo" role="status" aria-live="polite"' in html
+    assert "prefers-reduced-motion" in html
     assert "线索表格冻结表头" in html
     assert "--table-sticky-gap: 8px" in html
     assert "action bar 58px + gap 8px" in html
@@ -680,6 +841,11 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
         assert 'aria-hidden="true"' in attrs
         assert f'd="{favicon_path.group(1)}"' in body
         assert f'transform="{favicon_transform.group(1)}"' in body
+
+    assert 'id="design-rainfall-chart"' in html
+    assert 'id="design-jitter-chart"' in html
+    assert html.count('class="chart-echarts-demo') == 2
+    assert '<script src="./vendor/echarts.min.js"></script>' in html
 
     visible_icons = [
         (attrs, body)
