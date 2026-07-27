@@ -482,6 +482,46 @@ def test_nearby_city_ranking_uses_score_then_distance_then_store_id_and_excludes
     assert candidates["store-a"]["score"]["follow_24h_value_source"] == "city_average"
 
 
+def test_city_strategy_snapshot_keeps_only_same_city_candidates_and_summarizes_omissions(
+    db_session: Session,
+) -> None:
+    lead = _lead()
+    db_session.add_all(
+        [
+            _store("anchor", candidate=False),
+            _store("same-city-store"),
+            _store("other-city-store", city_code="CN-BJ"),
+            lead,
+        ]
+    )
+    _, version = _publish_global_rule(db_session)
+    _add_scores(
+        db_session,
+        {
+            "same-city-store": Decimal("0.80"),
+            "other-city-store": Decimal("0.99"),
+        },
+        rule_version_id=version.rule_version_id,
+    )
+    db_session.commit()
+
+    result = allocate_lead(db_session, lead.lead_key, actor="test-admin")
+
+    assert result.selected_store_id == "same-city-store"
+    snapshot = _decision(db_session, "nearby_city_optimization").decision_snapshot
+    assert {candidate["store_id"] for candidate in snapshot["candidates"]} == {
+        "anchor",
+        "same-city-store",
+    }
+    assert snapshot["candidate_summary"] == {
+        "store_universe_count": 3,
+        "in_scope_store_count": 2,
+        "omitted_out_of_city_count": 1,
+        "evaluated_count": 2,
+        "eligible_count": 1,
+    }
+
+
 def test_nearby_city_prefers_latest_score_before_distance(db_session: Session) -> None:
     lead = _lead()
     db_session.add_all(

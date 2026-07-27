@@ -52,6 +52,8 @@ class AllocationResult:
 @dataclass
 class _AllocationBatchContext:
     stores: list[DimStore] | None = None
+    stores_by_id: dict[str, DimStore] = field(default_factory=dict)
+    stores_by_city: dict[str, list[DimStore]] = field(default_factory=dict)
     scores_by_rule_version: dict[str, dict[str, StoreScoreSnapshot]] = field(default_factory=dict)
 
 
@@ -240,6 +242,7 @@ def allocate_lead(
         start_after_order = int(matched["execution_order"])
     if _batch_context is None:
         stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
+        stores_by_id, stores_by_city = _index_stores(stores)
         scores = _latest_scores(
             session,
             {store.store_id for store in stores},
@@ -248,7 +251,12 @@ def allocate_lead(
     else:
         if _batch_context.stores is None:
             _batch_context.stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
+            _batch_context.stores_by_id, _batch_context.stores_by_city = _index_stores(
+                _batch_context.stores
+            )
         stores = _batch_context.stores
+        stores_by_id = _batch_context.stores_by_id
+        stores_by_city = _batch_context.stores_by_city
         if binding.rule_version_id not in _batch_context.scores_by_rule_version:
             _batch_context.scores_by_rule_version[binding.rule_version_id] = _latest_scores(
                 session,
@@ -300,11 +308,13 @@ def allocate_lead(
             decision_ids.append(decision.decision_id)
             continue
 
-        candidates, reason = _strategy_candidates(
+        candidates, reason, candidate_summary = _strategy_candidates(
             strategy_type=strategy_type,
             lead=lead,
             sale_store=sale_store,
             stores=stores,
+            stores_by_id=stores_by_id,
+            stores_by_city=stores_by_city,
             scores=scores,
             historical_store_ids=historical_store_ids,
             max_distance_km=max_distance_km,
@@ -335,6 +345,7 @@ def allocate_lead(
                     historical_store_ids=historical_store_ids,
                     candidates=candidates,
                     selected_store_id=None,
+                    candidate_summary=candidate_summary,
                 ),
                 transition_key=normalized_transition_key,
             )
@@ -360,6 +371,7 @@ def allocate_lead(
             historical_store_ids=historical_store_ids,
             candidates=candidates,
             selected_store_id=selected["store_id"],
+            candidate_summary=candidate_summary,
         )
         snapshot["assignment_round"] = {
             "assignment_round_id": assignment_round_id,
@@ -511,24 +523,30 @@ def _strategy_candidates(
     lead: ClueMasterLead,
     sale_store: dict[str, Any],
     stores: list[DimStore],
+    stores_by_id: Mapping[str, DimStore],
+    stores_by_city: Mapping[str, list[DimStore]],
     scores: dict[str, StoreScoreSnapshot],
     historical_store_ids: set[str],
     max_distance_km: float | None,
-) -> tuple[list[dict[str, Any]], str | None]:
-    stores_by_id = {store.store_id: store for store in stores}
+) -> tuple[list[dict[str, Any]], str | None, dict[str, int]]:
     if strategy_type == "sales_store_priority":
         if sale_store["status"] != "resolved":
-            return [], str(sale_store["status"])
+            return [], str(sale_store["status"]), _candidate_summary(stores, [], in_scope_count=0)
         sale_store_id = sale_store.get("store_id")
         store = stores_by_id.get(sale_store_id)
         if store is None:
-            return [
+            candidates = [
                 _unknown_store_candidate(
                     store_id=sale_store_id,
                     reason="sale_store_unmapped",
                     used_for_ranking=False,
                 )
-            ], "sale_store_unmapped"
+            ]
+            return candidates, "sale_store_unmapped", _candidate_summary(
+                stores,
+                candidates,
+                in_scope_count=1,
+            )
         candidate = _candidate_record(
             store,
             lead=lead,
@@ -541,13 +559,18 @@ def _strategy_candidates(
         )
         if not candidate["eligible"]:
             if "distance_exceeds_max" in candidate["exclusion_reasons"]:
-                return [candidate], "sale_store_over_distance"
-            if "historically_self_owned" in candidate["exclusion_reasons"]:
-                return [candidate], "sale_store_previously_assigned"
-            return [candidate], "sale_store_ineligible"
+                reason = "sale_store_over_distance"
+            elif "historically_self_owned" in candidate["exclusion_reasons"]:
+                reason = "sale_store_previously_assigned"
+            else:
+                reason = "sale_store_ineligible"
+            candidates = [candidate]
+            return candidates, reason, _candidate_summary(stores, candidates, in_scope_count=1)
         candidate["rank"] = 1
-        return [candidate], None
+        candidates = [candidate]
+        return candidates, None, _candidate_summary(stores, candidates, in_scope_count=1)
 
+    scoped_stores = list(stores_by_city.get(normalize_city_code(lead.anchor_city_code), []))
     candidates = [
         _candidate_record(
             store,
@@ -559,7 +582,7 @@ def _strategy_candidates(
             max_distance_km=max_distance_km,
             used_for_ranking=True,
         )
-        for store in stores
+        for store in scoped_stores
     ]
     ranked = [candidate for candidate in candidates if candidate["eligible"]]
     ranked.sort(
@@ -571,7 +594,41 @@ def _strategy_candidates(
     )
     for rank, candidate in enumerate(ranked, start=1):
         candidate["rank"] = rank
-    return candidates, None if ranked else "no_candidate"
+    return (
+        candidates,
+        None if ranked else "no_candidate",
+        _candidate_summary(
+            stores,
+            candidates,
+            in_scope_count=len(scoped_stores),
+            omitted_out_of_city_count=len(stores) - len(scoped_stores),
+        ),
+    )
+
+
+def _index_stores(stores: list[DimStore]) -> tuple[dict[str, DimStore], dict[str, list[DimStore]]]:
+    stores_by_id = {store.store_id: store for store in stores}
+    stores_by_city: dict[str, list[DimStore]] = {}
+    for store in stores:
+        city_code = normalize_city_code(store.city_code)
+        stores_by_city.setdefault(city_code, []).append(store)
+    return stores_by_id, stores_by_city
+
+
+def _candidate_summary(
+    stores: list[DimStore],
+    candidates: list[dict[str, Any]],
+    *,
+    in_scope_count: int,
+    omitted_out_of_city_count: int = 0,
+) -> dict[str, int]:
+    return {
+        "store_universe_count": len(stores),
+        "in_scope_store_count": in_scope_count,
+        "omitted_out_of_city_count": max(omitted_out_of_city_count, 0),
+        "evaluated_count": len(candidates),
+        "eligible_count": sum(1 for candidate in candidates if candidate["eligible"]),
+    }
 
 
 def _candidate_record(
@@ -776,6 +833,7 @@ def _base_snapshot(
     historical_store_ids: set[str],
     candidates: list[dict[str, Any]],
     selected_store_id: str | None,
+    candidate_summary: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "anchor": {
@@ -798,6 +856,7 @@ def _base_snapshot(
             "max_distance_km": max_distance_km,
         },
         "historical_self_owned_store_ids": sorted(historical_store_ids),
+        "candidate_summary": dict(candidate_summary or {}),
         "candidates": candidates,
         "selected_store_id": selected_store_id,
     }
