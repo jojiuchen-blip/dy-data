@@ -40,12 +40,12 @@ VIEWPORTS = [
 
 RUNTIME_SURFACES = [
     ("home", "/", "抖音经营数据引擎", "heading"),
-    ("ranking", "/ranking", "全国门店销售情况榜单", "heading"),
+    ("ranking", "/ranking", "全国门店月度榜单", "heading"),
     ("sales", "/sales", "核销表现", "heading"),
     ("clues", "/clues", "经营线索概览", "text"),
     ("clue-details", "/clues/details", "线索跟进列表", "text"),
-    ("settlement", "/settlement", "单店月度分账看板", "text"),
-    ("order-details", "/details", "门店月度数据明细表", "text"),
+    ("settlement", "/settlement", "单店分账", "heading"),
+    ("order-details", "/details", "推广费订单明细", "heading"),
     ("admin-home", "/admin", "抖音经营中枢后台", "heading"),
     ("admin-accounts", "/admin/accounts", "账号管理", "heading"),
     ("admin-rules", "/admin/rules", "商品分账规则管理", "heading"),
@@ -1095,6 +1095,8 @@ def install_settlement_user_route(page: Page, role: str) -> None:
                     "status": "active",
                     "is_initialized": True,
                     "store_ids": [] if role == "admin" else ["store_001"],
+                    "store_scope_mode": "all" if role == "admin" else "specified",
+                    "page_keys": ["B01", "B02", "B03"],
                 }
             ),
         ),
