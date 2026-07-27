@@ -19,6 +19,7 @@ from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueCenterOrder,
     ClueFollowUpRecord,
+    ClueHeadquartersPoolEntry,
     ClueLeadRuleVersionBinding,
     ClueMasterLead,
     ClueOrderStatusEvent,
@@ -35,7 +36,6 @@ from apps.api.dy_api.models import (
 from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     ensure_active_headquarters_pool_entry,
-    get_active_headquarters_pool_entry,
 )
 from apps.worker.repositories import upsert_data_quality_issue
 
@@ -124,11 +124,59 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     existing_by_canonical_clue_id = {
         row.canonical_clue_id: row for row in existing_rows if row.canonical_clue_id
     }
+    current_round_ids = {
+        row.current_assignment_round_id for row in existing_rows if row.current_assignment_round_id
+    }
+    current_rounds_by_id: dict[str, ClueAssignmentRound] = {}
+    for round_id_batch in _materialization_order_id_batches(current_round_ids):
+        current_rounds_by_id.update(
+            {
+                row.assignment_round_id: row
+                for row in session.scalars(
+                    select(ClueAssignmentRound).where(
+                        ClueAssignmentRound.assignment_round_id.in_(round_id_batch)
+                    )
+                ).all()
+            }
+        )
+    center_orders_by_id: dict[str, ClueCenterOrder] = {}
+    for order_id_batch in _materialization_order_id_batches(order_ids):
+        center_orders_by_id.update(
+            {
+                row.order_id: row
+                for row in session.scalars(
+                    select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_id_batch))
+                ).all()
+            }
+        )
+    legacy_round_ids = {
+        row.current_assignment_round_id
+        for row in center_orders_by_id.values()
+        if row.current_assignment_round_id and row.current_assignment_round_id not in current_rounds_by_id
+    }
+    for round_id_batch in _materialization_order_id_batches(legacy_round_ids):
+        current_rounds_by_id.update(
+            {
+                row.assignment_round_id: row
+                for row in session.scalars(
+                    select(ClueAssignmentRound).where(
+                        ClueAssignmentRound.assignment_round_id.in_(round_id_batch)
+                    )
+                ).all()
+            }
+        )
+    active_headquarters_entries_by_lead = {
+        row.lead_key: row
+        for row in session.scalars(
+            select(ClueHeadquartersPoolEntry).where(ClueHeadquartersPoolEntry.status == "active")
+        ).all()
+    }
     anchor_issue_ids = set(
         session.scalars(
             select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
         ).all()
     )
+    status_event_ids = set(session.scalars(select(ClueOrderStatusEvent.event_id)).all())
 
     materialized_lead_keys: set[str] = set()
     closed_lead_keys: set[str] = set()
@@ -169,11 +217,12 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
                 or existing.status_source != resolution.status_source
             )
 
-        current_self_owned_round = _active_self_owned_current_round(session, existing)
-        active_headquarters_entry = (
-            existing is not None
-            and get_active_headquarters_pool_entry(session, existing.lead_key) is not None
+        current_self_owned_round = _active_self_owned_current_round(
+            session,
+            existing,
+            current_rounds_by_id=current_rounds_by_id,
         )
+        active_headquarters_entry = existing.lead_key in active_headquarters_entries_by_lead
         if lifecycle_status != "active":
             pool_location = "closed"
             allocation_state = "closed"
@@ -230,14 +279,6 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         elif pool_location == "headquarters_pool":
             headquarters_pool_keys.add(existing.lead_key)
 
-        if lifecycle_status == "active" and pool_location == "headquarters_pool":
-            ensure_active_headquarters_pool_entry(
-                session,
-                lead=existing,
-                reason=existing.anchor_unavailable_reason or "headquarters_pool_retained",
-                entered_at=now,
-            )
-
         if status_changed:
             _record_status_event(
                 session,
@@ -246,22 +287,38 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
                 resolution=resolution,
                 observed_at=observed_at,
                 created_at=now,
+                known_event_ids=status_event_ids,
             )
         if anchor.unavailable_reason:
             _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
-        if lifecycle_status != "active" and existing.order_id:
+    session.flush()
+    for lead_key in materialized_lead_keys:
+        lead = existing_by_lead_key[lead_key]
+        if lead.lifecycle_status == "active" and lead.pool_location == "headquarters_pool":
+            ensure_active_headquarters_pool_entry(
+                session,
+                lead=lead,
+                reason=lead.anchor_unavailable_reason or "headquarters_pool_retained",
+                entered_at=now,
+                _active_entries_by_lead=active_headquarters_entries_by_lead,
+                _flush=False,
+            )
+        elif lead.lifecycle_status != "active" and lead.order_id:
             close_current_headquarters_pool_entry(
                 session,
-                existing.lead_key,
-                closed_at=resolution.closed_at or now,
-                close_reason=_closed_reason(resolution.normalized_status) or "order_closed",
+                lead.lead_key,
+                closed_at=lead.closed_at or now,
+                close_reason=lead.closed_reason or "order_closed",
+                _active_entries_by_lead=active_headquarters_entries_by_lead,
             )
             _close_current_assignment(
                 session,
-                existing.order_id,
-                lifecycle_status,
-                resolution.closed_at or now,
-                current_assignment_round_id=existing.current_assignment_round_id,
+                lead.order_id,
+                lead.lifecycle_status,
+                lead.closed_at or now,
+                current_assignment_round_id=lead.current_assignment_round_id,
+                center_orders_by_id=center_orders_by_id,
+                current_rounds_by_id=current_rounds_by_id,
             )
 
     session.flush()
@@ -870,6 +927,7 @@ def _record_status_event(
     resolution: StatusResolution,
     observed_at: datetime,
     created_at: datetime,
+    known_event_ids: set[str] | None = None,
 ) -> None:
     event_key = "|".join(
         (
@@ -881,11 +939,16 @@ def _record_status_event(
         )
     )
     digest = sha256(event_key.encode("utf-8")).hexdigest()
-    if session.get(ClueOrderStatusEvent, f"status-{digest[:24]}") is not None:
+    event_id = f"status-{digest[:24]}"
+    if known_event_ids is not None:
+        if event_id in known_event_ids:
+            return
+        known_event_ids.add(event_id)
+    elif session.get(ClueOrderStatusEvent, event_id) is not None:
         return
     session.add(
         ClueOrderStatusEvent(
-            event_id=f"status-{digest[:24]}",
+            event_id=event_id,
             event_key=digest,
             lead_key=lead_key,
             order_id=order_id,
@@ -938,10 +1001,19 @@ def _record_store_location_issue(session: Session, poi_id: str, reason: str, now
     )
 
 
-def _active_self_owned_current_round(session: Session, lead: ClueMasterLead) -> ClueAssignmentRound | None:
+def _active_self_owned_current_round(
+    session: Session,
+    lead: ClueMasterLead,
+    *,
+    current_rounds_by_id: dict[str, ClueAssignmentRound] | None = None,
+) -> ClueAssignmentRound | None:
     if not lead.current_assignment_round_id:
         return None
-    round_row = session.get(ClueAssignmentRound, lead.current_assignment_round_id)
+    round_row = (
+        current_rounds_by_id.get(lead.current_assignment_round_id)
+        if current_rounds_by_id is not None
+        else session.get(ClueAssignmentRound, lead.current_assignment_round_id)
+    )
     if round_row is None or round_row.execution_mode not in SELF_OWNED_EXECUTION_MODES:
         return None
     if round_row.round_status not in {"active_unfollowed", "active_followed"}:
@@ -956,8 +1028,14 @@ def _close_current_assignment(
     closed_at: datetime,
     *,
     current_assignment_round_id: str | None = None,
+    center_orders_by_id: dict[str, ClueCenterOrder] | None = None,
+    current_rounds_by_id: dict[str, ClueAssignmentRound] | None = None,
 ) -> None:
-    center_order = session.get(ClueCenterOrder, order_id)
+    center_order = (
+        center_orders_by_id.get(order_id)
+        if center_orders_by_id is not None
+        else session.get(ClueCenterOrder, order_id)
+    )
     if lifecycle_status == "closed_verified":
         round_status = "closed_order_verified"
         terminal_reason = "order_verified"
@@ -969,7 +1047,11 @@ def _close_current_assignment(
     round_id = current_assignment_round_id or (
         center_order.current_assignment_round_id if center_order is not None else None
     )
-    round_row = session.get(ClueAssignmentRound, round_id) if round_id else None
+    round_row = (
+        current_rounds_by_id.get(round_id)
+        if round_id and current_rounds_by_id is not None
+        else (session.get(ClueAssignmentRound, round_id) if round_id else None)
+    )
     if round_row is not None:
         round_row.round_status = round_status
         round_row.terminal_reason = terminal_reason
