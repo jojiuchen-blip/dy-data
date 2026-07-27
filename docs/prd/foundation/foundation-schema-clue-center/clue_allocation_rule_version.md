@@ -44,7 +44,8 @@
 ## 关系与约束
 
 - `conversion_weight + follow_24h_weight = 1.0000` 且两者非负。
-- `is_auto_expiry_enabled=0` 时 `first_follow_up_sla_hours` 必须为空；启用时必须大于 0。
+- `is_auto_expiry_enabled=0` 时 `first_follow_up_sla_hours` 必须为空；启用时必须为 1-168 的整数。
+- `protection_days` 与 `lookback_days` 必须为 1-365 的整数，`min_samples` 必须为 1-10,000 的整数。
 - 发布前必须恰好存在三类固定策略配置，允许其中部分停用；启用策略顺序不得重复。
 - 发布后所有配置和策略行不可更新，只能创建下一草稿版本或退役当前版本。
 

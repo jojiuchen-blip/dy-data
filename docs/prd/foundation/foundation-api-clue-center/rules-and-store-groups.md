@@ -103,7 +103,7 @@
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `rule_name` | string | 是 | 1-100 字 |
+| `rule_name` | string | 是 | 去首尾空格后 1-100 字 |
 | `scope_type` | string | 是 | 四类范围之一 |
 | `scope_city_code` | string/null | 条件 | `city` 时唯一必填 |
 | `scope_store_group_id` | string/null | 条件 | `store_group` 时唯一必填 |
@@ -143,7 +143,7 @@
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `state_version` | integer | 是 | 草稿当前版本 |
-| `confirmation_text` | string | 是 | UI 明确确认，不使用普通保存动作代替 |
+| `confirmation_text` | string | 是 | 用户通过发布确认框后由客户端发送固定确认码 `PUBLISH`，不是新增自由文本输入框 |
 
 发布校验：
 
@@ -158,7 +158,7 @@
 
 ### 5.5 R10 `POST /api/v1/admin/clue-allocation/rule-versions/{rule_version_id}/retire`
 
-请求包含 `state_version` 和 `reason`。退役后该范围的新线索按优先级回退到下一可用规则；既有绑定继续沿用退役版本完成后续轮次。若退役将导致无任何全局已发布规则，返回业务确认错误，由 PRD 决定是否允许强制操作；V1 推荐禁止。
+请求包含 `state_version` 和可选 `reason`；页面仅做二次确认时，服务端记录固定原因 `manual_retire`。退役后该范围的新线索按优先级回退到下一可用规则；既有绑定继续沿用退役版本完成后续轮次。若退役将导致无任何全局已发布规则，返回业务确认错误，由 PRD 决定是否允许强制操作；V1 推荐禁止。
 
 ## 6. 门店组对象
 
@@ -170,6 +170,7 @@
 | `is_enabled` | boolean | 新规则匹配是否可用 | `is_enabled` |
 | `sort_order` | integer | 管理页顺序 | `sort_order` |
 | `active_member_count` | integer | 当前成员数 | 成员聚合 |
+| `active_member_hash` | string | 当前活动成员 ID 排序后的 SHA-256 摘要，不落业务表 | `clue_store_group_member` 派生计算 |
 | `members` | array | 详情接口返回当前和历史成员 | `clue_store_group_member` |
 
 ## 7. R11-R15 门店组接口
@@ -184,7 +185,7 @@
 
 ### 7.3 R13 `GET /api/v1/admin/clue-allocation/store-groups/{store_group_id}`
 
-响应包含门店组、`active_members[]` 和分页/按需加载的 `membership_history[]`。成员字段包含 `member_id`、`store_id`、`store_name`、`active_from`、`active_to`、`is_active`。
+响应包含门店组、`active_member_hash`、`active_members[]` 和分页/按需加载的 `membership_history[]`。`active_member_hash` 对当前活动 `store_id` 去重、排序后计算，供 R15 作为并发令牌；成员字段包含 `member_id`、`store_id`、`store_name`、`active_from`、`active_to`、`is_active`。
 
 ### 7.4 R14 `PUT /api/v1/admin/clue-allocation/store-groups/{store_group_id}`
 

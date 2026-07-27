@@ -3,7 +3,7 @@
 > 生成时间: 2026-07-21 22:16
 > 来源: foundation-builder Phase 2
 > 上游: `BRD-clue-center-20260721-2134.md` + `page-delivery-dy-data.md` + PAGE_EXPLAINER
-> 状态: 待业务确认；确认后方可进入 FOUNDATION Schema
+> 状态: 已于 2026-07-22 获业务确认，作为后续 Schema、API、PRD 和实现的统一术语基线
 
 ## 既有实现融合判断
 

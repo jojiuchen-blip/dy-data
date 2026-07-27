@@ -18,7 +18,7 @@
 | `assigned_store_id` | varchar(64) | NO | - | 跟进门店 ID |
 | `assigned_store_name_snapshot` | varchar(255) | NO | - | 跟进门店名称快照 |
 | `follow_action` | smallint | NO | - | 1已预约、2待进一步跟进、3暂不需要/战败、4未联系上、5客户要求换门店 |
-| `note` | text | YES | NULL | 本次跟进结论或备注 |
+| `note` | varchar(1000) | YES | NULL | 本次跟进结论或备注，去首尾空格后最多 1,000 字 |
 | `operator_user_id` | varchar(64) | NO | - | 操作人 ID |
 | `operator_username_snapshot` | varchar(255) | NO | - | 操作人名称快照 |
 | `operator_role_snapshot` | varchar(64) | YES | NULL | 操作角色快照 |
@@ -28,7 +28,7 @@
 | `deleted_at` | timestamptz | YES | NULL | 删除时间 |
 | `deleted_by_user_id` | varchar(64) | YES | NULL | 删除人 ID |
 | `deleted_by_username_snapshot` | varchar(255) | YES | NULL | 删除人名称快照 |
-| `deletion_reason` | varchar(500) | YES | NULL | 删除原因，删除时必填 |
+| `deletion_reason` | varchar(200) | YES | NULL | 删除原因；软删除时必须落值，页面未填写时由服务端写固定原因 |
 | `state_event_key` | varchar(128) | NO | - | 本动作驱动状态迁移的幂等键 |
 | `gmt_create` | timestamptz | NO | CURRENT_TIMESTAMP | 创建时间 |
 | `gmt_modified` | timestamptz | NO | CURRENT_TIMESTAMP | 更新时间 |
@@ -49,6 +49,7 @@
 - 五类动作均计为跟进行为；1/2/4 首次启动保护期，3/5 即时关闭并进入下一策略。
 - 已关闭轮次不得补录；最高管理员删除不直接抹除历史状态迁移，必须在事务中重算轮次摘要并根据规则决定是否需要纠正事件。
 - 软删除动作必须写 `clue_operation_audit_log`，普通管理员只读。
+- `is_deleted=1` 时 `deleted_at`、`deleted_by_user_id`、`deleted_by_username_snapshot` 和 `deletion_reason` 必须非空；自由文本删除原因长度为 5-200，固定系统原因不冒充用户输入。
 
 ## 页面字段映射
 

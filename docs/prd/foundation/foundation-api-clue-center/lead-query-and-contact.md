@@ -177,9 +177,11 @@ Q01、Q02、Q04、Q05、Q07 使用同一筛选语义；不适用的接口可省�
 |------|------|------|------|
 | `order_id` | string | 订单编号 | `clue_center_order.order_id` |
 | `canonical_clue_id` | string/null | 排查用代表线索 ID | `clue_master_lead.canonical_clue_id` |
+| `lead_state_version` | integer | 主线索当前乐观锁版本，供 Q08/F01 校验 | `clue_master_lead.state_version` |
 | `normalized_order_status` | string | `unknown`、`active`、`verified`、`refunded` | `clue_master_lead.normalized_order_status` |
 | `store_display_status` | string | 店端状态 | `clue_center_order.store_display_status` |
 | `pool_location` | string | `pending_allocation`、`store_pool`、`headquarters_pool`、`closed` | `clue_master_lead.pool_location` |
+| `current_assignment_round_id` | string/null | 当前有效轮次 ID；无门店责任时为空 | `clue_master_lead.current_assignment_round_id` |
 | `phone_masked` | string | 始终只返回脱敏号 | `clue_center_order.phone_masked` |
 | `can_view_full_phone` | boolean | 当前用户是否可调用 Q08 | 授权计算 |
 | `can_follow_up` | boolean | 当前用户是否可调用 F01 | 授权计算 |
@@ -192,6 +194,10 @@ Q01、Q02、Q04、Q05、Q07 使用同一筛选语义；不适用的接口可省�
 | `clue_created_at` | datetime/null | 线索生成时间，必要时在历史/排查区单独展示 | `clue_center_order.clue_created_at` |
 | `verified_at` | datetime/null | 首次核销时间 | `clue_center_order.verified_at` |
 | `rounds` | array | 按 `round_no` 升序的全部真实轮次 | `clue_assignment_round` |
+| `rounds[].assignment_round_id` | string | 轮次业务 ID，供 Q08/F01/F02 定位 | `assignment_round_id` |
+| `rounds[].round_no` | integer | 从 1 连续递增的真实轮次号 | `round_no` |
+| `rounds[].round_state_version` | integer | 本轮当前乐观锁版本，供 F01/F02 校验 | `state_version` |
+| `rounds[].is_current_round` | boolean | 是否等于主线索当前有效轮次 | 主线索当前轮次 + 本轮 ID |
 | `rounds[].strategy_type` | string | 三类固定策略之一 | `strategy_type` |
 | `rounds[].strategy_label` | string | 如“15公里城市优选”，使用当时参数快照 | 规则/决策快照 |
 | `rounds[].assigned_store_id` | string | 跟进门店 ID | `assigned_store_id` |
@@ -200,6 +206,8 @@ Q01、Q02、Q04、Q05、Q07 使用同一筛选语义；不适用的接口可省�
 | `rounds[].round_status` | string | 本轮事实状态 | `round_status` |
 | `rounds[].ended_at` | datetime/null | 失效/关闭时间 | `ended_at` |
 | `rounds[].end_reason` | string/null | 再分配或关闭原因 | `end_reason` |
+| `rounds[].can_view_full_phone` | boolean | 当前用户能否以本轮调用 Q08 | 服务端授权计算 |
+| `rounds[].can_follow_up` | boolean | 当前用户能否以本轮调用 F01 | 服务端授权计算 |
 | `rounds[].follow_ups` | array | 本轮未删除跟进记录，按时间升序 | `clue_follow_up_record` |
 
 `rounds[].follow_ups[]` 返回 `follow_up_record_id`、`follow_action`、`note`、`action_at`、`operator_username`、`can_delete`。普通用户不返回已软删除内容；最高管理员可额外收到删除标识和脱敏删除元数据用于审计排查。
@@ -215,9 +223,9 @@ Q01、Q02、Q04、Q05、Q07 使用同一筛选语义；不适用的接口可省�
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `format` | string | 是 | V1 为 `csv`；实现真实 XLSX 后可增加 `xlsx` |
-| `include_plain_phone` | boolean | 是 | 默认 `true`，但仍逐行检查账号范围与当前轮权限 |
-| `reason` | string | 是 | 导出用途，1-200 字符，进入脱敏审计摘要 |
+| `format` | string | 否 | 默认 `csv`；实现真实 XLSX 后可增加 `xlsx` |
+| `include_plain_phone` | boolean | 否 | 默认 `true`，但仍逐行检查账号范围与当前轮权限 |
+| `reason` | string/null | 否 | 可选用途说明，1-200 字符；页面一键导出省略时由服务端记录固定原因码 `clue_detail_export` |
 
 **响应**：文件下载。列至少包括订单号、完整/空联系方式、线索状态、分配轮次、本轮跟进时间、商品、类型、线索生成时间、本轮失效时间和跟进门店。
 
@@ -241,7 +249,8 @@ Q01、Q02、Q04、Q05、Q07 使用同一筛选语义；不适用的接口可省�
 |------|------|------|------|
 | `assignment_round_id` | string | 是 | 前端当前展示的轮次，必须等于主线索当前轮次 |
 | `operation` | string | 是 | `reveal` 或 `copy`，分别审计 |
-| `state_version` | integer | 是 | 当前详情返回的主线索状态版本 |
+| `lead_state_version` | integer | 是 | Q06 返回的主线索状态版本 |
+| `round_state_version` | integer | 是 | Q06 返回的当前轮次状态版本 |
 
 **响应 `data`**：
 

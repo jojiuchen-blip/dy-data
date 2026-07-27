@@ -3,7 +3,7 @@
 > 生成时间: 2026-07-21
 > 来源: foundation-builder Phase 3
 > 业务基线: [BRD](../../brd/BRD-clue-center-20260721-2134.md) · [术语表](foundation-glossary-clue-center.md)
-> 下游产物: [API 接口设计](foundation-api-clue-center.md)（Phase 4，待用户确认）
+> 下游产物: [API 接口设计](foundation-api-clue-center.md)（Phase 4 已确认，Phase 5 一致性修正已回填）
 
 ---
 
@@ -234,4 +234,4 @@ erDiagram
 - [任务与迁移契约](foundation-api-clue-center/jobs-security-and-migration.md) 已固定唯一正式分配入口、试运行隔离、受控重建、审计和旧引擎一次性删除顺序。
 - 导出、手机号查看/复制、规则发布/退役、试运行、正式分配、重建和跟进删除均已映射到 `clue_operation_audit_log`。
 
-Schema 已于 2026-07-22 获用户确认并进入 Phase 4。API 规格仍需用户确认后方可进入 FOUNDATION Phase 5 全量一致性自查。
+Schema 与 API 已于 2026-07-22 获用户确认。Phase 5 已回填详情并发版本、门店组成员摘要、页面一键操作和字段约束修正；全量一致性结果等待用户确认后进入 Phase 6。

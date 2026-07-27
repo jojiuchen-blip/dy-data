@@ -10,7 +10,7 @@
 |------|-----------------|------|--------|------|
 | `id` | bigint identity | NO | identity | 数字主键 |
 | `rule_id` | varchar(64) | NO | - | 规则业务 ID |
-| `rule_name` | varchar(255) | NO | - | 规则名称 |
+| `rule_name` | varchar(100) | NO | - | 规则名称，去首尾空格后 1-100 字 |
 | `scope_type` | smallint | NO | - | 1全局、2城市、3门店组、4锚点门店 |
 | `scope_key` | varchar(128) | NO | - | 规范化唯一范围键 |
 | `scope_city_code` | varchar(32) | YES | NULL | 城市范围代码 |
@@ -18,7 +18,7 @@
 | `scope_anchor_store_id` | varchar(64) | YES | NULL | 锚点门店范围 ID |
 | `is_enabled` | smallint | NO | 1 | 是否允许新线索命中 |
 | `current_published_version_id` | varchar(64) | YES | NULL | 当前发布版本业务 ID |
-| `description` | varchar(1000) | YES | NULL | 规则用途说明 |
+| `description` | varchar(500) | YES | NULL | 规则用途说明，最多 500 字 |
 | `created_by` | varchar(64) | YES | NULL | 创建人 ID |
 | `state_version` | integer | NO | 1 | 编辑乐观锁版本 |
 | `gmt_create` | timestamptz | NO | CURRENT_TIMESTAMP | 创建时间 |

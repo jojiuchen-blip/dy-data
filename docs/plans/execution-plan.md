@@ -13,25 +13,24 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S2 线索中心 FOUNDATION Phase 4`；术语表与 Schema 已确认，API 契约已生成并等待业务确认，当前尚未进入 Phase 5、PRD、S3/S4。
+- 套包阶段：`S2 线索中心 FOUNDATION 已完成`；Phase 6 交付清单已落盘，`foundationReadyForPrd.pass=true`，下一步进入 DYDATA-42 PRD，当前尚未进入 S3/S4。
 - 当前 Linear issue：`DYDATA-41` 建立线索中心 FOUNDATION 技术地基，状态为 In Progress；`DYDATA-36` 已完成并关闭。
 - 当前子开发计划：无；本轮只建立线索中心技术规格，未修改业务代码。
-- 当前正式计划文件组：无；进入代码实施前，仍需由下游能力补齐 FOUNDATION、PRD 和正式交付计划。
+- 当前正式计划文件组：无；进入代码实施前，仍需由下游能力补齐 PRD 和正式交付计划。
 - 紧邻顺序：`DYDATA-41` FOUNDATION -> `DYDATA-42` PRD -> `DYDATA-43` 正式交付计划与 S4 门禁 -> `DYDATA-34` 全面下线旧线索分配引擎。
 - 关联需求：`DYDATA-35` 门店地理与 POI 数据质量闭环。
 
 ## 2. 当前目标
 
-- 以已冻结的《线索中心业务模型 V1.0》为输入，先冻结术语，再依次补齐 Schema、API、运行交付、产品细则和正式交付计划。
+- 以已冻结的《线索中心业务模型 V1.0》和 Foundation 正式交付清单为输入，补齐产品细则和正式交付计划。
 
 ## 3. 进行中任务
 
-- DYDATA-41 FOUNDATION Phase 4 进行中；API 索引及 6 份拆分契约已生成，23 张目标单表定义已回填使用接口，等待用户确认后进入 Phase 5。
+- DYDATA-41 FOUNDATION 技术交付已完成；交付清单声明术语表、23 张目标表、6 份 API 专题和全部拆分文件，S2 路由门禁已通过。
 
 ## 4. 下一步任务
 
-- 用户确认 FOUNDATION API；未确认前不进入 Phase 5。
-- FOUNDATION Phase 5 按已确认 Schema 与 API 继续定义状态迁移、定时任务、权限安全、迁移和运行方案。
+- 由 DYDATA-42 消费 Foundation 交付清单、术语表、Schema 和 API，补齐线索中心 PRD。
 - PRD 按 BRD 定义页面字段、操作反馈、异常状态、角色交互和逐项验收条件。
 - 正式交付计划把追踪矩阵中的 `部分实现`、`未实现` 和 `应删除` 映射到 Linear、代码、测试和上线门禁；S4 门禁通过后进入 `DYDATA-34`。
 
@@ -62,7 +61,8 @@
 - FOUNDATION 术语表已生成，共 212 行，明确主池、状态、池位置、策略步骤、真实轮次、跟进动作、权限和指标的统一含义。
 - FOUNDATION Schema 已生成：1 个索引、23 个单表定义，覆盖原始证据、完整主池、真实轮次、规则版本、评分、候选决策、总部池、指标事实和安全审计；本阶段未生成 DDL 或修改业务代码。
 - FOUNDATION API 已生成：1 个索引、6 份拆分契约，覆盖公共响应与错误、自然日筛选、线索查询与联系方式、跟进与轮次、规则与门店组、正式分配与总部池、任务安全及一次性迁移；23/23 单表文档已回填使用接口。
+- FOUNDATION 交付清单已生成，声明 119 个术语、23 张目标表、55 个 HTTP 契约、5 个外部依赖以及全部 29 个拆分子文件；Phase 5 C2-C7 追溯结果已回填。
 - API 延续宿主项目 `/api/v1`、snake_case 与 `data/meta` 契约；完整手机号查看、复制和明文导出均独立鉴权并审计，正式分配仅允许内部任务触发，试运行不写正式轮次。
-- 全量测试 516 项通过；仅出现现有 Alembic/SQLite 弃用警告，未发现本轮文档变更导致的回归。
-- S2 路由检查仍推荐停留 S2；当前 `canEnter=false` 来自项目画像三个既有页面任务字段待确认，不是 Foundation API 结构或内容校验错误，须在后续页面/PRD 门禁前补齐。
+- 最新 `main` 全量测试 818 项通过；仅出现 69 条现有 Alembic/SQLite 弃用警告，未发现本轮文档变更导致的回归。
+- S2 路由检查返回 `canEnter=true`、`foundationReadyForPrd.pass=true`、`artifactsReady=true`，0 errors、0 warnings，下一路由为 `prd-chief` / `prd-writer`。
 - 业务代码尚未修改；DYDATA-34 继续等待 FOUNDATION、PRD、正式交付计划和 S4 门禁。

@@ -4,6 +4,7 @@
 > 来源: foundation-builder Phase 4
 > 业务基线: [BRD](../../brd/BRD-clue-center-20260721-2134.md)
 > 关联: [术语表](foundation-glossary-clue-center.md) · [Schema](foundation-schema-clue-center.md)
+> 状态: Phase 4、Phase 5 已确认；已纳入 Phase 6 Foundation 正式交付清单
 
 ## 1. 设计结论
 
@@ -107,6 +108,7 @@
 | J06 | 内部 HTTP | `POST /api/v1/internal/clue-allocation/data-quality-checks` | 新增 | 生成源映射、锚点、门店地理和状态一致性报告 |
 | J07 | 管理接口 | `POST /api/v1/admin/sync/clue-center/rebuild-previews` | 新增 | 预览一次性或受控全量重建影响 |
 | J08 | 管理接口 | `POST /api/v1/admin/sync/clue-center/rebuilds` | 新增 | 最高管理员按确认令牌提交重建 |
+| J09 | 管理接口 | `POST /api/v1/admin/sync/clue-center/rebuild` | 删除 | 被 J07/J08 替代，禁止无预览直接重建 |
 | E01 | 外部引用 | 抖音线索查询 | 保留 | 采集原始线索和 `follow_poi_id` 锚点 |
 | E02 | 外部引用 | 抖音订单查询 | 保留 | 补齐下单时间、销售店和订单状态 |
 | E03 | 外部引用 | 抖音核销记录查询 | 保留 | 形成已核销终态证据 |
@@ -127,6 +129,8 @@
 | 数据同步与受控重建 | J07-J08 |
 | 自动采集、正式分配和状态推进 | J01-J06、E01-E05 |
 
+`GET /api/v1/admin/sync`、`PUT /api/v1/admin/sync/config` 和 `POST /api/v1/admin/sync/run` 是宿主同步页共享契约，不重复纳入线索中心 Schema；其与冻结交互的边界见任务专题文件。
+
 ## 6. Phase 4 确认重点
 
 1. 是否接受沿用宿主项目现有 `/api/v1`、`snake_case`、`data/meta` 契约，而不在本专项引入全站破坏性改名。
@@ -134,3 +138,5 @@
 3. 是否接受总部池 V1 只有查询接口，不设计再次投放写接口。
 4. 是否接受普通管理员只读、最高管理员执行规则和批次管理、门店仅操作当前有效轮次的权限分层。
 5. 是否接受正式分配仅由唯一内部任务 J03 触发，试运行和重建不能写正式轮次或经营指标。
+
+以上五项已于 2026-07-22 获用户确认。Phase 5 未改变业务决策，仅补齐页面写操作所需并发版本、门店组成员摘要、一键操作默认审计原因及宿主同步页边界。

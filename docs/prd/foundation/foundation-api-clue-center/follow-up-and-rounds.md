@@ -98,7 +98,7 @@ API 只接受以下五个稳定动作值。旧 `success`、`failed`、`continue_
 
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
-| `deletion_reason` | string | 是 | 5-200 字，说明误录原因 |
+| `deletion_reason` | string/null | 否 | 可选误录说明，5-200 字；V1 垃圾桶二次确认未提供输入框时由服务端写固定原因 `highest_admin_confirmed_delete` |
 | `round_state_version` | integer | 是 | 目标轮次当前版本 |
 
 **响应 `data`**：
@@ -117,6 +117,7 @@ API 只接受以下五个稳定动作值。旧 `success`、`failed`、`continue_
 ### 3.1 删除边界
 
 - 只做软删除；原记录、删除人、原因和审计不可物理清除。
+- 无论请求是否填写 `deletion_reason`，落库删除原因都不得为空；省略时使用固定原因码对应文案，不伪造用户自由文本。
 - 删除可重算 `latest_follow_action/latest_follow_at/is_followed` 的展示摘要。
 - 已经关闭的轮次、已经创建的后续轮次、总部池条目和历史决策不得因删除记录自动回滚。
 - 若目标是活动保护轮次，删除后仍有可启动保护的动作，则保护起止点保持首次实际进入保护时的历史值，不因删除重新延长。
