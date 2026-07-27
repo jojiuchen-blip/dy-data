@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from hashlib import sha256
@@ -49,6 +49,12 @@ class AllocationResult:
     decision_ids: tuple[str, ...] = ()
 
 
+@dataclass
+class _AllocationBatchContext:
+    stores: list[DimStore] | None = None
+    scores_by_rule_version: dict[str, dict[str, StoreScoreSnapshot]] = field(default_factory=dict)
+
+
 def allocate_lead(
     session: Session,
     lead_key: str,
@@ -60,6 +66,7 @@ def allocate_lead(
     start_after_strategy: str | None = None,
     transition_key: str | None = None,
     auto_expiry_enabled_override: bool | None = None,
+    _batch_context: _AllocationBatchContext | None = None,
 ) -> AllocationResult:
     """Allocate one active M1 lead through its immutable bound rule snapshot.
 
@@ -231,12 +238,24 @@ def allocate_lead(
         if matched is None:
             raise ValueError("start_after_strategy must be a configured strategy type")
         start_after_order = int(matched["execution_order"])
-    stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
-    scores = _latest_scores(
-        session,
-        {store.store_id for store in stores},
-        rule_version_id=binding.rule_version_id,
-    )
+    if _batch_context is None:
+        stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
+        scores = _latest_scores(
+            session,
+            {store.store_id for store in stores},
+            rule_version_id=binding.rule_version_id,
+        )
+    else:
+        if _batch_context.stores is None:
+            _batch_context.stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
+        stores = _batch_context.stores
+        if binding.rule_version_id not in _batch_context.scores_by_rule_version:
+            _batch_context.scores_by_rule_version[binding.rule_version_id] = _latest_scores(
+                session,
+                {store.store_id for store in stores},
+                rule_version_id=binding.rule_version_id,
+            )
+        scores = _batch_context.scores_by_rule_version[binding.rule_version_id]
     sale_store = _resolve_sale_store_evidence(session, lead.order_id or "")
     historical_store_ids = _historical_self_owned_store_ids(session, lead.lead_key)
     decision_ids: list[str] = []
@@ -446,6 +465,7 @@ def allocate_leads(
 ) -> list[AllocationResult]:
     """Explicit batch helper for a caller that has already selected M1 leads."""
 
+    batch_context = _AllocationBatchContext()
     return [
         allocate_lead(
             session,
@@ -455,6 +475,7 @@ def allocate_leads(
             actor=actor,
             now=now,
             auto_expiry_enabled_override=auto_expiry_enabled_override,
+            _batch_context=batch_context,
         )
         for lead_key in lead_keys
     ]

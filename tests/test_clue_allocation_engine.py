@@ -22,7 +22,8 @@ from apps.api.dy_api.models import (
     StoreScoreSnapshotRun,
 )
 from apps.worker import clue_allocation
-from apps.worker.clue_allocation_engine import allocate_lead
+from apps.worker import clue_allocation_engine
+from apps.worker.clue_allocation_engine import allocate_lead, allocate_leads
 from apps.worker.clue_rule_versions import (
     bind_lead_rule_version,
     create_rule,
@@ -155,6 +156,43 @@ def _new_version(session: Session, rule_id: str, *, strategy_configs: list[dict]
         created_by="system-admin",
     )
     return publish_rule_version(session, version.rule_version_id, published_by="system-admin")
+
+
+def test_allocate_leads_reuses_store_score_queries_within_one_batch(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    db_session.add_all(
+        [
+            _store("anchor"),
+            _lead("batch-lead-1", order_id="batch-order-1"),
+            _lead("batch-lead-2", order_id="batch-order-2"),
+        ]
+    )
+    _publish_global_rule(db_session)
+    db_session.commit()
+    original_latest_scores = clue_allocation_engine._latest_scores
+    score_query_calls = 0
+
+    def counted_latest_scores(*args, **kwargs):
+        nonlocal score_query_calls
+        score_query_calls += 1
+        return original_latest_scores(*args, **kwargs)
+
+    monkeypatch.setattr(clue_allocation_engine, "_latest_scores", counted_latest_scores)
+
+    results = allocate_leads(
+        db_session,
+        ["batch-lead-1", "batch-lead-2"],
+        execution_mode="formal",
+        allocation_cycle_id="batch-cycle",
+        actor="system-admin",
+        now=_dt(2),
+        auto_expiry_enabled_override=False,
+    )
+
+    assert [result.status for result in results] == ["assigned", "assigned"]
+    assert score_query_calls == 1
 
 
 def _add_sale_store(session: Session, *, order_id: str, store_id: str, coupon_id: str) -> None:
