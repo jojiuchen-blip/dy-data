@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from hashlib import sha256
-from typing import Any, Mapping
+from typing import Any, Mapping, MutableMapping
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,12 +38,19 @@ def enter_headquarters_pool(
     source_rule_version_id: str | None = None,
     allocation_cycle_id: str | None = None,
     source_snapshot: Mapping[str, Any] | None = None,
+    _active_entries_by_lead: MutableMapping[str, ClueHeadquartersPoolEntry] | None = None,
+    _flush: bool = True,
 ) -> ClueHeadquartersPoolEntry:
     occurred_at = _aware(entered_at or utcnow())
-    # A new master lead can enter the headquarters pool during the same materialization pass.
-    session.flush([lead])
+    if _flush:
+        # A new master lead can enter the headquarters pool during the same materialization pass.
+        session.flush([lead])
     decision_id = source_decision.decision_id if source_decision is not None else None
-    active = get_active_headquarters_pool_entry(session, lead.lead_key)
+    active = (
+        _active_entries_by_lead.get(lead.lead_key)
+        if _active_entries_by_lead is not None
+        else get_active_headquarters_pool_entry(session, lead.lead_key)
+    )
     if active is not None and active.source_decision_id == decision_id:
         return active
     if active is not None:
@@ -53,6 +60,7 @@ def enter_headquarters_pool(
             closed_at=occurred_at,
             close_reason="superseded_by_new_allocation",
             status="superseded",
+            _active_entries_by_lead=_active_entries_by_lead,
         )
 
     decision_snapshot = dict(source_decision.decision_snapshot or {}) if source_decision is not None else dict(source_snapshot or {})
@@ -92,7 +100,10 @@ def enter_headquarters_pool(
         updated_at=occurred_at,
     )
     session.add(entry)
-    session.flush()
+    if _active_entries_by_lead is not None:
+        _active_entries_by_lead[lead.lead_key] = entry
+    if _flush:
+        session.flush()
     return entry
 
 
@@ -103,8 +114,14 @@ def ensure_active_headquarters_pool_entry(
     reason: str,
     entered_at: datetime | None = None,
     source_snapshot: Mapping[str, Any] | None = None,
+    _active_entries_by_lead: MutableMapping[str, ClueHeadquartersPoolEntry] | None = None,
+    _flush: bool = True,
 ) -> ClueHeadquartersPoolEntry:
-    active = get_active_headquarters_pool_entry(session, lead.lead_key)
+    active = (
+        _active_entries_by_lead.get(lead.lead_key)
+        if _active_entries_by_lead is not None
+        else get_active_headquarters_pool_entry(session, lead.lead_key)
+    )
     if active is not None:
         return active
     return enter_headquarters_pool(
@@ -113,6 +130,8 @@ def ensure_active_headquarters_pool_entry(
         reason=reason,
         entered_at=entered_at,
         source_snapshot=source_snapshot,
+        _active_entries_by_lead=_active_entries_by_lead,
+        _flush=_flush,
     )
 
 
@@ -123,8 +142,13 @@ def close_current_headquarters_pool_entry(
     closed_at: datetime | None = None,
     close_reason: str,
     status: str = "closed",
+    _active_entries_by_lead: MutableMapping[str, ClueHeadquartersPoolEntry] | None = None,
 ) -> ClueHeadquartersPoolEntry | None:
-    entry = get_active_headquarters_pool_entry(session, lead_key)
+    entry = (
+        _active_entries_by_lead.get(lead_key)
+        if _active_entries_by_lead is not None
+        else get_active_headquarters_pool_entry(session, lead_key)
+    )
     if entry is None:
         return None
     occurred_at = _aware(closed_at or utcnow())
@@ -132,6 +156,8 @@ def close_current_headquarters_pool_entry(
     entry.closed_at = occurred_at
     entry.close_reason = close_reason
     entry.updated_at = occurred_at
+    if _active_entries_by_lead is not None:
+        _active_entries_by_lead.pop(lead_key, None)
     return entry
 
 

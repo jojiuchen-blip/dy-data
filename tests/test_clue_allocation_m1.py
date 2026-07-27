@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from openpyxl import Workbook
-from sqlalchemy import func, select, text
+from sqlalchemy import event, func, select, text
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -352,6 +352,37 @@ def test_materialization_persists_new_master_before_creating_headquarters_entry(
     stats = clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
 
     assert stats == {"master_leads": 1, "closed_leads": 0, "headquarters_pool": 1}
+
+
+def test_materialization_batches_headquarters_pool_lookups(db_session: Session) -> None:
+    db_session.add_all(
+        [
+            _raw_clue(
+                f"missing-anchor-{index}",
+                clue_id=f"missing-anchor-{index}",
+                order_id=f"missing-order-{index}",
+                follow_poi_id=None,
+            )
+            for index in range(25)
+        ]
+    )
+    db_session.commit()
+    select_count = 0
+
+    def count_selects(_connection, _cursor, statement, _parameters, _context, _executemany) -> None:
+        nonlocal select_count
+        if statement.lstrip().upper().startswith("SELECT"):
+            select_count += 1
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", count_selects)
+    try:
+        stats = clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+    finally:
+        event.remove(engine, "before_cursor_execute", count_selects)
+
+    assert stats == {"master_leads": 25, "closed_leads": 0, "headquarters_pool": 25}
+    assert select_count <= 12
 
 
 def test_master_lead_merges_missing_clue_id_when_contact_and_order_are_later_available(
