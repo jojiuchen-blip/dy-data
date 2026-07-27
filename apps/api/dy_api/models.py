@@ -557,6 +557,7 @@ class DimSkuProductRule(Base):
         Index("idx_dim_sku_product_rules_active", "is_active_product"),
         Index("idx_dim_sku_product_rules_sync_run", "sync_run_id"),
         Index("idx_dim_sku_product_rules_last_synced", "last_synced_at"),
+        Index("idx_dim_sku_product_rules_sync_status", "sync_status"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -579,9 +580,12 @@ class DimSkuProductRule(Base):
     owner_account_name: Mapped[str | None] = mapped_column(String(255))
     product_status_raw: Mapped[str | None] = mapped_column(String(128))
     product_status_normalized: Mapped[str | None] = mapped_column(String(32))
+    product_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_active_product: Mapped[bool] = mapped_column(Boolean, default=False)
     sync_source: Mapped[str | None] = mapped_column(String(64))
     sync_run_id: Mapped[str | None] = mapped_column(String(128))
+    sync_status: Mapped[str | None] = mapped_column(String(32))
+    sync_error: Mapped[str | None] = mapped_column(Text)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     manual_modified_by: Mapped[str | None] = mapped_column(String(128))
     manual_modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -608,6 +612,7 @@ class SkuProductSyncHistory(Base):
         Index("idx_sku_product_sync_history_product", "product_id"),
         Index("idx_sku_product_sync_history_owner", "owner_account_id"),
         Index("idx_sku_product_sync_history_payload", "payload_sha256"),
+        Index("idx_sku_product_sync_history_status", "sync_status"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -629,6 +634,9 @@ class SkuProductSyncHistory(Base):
     owner_account_name: Mapped[str | None] = mapped_column(String(255))
     product_status_raw: Mapped[str | None] = mapped_column(String(128))
     product_status_normalized: Mapped[str | None] = mapped_column(String(32))
+    product_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    sync_status: Mapped[str | None] = mapped_column(String(32))
+    sync_error: Mapped[str | None] = mapped_column(Text)
     payload_sha256: Mapped[str] = mapped_column(String(64))
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)

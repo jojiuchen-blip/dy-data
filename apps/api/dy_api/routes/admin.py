@@ -1953,6 +1953,7 @@ def _product_sync_run_item(session, job: JobRun) -> dict[str, object]:
         "insertedCount": _non_negative_int(metadata.get("inserted_count")),
         "updatedCount": _non_negative_int(metadata.get("updated_count")),
         "unchangedCount": _non_negative_int(metadata.get("unchanged_count")),
+        "skippedCount": _non_negative_int(metadata.get("skipped_count")),
         "failedCount": max(job.failed_count or 0, 0),
         "latestSuccessfulSyncedAt": latest_successful_synced_at,
         "nextCursorMasked": metadata.get("next_cursor_masked"),
@@ -1976,6 +1977,9 @@ def _sku_sync_history_item(row: SkuProductSyncHistory) -> dict[str, object]:
         "ownerAccountName": row.owner_account_name,
         "productStatusRaw": row.product_status_raw,
         "productStatus": row.product_status_normalized,
+        "productUpdatedAt": row.product_updated_at,
+        "syncStatus": row.sync_status,
+        "syncError": row.sync_error,
         "payloadSha256": row.payload_sha256,
         "observedAt": row.observed_at,
     }

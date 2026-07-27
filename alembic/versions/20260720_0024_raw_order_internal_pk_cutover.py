@@ -229,12 +229,18 @@ def _prepare_postgresql_constraint_indexes() -> None:
     """Build replacement indexes without blocking normal table writes."""
 
     with context.get_context().autocommit_block():
-        for index_name, table_name, column_name in POSTGRESQL_STAGING_INDEXES:
-            op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {index_name}")
-            op.execute(
-                f"CREATE UNIQUE INDEX CONCURRENTLY {index_name} "
-                f"ON {table_name} ({column_name})"
-            )
+        op.execute("SET statement_timeout = '5min'")
+        op.execute("SET lock_timeout = '5s'")
+        try:
+            for index_name, table_name, column_name in POSTGRESQL_STAGING_INDEXES:
+                op.execute(f"DROP INDEX CONCURRENTLY IF EXISTS {index_name}")
+                op.execute(
+                    f"CREATE UNIQUE INDEX CONCURRENTLY {index_name} "
+                    f"ON {table_name} ({column_name})"
+                )
+        finally:
+            op.execute("RESET lock_timeout")
+            op.execute("RESET statement_timeout")
 
 
 def _lock_postgresql_validation_tables() -> None:

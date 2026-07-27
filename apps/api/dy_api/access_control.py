@@ -29,7 +29,7 @@ PAGE_DEFINITIONS = (
     PageDefinition("A02", "线索明细", "线索中心", ("/clues/:id",)),
     PageDefinition("B01", "全国门店榜单", "订单分佣", ("/ranking",)),
     PageDefinition("B02", "单店结算", "订单分佣", ("/settlement",)),
-    PageDefinition("B03", "订单费用明细", "订单分佣", ("/order-details",)),
+    PageDefinition("B03", "订单费用明细", "订单分佣", ("/details", "/invoice")),
     PageDefinition("C01", "核销表现", "核销表现", ("/sales-dashboard",)),
     PageDefinition("D01", "后台首页", "管理后台", ("/admin",)),
     PageDefinition("D02", "账号管理", "管理后台", ("/admin/accounts",)),
@@ -287,6 +287,15 @@ def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None
         return "D09"
     if path.startswith("/api/v1/admin/product-type"):
         return "D04"
+    if (
+        path.startswith("/api/v1/admin/sku-products")
+        or path.startswith("/api/v1/admin/sku-fee-rules")
+        or path.startswith("/api/v1/admin/sku-fee-rule-imports")
+        or path.startswith("/api/v1/admin/settlement-scope-rules")
+    ):
+        return "D03"
+    if path.startswith("/api/v1/admin/product-sync-runs"):
+        return "D10"
     if path.startswith("/api/v1/admin/sku-rules") or path.startswith("/api/v1/admin/non-commission"):
         return "D03"
     if path.startswith("/api/v1/admin/clue-allocation/headquarters") or path.startswith("/api/v1/admin/clue-allocation/eligible"):
@@ -319,6 +328,8 @@ def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None
     if path.startswith("/api/v1/stores/") and "monthly-settlement" in path:
         return "B02"
     if path.startswith("/api/v1/order-details"):
+        return "B03"
+    if path.startswith("/api/v1/order-fee-details"):
         return "B03"
     if path.startswith("/api/v1/dashboard/sales"):
         return "C01"

@@ -48,6 +48,7 @@ def test_rules_page_uses_new_product_fee_and_atomic_import_panel() -> None:
     assert "error.field" in panel
     assert "error.message" in panel
     assert "PENDING_COMMIT" in panel
+    assert "if (!value.trim()) return null" in panel
 
 
 def test_sync_page_shows_product_runs_details_and_safe_statuses() -> None:
@@ -76,6 +77,7 @@ def test_sync_page_shows_product_runs_details_and_safe_statuses() -> None:
         assert presenter in panel or presenter in read_source(
             "components/AdminSkuGovernancePanel.tsx"
         )
+    assert "row.skippedCount" in panel
 
 
 def test_admin_contract_types_are_camel_case_and_keep_audit_fields() -> None:

@@ -169,8 +169,16 @@ const userRoleLabels: LabelMap = {
 const productStatusLabels: LabelMap = {
   ACTIVE: "在线",
   INACTIVE: "下线",
+  BANNED: "封禁",
   DELETED: "已删除",
   UNKNOWN: "状态待确认",
+};
+
+const productRecordSyncStatusLabels: LabelMap = {
+  SUCCESS: "同步成功",
+  MASKED: "字段未完整返回",
+  NOT_FOUND: "商品未返回",
+  ERROR: "同步失败",
 };
 
 const feeRuleStatusLabels: LabelMap = {
@@ -316,6 +324,15 @@ export function displayUserRole(value: string | null | undefined): string {
 
 export function displayProductStatus(value: string | null | undefined): string {
   return displayEnumLabel(value, productStatusLabels, "未知商品状态", "product status");
+}
+
+export function displayProductRecordSyncStatus(value: string | null | undefined): string {
+  return displayEnumLabel(
+    value,
+    productRecordSyncStatusLabels,
+    "尚未同步",
+    "product record sync status",
+  );
 }
 
 export function displayFeeRuleStatus(value: string | null | undefined): string {

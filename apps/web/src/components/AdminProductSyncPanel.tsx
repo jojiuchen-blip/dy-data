@@ -16,6 +16,7 @@ import { apiErrorText } from "../utils/apiErrors";
 import { formatDateTime, formatInteger } from "../utils/format";
 import {
   displayProductStatus,
+  displayProductRecordSyncStatus,
   displayProductSyncMode,
   displayProductSyncStatus,
 } from "../utils/userFacingLabels";
@@ -147,7 +148,7 @@ export function AdminProductSyncPanel() {
     { key: "id", title: "运行 ID", align: "left", render: (row) => <span className="mono-cell">{row.syncRunId}</span> },
     { key: "mode", title: "同步方式", render: (row) => displayProductSyncMode(row.mode) },
     { key: "status", title: "状态", render: (row) => <StatusChip tone={syncTone(row.status)}>{displayProductSyncStatus(row.status)}</StatusChip> },
-    { key: "counts", title: "观察 / 新增 / 更新 / 失败", align: "right", render: (row) => `${formatInteger(row.observedCount)} / ${formatInteger(row.insertedCount)} / ${formatInteger(row.updatedCount)} / ${formatInteger(row.failedCount)}` },
+    { key: "counts", title: "观察 / 新增 / 更新 / 跳过 / 失败", align: "right", render: (row) => `${formatInteger(row.observedCount)} / ${formatInteger(row.insertedCount)} / ${formatInteger(row.updatedCount)} / ${formatInteger(row.skippedCount)} / ${formatInteger(row.failedCount)}` },
     { key: "latest", title: "最近成功同步", render: (row) => formatDateTime(row.latestSuccessfulSyncedAt) },
     { key: "time", title: "开始 / 完成", render: (row) => `${formatDateTime(row.startedAt)} / ${formatDateTime(row.finishedAt)}` },
     { key: "action", title: "操作", render: (row) => <Button onClick={() => void openDetail(row.syncRunId)} size="sm">查看详情</Button> },
@@ -160,6 +161,7 @@ export function AdminProductSyncPanel() {
     { key: "owner", title: "归属账号", render: (row) => row.ownerAccountName || row.ownerAccountId || "未返回" },
     { key: "creator", title: "创建账号", render: (row) => row.creatorAccountName || row.creatorAccountId || "未返回" },
     { key: "status", title: "商品状态", render: (row) => displayProductStatus(row.productStatus) },
+    { key: "sync", title: "同步状态", render: (row) => displayProductRecordSyncStatus(row.syncStatus) },
     { key: "digest", title: "载荷摘要", align: "left", render: (row) => <span className="mono-cell">{row.payloadSha256.slice(0, 12)}…</span> },
   ];
 

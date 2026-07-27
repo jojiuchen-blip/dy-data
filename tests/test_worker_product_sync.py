@@ -3,18 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.models import (
     DataQualityIssue,
     DimSkuProductRule,
     JobRun,
+    RawDouyinOrder,
     SkuProductSyncHistory,
     SyncSetting,
 )
 from apps.worker.product_sync import (
+    DouyinProductSyncAdapter,
     NormalizedProductSyncAdapter,
+    extract_known_order_products,
     execute_product_sync,
+    run_product_sync_job,
 )
 from apps.worker.repositories import queue_job_run
 
@@ -308,3 +312,267 @@ def test_incremental_sync_resumes_internal_cursor_without_exposing_it_in_job_met
     assert job.metadata_json["next_cursor_masked"].startswith("sha256:")
     assert "opaque-resume-cursor" not in str(job.metadata_json)
     assert "opaque-new-checkpoint" not in str(job.metadata_json)
+
+
+class FakeDouyinProductClient:
+    def __init__(self) -> None:
+        self.list_calls: list[dict] = []
+        self.id_calls: list[list[str]] = []
+
+    def query_online_products(self, **params):
+        self.list_calls.append(params)
+        status = params["status"]
+        if status == 1:
+            return {
+                "data": {
+                    "products": [
+                        {
+                            "online_status": 1,
+                            "product": {
+                                "product_id": "product-visible",
+                                "product_name": "Current product",
+                                "spu_id": "spu-visible",
+                                "creator_account_id": 1001,
+                                "owner_account_id": 2001,
+                                "account_name": "Owner account",
+                                "update_time": 1785081600,
+                            },
+                            "sku": {
+                                "sku_id": "sku-visible",
+                                "sku_name": "Current SKU",
+                            },
+                            "skus": [],
+                        }
+                    ],
+                    "has_more": False,
+                    "next_cursor": "",
+                }
+            }
+        return {"data": {"products": [], "has_more": False, "next_cursor": ""}}
+
+    def query_online_products_by_id(self, product_ids):
+        self.id_calls.append(list(product_ids))
+        return {
+            "data": {
+                "product_onlines": [
+                    {
+                        "online_status": 3,
+                        "product": {
+                            "product_id": "product-hidden",
+                            "product_name": "Hidden product",
+                            "creator_account_id": 1002,
+                            "owner_account_id": 2002,
+                            "account_name": "Hidden owner",
+                        },
+                        "skus": [
+                            {"sku_id": "sku-hidden", "sku_name": "Hidden SKU"},
+                            {"sku_id": "sku-hidden-2", "sku_name": "Second SKU"},
+                        ],
+                    }
+                ]
+            }
+        }
+
+
+def test_real_adapter_maps_all_statuses_and_uses_id_fallback():
+    client = FakeDouyinProductClient()
+    adapter = DouyinProductSyncAdapter(
+        client,
+        known_products={
+            "product-visible": {"sku-visible"},
+            "product-hidden": {"sku-hidden"},
+            "product-missing": {"sku-missing"},
+        },
+    )
+    cursor = None
+    items = []
+    while True:
+        page = adapter.fetch_page(mode="FULL", cursor=cursor)
+        items.extend(page.items)
+        if not page.has_more:
+            break
+        cursor = page.next_cursor
+
+    by_sku = {item.sku_id: item for item in items}
+    assert [call["status"] for call in client.list_calls] == [1, 2, 3]
+    assert client.id_calls == [["product-hidden", "product-missing"]]
+    assert by_sku["sku-visible"].product_status_normalized == "ACTIVE"
+    assert by_sku["sku-visible"].owner_account_id == "2001"
+    assert by_sku["sku-visible"].owner_account_name == "Owner account"
+    assert by_sku["sku-visible"].product_updated_at == datetime(
+        2026, 7, 26, 16, 0, tzinfo=timezone.utc
+    )
+    assert by_sku["sku-hidden"].product_status_normalized == "BANNED"
+    assert by_sku["sku-hidden-2"].product_status_normalized == "BANNED"
+    assert by_sku["sku-missing"].sync_status == "NOT_FOUND"
+    assert by_sku["sku-missing"].product_status_normalized == "UNKNOWN"
+
+
+class MissingSkuDouyinProductClient:
+    def query_online_products(self, *, status, cursor, count, goods_query_type):
+        _ = cursor, count, goods_query_type
+        products = []
+        if status == 1:
+            products = [
+                {
+                    "online_status": 1,
+                    "product": {
+                        "product_id": "product-with-sku",
+                        "product_name": "Product with SKU",
+                        "creator_account_id": 1001,
+                        "owner_account_id": 2001,
+                        "account_name": "Owner account",
+                    },
+                    "sku": {"sku_id": "sku-valid", "sku_name": "Valid SKU"},
+                },
+                {
+                    "online_status": 1,
+                    "product": {
+                        "product_id": "product-without-sku",
+                        "product_name": "Product without SKU",
+                    },
+                    "skus": [],
+                },
+            ]
+        return {"data": {"products": products, "has_more": False, "next_cursor": ""}}
+
+    def query_online_products_by_id(self, product_ids):
+        _ = product_ids
+        return {"data": {"product_onlines": []}}
+
+
+def test_real_adapter_skips_product_rows_without_sku_without_blocking_current_table(
+    db_session: Session,
+):
+    _queue(db_session)
+    adapter = DouyinProductSyncAdapter(MissingSkuDouyinProductClient())
+
+    result = execute_product_sync(db_session, job_id="product-sync-1", adapter=adapter)
+
+    current = list(db_session.scalars(select(DimSkuProductRule)))
+    assert result.status == "SUCCESS"
+    assert result.observed_count == 2
+    assert result.skipped_count == 1
+    assert result.failed_count == 0
+    assert [row.sku_id for row in current] == ["sku-valid"]
+    job = db_session.get(JobRun, "product-sync-1")
+    assert job is not None
+    assert job.metadata_json["skipped_count"] == 1
+
+
+def test_runtime_initialization_failure_finishes_job_without_overwriting_current_snapshot(
+    db_session: Session,
+    monkeypatch,
+):
+    existing = DimSkuProductRule(
+        sku_id="sku-trusted",
+        sku_name="Trusted SKU",
+        product_scope="Manual scope",
+        product_type="Manual type",
+        is_active_product=True,
+        sync_status="SUCCESS",
+    )
+    db_session.add(existing)
+    _queue(db_session)
+    db_session.commit()
+
+    def fail_client_initialization():
+        raise RuntimeError("credential is unavailable")
+
+    monkeypatch.setattr(
+        "apps.worker.pipeline.build_douyin_client_from_env",
+        fail_client_initialization,
+    )
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+
+    result = run_product_sync_job(job_id="product-sync-1", factory=factory)
+
+    db_session.expire_all()
+    job = db_session.get(JobRun, "product-sync-1")
+    current = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-trusted")
+    )
+    assert result.status == "FAILED"
+    assert result.error_code == "INITIALIZATION_ERROR"
+    assert job is not None and job.status == "failed"
+    assert job.metadata_json["retryable"] is True
+    assert job.error_message == "[redacted sensitive error]"
+    assert current is not None
+    assert current.sku_name == "Trusted SKU"
+    assert current.product_scope == "Manual scope"
+
+
+def test_extract_known_order_products_uses_products_array_and_deduplicates(db_session: Session):
+    db_session.add_all(
+        [
+            RawDouyinOrder(
+                order_id="order-1",
+                sku_id="sku-1",
+                raw_payload={
+                    "products": [
+                        {"product_id": "product-1", "sku_id": "sku-1"},
+                        {"product_id": "product-1", "sku_id": "sku-2"},
+                    ]
+                },
+            ),
+            RawDouyinOrder(
+                order_id="order-2",
+                sku_id="sku-1",
+                raw_payload={
+                    "products": [
+                        {"product_id": "product-1", "sku_id": "sku-1"},
+                        {"product_id": "", "sku_id": "ignored"},
+                    ]
+                },
+            ),
+        ]
+    )
+    db_session.flush()
+
+    assert extract_known_order_products(db_session) == {
+        "product-1": {"sku-1", "sku-2"}
+    }
+
+
+def test_not_found_sync_attempt_preserves_last_good_platform_fields(db_session: Session):
+    existing = DimSkuProductRule(
+        sku_id="sku-missing",
+        sku_name="Trusted SKU",
+        product_id="product-missing",
+        owner_account_id="owner-trusted",
+        owner_account_name="Trusted owner",
+        product_status_raw="1",
+        product_status_normalized="ACTIVE",
+        is_active_product=True,
+        sync_status="SUCCESS",
+        product_scope="Manual scope",
+        product_type="Manual type",
+    )
+    db_session.add(existing)
+    _queue(db_session)
+    adapter = DouyinProductSyncAdapter(
+        FakeDouyinProductClient(),
+        known_products={"product-missing": {"sku-missing"}},
+    )
+
+    result = execute_product_sync(db_session, job_id="product-sync-1", adapter=adapter)
+
+    db_session.flush()
+    row = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-missing")
+    )
+    assert result.status == "SUCCESS"
+    assert row is not None
+    assert row.sku_name == "Trusted SKU"
+    assert row.owner_account_id == "owner-trusted"
+    assert row.product_status_normalized == "ACTIVE"
+    assert row.is_active_product is True
+    assert row.sync_status == "NOT_FOUND"
+    assert row.sync_error == "product_not_returned"
+    assert row.product_scope == "Manual scope"
+    assert row.product_type == "Manual type"

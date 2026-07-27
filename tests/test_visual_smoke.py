@@ -86,6 +86,7 @@ RUNTIME_SURFACES = [
 
 sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
+from dy_api.access_control import ALL_PAGE_KEYS, STORE_DEFAULT_PAGE_KEYS  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes._data import get_data_store, get_session_dependency  # noqa: E402
@@ -458,6 +459,12 @@ def live_fastapi_base_url() -> Generator[str]:
             role=role,
             store_ids=("store_001",) if role == "store" else (),
             auth_type="user" if role == "store" else "env_admin",
+            store_scope_mode="specified" if role == "store" else "all",
+            page_keys=(
+                tuple(STORE_DEFAULT_PAGE_KEYS)
+                if role == "store"
+                else tuple(ALL_PAGE_KEYS)
+            ),
         )
 
     app.dependency_overrides[get_current_user] = current_user
@@ -612,6 +619,8 @@ def live_admin_fastapi_base_url() -> Generator[str]:
             role="admin",
             store_ids=(),
             auth_type="env_admin",
+            store_scope_mode="all",
+            page_keys=tuple(ALL_PAGE_KEYS),
         )
 
     def session_dependency():
@@ -2260,8 +2269,12 @@ def test_admin_sync_displays_stable_code_and_sanitized_error_summary(
 def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
     browser: Browser,
     vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context.add_cookies(
+        [{"name": "dy_e2e_role", "value": "admin", "url": live_admin_fastapi_base_url}]
+    )
     page = context.new_page()
     try:
         page.goto(
@@ -2346,6 +2359,9 @@ def test_admin_rules_uses_live_fastapi_for_atomic_import_and_result_file(
     effective_date: str,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context.add_cookies(
+        [{"name": "dy_e2e_role", "value": "admin", "url": live_admin_fastapi_base_url}]
+    )
     page = context.new_page()
     valid_sku = f"SKU-LIVE-ADMIN-{valid_index:03d}"
     invalid_sku = f"SKU-LIVE-ADMIN-{invalid_index:03d}"
@@ -2404,8 +2420,12 @@ def test_admin_rules_uses_live_fastapi_for_atomic_import_and_result_file(
 def test_admin_sync_uses_live_fastapi_for_queued_success_failed_and_partial(
     browser: Browser,
     vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
 ) -> None:
     context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context.add_cookies(
+        [{"name": "dy_e2e_role", "value": "admin", "url": live_admin_fastapi_base_url}]
+    )
     page = context.new_page()
     try:
         page.goto(

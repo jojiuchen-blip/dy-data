@@ -496,6 +496,7 @@ def _add_fee_rule(
     *,
     promotion: str,
     management: str,
+    status: int = 1,
 ) -> None:
     session.add(
         SkuFeeRule(
@@ -510,7 +511,7 @@ def _add_fee_rule(
             management_service_fee_rate=Decimal(management),
             effective_date=effective_date,
             effective_at=datetime.combine(effective_date, datetime.min.time(), timezone.utc),
-            rule_status=1,
+            rule_status=status,
             created_by="test",
             change_reason="test fixture",
             published_at=datetime.combine(effective_date, datetime.min.time(), timezone.utc),
@@ -669,6 +670,28 @@ def test_dual_fee_results_use_directional_dates_rules_months_and_rounding(
     assert management.rule_version == "fee-sep"
     assert management.fee_rate == Decimal("0.200000")
     assert management.fee_amount_cent == 2000
+
+
+def test_newer_inactive_fee_rule_suppresses_older_active_rule(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    _add_fee_rule(
+        db_session,
+        "fee-aug-disabled",
+        date(2026, 8, 5),
+        promotion="0.900000",
+        management="0.900000",
+        status=2,
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-calc-disabled")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    management = _fee_result(db_session, "coupon-dual", 2)
+    assert management is not None
+    assert management.rule_version == "fee-sep"
 
 
 def test_dual_fee_direction_failure_is_isolated_and_rerun_is_idempotent(

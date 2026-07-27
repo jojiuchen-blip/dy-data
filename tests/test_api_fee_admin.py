@@ -301,6 +301,26 @@ def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
     matched_rows = matched.json()["data"]["list"]
     assert [row["isMatchedVersion"] for row in matched_rows] == [False, True]
 
+    disabled = client.post(
+        "/api/v1/admin/sku-fee-rules",
+        headers={"Idempotency-Key": "fee-rule-key-disabled-0001"},
+        json={
+            **payload,
+            "effectiveDate": "2026-08-25",
+            "ruleStatus": "INACTIVE",
+            "changeReason": "停止后续订单费用计算",
+        },
+    )
+    assert disabled.status_code == 200
+    after_disabled = client.get(
+        "/api/v1/admin/sku-fee-rules",
+        params={"skuId": "sku-1", "asOfDate": "2026-08-30"},
+    )
+    assert after_disabled.status_code == 200
+    assert not any(
+        row["isMatchedVersion"] for row in after_disabled.json()["data"]["list"]
+    )
+
     before_formal_period = client.post(
         "/api/v1/admin/sku-fee-rules",
         headers={"Idempotency-Key": "fee-rule-key-0004"},

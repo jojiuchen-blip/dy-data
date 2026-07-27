@@ -127,7 +127,11 @@ def create_app(
         )
 
     app.add_middleware(CliAuditMiddleware)
-    install_cli_exception_handlers(app)
+    install_cli_exception_handlers(
+        app,
+        http_fallback=structured_fee_admin_http_error,
+        validation_fallback=structured_fee_admin_validation_error,
+    )
     install_mcp_public_routes(app, oauth_provider)
 
     app.include_router(agent.router, tags=["agent-discovery"])

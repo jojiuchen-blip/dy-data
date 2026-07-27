@@ -756,7 +756,8 @@ export interface CamelPagination {
   totalPages?: number;
 }
 
-export type ProductStatus = "ACTIVE" | "INACTIVE" | "DELETED" | "UNKNOWN";
+export type ProductStatus = "ACTIVE" | "INACTIVE" | "BANNED" | "DELETED" | "UNKNOWN";
+export type ProductRecordSyncStatus = "SUCCESS" | "MASKED" | "NOT_FOUND" | "ERROR";
 
 export interface SkuProductItem {
   skuId: string;
@@ -771,7 +772,11 @@ export interface SkuProductItem {
   creatorAccountName: string | null;
   ownerAccountId: string | null;
   ownerAccountName: string | null;
+  productStatusRaw: string | null;
   productStatus: ProductStatus | null;
+  productUpdatedAt: string | null;
+  syncStatus: ProductRecordSyncStatus | null;
+  syncError: string | null;
   isActiveProduct: boolean;
   lastSyncedAt: string | null;
   manualModifiedAt: string | null;
@@ -906,6 +911,7 @@ export interface ProductSyncRunItem {
   insertedCount: number;
   updatedCount: number;
   unchangedCount: number;
+  skippedCount: number;
   failedCount: number;
   latestSuccessfulSyncedAt: string | null;
   nextCursorMasked: string | null;
@@ -945,6 +951,9 @@ export interface SkuSyncHistoryItem {
   ownerAccountName: string | null;
   productStatusRaw: string | null;
   productStatus: ProductStatus | null;
+  productUpdatedAt: string | null;
+  syncStatus: ProductRecordSyncStatus | null;
+  syncError: string | null;
   payloadSha256: string;
   observedAt: string;
 }

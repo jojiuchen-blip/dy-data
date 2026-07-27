@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Awaitable, Callable
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -120,7 +120,16 @@ def _auth_error_code(request: Request) -> tuple[str, str]:
     return "AUTH_REQUIRED", "CLI authentication is required"
 
 
-def install_cli_exception_handlers(app: FastAPI) -> None:
+HttpExceptionHandler = Callable[[Request, StarletteHTTPException], Awaitable[Any]]
+ValidationExceptionHandler = Callable[[Request, RequestValidationError], Awaitable[Any]]
+
+
+def install_cli_exception_handlers(
+    app: FastAPI,
+    *,
+    http_fallback: HttpExceptionHandler = http_exception_handler,
+    validation_fallback: ValidationExceptionHandler = request_validation_exception_handler,
+) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def cli_http_exception_handler(
         request: Request, exc: StarletteHTTPException
@@ -130,7 +139,7 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
             request.url.path
         ) or request.url.path.startswith("/api/v1/cli/")
         if not is_cli_contract_path:
-            return await http_exception_handler(request, exc)
+            return await http_fallback(request, exc)
 
         if isinstance(exc.detail, dict) and set(exc.detail) == {
             "ok",
@@ -178,7 +187,7 @@ def install_cli_exception_handlers(app: FastAPI) -> None:
     ):
         command = cli_command_for_path(request.url.path)
         if command is None:
-            return await request_validation_exception_handler(request, exc)
+            return await validation_fallback(request, exc)
         return cli_error_response(
             request,
             code="INVALID_ARGUMENT",

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -854,6 +854,42 @@ def test_incremental_collection_window_defaults_to_recent_30_days():
 
     assert window.start.isoformat() == "2026-05-17T00:00:00+08:00"
     assert window.end.isoformat() == "2026-06-16T15:30:00+08:00"
+
+
+def test_scheduled_product_sync_runs_once_per_interval(monkeypatch):
+    engine = create_engine(
+        "sqlite+pysqlite:///:memory:",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    calls: list[str] = []
+    monkeypatch.setattr(scheduler, "douyin_app_id", lambda: "configured")
+    monkeypatch.setattr(scheduler, "douyin_app_secret", lambda: "configured")
+    monkeypatch.setattr(scheduler, "douyin_account_id", lambda: "configured")
+    monkeypatch.setattr(
+        scheduler,
+        "run_product_sync_job",
+        lambda *, job_id, factory: calls.append(job_id),
+    )
+    now = datetime(2026, 7, 27, 8, 0, tzinfo=timezone.utc)
+
+    first = scheduler.run_scheduled_product_sync(factory, now=now)
+    second = scheduler.run_scheduled_product_sync(
+        factory,
+        now=now + timedelta(hours=1),
+    )
+
+    assert first is not None
+    assert second is None
+    assert calls == [first]
+    with factory() as session:
+        job = session.get(JobRun, first)
+        assert job is not None
+        assert job.status == "queued"
+        assert job.metadata_json["mode"] == "INCREMENTAL"
 
 
 def test_fake_douyin_client_allows_offline_worker_smoke(monkeypatch):

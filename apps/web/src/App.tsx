@@ -81,6 +81,7 @@ const pageKeyByPath: Array<[string, string]> = [
   ["/ranking", "B01"],
   ["/settlement", "B02"],
   ["/details", "B03"],
+  ["/invoice", "B03"],
   ["/sales", "C01"],
 ];
 

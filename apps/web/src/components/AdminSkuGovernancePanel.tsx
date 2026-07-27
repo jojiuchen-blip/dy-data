@@ -25,6 +25,7 @@ import {
   displayImportBatchStatus,
   displayImportRowStatus,
   displayProductStatus,
+  displayProductRecordSyncStatus,
 } from "../utils/userFacingLabels";
 import { Button } from "./Button";
 import { StatusChip, type ChipTone } from "./Chips";
@@ -34,6 +35,7 @@ import { SelectField } from "./FormControls";
 const FIRST_EFFECTIVE_DATE = "2026-08-01";
 
 function percentInputToRate(value: string): string | null {
+  if (!value.trim()) return null;
   const percent = Number(value.trim());
   if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
   return (percent / 100).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
@@ -273,6 +275,7 @@ export function AdminSkuGovernancePanel() {
     { key: "owner", title: "商品归属账号", align: "left", render: (row) => row.ownerAccountName || row.ownerAccountId || "未返回" },
     { key: "creator", title: "创建账号", align: "left", render: (row) => row.creatorAccountName || row.creatorAccountId || "未返回" },
     { key: "status", title: "商品状态", render: (row) => <StatusChip tone={row.productStatus === "ACTIVE" ? "success" : "neutral"}>{displayProductStatus(row.productStatus)}</StatusChip> },
+    { key: "sync", title: "同步状态", render: (row) => <StatusChip tone={row.syncStatus === "SUCCESS" ? "success" : "neutral"}>{displayProductRecordSyncStatus(row.syncStatus)}</StatusChip> },
     { key: "manual", title: "人工分类", render: (row) => `${row.productScope || "未配置"} / ${row.productType || "未配置"}` },
     { key: "action", title: "操作", render: (row) => <Button onClick={() => chooseProduct(row)} size="sm">编辑人工字段</Button> },
   ], []);

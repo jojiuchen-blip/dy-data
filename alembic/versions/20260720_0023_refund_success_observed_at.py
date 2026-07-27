@@ -7,7 +7,7 @@ Create Date: 2026-07-20 20:45:00
 
 from __future__ import annotations
 
-from alembic import op
+from alembic import context, op
 import sqlalchemy as sa
 
 
@@ -33,17 +33,44 @@ def upgrade() -> None:
             "WHERE refund_status = 2 AND successful_observed_at IS NULL"
         )
     )
-    op.create_index(
-        "ix_douyin_refund_event_successful_observed_at",
-        "douyin_refund_event",
-        ["successful_observed_at"],
-    )
+    _create_successful_observed_at_index()
 
 
 def downgrade() -> None:
-    op.drop_index(
-        "ix_douyin_refund_event_successful_observed_at",
-        table_name="douyin_refund_event",
-    )
+    _drop_successful_observed_at_index()
     with op.batch_alter_table("douyin_refund_event") as batch_op:
         batch_op.drop_column("successful_observed_at")
+
+
+def _create_successful_observed_at_index() -> None:
+    if op.get_bind().dialect.name != "postgresql":
+        op.create_index(
+            "ix_douyin_refund_event_successful_observed_at",
+            "douyin_refund_event",
+            ["successful_observed_at"],
+        )
+        return
+    with context.get_context().autocommit_block():
+        op.execute("SET statement_timeout = '5min'")
+        try:
+            op.execute(
+                "CREATE INDEX CONCURRENTLY "
+                "ix_douyin_refund_event_successful_observed_at "
+                "ON douyin_refund_event (successful_observed_at)"
+            )
+        finally:
+            op.execute("RESET statement_timeout")
+
+
+def _drop_successful_observed_at_index() -> None:
+    if op.get_bind().dialect.name != "postgresql":
+        op.drop_index(
+            "ix_douyin_refund_event_successful_observed_at",
+            table_name="douyin_refund_event",
+        )
+        return
+    with context.get_context().autocommit_block():
+        op.execute(
+            "DROP INDEX CONCURRENTLY "
+            "ix_douyin_refund_event_successful_observed_at"
+        )

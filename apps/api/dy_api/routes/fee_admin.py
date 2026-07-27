@@ -97,7 +97,7 @@ def list_sku_products(
         conditions.append(DimSkuProductRule.product_type == product_type.strip())
     if product_status:
         normalized_status = product_status.strip().upper()
-        if normalized_status not in {"ACTIVE", "INACTIVE", "DELETED", "UNKNOWN"}:
+        if normalized_status not in {"ACTIVE", "INACTIVE", "BANNED", "DELETED", "UNKNOWN"}:
             raise _error(request, 422, "VALIDATION_FAILED", "商品状态不合法")
         conditions.append(DimSkuProductRule.product_status_normalized == normalized_status)
     if is_active_product is not None:
@@ -1132,7 +1132,11 @@ def _sku_product_item(row: DimSkuProductRule) -> dict[str, Any]:
         "creatorAccountName": row.creator_account_name,
         "ownerAccountId": row.owner_account_id,
         "ownerAccountName": row.owner_account_name,
+        "productStatusRaw": row.product_status_raw,
         "productStatus": row.product_status_normalized,
+        "productUpdatedAt": _utc_to_shanghai(row.product_updated_at),
+        "syncStatus": row.sync_status,
+        "syncError": row.sync_error,
         "isActiveProduct": row.is_active_product,
         "lastSyncedAt": _utc_to_shanghai(row.last_synced_at),
         "manualModifiedAt": _utc_to_shanghai(row.manual_modified_at),
@@ -1178,13 +1182,12 @@ def _matched_rule_versions(
             select(SkuFeeRule)
             .where(
                 SkuFeeRule.sku_id == sku_id,
-                SkuFeeRule.rule_status == 1,
                 SkuFeeRule.effective_date <= as_of_date,
             )
             .order_by(SkuFeeRule.effective_date.desc(), SkuFeeRule.published_at.desc())
             .limit(1)
         )
-        if row is not None:
+        if row is not None and row.rule_status == 1:
             matched.add(row.rule_version)
     return matched
 

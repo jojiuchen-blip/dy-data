@@ -1033,16 +1033,18 @@ def _match_scope_rule(
 def _match_fee_rule(
     session: Session, sku_id: str, business_date: date
 ) -> SkuFeeRule | None:
-    return session.scalar(
+    latest_rule = session.scalar(
         select(SkuFeeRule)
         .where(
             SkuFeeRule.sku_id == sku_id,
-            SkuFeeRule.rule_status == ACTIVE_FEE_RULE,
             SkuFeeRule.effective_date <= business_date,
         )
         .order_by(SkuFeeRule.effective_date.desc(), SkuFeeRule.id.desc())
         .limit(1)
     )
+    if latest_rule is None or latest_rule.rule_status != ACTIVE_FEE_RULE:
+        return None
+    return latest_rule
 
 
 def _direction_source_amount(

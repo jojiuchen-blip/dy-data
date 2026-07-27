@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import JobRun
@@ -16,15 +16,18 @@ from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
+from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
 from apps.worker.queued_jobs import process_queued_settlement_rebuilds
-from apps.worker.repositories import finish_job_run, start_job_run
+from apps.worker.repositories import finish_job_run, queue_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DAYS, load_sync_config
+from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret
 
 
 _STOP = False
 DISABLED_POLL_SECONDS = 60
 DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS = 2
+DEFAULT_PRODUCT_SYNC_INTERVAL_SECONDS = 86400
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
 
@@ -101,6 +104,58 @@ def run_once() -> None:
             return
         config = load_sync_config(session)
     run_incremental_collection_chunks(factory, config)
+    run_scheduled_product_sync(factory)
+
+
+def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str | None:
+    """Run the product master refresh when its independent interval is due."""
+
+    if not _truthy(os.getenv("DOUYIN_PRODUCT_SYNC_ENABLED", "true")):
+        return None
+    if not all((douyin_app_id(), douyin_app_secret(), douyin_account_id())):
+        _log("product_sync_skip reason=credentials_not_configured")
+        return None
+    current_time = now or datetime.now(timezone.utc)
+    interval_seconds = _bounded_product_sync_interval()
+    with session_scope(factory) as session:
+        active = session.scalar(
+            select(JobRun.job_id)
+            .where(
+                JobRun.job_name == PRODUCT_SYNC_JOB_NAME,
+                JobRun.status.in_(("queued", "running")),
+            )
+            .limit(1)
+        )
+        if active is not None:
+            _log("product_sync_skip reason=active_run")
+            return None
+        latest_started_at = session.scalar(
+            select(func.max(JobRun.started_at)).where(
+                JobRun.job_name == PRODUCT_SYNC_JOB_NAME
+            )
+        )
+        if latest_started_at is not None:
+            if latest_started_at.tzinfo is None:
+                latest_started_at = latest_started_at.replace(tzinfo=timezone.utc)
+            if (current_time - latest_started_at).total_seconds() < interval_seconds:
+                _log("product_sync_skip reason=interval_not_due")
+                return None
+        job_id = f"product-sync-scheduled-{current_time:%Y%m%d%H%M%S}"
+        queue_job_run(
+            session,
+            job_id,
+            PRODUCT_SYNC_JOB_NAME,
+            started_at=current_time,
+            metadata_json={
+                "mode": "INCREMENTAL",
+                "reason": "scheduled product master refresh",
+                "phase_counts": {},
+            },
+        )
+    _log(f"product_sync_start job_id={job_id}")
+    run_product_sync_job(job_id=job_id, factory=factory)
+    _log(f"product_sync_done job_id={job_id}")
+    return job_id
 
 
 def run_incremental_collection_chunks(factory, config) -> None:
@@ -281,6 +336,19 @@ def _configured_chunk_max_attempts() -> int:
     except ValueError:
         attempts = DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS
     return max(1, min(5, attempts))
+
+
+def _bounded_product_sync_interval() -> int:
+    try:
+        seconds = int(
+            os.getenv(
+                "DOUYIN_PRODUCT_SYNC_INTERVAL_SECONDS",
+                str(DEFAULT_PRODUCT_SYNC_INTERVAL_SECONDS),
+            )
+        )
+    except ValueError as exc:
+        raise ValueError("DOUYIN_PRODUCT_SYNC_INTERVAL_SECONDS must be an integer") from exc
+    return max(1800, min(604800, seconds))
 
 
 def _sleep_until_stop(seconds: int) -> None:

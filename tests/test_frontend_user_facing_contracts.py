@@ -342,6 +342,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert resource_hook.count("data: undefined") >= 3
     assert 'location.pathname === "/invoice"' in app
     assert 'from "./pages/InvoiceGuidePage"' in app
+    assert '["/invoice", "B03"]' in app
 
 
 def test_metric_cards_use_one_neutral_visual_treatment() -> None:

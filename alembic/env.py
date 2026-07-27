@@ -4,7 +4,7 @@ import os
 from logging.config import fileConfig
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import engine_from_config, pool, text
 
 from apps.api.dy_api.models import Base
 
@@ -14,6 +14,7 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 target_metadata = Base.metadata
+MIGRATION_ADVISORY_LOCK_KEY = 294903237518183233
 
 
 def database_url() -> str:
@@ -43,10 +44,35 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(connection=connection, target_metadata=target_metadata)
+        migration_lock_acquired = False
+        if connection.dialect.name == "postgresql":
+            connection.exec_driver_sql("SET statement_timeout = '10min'")
+            connection.commit()
+            try:
+                connection.execute(
+                    text("SELECT pg_advisory_lock(:lock_key)"),
+                    {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
+                )
+                migration_lock_acquired = True
+            finally:
+                if connection.in_transaction():
+                    connection.rollback()
+                connection.exec_driver_sql("RESET statement_timeout")
+                connection.commit()
 
-        with context.begin_transaction():
-            context.run_migrations()
+        try:
+            context.configure(connection=connection, target_metadata=target_metadata)
+            with context.begin_transaction():
+                context.run_migrations()
+        finally:
+            if migration_lock_acquired:
+                if connection.in_transaction():
+                    connection.rollback()
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_key)"),
+                    {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
+                )
+                connection.commit()
 
 
 if context.is_offline_mode():

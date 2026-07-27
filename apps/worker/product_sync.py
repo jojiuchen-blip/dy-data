@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
+import base64
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from hashlib import sha256
 import json
+import os
 from typing import Any, Protocol
 
 from sqlalchemy import func, select
@@ -15,6 +17,7 @@ from apps.api.dy_api.models import (
     DataQualityIssue,
     DimSkuProductRule,
     JobRun,
+    RawDouyinOrder,
     SkuProductSyncHistory,
     SyncSetting,
     utcnow,
@@ -23,7 +26,14 @@ from apps.api.dy_api.models import (
 
 PRODUCT_SYNC_JOB_NAME = "product_sync"
 PRODUCT_SYNC_CURSOR_SETTING_KEY = "product_sync.incremental_cursor"
-PRODUCT_STATUSES = {"ACTIVE", "INACTIVE", "DELETED", "UNKNOWN"}
+PRODUCT_STATUSES = {"ACTIVE", "INACTIVE", "BANNED", "DELETED", "UNKNOWN"}
+DOUYIN_ONLINE_STATUS_MAP = {
+    "1": "ACTIVE",
+    "2": "INACTIVE",
+    "3": "BANNED",
+}
+DOUYIN_PRODUCT_STATUS_SEQUENCE = (1, 2, 3)
+DOUYIN_PRODUCT_CURSOR_PREFIX = "dy-product-v1:"
 PRODUCT_RAW_PAYLOAD_FIELDS = (
     "skuId",
     "skuName",
@@ -36,6 +46,9 @@ PRODUCT_RAW_PAYLOAD_FIELDS = (
     "ownerAccountName",
     "productStatusRaw",
     "productStatus",
+    "productUpdatedAt",
+    "syncStatus",
+    "syncError",
 )
 PLATFORM_FIELD_MAP = {
     "sku_name": "sku_name",
@@ -48,6 +61,9 @@ PLATFORM_FIELD_MAP = {
     "owner_account_name": "owner_account_name",
     "product_status_raw": "product_status_raw",
     "product_status_normalized": "product_status_normalized",
+    "product_updated_at": "product_updated_at",
+    "sync_status": "sync_status",
+    "sync_error": "sync_error",
 }
 
 
@@ -72,6 +88,9 @@ class ProductSyncItem:
     owner_account_name: str | None
     product_status_raw: str | None
     product_status_normalized: str
+    product_updated_at: datetime | None
+    sync_status: str
+    sync_error: str | None
     raw_payload: dict[str, Any]
     payload_sha256: str
 
@@ -84,6 +103,7 @@ class ProductSyncPage:
     has_more: bool
     next_cursor: str | None
     payload_sha256: str
+    skipped_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -94,6 +114,7 @@ class ProductSyncResult:
     inserted_count: int = 0
     updated_count: int = 0
     unchanged_count: int = 0
+    skipped_count: int = 0
     failed_count: int = 0
     error_code: str | None = None
 
@@ -122,6 +143,155 @@ class UnavailableProductSyncAdapter:
         )
 
 
+class DouyinProductSyncAdapter:
+    """Map the two official Goodlife product endpoints to the frozen worker contract."""
+
+    supports_persistent_cursor = False
+
+    def __init__(
+        self,
+        client: Any,
+        *,
+        known_products: Mapping[str, set[str]] | None = None,
+        page_size: int = 50,
+        goods_query_type: int = 2,
+    ) -> None:
+        if page_size < 1 or page_size > 50:
+            raise ValueError("Product page size must be between 1 and 50")
+        if goods_query_type not in {1, 2, 3}:
+            raise ValueError("goods_query_type must be 1, 2, or 3")
+        self._client = client
+        self._known_products = {
+            str(product_id): {str(sku_id) for sku_id in sku_ids if str(sku_id).strip()}
+            for product_id, sku_ids in (known_products or {}).items()
+            if str(product_id).strip()
+        }
+        self._page_size = page_size
+        self._goods_query_type = goods_query_type
+        self._seen_product_ids: set[str] = set()
+        self._fallback_product_ids: list[str] | None = None
+
+    def fetch_page(self, *, mode: str, cursor: str | None) -> ProductSyncPage:
+        _ = mode
+        state = _decode_douyin_product_cursor(cursor)
+        if state["stage"] == "ids":
+            return self._fetch_id_page(int(state.get("offset") or 0))
+        return self._fetch_list_page(
+            status_index=int(state.get("status_index") or 0),
+            upstream_cursor=_optional_text(state.get("cursor")),
+        )
+
+    def _fetch_list_page(
+        self,
+        *,
+        status_index: int,
+        upstream_cursor: str | None,
+    ) -> ProductSyncPage:
+        if status_index < 0 or status_index >= len(DOUYIN_PRODUCT_STATUS_SEQUENCE):
+            raise ProductSyncPayloadError("Invalid product status page cursor")
+        status = DOUYIN_PRODUCT_STATUS_SEQUENCE[status_index]
+        payload = self._client.query_online_products(
+            status=status,
+            cursor=upstream_cursor,
+            count=self._page_size,
+            goods_query_type=self._goods_query_type,
+        )
+        data = _required_mapping(payload.get("data"), "Product list response data")
+        rows = data.get("products")
+        if not isinstance(rows, list):
+            raise ProductSyncPayloadError("Product list response products must be a list")
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
+        self._seen_product_ids.update(
+            row["productId"] for row in normalized_rows if row.get("productId")
+        )
+        has_more = data.get("has_more")
+        if not isinstance(has_more, bool):
+            raise ProductSyncPayloadError("Product list response has_more must be a boolean")
+        next_upstream = _optional_text(data.get("next_cursor"))
+        if has_more:
+            if not next_upstream or next_upstream == upstream_cursor:
+                raise ProductSyncPayloadError(
+                    "Product list response requires a new next_cursor"
+                )
+            next_cursor = _encode_douyin_product_cursor(
+                stage="list",
+                status_index=status_index,
+                cursor=next_upstream,
+            )
+        elif status_index + 1 < len(DOUYIN_PRODUCT_STATUS_SEQUENCE):
+            next_cursor = _encode_douyin_product_cursor(
+                stage="list",
+                status_index=status_index + 1,
+            )
+        else:
+            self._fallback_product_ids = sorted(
+                set(self._known_products) - self._seen_product_ids
+            )
+            next_cursor = (
+                _encode_douyin_product_cursor(stage="ids", offset=0)
+                if self._fallback_product_ids
+                else None
+            )
+        return parse_normalized_product_page(
+            {
+                "items": normalized_rows,
+                "skippedCount": skipped_count,
+                "hasMore": next_cursor is not None,
+                "nextCursor": next_cursor,
+            }
+        )
+
+    def _fetch_id_page(self, offset: int) -> ProductSyncPage:
+        if self._fallback_product_ids is None:
+            self._fallback_product_ids = sorted(
+                set(self._known_products) - self._seen_product_ids
+            )
+        batch = self._fallback_product_ids[offset : offset + 10]
+        if not batch:
+            return parse_normalized_product_page(
+                {"items": [], "hasMore": False, "nextCursor": None}
+            )
+        payload = self._client.query_online_products_by_id(batch)
+        data = _required_mapping(payload.get("data"), "Product ID response data")
+        rows = data.get("product_onlines")
+        if not isinstance(rows, list):
+            raise ProductSyncPayloadError(
+                "Product ID response product_onlines must be a list"
+            )
+        normalized_rows, skipped_count = _normalize_douyin_online_rows(rows)
+        returned_product_ids = {
+            row["productId"] for row in normalized_rows if row.get("productId")
+        }
+        self._seen_product_ids.update(returned_product_ids)
+        for product_id in batch:
+            if product_id in returned_product_ids:
+                continue
+            for sku_id in sorted(self._known_products.get(product_id, set())):
+                normalized_rows.append(
+                    {
+                        "skuId": sku_id,
+                        "productId": product_id,
+                        "productStatus": "UNKNOWN",
+                        "syncStatus": "NOT_FOUND",
+                        "syncError": "product_not_returned",
+                    }
+                )
+        next_offset = offset + len(batch)
+        next_cursor = (
+            _encode_douyin_product_cursor(stage="ids", offset=next_offset)
+            if next_offset < len(self._fallback_product_ids)
+            else None
+        )
+        return parse_normalized_product_page(
+            {
+                "items": normalized_rows,
+                "skippedCount": skipped_count,
+                "hasMore": next_cursor is not None,
+                "nextCursor": next_cursor,
+            }
+        )
+
+
 def parse_normalized_product_page(payload: Mapping[str, Any]) -> ProductSyncPage:
     if not isinstance(payload, Mapping):
         raise ProductSyncPayloadError("Product sync response must be an object")
@@ -131,6 +301,11 @@ def parse_normalized_product_page(payload: Mapping[str, Any]) -> ProductSyncPage
     has_more = payload.get("hasMore")
     if not isinstance(has_more, bool):
         raise ProductSyncPayloadError("Product sync response hasMore must be a boolean")
+    skipped_count = payload.get("skippedCount", 0)
+    if isinstance(skipped_count, bool) or not isinstance(skipped_count, int) or skipped_count < 0:
+        raise ProductSyncPayloadError(
+            "Product sync response skippedCount must be a non-negative integer"
+        )
     next_cursor_value = payload.get("nextCursor")
     if next_cursor_value in (None, ""):
         next_cursor = None
@@ -170,6 +345,9 @@ def parse_normalized_product_page(payload: Mapping[str, Any]) -> ProductSyncPage
                 owner_account_name=_optional_text(row.get("ownerAccountName")),
                 product_status_raw=_optional_text(row.get("productStatusRaw")),
                 product_status_normalized=normalized_status,
+                product_updated_at=_optional_datetime(row.get("productUpdatedAt")),
+                sync_status=(_optional_text(row.get("syncStatus")) or "SUCCESS").upper(),
+                sync_error=_optional_text(row.get("syncError")),
                 raw_payload=raw_payload,
                 payload_sha256=payload_hash,
             )
@@ -177,16 +355,18 @@ def parse_normalized_product_page(payload: Mapping[str, Any]) -> ProductSyncPage
     page_fingerprint = {
         "itemPayloadHashes": [item.payload_sha256 for item in items],
         "invalidRows": invalid_items,
+        "skippedCount": skipped_count,
         "hasMore": has_more,
         "nextCursor": next_cursor,
     }
     return ProductSyncPage(
         items=tuple(items),
         invalid_items=tuple(invalid_items),
-        observed_count=len(rows),
+        observed_count=len(rows) + skipped_count,
         has_more=has_more,
         next_cursor=next_cursor,
         payload_sha256=_canonical_sha256(page_fingerprint),
+        skipped_count=skipped_count,
     )
 
 
@@ -228,14 +408,18 @@ def execute_product_sync(
     session.flush()
     observed_time = observed_at or utcnow()
     cursor_setting = session.get(SyncSetting, PRODUCT_SYNC_CURSOR_SETTING_KEY)
+    supports_persistent_cursor = bool(
+        getattr(adapter, "supports_persistent_cursor", True)
+    )
     current_cursor: str | None = (
         cursor_setting.setting_value if mode == "INCREMENTAL" and cursor_setting else None
-    )
+    ) if supports_persistent_cursor else None
     checkpoint_cursor = current_cursor
     seen_page_hashes: set[str] = set()
     seen_items: dict[str, ProductSyncItem] = {}
     observed_count = 0
     invalid_count = 0
+    skipped_count = 0
     page_count = 0
     error_code: str | None = None
     error_message: str | None = None
@@ -256,6 +440,7 @@ def execute_product_sync(
                 job,
                 status="FAILED",
                 observed_count=observed_count,
+                skipped_count=skipped_count,
                 failed_count=max(1, invalid_count),
                 error_code="INVALID_RESPONSE",
                 error_message=str(exc),
@@ -269,6 +454,7 @@ def execute_product_sync(
                 job,
                 status="FAILED",
                 observed_count=observed_count,
+                skipped_count=skipped_count,
                 failed_count=max(1, invalid_count),
                 error_code="UPSTREAM_ERROR",
                 error_message=_sanitize_error_message(str(exc)),
@@ -292,6 +478,7 @@ def execute_product_sync(
         seen_page_hashes.add(page.payload_sha256)
         page_count += 1
         observed_count += page.observed_count
+        skipped_count += page.skipped_count
 
         for row_index, message in page.invalid_items:
             invalid_count += 1
@@ -351,6 +538,7 @@ def execute_product_sync(
             job,
             status="PARTIAL",
             observed_count=observed_count,
+            skipped_count=skipped_count,
             failed_count=invalid_count,
             error_code=error_code or "INVALID_ITEM",
             error_message=error_message or "One or more product rows failed validation",
@@ -374,12 +562,13 @@ def execute_product_sync(
             "inserted_count": inserted_count,
             "updated_count": updated_count,
             "unchanged_count": unchanged_count,
+            "skipped_count": skipped_count,
             "next_cursor_masked": _mask_cursor(current_cursor),
             "error_code": None,
             "retryable": False,
             "phase_counts": {
                 "fetch": observed_count,
-                "validate": observed_count,
+                "validate": max(0, observed_count - skipped_count),
                 "snapshot": len(seen_items),
                 "current": len(seen_items),
                 "pages": page_count,
@@ -392,7 +581,7 @@ def execute_product_sync(
     job.failed_count = 0
     job.error_message = None
     job.finished_at = utcnow()
-    if checkpoint_cursor is not None:
+    if supports_persistent_cursor and checkpoint_cursor is not None:
         if cursor_setting is None:
             session.add(
                 SyncSetting(
@@ -402,6 +591,8 @@ def execute_product_sync(
             )
         else:
             cursor_setting.setting_value = checkpoint_cursor
+    elif not supports_persistent_cursor and cursor_setting is not None:
+        session.delete(cursor_setting)
     session.flush()
     return ProductSyncResult(
         job_id=job_id,
@@ -410,6 +601,7 @@ def execute_product_sync(
         inserted_count=inserted_count,
         updated_count=updated_count,
         unchanged_count=unchanged_count,
+        skipped_count=skipped_count,
     )
 
 
@@ -423,11 +615,61 @@ def run_product_sync_job(
     if session_factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running product sync")
     with session_scope(session_factory) as session:
+        active_adapter = adapter
+        if active_adapter is None:
+            try:
+                from apps.worker.pipeline import build_douyin_client_from_env
+
+                active_adapter = DouyinProductSyncAdapter(
+                    build_douyin_client_from_env(),
+                    known_products=extract_known_order_products(session),
+                    page_size=_env_int(
+                        "DOUYIN_PRODUCT_PAGE_SIZE", 50, minimum=1, maximum=50
+                    ),
+                    goods_query_type=_env_int(
+                        "DOUYIN_PRODUCT_GOODS_QUERY_TYPE", 2, minimum=1, maximum=3
+                    ),
+                )
+            except Exception as exc:  # noqa: BLE001 - runtime configuration boundary.
+                job = session.get(JobRun, job_id)
+                if job is None or job.job_name != PRODUCT_SYNC_JOB_NAME:
+                    raise ValueError(f"Unknown product sync job: {job_id}") from exc
+                return _finish_without_current_update(
+                    session,
+                    job,
+                    status="FAILED",
+                    error_code="INITIALIZATION_ERROR",
+                    error_message=str(exc),
+                    retryable=True,
+                )
         return execute_product_sync(
             session,
             job_id=job_id,
-            adapter=adapter or UnavailableProductSyncAdapter(),
+            adapter=active_adapter,
         )
+
+
+def extract_known_order_products(session: Session) -> dict[str, set[str]]:
+    """Return the de-duplicated product/SKU pairs observed in order payloads."""
+
+    products: dict[str, set[str]] = {}
+    payloads = session.scalars(
+        select(RawDouyinOrder.raw_payload).execution_options(yield_per=500)
+    )
+    for payload in payloads:
+        if not isinstance(payload, Mapping):
+            continue
+        rows = payload.get("products")
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, Mapping):
+                continue
+            product_id = _optional_text(row.get("product_id"))
+            sku_id = _optional_text(row.get("sku_id"))
+            if product_id and sku_id:
+                products.setdefault(product_id, set()).add(sku_id)
+    return products
 
 
 def _write_history_snapshots(
@@ -463,6 +705,9 @@ def _write_history_snapshots(
                 owner_account_name=item.owner_account_name,
                 product_status_raw=item.product_status_raw,
                 product_status_normalized=item.product_status_normalized,
+                product_updated_at=item.product_updated_at,
+                sync_status=item.sync_status,
+                sync_error=item.sync_error,
                 payload_sha256=item.payload_sha256,
                 observed_at=observed_at,
                 raw_payload=item.raw_payload,
@@ -500,21 +745,33 @@ def _update_current_snapshots(
             )
             session.add(row)
             inserted_count += 1
-        else:
-            changed = any(
-                getattr(row, model_field) != getattr(item, item_field)
-                for model_field, item_field in PLATFORM_FIELD_MAP.items()
-            ) or row.is_active_product != (item.product_status_normalized == "ACTIVE")
+        changed = False
+        for model_field, item_field in PLATFORM_FIELD_MAP.items():
+            incoming = getattr(item, item_field)
+            if item.sync_status == "NOT_FOUND" and model_field in {
+                "product_status_raw",
+                "product_status_normalized",
+            }:
+                continue
+            if incoming is None and model_field not in {"sync_error"}:
+                continue
+            if getattr(row, model_field) != incoming:
+                setattr(row, model_field, incoming)
+                changed = True
+        if item.sync_status != "NOT_FOUND" and item.product_status_normalized != "UNKNOWN":
+            is_active = item.product_status_normalized == "ACTIVE"
+            if row.is_active_product != is_active:
+                row.is_active_product = is_active
+                changed = True
+        row.sync_source = "douyin_product_api"
+        row.sync_run_id = job_id
+        if item.sync_status in {"SUCCESS", "MASKED"}:
+            row.last_synced_at = observed_at
+        if row.id is not None:
             if changed:
                 updated_count += 1
             else:
                 unchanged_count += 1
-        for model_field, item_field in PLATFORM_FIELD_MAP.items():
-            setattr(row, model_field, getattr(item, item_field))
-        row.is_active_product = item.product_status_normalized == "ACTIVE"
-        row.sync_source = "douyin_product_api"
-        row.sync_run_id = job_id
-        row.last_synced_at = observed_at
     session.flush()
     return inserted_count, updated_count, unchanged_count
 
@@ -525,6 +782,7 @@ def _finish_without_current_update(
     *,
     status: str,
     observed_count: int = 0,
+    skipped_count: int = 0,
     failed_count: int = 1,
     error_code: str,
     error_message: str,
@@ -540,12 +798,13 @@ def _finish_without_current_update(
             "inserted_count": 0,
             "updated_count": 0,
             "unchanged_count": 0,
+            "skipped_count": skipped_count,
             "next_cursor_masked": _mask_cursor(next_cursor),
             "error_code": error_code,
             "retryable": retryable,
             "phase_counts": {
                 "fetch": observed_count,
-                "validate": max(0, observed_count - failed_count),
+                "validate": max(0, observed_count - failed_count - skipped_count),
                 "snapshot": snapshot_count,
                 "current": 0,
                 "pages": page_count,
@@ -563,6 +822,7 @@ def _finish_without_current_update(
         job_id=job.job_id,
         status=status,
         observed_count=observed_count,
+        skipped_count=skipped_count,
         failed_count=failed_count,
         error_code=error_code,
     )
@@ -623,6 +883,127 @@ def _optional_text(value: Any) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _optional_datetime(value: Any) -> datetime | None:
+    if value in (None, ""):
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    try:
+        timestamp = float(value)
+    except (TypeError, ValueError):
+        try:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    if timestamp > 10_000_000_000:
+        timestamp /= 1000
+    try:
+        return datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return None
+
+
+def _required_mapping(value: Any, label: str) -> Mapping[str, Any]:
+    if not isinstance(value, Mapping):
+        raise ProductSyncPayloadError(f"{label} must be an object")
+    return value
+
+
+def _normalize_douyin_online_rows(rows: list[Any]) -> tuple[list[dict[str, Any]], int]:
+    normalized: list[dict[str, Any]] = []
+    skipped_count = 0
+    for record in rows:
+        if not isinstance(record, Mapping):
+            normalized.append({})
+            continue
+        product = record.get("product")
+        product = product if isinstance(product, Mapping) else {}
+        sku_rows: list[Mapping[str, Any]] = []
+        single_sku = record.get("sku")
+        if isinstance(single_sku, Mapping) and single_sku.get("sku_id") not in (None, ""):
+            sku_rows.append(single_sku)
+        multiple_skus = record.get("skus")
+        if isinstance(multiple_skus, list):
+            sku_rows.extend(row for row in multiple_skus if isinstance(row, Mapping))
+        deduplicated_skus: dict[str, Mapping[str, Any]] = {}
+        for sku in sku_rows:
+            sku_id = _optional_text(sku.get("sku_id"))
+            if sku_id:
+                deduplicated_skus.setdefault(sku_id, sku)
+        if not deduplicated_skus:
+            if _optional_text(product.get("product_id")):
+                skipped_count += 1
+                continue
+            deduplicated_skus[""] = {}
+        raw_status = _optional_text(record.get("online_status"))
+        status = DOUYIN_ONLINE_STATUS_MAP.get(raw_status or "", "UNKNOWN")
+        missing_fields = [
+            name
+            for name, value in (
+                ("creator_account_id", product.get("creator_account_id")),
+                ("owner_account_id", product.get("owner_account_id")),
+                ("owner_account_name", product.get("account_name")),
+            )
+            if value in (None, "")
+        ]
+        sync_status = "MASKED" if missing_fields else "SUCCESS"
+        sync_error = (
+            "missing_" + ",".join(missing_fields) if missing_fields else None
+        )
+        for sku_id, sku in deduplicated_skus.items():
+            normalized.append(
+                {
+                    "skuId": sku_id,
+                    "skuName": sku.get("sku_name"),
+                    "productId": product.get("product_id"),
+                    "productName": product.get("product_name"),
+                    "spuId": product.get("spu_id"),
+                    "creatorAccountId": product.get("creator_account_id"),
+                    "creatorAccountName": None,
+                    "ownerAccountId": product.get("owner_account_id"),
+                    "ownerAccountName": product.get("account_name"),
+                    "productStatusRaw": raw_status,
+                    "productStatus": status,
+                    "productUpdatedAt": product.get("update_time"),
+                    "syncStatus": sync_status,
+                    "syncError": sync_error,
+                }
+            )
+    return normalized, skipped_count
+
+
+def _encode_douyin_product_cursor(**state: Any) -> str:
+    raw = json.dumps(state, separators=(",", ":"), sort_keys=True).encode("utf-8")
+    return DOUYIN_PRODUCT_CURSOR_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _decode_douyin_product_cursor(cursor: str | None) -> dict[str, Any]:
+    if cursor in (None, ""):
+        return {"stage": "list", "status_index": 0}
+    if not str(cursor).startswith(DOUYIN_PRODUCT_CURSOR_PREFIX):
+        raise ProductSyncPayloadError("Invalid product sync cursor")
+    encoded = str(cursor)[len(DOUYIN_PRODUCT_CURSOR_PREFIX) :]
+    try:
+        padding = "=" * (-len(encoded) % 4)
+        state = json.loads(base64.urlsafe_b64decode(encoded + padding).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ProductSyncPayloadError("Invalid product sync cursor") from exc
+    if not isinstance(state, dict) or state.get("stage") not in {"list", "ids"}:
+        raise ProductSyncPayloadError("Invalid product sync cursor")
+    return state
+
+
+def _env_int(name: str, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError as exc:
+        raise RuntimeError(f"{name} must be an integer") from exc
+    if value < minimum or value > maximum:
+        raise RuntimeError(f"{name} must be between {minimum} and {maximum}")
+    return value
 
 
 def _is_json_scalar(value: Any) -> bool:

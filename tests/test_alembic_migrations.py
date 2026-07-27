@@ -6,9 +6,27 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.exc import IntegrityError
+
+
+def test_alembic_has_one_deployable_head() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260727_0028"]
+
+
+def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    env_source = (repo_root / "alembic" / "env.py").read_text(encoding="utf-8")
+
+    assert "pg_advisory_lock" in env_source
+    assert "pg_advisory_unlock" in env_source
+    assert "SET statement_timeout = '10min'" in env_source
 
 
 def test_clue_allocation_m1_migration_upgrades_existing_schema(tmp_path: Path) -> None:
@@ -945,10 +963,12 @@ def test_raw_order_internal_id_cutover_postgresql_ddl_is_short_lock_safe() -> No
         "sqlalchemy.url", "postgresql+psycopg://user:pass@localhost/test"
     )
 
-    command.upgrade(config, "20260720_0023:head", sql=True)
+    command.upgrade(config, "20260720_0023:20260721_0026", sql=True)
 
     ddl = output.getvalue()
     assert "CREATE UNIQUE INDEX CONCURRENTLY" in ddl
+    assert "SET statement_timeout = '5min'" in ddl
+    assert "RESET statement_timeout" in ddl
     assert "SET LOCAL lock_timeout" in ddl
     validation_lock = (
         "LOCK TABLE raw_douyin_orders, raw_douyin_order_coupons "
@@ -963,6 +983,33 @@ def test_raw_order_internal_id_cutover_postgresql_ddl_is_short_lock_safe() -> No
     assert ddl.index(validation_lock) < ddl.index(cutover_lock)
     assert "USING INDEX" in ddl
     assert ddl.count("pg_get_serial_sequence") == 2
+
+
+def test_product_sync_active_slot_migration_preflights_duplicates() -> None:
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "alembic"
+        / "versions"
+        / "20260721_0025_product_sync_active_slot.py"
+    ).read_text(encoding="utf-8")
+
+    assert "duplicate active product-sync jobs" in migration
+    assert migration.index("duplicate active product-sync jobs") < migration.index(
+        "op.create_index"
+    )
+
+
+def test_large_table_indexes_are_created_concurrently_on_postgresql() -> None:
+    versions = Path(__file__).resolve().parents[1] / "alembic" / "versions"
+    refund_migration = (versions / "20260720_0023_refund_success_observed_at.py").read_text(
+        encoding="utf-8"
+    )
+    product_migration = (
+        versions / "20260727_0028_product_sync_production_fields.py"
+    ).read_text(encoding="utf-8")
+
+    assert "CREATE INDEX CONCURRENTLY" in refund_migration
+    assert product_migration.count("CREATE INDEX CONCURRENTLY") == 1
 
 
 def test_product_rule_schema_preserves_legacy_sku_data_and_is_reversible(
