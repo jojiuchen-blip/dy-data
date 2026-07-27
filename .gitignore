@@ -34,3 +34,8 @@ Thumbs.db
 .idea/
 .vscode/
 .gstack/
+
+# Local AI Coding case-report artifacts live outside this repository.
+/docs/ai-coding-case-report/
+/docs/ai-coding-case-report-draft.md
+/docs/ai-coding-case-report-dev-suite-and-design-skill-research.md
