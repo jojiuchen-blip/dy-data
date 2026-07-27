@@ -176,11 +176,17 @@ function buildSalesDashboardMockRows(seedRows: OrderDetail[]): OrderDetail[] {
   const generated: OrderDetail[] = [];
   salesMockMonths.forEach((month, monthIndex) => {
     stores.forEach((store, storeIndex) => {
-      const ordersThisMonth = 7 + ((monthIndex + storeIndex) % 4);
+      const monthlyPulse = [0, 2, -1, 3, 1, 4, 2, 5, 3, 6, 4, 7];
+      const ordersThisMonth = Math.max(
+        5,
+        6 + (monthlyPulse[monthIndex] ?? monthIndex) + (storeIndex % 3),
+      );
 
       for (let orderIndex = 0; orderIndex < ordersThisMonth; orderIndex += 1) {
         const sequence = generated.length + 1;
-        const rule = rules[(orderIndex + storeIndex * 2 + monthIndex) % rules.length];
+        const ruleIndex =
+          (orderIndex + storeIndex * 2 + monthIndex) % rules.length;
+        const rule = rules[ruleIndex];
         const amountCent =
           (mockAmountBySkuId[rule.sku_id] ?? 19800) +
           ((orderIndex + monthIndex) % 4) * 500;
@@ -198,7 +204,28 @@ function buildSalesDashboardMockRows(seedRows: OrderDetail[]): OrderDetail[] {
             ? "same_store"
             : "cross_store";
         const saleDay = 1 + ((storeIndex * 5 + orderIndex * 3) % 24);
-        const cycleDays = 2 + ((monthIndex * 3 + storeIndex * 5 + orderIndex * 7) % 32);
+        const cycleProfile = [
+          { base: 1, spread: 8, tail: 13 },
+          { base: 2, spread: 11, tail: 15 },
+          { base: 4, spread: 16, tail: 12 },
+          { base: 7, spread: 20, tail: 8 },
+          { base: 3, spread: 13, tail: 14 },
+        ][ruleIndex % 5];
+        const cycleSeed =
+          ((sequence * 73 + monthIndex * 37 + storeIndex * 19) % 997) / 997;
+        const tailSeed =
+          ((sequence * 41 + orderIndex * 29 + storeIndex * 11) % 991) / 991;
+        const cycleDays = Math.min(
+          36,
+          Math.max(
+            1,
+            Math.round(
+              cycleProfile.base +
+                Math.pow(cycleSeed, 2.35) * cycleProfile.spread +
+                (tailSeed > 0.955 ? cycleProfile.tail * tailSeed : 0),
+            ),
+          ),
+        );
         const saleTime = mockDateTime(
           month,
           saleDay,

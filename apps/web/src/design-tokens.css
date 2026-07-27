@@ -39,6 +39,28 @@
   --danger: #a0443e;
   --danger-soft: #f8e5e2;
 
+  /* Data visualization roles: chart color follows meaning, not decoration. */
+  --chart-primary: var(--brand-orange);
+  --chart-accent: var(--brand-deep-orange);
+  --chart-info: var(--blue);
+  --chart-positive: var(--green);
+  --chart-warning: var(--amber);
+  --chart-danger: var(--danger);
+  --chart-neutral: var(--ink-subtle);
+  --chart-neutral-mid: color-mix(in srgb, var(--chart-neutral) 68%, var(--chart-surface));
+  --chart-neutral-faint: color-mix(in srgb, var(--chart-neutral) 42%, var(--chart-surface));
+  --chart-grid: var(--line);
+  --chart-axis: var(--line-strong);
+  --chart-label: var(--muted);
+  --chart-surface: var(--surface);
+  --chart-inspector-surface: color-mix(in srgb, var(--surface) 88%, transparent);
+  --chart-hover-surface: var(--brand-orange-8);
+  --chart-primary-fill: rgb(254 82 5 / 20%);
+  --chart-primary-transparent: rgb(254 82 5 / 0%);
+  --chart-info-fill: color-mix(in srgb, var(--blue) 12%, transparent);
+  --chart-positive-fill: color-mix(in srgb, var(--green) 10%, transparent);
+  --chart-focus-shadow: color-mix(in srgb, var(--brand-orange) 22%, transparent);
+
   /* Sizing and layers */
   --target-min: 24px;
   --touch-target: 44px;

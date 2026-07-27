@@ -1,11 +1,11 @@
 # UI 设计规范工程化说明
 
-本目录是 dy-data 当前 UI 设计规范的工程入口。V0.2 是正式生效的浅色与深色设计系统，服务于高频筛选、比对、跟进和审核等运营后台任务。
+本目录是 dy-data 当前 UI 设计规范的工程入口。V0.2.1 是 V0.2 系列当前正式生效的浅色与深色设计系统，服务于高频筛选、比对、跟进和审核等运营后台任务。
 
 ## 正式来源
 
 - `tokens.json`：机器可读的 V0.2 token、组件规则、页面模板和运行时契约。它是唯一的规范源文件。
-- `index.html`：V0.2 完整可视化规范，展示浅色/深色颜色、排版、控件状态、图标、表格、弹层、品牌署名与页面模板。
+- `index.html`：V0.2 完整可视化规范，展示浅色/深色颜色、排版、控件状态、图标、图表、表格、弹层、品牌署名与页面模板。
 - `apps/web/src/design-tokens.css`：当前运行时 CSS token 来源，由 `apps/web/src/styles.css` 导入。
 - `tests/test_design_system_docs.py`：验证正式 V0.2 元数据、核心 token、HTML 规范与运行时 CSS 绑定。
 - `tests/test_design_system_enforcement.py`：验证业务代码不会绕过规范入口，例如图标必须从 `SolarIcon.tsx` 集中接入。
@@ -16,8 +16,8 @@
 - 版本为 `0.2.1`，状态为 `active`，阶段为 `runtime-active`，关联工作项为 `DYDATA-47`。
 - 支持 `system | light | dark`。默认跟随系统主题，用户可以手动覆盖；偏好使用 `dydata.theme.preference` 持久化。
 - 解析后的主题写入根节点 `data-theme="light|dark"`，偏好写入 `data-theme-preference`；首屏脚本必须在 React 挂载前应用主题，避免闪烁。
-- 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、二级/三级导航、浏览器标签图标和桌面明细工作台规则。
-- `Powered by SPACE AI Native` 是仅用于 dy-data 的项目署名。`SPACE` 只使用确认的 SVG 图形字，`POWERED BY` 与 `AI NATIVE` 使用 Ethnocentric Regular；不得回写或改动通用品牌资产源。
+- 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、ChartFigure 图表规则、二级/三级导航、浏览器标签图标和桌面明细工作台规则。
+- `Powered by SPACE AI Native` 是仅用于 dy-data 的项目署名。`SPACE` 只使用确认的 SVG 图形字，`POWERED BY` 与 `AI NATIVE` 使用 Ethnocentric Regular；字体职责、三种锁定形式、明暗主题、落位矩阵和开发约束统一维护在 `index.html#brand-signature`，不得回写或改动通用品牌资产源。
 - `tokens.json` 与 `apps/web/src/design-tokens.css` 的受测核心变量必须保持一致。新增或调整运行时 UI 值时，不能只修改业务页面。
 
 ## DYDATA-5 边界
@@ -27,6 +27,7 @@
 ## 历史候选工件
 
 - `tokens.v0.2-candidate.json` 与 `candidate-v0.2.html` 是 DYDATA-3 的历史评审工件。
+- 通用设计资产目录中的 SPACE AI Native 独立预览只保留为早期决策辅助；dy-data 后续开发以本目录 `tokens.json` 与 `index.html#brand-signature` 为准。
 - 两个候选文件保持不可变，不作为当前运行时规范或后续改动入口。
 - `tokens.json` 的 `promotionHistory` 和 `promotionRecord` 保留其来源、评审确认和提升结果；这些字段是历史记录，不是新的审批门禁。
 
@@ -68,5 +69,9 @@ npm --prefix apps/web run build
 - 收起筛选只在筛选面板确实可折叠的窄屏布局中显示；桌面常驻筛选栏始终展开，不显示无效的收起操作。
 - 不把普通信息区块伪装成指标卡；指标卡只用于看板关键监控值。
 - KPI 指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色区分普通指标；信息层级依靠排列顺序、标签、数值字号和说明文字。成功、警告、错误、信息色只用于真实状态、反馈和图表语义。
+- 图表先按业务问题和数据形状选型，再实现视觉；ChartFigure 的结论式标题、范围副标题、图形、固定解释条与来源口径属于同一组件，不拆成嵌套卡片。运行时图表颜色必须走 `--chart-*` 语义 token，默认使用品牌橙与中性色，绿/蓝/黄/红仅承担真实业务语义。
+- 月度趋势直接接入 `lieflat-charts/templates/glance-gallery.html` 的 `G8 Rainfall Dual Area` ECharts option 结构，核销周期分布直接接入 `G15 Jitter Strip`；只替换业务数据、中文文案和 dy-data 的 `--chart-*` 配色。运行时统一由 `apps/web/src/components/charts/EChartsFigure.tsx` 承接 ECharts 6 SVG 渲染、主题切换、缩放和 reduced-motion。
+- 上述模板代码受 PolyForm Noncommercial 1.0.0 约束。必须保留 `docs/design-system/THIRD_PARTY_NOTICES.md` 中的来源、许可链接和商业使用限制；如项目用于商业目的，进入生产环境前必须取得许可方的单独授权。
+- 图表悬浮与键盘焦点必须提供同等信息；点击或 Enter 可锁定选择，固定解释条使用 `aria-live`，动效遵循 `prefers-reduced-motion`。
 - 不用文字字符临时模拟图标、下拉箭头或状态符号。
 - 不把桌面明细长表做成页面整体滚动；使用明细工作台模板，外层视口固定、结果表格内部滚动、分页保持可见。

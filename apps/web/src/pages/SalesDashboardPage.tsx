@@ -1,4 +1,4 @@
-import { useMemo, useState, type KeyboardEvent } from "react";
+import { useMemo, useState } from "react";
 import { fetchFilterMeta, fetchSalesDashboard } from "../api/client";
 import { DefinitionList } from "../components/DefinitionList";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -10,6 +10,10 @@ import {
   resourceSourceLabel,
 } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import {
+  CycleJitterChart,
+  MonthlyRainfallChart,
+} from "../components/charts/SalesCharts";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   AdminUser,
@@ -40,56 +44,6 @@ const ALL_STORES_OPTION: StoreOption = {
   store_id: "",
   store_name: "全部门店",
 };
-const chartWidth = 960;
-const chartLeft = 168;
-const chartRight = 68;
-const chartTop = 30;
-const chartBottom = 38;
-const chartRowHeight = 58;
-const cycleBoxHeight = 16;
-const cycleMedianHeight = 26;
-const cycleWhiskerCapHeight = 16;
-const cyclePointRadius = 2.4;
-
-type MonthlyChartPoint = {
-  id: string;
-  label: string;
-  month: string;
-  series: "orders" | "verified";
-  value: number;
-};
-
-type CycleChartFocus =
-  | {
-      id: string;
-      kind: "row";
-      count: number;
-      maxDays: number | null;
-      medianDays: number | null;
-      minDays: number | null;
-      productType: string;
-      q1Days: number | null;
-      q3Days: number | null;
-    }
-  | {
-      id: string;
-      kind: "point";
-      cycleDays: number;
-      orderId: string;
-      productType: string;
-    };
-
-function handleSvgActivation(
-  event: KeyboardEvent<SVGGElement>,
-  callback: () => void,
-) {
-  if (event.key !== "Enter" && event.key !== " ") {
-    return;
-  }
-  event.preventDefault();
-  callback();
-}
-
 function availableMonths(meta: FilterMetaData | undefined): string[] {
   const months = [
     ...new Set([...(meta?.sale_months ?? []), ...(meta?.verify_months ?? [])]),
@@ -169,452 +123,38 @@ function cycleAxisValue(value: number | null): number {
   return Math.max(value ?? 0, 0);
 }
 
-function truncateLabel(value: string): string {
-  return value.length > 12 ? `${value.slice(0, 11)}...` : value;
+function trendFigureTitle(rows: SalesTrendRow[]): string {
+  if (rows.length < 2) {
+    return "当前月份下单量与核销量对比";
+  }
+  const current = rows[rows.length - 1];
+  const previous = rows[rows.length - 2];
+  const direction =
+    current.verify_order_count > previous.verify_order_count
+      ? "回升"
+      : current.verify_order_count < previous.verify_order_count
+        ? "回落"
+        : "保持稳定";
+  const relation =
+    current.verify_order_count < current.order_count
+      ? "仍低于下单量"
+      : current.verify_order_count > current.order_count
+        ? "高于下单量"
+        : "与下单量持平";
+  return `最新月份核销量${direction}，${relation}`;
 }
 
-function MonthlyOrderVerifyChart({ rows }: { rows: SalesTrendRow[] }) {
-  const [hoveredPoint, setHoveredPoint] = useState<MonthlyChartPoint | null>(
-    null,
-  );
-  const [selectedPoint, setSelectedPoint] = useState<MonthlyChartPoint | null>(
-    null,
-  );
-
+function cycleFigureTitle(rows: SalesCycleDistributionRow[]): string {
   if (rows.length === 0) {
-    return <ResourcePanel>当前筛选下暂无月度趋势数据。</ResourcePanel>;
+    return "不同商品类型的核销周期分布";
   }
-
-  const width = 960;
-  const height = 270;
-  const left = 64;
-  const right = 34;
-  const top = 34;
-  const bottom = 44;
-  const plotWidth = width - left - right;
-  const plotHeight = height - top - bottom;
-  const maxValue = Math.max(
-    1,
-    ...rows.flatMap((row) => [row.order_count, row.verify_order_count]),
-  );
-  const xForIndex = (index: number) =>
-    rows.length === 1
-      ? left + plotWidth / 2
-      : left + (index / (rows.length - 1)) * plotWidth;
-  const yForValue = (value: number) =>
-    top + plotHeight - (value / maxValue) * plotHeight;
-  const linePath = (selector: (row: SalesTrendRow) => number) =>
-    rows
-      .map(
-        (row, index) =>
-          `${index === 0 ? "M" : "L"} ${xForIndex(index)} ${yForValue(selector(row))}`,
-      )
-      .join(" ");
-  const areaPath = (selector: (row: SalesTrendRow) => number) => {
-    const baseline = top + plotHeight;
-    const points = rows
-      .map((row, index) => `${xForIndex(index)} ${yForValue(selector(row))}`)
-      .join(" L ");
-    return `M ${xForIndex(0)} ${baseline} L ${points} L ${xForIndex(
-      rows.length - 1,
-    )} ${baseline} Z`;
-  };
-  const ticks = [0, maxValue / 3, (maxValue * 2) / 3, maxValue];
-  const activePoint = hoveredPoint ?? selectedPoint;
-  const togglePoint = (point: MonthlyChartPoint) => {
-    setSelectedPoint((current) => (current?.id === point.id ? null : point));
-  };
-  const renderPoint = (point: MonthlyChartPoint, x: number, y: number) => {
-    const isSelected = selectedPoint?.id === point.id;
-    const isActive = activePoint?.id === point.id;
-
-    return (
-      <g
-        aria-label={`${point.month} ${point.label} ${formatInteger(point.value)}`}
-        aria-pressed={isSelected}
-        className={[
-          "sales-monthly-chart__point",
-          isActive ? "is-active" : "",
-          isSelected ? "is-selected" : "",
-        ]
-          .filter(Boolean)
-          .join(" ")}
-        key={point.id}
-        onBlur={() => setHoveredPoint(null)}
-        onClick={() => togglePoint(point)}
-        onFocus={() => setHoveredPoint(point)}
-        onKeyDown={(event) => handleSvgActivation(event, () => togglePoint(point))}
-        onMouseEnter={() => setHoveredPoint(point)}
-        onMouseLeave={() => setHoveredPoint(null)}
-        role="button"
-        tabIndex={0}
-      >
-        <circle
-          className={`sales-monthly-chart__dot sales-monthly-chart__dot--${point.series}`}
-          cx={x}
-          cy={y}
-          r={3.2}
-        >
-          <title>
-            {point.month} {point.label} {formatInteger(point.value)}
-          </title>
-        </circle>
-      </g>
-    );
-  };
-
-  return (
-    <div className="sales-monthly-chart-wrap">
-      <svg
-        aria-label="月度下单与核销趋势"
-        className="sales-monthly-chart"
-        role="img"
-        viewBox={`0 0 ${width} ${height}`}
-      >
-        {ticks.map((tick) => {
-          const y = yForValue(tick);
-          return (
-            <g key={tick}>
-              <line
-                className="sales-monthly-chart__grid"
-                x1={left}
-                x2={width - right}
-                y1={y}
-                y2={y}
-              />
-              <text
-                className="sales-monthly-chart__tick"
-                textAnchor="end"
-                x={left - 12}
-                y={y + 5}
-              >
-                {formatInteger(Math.round(tick))}
-              </text>
-            </g>
-          );
-        })}
-        <path
-          className="sales-monthly-chart__area sales-monthly-chart__area--orders"
-          d={areaPath((row) => row.order_count)}
-        />
-        <path
-          className="sales-monthly-chart__area sales-monthly-chart__area--verified"
-          d={areaPath((row) => row.verify_order_count)}
-        />
-        <path
-          className="sales-monthly-chart__line sales-monthly-chart__line--orders"
-          d={linePath((row) => row.order_count)}
-        />
-        <path
-          className="sales-monthly-chart__line sales-monthly-chart__line--verified"
-          d={linePath((row) => row.verify_order_count)}
-        />
-        {rows.map((row, index) => {
-          const x = xForIndex(index);
-          const orderPoint: MonthlyChartPoint = {
-            id: `${row.month}-orders`,
-            label: "下单量",
-            month: row.month,
-            series: "orders",
-            value: row.order_count,
-          };
-          const verifiedPoint: MonthlyChartPoint = {
-            id: `${row.month}-verified`,
-            label: "核销量",
-            month: row.month,
-            series: "verified",
-            value: row.verify_order_count,
-          };
-          return (
-            <g key={row.month}>
-              {renderPoint(orderPoint, x, yForValue(row.order_count))}
-              {renderPoint(verifiedPoint, x, yForValue(row.verify_order_count))}
-              <text
-                className="sales-monthly-chart__month"
-                textAnchor="middle"
-                x={x}
-                y={height - 10}
-              >
-                {row.month}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="sales-chart-inspector" aria-live="polite">
-        {activePoint ? (
-          <>
-            <strong>{activePoint.month}</strong>
-            <span>{activePoint.label}</span>
-            <b>{formatInteger(activePoint.value)}</b>
-            {selectedPoint?.id === activePoint.id ? <em>已锁定</em> : null}
-          </>
-        ) : (
-          <span>悬浮或点击数据点查看明细</span>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CycleDistributionChart({ rows }: { rows: SalesCycleDistributionRow[] }) {
-  const [hoveredFocus, setHoveredFocus] = useState<CycleChartFocus | null>(null);
-  const [selectedFocus, setSelectedFocus] = useState<CycleChartFocus | null>(
-    null,
-  );
-
-  if (rows.length === 0) {
-    return <ResourcePanel>当前筛选下暂无已核销订单周期数据。</ResourcePanel>;
-  }
-
-  const maxDays = Math.max(
-    1,
-    ...rows.map((row) => cycleAxisValue(row.max_days)),
-  );
-  const chartHeight = chartTop + chartBottom + rows.length * chartRowHeight;
-  const plotWidth = chartWidth - chartLeft - chartRight;
-  const valueX = (value: number | null) =>
-    chartLeft + (cycleAxisValue(value) / maxDays) * plotWidth;
-  const ticks = [0, maxDays / 2, maxDays];
-  const activeFocus = hoveredFocus ?? selectedFocus;
-  const toggleFocus = (focus: CycleChartFocus) => {
-    setSelectedFocus((current) => (current?.id === focus.id ? null : focus));
-  };
-
-  return (
-    <div className="sales-cycle-chart-wrap">
-      <svg
-        aria-label="核销周期分布"
-        className="sales-cycle-chart"
-        role="img"
-        viewBox={`0 0 ${chartWidth} ${chartHeight}`}
-      >
-        <line
-          className="sales-cycle-chart__axis"
-          x1={chartLeft}
-          x2={chartWidth - chartRight}
-          y1={chartHeight - chartBottom}
-          y2={chartHeight - chartBottom}
-        />
-        {ticks.map((tick) => {
-          const x = valueX(tick);
-          return (
-            <g key={tick}>
-              <line
-                className="sales-cycle-chart__grid"
-                x1={x}
-                x2={x}
-                y1={chartTop - 10}
-                y2={chartHeight - chartBottom}
-              />
-              <text
-                className="sales-cycle-chart__tick"
-                textAnchor="middle"
-                x={x}
-                y={chartHeight - 12}
-              >
-                {formatDays(tick)}
-              </text>
-            </g>
-          );
-        })}
-        {rows.map((row, rowIndex) => {
-          const y = chartTop + rowIndex * chartRowHeight + chartRowHeight / 2;
-          const minX = valueX(row.min_days);
-          const q1X = valueX(row.q1_days);
-          const medianX = valueX(row.median_days);
-          const q3X = valueX(row.q3_days);
-          const maxX = valueX(row.max_days);
-          const boxWidth = Math.max(q3X - q1X, 6);
-          const boxX =
-            q3X - q1X < 6 ? (q1X + q3X) / 2 - boxWidth / 2 : q1X;
-          const rowFocus: CycleChartFocus = {
-            id: `row-${row.product_type}`,
-            count: row.count,
-            kind: "row",
-            maxDays: row.max_days,
-            medianDays: row.median_days,
-            minDays: row.min_days,
-            productType: row.product_type,
-            q1Days: row.q1_days,
-            q3Days: row.q3_days,
-          };
-          const isRowActive = activeFocus?.id === rowFocus.id;
-          const isRowSelected = selectedFocus?.id === rowFocus.id;
-          return (
-            <g
-              aria-label={`${row.product_type} ${formatInteger(row.count)} 单，中位数 ${formatDays(row.median_days)}`}
-              aria-pressed={isRowSelected}
-              className={[
-                "sales-cycle-chart__row",
-                isRowActive ? "is-active" : "",
-                isRowSelected ? "is-selected" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-              key={row.product_type}
-              onBlur={() => setHoveredFocus(null)}
-              onClick={() => toggleFocus(rowFocus)}
-              onFocus={() => setHoveredFocus(rowFocus)}
-              onKeyDown={(event) =>
-                handleSvgActivation(event, () => toggleFocus(rowFocus))
-              }
-              onMouseEnter={() => setHoveredFocus(rowFocus)}
-              onMouseLeave={() => setHoveredFocus(null)}
-              role="button"
-              tabIndex={0}
-            >
-              <rect
-                className="sales-cycle-chart__row-band"
-                height={chartRowHeight - 18}
-                rx={8}
-                width={plotWidth}
-                x={chartLeft}
-                y={y - chartRowHeight / 2 + 9}
-              />
-              <text
-                className="sales-cycle-chart__label"
-                textAnchor="end"
-                x={chartLeft - 16}
-                y={y + 5}
-              >
-                {truncateLabel(row.product_type)}
-                <title>{row.product_type}</title>
-              </text>
-              <line
-                className="sales-cycle-chart__range"
-                x1={minX}
-                x2={maxX}
-                y1={y}
-                y2={y}
-              />
-              <line
-                className="sales-cycle-chart__whisker"
-                x1={minX}
-                x2={minX}
-                y1={y - cycleWhiskerCapHeight / 2}
-                y2={y + cycleWhiskerCapHeight / 2}
-              />
-              <line
-                className="sales-cycle-chart__whisker"
-                x1={maxX}
-                x2={maxX}
-                y1={y - cycleWhiskerCapHeight / 2}
-                y2={y + cycleWhiskerCapHeight / 2}
-              />
-              <rect
-                className="sales-cycle-chart__box"
-                height={cycleBoxHeight}
-                rx={5}
-                width={boxWidth}
-                x={boxX}
-                y={y - cycleBoxHeight / 2}
-              />
-              <line
-                className="sales-cycle-chart__median"
-                x1={medianX}
-                x2={medianX}
-                y1={y - cycleMedianHeight / 2}
-                y2={y + cycleMedianHeight / 2}
-              />
-              {row.sample_points.map((point, pointIndex) => {
-                const pointFocus: CycleChartFocus = {
-                  id: `point-${row.product_type}-${point.order_id}-${pointIndex}`,
-                  cycleDays: point.cycle_days,
-                  kind: "point",
-                  orderId: point.order_id,
-                  productType: row.product_type,
-                };
-                const isPointActive = activeFocus?.id === pointFocus.id;
-                const isPointSelected = selectedFocus?.id === pointFocus.id;
-
-                return (
-                  <g
-                    aria-label={`${row.product_type} 订单 ${point.order_id} ${formatDays(point.cycle_days)}`}
-                    aria-pressed={isPointSelected}
-                    className={[
-                      "sales-cycle-chart__sample",
-                      isPointActive ? "is-active" : "",
-                      isPointSelected ? "is-selected" : "",
-                    ]
-                      .filter(Boolean)
-                      .join(" ")}
-                    key={pointFocus.id}
-                    onBlur={(event) => {
-                      event.stopPropagation();
-                      setHoveredFocus(null);
-                    }}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggleFocus(pointFocus);
-                    }}
-                    onFocus={(event) => {
-                      event.stopPropagation();
-                      setHoveredFocus(pointFocus);
-                    }}
-                    onKeyDown={(event) => {
-                      event.stopPropagation();
-                      handleSvgActivation(event, () => toggleFocus(pointFocus));
-                    }}
-                    onMouseEnter={(event) => {
-                      event.stopPropagation();
-                      setHoveredFocus(pointFocus);
-                    }}
-                    onMouseLeave={(event) => {
-                      event.stopPropagation();
-                      setHoveredFocus(null);
-                    }}
-                    role="button"
-                    tabIndex={0}
-                  >
-                    <circle
-                      className="sales-cycle-chart__point"
-                      cx={valueX(point.cycle_days)}
-                      cy={y}
-                      r={cyclePointRadius}
-                    />
-                    <title>
-                      {point.order_id} · {formatDays(point.cycle_days)}
-                    </title>
-                  </g>
-                );
-              })}
-              <text
-                className="sales-cycle-chart__count"
-                x={chartWidth - chartRight + 12}
-                y={y + 5}
-              >
-                {formatInteger(row.count)} 单
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <div className="sales-chart-inspector" aria-live="polite">
-        {activeFocus?.kind === "row" ? (
-          <>
-            <strong>{activeFocus.productType}</strong>
-            <span>{formatInteger(activeFocus.count)} 单</span>
-            <span>最小 {formatDays(activeFocus.minDays)}</span>
-            <span>Q1 {formatDays(activeFocus.q1Days)}</span>
-            <span>中位 {formatDays(activeFocus.medianDays)}</span>
-            <span>Q3 {formatDays(activeFocus.q3Days)}</span>
-            <span>最大 {formatDays(activeFocus.maxDays)}</span>
-            {selectedFocus?.id === activeFocus.id ? <em>已锁定</em> : null}
-          </>
-        ) : activeFocus?.kind === "point" ? (
-          <>
-            <strong>{activeFocus.productType}</strong>
-            <span>{activeFocus.orderId}</span>
-            <b>{formatDays(activeFocus.cycleDays)}</b>
-            {selectedFocus?.id === activeFocus.id ? <em>已锁定</em> : null}
-          </>
-        ) : (
-          <span>悬浮或点击箱体、须线或样本点查看明细</span>
-        )}
-      </div>
-    </div>
-  );
+  const widest = rows.reduce((current, row) => {
+    const currentRange =
+      cycleAxisValue(current.max_days) - cycleAxisValue(current.min_days);
+    const rowRange = cycleAxisValue(row.max_days) - cycleAxisValue(row.min_days);
+    return rowRange > currentRange ? row : current;
+  });
+  return `${widest.product_type}核销周期波动最大`;
 }
 
 export function SalesDashboardPage({
@@ -789,33 +329,39 @@ export function SalesDashboardPage({
             />
           </section>
 
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>月度下单与核销趋势</h2>
-                <p>按下单月份统计；下单量不含支付取消。</p>
+          <div className="sales-chart-gallery">
+            <section className="content-section chart-figure-runtime">
+              <div className="section-title chart-figure-runtime__head">
+                <div>
+                  <span className="chart-figure-runtime__eyebrow">
+                    运营快读 · 月度趋势
+                  </span>
+                  <h2>{trendFigureTitle(dashboard.trend_rows)}</h2>
+                  <p>上方雨柱为下单量，橙色流线为核销量 · 按下单月份统计</p>
+                </div>
               </div>
-              <div className="sales-monthly-chart__legend" aria-label="趋势图图例">
-                <span className="sales-monthly-chart__legend-item sales-monthly-chart__legend-item--orders">
-                  下单量
-                </span>
-                <span className="sales-monthly-chart__legend-item sales-monthly-chart__legend-item--verified">
-                  核销量
-                </span>
-              </div>
-            </div>
-            <MonthlyOrderVerifyChart rows={dashboard.trend_rows} />
-          </section>
+              <MonthlyRainfallChart rows={dashboard.trend_rows} />
+              <p className="sales-chart-source">
+                双区趋势 · 订单与核销明细 · 下单量不含支付取消
+              </p>
+            </section>
 
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>核销周期分布</h2>
-                <p>箱线图 + 散点，按商品类型展示</p>
+            <section className="content-section chart-figure-runtime">
+              <div className="section-title chart-figure-runtime__head">
+                <div>
+                  <span className="chart-figure-runtime__eyebrow">
+                    分析细读 · 周期分布
+                  </span>
+                  <h2>{cycleFigureTitle(dashboard.cycle_rows)}</h2>
+                  <p>每个点代表一笔真实订单 · 横向位置表示核销周期</p>
+                </div>
               </div>
-            </div>
-            <CycleDistributionChart rows={dashboard.cycle_rows} />
-          </section>
+              <CycleJitterChart rows={dashboard.cycle_rows} />
+              <p className="sales-chart-source">
+                抖动点阵 · 已核销订单 · 核销时间减去销售时间
+              </p>
+            </section>
+          </div>
 
         </>
       )}

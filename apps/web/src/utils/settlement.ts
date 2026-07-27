@@ -639,15 +639,33 @@ function percentile(sortedValues: number[], ratio: number): number | null {
   return sortedValues[lower] * (1 - weight) + sortedValues[upper] * weight;
 }
 
+function cyclePointSampleScore(point: SalesCyclePoint): number {
+  const seed = `${point.order_id}:${point.cycle_days}`;
+  let hash = 2166136261;
+  for (let index = 0; index < seed.length; index += 1) {
+    hash ^= seed.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 function sampleCyclePoints(points: SalesCyclePoint[]): SalesCyclePoint[] {
   if (points.length <= MAX_CYCLE_SAMPLE_POINTS) {
     return points;
   }
-  const lastIndex = points.length - 1;
-  return Array.from({ length: MAX_CYCLE_SAMPLE_POINTS }, (_, index) => {
-    const sourceIndex = Math.round((index * lastIndex) / (MAX_CYCLE_SAMPLE_POINTS - 1));
-    return points[sourceIndex];
-  });
+
+  const sampledMiddle = points
+    .slice(1, -1)
+    .sort(
+      (a, b) =>
+        cyclePointSampleScore(a) - cyclePointSampleScore(b) ||
+        a.order_id.localeCompare(b.order_id),
+    )
+    .slice(0, MAX_CYCLE_SAMPLE_POINTS - 2);
+
+  return [points[0], ...sampledMiddle, points[points.length - 1]].sort(
+    (a, b) => a.cycle_days - b.cycle_days || a.order_id.localeCompare(b.order_id),
+  );
 }
 
 function salesMetricsFor(
