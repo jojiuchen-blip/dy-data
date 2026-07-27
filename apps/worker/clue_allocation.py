@@ -369,14 +369,18 @@ def _enrich_store_locations_from_raw_evidence(
     stores_by_id: dict[str, DimStore],
     now: datetime,
 ) -> None:
-    """Fill a missing store province from the same follow-POI's raw city/province evidence."""
+    """Fill missing store geography from unambiguous raw clue evidence."""
     evidence_by_poi: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    provinces_by_city_code: dict[str, set[str]] = defaultdict(set)
     for raw_clue in raw_clues:
         poi_id = _clean(raw_clue.follow_poi_id)
         province = _clean(raw_clue.auto_province_name)
         city = _clean(raw_clue.auto_city_name)
         if poi_id and province and city:
             evidence_by_poi[poi_id].add((province, city))
+        city_code = normalize_city_code(city)
+        if province and city_code:
+            provinces_by_city_code[city_code].add(province)
 
     for poi_id, candidates in evidence_by_poi.items():
         mapping = mappings_by_poi.get(poi_id)
@@ -415,6 +419,26 @@ def _enrich_store_locations_from_raw_evidence(
             changed = True
         if changed:
             store.location_updated_at = now
+
+    province_by_city_code = {
+        city_code: next(iter(provinces))
+        for city_code, provinces in provinces_by_city_code.items()
+        if len(provinces) == 1
+    }
+    for store in stores_by_id.values():
+        if _clean(store.standard_province):
+            continue
+        city_code = normalize_city_code(store.standard_city) or normalize_city_code(store.city_code)
+        province = province_by_city_code.get(city_code or "")
+        if not province:
+            continue
+        store.standard_province = province
+        location_status = _store_location_status(store)
+        store.location_status = location_status
+        store.is_douyin_clue_applicable = location_status == "valid"
+        if location_status != "valid":
+            store.participates_in_clue_allocation = False
+        store.location_updated_at = now
 
 
 def normalize_city_code(value: str | None) -> str | None:

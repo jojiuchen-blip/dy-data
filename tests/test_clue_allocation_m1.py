@@ -528,7 +528,9 @@ def test_location_import_uses_raw_poi_evidence_before_enabling_candidate_partici
     db_session.add_all(
         [
             DimStore(store_id="store-import-evidence", store_name="Import Evidence", is_active=True),
+            DimStore(store_id="store-same-city", store_name="Same City", is_active=True),
             DimStorePoiMapping(store_id="store-import-evidence", poi_id="poi-import-evidence", mapping_source="test"),
+            DimStorePoiMapping(store_id="store-same-city", poi_id="poi-same-city", mapping_source="test"),
             _raw_clue(
                 "import-evidence-row",
                 clue_id="import-evidence-clue",
@@ -545,6 +547,7 @@ def test_location_import_uses_raw_poi_evidence_before_enabling_candidate_partici
     sheet = workbook.active
     sheet.append(["门店ID", "经度", "纬度", "门店所在城市"])
     sheet.append(["poi-import-evidence", 121.47, 31.23, "上海市"])
+    sheet.append(["poi-same-city", 121.48, 31.24, "上海市"])
     workbook.save(workbook_path)
 
     clue_allocation.import_store_locations(
@@ -559,6 +562,11 @@ def test_location_import_uses_raw_poi_evidence_before_enabling_candidate_partici
     assert store.standard_province == "上海市"
     assert store.location_status == "valid"
     assert store.participates_in_clue_allocation is True
+    same_city_store = db_session.get(DimStore, "store-same-city")
+    assert same_city_store is not None
+    assert same_city_store.standard_province == "上海市"
+    assert same_city_store.location_status == "valid"
+    assert same_city_store.participates_in_clue_allocation is True
 
 
 def test_score_snapshots_use_formal_mature_rounds_and_city_global_fallbacks(
