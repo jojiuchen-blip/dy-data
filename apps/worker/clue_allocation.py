@@ -46,6 +46,7 @@ SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
 MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
+MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
 
 
 @dataclass(frozen=True)
@@ -712,28 +713,43 @@ def _try_transaction_lock(session: Session, *, lock_name: str) -> bool:
 def _raw_orders_by_id(session: Session, order_ids: set[str]) -> dict[str, RawDouyinOrder]:
     if not order_ids:
         return {}
-    return {row.order_id: row for row in session.scalars(select(RawDouyinOrder).where(RawDouyinOrder.order_id.in_(order_ids))).all()}
+    values: dict[str, RawDouyinOrder] = {}
+    for order_id_batch in _materialization_order_id_batches(order_ids):
+        rows = session.scalars(
+            select(RawDouyinOrder).where(RawDouyinOrder.order_id.in_(order_id_batch))
+        ).all()
+        values.update({row.order_id: row for row in rows})
+    return values
 
 
 def _verified_at_by_order(session: Session, order_ids: set[str]) -> dict[str, datetime]:
     if not order_ids:
         return {}
     values: dict[str, datetime] = {}
-    rows = session.execute(
-        select(SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time)
-        .where(SettlementOrderDetail.order_id.in_(order_ids))
-        .where(SettlementOrderDetail.is_verified.is_(True))
-    ).all()
-    for order_id, verify_time in rows:
-        if not order_id:
-            continue
-        candidate = _aware(verify_time)
-        if candidate is None:
-            continue
-        previous = values.get(order_id)
-        if previous is None or candidate < previous:
-            values[order_id] = candidate
+    for order_id_batch in _materialization_order_id_batches(order_ids):
+        rows = session.execute(
+            select(SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time)
+            .where(SettlementOrderDetail.order_id.in_(order_id_batch))
+            .where(SettlementOrderDetail.is_verified.is_(True))
+        ).all()
+        for order_id, verify_time in rows:
+            if not order_id:
+                continue
+            candidate = _aware(verify_time)
+            if candidate is None:
+                continue
+            previous = values.get(order_id)
+            if previous is None or candidate < previous:
+                values[order_id] = candidate
     return values
+
+
+def _materialization_order_id_batches(order_ids: set[str]) -> list[list[str]]:
+    ordered_ids = sorted(order_id for order_id in order_ids if order_id)
+    return [
+        ordered_ids[offset : offset + MATERIALIZATION_QUERY_BATCH_SIZE]
+        for offset in range(0, len(ordered_ids), MATERIALIZATION_QUERY_BATCH_SIZE)
+    ]
 
 
 def _resolve_status(

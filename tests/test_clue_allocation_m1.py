@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -190,6 +191,46 @@ def test_data_quality_issue_upsert_can_defer_flush() -> None:
     )
 
     session.flush.assert_not_called()
+
+
+def test_master_materialization_batches_raw_order_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = Mock(spec=Session)
+    session.scalars.side_effect = [
+        SimpleNamespace(
+            all=lambda: [SimpleNamespace(order_id="order-1"), SimpleNamespace(order_id="order-2")]
+        ),
+        SimpleNamespace(
+            all=lambda: [SimpleNamespace(order_id="order-3"), SimpleNamespace(order_id="order-4")]
+        ),
+        SimpleNamespace(all=lambda: [SimpleNamespace(order_id="order-5")]),
+    ]
+    monkeypatch.setattr(clue_allocation, "MATERIALIZATION_QUERY_BATCH_SIZE", 2)
+
+    rows = clue_allocation._raw_orders_by_id(
+        session,
+        {"order-1", "order-2", "order-3", "order-4", "order-5"},
+    )
+
+    assert set(rows) == {"order-1", "order-2", "order-3", "order-4", "order-5"}
+    assert session.scalars.call_count == 3
+
+
+def test_master_materialization_batches_verification_queries(monkeypatch: pytest.MonkeyPatch) -> None:
+    session = Mock(spec=Session)
+    session.execute.side_effect = [
+        SimpleNamespace(all=lambda: [("order-1", _dt(1)), ("order-2", _dt(2))]),
+        SimpleNamespace(all=lambda: [("order-3", _dt(3)), ("order-4", _dt(4))]),
+        SimpleNamespace(all=lambda: [("order-5", _dt(5))]),
+    ]
+    monkeypatch.setattr(clue_allocation, "MATERIALIZATION_QUERY_BATCH_SIZE", 2)
+
+    values = clue_allocation._verified_at_by_order(
+        session,
+        {"order-1", "order-2", "order-3", "order-4", "order-5"},
+    )
+
+    assert set(values) == {"order-1", "order-2", "order-3", "order-4", "order-5"}
+    assert session.execute.call_count == 3
 
 
 def test_data_quality_issue_upsert_deduplicates_pending_issue_before_flush(db_session: Session) -> None:
