@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="460" viewBox="0 0 1200 460" role="img" aria-labelledby="title desc">
+  <title id="title">dy-data 抖音经营引擎</title>
+  <desc id="desc">抖音订单、券核销和线索经由采集任务进入 PostgreSQL，由 FastAPI 提供给经营 Web 工作台和严格只读 CLI。</desc>
+
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#FE5205"/>
+    </marker>
+  </defs>
+
+  <rect x="1" y="1" width="1198" height="458" rx="24" fill="#F6F6F3" stroke="#E3E3DF" stroke-width="2"/>
+  <rect x="1" y="1" width="12" height="458" rx="6" fill="#FE5205"/>
+
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Microsoft YaHei', 'PingFang SC', sans-serif">
+    <text x="56" y="48" fill="#D63B00" font-size="16" font-weight="700" letter-spacing="2">DOUYIN OPERATIONS / TRACEABLE DATA ENGINE</text>
+
+    <rect x="56" y="70" width="64" height="64" rx="15" fill="#FFF4EF"/>
+    <g transform="translate(39 70) scale(2.8)" fill="#D63B00">
+      <path d="M22 5a3 3 0 1 1-6 0a3 3 0 0 1 6 0Zm-7.5 5.75a.75.75 0 0 1 0-1.5H17a.75.75 0 0 1 .75.75v2.5a.75.75 0 0 1-1.5 0v-.69l-2.013 2.013a1.75 1.75 0 0 1-2.474 0l-1.586-1.586a.25.25 0 0 0-.354 0L7.53 14.53a.75.75 0 0 1-1.06-1.06l2.293-2.293a1.75 1.75 0 0 1 2.474 0l1.586 1.586a.25.25 0 0 0 .354 0l2.012-2.013H14.5Z"/>
+    </g>
+    <text x="140" y="126" fill="#181818" font-size="76" font-weight="800" letter-spacing="-3">dy-data</text>
+
+    <text x="56" y="188" fill="#181818" font-size="28" font-weight="760">把抖音经营、结算、线索与运营</text>
+    <text x="56" y="225" fill="#181818" font-size="28" font-weight="760">放进同一条可追溯的数据链路</text>
+
+    <text x="56" y="270" fill="#686A66" font-size="17" font-weight="500">面向汽车经销商集团与门店，将业务结果追溯到订单、券、门店、账号和规则证据。</text>
+    <text x="56" y="298" fill="#686A66" font-size="17" font-weight="500">系统提供经营判断与分账参考，不执行真实资金划拨。</text>
+
+    <line x1="56" y1="326" x2="630" y2="326" stroke="#C9CBC6"/>
+
+    <g font-size="15" font-weight="700">
+      <rect x="56" y="348" width="128" height="34" rx="17" fill="#FFF4EF" stroke="#F1C7B6"/>
+      <text x="120" y="370" text-anchor="middle" fill="#7A2600">经营与结算</text>
+      <rect x="196" y="348" width="116" height="34" rx="17" fill="#FFFFFF" stroke="#C9CBC6"/>
+      <text x="254" y="370" text-anchor="middle" fill="#181818">线索运营</text>
+      <rect x="324" y="348" width="116" height="34" rx="17" fill="#FFFFFF" stroke="#C9CBC6"/>
+      <text x="382" y="370" text-anchor="middle" fill="#181818">后台管理</text>
+      <rect x="452" y="348" width="116" height="34" rx="17" fill="#FFFFFF" stroke="#C9CBC6"/>
+      <text x="510" y="370" text-anchor="middle" fill="#181818">数据平台</text>
+    </g>
+
+    <text x="56" y="421" fill="#686A66" font-size="15" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">React 19 · FastAPI · PostgreSQL · Worker · CLI 0.2.0</text>
+
+    <g transform="translate(690 42)">
+      <rect width="458" height="376" rx="20" fill="#181818"/>
+      <text x="24" y="35" fill="#FE5205" font-size="14" font-weight="700" letter-spacing="1.6">CURRENT SYSTEM FLOW</text>
+      <text x="434" y="35" text-anchor="end" fill="#A8AAA5" font-size="14" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace">EVIDENCE → ACTION</text>
+
+      <g font-size="16" font-weight="700" text-anchor="middle">
+        <rect x="24" y="54" width="112" height="38" rx="9" fill="#2A2A28" stroke="#555651"/>
+        <text x="80" y="79" fill="#FFFFFF">抖音订单</text>
+        <rect x="173" y="54" width="112" height="38" rx="9" fill="#2A2A28" stroke="#555651"/>
+        <text x="229" y="79" fill="#FFFFFF">券核销</text>
+        <rect x="322" y="54" width="112" height="38" rx="9" fill="#2A2A28" stroke="#555651"/>
+        <text x="378" y="79" fill="#FFFFFF">经营线索</text>
+      </g>
+
+      <path d="M80 92 V108 H229 M229 92 V108 M378 92 V108 H229" fill="none" stroke="#686A66" stroke-width="2"/>
+      <line x1="229" y1="108" x2="229" y2="120" stroke="#FE5205" stroke-width="2" marker-end="url(#arrow)"/>
+
+      <rect x="88" y="124" width="282" height="48" rx="10" fill="#FFF4EF"/>
+      <text x="108" y="145" fill="#7A2600" font-size="13" font-weight="700" letter-spacing="1">COLLECT</text>
+      <text x="229" y="158" text-anchor="middle" fill="#181818" font-size="18" font-weight="750">worker + 受控采集链路</text>
+
+      <line x1="229" y1="172" x2="229" y2="191" stroke="#FE5205" stroke-width="2" marker-end="url(#arrow)"/>
+      <rect x="88" y="195" width="282" height="48" rx="10" fill="#FE5205"/>
+      <text x="108" y="216" fill="#3B1300" font-size="13" font-weight="700" letter-spacing="1">TRACE</text>
+      <text x="229" y="229" text-anchor="middle" fill="#181818" font-size="18" font-weight="800">PostgreSQL · 业务证据中心</text>
+
+      <line x1="229" y1="243" x2="229" y2="262" stroke="#FE5205" stroke-width="2" marker-end="url(#arrow)"/>
+      <rect x="88" y="266" width="282" height="44" rx="10" fill="#FFFFFF"/>
+      <text x="229" y="294" text-anchor="middle" fill="#181818" font-size="18" font-weight="750">FastAPI · 权限与统一契约</text>
+
+      <path d="M229 310 V324 H149 V332 M229 324 H309 V332" fill="none" stroke="#FE5205" stroke-width="2"/>
+      <g font-size="16" font-weight="700" text-anchor="middle">
+        <rect x="64" y="332" width="170" height="32" rx="8" fill="#2A2A28" stroke="#686A66"/>
+        <text x="149" y="354" fill="#FFFFFF">React Web 工作台</text>
+        <rect x="244" y="332" width="150" height="32" rx="8" fill="#2A2A28" stroke="#686A66"/>
+        <text x="319" y="354" fill="#FFFFFF">严格只读 CLI</text>
+      </g>
+    </g>
+  </g>
+</svg>
