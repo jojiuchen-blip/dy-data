@@ -8,8 +8,10 @@ import socket
 import subprocess
 import time
 import urllib.request
+from collections import deque
 from collections.abc import Generator
 from pathlib import Path
+from threading import Thread
 
 import pytest
 from playwright.sync_api import Browser, Page, sync_playwright
@@ -123,23 +125,41 @@ def vite_base_url() -> Generator[str]:
         encoding="utf-8",
         errors="replace",
     )
+    output_lines: deque[str] = deque(maxlen=200)
+
+    def drain_output() -> None:
+        if process.stdout is None:
+            return
+        for line in process.stdout:
+            output_lines.append(line.rstrip())
+
+    output_thread = Thread(target=drain_output, name="vite-output-drain", daemon=True)
+    output_thread.start()
 
     base_url = f"http://{HOST}:{port}"
     try:
         wait_for_url(base_url)
         yield base_url
     except Exception:
-        output = ""
-        if process.stdout is not None:
-            output = process.stdout.read()
+        output = "\n".join(output_lines)
         raise RuntimeError(f"Vite dev server did not start.\n{output}") from None
     finally:
-        process.terminate()
-        try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
             process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        else:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        output_thread.join(timeout=1)
 
 
 @pytest.fixture(scope="session")
