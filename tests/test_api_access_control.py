@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from apps.api.dy_api.models import DimStore, User, UserStoreScope  # noqa: E402
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
-from dy_api.access_control import required_page_key_for_api_path  # noqa: E402
+from dy_api.access_control import PAGE_DEFINITIONS, required_page_key_for_api_path  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 
@@ -206,6 +206,11 @@ def test_all_current_business_api_families_are_registered_and_unknown_defaults_t
     assert required_page_key_for_api_path("/api/v1/future-business-page") == "__UNREGISTERED__"
 
 
+def test_order_detail_permission_registers_all_current_frontend_routes() -> None:
+    definition = next(page for page in PAGE_DEFINITIONS if page.page_key == "B03")
+    assert definition.route_patterns == ("/details", "/invoice")
+
+
 def test_role_default_change_updates_inheritors_and_preserves_customized_effective_permissions(
     client: TestClient,
 ) -> None:
@@ -264,5 +269,5 @@ def test_admin_with_specified_store_scope_does_not_receive_global_data_access(
 
     assert filters.status_code == 200
     assert filters.json()["data"]["stores"] == [
-        {"store_id": "store-1", "store_name": "Store One"}
+        {"storeId": "store-1", "storeName": "Store One"}
     ]

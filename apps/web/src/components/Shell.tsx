@@ -9,7 +9,7 @@ import { SolarIcon, type SolarIconName } from "./SolarIcon";
 import { SpaceAiSignature } from "./SpaceAiSignature";
 import { ThemePicker } from "./ThemePicker";
 
-const settlementPaths = new Set(["/ranking", "/settlement", "/details"]);
+const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/invoice"]);
 const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const adminPaths = new Set([
@@ -84,6 +84,7 @@ const settlementNavItems: NavItem[] = [
   { href: "/ranking", label: "全国门店榜单", pageKey: "B01" },
   { href: "/settlement", label: "单店结算", pageKey: "B02" },
   { href: "/details", label: "订单明细", pageKey: "B03" },
+  { href: "/invoice", label: "开票确认", pageKey: "B03" },
 ];
 
 const clueNavItems: NavItem[] = [

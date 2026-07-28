@@ -408,3 +408,128 @@ def test_get_request_refreshes_token_when_access_token_expires():
     assert [call["method"] for call in http.calls] == ["POST", "GET", "POST", "GET"]
     assert http.calls[1]["headers"]["access-token"] == "token-1"
     assert http.calls[3]["headers"]["access-token"] == "token-2"
+
+
+def test_product_page_transport_uses_injected_url_and_params_without_freezing_external_contract():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"items": [{"skuId": "sku-1"}], "hasMore": False}}),
+        ]
+    )
+    client = client_with(http)
+
+    payload = client.query_product_page(
+        url="https://example.invalid/product-fixture",
+        params={"opaque_cursor": "cursor-1", "limit": 50},
+    )
+
+    assert payload["data"]["items"] == [{"skuId": "sku-1"}]
+    assert http.calls[1]["url"] == "https://example.invalid/product-fixture"
+    assert http.calls[1]["params"] == {"opaque_cursor": "cursor-1", "limit": 50}
+    assert http.calls[1]["headers"]["Rpc-Transit-Life-Account"] == "acct-1"
+
+
+def test_product_page_transport_reuses_rate_limit_retry_and_sanitizes_error_payload():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse(
+                {
+                    "data": {
+                        "error_code": 2100004,
+                        "description": "系统繁忙，此时请开发者稍候再试",
+                        "items": [{"skuId": "sensitive-sku"}],
+                    }
+                }
+            ),
+            FakeResponse({"data": {"items": [], "hasMore": False}}),
+        ]
+    )
+    client = DouyinOpenApiClient(
+        DouyinCredentials(app_id="app-1", app_secret="secret-1", account_id="acct-1"),
+        http=http,
+        retry_sleep_seconds=0,
+    )
+
+    payload = client.query_product_page(
+        url="https://example.invalid/product-fixture",
+        params={"cursor": "cursor-1"},
+    )
+
+    assert payload["data"]["items"] == []
+    assert [call["method"] for call in http.calls] == ["POST", "GET", "GET"]
+
+
+def test_query_online_products_uses_official_list_contract():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse(
+                {
+                    "data": {
+                        "products": [],
+                        "has_more": False,
+                        "next_cursor": "",
+                    }
+                }
+            ),
+        ]
+    )
+    client = client_with(http)
+
+    payload = client.query_online_products(
+        status=3,
+        cursor="cursor-1",
+        count=50,
+        goods_query_type=2,
+    )
+
+    assert payload["data"]["products"] == []
+    assert http.calls[1]["url"].endswith("/goodlife/v1/goods/product/online/query/")
+    assert http.calls[1]["params"] == {
+        "account_id": "acct-1",
+        "count": 50,
+        "goods_query_type": 2,
+        "status": 3,
+        "cursor": "cursor-1",
+    }
+
+
+def test_query_online_products_omits_first_page_cursor_and_validates_limits():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"products": [], "has_more": False}}),
+        ]
+    )
+    client = client_with(http)
+
+    client.query_online_products(status=1)
+
+    assert "cursor" not in http.calls[1]["params"]
+    with pytest.raises(ValueError, match="status"):
+        client.query_online_products(status=4)
+    with pytest.raises(ValueError, match="count"):
+        client.query_online_products(status=1, count=51)
+
+
+def test_query_online_products_by_id_batches_at_ten():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"product_onlines": []}}),
+        ]
+    )
+    client = client_with(http)
+
+    payload = client.query_online_products_by_id(["product-1", "product-2"])
+
+    assert payload["data"]["product_onlines"] == []
+    assert http.calls[1]["url"].endswith("/goodlife/v1/goods/product/online/get/")
+    assert http.calls[1]["params"] == {
+        "account_id": "acct-1",
+        "product_ids": ["product-1", "product-2"],
+    }
+    with pytest.raises(ValueError, match="at most 10"):
+        client.query_online_products_by_id([str(index) for index in range(11)])

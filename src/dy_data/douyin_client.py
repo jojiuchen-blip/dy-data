@@ -17,6 +17,8 @@ REFUND_QUERY_URL = "https://open.douyin.com/goodlife/v1/akte/after_sale/order/qu
 SHOP_POI_QUERY_URL = "https://open.douyin.com/goodlife/v1/shop/poi/query/"
 CRAFTSMAN_BIND_INFO_URL = "https://open.douyin.com/goodlife/v2/craftsman_openapi/merchat/craftsman/bind_info/all/"
 CLUE_QUERY_URL = "https://open.douyin.com/goodlife/v1/open_api/crm/clue/query/"
+PRODUCT_ONLINE_QUERY_URL = "https://open.douyin.com/goodlife/v1/goods/product/online/query/"
+PRODUCT_ONLINE_GET_URL = "https://open.douyin.com/goodlife/v1/goods/product/online/get/"
 CIPHER_DECRYPT_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt/batch/"
 CIPHER_DECRYPT_MASK_URL = "https://open.douyin.com/goodlife/v1/open/common_biz/crypto/decrypt_mask/batch/"
 CIPHER_BATCH_SIZE = 50
@@ -87,6 +89,77 @@ class DouyinOpenApiClient:
             "create_order_end_time": int(end.timestamp()),
         }
         return self._get_json(ORDER_QUERY_URL, params)
+
+    def query_product_page(
+        self,
+        *,
+        url: str,
+        params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send one authenticated product-page request.
+
+        The external product endpoint, request parameter names, and response mapping
+        are intentionally injected until a sanitized official sample freezes that
+        contract.  This method only provides the existing authenticated/retrying
+        transport boundary.
+        """
+
+        if not str(url or "").strip():
+            raise ValueError("Product sync URL is required")
+        return self._get_json(str(url).strip(), dict(params))
+
+    def query_online_products(
+        self,
+        *,
+        status: int,
+        cursor: str | None = None,
+        count: int = 50,
+        goods_query_type: int = 2,
+    ) -> dict[str, Any]:
+        """Query one official online-product list page.
+
+        Douyin documents status 1/2/3 as online/offline/banned and caps a
+        normal page at 50 rows. The account is sent in both the authenticated
+        transit header and query parameters, consistent with the other
+        Goodlife endpoints used by this client.
+        """
+
+        if status not in {1, 2, 3}:
+            raise ValueError("Product status must be 1, 2, or 3")
+        if count < 1 or count > 50:
+            raise ValueError("Product query count must be between 1 and 50")
+        if goods_query_type not in {1, 2, 3}:
+            raise ValueError("goods_query_type must be 1, 2, or 3")
+        params: dict[str, Any] = {
+            "account_id": self.credentials.account_id,
+            "count": count,
+            "goods_query_type": goods_query_type,
+            "status": status,
+        }
+        if cursor not in (None, ""):
+            params["cursor"] = str(cursor)
+        return self._get_json(PRODUCT_ONLINE_QUERY_URL, params)
+
+    def query_online_products_by_id(
+        self,
+        product_ids: list[str],
+    ) -> dict[str, Any]:
+        """Query official online-product details for at most ten product IDs."""
+
+        cleaned = list(
+            dict.fromkeys(str(value).strip() for value in product_ids if str(value).strip())
+        )
+        if not cleaned:
+            raise ValueError("At least one product ID is required")
+        if len(cleaned) > 10:
+            raise ValueError("Product ID query accepts at most 10 product IDs")
+        return self._get_json(
+            PRODUCT_ONLINE_GET_URL,
+            {
+                "account_id": self.credentials.account_id,
+                "product_ids": cleaned,
+            },
+        )
 
     def iter_orders(self, start: datetime, end: datetime, *, page_size: int = 100):
         cursor: str | None = "0"

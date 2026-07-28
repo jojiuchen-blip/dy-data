@@ -7,7 +7,7 @@
 - 平台与仓库硬规则：`AGENTS.md`。
 - 需求、优先级、负责人、验收和 issue 状态：Linear。
 - 项目长期边界与权威索引：本文件。
-- 当前执行摘要：`docs/plans/execution-plan.md`；正式 S3 计划形成前，开发范围仍以当前 Linear issue 为准。
+- 当前执行摘要：`docs/plans/execution-plan.md`；S3 正式计划形成后，任务拆解与依赖以 `docs/plans/delivery-plans/` 当前计划组为准，需求范围与状态仍以 Linear 为准。
 - 宿主专项实现规则：`docs/rules/`。
 - 项目身份与阶段快照：`project-profile.md`。
 - 既有材料角色与新旧权威关系：`docs/governance/authority-map.md`。
