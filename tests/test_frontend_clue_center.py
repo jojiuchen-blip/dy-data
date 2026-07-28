@@ -446,6 +446,27 @@ def test_shell_uses_module_context_without_repeating_page_title() -> None:
     assert ".workspace-title" not in styles_source
 
 
+def test_shell_global_actions_stay_right_aligned_without_secondary_navigation() -> None:
+    styles_source = read_source("styles.css")
+    commission_rules_source = read_source("components/CommissionRulesButton.tsx")
+
+    workspace_actions_rules = styles_source[
+        styles_source.index(".workspace-actions {") :
+        styles_source.index(".settlement-trial-notice {")
+    ]
+    identity_rules = styles_source[
+        styles_source.index(".account-cluster__identity {") :
+        styles_source.index(".account-cluster__identity span {")
+    ]
+
+    assert "margin-left: auto;" in workspace_actions_rules
+    assert "justify-content: flex-end;" in workspace_actions_rules
+    assert "min-height: var(--control-height);" in identity_rules
+    assert "border-radius: var(--control-radius);" in identity_rules
+    assert "padding: 0 var(--space-5);" in identity_rules
+    assert 'size="sm"' not in commission_rules_source
+
+
 def test_workspace_pages_use_full_width_frame_by_default() -> None:
     styles_source = read_source("styles.css")
 

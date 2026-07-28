@@ -344,15 +344,15 @@
       "family": "Navigation",
       "category": "layout",
       "status": "stable",
-      "description": "管理桌面侧栏、顶部导航、移动端底部一级导航和模块内导航的全局壳层。",
+      "description": "管理桌面侧栏、顶部导航、右侧全局操作区、移动端底部一级导航和模块内导航的全局壳层。",
       "implementationPath": "apps/web/src/components/Shell.tsx",
       "exportName": "Shell",
       "useWhen": "所有登录后的业务页面需要一致的产品导航和页面内容框架。",
       "avoidWhen": "登录、授权等独立身份流程使用专用认证布局。",
       "states": ["default", "active", "light", "dark"],
-      "tokens": ["layout.*", "navigation.*", "sticky.*"],
+      "tokens": ["layout.*", "navigation.*", "navigation.globalActions", "sticky.*"],
       "accessibility": "导航包含可读名称、当前页状态和合理标题层级。",
-      "responsive": "桌面侧栏与顶部模块导航；移动端底部一级导航和顶部二级导航。",
+      "responsive": "桌面侧栏与顶部模块导航，账户和全局命令固定在顶部栏右侧；移动端底部一级导航和顶部二级导航，个人操作进入“我的”面板。",
       "previewAnchor": "catalog-shell"
     },
     {

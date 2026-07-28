@@ -43,7 +43,6 @@ export function CommissionRulesButton() {
         className="commission-rules__button"
         icon="rules"
         onClick={() => setOpen((current) => !current)}
-        size="sm"
         type="button"
         variant="secondary"
       >

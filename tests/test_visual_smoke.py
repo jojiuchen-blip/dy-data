@@ -2990,6 +2990,55 @@ def test_sales_metric_cards_share_one_white_card_treatment(
         context.close()
 
 
+def test_workspace_global_actions_stay_at_the_topbar_inline_end(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
+
+        topbar = page.locator(".workspace-topbar")
+        actions = page.locator(".workspace-actions")
+        identity = page.locator(".account-cluster__identity")
+        command_buttons = page.locator(".account-cluster .utility-button")
+        topbar_box = topbar.bounding_box()
+        actions_box = actions.bounding_box()
+
+        assert topbar_box is not None
+        assert actions_box is not None
+        assert actions_box["x"] > topbar_box["x"] + topbar_box["width"] / 2
+        assert abs(
+            (actions_box["x"] + actions_box["width"])
+            - (topbar_box["x"] + topbar_box["width"] - 28)
+        ) <= 1
+
+        identity_treatment = identity.evaluate(
+            """(node) => {
+              const style = getComputedStyle(node);
+              return { height: style.height, borderRadius: style.borderRadius };
+            }""",
+        )
+        command_treatments = command_buttons.evaluate_all(
+            """(nodes) => nodes.map((node) => {
+              const style = getComputedStyle(node);
+              return { height: style.height, borderRadius: style.borderRadius };
+            })""",
+        )
+
+        assert identity_treatment == {"height": "38px", "borderRadius": "6px"}
+        assert command_treatments
+        assert all(
+            treatment == identity_treatment for treatment in command_treatments
+        )
+    finally:
+        context.close()
+
+
 @pytest.mark.parametrize(
     ("url_path", "expected_text"),
     [

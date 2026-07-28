@@ -496,6 +496,7 @@ a {
 .workspace-actions {
   display: flex;
   flex: 0 0 auto;
+  margin-left: auto;
   min-width: 0;
   align-items: center;
   justify-content: flex-end;
@@ -534,12 +535,13 @@ a {
 
 .account-cluster__identity {
   display: flex;
+  min-height: var(--control-height);
   align-items: center;
   max-width: 260px;
   gap: 6px;
   border: 1px solid var(--line);
-  border-radius: var(--radius-lg);
-  padding: 7px 10px;
+  border-radius: var(--control-radius);
+  padding: 0 var(--space-5);
   background: var(--surface-subtle);
   color: var(--ink);
   font-size: var(--font-size-table);
@@ -563,14 +565,9 @@ a {
 }
 
 .utility-button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  min-height: 34px;
-  padding: 6px 10px;
   font-size: var(--font-size-table);
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .theme-picker {

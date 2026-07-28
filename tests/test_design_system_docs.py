@@ -62,6 +62,25 @@ def load_tokens() -> dict:
     return json.loads(read_text(TOKENS_PATH))
 
 
+def test_shell_global_action_cluster_has_one_runtime_and_documented_contract() -> None:
+    tokens = load_tokens()
+    html = read_text(HTML_PATH)
+    manifest = json.loads(read_text(COMPONENT_MANIFEST_PATH))
+    shell = next(component for component in manifest["components"] if component["id"] == "shell")
+    global_actions = tokens["components"]["navigation"]["globalActions"]
+
+    assert global_actions["placement"] == "inline end of the desktop workspace topbar"
+    assert "margin-left:auto" in global_actions["alignmentRule"]
+    assert global_actions["controlHeight"] == "38px"
+    assert global_actions["controlRadius"] == "6px"
+    assert "navigation.globalActions" in shell["tokens"]
+    assert 'aria-label="全局操作区"' in html
+    assert "全局操作区规则" in html
+    assert "即使当前模块没有二级导航，也不能回落到左侧" in html
+    assert 'class="topbar-demo__identity"' in html
+    assert html.count('class="topbar-demo__action"') >= 2
+
+
 def test_component_manifest_points_to_real_runtime_components() -> None:
     manifest = json.loads(read_text(COMPONENT_MANIFEST_PATH))
     catalog_manifest = json.loads(read_text(CATALOG_MANIFEST_PATH))
