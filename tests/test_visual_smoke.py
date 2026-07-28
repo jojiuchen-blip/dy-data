@@ -723,6 +723,30 @@ def record_unexpected_http_failure(response: object, errors: list[str]) -> None:
         errors.append(f"{status} {url}")
 
 
+def rgb_channels(value: str) -> tuple[int, int, int]:
+    channels = [int(part) for part in re.findall(r"\d+", value)[:3]]
+    if len(channels) != 3:
+        raise AssertionError(f"Expected an RGB color, received {value!r}")
+    return channels[0], channels[1], channels[2]
+
+
+def relative_luminance(value: str) -> float:
+    def normalize(channel: int) -> float:
+        component = channel / 255
+        return component / 12.92 if component <= 0.04045 else ((component + 0.055) / 1.055) ** 2.4
+
+    red, green, blue = rgb_channels(value)
+    return 0.2126 * normalize(red) + 0.7152 * normalize(green) + 0.0722 * normalize(blue)
+
+
+def contrast_ratio(first: str, second: str) -> float:
+    lighter, darker = sorted(
+        (relative_luminance(first), relative_luminance(second)),
+        reverse=True,
+    )
+    return (lighter + 0.05) / (darker + 0.05)
+
+
 def install_api_routes(page: Page) -> None:
     admin_user = {
         "username": "visual-admin",
@@ -1110,7 +1134,7 @@ def install_settlement_user_route(page: Page, role: str) -> None:
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
-            "dy-data UI 设计规范 V0.2.1",
+                "dy-data 界面设计规范 V0.2.1",
             "heading",
         ),
         (
@@ -1259,6 +1283,187 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
         context.close()
 
 
+def test_design_system_catalog_examples_render_and_table_allows_scroll_chaining(
+    browser: Browser,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        page.goto(DESIGN_SYSTEM_HTML.as_uri(), wait_until="domcontentloaded")
+        catalog_frame = page.locator("[data-runtime-catalog-frame]")
+        catalog_frame.scroll_into_view_if_needed()
+        catalog = page.frame_locator("[data-runtime-catalog-frame]")
+
+        searchable = catalog.locator(
+            "#catalog-searchable-store-select .searchable-store-select",
+        )
+        searchable.wait_for(timeout=10000)
+        searchable_input = searchable.locator("input")
+        searchable_box = searchable.bounding_box()
+        input_box = searchable_input.bounding_box()
+        assert searchable_box is not None
+        assert input_box is not None
+        assert input_box["width"] >= searchable_box["width"] - 2
+        assert input_box["height"] >= 38
+
+        text_fields = catalog.locator("#catalog-text-fields")
+        text_fields.scroll_into_view_if_needed()
+        assert text_fields.locator(".ui-field").count() >= 5
+        assert text_fields.locator(".ui-checkbox-field").count() == 1
+        assert text_fields.locator(".ui-field__control").count() >= 5
+
+        selection_controls = catalog.locator("#catalog-selection-controls")
+        selection_controls.scroll_into_view_if_needed()
+        tabs = selection_controls.locator('[role="tablist"]')
+        summary_filter = selection_controls.locator(".ui-summary-filter")
+        assert tabs.count() >= 2
+        assert summary_filter.count() == 1
+        first_tab = tabs.first.locator('[role="tab"]').first
+        second_tab = tabs.first.locator('[role="tab"]').nth(1)
+        first_tab.focus()
+        first_tab.press("ArrowRight")
+        assert second_tab.get_attribute("aria-selected") == "true"
+
+        theme_picker = catalog.locator("#catalog-theme-picker .theme-picker")
+        theme_picker.scroll_into_view_if_needed()
+        assert theme_picker.get_by_role("button").count() == 3
+
+        table = catalog.locator("#catalog-data-table .table-wrap")
+        table.scroll_into_view_if_needed()
+        assert catalog.locator("#catalog-data-table tbody tr").count() >= 6
+        table_box = table.bounding_box()
+        assert table_box is not None
+
+        catalog_body = catalog.locator("body")
+        scroll_before = catalog_body.evaluate("() => window.scrollY")
+        page.mouse.move(
+            table_box["x"] + table_box["width"] / 2,
+            table_box["y"] + min(120, table_box["height"] / 2),
+        )
+        page.mouse.wheel(0, 700)
+        page.wait_for_timeout(250)
+        scroll_after = catalog_body.evaluate("() => window.scrollY")
+
+        assert scroll_after > scroll_before
+    finally:
+        context.close()
+
+
+def test_design_system_chart_gallery_renders_without_nested_scroll_trap(
+    browser: Browser,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        page.goto(DESIGN_SYSTEM_HTML.as_uri(), wait_until="domcontentloaded")
+        gallery_frame = page.locator("[data-chart-gallery-frame]")
+        gallery_frame.scroll_into_view_if_needed()
+        page.wait_for_function(
+            """() => {
+              const frame = document.querySelector('[data-chart-gallery-frame]');
+              return frame && frame.getBoundingClientRect().height > 3000;
+            }""",
+            timeout=15000,
+        )
+
+        gallery = page.frame_locator("[data-chart-gallery-frame]")
+        gallery_handle = gallery_frame.element_handle()
+        assert gallery_handle is not None
+        gallery_page = gallery_handle.content_frame()
+        assert gallery_page is not None
+        gallery_page.wait_for_function(
+            "() => document.querySelectorAll('svg > *').length >= 100",
+            timeout=15000,
+        )
+        assert gallery.locator("svg > *").count() >= 100
+
+        basics_button = page.locator(
+            '[data-chart-gallery-page="basics-gallery.html"]'
+        )
+        basics_button.click()
+        assert basics_button.get_attribute("aria-pressed") == "true"
+        page.wait_for_function(
+            """() => document.querySelector('[data-chart-gallery-frame]')
+              ?.src.includes('basics-gallery.html')""",
+            timeout=15000,
+        )
+        assert "v=20260727-1" in gallery_frame.get_attribute("src")
+        gallery_page.wait_for_function(
+            "() => document.querySelectorAll('svg > *').length >= 100",
+            timeout=15000,
+        )
+        assert gallery.locator("svg > *").count() >= 100
+
+        gallery_search = page.locator("#chart-gallery-search")
+        gallery_search.fill("三十天")
+        page.wait_for_function(
+            """() => document.querySelector('#chart-gallery-count')
+              ?.textContent.includes('1 / 12')""",
+            timeout=15000,
+        )
+
+        frame_box = gallery_frame.bounding_box()
+        assert frame_box is not None
+        scroll_before = page.evaluate("() => window.scrollY")
+        page.mouse.move(
+            frame_box["x"] + frame_box["width"] / 2,
+            max(40, min(450, frame_box["y"] + 240)),
+        )
+        page.mouse.wheel(0, 600)
+        page.wait_for_timeout(250)
+        scroll_after = page.evaluate("() => window.scrollY")
+
+        assert scroll_after - scroll_before >= 500
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_sales_charts_keep_keyboard_accessible_names_and_readable_type(
+    browser: Browser,
+    vite_base_url: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
+        figures = page.locator(".sales-echart")
+        assert figures.count() == 2
+
+        rainfall = figures.first
+        accessible_name = rainfall.get_attribute("aria-label") or ""
+        assert accessible_name == "月度下单与核销趋势图"
+        assert "mock_sales" not in accessible_name
+        assert len(accessible_name) < 40
+        assert rainfall.get_attribute("aria-keyshortcuts") is not None
+
+        rainfall.focus()
+        page.keyboard.press("Enter")
+        inspector = page.locator(".sales-chart-inspector").first
+        assert "已锁定" in inspector.inner_text()
+
+        initial_text = inspector.inner_text()
+        page.keyboard.press("ArrowRight")
+        assert inspector.inner_text() != initial_text
+        page.keyboard.press("Escape")
+        assert "方向键" in inspector.inner_text()
+
+        font_sizes = figures.locator("svg text").evaluate_all(
+            "elements => elements.map(element => parseFloat(getComputedStyle(element).fontSize))"
+        )
+        assert font_sizes
+        assert min(font_sizes) >= 11
+    finally:
+        context.close()
+
+
 def test_settlement_mock_filter_and_statement_use_the_same_store(
     browser: Browser,
     vite_base_url: str,
@@ -1275,6 +1480,52 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
             "上海浦东体验中心",
             exact=True,
         ).wait_for(timeout=10000)
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_sales_chart_tokens_keep_runtime_contrast(
+    browser: Browser,
+    vite_base_url: str,
+    theme: str,
+) -> None:
+    context = browser.new_context(
+        viewport={"width": 1440, "height": 900},
+        color_scheme=theme,
+    )
+    context.add_init_script(
+        f"window.localStorage.setItem('dydata.theme.preference', '{theme}')",
+    )
+    page = context.new_page()
+
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
+        page.locator(".sales-echart").first.wait_for(timeout=10000)
+        colors = page.evaluate(
+            """
+            () => {
+              const probe = document.createElement('span');
+              document.body.append(probe);
+              const read = (name) => {
+                probe.style.color = `var(${name})`;
+                return getComputedStyle(probe).color;
+              };
+              const result = {
+                axisText: read('--chart-axis-text'),
+                dataNeutralSoft: read('--chart-data-neutral-soft'),
+                primary: read('--chart-primary'),
+                surface: read('--chart-surface'),
+              };
+              probe.remove();
+              return result;
+            }
+            """,
+        )
+        assert contrast_ratio(colors["axisText"], colors["surface"]) >= 4.5
+        assert contrast_ratio(colors["dataNeutralSoft"], colors["surface"]) >= 3
+        assert contrast_ratio(colors["primary"], colors["surface"]) >= 3
     finally:
         context.close()
 

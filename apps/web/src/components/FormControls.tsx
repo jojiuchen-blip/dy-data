@@ -4,8 +4,10 @@ import {
   useMemo,
   useRef,
   useState,
+  type InputHTMLAttributes,
   type KeyboardEvent,
   type ReactNode,
+  type TextareaHTMLAttributes,
 } from "react";
 import { SolarIcon } from "./SolarIcon";
 
@@ -42,6 +44,39 @@ interface MultiSelectFieldProps extends Omit<FieldShellProps, "children"> {
   options: SelectFieldOption[];
   readOnly?: boolean;
   value: string[];
+}
+
+export interface FieldInputProps extends InputHTMLAttributes<HTMLInputElement> {}
+
+export interface FieldTextareaProps
+  extends TextareaHTMLAttributes<HTMLTextAreaElement> {}
+
+export interface TextFieldProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
+  error?: string;
+  fieldClassName?: string;
+  helperText?: ReactNode;
+  id?: string;
+  label: string;
+  meta?: ReactNode;
+}
+
+export interface TextareaFieldProps
+  extends Omit<TextareaHTMLAttributes<HTMLTextAreaElement>, "id"> {
+  error?: string;
+  fieldClassName?: string;
+  helperText?: ReactNode;
+  id?: string;
+  label: string;
+  meta?: ReactNode;
+}
+
+export interface CheckboxFieldProps
+  extends Omit<InputHTMLAttributes<HTMLInputElement>, "id" | "type"> {
+  description?: ReactNode;
+  error?: string;
+  id?: string;
+  label: ReactNode;
 }
 
 function useOutsideClose<T extends HTMLElement>(
@@ -128,6 +163,179 @@ function FieldShell({
       {helperText ? (
         <p className="ui-field__helper" id={helperId}>
           {helperText}
+        </p>
+      ) : null}
+      {error ? (
+        <p className="ui-field__error" id={errorId} role="alert">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function describedByIds(
+  id: string,
+  helperText?: ReactNode,
+  error?: string,
+): string | undefined {
+  return [helperText ? `${id}-helper` : "", error ? `${id}-error` : ""]
+    .filter(Boolean)
+    .join(" ") || undefined;
+}
+
+export function FieldInput({ className, type, ...props }: FieldInputProps) {
+  const isChoiceControl = type === "checkbox" || type === "radio";
+  return (
+    <input
+      className={[
+        isChoiceControl ? "ui-choice-control" : "ui-field__control",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+      type={type}
+      {...props}
+    />
+  );
+}
+
+export function FieldTextarea({ className, ...props }: FieldTextareaProps) {
+  return (
+    <textarea
+      className={["ui-field__control", "ui-field__textarea", className]
+        .filter(Boolean)
+        .join(" ")}
+      {...props}
+    />
+  );
+}
+
+export function TextField({
+  className,
+  disabled = false,
+  error,
+  fieldClassName,
+  helperText,
+  id,
+  label,
+  meta,
+  readOnly = false,
+  ...props
+}: TextFieldProps) {
+  const generatedId = useId();
+  const fieldId = id ?? generatedId;
+
+  return (
+    <FieldShell
+      className={fieldClassName}
+      disabled={disabled}
+      error={error}
+      helperText={helperText}
+      id={fieldId}
+      label={label}
+      meta={meta}
+    >
+      <FieldInput
+        aria-describedby={describedByIds(fieldId, helperText, error)}
+        aria-invalid={error ? true : undefined}
+        className={className}
+        disabled={disabled}
+        id={fieldId}
+        readOnly={readOnly}
+        {...props}
+      />
+    </FieldShell>
+  );
+}
+
+export function DateField(props: Omit<TextFieldProps, "type">) {
+  return <TextField {...props} type="date" />;
+}
+
+export function PasswordField(props: Omit<TextFieldProps, "type">) {
+  return <TextField {...props} type="password" />;
+}
+
+export function TextareaField({
+  className,
+  disabled = false,
+  error,
+  fieldClassName,
+  helperText,
+  id,
+  label,
+  meta,
+  readOnly = false,
+  ...props
+}: TextareaFieldProps) {
+  const generatedId = useId();
+  const fieldId = id ?? generatedId;
+
+  return (
+    <FieldShell
+      className={fieldClassName}
+      disabled={disabled}
+      error={error}
+      helperText={helperText}
+      id={fieldId}
+      label={label}
+      meta={meta}
+    >
+      <FieldTextarea
+        aria-describedby={describedByIds(fieldId, helperText, error)}
+        aria-invalid={error ? true : undefined}
+        className={className}
+        disabled={disabled}
+        id={fieldId}
+        readOnly={readOnly}
+        {...props}
+      />
+    </FieldShell>
+  );
+}
+
+export function CheckboxField({
+  checked,
+  className,
+  description,
+  disabled = false,
+  error,
+  id,
+  label,
+  ...props
+}: CheckboxFieldProps) {
+  const generatedId = useId();
+  const fieldId = id ?? generatedId;
+  const descriptionId = description ? `${fieldId}-description` : undefined;
+  const errorId = error ? `${fieldId}-error` : undefined;
+
+  return (
+    <div
+      className={[
+        "ui-checkbox-field",
+        disabled ? "is-disabled" : "",
+        error ? "is-error" : "",
+        className,
+      ]
+        .filter(Boolean)
+        .join(" ")}
+    >
+      <label className="ui-checkbox-field__label" htmlFor={fieldId}>
+        <FieldInput
+          aria-describedby={[descriptionId, errorId].filter(Boolean).join(" ") || undefined}
+          aria-invalid={error ? true : undefined}
+          checked={checked}
+          disabled={disabled}
+          id={fieldId}
+          type="checkbox"
+          {...props}
+        />
+        <span>{label}</span>
+      </label>
+      {description ? (
+        <p className="ui-field__helper" id={descriptionId}>
+          {description}
         </p>
       ) : null}
       {error ? (

@@ -5,7 +5,7 @@ import {
   saveProductTypeVisibility,
 } from "../api/client";
 import { Button } from "../components/Button";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
 import type { ProductTypeVisibilityData } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
@@ -252,7 +252,7 @@ export function AdminProductTypeVisibilityPage() {
           </div>
           <label className="filter-field checkbox-field product-visibility-toggle">
             <span>启用商品类型限制</span>
-            <input
+            <FieldInput
               checked={enabled}
               onChange={(event) => setEnabled(event.target.checked)}
               type="checkbox"
@@ -307,7 +307,7 @@ export function AdminProductTypeVisibilityPage() {
                     className={`product-type-option ${checked ? "is-selected" : ""}`}
                     key={productScope}
                   >
-                    <input
+                    <FieldInput
                       checked={checked}
                       onChange={() => toggleProductScope(productScope)}
                       type="checkbox"
@@ -351,7 +351,7 @@ export function AdminProductTypeVisibilityPage() {
                     className={`product-type-option ${checked ? "is-selected" : ""}`}
                     key={productType}
                   >
-                    <input
+                    <FieldInput
                       checked={checked}
                       onChange={() => toggleProductType(productType)}
                       type="checkbox"

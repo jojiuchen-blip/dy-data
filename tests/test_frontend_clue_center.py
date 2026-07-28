@@ -222,7 +222,7 @@ def test_clue_followup_detail_modal_scrolls_on_mobile() -> None:
     assert '"side"' in tablet_grid_rules
     assert '"main"' in tablet_grid_rules
     assert "position: absolute;" in toast_rules
-    assert "border-radius: 999px;" in toast_rules
+    assert "border-radius: var(--radius-full);" in toast_rules
     assert "pointer-events: none;" in toast_rules
     assert "grid-template-rows: minmax(0, 1fr) auto;" in styles_source
     assert "touch-action: pan-y;" in styles_source

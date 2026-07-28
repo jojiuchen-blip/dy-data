@@ -272,8 +272,8 @@ def test_design_system_records_copy_favicon_and_navigation_guardrails() -> None:
         assert "浏览器标签图标" in document
         assert "后端错误" in document
 
-    favicon_demo = html.split("BrowserFavicon / 浏览器标签图标", 1)[1].split(
-        "ContentPresenter / 用户可见值", 1
+    favicon_demo = html.split("浏览器标签图标（BrowserFavicon）", 1)[1].split(
+        "用户可见值（ContentPresenter）", 1
     )[0]
     assert 'data-brand-asset="browser-favicon"' in favicon_demo
     assert 'data-solar-icon="brand"' not in favicon_demo
@@ -372,7 +372,7 @@ def test_metric_cards_use_one_neutral_visual_treatment() -> None:
     assert "semantic" not in metric_card
 
     for document in [html, readme]:
-        assert "KPI 指标卡统一使用白底圆角矩形" in document
+        assert "关键指标卡统一使用白底圆角矩形" in document
         assert "不使用彩色顶线" in document
     assert 'class="metric-preview primary"' not in html
     assert 'class="metric-preview semantic"' not in html

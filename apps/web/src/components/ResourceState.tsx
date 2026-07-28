@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import type { ApiLoadResult } from "../api/client";
+import { userFacingError } from "../utils/userFacingError";
 
 interface ResourceNoticeProps {
   error?: string;
@@ -48,7 +49,7 @@ export function ResourceNotice({
     >
       {loading ? <span>正在加载最新数据...</span> : null}
       {fallbackReason ? <span>{fallbackReason}</span> : null}
-      {error ? <span>数据加载失败：{error}</span> : null}
+      {error ? <span>{userFacingError(error, "数据加载失败，请稍后重试。")}</span> : null}
     </div>
   );
 }

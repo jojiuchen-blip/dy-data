@@ -350,7 +350,7 @@ export function SalesDashboardPage({
               <div className="section-title chart-figure-runtime__head">
                 <div>
                   <span className="chart-figure-runtime__eyebrow">
-                    分析细读 · 周期分布
+                    运营快读 · 周期分布
                   </span>
                   <h2>{cycleFigureTitle(dashboard.cycle_rows)}</h2>
                   <p>每个点代表一笔真实订单 · 横向位置表示核销周期</p>

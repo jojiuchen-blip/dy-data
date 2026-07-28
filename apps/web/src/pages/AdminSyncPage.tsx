@@ -12,7 +12,7 @@ import { Button } from "../components/Button";
 import { AdminProductSyncPanel } from "../components/AdminProductSyncPanel";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import type {
   JobRun,
@@ -27,6 +27,7 @@ import {
   displaySyncPhaseName,
   displayWorkerMode,
 } from "../utils/userFacingLabels";
+import { userFacingError } from "../utils/userFacingError";
 
 const targetOptions: { value: ManualSyncTarget; label: string }[] = [
   { value: "all", label: "全部开放接口数据" },
@@ -384,7 +385,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         setAuthenticated(false);
         setStatusText("登录已过期，请重新输入管理密码。");
       } else {
-        setStatusText(error instanceof Error ? error.message : "数据维护执行失败，请稍后重试。");
+        setStatusText(userFacingError(error, "数据维护执行失败，请稍后重试。"));
       }
     } finally {
       setRebuildingClueCenter(false);
@@ -409,7 +410,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           </div>
           <label className="filter-field">
             <span>管理密码</span>
-            <input
+            <FieldInput
               autoFocus
               onChange={(event) => setPassword(event.target.value)}
               placeholder="请输入管理密码"
@@ -597,7 +598,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           <div className="sync-config-grid">
             <label className="filter-field checkbox-field">
               <span>自动同步</span>
-              <input
+              <FieldInput
                 checked={draft.auto_sync_enabled}
                 onChange={(event) =>
                   updateDraft({
@@ -609,7 +610,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </label>
             <label className="filter-field">
               <span>历史回填开始日期</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   updateDraft({ history_start: event.target.value })
                 }
@@ -619,7 +620,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </label>
             <label className="filter-field">
               <span>历史回填结束日期</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   updateDraft({ history_end: event.target.value })
                 }
@@ -629,7 +630,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </label>
             <label className="filter-field">
               <span>每个历史分片天数</span>
-              <input
+              <FieldInput
                 min="1"
                 max="31"
                 onChange={(event) =>
@@ -641,7 +642,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             </label>
             <label className="filter-field">
               <span>日常滚动刷新天数</span>
-              <input
+              <FieldInput
                 min="1"
                 max="180"
                 onChange={(event) =>
@@ -659,7 +660,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
             />
             <label className="filter-field checkbox-field">
               <span>历史回填断点续跑</span>
-              <input
+              <FieldInput
                 checked={draft.backfill_skip_completed}
                 onChange={(event) =>
                   updateDraft({
@@ -699,7 +700,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           />
           <label className="filter-field">
             <span>回看天数</span>
-            <input
+            <FieldInput
               min="1"
               max="180"
               onChange={(event) => setManualDays(event.target.value)}

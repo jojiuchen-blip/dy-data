@@ -1,0 +1,942 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>dy-data 图表库 — Glance 系 · 18 张参考实现</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="dydata-gallery-tokens.css?v=20260727-1" data-design-consultant-tokens>
+<script src="lieflat-theme.js?v=20260727-1" data-design-consultant-theme></script>
+<script src="runtime/chart.umd.min.js"></script>
+<script src="runtime/echarts.min.js"></script>
+<style>
+  :root{--bg:var(--viz-editorial-c-f0efeb);--dark:var(--viz-editorial-c-1c1c1a);--ink:var(--viz-editorial-c-1c1c1a);--muted:var(--viz-editorial-c-8f8e88);--faint:var(--viz-editorial-c-c6c5bf);--grid:var(--viz-editorial-c-deddd6)}
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);font-family:var(--font-sans);color:var(--ink);padding:40px;-webkit-font-smoothing:antialiased}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:22px;max-width:1400px;margin:0 auto}
+  .card{background:var(--bg);border-radius:24px;padding:28px 28px 20px}
+  .card.dark{background:var(--dark);color:var(--viz-editorial-c-f0efeb)}
+  .card.dark .sub{color:var(--viz-editorial-c-8f8e88)}
+  .card.dark .src{color:var(--viz-editorial-c-55554f)}
+  h2{font-weight:700;font-size:16.5px;letter-spacing:-.02em;margin-bottom:3px}
+  .sub{font-size:11.5px;color:var(--muted);margin-bottom:14px}
+  .src{font-size:9.5px;color:var(--faint);margin-top:10px;letter-spacing:.08em;font-weight:500}
+  .ch{height:320px}
+  .wrap{position:relative;height:320px}
+  svg text{font-family:var(--font-sans)}
+  .pop{transform-box:fill-box;transform-origin:center;animation:pop .5s cubic-bezier(.2,.7,.3,1.3) both}
+  @keyframes pop{from{transform:scale(0)}to{transform:none}}
+
+  .pagehead{max-width:1400px;margin:0 auto 26px;padding:0 4px}
+  .pagehead h1{font-size:22px;letter-spacing:-.02em;font-weight:800}
+  .pagehead p{font-size:12px;color:var(--viz-editorial-c-8f8e88);margin-top:5px;line-height:1.7}
+  .pagehead .badge{margin:0 2px}
+  .badge{display:inline-block;font-size:9px;font-weight:700;letter-spacing:.08em;
+    padding:3px 10px;border-radius:99px;margin-bottom:10px}
+  .badge.del{background:var(--viz-editorial-c-1c1c1a);color:var(--viz-editorial-c-f0efeb)}
+  .badge.pick{border:1.5px solid var(--viz-editorial-c-1c1c1a);color:var(--viz-editorial-c-1c1c1a)}
+  .badge.pair{border:1px dashed var(--viz-editorial-c-b0afa9);color:var(--viz-editorial-c-8f8e88)}
+  .card.dark .badge.del{background:var(--viz-editorial-c-f0efeb);color:var(--viz-editorial-c-1c1c1a)}
+  .card.dark .badge.pick{border-color:var(--viz-editorial-c-f0efeb);color:var(--viz-editorial-c-f0efeb)}
+  .card.dark .badge.pair{border-color:var(--viz-editorial-c-55554f);color:var(--viz-editorial-c-8f8e88)}
+</style>
+<style data-design-consultant-lieflat>
+  html{background:var(--bg) !important}
+  body{background:var(--bg) !important;color:var(--text) !important;font-family:var(--font-sans) !important}
+  h1,h2,h3,.pagehead h1{font-family:var(--font-display) !important;letter-spacing:0 !important}
+  svg text{font-family:var(--font-sans) !important}
+  .sub,.src{color:var(--text-muted) !important}
+  .card{border-radius:var(--radius-lg) !important;background:var(--bg) !important;color:var(--text) !important}
+  .card.dark{background:var(--surface-inverse) !important;color:var(--text-inverse) !important}
+  .card.dark .sub,.card.dark .src{color:color-mix(in srgb,var(--text-inverse) 62%,transparent) !important}
+  .badge{border-radius:var(--radius-xs) !important}
+  html[data-embedded="true"] .pagehead{display:none !important}
+  .hit:focus{outline:none !important;stroke:var(--primary) !important;stroke-width:2 !important;stroke-opacity:1 !important}
+  button:focus-visible,a:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--primary) !important;outline-offset:2px !important}
+  @media (max-width:900px){
+    body{padding:20px !important}
+    .grid2{grid-template-columns:minmax(0,1fr) !important;gap:18px !important;width:100% !important;min-width:0 !important}
+    .card.wide{grid-column:auto !important}
+    .card{padding:24px 20px 18px !important;min-width:0 !important;overflow-x:auto !important;overscroll-behavior-inline:contain;touch-action:pan-x pan-y pinch-zoom}
+    .split{grid-template-columns:minmax(0,1fr) !important;gap:18px !important;min-width:0 !important}
+    .card>svg{width:720px !important;max-width:none !important}
+    .ch,.wrap{width:720px !important;max-width:none !important;height:420px !important}
+    #ch{width:1140px !important;max-width:none !important;height:640px !important;min-height:640px !important}
+    canvas{max-width:none !important}
+    .pagehead{margin-bottom:18px !important}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation-duration:.01ms !important;animation-delay:0ms !important;transition-duration:.01ms !important}
+  }
+</style>
+</head>
+<body>
+<div class="pagehead">
+
+  <h1>Glance 系（快读）· 18 张参考实现</h1>
+  <p>粗笔画 · 提前聚合 · 3 秒读完。每张卡是一个图型的参考实现；代码在页内 <code>// ════ 图型名 ════</code> 注释块里，按 catalog.md 的卡内标题检索。</p>
+</div>
+<div class="grid2">
+
+  <!-- ══ mono-demo ══ -->
+  <div class="card">
+    <h2>每日活跃范围</h2>
+    <div class="sub">最低至最高并发用户数 · 2 月 1 日至 14 日</div>
+    <div class="wrap"><canvas id="c1"></canvas></div>
+    <div class="src">范围胶囊图 · 单色示例 · 实时运营</div>
+  </div>
+
+  <div class="card dark">
+    <h2>每次发布带来的团队感受</h2>
+    <div class="sub">复盘中标记的反馈 · 2026 年上半年</div>
+    <div class="ch" id="rose"></div>
+    <div class="src">花瓣玫瑰图 · 单色示例 · 团队复盘看板</div>
+  </div>
+
+  <div class="card">
+    <h2>各套餐收入</h2>
+    <div class="sub">2026 年第二季度 · 月度经常性收入，千美元</div>
+    <div class="wrap"><canvas id="c3"></canvas></div>
+    <div class="src">粗柱图 · 单色示例 · 账单</div>
+  </div>
+
+  <!-- ══ mono-redesign · dot waffle ══ -->
+  <div class="card">
+    <h2>新注册用户从哪里来</h2>
+    <div class="sub">2026 年第二季度 · 每个圆点代表新账户的 1%</div>
+    <svg id="waffle" viewBox="0 0 380 300" width="100%" style="max-height:320px"></svg>
+    <div class="src">改良环图 · 单色重设计 · 渠道归因</div>
+  </div>
+
+  <!-- ══ mono-fancy ══ -->
+  <div class="card">
+    <h2>逐年植树数量</h2>
+    <div class="sub">再造林计划 · 单位：千棵</div>
+    <div class="ch" id="forest"></div>
+    <div class="src">象形柱图 · 单色增强图 · 绿色运营</div>
+  </div>
+
+  <div class="card dark">
+    <h2>哪些团队彼此协作</h2>
+    <div class="sub">跨团队协作 · 2026 年第二季度 · 一条线代表一个共同项目</div>
+    <div class="ch" id="circular"></div>
+    <div class="src">环形关系图 · 单色增强图 · 项目库</div>
+  </div>
+
+  <div class="card">
+    <h2>平台交付的全部能力</h2>
+    <div class="sub">产品领域与能力 · 2026 年 6 月</div>
+    <div class="ch" id="tree"></div>
+    <div class="src">树图 · 单色增强图 · 产品目录</div>
+  </div>
+
+  <div class="card">
+    <h2>营销投入与注册增长同步变化</h2>
+    <div class="sub">每日广告投入（上方，千美元）与注册量（流线，百人）· 30 天</div>
+    <div class="ch" id="rainfall"></div>
+    <div class="src">双面积图 · 单色增强图 · 增长与广告</div>
+  </div>
+
+  <div class="card">
+    <h2>同一数据，三种视图</h2>
+    <div class="sub">观察同一组 12 项产品在视图间切换 · 每 3 秒一次</div>
+    <div class="ch" id="morph"></div>
+    <div class="src">散点变形图 · 单色增强图 · 用户群</div>
+  </div>
+
+  <!-- ══ mono-fancy2 ══ -->
+  <div class="card">
+    <h2>哪些客群增长，哪些客群流失</h2>
+    <div class="sub">各客群账户净变化 · 2026 年第二季度 · 左侧流失，右侧增长</div>
+    <div class="ch" id="negbar"></div>
+    <div class="src">发散条形图 · 单色增强图 · 客户关系管理</div>
+  </div>
+
+  <div class="card dark">
+    <h2>集成服务汇入同一轨道</h2>
+    <div class="sub">力导布局 · 节点大小表示每月同步次数 · 拖动节点可观察网络回弹</div>
+    <div class="ch" id="force"></div>
+    <div class="src">力导关系图 · 新版 · 集成中心</div>
+  </div>
+
+  <div class="card">
+    <h2>五十个市场，形成一股浪潮</h2>
+    <div class="sub">各市场注册量 · 条形依次进入 · 点击可重播</div>
+    <div class="ch" id="wave"></div>
+    <div class="src">错峰动画柱图 · 单色增强图 · 增长</div>
+  </div>
+
+  <!-- ══ mono-fancy3 ══ -->
+  <div class="card">
+    <h2>用户占比与参与深度</h2>
+    <div class="sub">角度表示用户占比 · 半径表示每日使用分钟数 · 虚线圈位于 15 / 30 / 45 分钟</div>
+    <div class="ch" id="custompie"></div>
+    <div class="src">定制饼图 · 单色增强图 · 产品分析</div>
+  </div>
+
+  <div class="card">
+    <h2>逐日支持负载</h2>
+    <div class="sub">每小时工单数 · 每一行使用独立坐标轴 · 圆点大小表示数量</div>
+    <div class="ch" id="singleaxis"></div>
+    <div class="src">单轴图 · 单色增强图 · 支持服务台</div>
+  </div>
+
+  <div class="card">
+    <h2>响应耗时分布</h2>
+    <div class="sub">每个圆点代表一张工单 · 抖动排列揭示数据堆积 · 按优先级分组</div>
+    <div class="ch" id="jitter"></div>
+    <div class="src">抖动带状图 · 单色增强图 · 支持服务台</div>
+  </div>
+
+  <!-- ══ mono-fancy4 ══ -->
+  <div class="card">
+    <h2>八项产品的收入竞速</h2>
+    <div class="sub">各产品月度经常性收入，千美元 · 2019 → 2026 · 领先者使用深色 · 点击可重播</div>
+    <div class="ch" id="race"></div>
+    <div class="src">条形竞速图 · 单色增强图 · 账单</div>
+  </div>
+
+  <div class="card">
+    <h2>并发用户实时流</h2>
+    <div class="sub">每 300 毫秒读取一个新值 · 展示最近 50 个值 · 点击可重新开始</div>
+    <div class="ch" id="stream"></div>
+    <div class="src">动态数据图 · 单色增强图 · 实时运营</div>
+  </div>
+
+  <div class="card">
+    <h2>上半年收入，一笔绘成</h2>
+    <div class="sub">累计年度经常性收入 · 折线绘制同时数值递增 · 点击可重播</div>
+    <div class="ch" id="stroke"></div>
+    <div class="src">绘入动画与计数器 · 单色增强图 · 财务</div>
+  </div>
+
+</div>
+<script>
+window.DC_LIEFLAT_THEME.installAdapters();const C=window.DC_LIEFLAT_COLORS;const FONT_FAMILY=getComputedStyle(document.documentElement).getPropertyValue("--font-sans").trim()||"sans-serif";const ACCENT=window.DC_LIEFLAT_THEME.accent;const ACCENT_ON_DARK=window.DC_LIEFLAT_THEME.accentOnDark;
+// ── shared Mono tokens ──
+const INK=C["1C1C1A"],PAPER=C["F0EFEB"],MUTED=C["8F8E88"],GRID=C["DEDDD6"];
+const L=[...window.DC_LIEFLAT_THEME.ladder];
+const LAD=[...window.DC_LIEFLAT_THEME.ladderCompact];
+const tipLight={backgroundColor:INK,borderWidth:0,textStyle:{color:PAPER,fontFamily:FONT_FAMILY,fontSize:12},padding:[10,14]};
+const tipDark={backgroundColor:PAPER,borderWidth:0,textStyle:{color:INK,fontFamily:FONT_FAMILY,fontSize:12},padding:[10,14]};
+const rnd=(i,k)=>((i*73856093)^(k*19349663))%1000/1000; // deterministic
+
+// ── unified reveal: every chart waits to be scrolled into view; click replays.
+//    fn charts manage their own timers via keep(); they're cleared on replay.
+const timers={};
+const obsReveal=(id,fn)=>{
+  const el=document.getElementById(id);
+  const go=()=>{(timers[id]||[]).forEach(clearInterval);timers[id]=[];fn(el)};
+  let revealed=false;
+  let hostWindow=window;try{if(self!==top){void parent.innerHeight;hostWindow=parent}}catch{}
+  const cleanup=()=>{io.disconnect();removeEventListener('scroll',check);removeEventListener('resize',check);hostWindow!==window&&hostWindow.removeEventListener('scroll',check)};
+  const reveal=()=>{if(revealed)return;revealed=true;cleanup();go()};
+  const check=()=>{const r=el.getBoundingClientRect(),f=hostWindow!==window?frameElement?.getBoundingClientRect():null;const y=f?f.top+r.top:r.top;if(y+r.height>0&&y<(hostWindow.innerHeight||innerHeight))reveal()};
+  const io=new IntersectionObserver(es=>{
+    if(es[0].isIntersecting)check()
+  },{threshold:.35});
+  io.observe(el);
+  addEventListener('scroll',check,{passive:true});
+  addEventListener('resize',check,{passive:true});
+  hostWindow!==window&&hostWindow.addEventListener('scroll',check,{passive:true});
+  requestAnimationFrame(check);
+  setTimeout(check,80);
+  el.style.cursor='pointer';
+  el.addEventListener('click',()=>revealed?go():reveal());
+};
+const keep=(id,t)=>{(timers[id]=timers[id]||[]).push(t)};
+const eReveal=(id,opt)=>obsReveal(id,el=>{
+  const g=echarts.getInstanceByDom(el)||echarts.init(el);
+  g.clear();g.setOption(opt);
+});
+const cjs={};
+const cReveal=(id,mkCfg)=>obsReveal(id,el=>{
+  cjs[id]?.destroy();
+  cjs[id]=new Chart(el,mkCfg());
+});
+
+Chart.defaults.color=MUTED;
+Chart.defaults.font.family=FONT_FAMILY;
+Chart.defaults.font.size=10.5;
+Chart.defaults.borderColor=GRID;
+Chart.defaults.plugins.legend.display=false;
+Chart.defaults.plugins.tooltip.backgroundColor=INK;
+Chart.defaults.plugins.tooltip.titleColor=C["F0EFEB"];
+Chart.defaults.plugins.tooltip.bodyColor=C["A5A49E"];
+Chart.defaults.plugins.tooltip.padding=12;
+Chart.defaults.plugins.tooltip.cornerRadius=12;
+Chart.defaults.plugins.tooltip.displayColors=false;
+
+// ════ mono-demo · 1: floating range capsules ════
+(()=>{
+const ranges=[[195,235],[165,192],[150,232],[73,168],[122,202],[182,192],[138,178],[162,227],[195,235],[228,305],[218,232],[165,232],[118,210],[195,232]];
+cReveal('c1',()=>({
+  type:'bar',
+  data:{labels:ranges.map((_,i)=>i+1),
+    datasets:[{data:ranges,backgroundColor:INK,borderRadius:99,borderSkipped:false,barPercentage:.32}]},
+  options:{
+    maintainAspectRatio:false,
+    animation:{duration:800,easing:'easeOutQuart',delay:c=>c.type==='data'?c.dataIndex*40:0},
+    plugins:{tooltip:{callbacks:{label:i=>i.raw[0]+'千 – '+i.raw[1]+'千用户'}}},
+    scales:{
+      x:{grid:{display:false},border:{display:false},
+         ticks:{padding:6,font:{size:9},callback:v=>[0,6,13].includes(v)?'2月'+(v+1)+'日':''}},
+      y:{min:50,max:320,grid:{display:false},border:{display:false},
+         ticks:{padding:8,maxTicksLimit:6,callback:v=>v+'K',font:{size:9.5}}},
+    },
+  },
+}));
+})();
+
+// ════ mono-demo · 2: petal rose on dark ════
+(()=>{
+const EMO=[
+  ['幸福',12],['敬畏',10],['赞赏',5],['惊喜',12],
+  ['难过',6],['担忧',4],['不满',2],['期待',5],
+];
+const MAXV=12;
+const petal=v=>{const t=v/MAXV;return t>.8?C["F2F1ED"]:t>.6?C["E4E3DD"]:t>.35?C["C9C8C1"]:C["A8A7A0"]};
+eReveal('rose',{
+  animationDuration:1100,animationEasing:'quarticOut',
+  tooltip:{...tipDark,formatter:p=>p.name+' — '+EMO[p.dataIndex][1]},
+  series:[
+    {type:'pie',silent:false,radius:['14%','92%'],center:['50%','50%'],
+     itemStyle:{color:C["32312D"],borderRadius:16,borderColor:C["1C1C1A"],borderWidth:5},
+     label:{show:false},emphasis:{scale:false},
+     data:EMO.map(([n])=>({name:n,value:1})),z:1},
+    {type:'pie',silent:true,radius:['14%','92%'],center:['50%','50%'],
+     itemStyle:{color:'transparent'},label:{position:'inside'},
+     data:EMO.map(([n,v])=>({name:n,value:1,
+       label:{formatter:`{n|${v}}\n{l|${n}}`,rich:{
+         n:{fontSize:17,fontWeight:700,fontFamily:FONT_FAMILY,lineHeight:20,color:v>=8?C["1C1C1A"]:C["C8C7C1"]},
+         l:{fontSize:9.5,fontFamily:FONT_FAMILY,color:v>=8?C["55554F"]:C["8F8E88"]},
+       }}})),z:3},
+    {type:'pie',roseType:'area',silent:true,radius:['14%','88%'],center:['50%','50%'],
+     itemStyle:{borderRadius:14,borderColor:C["1C1C1A"],borderWidth:5},label:{show:false},
+     data:EMO.map(([n,v])=>({name:n,value:v,itemStyle:{color:petal(v)}})),z:2},
+  ],
+});
+})();
+
+// ════ mono-demo · 3: chunky bars, values on top ════
+(()=>{
+cReveal('c3',()=>({
+  type:'bar',
+  data:{labels:['入门版','专业版','团队版','企业版'],
+    datasets:[{data:[182,486,391,274],
+      backgroundColor:[C["C6C5BF"],INK,C["8F8E88"],C["B0AFA9"]],
+      borderRadius:{topLeft:99,topRight:99},borderSkipped:false,barPercentage:.52}]},
+  options:{
+    maintainAspectRatio:false,
+    animation:{duration:900,easing:'easeOutQuart',delay:c=>c.type==='data'?c.dataIndex*110:0},
+    plugins:{tooltip:{callbacks:{label:i=>'$'+i.raw+' 千月度经常性收入'}}},
+    scales:{
+      x:{grid:{display:false},border:{display:false},ticks:{padding:8,font:{size:9,weight:600}}},
+      y:{display:false,suggestedMax:540},
+    },
+  },
+  plugins:[{
+    id:'topValues',
+    afterDatasetsDraw(chart){
+      const {ctx}=chart;
+      chart.getDatasetMeta(0).data.forEach((bar,i)=>{
+        ctx.save();ctx.font=`700 13px ${FONT_FAMILY}`;ctx.fillStyle=INK;ctx.textAlign='center';
+        ctx.fillText('$'+chart.data.datasets[0].data[i]+'K',bar.x,bar.y-10);ctx.restore();
+      });
+    },
+  }],
+}));
+})();
+
+// ════ mono-redesign · donut → waffle of dots ════
+(()=>{
+const NS='http://www.w3.org/2000/svg';
+const mkEl=(svg,t,a)=>{const n=document.createElementNS(NS,t);for(const k in a)n.setAttribute(k,a[k]);svg.appendChild(n);return n};
+const D=[['搜索',34],['推荐',27],['社交',18],['合作方',12],['付费投放',9]];
+obsReveal('waffle',s=>{
+  s.innerHTML='';
+  const COLS=10,CELL=21,R=7.5,X0=8,Y0=10;
+  let idx=0;
+  D.forEach(([name,v],g)=>{
+    for(let k=0;k<v;k++){
+      const c=idx+k,row=Math.floor(c/COLS),col=c%COLS;
+      mkEl(s,'circle',{cx:X0+col*CELL+R,cy:Y0+row*CELL+R,r:R,fill:LAD[g],
+        class:'pop',style:`animation-delay:${c*.008+g*.05}s`});
+    }
+    idx+=v;
+  });
+  D.forEach(([name,v],g)=>{
+    const y=26+g*40;
+    mkEl(s,'circle',{cx:246,cy:y,r:6,fill:LAD[g]});
+    const n=mkEl(s,'text',{x:260,y:y-1,'font-size':10.5,'font-weight':600,fill:INK});
+    n.textContent=name;
+    const val=mkEl(s,'text',{x:260,y:y+13,'font-size':15,'font-weight':800,fill:g<2?INK:C["8F8E88"]});
+    val.textContent=v+'%';
+  });
+});
+})();
+
+// ════ mono-fancy · 1: pictorial bar forest ════
+(()=>{
+const TREE='path://M20,0 L38,28 L29,28 L40,46 L26,46 L26,58 L14,58 L14,46 L0,46 L11,28 L2,28 Z';
+const years=['2022','2023','2024','2025','2026'];
+const vals=[26,41,63,88,117];
+eReveal('forest',{
+  animationDuration:900,animationEasing:'quarticOut',animationDelay:i=>i*120,
+  tooltip:{...tipLight,formatter:p=>p.name+' — '+vals[p.dataIndex]+'千棵'},
+  grid:{left:44,right:56,top:10,bottom:8},
+  yAxis:{type:'category',data:years,inverse:true,
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:10.5,fontWeight:700}},
+  xAxis:{show:false,max:13},
+  series:[{
+    type:'pictorialBar',symbol:TREE,
+    symbolRepeat:true,symbolSize:[17,24],symbolMargin:3,symbolClip:true,
+    data:vals.map((v,i)=>({name:years[i],value:v/10,itemStyle:{color:L[Math.max(0,4-i)]}})),
+    label:{show:true,position:'right',offset:[8,0],
+      color:INK,fontFamily:FONT_FAMILY,fontSize:12,fontWeight:700,
+      formatter:p=>vals[p.dataIndex]+'千'},
+    z:10,
+  },{
+    type:'pictorialBar',symbol:TREE,
+    symbolRepeat:'fixed',symbolSize:[17,24],symbolMargin:3,symbolClip:true,
+    itemStyle:{color:C["DEDDD6"]},data:years.map(()=>13),silent:true,z:5,
+  }],
+});
+})();
+
+// ════ mono-fancy · 2: circular graph on dark ════
+(()=>{
+const teams=[
+  ['产品',52],['设计',38],['前端',46],['后端',44],
+  ['数据',30],['增长',34],['支持',22],['运营',18],['法务',9],['财务',12],
+];
+const links=[
+  [0,1,9],[0,2,8],[0,3,7],[1,2,9],[2,3,6],[3,4,7],[0,5,6],[5,4,5],
+  [5,6,4],[6,2,3],[7,3,4],[7,9,3],[8,9,2],[0,8,2],[4,2,4],[1,5,3],
+];
+eReveal('circular',{
+  animationDuration:1200,animationEasing:'quarticOut',
+  tooltip:tipDark,
+  series:[{
+    type:'graph',layout:'circular',circular:{rotateLabel:false},
+    left:52,right:52,top:34,bottom:34,
+    data:teams.map(([n,v],i)=>({
+      name:n,value:v,symbolSize:v*.62,
+      itemStyle:{color:i<4?PAPER:i<8?C["8F8E88"]:C["4A4944"],borderWidth:0},
+      label:{show:true,position:'right',distance:7,color:C["B3B0A4"],fontFamily:FONT_FAMILY,fontSize:9.5,fontWeight:600},
+    })),
+    links:links.map(([s,t,w])=>({
+      source:s,target:t,
+      lineStyle:{width:w*.7,color:C["4A4840"],opacity:.55,curveness:.28},
+    })),
+    emphasis:{focus:'adjacency',lineStyle:{color:PAPER,opacity:.8}},
+  }],
+});
+})();
+
+// ════ mono-fancy · 3: LR tree ════
+(()=>{
+const b=(name,kids,shade)=>({name,itemStyle:{color:shade},lineStyle:{color:shade},
+  children:kids.map(k=>({name:k,itemStyle:{color:shade},lineStyle:{color:shade}}))});
+eReveal('tree',{
+  animationDuration:1100,animationEasing:'quarticOut',
+  tooltip:tipLight,
+  series:[{
+    type:'tree',layout:'orthogonal',orient:'LR',
+    left:64,right:96,top:8,bottom:8,
+    symbol:'circle',symbolSize:7,
+    initialTreeDepth:2,expandAndCollapse:false,roam:false,
+    itemStyle:{borderWidth:0},
+    lineStyle:{width:1.4,curveness:.5},
+    label:{fontFamily:FONT_FAMILY,fontSize:10,fontWeight:600,color:C["6A6963"],position:'left'},
+    leaves:{label:{position:'right',color:MUTED,fontWeight:500}},
+    data:[{
+      name:'平台',itemStyle:{color:INK},lineStyle:{color:C["C6C5BF"]},
+      label:{fontSize:11.5,color:INK},
+      children:[
+        b('编辑器',['内容块','表格','评论','历史记录'],L[0]),
+        b('自动化',['工作流','触发器','网络钩子'],L[2]),
+        b('协作',['空间','访客','提及'],L[3]),
+        b('集成',['API','Slack','GitHub'],L[4]),
+      ],
+    }],
+  }],
+});
+})();
+
+// ════ mono-fancy · 4: rainfall dual area ════
+(()=>{
+const days=Array.from({length:30},(_,i)=>i+1);
+const flow=[42,45,44,48,52,55,53,58,64,62,66,71,69,75,82,79,84,80,86,92,88,95,91,97,104,101,108,105,112,118];
+const rain=[2,0,4,8,3,0,6,12,7,3,9,15,6,2,11,5,8,14,4,9,6,13,3,7,10,5,12,8,15,6];
+eReveal('rainfall',{
+  animationDuration:1200,animationEasing:'quarticOut',
+  tooltip:{...tipLight,trigger:'axis',
+    formatter:p=>`第 ${p[0].axisValue} 天 — 投入 $${rain[p[0].dataIndex]} 千 · ${p[0].value} 次注册`},
+  axisPointer:{link:[{xAxisIndex:'all'}],lineStyle:{color:C["B0AFA9"]}},
+  grid:[
+    {left:44,right:14,top:8,height:'26%'},
+    {left:44,right:14,top:'42%',bottom:26},
+  ],
+  xAxis:[
+    {gridIndex:0,type:'category',data:days,axisLine:{show:false},axisTick:{show:false},axisLabel:{show:false},position:'bottom'},
+    {gridIndex:1,type:'category',data:days,axisLine:{show:false},axisTick:{show:false},
+     axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9.5,interval:6,formatter:v=>'第'+v+'天'}},
+  ],
+  yAxis:[
+    {gridIndex:0,inverse:true,max:18,splitLine:{show:false},
+     axisLabel:{color:C["B0AFA9"],fontFamily:FONT_FAMILY,fontSize:9,formatter:'${value}K'},
+     axisLine:{show:false},axisTick:{show:false}},
+    {gridIndex:1,splitLine:{lineStyle:{color:C["DEDDD6"]}},
+     axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9.5},
+     axisLine:{show:false},axisTick:{show:false}},
+  ],
+  series:[
+    {name:'投入',type:'bar',xAxisIndex:0,yAxisIndex:0,data:rain,
+     itemStyle:{color:C["B0AFA9"],borderRadius:[0,0,4,4]},barWidth:'55%'},
+    {name:'注册量',type:'line',xAxisIndex:1,yAxisIndex:1,data:flow,
+     smooth:.4,symbol:'none',lineStyle:{color:INK,width:2.2},
+     areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,
+       colorStops:[{offset:0,color:'rgba(28,28,26,.22)'},{offset:1,color:'rgba(28,28,26,0)'}]}}},
+  ],
+});
+})();
+
+// ════ mono-fancy · 5: universal transition morph ════
+(()=>{
+const P12=[
+  ['编辑器',12,9.1,486],['看板',18,8.4,391],['表单',9,8.8,274],
+  ['文档',15,8.0,318],['聊天',7,7.2,182],['资料库',24,7.8,226],
+  ['流程',21,8.6,352],['视图',11,7.5,198],['同步',16,6.9,141],
+  ['页面',8,8.2,243],['网格',19,7.1,167],['中心',13,6.6,118],
+];
+const shade=i=>L[Math.min(5,Math.floor(i/2))];
+const axis={splitLine:{lineStyle:{color:C["DEDDD6"]}},axisLine:{show:false},axisTick:{show:false},
+  axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9.5}};
+const VIEWS=[
+  {opt:{
+    grid:{left:38,right:16,top:30,bottom:30},
+    xAxis:{...axis,type:'value',min:5,max:26,name:'价格（美元）',nameTextStyle:{color:C["C6C5BF"],fontSize:8.5}},
+    yAxis:{...axis,type:'value',min:6,max:9.6,name:'满意度',nameTextStyle:{color:C["C6C5BF"],fontSize:8.5}},
+    series:[{
+      id:'p',type:'scatter',universalTransition:true,
+      symbolSize:d=>Math.sqrt(d[3])*1.35,
+      data:P12.map((d,i)=>({name:d[0],value:[d[1],d[2],d[0],d[3]],
+        groupId:d[0],itemStyle:{color:shade(i)}})),
+      label:{show:true,position:'top',color:MUTED,fontFamily:FONT_FAMILY,fontSize:8.5,
+        formatter:p=>p.name},
+    }],
+  }},
+  {opt:{
+    grid:{left:38,right:16,top:30,bottom:44},
+    xAxis:{...axis,type:'category',
+      data:[...P12].sort((a,b)=>b[3]-a[3]).map(d=>d[0]),
+      axisLabel:{...axis.axisLabel,rotate:38,fontSize:8.5}},
+    yAxis:{...axis,type:'value',max:520},
+    series:[{
+      id:'p',type:'bar',universalTransition:true,
+      data:[...P12].sort((a,b)=>b[3]-a[3]).map((d,i)=>({name:d[0],value:d[3],
+        groupId:d[0],itemStyle:{color:shade(i),borderRadius:[6,6,0,0]}})),
+      barCategoryGap:'32%',
+    }],
+  }},
+  {opt:{
+    grid:{left:0,right:0,top:0,bottom:0},
+    xAxis:{show:false,type:'value'},yAxis:{show:false,type:'value'},
+    series:[{
+      id:'p',type:'pie',universalTransition:true,
+      radius:['26%','72%'],center:['50%','50%'],
+      itemStyle:{borderColor:C["F0EFEB"],borderWidth:2,borderRadius:6},
+      label:{color:C["6A6963"],fontFamily:FONT_FAMILY,fontSize:9,formatter:'{b}'},
+      labelLine:{lineStyle:{color:C["C6C5BF"]}},
+      data:[...P12].sort((a,b)=>b[3]-a[3]).map((d,i)=>({name:d[0],value:d[3],
+        groupId:d[0],itemStyle:{color:shade(i)}})),
+    }],
+  }},
+];
+const base={animationDurationUpdate:1100,animationEasingUpdate:'cubicInOut',tooltip:{...tipLight}};
+obsReveal('morph',el=>{
+  const g=echarts.getInstanceByDom(el)||echarts.init(el);
+  g.clear();
+  let vi=0;
+  g.setOption({...base,...VIEWS[0].opt});
+  keep('morph',setInterval(()=>{
+    vi=(vi+1)%VIEWS.length;
+    g.setOption({...base,...VIEWS[vi].opt},{replaceMerge:['xAxis','yAxis','series']});
+  },3000));
+});
+})();
+
+// ════ mono-fancy2 · 2: diverging bar ════
+(()=>{
+const D=[
+  ['企业版',86],['团队版',54],['专业版',31],['入门版',12],
+  ['旧基础版',-18],['试用到期',-42],['免费沉默用户',-67],
+];
+eReveal('negbar',{
+  animationDuration:900,animationEasing:'quarticOut',animationDelay:i=>i*80,
+  tooltip:{...tipLight,formatter:p=>p.name+' — '+(p.value>0?'+':'')+p.value+' 个账户'},
+  grid:{left:96,right:52,top:8,bottom:8},
+  xAxis:{type:'value',
+    splitLine:{lineStyle:{color:C["DEDDD6"]}},
+    axisLine:{show:false},axisTick:{show:false},axisLabel:{show:false}},
+  yAxis:{type:'category',data:D.map(d=>d[0]),inverse:true,
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{color:C["6A6963"],fontFamily:FONT_FAMILY,fontSize:9.5,fontWeight:600}},
+  series:[{
+    type:'bar',barWidth:16,
+    data:D.map(([n,v])=>({name:n,value:v,
+      itemStyle:{color:v>0?INK:C["B0AFA9"],
+        borderRadius:v>0?[0,9,9,0]:[9,0,0,9]}})),
+    label:{show:true,fontFamily:FONT_FAMILY,fontSize:11,fontWeight:700,
+      position:'outside',
+      formatter:p=>(p.value>0?'+':'')+p.value,color:INK},
+    markLine:{symbol:'none',silent:true,label:{show:false},
+      lineStyle:{color:C["8F8E88"],width:1.5},
+      data:[{xAxis:0}]},
+  }],
+});
+})();
+
+// ════ force graph on dark: the network shakes itself into place ════
+// (replaced the axis-break bar — bars must never lie about length; house rule)
+(()=>{
+const hubs=[['核心接口',52,0]];
+const apps=[
+  ['Slack',34,1],['GitHub',30,1],['Figma',22,1],['Notion',26,1],
+  ['Linear',18,1],['Drive',16,1],['Zoom',10,2],['Jira',14,2],
+  ['Sheets',12,2],['Intercom',8,2],['Stripe',20,1],['Segment',9,2],
+];
+const nodes=[...hubs,...apps];
+const links=[
+  ...apps.map((a,i)=>({source:a[0],target:'核心接口',
+    lineStyle:{width:Math.max(.8,a[1]*.09),color:C["4A4840"],opacity:.6}})),
+  // a few app-to-app side roads
+  {source:'Slack',target:'GitHub',lineStyle:{width:1.2,color:C["3A3934"],opacity:.5}},
+  {source:'GitHub',target:'Linear',lineStyle:{width:1.2,color:C["3A3934"],opacity:.5}},
+  {source:'Figma',target:'Notion',lineStyle:{width:1,color:C["3A3934"],opacity:.5}},
+  {source:'Stripe',target:'Sheets',lineStyle:{width:1,color:C["3A3934"],opacity:.5}},
+];
+eReveal('force',{
+  animationDuration:1200,animationEasing:'quarticOut',
+  tooltip:{...tipDark,formatter:p=>p.dataType==='node'?p.name+' — '+p.value+' 千次同步/月':''},
+  series:[{
+    type:'graph',layout:'force',
+    force:{repulsion:220,edgeLength:[36,110],gravity:.12,friction:.18},
+    roam:false,draggable:true,
+    left:14,right:14,top:14,bottom:14,
+    data:nodes.map(([n,v,tier])=>({
+      name:n,value:v,symbolSize:8+v*.75,
+      itemStyle:{color:tier===0?PAPER:tier===1?C["B3B0A4"]:C["6A6963"]},
+      label:{show:true,position:'right',distance:6,
+        color:tier===0?PAPER:C["8F8E88"],fontFamily:FONT_FAMILY,
+        fontSize:tier===0?10.5:9,fontWeight:tier===0?800:600},
+    })),
+    links,
+    emphasis:{focus:'adjacency',lineStyle:{color:PAPER,opacity:.85}},
+  }],
+});
+})();
+
+// ════ mono-fancy2 · 4: stagger wave ════
+(()=>{
+const n=50;
+const vals=Array.from({length:n},(_,i)=>
+  Math.round(30+55*Math.sin(i/7.5)+18*Math.sin(i/2.6)+(i%5)*3+28));
+eReveal('wave',{
+  tooltip:{...tipLight,formatter:p=>'市场 '+(p.dataIndex+1)+' — '+p.value},
+  grid:{left:36,right:10,top:14,bottom:24},
+  xAxis:{type:'category',data:vals.map((_,i)=>i+1),
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9,interval:9}},
+  yAxis:{type:'value',
+    splitLine:{lineStyle:{color:C["DEDDD6"]}},
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9.5}},
+  series:[{
+    type:'bar',barCategoryGap:'26%',
+    data:vals.map((v,i)=>({value:v,
+      itemStyle:{color:L[Math.min(5,Math.floor((120-v)/16))],borderRadius:[4,4,0,0]}})),
+    animationDelay:i=>i*36,
+    animationDuration:640,animationEasing:'elasticOut',
+  }],
+  animationDurationUpdate:640,
+  animationDelayUpdate:i=>i*36,
+});
+})();
+
+// ════ mono-fancy3 · 1: custom double-encoded pie ════
+(()=>{
+const D=[
+  ['编辑器',34,42],['看板',22,31],['文档',18,38],
+  ['聊天',12,11],['自动化',8,24],['其他',6,7],
+];
+const SCALE=45;
+const TAU=Math.PI*2;
+const byShare=[...D].sort((a,b)=>b[1]-a[1]);
+const minsDesc=D.map(d=>d[2]).sort((a,b)=>b-a);
+let acc=0;
+const slices=byShare.map(([n,share,mins])=>{
+  const p0=-Math.PI/2+acc/100*TAU, p1=-Math.PI/2+(acc+share)/100*TAU;
+  acc+=share;
+  return {n,share,mins,p0,p1,color:L[minsDesc.indexOf(mins)]};
+});
+eReveal('custompie',{
+  animationDuration:900,animationEasing:'cubicOut',animationDelay:i=>i*130,
+  tooltip:{...tipLight,formatter:p=>{
+    const s=slices[p.dataIndex];
+    return s.n+' — '+s.share+'% 用户 · '+s.mins+' 分钟/天';
+  }},
+  xAxis:{show:false,min:-1,max:1},
+  yAxis:{show:false,min:-1,max:1},
+  grid:{left:0,right:0,top:0,bottom:0},
+  series:[{
+    type:'custom',
+    renderItem:(params,api)=>{
+      const s=slices[params.dataIndex];
+      const cx=api.getWidth()/2, cy=api.getHeight()/2+6;
+      const R=Math.min(api.getWidth(),api.getHeight())*.37;
+      const r0=R*.24;
+      const rOf=m=>r0+(R-r0)*m/SCALE;
+      const pm=(s.p0+s.p1)/2, lr=R+14;
+      const cos=Math.cos(pm);
+      const kids=[];
+      if(params.dataIndex===0){
+        [15,30,45].forEach(m=>kids.push({type:'circle',
+          shape:{cx,cy,r:rOf(m)},
+          style:{fill:'none',stroke:C["D8D6CE"],lineWidth:1,lineDash:[3,4]}}));
+      }
+      kids.push({type:'sector',
+        shape:{cx,cy,r0,r:rOf(s.mins),startAngle:s.p0,endAngle:s.p1,clockwise:true,cornerRadius:5},
+        style:{fill:s.color,stroke:PAPER,lineWidth:3},
+        enterFrom:{shape:{r:r0}}});
+      kids.push({type:'text',style:{
+        x:cx+cos*lr, y:cy+Math.sin(pm)*lr,
+        text:s.n+'  '+s.share+'% · '+s.mins+'分钟',
+        font:`600 10px ${FONT_FAMILY}`,fill:C["55544E"],
+        align:Math.abs(cos)<.25?'center':(cos>0?'left':'right'),
+        verticalAlign:'middle'},
+        enterFrom:{style:{opacity:0}}});
+      return {type:'group',children:kids};
+    },
+    data:slices.map(s=>s.share),
+  }],
+});
+})();
+
+// ════ mono-fancy3 · 3: single-axis small multiples ════
+(()=>{
+const days=['周一','周二','周三','周四','周五','周六','周日'];
+const hours=Array.from({length:24},(_,i)=>i);
+const mkRow=di=>hours.map(h=>{
+  const workday=di<5, core=h>=9&&h<=17;
+  let v=Math.round((workday&&core?6+5*Math.sin((h-9)/8*Math.PI):0)+((h+di)%5===0?2:0)+(h>=22||h<=5?0:1));
+  return [h,v];
+}).filter(d=>d[1]>0);
+eReveal('singleaxis',{
+  animationDuration:500,animationEasing:'backOut',
+  tooltip:{...tipLight,formatter:p=>days[p.seriesIndex]+' '+String(p.value[0]).padStart(2,'0')+':00 — '+p.value[1]+' 张工单'},
+  title:days.map((d,i)=>({
+    text:d,textBaseline:'middle',top:(i+.5)*100/7-1+'%',left:0,
+    textStyle:{fontSize:9,fontWeight:700,fontFamily:FONT_FAMILY,color:MUTED},
+  })),
+  singleAxis:days.map((d,i)=>({
+    left:52,right:14,type:'category',boundaryGap:false,
+    data:hours.map(h=>String(h).padStart(2,'0')),
+    top:i*100/7+6+'%',height:100/7-8+'%',
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{show:i===6,color:MUTED,fontFamily:FONT_FAMILY,fontSize:8.5,interval:3},
+    splitLine:{show:false},
+  })),
+  series:days.map((d,i)=>({
+    singleAxisIndex:i,coordinateSystem:'singleAxis',
+    type:'scatter',
+    data:mkRow(i),
+    symbolSize:dd=>dd[1]*2.6,
+    itemStyle:{color:i<5?L[Math.min(4,i)]:C["C6C5BF"]},
+    animationDelay:di=>i*160+di*14,
+  })),
+});
+})();
+
+// ════ mono-fancy3 · 4: jitter strip ════
+(()=>{
+const cats=['P0 紧急','P1 高','P2 普通','P3 低'];
+const mkPts=(ci,n,median,spread,outliers)=>{
+  const pts=[];
+  for(let i=0;i<n;i++){
+    const u=rnd(i+1,ci+1), v=rnd(i+7,ci+3);
+    let x=median+ (u-.5)*spread*2 + (v>.5?u*spread*.6:0);
+    if(i<outliers) x=median+spread*2.2+u*spread*3;
+    const jy=ci+ (rnd(i+13,ci+5)-.5)*.58;
+    pts.push([Math.max(.2,x),jy]);
+  }
+  return pts;
+};
+const groups=[
+  mkPts(0,38,.8,.5,2),
+  mkPts(1,64,2.4,1.1,3),
+  mkPts(2,110,6.5,2.4,4),
+  mkPts(3,72,14,4.5,3),
+];
+const flat=groups.flat();
+eReveal('jitter',{
+  animationDuration:450,animationEasing:'cubicOut',
+  animationDelay:i=>i<flat.length?Math.round(flat[i][1])*260+(i%37)*9:0,
+  tooltip:{...tipLight,formatter:p=>cats[Math.round(p.value[1])]+' — '+p.value[0].toFixed(1)+' 小时解决'},
+  grid:{left:86,right:16,top:14,bottom:30},
+  xAxis:{type:'value',name:'解决耗时（小时）',nameTextStyle:{color:C["C6C5BF"],fontSize:8.5},
+    splitLine:{lineStyle:{color:C["DEDDD6"]}},
+    axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{color:MUTED,fontFamily:FONT_FAMILY,fontSize:9.5,formatter:v=>v+'小时'}},
+  yAxis:{type:'value',min:-.6,max:3.6,inverse:true,
+    splitLine:{show:false},axisLine:{show:false},axisTick:{show:false},
+    axisLabel:{show:false}},
+  series:[{
+    type:'scatter',
+    data:flat,
+    symbolSize:7,
+    itemStyle:{color:p=>L[Math.round(p.value[1])],opacity:.62},
+  },{
+    type:'scatter',silent:true,symbolSize:0,
+    data:cats.map((c,i)=>({value:[0,i],label:{show:true,position:'left',offset:[-6,0],
+      color:C["6A6963"],fontFamily:FONT_FAMILY,fontSize:9,fontWeight:700,formatter:c}})),
+  }],
+});
+})();
+
+// ════ mono-fancy4 · 1: bar race ════
+(()=>{
+const P=['编辑器','看板','文档','聊天','流程','资料库','页面','同步'];
+const YEARS=[2019,2020,2021,2022,2023,2024,2025,2026];
+const vals=[P.map((_,i)=>[42,38,30,26,18,14,10,8][i])];
+for(let y=1;y<YEARS.length;y++)
+  vals.push(vals[y-1].map((v,i)=>v*(1.04+rnd(i+1,y+1)*.5)));
+obsReveal('race',el=>{
+  const g=echarts.getInstanceByDom(el)||echarts.init(el);
+  g.clear();
+  let step=0;
+  const frame=()=>{
+    const row=vals[step];
+    const rank=[...row].map((v,i)=>[v,i]).sort((a,b)=>b[0]-a[0]).map(d=>d[1]);
+    g.setOption({
+      animationDuration:0,animationDurationUpdate:950,animationEasingUpdate:'linear',
+      tooltip:{...tipLight,valueFormatter:v=>'$'+Math.round(v)+'K'},
+      grid:{left:64,right:64,top:8,bottom:8},
+      xAxis:{type:'value',max:'dataMax',
+        splitLine:{show:false},axisLine:{show:false},axisTick:{show:false},axisLabel:{show:false}},
+      yAxis:{type:'category',data:P,inverse:true,max:7,
+        animationDuration:300,animationDurationUpdate:300,
+        axisLine:{show:false},axisTick:{show:false},
+        axisLabel:{color:C["6A6963"],fontFamily:FONT_FAMILY,fontSize:9.5,fontWeight:600}},
+      series:[{
+        type:'bar',realtimeSort:true,barCategoryGap:'32%',
+        data:row.map((v,i)=>({value:v,
+          itemStyle:{color:L[Math.min(5,rank.indexOf(i))],borderRadius:99}})),
+        label:{show:true,position:'right',valueAnimation:true,
+          fontFamily:FONT_FAMILY,fontSize:12,fontWeight:800,color:INK,
+          formatter:p=>'$'+Math.round(p.value)+'K'},
+      }],
+      graphic:[{id:'yr',type:'text',right:18,bottom:14,
+        style:{text:YEARS[step],font:`800 44px ${FONT_FAMILY}`,fill:C["DEDDD6"]}}],
+    });
+    step=(step+1)%YEARS.length;
+  };
+  frame();
+  keep('race',setInterval(frame,1150));
+});
+})();
+
+// ════ mono-fancy4 · 2: dynamic data stream ════
+(()=>{
+const WIN=50;
+obsReveal('stream',el=>{
+  const g=echarts.getInstanceByDom(el)||echarts.init(el);
+  g.clear();
+  let t=0,v=64;
+  const data=[];
+  for(;t<WIN;t++){v=Math.max(30,v+(rnd(t+1,7)-.48)*9);data.push(Math.round(v))}
+  const draw=()=>g.setOption({
+    animation:true,animationDuration:0,animationDurationUpdate:260,animationEasingUpdate:'linear',
+    tooltip:{...tipLight,valueFormatter:x=>x+'千用户'},
+    grid:{left:14,right:58,top:44,bottom:20},
+    xAxis:{type:'category',data:data.map((_,i)=>t-WIN+i),boundaryGap:false,
+      axisLine:{show:false},axisTick:{show:false},axisLabel:{show:false},splitLine:{show:false}},
+    yAxis:{show:false,min:20,max:130},
+    series:[{
+      type:'line',data:[...data],smooth:.45,symbol:'none',
+      lineStyle:{color:INK,width:2.4},
+      endLabel:{show:true,fontFamily:FONT_FAMILY,fontSize:14,fontWeight:800,color:INK,
+        formatter:p=>p.value+'千'},
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,
+        colorStops:[{offset:0,color:'rgba(28,28,26,.16)'},{offset:1,color:'rgba(28,28,26,0)'}]}},
+    }],
+    graphic:[{type:'group',left:16,top:10,children:[
+      {type:'circle',shape:{cx:5,cy:5,r:4},style:{fill:C["4A4944"]}},
+      {type:'text',style:{text:'实时',x:16,y:0,font:`800 11px ${FONT_FAMILY}`,fill:INK}},
+    ]}],
+  });
+  draw();
+  keep('stream',setInterval(()=>{
+    v=Math.max(30,Math.min(125,v+(rnd(t+1,7)-.48)*9));
+    data.push(Math.round(v));data.shift();t++;
+    draw();
+  },300));
+});
+})();
+
+// ════ mono-fancy4 · 3: draw-in + counter ════
+(()=>{
+const days=Array.from({length:180},(_,i)=>i);
+const daily=days.map(i=>14+10*Math.sin(i/29)+i*.12+rnd(i+1,3)*6);
+const cum=[];daily.reduce((a,b,i)=>(cum[i]=a+b,cum[i]),0);
+const TOTAL=cum[cum.length-1];
+const DUR=2600;
+let gen=0; // replay guard: only the latest counter loop may write
+obsReveal('stroke',el=>{
+  const g=echarts.getInstanceByDom(el)||echarts.init(el);
+  g.clear();
+  gen++;const my=gen;
+  g.setOption({
+    animationDuration:DUR,animationEasing:'cubicOut',
+    tooltip:{show:false},
+    grid:{left:14,right:20,top:64,bottom:24},
+    xAxis:{type:'category',data:days,boundaryGap:false,
+      axisLine:{show:false},axisTick:{show:false},splitLine:{show:false},
+      axisLabel:{color:C["C6C5BF"],fontFamily:FONT_FAMILY,fontSize:9,fontWeight:600,
+        interval:29,formatter:i=>['1月','2月','3月','4月','5月','6月'][Math.floor(i/30)]||''}},
+    yAxis:{show:false,max:TOTAL*1.06},
+    series:[{
+      type:'line',data:cum.map(x=>Math.round(x)),smooth:.2,symbol:'none',
+      lineStyle:{color:INK,width:2.6},
+      areaStyle:{color:{type:'linear',x:0,y:0,x2:0,y2:1,
+        colorStops:[{offset:0,color:'rgba(28,28,26,.14)'},{offset:1,color:'rgba(28,28,26,0)'}]}},
+    }],
+  });
+  const t0=performance.now();
+  const tick=()=>{
+    if(my!==gen)return;
+    const p=Math.min(1,(performance.now()-t0)/DUR);
+    const eased=1-Math.pow(1-p,3);
+    const val=(TOTAL*eased/1000).toFixed(2);
+    g.setOption({graphic:[{id:'kpi',type:'group',left:16,top:8,children:[
+      {type:'text',style:{text:'$'+val+'M',font:`800 32px ${FONT_FAMILY}`,fill:INK}},
+      {type:'text',style:{text:'年度经常性收入 · 2026 年上半年',y:38,font:`600 10px ${FONT_FAMILY}`,fill:C["8F8E88"]}},
+    ]}]});
+    if(p<1)requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+});
+})();
+
+addEventListener('resize',()=>{
+  ['rose','forest','circular','tree','rainfall','morph','negbar','force','wave',
+   'custompie','singleaxis','jitter','race','stream','stroke']
+    .forEach(id=>echarts.getInstanceByDom(document.getElementById(id))?.resize());
+});
+
+</script>
+<script src="gallery-bridge.js?v=20260727-1"></script>
+</body>
+</html>

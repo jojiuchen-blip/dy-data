@@ -5,7 +5,7 @@ import {
 } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
@@ -104,7 +104,7 @@ export function StoreRankingPage({ searchParams }: StoreRankingPageProps) {
         <SelectField disabled={!meta} label="账期" value={activePeriodKey} onChange={(value) => { setPeriodKey(value); setPage(1); }} options={(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))} />
         <SelectField disabled={!meta} label="产品范围" value={productScope} onChange={(value) => { setProductScope(value); setProductType("all"); setPage(1); }} options={(meta?.productScopes ?? []).map((value) => ({ value, label: value === "all" ? "全部产品" : value }))} />
         <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={(value) => { setProductType(value); setPage(1); }} options={productTypes.map((value) => ({ value, label: value === "all" ? "全部类型" : value }))} />
-        <FilterField label="搜索门店"><input disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
+        <FilterField label="搜索门店"><FieldInput disabled={!meta} value={query} placeholder="输入门店名称" onChange={(event) => { setQuery(event.target.value); setPage(1); }} /></FilterField>
         <SelectField label="排序指标" value={sortBy} onChange={(value) => { setSortBy(value as RankingSortBy); setPage(1); }} options={[{ value: "NET_SETTLEMENT_REFERENCE", label: "结算参考净额" }, { value: "PROMOTION_FEE", label: "推广服务费" }, { value: "MANAGEMENT_FEE", label: "管理服务费" }, { value: "SALES_AMOUNT", label: "销售金额" }, { value: "VERIFIED_AMOUNT", label: "核销金额" }]} />
         <SelectField label="排序方向" value={sortOrder} onChange={(value) => { setSortOrder(value as SortOrder); setPage(1); }} options={[{ value: "DESC", label: "从高到低" }, { value: "ASC", label: "从低到高" }]} />
       </FilterBar>

@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#f6f6f3" />
     <meta name="dydata-design-system-version" content="0.2.1" />
     <link rel="icon" href="data:," />
-    <title>dy-data UI 设计规范 V0.2.1</title>
+  <title>dy-data 界面设计规范 V0.2.1</title>
     <script>
       (() => {
         const storageKey = "dydata.theme.preference";
@@ -69,8 +69,12 @@
         --chart-neutral-mid: color-mix(in srgb, var(--chart-neutral) 68%, var(--chart-surface));
         --chart-neutral-faint: color-mix(in srgb, var(--chart-neutral) 42%, var(--chart-surface));
         --chart-grid: var(--line);
-        --chart-axis: var(--line-strong);
+        --chart-axis-line: var(--line-strong);
+        --chart-axis-text: var(--muted);
         --chart-label: var(--muted);
+        --chart-data-neutral-strong: var(--ink-subtle);
+        --chart-data-neutral-medium: var(--muted);
+        --chart-data-neutral-soft: color-mix(in srgb, var(--ink) 60%, var(--surface));
         --chart-surface: var(--surface);
         --chart-inspector-surface: color-mix(in srgb, var(--surface) 88%, transparent);
         --chart-hover-surface: color-mix(in srgb, var(--brand-accent) 8%, transparent);
@@ -79,6 +83,13 @@
         --chart-info-fill: color-mix(in srgb, var(--blue) 12%, transparent);
         --chart-positive-fill: color-mix(in srgb, var(--green) 10%, transparent);
         --chart-focus-shadow: color-mix(in srgb, var(--brand-accent) 22%, transparent);
+        --chart-font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+        --chart-label-font-size: 12px;
+        --chart-meta-font-size: 11px;
+        --chart-tooltip-radius: 6px;
+        --chart-tooltip-padding-x: 14px;
+        --chart-tooltip-padding-y: 10px;
+        --chart-compact-breakpoint: 480px;
         --space-neutral: #70747a;
         --page-glow: rgb(255 255 255 / 72%);
         --target-min: 24px;
@@ -249,6 +260,11 @@
       }
 
       .section[id] {
+        scroll-margin-top: 78px;
+      }
+
+      .section h2[id],
+      .section h3[id] {
         scroll-margin-top: 78px;
       }
 
@@ -3771,362 +3787,6 @@
         font-size: var(--font-note);
       }
 
-      .chart-figure-grid {
-        display: grid;
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-        gap: 14px;
-        margin-top: 18px;
-      }
-
-      .chart-figure {
-        display: grid;
-        min-width: 0;
-        grid-template-rows: auto minmax(180px, 1fr) auto auto;
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-lg);
-        background: var(--chart-surface);
-        box-shadow: var(--shadow-none);
-        animation: chart-figure-enter 220ms ease-out both;
-      }
-
-      .chart-figure--wide {
-        grid-column: 1 / -1;
-        grid-template-rows: auto minmax(260px, 1fr) auto auto;
-      }
-
-      .chart-figure__head {
-        display: grid;
-        gap: 5px;
-        min-width: 0;
-        padding: 18px 18px 8px;
-      }
-
-      .chart-figure__eyebrow {
-        color: var(--brand-primary);
-        font-size: var(--font-meta);
-        font-weight: var(--weight-semibold);
-      }
-
-      .chart-figure__head h3 {
-        margin: 0;
-        font-size: var(--font-subtitle);
-        line-height: 1.35;
-      }
-
-      .chart-figure__head p,
-      .chart-figure__source {
-        margin: 0;
-        color: var(--chart-label);
-        font-size: var(--font-note);
-      }
-
-      .chart-figure__plot {
-        min-width: 0;
-        overflow-x: auto;
-        padding: 8px 18px 12px;
-      }
-
-      .chart-figure__plot svg {
-        display: block;
-        width: 100%;
-        min-width: 480px;
-        height: auto;
-      }
-
-      .chart-figure__plot--compact svg {
-        min-width: 340px;
-      }
-
-      .chart-echarts-demo {
-        width: 100%;
-        min-width: 680px;
-        height: 336px;
-        outline: none;
-      }
-
-      .chart-echarts-demo--jitter {
-        min-width: 480px;
-        height: 330px;
-      }
-
-      .chart-echarts-demo:focus-visible {
-        border-radius: var(--radius-md);
-        box-shadow: inset 0 0 0 2px var(--focus-ring);
-      }
-
-      .chart-inspector-demo {
-        display: flex;
-        min-height: 40px;
-        flex-wrap: wrap;
-        align-items: center;
-        gap: 8px 12px;
-        margin: 0 18px 10px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-md);
-        padding: 8px 10px;
-        background: var(--chart-inspector-surface);
-        color: var(--chart-label);
-        font-size: var(--font-meta);
-      }
-
-      .chart-inspector-demo strong {
-        color: var(--chart-neutral);
-      }
-
-      .chart-inspector-demo b {
-        color: var(--chart-primary);
-        font-size: var(--font-note);
-      }
-
-      .chart-inspector-demo em {
-        border-radius: var(--radius-full);
-        padding: 2px 7px;
-        background: var(--brand-soft);
-        color: var(--brand-ink);
-        font-style: normal;
-      }
-
-      .chart-figure__source {
-        border-top: 1px solid var(--line);
-        padding: 9px 18px 12px;
-      }
-
-      .chart-bar-list {
-        display: grid;
-        gap: 11px;
-        min-width: 380px;
-      }
-
-      .chart-bar-row {
-        display: grid;
-        grid-template-columns: 92px minmax(140px, 1fr) 56px;
-        align-items: center;
-        gap: 10px;
-        width: 100%;
-        appearance: none;
-        border: 0;
-        border-radius: var(--radius-md);
-        padding: 4px;
-        background: transparent;
-        color: var(--chart-neutral);
-        font: inherit;
-        text-align: left;
-        cursor: pointer;
-      }
-
-      .chart-bar-row:hover,
-      .chart-bar-row:focus-visible,
-      .chart-bar-row.is-selected {
-        background: var(--chart-hover-surface);
-      }
-
-      .chart-bar-row:focus-visible {
-        box-shadow: var(--focus-ring);
-        outline: none;
-      }
-
-      .chart-bar-row > span:first-child {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .chart-bar-track {
-        height: 9px;
-        overflow: hidden;
-        border-radius: var(--radius-full);
-        background: var(--surface-muted);
-      }
-
-      .chart-bar-fill {
-        display: block;
-        width: var(--bar-size);
-        height: 100%;
-        border-radius: inherit;
-        background: var(--chart-primary);
-      }
-
-      .chart-bar-row strong {
-        text-align: right;
-      }
-
-      .chart-composition {
-        display: grid;
-        gap: 16px;
-        min-width: 360px;
-      }
-
-      .chart-composition__bar {
-        display: flex;
-        height: 26px;
-        overflow: hidden;
-        border-radius: var(--radius-md);
-        background: var(--surface-muted);
-      }
-
-      .chart-composition__bar span:nth-child(1) {
-        width: 54%;
-        background: var(--chart-primary);
-      }
-
-      .chart-composition__bar span:nth-child(2) {
-        width: 29%;
-        background: var(--chart-accent);
-      }
-
-      .chart-composition__bar span:nth-child(3) {
-        width: 17%;
-        background: var(--line-strong);
-      }
-
-      .chart-composition__labels {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 10px;
-      }
-
-      .chart-composition__labels span {
-        display: grid;
-        gap: 2px;
-        color: var(--chart-label);
-        font-size: var(--font-meta);
-      }
-
-      .chart-composition__labels strong {
-        color: var(--chart-neutral);
-        font-size: var(--font-body);
-      }
-
-      .chart-dumbbell-list {
-        display: grid;
-        gap: 12px;
-        min-width: 380px;
-      }
-
-      .chart-dumbbell-row {
-        display: grid;
-        grid-template-columns: 90px minmax(180px, 1fr) 56px;
-        align-items: center;
-        gap: 10px;
-        color: var(--chart-label);
-        font-size: var(--font-note);
-      }
-
-      .chart-dumbbell-track {
-        position: relative;
-        height: 18px;
-      }
-
-      .chart-dumbbell-track::before {
-        position: absolute;
-        top: 8px;
-        right: calc(100% - var(--to));
-        left: var(--from);
-        height: 2px;
-        background: var(--chart-axis);
-        content: "";
-      }
-
-      .chart-dumbbell-dot {
-        position: absolute;
-        top: 3px;
-        width: 12px;
-        height: 12px;
-        border: 2px solid var(--chart-surface);
-        border-radius: 50%;
-        transform: translateX(-50%);
-      }
-
-      .chart-dumbbell-dot.from {
-        left: var(--from);
-        background: var(--line-strong);
-      }
-
-      .chart-dumbbell-dot.to {
-        left: var(--to);
-        background: var(--chart-primary);
-      }
-
-      .chart-range-list {
-        display: grid;
-        gap: 14px;
-        min-width: 400px;
-      }
-
-      .chart-range-row {
-        display: grid;
-        grid-template-columns: 94px minmax(200px, 1fr) 54px;
-        align-items: center;
-        gap: 10px;
-        color: var(--chart-label);
-        font-size: var(--font-note);
-      }
-
-      .chart-range-track {
-        position: relative;
-        height: 24px;
-      }
-
-      .chart-range-track::before {
-        position: absolute;
-        top: 11px;
-        right: calc(100% - var(--max));
-        left: var(--min);
-        height: 2px;
-        border-radius: var(--radius-full);
-        background: var(--chart-primary);
-        content: "";
-      }
-
-      .chart-range-box {
-        position: absolute;
-        top: 4px;
-        right: calc(100% - var(--q3));
-        left: var(--q1);
-        height: 16px;
-        border: 1px solid var(--chart-primary);
-        border-radius: var(--radius-sm);
-        background: var(--chart-primary-fill);
-      }
-
-      .chart-range-median {
-        position: absolute;
-        top: 2px;
-        bottom: 2px;
-        left: var(--median);
-        width: 2px;
-        background: var(--chart-warning);
-      }
-
-      .chart-heatmap {
-        display: grid;
-        min-width: 360px;
-        grid-template-columns: 74px repeat(6, minmax(38px, 1fr));
-        gap: 5px;
-        align-items: center;
-      }
-
-      .chart-heatmap__label {
-        color: var(--chart-label);
-        font-size: var(--font-meta);
-      }
-
-      .chart-heatmap__cell {
-        display: grid;
-        min-height: 38px;
-        place-items: center;
-        border: 1px solid color-mix(in srgb, var(--chart-primary) 14%, var(--line));
-        border-radius: var(--radius-sm);
-        background: color-mix(in srgb, var(--chart-primary) var(--heat), var(--chart-surface));
-        color: var(--chart-neutral);
-        font-size: 11px;
-        font-weight: var(--weight-semibold);
-      }
-
-      .chart-heatmap__cell[data-strong="true"] {
-        color: #ffffff;
-      }
 
       .chart-rule-grid {
         display: grid;
@@ -4146,63 +3806,10 @@
         margin: 0 0 10px;
       }
 
-      .chart-semantic-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-top: 12px;
-      }
-
-      .chart-semantic-chip {
-        display: inline-flex;
-        min-height: 30px;
-        align-items: center;
-        gap: 7px;
-        border: 1px solid var(--line);
-        border-radius: var(--radius-full);
-        padding: 4px 9px;
-        color: var(--chart-label);
-        font-size: var(--font-meta);
-      }
-
-      .chart-semantic-chip::before {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        background: var(--chip-color);
-        content: "";
-      }
-
-      @keyframes chart-figure-enter {
-        from {
-          opacity: 0;
-          transform: translateY(4px);
-        }
-      }
-
-      @media (prefers-reduced-motion: reduce) {
-        .chart-figure {
-          animation: none;
-        }
-
-        .chart-point,
-        .chart-bar-row,
-        .chart-dumbbell-dot {
-          transition: none;
-        }
-      }
 
       @media (max-width: 920px) {
         .spec-shell {
           padding: 24px 16px 56px;
-        }
-
-        .chart-figure-grid {
-          grid-template-columns: 1fr;
-        }
-
-        .chart-figure--wide {
-          grid-column: auto;
         }
 
         .signature-role-grid,
@@ -4366,39 +3973,12 @@
           grid-template-columns: 1fr;
         }
 
-        .chart-method-note,
-        .chart-figure-grid {
+        .chart-method-note {
           grid-template-columns: 1fr;
         }
 
         .chart-method-note code {
           justify-self: start;
-        }
-
-        .chart-figure--wide {
-          grid-column: auto;
-        }
-
-        .chart-figure__head {
-          padding: 16px 14px 8px;
-        }
-
-        .chart-figure__plot {
-          padding-inline: 14px;
-        }
-
-        .chart-inspector-demo {
-          margin-inline: 14px;
-        }
-
-        .chart-figure__source {
-          padding-inline: 14px;
-        }
-
-        .chart-heatmap {
-          min-width: 0;
-          grid-template-columns: 52px repeat(6, minmax(28px, 1fr));
-          gap: 4px;
         }
 
         .space-signature-grid {
@@ -4529,6 +4109,326 @@
           max-height: 44px;
         }
       }
+
+      .spec-rail {
+        display: none;
+      }
+
+      .spec-rail__brand {
+        display: grid;
+        gap: 3px;
+        padding: 2px 6px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .spec-rail__brand strong {
+        font-size: 16px;
+      }
+
+      .spec-rail__brand span,
+      .spec-rail__group > strong {
+        color: var(--muted);
+        font-size: var(--font-meta);
+      }
+
+      .spec-rail__search {
+        display: grid;
+        gap: 6px;
+        padding: 16px 6px 10px;
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .spec-rail__search input,
+      .gallery-search input {
+        width: 100%;
+        height: 38px;
+        border: 1px solid var(--line-strong);
+        border-radius: var(--radius-md);
+        padding: 0 11px;
+        background: var(--surface);
+        color: var(--ink);
+        font: inherit;
+      }
+
+      .spec-rail__search input:focus-visible,
+      .gallery-search input:focus-visible {
+        border-color: var(--brand-accent);
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+
+      .spec-rail__results {
+        display: none;
+        max-height: 240px;
+        overflow: auto;
+        margin: 0 6px 10px;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        background: var(--surface);
+        box-shadow: var(--shadow-popover);
+      }
+
+      .spec-rail__results.is-open {
+        display: grid;
+      }
+
+      .spec-rail__results a,
+      .spec-rail__results span {
+        padding: 9px 10px;
+        color: var(--ink);
+        font-size: var(--font-meta);
+        line-height: 1.45;
+        text-decoration: none;
+      }
+
+      .spec-rail__results a + a {
+        border-top: 1px solid var(--line);
+      }
+
+      .spec-rail__results a:hover {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .spec-rail__nav {
+        display: grid;
+        gap: 16px;
+        padding: 8px 6px 18px;
+      }
+
+      .spec-rail__group {
+        display: grid;
+        gap: 3px;
+      }
+
+      .spec-rail__group > strong {
+        margin: 0 8px 4px;
+      }
+
+      .spec-rail__group a {
+        min-height: 34px;
+        display: flex;
+        align-items: center;
+        border-radius: var(--radius-md);
+        padding: 7px 8px;
+        color: var(--muted);
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+        text-decoration: none;
+      }
+
+      .spec-rail__group a:hover,
+      .spec-rail__group a[aria-current="true"] {
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .catalog-entry-panel,
+      .chart-gallery-shell {
+        border: 1px solid var(--line);
+        border-radius: var(--radius-lg);
+        background: var(--surface);
+        overflow: hidden;
+      }
+
+      .catalog-entry-panel__toolbar,
+      .chart-gallery-toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+        background: var(--surface-subtle);
+      }
+
+      .catalog-entry-panel__toolbar p,
+      .chart-gallery-toolbar p {
+        margin: 0;
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .catalog-entry-panel iframe {
+        display: block;
+        width: 100%;
+        height: 760px;
+        border: 0;
+        background: var(--bg);
+      }
+
+      .component-doc-template {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+        margin-top: 18px;
+      }
+
+      .component-doc-template div {
+        padding: 14px;
+        border-left: 2px solid var(--line-strong);
+        background: var(--surface-subtle);
+      }
+
+      .component-doc-template strong {
+        display: block;
+        margin-bottom: 5px;
+      }
+
+      .component-doc-template span {
+        color: var(--muted);
+        font-size: var(--font-note);
+        line-height: 1.55;
+      }
+
+      .chart-gallery-controls {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .gallery-search {
+        display: grid;
+        grid-template-columns: minmax(0, 360px) auto;
+        align-items: end;
+        gap: 12px;
+      }
+
+      .gallery-search label {
+        display: grid;
+        gap: 6px;
+        color: var(--muted);
+        font-size: var(--font-meta);
+        font-weight: var(--weight-medium);
+      }
+
+      .gallery-search output {
+        min-height: 38px;
+        display: flex;
+        align-items: center;
+        color: var(--muted);
+        font-size: var(--font-note);
+      }
+
+      .chart-gallery-tabs {
+        display: flex;
+        gap: 6px;
+        overflow-x: auto;
+        scrollbar-width: thin;
+      }
+
+      .chart-gallery-tabs button {
+        min-height: 38px;
+        flex: 0 0 auto;
+        border: 1px solid var(--line);
+        border-radius: var(--radius-md);
+        padding: 0 12px;
+        background: var(--surface);
+        color: var(--muted);
+        font: inherit;
+        font-size: var(--font-note);
+        font-weight: var(--weight-medium);
+        cursor: pointer;
+      }
+
+      .chart-gallery-tabs button:hover,
+      .chart-gallery-tabs button[aria-pressed="true"] {
+        border-color: var(--brand-accent);
+        background: var(--brand-soft);
+        color: var(--brand-primary);
+      }
+
+      .chart-gallery-tabs button:focus-visible {
+        outline: none;
+        box-shadow: var(--focus-ring);
+      }
+
+      .chart-gallery-frame {
+        display: block;
+        width: 100%;
+        height: 880px;
+        min-height: 640px;
+        border: 0;
+        background: var(--bg);
+        transition: height 160ms ease;
+      }
+
+      @media (min-width: 1180px) {
+        .spec-rail {
+          position: fixed;
+          inset: 20px auto 20px 20px;
+          z-index: 60;
+          width: 214px;
+          display: block;
+          overflow: auto;
+          padding: 18px 12px;
+          border: 1px solid var(--line);
+          border-radius: var(--radius-lg);
+          background: color-mix(in srgb, var(--surface) 97%, transparent);
+          box-shadow: var(--shadow-card);
+          backdrop-filter: blur(14px);
+        }
+
+        .spec-shell {
+          width: auto;
+          max-width: var(--preview-max);
+          margin-right: 28px;
+          margin-left: 250px;
+        }
+
+        .section-wide-preview {
+          width: 100%;
+          max-width: 100%;
+          margin-left: 0;
+          transform: none;
+        }
+
+        .spec-toc-wrap {
+          display: none;
+        }
+
+        .section[id] {
+          scroll-margin-top: 28px;
+        }
+
+        .section h2[id],
+        .section h3[id] {
+          scroll-margin-top: 28px;
+        }
+      }
+
+      @media (max-width: 920px) {
+        .catalog-entry-panel iframe,
+        .chart-gallery-frame {
+          height: 700px;
+        }
+
+        .component-doc-template {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 640px) {
+        .catalog-entry-panel__toolbar,
+        .chart-gallery-toolbar,
+        .gallery-search {
+          align-items: stretch;
+          grid-template-columns: 1fr;
+          flex-direction: column;
+        }
+
+        .component-doc-template {
+          grid-template-columns: 1fr;
+        }
+
+        .catalog-entry-panel iframe,
+        .chart-gallery-frame {
+          height: 640px;
+        }
+      }
     </style>
   </head>
   <body>
@@ -4554,6 +4454,43 @@
         <symbol id="solar-icon-fileDownload" viewBox="0 0 24 24"><g fill="none"><path fill="currentColor" d="m15.393 4.054l-.502.557l.502-.557Zm3.959 3.563l-.502.557l.502-.557Zm2.302 2.537l-.685.305l.685-.305ZM3.172 20.828l.53-.53l-.53.53Zm17.656 0l-.53-.53l.53.53ZM14 21.25h-4v1.5h4v-1.5ZM2.75 14v-4h-1.5v4h1.5Zm18.5-.437V14h1.5v-.437h-1.5ZM14.891 4.61l3.959 3.563l1.003-1.115l-3.958-3.563l-1.004 1.115Zm7.859 8.952c0-1.689.015-2.758-.41-3.714l-1.371.61c.266.598.281 1.283.281 3.104h1.5Zm-3.9-5.389c1.353 1.218 1.853 1.688 2.119 2.285l1.37-.61c-.426-.957-1.23-1.66-2.486-2.79L18.85 8.174ZM10.03 2.75c1.582 0 2.179.012 2.71.216l.538-1.4c-.852-.328-1.78-.316-3.248-.316v1.5Zm5.865.746c-1.086-.977-1.765-1.604-2.617-1.93l-.537 1.4c.532.204.98.592 2.15 1.645l1.004-1.115ZM10 21.25c-1.907 0-3.261-.002-4.29-.14c-1.005-.135-1.585-.389-2.008-.812l-1.06 1.06c.748.75 1.697 1.081 2.869 1.239c1.15.155 2.625.153 4.489.153v-1.5ZM1.25 14c0 1.864-.002 3.338.153 4.489c.158 1.172.49 2.121 1.238 2.87l1.06-1.06c-.422-.424-.676-1.004-.811-2.01c-.138-1.027-.14-2.382-.14-4.289h-1.5ZM14 22.75c1.864 0 3.338.002 4.489-.153c1.172-.158 2.121-.49 2.87-1.238l-1.06-1.06c-.424.422-1.004.676-2.01.811c-1.027.138-2.382.14-4.289.14v1.5ZM21.25 14c0 1.907-.002 3.262-.14 4.29c-.135 1.005-.389 1.585-.812 2.008l1.06 1.06c.75-.748 1.081-1.697 1.239-2.869c.155-1.15.153-2.625.153-4.489h-1.5Zm-18.5-4c0-1.907.002-3.261.14-4.29c.135-1.005.389-1.585.812-2.008l-1.06-1.06c-.75.748-1.081 1.697-1.239 2.869C1.248 6.661 1.25 8.136 1.25 10h1.5Zm7.28-8.75c-1.875 0-3.356-.002-4.511.153c-1.177.158-2.129.49-2.878 1.238l1.06 1.06c.424-.422 1.005-.676 2.017-.811c1.033-.138 2.395-.14 4.312-.14v-1.5Z"/><path stroke="currentColor" stroke-width="1.5" d="M13 2.5V5c0 2.357 0 3.536.732 4.268C14.464 10 15.643 10 18 10h4"/><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8.5 13.5v5m0 0l2-1.875m-2 1.875l-2-1.875"/></g></symbol>
       </defs>
     </svg>
+    <aside class="spec-rail" aria-label="设计规范导航">
+      <div class="spec-rail__brand">
+        <strong>dy-data 设计规范</strong>
+        <span>V0.2.1 · 已生效</span>
+      </div>
+      <label class="spec-rail__search" for="spec-search-input">
+        <span>检索规范</span>
+        <input id="spec-search-input" type="search" placeholder="组件、规则或设计变量" autocomplete="off" />
+      </label>
+      <div class="spec-rail__results" id="spec-search-results" aria-live="polite"></div>
+      <nav class="spec-rail__nav" aria-label="规范章节分组">
+        <div class="spec-rail__group">
+          <strong>基础</strong>
+          <a data-section-link href="#workflow" aria-current="true">落地方式</a>
+          <a data-section-link href="#color">颜色</a>
+          <a data-section-link href="#brand-signature">项目署名</a>
+          <a data-section-link href="#typography">排版</a>
+          <a data-section-link href="#spacing-radius">间距与圆角</a>
+          <a data-section-link href="#iconography">图标</a>
+        </div>
+        <div class="spec-rail__group">
+          <strong>组件与数据</strong>
+          <a data-section-link href="#component-catalog">真实组件展厅</a>
+          <a data-section-link href="#components">静态组件说明</a>
+          <a data-section-link href="#chart-gallery">图表规范</a>
+          <a data-section-link href="#table-sticky">表格</a>
+        </div>
+        <div class="spec-rail__group">
+          <strong>模式与治理</strong>
+          <a data-section-link href="#mobile-card">移动卡片</a>
+          <a data-section-link href="#clue-followup-workbench">跟进工作台</a>
+          <a data-section-link href="#page-templates">页面骨架</a>
+          <a data-section-link href="#decisions">规范摘要</a>
+          <a data-section-link href="#enforcement">协作约束</a>
+        </div>
+      </nav>
+    </aside>
     <main class="spec-shell">
       <header class="spec-header">
         <div class="header-copy">
@@ -4562,25 +4499,25 @@
               <use href="#solar-icon-brand"></use>
             </svg>
             <div>
-              <p class="eyebrow">DYDATA-47 · 状态：active · runtime-active</p>
-              <h1>dy-data UI 设计规范 V0.2.1</h1>
+              <p class="eyebrow">当前正式版本</p>
+              <h1>dy-data 界面设计规范 V0.2.1</h1>
             </div>
           </div>
           <p class="summary">
-            这是一份可独立阅读、可直接执行的正式规范。它固化品牌橙、浅色与深色语义 token、组件、图标、图表、表格、弹层、项目署名和页面模板。
+            这是一份可独立阅读、可直接执行的正式规范。它定义品牌橙、浅色与深色语义变量、组件、图标、图表、表格、弹层、项目署名和页面模板。
           </p>
           <div class="pill-row">
-            <span class="badge">Active</span>
-            <span class="pill">状态：active</span>
-            <span class="pill">模式：light / dark / system</span>
+            <span class="badge">已生效</span>
+            <span class="pill">状态：正式使用</span>
+            <span class="pill">主题：浅色 / 深色 / 跟随系统</span>
             <span class="pill">更新：2026-07-25</span>
             <span class="pill">源文件：tokens.json</span>
           </div>
         </div>
         <aside class="status-card theme-contract-card">
-          <h3>运行时契约</h3>
+          <h3>开发接入</h3>
           <p class="summary">
-            V0.2.1 是当前正式设计系统，运行时 CSS 来源为 <code>apps/web/src/design-tokens.css</code>。默认跟随系统，手动选择使用 <code>dydata.theme.preference</code> 持久化。
+            业务界面从 <code>apps/web/src/design-tokens.css</code> 读取设计变量。主题默认跟随系统，手动选择通过 <code>dydata.theme.preference</code> 保存。
           </p>
           <div class="theme-contract-card__actions" role="group" aria-label="规范预览主题">
             <button class="theme-button" type="button" data-color-theme-button="system" aria-pressed="true">跟随系统</button>
@@ -4590,20 +4527,6 @@
         </aside>
       </header>
 
-      <section class="candidate-callout" aria-labelledby="candidate-v02-title">
-        <div class="candidate-callout__copy">
-          <p class="eyebrow">历史对照工具</p>
-          <h2 id="candidate-v02-title">完整规范默认展示 V0.2 品牌橙</h2>
-          <p class="summary">
-            切换只用于查看 V0.1 历史对照；默认的品牌橙、组件、表格、弹层和页面骨架均为 V0.2 正式规范。
-          </p>
-        </div>
-        <div class="candidate-callout__actions" role="group" aria-label="切换重点色方案">
-          <button class="theme-button" type="button" data-palette-button="current" aria-pressed="false">V0.1 历史绿色</button>
-          <button class="theme-button" type="button" data-palette-button="candidate" aria-pressed="true">V0.2 品牌橙</button>
-        </div>
-      </section>
-
       <div class="spec-toc-wrap">
         <nav class="spec-toc" aria-label="规范章节">
           <a href="#workflow" aria-current="true">落地方式</a>
@@ -4611,14 +4534,15 @@
           <a href="#brand-signature">项目署名</a>
           <a href="#typography">排版</a>
           <a href="#spacing-radius">间距与圆角</a>
+          <a href="#component-catalog">真实组件</a>
           <a href="#components">组件</a>
           <a href="#iconography">图标</a>
-          <a href="#charts">图表</a>
+          <a href="#chart-gallery">图表规范</a>
           <a href="#table-sticky">表格</a>
           <a href="#mobile-card">移动卡片</a>
           <a href="#clue-followup-workbench">跟进工作台</a>
           <a href="#page-templates">页面骨架</a>
-          <a href="#decisions">决策记录</a>
+          <a href="#decisions">规范摘要</a>
           <a href="#enforcement">协作约束</a>
         </nav>
       </div>
@@ -4627,30 +4551,30 @@
         <div class="section-head">
           <div>
             <h2>规范如何生效</h2>
-            <p>正式 token、可视化规范与测试共同约束运行时设计契约。</p>
+            <p>设计变量、可视规范、组件实现与自动检查共同约束业务界面。</p>
           </div>
-          <code>token -> preview -> decision -> check</code>
+          <code>设计变量 -> 可视规范 -> 组件实现 -> 自动检查</code>
         </div>
         <div class="grid flow-steps">
           <div class="step">
-            <strong>1. 正式 token</strong>
-            <span>从现有 CSS、业务页面和问题清单提取，不凭空发明。</span>
+            <strong>1. 设计变量</strong>
+            <span>颜色、字号、间距、圆角、阴影和控件尺寸统一从变量读取。</span>
           </div>
           <div class="step">
-            <strong>2. HTML 预览</strong>
-            <span>把颜色、排版、组件、表格、移动卡片都画出来。</span>
+            <strong>2. 可视规范</strong>
+            <span>本页展示颜色、排版、组件、表格和移动端结构的标准效果。</span>
           </div>
           <div class="step">
-            <strong>3. 正式规范</strong>
-            <span>在 tokens.json 与完整 HTML 中维护已生效的设计决策。</span>
+            <strong>3. 组件实现</strong>
+            <span>业务页面通过共享组件使用交互、状态、键盘行为和响应式规则。</span>
           </div>
           <div class="step">
-            <strong>4. 运行时绑定</strong>
-            <span>通过 design-tokens.css 与业务实现保持核心 token 同步。</span>
+            <strong>4. 页面接入</strong>
+            <span>页面只组合设计变量和共享组件，不重复定义基础样式。</span>
           </div>
           <div class="step">
-            <strong>5. 测试拦截</strong>
-            <span>关键值和现有 CSS 绑定，避免协作时悄悄漂移。</span>
+            <strong>5. 自动检查</strong>
+            <span>静态测试、构建和视觉检查阻止不符合规范的改动进入主分支。</span>
           </div>
         </div>
       </section>
@@ -4658,10 +4582,10 @@
       <section class="section" id="color">
         <div class="section-head">
           <div>
-            <h2>颜色 token</h2>
+            <h2>颜色变量</h2>
             <p>品牌橙承担品牌、主操作、选中和聚焦；黑白灰建立高密度后台骨架，语义色保持原义。</p>
           </div>
-          <code>formal V0.2 palette · light + dark</code>
+          <code>V0.2 正式色板 · 浅色与深色主题</code>
         </div>
         <div class="grid grid-4">
           <article class="token-card">
@@ -4670,7 +4594,7 @@
           </article>
           <article class="token-card">
             <div class="token-swatch" style="--swatch: #fe5205"></div>
-            <div class="token-meta"><strong>brand-orange</strong><span>#FE5205 · 品牌、选中、focus</span></div>
+            <div class="token-meta"><strong>brand-orange</strong><span>#FE5205 · 品牌、选中、聚焦</span></div>
           </article>
           <article class="token-card">
             <div class="token-swatch" style="--swatch: #fff4ef"></div>
@@ -4717,17 +4641,17 @@
           <div class="component-family-head">
             <div>
               <h3>深橙主按钮状态</h3>
-              <p>Focus 使用 #FE5205；Disabled 回归中性灰；Loading 保持按钮宽度并阻止重复提交。</p>
+              <p>聚焦态使用 #FE5205；禁用态回归中性灰；加载态保持按钮宽度并阻止重复提交。</p>
             </div>
-            <code>Rest · Hover · Active · Focus · Disabled · Loading</code>
+            <code>默认 · 悬停 · 按下 · 聚焦 · 禁用 · 加载中</code>
           </div>
           <div class="candidate-state-grid">
-            <div class="candidate-state"><button class="button-like primary" type="button">Rest</button><span>#D63B00</span></div>
-            <div class="candidate-state candidate-state--hover"><button class="button-like primary" type="button">Hover</button><span>#C73700</span></div>
-            <div class="candidate-state candidate-state--active"><button class="button-like primary" type="button">Active</button><span>#AD3000</span></div>
-            <div class="candidate-state candidate-state--focus"><button class="button-like primary" type="button">Focus</button><span>#FE5205 focus ring</span></div>
-            <div class="candidate-state"><button class="button-like is-disabled" type="button" disabled>Disabled</button><span>#DADBD6 / #8A8C87</span></div>
-            <div class="candidate-state"><button class="button-like primary is-loading" type="button" aria-busy="true">Loading</button><span>保持宽度并宣布状态</span></div>
+            <div class="candidate-state"><button class="button-like primary" type="button">默认</button><span>#D63B00</span></div>
+            <div class="candidate-state candidate-state--hover"><button class="button-like primary" type="button">悬停</button><span>#C73700</span></div>
+            <div class="candidate-state candidate-state--active"><button class="button-like primary" type="button">按下</button><span>#AD3000</span></div>
+            <div class="candidate-state candidate-state--focus"><button class="button-like primary" type="button">聚焦</button><span>#FE5205 聚焦环</span></div>
+            <div class="candidate-state"><button class="button-like is-disabled" type="button" disabled>禁用</button><span>#DADBD6 / #8A8C87</span></div>
+            <div class="candidate-state"><button class="button-like primary is-loading" type="button" aria-busy="true">加载中</button><span>保持宽度并宣布状态</span></div>
           </div>
         </div>
         <div class="panel candidate-semantic-panel">
@@ -4745,10 +4669,10 @@
         <div class="panel dark-palette-preview">
           <div class="component-family-head">
             <div>
-              <h3>深色语义 token</h3>
+              <h3>深色主题语义变量</h3>
               <p>深色主题不是反相处理；背景、表面、边界、文字和状态背景分别定义，品牌橙保持稳定。</p>
             </div>
-            <code>dark surfaces · semantic colors</code>
+            <code>深色表面 · 语义色</code>
           </div>
           <div class="grid grid-4">
             <article class="token-card"><div class="token-swatch" style="--swatch: #10110f"></div><div class="token-meta"><strong>bg</strong><span>#10110F</span></div></article>
@@ -4769,7 +4693,7 @@
             <h2>Powered by SPACE AI Native</h2>
             <p>dy-data 专用项目署名。字体职责、锁定比例、明暗主题、使用位置和开发入口均由本节统一定义。</p>
           </div>
-          <code>dy-data only · runtime active</code>
+          <code>仅用于 dy-data · 已接入业务界面</code>
         </div>
 
         <div class="panel">
@@ -4778,17 +4702,17 @@
               <h3>字体与图形职责</h3>
               <p>完整署名只包含三段：POWERED BY、SPACE SVG、AI NATIVE。字体和图形各自承担固定职责，不得互相替换。</p>
             </div>
-            <code>one SPACE · one typeface role</code>
+            <code>单一 SPACE · 单一字体职责</code>
           </div>
           <div class="signature-role-grid">
             <article class="signature-role-card">
-              <small>supporting type</small>
+              <small>辅助文字</small>
               <div class="signature-role-sample">POWERED BY</div>
               <strong>Ethnocentric Regular</strong>
               <p>只用于署名前置关系文字，保持中性主题色，不使用品牌橙。</p>
             </article>
             <article class="signature-role-card">
-              <small>brand wordmark</small>
+              <small>品牌字标</small>
               <div class="signature-role-sample" aria-hidden="true">
                 <img class="signature-role-mark signature-role-mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
                 <img class="signature-role-mark signature-role-mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
@@ -4797,13 +4721,13 @@
               <p>SPACE 始终由参数轨道图形字表达，不得再用字体输入一个 SPACE。</p>
             </article>
             <article class="signature-role-card">
-              <small>supporting type</small>
+              <small>辅助文字</small>
               <div class="signature-role-sample">AI NATIVE</div>
               <strong>Ethnocentric Regular</strong>
               <p>与 POWERED BY 使用同一字体、字重和中性颜色，形成完整背书关系。</p>
             </article>
             <article class="signature-role-card">
-              <small>product ui</small>
+              <small>产品界面</small>
               <div class="signature-role-sample signature-role-sample--ui">线索跟进列表</div>
               <strong>既有界面无衬线字体</strong>
               <p>页面标题、导航、表单、表格与正文不得使用 Ethnocentric Regular。</p>
@@ -4815,9 +4739,9 @@
           <div class="component-family-head">
             <div>
               <h3>三种锁定形式</h3>
-              <p>业务页面只选择既有 variant 和约定位置，不自行拆开文字、修改比例或重排。</p>
+              <p>业务页面只选择既有形式和约定位置，不自行拆开文字、修改比例或重排。</p>
             </div>
-            <code>horizontal · stacked · mark</code>
+            <code>横排 · 堆叠 · 仅标志</code>
           </div>
           <div class="signature-lockup-grid">
             <article class="signature-lockup-card">
@@ -4864,7 +4788,7 @@
             </article>
             <article class="signature-lockup-card">
               <header class="signature-lockup-card__head">
-                <div><h3>仅标志</h3><p>favicon、启动图与品牌识别</p></div>
+                <div><h3>仅标志</h3><p>浏览器图标、启动图与品牌识别</p></div>
                 <code>非署名</code>
               </header>
               <div class="signature-lockup-stage">
@@ -4906,11 +4830,11 @@
               <h3>实际落位</h3>
               <p>四类预览对应当前运行时入口。署名始终位于主操作之后或产品级页面收尾处。</p>
             </div>
-            <code>placement contract</code>
+            <code>放置规则</code>
           </div>
           <div class="signature-placement-grid">
             <article class="signature-placement-card">
-              <small>desktop rail</small>
+              <small>桌面侧栏</small>
               <p>建议入口下方，使用紧凑堆叠，不进入顶部栏。</p>
               <div class="signature-placement-stage">
                 <div class="signature-mini-rail" aria-label="桌面侧栏署名落位示例">
@@ -4931,7 +4855,7 @@
               </div>
             </article>
             <article class="signature-placement-card">
-              <small>auth & authorization</small>
+              <small>登录与授权</small>
               <p>登录、激活、重置密码、CLI/MCP 授权面板底部。</p>
               <div class="signature-placement-stage">
                 <div class="signature-mini-auth" aria-label="认证和授权面板署名落位示例">
@@ -4952,7 +4876,7 @@
               </div>
             </article>
             <article class="signature-placement-card">
-              <small>mobile mine</small>
+              <small>移动端“我的”</small>
               <p>“我的”弹层账号操作之后，不挤入固定底部一级导航。</p>
               <div class="signature-placement-stage">
                 <div class="signature-mini-mobile" aria-label="移动端我的弹层署名落位示例">
@@ -4975,7 +4899,7 @@
               </div>
             </article>
             <article class="signature-placement-card">
-              <small>home footer</small>
+              <small>首页页脚</small>
               <p>已登录首页内容收尾处使用横排，不固定悬浮。</p>
               <div class="signature-placement-stage">
                 <div class="signature-mini-home" aria-label="首页页脚署名落位示例">
@@ -5002,7 +4926,7 @@
               <h3>页面覆盖矩阵</h3>
               <p>新增页面必须先归入以下类别，再选择既有锁定形式；未列入的业务组件默认不展示署名。</p>
             </div>
-            <code>where · variant · boundary</code>
+            <code>位置 · 形式 · 边界</code>
           </div>
           <div class="table-preview-wrap">
             <table class="decision-table">
@@ -5010,10 +4934,10 @@
               <tbody>
                 <tr><td>登录、激活、重置密码</td><td>是</td><td>标准横排</td><td>认证面板底部</td><td>主操作之后，不插入字段或按钮之间。</td></tr>
                 <tr><td>CLI / MCP 授权确认</td><td>是</td><td>标准横排</td><td>授权面板底部</td><td>不改变同意/拒绝操作层级和焦点顺序。</td></tr>
-                <tr><td>桌面已登录工作区</td><td>是</td><td>紧凑堆叠</td><td>108px Rail 最底部</td><td>建议入口之后，不进入顶部栏。</td></tr>
+                <tr><td>桌面已登录工作区</td><td>是</td><td>紧凑堆叠</td><td>108px 侧栏最底部</td><td>建议入口之后，不进入顶部栏。</td></tr>
                 <tr><td>移动端已登录工作区</td><td>是</td><td>标准横排</td><td>“我的”弹层底部</td><td>不进入固定底部一级导航。</td></tr>
                 <tr><td>已登录首页</td><td>是</td><td>标准横排</td><td>页面页脚</td><td>随内容收尾，不固定悬浮。</td></tr>
-                <tr><td>favicon / 启动图</td><td>可选</td><td>仅标志</td><td>品牌识别位</td><td>可读名称为 SPACE，不表达 Powered by。</td></tr>
+                <tr><td>浏览器图标 / 启动图</td><td>可选</td><td>仅标志</td><td>品牌识别位</td><td>可读名称为 SPACE，不表达 Powered by。</td></tr>
                 <tr><td>顶部栏 / 二三级导航</td><td>否</td><td>—</td><td>—</td><td>避免与产品品牌和页面定位竞争。</td></tr>
                 <tr><td>表格 / 指标卡 / 业务弹层正文</td><td>否</td><td>—</td><td>—</td><td>不把产品级背书重复放进业务组件。</td></tr>
               </tbody>
@@ -5038,7 +4962,7 @@
                 <li>业务页面不得手写署名文字、直接引用字体或自行拼装 SPACE。</li>
                 <li>Ethnocentric Regular 不得扩展到标题、导航、表单、表格和正文。</li>
                 <li>不得给署名增加独立底色、阴影、渐变或页面级颜色覆盖。</li>
-                <li>视觉 smoke 覆盖 390 / 768 / 1440，并分别检查浅色与深色主题。</li>
+                <li>视觉冒烟测试覆盖 390 / 768 / 1440，并分别检查浅色与深色主题。</li>
               </ul>
             </article>
           </div>
@@ -5051,7 +4975,7 @@
             <h2>排版层级</h2>
             <p>后台产品不需要过大的装饰标题，页面标题、组件标题、表格文字要形成稳定比例。</p>
           </div>
-          <code>Chinese-first sans</code>
+          <code>中文优先无衬线字体</code>
         </div>
         <div class="panel">
           <div class="type-row">
@@ -5060,12 +4984,12 @@
             <span class="type-size">44px / 1.1 / 800</span>
           </div>
           <div class="type-row">
-            <span class="type-label">page title</span>
+            <span class="type-label">页面标题</span>
             <strong class="sample-h1">线索跟进列表</strong>
             <span class="type-size">28px / 1.2 / 800</span>
           </div>
           <div class="type-row">
-            <span class="type-label">section title</span>
+            <span class="type-label">分区标题</span>
             <strong class="sample-h2">当前筛选结果</strong>
             <span class="type-size">20px / 1.25 / 700</span>
           </div>
@@ -5122,6 +5046,29 @@
         </div>
       </section>
 
+      <section class="section" id="component-catalog">
+        <div class="section-head">
+          <div>
+            <h2>真实组件展厅</h2>
+            <p>以下示例直接使用业务运行时组件与样式，组件清单来自 <code>components.json</code>。</p>
+          </div>
+          <code>组件清单 -&gt; 运行时导入 -&gt; 真实预览</code>
+        </div>
+        <div class="catalog-entry-panel">
+          <div class="catalog-entry-panel__toolbar">
+            <p>交互、状态、键盘行为和响应式均来自 <code>apps/web/src/components</code>。</p>
+            <a class="button-like secondary" href="./runtime-catalog.html" target="_blank" rel="noreferrer">独立打开组件展厅</a>
+          </div>
+          <iframe data-runtime-catalog-frame loading="lazy" src="./runtime-catalog.html?theme=light&amp;embedded=1" title="dy-data 真实组件展厅"></iframe>
+        </div>
+        <div class="component-doc-template" aria-label="统一组件说明模板">
+          <div><strong>1. 用途与边界</strong><span>说明解决什么问题、什么时候用，以及明确不该用在哪里。</span></div>
+          <div><strong>2. 状态与交互</strong><span>覆盖默认、悬停、按下、聚焦、加载、禁用和错误状态。</span></div>
+          <div><strong>3. 可访问与响应式</strong><span>记录键盘、读屏、命中区域和桌面/移动适配规则。</span></div>
+          <div><strong>4. 运行时来源</strong><span>列出实现文件、导出名称、依赖的设计变量和可验证的预览锚点。</span></div>
+        </div>
+      </section>
+
       <section class="section" id="components">
         <div class="section-head">
           <div>
@@ -5132,7 +5079,7 @@
         </div>
         <div class="component-gallery">
           <article class="component-card component-card--wide">
-            <h3>Button / 按钮</h3>
+            <h3>按钮（Button）</h3>
             <div class="button-showcase-grid">
             <div class="button-group-block">
               <span class="component-demo-title">文字按钮状态</span>
@@ -5151,7 +5098,7 @@
               </div>
             </div>
             <div class="button-group-block">
-              <span class="component-demo-title">IconButton 尺寸</span>
+              <span class="component-demo-title">图标按钮尺寸</span>
               <div class="button-row">
                 <button class="icon-button-demo compact" type="button" aria-label="查看完整号码">
                   <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
@@ -5174,7 +5121,7 @@
             <p>桌面按钮固定 38px，移动可点击区域 44px。图标与文字并列时保持 6px 间距，禁用态不新增高度或半径。</p>
           </article>
           <article class="component-card component-card--wide">
-            <h3>Field / 表单控件</h3>
+            <h3>表单控件（Field）</h3>
             <div class="field-grid">
               <div class="field-group">
                 <div class="field-label-row">
@@ -5199,7 +5146,7 @@
                   <div class="select-option-demo" role="option"><span>浙江</span><strong>12,482</strong></div>
                   <div class="select-option-demo" role="option"><span>江苏</span><strong>4,206</strong></div>
                 </div>
-                <p class="field-helper">Select 展开态与 Combobox 共用菜单面板，不使用简单线框或浏览器原生样式作为规范样张。</p>
+                <p class="field-helper">下拉选择展开态与可检索组合框共用菜单面板，不使用简单线框或浏览器原生样式作为规范样张。</p>
               </div>
               <div class="field-group">
                 <div class="field-label-row">
@@ -5218,7 +5165,7 @@
                   </button>
                   <svg class="select-indicator solar-icon-sample" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 </div>
-                <p class="field-helper">聚焦态只改变边框和 ring，不改变控件尺寸。</p>
+                <p class="field-helper">聚焦态只改变边框和聚焦环，不改变控件尺寸。</p>
               </div>
               <div class="field-group">
                 <div class="field-label-row">
@@ -5228,7 +5175,7 @@
                 <div class="field-control">
                   <input id="demo-date-start" class="field" placeholder="yyyy/mm/dd" />
                 </div>
-                <p class="field-helper">placeholder 只展示格式，字段含义由 label 承担。</p>
+                <p class="field-helper">占位提示只展示格式，字段含义由字段名称承担。</p>
               </div>
               <div class="field-group">
                 <div class="field-label-row">
@@ -5273,7 +5220,7 @@
               <div class="field-group">
                 <div class="field-label-row">
                   <label for="demo-combobox">搜索门店</label>
-                  <span>Combobox</span>
+                  <span>可检索组合框</span>
                 </div>
                 <div class="field-control field-control--focus">
                   <input id="demo-combobox" class="field" value="精诚" role="combobox" aria-expanded="true" />
@@ -5284,13 +5231,27 @@
                 </div>
               </div>
             </div>
-            <p>字段保留 label、格式提示、辅助说明和错误提示；控件文字不用粗体，避免像按钮。</p>
+            <p>字段保留 label、格式提示、辅助说明和错误提示；控件文字不用粗体，避免像按钮。业务页面通过 <code>FormControls.tsx</code> 使用 FieldInput、TextField、DateField、PasswordField、TextareaField、CheckboxField、SelectField 和 MultiSelectField，不直接散写原生输入控件。</p>
           </article>
           <article class="component-card">
-            <h3>Chip / 标签体系</h3>
+            <h3>选择与切换（SelectionControls）</h3>
+            <div class="navigation-showcase">
+              <div class="subnav-demo" aria-label="页内视图切换示意">
+                <span class="subnav-item active">线索看板</span>
+                <span class="subnav-item">线索明细</span>
+              </div>
+              <div class="button-row" aria-label="分段模式示意">
+                <button class="button-like primary" type="button">按月</button>
+                <button class="button-like" type="button">按季度</button>
+              </div>
+            </div>
+            <p>稳定页内视图使用 Tabs，少量互斥模式使用 SegmentedControl，带数量的汇总条件使用 SummaryFilter。Tabs 支持方向键、Home 和 End；业务页面不私有拼装 tablist 或分段按钮组。</p>
+          </article>
+          <article class="component-card">
+            <h3>标签体系（Chip）</h3>
             <div class="chip-family-grid">
               <div class="chip-family-block">
-                <strong>StatusChip</strong>
+                <strong>状态标签（StatusChip）</strong>
                 <div class="status-row">
                   <span class="status-chip pending">待跟进</span>
                   <span class="status-chip success">已跟进</span>
@@ -5299,31 +5260,31 @@
                 </div>
               </div>
               <div class="chip-family-block">
-                <strong>CountPill</strong>
+                <strong>数量标签（CountPill）</strong>
                 <div class="chip-line">
                   <span class="count-pill">共 21,732 条</span>
                   <span class="count-pill">已选 3 项</span>
                 </div>
               </div>
               <div class="chip-family-block">
-                <strong>FilterChip</strong>
+                <strong>筛选标签（FilterChip）</strong>
                 <div class="chip-line">
                   <button class="filter-chip" type="button">省份：浙江<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
                   <button class="filter-chip" type="button">状态：待跟进<svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="close" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-close"></use></svg></button>
                 </div>
               </div>
               <div class="chip-family-block">
-                <strong>RoleBadge</strong>
+                <strong>角色标记（RoleBadge）</strong>
                 <div class="chip-line">
                   <span class="role-badge strong">最高管理员</span>
                   <span class="role-badge">门店账号</span>
                 </div>
               </div>
             </div>
-            <p>状态、数量、筛选条件和角色不是同一种语义，不能继续都塞进一个 status-chip 变体里。</p>
+            <p>状态、数量、筛选条件和角色不是同一种语义，不能继续都塞进一个 <code>status-chip</code> 样式变体里。</p>
           </article>
           <article class="component-card">
-            <h3>MetricCard / 指标卡</h3>
+            <h3>指标卡（MetricCard）</h3>
             <div class="grid grid-2">
               <div class="metric-preview">
                 <span class="metric-label">总量指标 · 线索总数</span>
@@ -5346,10 +5307,10 @@
                 <span class="metric-meta">固定卡片尺寸，避免数据到达时版面跳动</span>
               </div>
             </div>
-            <p>KPI 指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色制造卡片层级。优先级通过排列顺序、标签、数值字号和说明文字表达；加载态保持最终几何尺寸。</p>
+            <p>关键指标卡统一使用白底圆角矩形，不使用彩色顶线、彩色背景或语义色制造卡片层级。优先级通过排列顺序、标签、数值字号和说明文字表达；加载态保持最终几何尺寸。</p>
           </article>
           <article class="component-card">
-            <h3>NavigationItem / 导航项</h3>
+            <h3>导航项（NavigationItem）</h3>
             <div class="navigation-showcase">
               <div class="subnav-demo" aria-label="桌面二级导航示意">
                 <span class="subnav-item active">线索看板</span>
@@ -5374,10 +5335,10 @@
                 </span>
               </div>
             </div>
-            <p>桌面 Rail 使用 linear 图标和紧凑标签；二级导航不使用图标，以透明底、文字链接和 2px 品牌橙下划线表示当前页。父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态，禁止两个二级入口同时高亮。移动端四项一级导航仅为 DYDATA-5 未来信息架构，不新增现有运行时路由。</p>
+            <p>桌面侧栏使用线性图标和紧凑标签；二级导航不使用图标，以透明底、文字链接和 2px 品牌橙下划线表示当前页。父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态，禁止两个二级入口同时高亮。移动端使用四项底部一级导航。</p>
           </article>
           <article class="component-card">
-            <h3>BrowserFavicon / 浏览器标签图标</h3>
+            <h3>浏览器标签图标（BrowserFavicon）</h3>
             <div class="favicon-contract-grid">
               <div class="browser-tab-demo">
                 <div class="browser-tab-demo__title">
@@ -5397,11 +5358,11 @@
             <p>应用界面支持浅色与深色；浏览器标签图标使用已版本化的静态品牌资产，并同步更新 <code>theme-color</code>。业务界面图标仍必须通过 SolarIcon；图形或配色变化时必须更换 favicon 文件名，避免缓存继续显示旧版本。</p>
           </article>
           <article class="component-card component-card--wide">
-            <h3>ContentPresenter / 用户可见值</h3>
+            <h3>用户可见值（ContentPresenter）</h3>
             <div class="copy-contract-grid">
               <div class="copy-contract-example">
                 <strong>禁止：内部值直出</strong>
-                <span>fulfilling · protected · orders · sale_time · open api returned 0 rows</span>
+                <span>内部枚举值 · 数据库字段名 · 表名 · 接口原始错误</span>
                 <small>工程字段、生产枚举、后端错误和未知原值不能进入用户界面。</small>
               </div>
               <div class="copy-contract-example correct">
@@ -5413,12 +5374,12 @@
             <p>内部生产值不得直接展示。统一通过 <code>apps/web/src/utils/userFacingLabels.ts</code> 转换；POI、SKU 等必要缩写首次出现时补充中文含义。</p>
           </article>
           <article class="component-card component-card--wide">
-            <h3>TertiaryNav / 三级导航</h3>
+            <h3>三级导航（TertiaryNav）</h3>
             <div class="tertiary-nav-showcase">
               <section class="tertiary-nav-context" aria-labelledby="tertiary-settlement-title">
                 <div class="tertiary-nav-context__heading">
                   <strong id="tertiary-settlement-title">页面型 · 结算数据</strong>
-                  <span>二级工作区合并后，三级入口仍保持独立 URL。</span>
+                  <span>二级工作区合并后，三级入口仍保持独立网址。</span>
                 </div>
                 <nav class="tertiary-nav" aria-label="结算数据子页面">
                   <a class="tertiary-nav__item" href="/settlement/ranking" aria-current="page">全国门店榜单</a>
@@ -5442,8 +5403,8 @@
                 <strong>组件状态</strong>
                 <div class="tertiary-nav-state-row">
                   <a class="tertiary-nav__item" href="/preview/tertiary/default">默认</a>
-                  <a class="tertiary-nav__item is-hover" href="/preview/tertiary/hover">Hover</a>
-                  <a class="tertiary-nav__item is-focus" href="/preview/tertiary/focus">Focus</a>
+                  <a class="tertiary-nav__item is-hover" href="/preview/tertiary/hover">悬停</a>
+                  <a class="tertiary-nav__item is-focus" href="/preview/tertiary/focus">聚焦</a>
                   <a class="tertiary-nav__item" href="/preview/tertiary/current" aria-current="page">当前</a>
                   <span class="tertiary-nav__item is-disabled" aria-disabled="true">禁用</span>
                 </div>
@@ -5458,21 +5419,21 @@
                 </nav>
               </section>
             </div>
-            <p>三级导航只承载稳定子页面；筛选条件使用 FilterChip，临时展示模式使用 segmented control。普通页面随内容滚动，明细工作台通过内部表格滚动自然保持可见。</p>
+            <p>三级导航只承载稳定子页面；筛选条件使用筛选标签，临时展示模式使用分段选择器。普通页面随内容滚动，明细工作台通过内部表格滚动自然保持可见。</p>
           </article>
           <article class="component-card">
-            <h3>Elevation / 层级与阴影</h3>
+            <h3>层级与阴影（Elevation）</h3>
             <div class="elevation-scale">
-              <div class="elevation-sample level-0"><strong>Level 0</strong><span>表格单元格、Chip<br>仅使用边线</span></div>
-              <div class="elevation-sample level-1"><strong>Level 1</strong><span>卡片、筛选面板<br>shadowCard</span></div>
-              <div class="elevation-sample level-2"><strong>Level 2</strong><span>下拉、Combobox<br>shadowPopover</span></div>
-              <div class="elevation-sample level-3"><strong>Level 3</strong><span>Dialog、ConfirmDialog<br>shadowDialog</span></div>
-              <div class="elevation-sample level-4"><strong>Level 4</strong><span>线索跟进工作台<br>shadowWorkbench</span></div>
+              <div class="elevation-sample level-0"><strong>层级 0</strong><span>表格单元格、标签<br>仅使用边线</span></div>
+              <div class="elevation-sample level-1"><strong>层级 1</strong><span>卡片、筛选面板<br>卡片阴影</span></div>
+              <div class="elevation-sample level-2"><strong>层级 2</strong><span>下拉、可检索组合框<br>浮层阴影</span></div>
+              <div class="elevation-sample level-3"><strong>层级 3</strong><span>弹层、确认弹层<br>弹层阴影</span></div>
+              <div class="elevation-sample level-4"><strong>层级 4</strong><span>线索跟进工作台<br>工作台阴影</span></div>
             </div>
             <p>所有提升层配合 1px 边线，阴影仅使用中性黑透明值。品牌橙只表达交互和选中，不承担投影颜色。</p>
           </article>
           <article class="component-card component-card--wide">
-            <h3>Dialog / ConfirmDialog</h3>
+            <h3>弹层与确认弹层（Dialog / ConfirmDialog）</h3>
             <div class="dialog-preview-grid">
               <div class="dialog-backdrop-demo">
                 <div class="dialog-demo" role="dialog" aria-modal="true" aria-labelledby="dialog-demo-title">
@@ -5504,8 +5465,8 @@
               </div>
             </div>
             <ul class="dialog-rule-list">
-              <li>Dialog 统一提供 focus trap、Esc 关闭、关闭后回焦和背景 inert。</li>
-              <li>ConfirmDialog 用于删除、权限变更、批量或不可逆操作；取消按钮保留并优先聚焦。</li>
+              <li>弹层统一提供焦点循环、Esc 关闭、关闭后回焦和背景隔离。</li>
+              <li>确认弹层用于删除、权限变更、批量或不可逆操作；取消按钮保留并优先聚焦。</li>
             </ul>
           </article>
         </div>
@@ -5525,11 +5486,11 @@
             <ul class="icon-rule-list">
               <li>项目唯一 UI 图标库为 <code>@iconify/react</code> + <code>@iconify-icons/solar</code>。</li>
               <li>业务代码统一通过 <code>apps/web/src/components/SolarIcon.tsx</code> 引用，不在页面里临时手写 SVG。</li>
-              <li>默认变体为 Solar <code>linear</code>；查看、复制、退出、设置、详情等操作图标都走 linear。</li>
-              <li><code>bold-duotone</code> 只用于移动底部导航激活态、一级导航强调、品牌或模块入口。</li>
+              <li>默认使用 Solar 线性样式 <code>linear</code>；查看、复制、退出、设置、详情等操作均使用该样式。</li>
+              <li>双色粗体样式 <code>bold-duotone</code> 只用于移动底部导航激活态、一级导航强调、品牌或模块入口。</li>
               <li>同一语义有普通态和强调态时，在 <code>SolarIcon.tsx</code> 中拆成 <code>cluesLine</code> / <code>clues</code> 这类明确名称。</li>
-              <li>icon-only 控件必须提供可访问名称；装饰图标用 <code>aria-hidden</code>。</li>
-              <li>规范页示例也必须引用与 <code>SolarIcon.tsx</code> 同名的 Solar symbol，不允许文本字形、CSS 箭头或重复手写 path。</li>
+              <li>纯图标控件必须提供可访问名称；装饰图标使用 <code>aria-hidden</code>。</li>
+              <li>规范页示例也必须引用与 <code>SolarIcon.tsx</code> 同名的 Solar 图标符号，不允许文本字形、CSS 箭头或重复手写路径。</li>
             </ul>
           </article>
           <article class="component-card">
@@ -5561,59 +5522,59 @@
           <article class="component-card">
             <h3>Solar 图标选择矩阵</h3>
             <div class="icon-style-note">
-              <span>默认用 linear；只有主导航激活态、品牌入口和模块入口可以用 bold-duotone。</span>
-              <code>linear first</code>
+              <span>默认使用线性样式；只有主导航激活态、品牌入口和模块入口可以使用双色粗体样式。</span>
+              <code>优先使用线性样式</code>
             </div>
             <div class="icon-choice-grid">
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
                 <strong>查看</strong>
-                <span>linear · 表格动作</span>
+                <span>线性 · 表格动作</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eyeClosed" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eyeClosed"></use></svg>
                 <strong>隐藏</strong>
-                <span>linear · 显隐切换</span>
+                <span>线性 · 显隐切换</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="copy" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-copy"></use></svg>
                 <strong>复制</strong>
-                <span>linear · 快捷动作</span>
+                <span>线性 · 快捷动作</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="filter" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-filter"></use></svg>
                 <strong>筛选</strong>
-                <span>linear · 面板开关</span>
+                <span>线性 · 面板开关</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample solar-icon-sample--up" aria-hidden="true" data-solar-icon="chevronDown" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-chevronDown"></use></svg>
                 <strong>收起</strong>
-                <span>linear · 展开区底部</span>
+                <span>线性 · 展开区底部</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="rules" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-rules"></use></svg>
                 <strong>设置</strong>
-                <span>linear · 用户操作</span>
+                <span>线性 · 用户操作</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="logout" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-logout"></use></svg>
                 <strong>退出</strong>
-                <span>linear · 用户操作</span>
+                <span>线性 · 用户操作</span>
               </div>
               <div class="icon-choice-item emphasis" style="--icon-size: 24px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="clues" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-clues"></use></svg>
                 <strong>线索</strong>
-                <span>duotone · 激活导航</span>
+                <span>双色粗体 · 激活导航</span>
               </div>
               <div class="icon-choice-item" style="--icon-size: 20px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="ranking" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-ranking"></use></svg>
                 <strong>看板</strong>
-                <span>linear · 一级看板导航</span>
+                <span>线性 · 一级看板导航</span>
               </div>
               <div class="icon-choice-item emphasis" style="--icon-size: 24px">
                 <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="admin" data-icon-variant="bold-duotone" viewBox="0 0 24 24"><use href="#solar-icon-admin"></use></svg>
                 <strong>后台</strong>
-                <span>duotone · 一级导航</span>
+                <span>双色粗体 · 一级导航</span>
               </div>
             </div>
             <p>矩阵只定义语义选择；业务实现仍通过 <code>SolarIcon.tsx</code> 注册名称后引用。</p>
@@ -5621,199 +5582,83 @@
         </div>
       </section>
 
-      <section class="section" id="charts">
+      <section class="section" id="chart-gallery">
         <div class="section-head">
           <div>
-            <h2>ChartFigure / 数据图表</h2>
-            <p>图表先回答业务问题，再选择数据形状；标题、图形、解释条与口径必须组成一个完整 Figure。</p>
+            <h2>图表规范与候选库</h2>
+            <p>本图表库是业务图表唯一的视觉来源。业务页面先从候选规范中选型，再映射真实数据、中文文案和 dy-data 语义色，不再单独发明图形样式。</p>
           </div>
-          <code>question -&gt; shape -&gt; figure -&gt; inspect</code>
+          <code>候选规范 -&gt; 业务映射 -&gt; ChartFigure</code>
+        </div>
+        <div class="chart-gallery-shell">
+          <div class="chart-gallery-toolbar">
+            <p>按阅读任务选择候选族，再按标题与说明检索具体样式；深浅主题跟随本规范页。</p>
+            <a class="button-like secondary" data-chart-gallery-open href="./chart-gallery/lupi-gallery.html?palette=coral&amp;theme=light&amp;v=20260727-1" target="_blank" rel="noreferrer">独立打开当前图库</a>
+          </div>
+          <div class="chart-method-note">
+            <span>
+              <strong>唯一视觉来源。</strong>
+              业务实现必须记录选用的候选族与候选名称，并保留候选的几何、交互和动效；只替换业务数据、中文信息和 <code>--chart-*</code> 配色。图库中没有合适样式时，应先补充候选规范，不得直接在业务页面创建另一套图形语言。
+            </span>
+            <code>先选候选，再写业务图表</code>
+          </div>
+          <div class="chart-gallery-controls">
+            <div class="gallery-search">
+              <label for="chart-gallery-search"><span>检索图表样式</span><input id="chart-gallery-search" type="search" placeholder="例如：趋势、分布、关系、排名" autocomplete="off" /></label>
+              <output id="chart-gallery-count">正在读取图库…</output>
+            </div>
+            <div class="chart-gallery-tabs" role="group" aria-label="图表图库">
+              <button type="button" aria-pressed="true" data-chart-gallery-page="lupi-gallery.html">Lupi 系（细读）· 15</button>
+              <button type="button" aria-pressed="false" data-chart-gallery-page="basics-gallery.html">基础图表 · 12</button>
+              <button type="button" aria-pressed="false" data-chart-gallery-page="glance-gallery.html">Glance 系（快读）· 18</button>
+            </div>
+          </div>
+          <iframe class="chart-gallery-frame" data-chart-gallery-frame data-gallery-page="lupi-gallery.html" loading="lazy" src="./chart-gallery/lupi-gallery.html?palette=coral&amp;theme=light&amp;v=20260727-1" title="dy-data 图表样式图库"></iframe>
         </div>
 
-        <div class="chart-method-note">
-          <span>
-            <strong>直接接入已实现图表。</strong>
-            月度趋势直接采用本地 <code>lieflat-charts</code> 的 <code>G8 Rainfall Dual Area</code> ECharts option 结构，周期分布直接采用 <code>G15 Jitter Strip</code>；只替换 dy-data 数据、中文文案和 <code>--chart-*</code> 品牌配色。模板采用 PolyForm Noncommercial 1.0.0，复用范围与许可条件记录于第三方声明。
-          </span>
-          <code>ECharts option integration</code>
-        </div>
-
-        <div class="chart-reading-grid" aria-label="图表阅读层级">
+        <div class="chart-reading-grid" aria-label="候选图表族的使用边界">
           <article class="chart-reading-card">
-            <span>Operational · 3-10 秒</span>
-            <strong>运营快读</strong>
-            <p>用于看板监控与异常发现。一个图只表达一个结论，默认直接标出重点值。</p>
+            <span>3-10 秒 · 看板快读</span>
+            <strong>Glance 系（快读）</strong>
+            <p>用于看板监控、趋势判断和异常发现。一个图只表达一个结论，优先直接标出重点值。</p>
           </article>
           <article class="chart-reading-card">
-            <span>Analytical · 20-60 秒</span>
-            <strong>分析细读</strong>
-            <p>用于分布、前后变化和多维比较。允许注释、范围与固定解释条，但不堆叠装饰。</p>
+            <span>常规分析 · 通用结构</span>
+            <strong>基础图表</strong>
+            <p>用于趋势、比较、构成、分布等常规任务。优先选择用户熟悉、阅读成本低的图形结构。</p>
           </article>
           <article class="chart-reading-card">
-            <span>Specialist · 独立页面</span>
-            <strong>专项关系</strong>
-            <p>网络、流向和高密度关系只进入专用分析页，且必须对应明确的用户问题。</p>
+            <span>20-60 秒 · 分析细读</span>
+            <strong>Lupi 系（细读）</strong>
+            <p>用于高密度比较、分布和关系分析。允许更丰富的注释与交互，但必须对应明确的业务问题。</p>
           </article>
-        </div>
-
-        <div class="chart-figure-grid">
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">运营快读 · 月度趋势</span>
-              <h3>核销量连续三个月上升，但仍低于下单量</h3>
-              <p>2026-01 至 2026-06 · 全部门店 · 同一纵轴</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div
-                id="design-rainfall-chart"
-                class="chart-echarts-demo chart-echarts-demo--rainfall"
-                aria-label="月度下单与核销趋势。上方雨柱为下单量，下方品牌橙流线为核销量。"
-                role="img"
-              ></div>
-            </div>
-            <div class="chart-inspector-demo" role="status" aria-live="polite">
-              <span>悬浮图表查看月份明细；点击数据可锁定提示</span>
-            </div>
-            <p class="chart-figure__source">来源：订单与核销明细 · 口径：按下单月份统计；支付取消不计入下单量</p>
-          </article>
-
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">运营快读 · 排名</span>
-              <h3>前两家门店贡献了近一半核销量</h3>
-              <p>当前筛选范围 · 前 5 家门店</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div class="chart-bar-list" aria-label="门店核销量排名">
-                <button class="chart-bar-row is-selected" type="button" aria-pressed="true"><span>精诚杭州店</span><span class="chart-bar-track"><i class="chart-bar-fill" style="--bar-size: 100%"></i></span><strong>421</strong></button>
-                <button class="chart-bar-row" type="button" aria-pressed="false"><span>比亚迪海洋店</span><span class="chart-bar-track"><i class="chart-bar-fill" style="--bar-size: 82%"></i></span><strong>346</strong></button>
-                <button class="chart-bar-row" type="button" aria-pressed="false"><span>精诚宁波店</span><span class="chart-bar-track"><i class="chart-bar-fill" style="--bar-size: 64%"></i></span><strong>269</strong></button>
-                <button class="chart-bar-row" type="button" aria-pressed="false"><span>王朝绍兴店</span><span class="chart-bar-track"><i class="chart-bar-fill" style="--bar-size: 51%"></i></span><strong>214</strong></button>
-                <button class="chart-bar-row" type="button" aria-pressed="false"><span>精诚湖州店</span><span class="chart-bar-track"><i class="chart-bar-fill" style="--bar-size: 39%"></i></span><strong>164</strong></button>
-              </div>
-            </div>
-            <div class="chart-inspector-demo" role="status"><strong>精诚杭州店</strong><b>421 单</b><span>占全部核销量 26.4%</span></div>
-            <p class="chart-figure__source">横向条形图最多展示 8 个可见类别；名称不得截断到无法辨认。</p>
-          </article>
-
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">分析细读 · 前后对比</span>
-              <h3>规则调整后，三类商品核销率均提升</h3>
-              <p>调整前 vs 调整后 · 百分比</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div class="chart-dumbbell-list" aria-label="商品核销率前后对比">
-                <div class="chart-dumbbell-row"><span>保养服务</span><span class="chart-dumbbell-track" style="--from: 34%; --to: 72%"><i class="chart-dumbbell-dot from"></i><i class="chart-dumbbell-dot to"></i></span><strong>+38pp</strong></div>
-                <div class="chart-dumbbell-row"><span>洗美服务</span><span class="chart-dumbbell-track" style="--from: 41%; --to: 66%"><i class="chart-dumbbell-dot from"></i><i class="chart-dumbbell-dot to"></i></span><strong>+25pp</strong></div>
-                <div class="chart-dumbbell-row"><span>精品汽车</span><span class="chart-dumbbell-track" style="--from: 28%; --to: 49%"><i class="chart-dumbbell-dot from"></i><i class="chart-dumbbell-dot to"></i></span><strong>+21pp</strong></div>
-                <div class="chart-dumbbell-row"><span>轮胎服务</span><span class="chart-dumbbell-track" style="--from: 52%; --to: 63%"><i class="chart-dumbbell-dot from"></i><i class="chart-dumbbell-dot to"></i></span><strong>+11pp</strong></div>
-              </div>
-            </div>
-            <div class="chart-inspector-demo"><span>灰点为调整前</span><span>橙点为调整后</span><strong>差值使用百分点</strong></div>
-            <p class="chart-figure__source">前后对比不超过 6 类；比较基准和单位必须写在副标题或口径中。</p>
-          </article>
-
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">运营快读 · 构成</span>
-              <h3>直营门店贡献过半核销量</h3>
-              <p>门店类型构成 · 100%</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div class="chart-composition" aria-label="核销量门店类型构成">
-                <div class="chart-composition__bar" aria-hidden="true"><span></span><span></span><span></span></div>
-                <div class="chart-composition__labels">
-                  <span><strong>54%</strong>直营门店</span>
-                  <span><strong>29%</strong>授权门店</span>
-                  <span><strong>17%</strong>其他门店</span>
-                </div>
-              </div>
-            </div>
-            <div class="chart-inspector-demo"><strong>直营门店</strong><b>54%</b><span>1,242 单</span></div>
-            <p class="chart-figure__source">构成不超过 5 部分；需要精确比较时改用条形图，不依赖面积猜数。</p>
-          </article>
-
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">分析细读 · 分布</span>
-              <h3>轮胎服务核销周期波动最大</h3>
-              <p>每个点代表一笔真实订单 · 四分位和中位数作为辅助标尺</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div
-                id="design-jitter-chart"
-                class="chart-echarts-demo chart-echarts-demo--jitter"
-                aria-label="不同商品类型核销周期点阵。每个点代表一笔真实订单。"
-                role="img"
-              ></div>
-            </div>
-            <div class="chart-inspector-demo"><span>悬浮订单点查看核销周期；点击数据可锁定提示</span></div>
-            <p class="chart-figure__source">点阵优先展示真实记录与密度；四分位只是辅助，不再让传统箱体成为主视觉。</p>
-          </article>
-
-          <article class="chart-figure">
-            <header class="chart-figure__head">
-              <span class="chart-figure__eyebrow">分析细读 · 矩阵</span>
-              <h3>周末下午是核销高峰</h3>
-              <p>星期 × 时段 · 每格为真实订单数</p>
-            </header>
-            <div class="chart-figure__plot">
-              <div class="chart-heatmap" aria-label="星期和时段核销热力图">
-                <span></span><span class="chart-heatmap__label">周一</span><span class="chart-heatmap__label">周二</span><span class="chart-heatmap__label">周三</span><span class="chart-heatmap__label">周四</span><span class="chart-heatmap__label">周五</span><span class="chart-heatmap__label">周末</span>
-                <span class="chart-heatmap__label">上午</span><span class="chart-heatmap__cell" style="--heat: 18%">18</span><span class="chart-heatmap__cell" style="--heat: 22%">22</span><span class="chart-heatmap__cell" style="--heat: 28%">28</span><span class="chart-heatmap__cell" style="--heat: 31%">31</span><span class="chart-heatmap__cell" style="--heat: 43%">43</span><span class="chart-heatmap__cell" style="--heat: 52%">52</span>
-                <span class="chart-heatmap__label">下午</span><span class="chart-heatmap__cell" style="--heat: 32%">32</span><span class="chart-heatmap__cell" style="--heat: 38%">38</span><span class="chart-heatmap__cell" style="--heat: 42%">42</span><span class="chart-heatmap__cell" style="--heat: 48%">48</span><span class="chart-heatmap__cell" style="--heat: 62%" data-strong="true">62</span><span class="chart-heatmap__cell" style="--heat: 84%" data-strong="true">84</span>
-                <span class="chart-heatmap__label">晚间</span><span class="chart-heatmap__cell" style="--heat: 14%">14</span><span class="chart-heatmap__cell" style="--heat: 18%">18</span><span class="chart-heatmap__cell" style="--heat: 21%">21</span><span class="chart-heatmap__cell" style="--heat: 24%">24</span><span class="chart-heatmap__cell" style="--heat: 36%">36</span><span class="chart-heatmap__cell" style="--heat: 46%">46</span>
-              </div>
-            </div>
-            <div class="chart-inspector-demo"><strong>周末 · 下午</strong><b>84 单</b><span>全矩阵最高</span></div>
-            <p class="chart-figure__source">热力图必须同时提供数值或可访问替代；颜色深浅不能成为唯一信息。</p>
-          </article>
-        </div>
-
-        <div class="table-preview-wrap" style="margin-top: 18px">
-          <table class="decision-table">
-            <thead><tr><th>业务问题</th><th>数据形状</th><th>优先图型</th><th>边界</th></tr></thead>
-            <tbody>
-              <tr><td>随时间如何变化？</td><td>有序时间序列</td><td>折线 / 面积</td><td>至少 8 个有效点；多序列尽量直接标注。</td></tr>
-              <tr><td>谁高谁低？</td><td>类别比较</td><td>横向条形 / 排名</td><td>可见类别不超过 8 个；长名称保持完整。</td></tr>
-              <tr><td>调整前后差多少？</td><td>同类双值</td><td>哑铃 / 坡度</td><td>类别不超过 6 个；写清基准和单位。</td></tr>
-              <tr><td>整体由什么构成？</td><td>总量的部分</td><td>100% 堆叠条 / 紧凑方格</td><td>部分不超过 5 个；精确比较改用条形图。</td></tr>
-              <tr><td>数据集中还是分散？</td><td>连续值分布</td><td>范围 / 箱线 / 抖动点</td><td>同时展示样本量；异常点不得静默删除。</td></tr>
-              <tr><td>两维组合哪里突出？</td><td>类别矩阵</td><td>热力图</td><td>显示数值或可访问替代，不只靠颜色。</td></tr>
-              <tr><td>增减由什么造成？</td><td>加减驱动</td><td>瀑布</td><td>驱动阶段不超过 6 个，起点和总计明确。</td></tr>
-              <tr><td>流程在哪一步流失？</td><td>真实顺序阶段</td><td>漏斗 / 阶段条</td><td>只用于有明确先后关系的阶段，禁止伪漏斗。</td></tr>
-            </tbody>
-          </table>
         </div>
 
         <div class="chart-rule-grid">
           <article class="chart-rule-panel">
-            <h3>颜色与视觉质感</h3>
+            <h3>候选选型与业务接入</h3>
             <ul class="rule-list">
-              <li><strong>默认组合：</strong>品牌深橙 + 黑白灰阶；蓝、绿、黄、红只在数据本身具有信息、成功、警告、错误语义时使用。</li>
-              <li><strong>轻结构：</strong>网格使用 <code>--chart-grid</code>，轴线使用 <code>--chart-axis</code>；不使用装饰性多色渐变、发光和厚重阴影。面积图允许使用同一序列颜色的透明度渐隐表达范围。</li>
-              <li><strong>完整 Figure：</strong>标题、副标题、图形、解释条和来源属于同一白底边框表面，不再在卡片内嵌套卡片。</li>
+              <li><strong>先写问题：</strong>明确用户要判断趋势、比较、分布、构成还是关系，再从图库检索候选，不从图形名称反推需求。</li>
+              <li><strong>记录来源：</strong>业务实现和评审记录必须写明候选族与候选名称；同一候选可以替换数据，不得改造成无法回溯的页面私有样式。</li>
+              <li><strong>保持结构：</strong>保留候选的几何、交互和动效，只替换业务数据、中文文案及 dy-data 的 <code>--chart-*</code> 语义色。</li>
+              <li><strong>先入库再使用：</strong>图库没有合适候选时，先补充候选规范、适用边界和可访问性说明，再进入业务页面。</li>
             </ul>
-            <div class="chart-semantic-row" aria-label="图表语义颜色">
-              <span class="chart-semantic-chip" style="--chip-color: var(--chart-primary)">主序列</span>
-              <span class="chart-semantic-chip" style="--chip-color: var(--chart-info)">信息比较</span>
-              <span class="chart-semantic-chip" style="--chip-color: var(--chart-positive)">成功核销</span>
-              <span class="chart-semantic-chip" style="--chip-color: var(--chart-warning)">风险阈值</span>
-              <span class="chart-semantic-chip" style="--chip-color: var(--chart-danger)">失败损失</span>
-            </div>
           </article>
           <article class="chart-rule-panel">
-            <h3>标注、交互与动效</h3>
+            <h3>ChartFigure 运行时外壳</h3>
             <ul class="rule-list">
-              <li><strong>结论先行：</strong>标题陈述发现或决策含义，不只重复“月度趋势”“销售金额”等指标名。</li>
-              <li><strong>直接标注：</strong>能在图尾或数据旁写清名称和数值时，不额外增加图例；单位始终可见。</li>
-              <li><strong>稳定解释条：</strong>悬浮和键盘聚焦展示相同信息；点击或 Enter 锁定，解释条位置固定并通过 <code>aria-live</code> 宣读。</li>
-              <li><strong>克制动效：</strong>业务微交互使用 160-240ms；图表首次揭示可沿用模板定义的 450ms / 1200ms 动画，但不得循环播放，并在 <code>prefers-reduced-motion</code> 下关闭。</li>
+              <li><strong>结论先行：</strong>标题陈述发现或决策含义，副标题写清范围、时间和单位，不只重复指标名。</li>
+              <li><strong>完整单元：</strong>标题、副标题、候选图形、固定解释条和来源口径属于同一白底表面，不在卡片内继续嵌套卡片。</li>
+              <li><strong>同等信息：</strong>悬浮与键盘聚焦展示相同内容；点击或按回车可锁定，固定解释条通过 <code>aria-live</code> 宣读。</li>
+              <li><strong>键盘路径：</strong>方向键切换数据点，Enter 或空格锁定当前详情，Esc 清除锁定；图形容器只提供简洁中文名称，不向读屏批量暴露内部订单号、坐标或调试信息。</li>
+              <li><strong>可读下限：</strong>主要标签不低于 12px，来源和紧凑元信息不低于 11px；坐标文字达到 WCAG AA，关键数据标记与背景至少保持 3:1 对比度。</li>
+              <li><strong>统一入口：</strong>业务页面不得直接导入 ECharts 或私有绘制 SVG/Canvas；候选元数据、主题、提示框和字号统一由 <code>EChartsFigure</code> 与 <code>--chart-*</code> token 管理。</li>
+              <li><strong>响应与动效：</strong>移动端保持核心结论和可操作数据，禁止横向压缩桌面图；动效遵循候选定义并在 <code>prefers-reduced-motion</code> 下关闭。</li>
             </ul>
           </article>
         </div>
       </section>
+
 
       <section class="section" id="table-sticky">
         <div class="section-head">
@@ -5825,8 +5670,8 @@
         </div>
         <div class="sticky-demo-shell">
           <div class="sticky-offset-demo">
-            <span>产品页桌面端使用顶部栏避让：action bar 58px + gap 8px；明细工作台把滚动限制在结果表格容器内。移动端 top subnav 为 DYDATA-5 未来范围，不是现有运行时行为。</span>
-            <strong>表格容器内部：thead top 0</strong>
+            <span>产品页桌面端为顶部操作栏预留 58px，并保留 8px 间距；明细工作台把滚动限制在结果表格容器内。移动端顶部二级导航独立保留。</span>
+            <strong>表格容器内部：表头顶部偏移为 0</strong>
           </div>
           <div
             class="table-preview-wrap table-preview-wrap--sticky"
@@ -5913,7 +5758,7 @@
           <div class="table-state-grid">
             <div class="table-state-card">
               <strong>标准表格</strong>
-              <p>桌面长列表优先使用 DataTable：表头、行高、单元格 padding、行 hover 和行操作统一。</p>
+              <p>桌面长列表优先使用数据表格组件：表头、行高、单元格内边距、行悬停和行操作统一。</p>
               <div class="table-action-group">
                 <button class="icon-button-demo compact" type="button" aria-label="查看详情">
                   <svg class="icon-svg solar-icon-sample" aria-hidden="true" data-solar-icon="eye" data-icon-variant="linear" viewBox="0 0 24 24"><use href="#solar-icon-eye"></use></svg>
@@ -5940,7 +5785,7 @@
                 <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
                 <div class="skeleton-row-demo"><span></span><span></span><span></span></div>
               </div>
-              <p>骨架形状跟最终行结构一致，不使用脱离上下文的居中圆形 loading。</p>
+              <p>骨架形状跟最终行结构一致，不使用脱离上下文的居中圆形加载提示。</p>
             </div>
             <div class="table-state-card">
               <strong>移动端卡片映射</strong>
@@ -5954,7 +5799,7 @@
             </div>
           </div>
           <div class="table-pagination-spec">
-            <h3>TablePagination / DataPager</h3>
+            <h3>表格分页（TablePagination / DataPager）</h3>
             <div class="table-pagination-demo" aria-label="桌面表格分页组件示意">
               <div class="table-pagination-demo__info">
                 <strong>显示 1-50 / 共 22,332 条</strong>
@@ -5978,7 +5823,7 @@
             <div class="table-pagination-demo table-pagination-demo--mobile" aria-label="移动端表格分页组件示意">
               <div class="table-pagination-demo__info">
                 <strong>显示 1-20 / 共 22,332 条</strong>
-                <span>DYDATA-5 未来移动端保留页码输入，按 Enter 跳转，不额外放跳转按钮。</span>
+                <span>移动端保留页码输入，按回车键跳转，不额外放置跳转按钮。</span>
               </div>
               <div class="table-pagination-demo__controls">
                 <button class="button-like table-pagination-demo__button is-disabled" type="button" disabled>上一页</button>
@@ -5991,7 +5836,7 @@
               </div>
             </div>
             <p class="table-pagination-demo__note">
-              分页属于结果区，不放进表格滚动容器；页码输入只允许 1 到总页数之间的正整数，Enter 或“跳转”执行；按钮使用统一 Button 状态，禁用、加载和焦点态必须完整。
+              分页属于结果区，不放进表格滚动容器；页码输入只允许 1 到总页数之间的正整数，按回车键或“跳转”执行；按钮使用统一按钮状态，禁用、加载和焦点态必须完整。
             </p>
           </div>
         </div>
@@ -6001,9 +5846,9 @@
         <div class="section-head">
           <div>
             <h2>移动端线索卡片</h2>
-            <p>DYDATA-5 未来移动端不横向滚宽表，优先展示足够判断和操作的字段；本样例不是现有运行时行为。</p>
+            <p>移动端不横向滚动宽表，优先展示足够判断和操作的字段，并将其映射为记录卡片。</p>
           </div>
-          <code>touch target: 44px</code>
+          <code>触控目标：44px</code>
         </div>
         <div class="grid grid-2">
           <article class="mobile-card-demo">
@@ -6047,7 +5892,7 @@
         <div class="section-head">
           <div>
             <h2>线索跟进详情工作台浮层</h2>
-            <p>这是线索中心的特殊浮层：桌面尽量接近全屏，承载联系方式、商品订单、分配轮次历史和当前跟进操作；移动端近全屏单列工作台为 DYDATA-5 未来范围。</p>
+            <p>这是线索中心的特殊浮层：桌面尽量接近全屏，承载联系方式、商品订单、分配轮次历史和当前跟进操作；移动端使用近全屏单列工作台。</p>
           </div>
           <code>width: min(1440px, 100vw - 48px)</code>
         </div>
@@ -6179,7 +6024,7 @@
                     <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>线索战败</div>
                     <div class="clue-radio-item"><span class="clue-radio-dot" aria-hidden="true"></span>跟进成功</div>
                   </div>
-                  <div class="clue-note-box">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                  <div class="clue-note-box">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过处理时限后仍会进入超期失效。</div>
                   <button class="button-like primary" type="button">保存跟进</button>
                 </section>
               </aside>
@@ -6204,12 +6049,12 @@
           <div class="panel">
             <h3>使用边界</h3>
             <ul class="rule-list" style="margin-top: 12px">
-              <li><strong>店端：</strong>历史门店只显示本店/其他门店，不展示内部轮次 ID。</li>
+              <li><strong>店端：</strong>历史门店只显示本店/其他门店，不展示内部轮次编号。</li>
               <li><strong>管理端：</strong>后续可加排查信息折叠区，但不放进店端默认视图。</li>
             </ul>
           </div>
           <div class="panel">
-            <h3>DYDATA-5 移动端顺序</h3>
+            <h3>移动端内容顺序</h3>
             <ol class="clue-mobile-order" style="margin-top: 12px">
               <li>先显示线索状态和号码操作，确保店员能马上判断是否可联系。</li>
               <li>紧接跟进操作，当前轮次不可操作时整块禁用并说明原因。</li>
@@ -6223,10 +6068,10 @@
       <section class="section" id="clue-followup-mobile-detail">
         <div class="section-head">
           <div>
-            <h2>DYDATA-5 移动端线索详情</h2>
-            <p>这是 DYDATA-5 的未来单列任务页，不复用桌面双栏浮层；它不代表现有运行时行为。</p>
+            <h2>移动端线索详情</h2>
+            <p>移动端使用独立的单列任务页，不复用桌面双栏浮层。</p>
           </div>
-          <code>future: DYDATA-5 mobile task page</code>
+          <code>移动端单列任务页</code>
         </div>
         <div class="mobile-detail-preview-grid">
           <article class="mobile-clue-detail-demo" aria-label="移动端线索详情样张">
@@ -6267,7 +6112,7 @@
                   <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>线索战败</div>
                   <div class="mobile-clue-detail-demo__radio"><span class="mobile-clue-detail-demo__radio-dot" aria-hidden="true"></span>跟进成功</div>
                 </div>
-                <div class="mobile-clue-detail-demo__note">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过 SLA 后仍会进入超期失效。</div>
+                <div class="mobile-clue-detail-demo__note">输入本次跟进结论或备注。未接通也算产生跟进行为，但超过处理时限后仍会进入超期失效。</div>
                 <button class="button-like primary mobile-clue-detail-demo__save" type="button">保存本次跟进</button>
               </section>
 
@@ -6328,7 +6173,7 @@
           </article>
 
           <div class="panel">
-            <h3>DYDATA-5 移动端实现规则</h3>
+            <h3>移动端实现规则</h3>
             <ul class="mobile-detail-spec-list" style="margin-top: 12px">
               <li><strong>单列任务流：</strong>移动端独立实现，不把桌面右侧操作栏提前塞进同一个浮层布局。</li>
               <li><strong>首屏判断：</strong>手机号、查看/复制、线索状态和当前轮次必须在首屏最前面。</li>
@@ -6343,9 +6188,9 @@
         <div class="section-head">
           <div>
             <h2>页面骨架</h2>
-            <p>桌面页面使用统一阅读顺序；移动端样例属于 DYDATA-5 未来信息架构，不代表现有运行时行为。</p>
+            <p>桌面与移动端分别使用适合其任务密度的统一页面结构。</p>
           </div>
-          <code>desktop runtime + future DYDATA-5 mobile</code>
+          <code>桌面结构 + 移动端结构</code>
         </div>
         <div class="desktop-template-stack" aria-label="桌面页面骨架样板">
           <div class="layout-preview">
@@ -6368,7 +6213,7 @@
               <div class="workspace-demo">
                 <div class="topbar-demo">
                   <strong>线索中心</strong>
-                  <span class="pill">system-admin</span>
+                  <span class="pill">系统管理员</span>
                 </div>
                 <div class="subnav-demo">
                   <span class="subnav-item active">线索看板</span>
@@ -6603,15 +6448,15 @@
 
         <aside class="desktop-template-note">
           <strong>桌面模板仅在 921px 以上展示。</strong>
-          DYDATA-5 规划移动页面模板；现有运行时不以此样例声明移动端信息架构。
+          较窄视口切换为下方的移动端页面结构。
         </aside>
 
         <div class="mobile-template-heading">
           <div>
-            <h3>DYDATA-5 未来移动明细页面模板</h3>
-            <p>顶部二级导航、折叠筛选、记录卡片、紧凑分页和四项底部一级导航构成未来任务流，不是现有运行时行为。</p>
+            <h3>移动端明细页面模板</h3>
+            <p>顶部二级导航、折叠筛选、记录卡片、紧凑分页和四项底部一级导航构成完整任务流。</p>
           </div>
-          <code>390: single · 768: dual</code>
+          <code>390px：单列 · 768px：双列</code>
         </div>
 
         <div class="mobile-template-stack">
@@ -6741,7 +6586,7 @@
         <div class="panel">
           <h3>明细工作台规则</h3>
           <ul class="rule-list" style="margin-top: 12px">
-            <li><strong>全局工作区：</strong>登录后的业务页面默认铺满 Shell 可用宽度，不再使用居中窄容器；具体阅读宽度由页面内卡片、表格或弹层自己控制。</li>
+            <li><strong>全局工作区：</strong>登录后的业务页面默认铺满应用壳层可用宽度，不再使用居中窄容器；具体阅读宽度由页面内卡片、表格或弹层自己控制。</li>
             <li><strong>桌面端：</strong>明细工作台用于线索明细、订单明细这类高密度长表；在全宽基础上增加高度 <code>calc(100vh - topbar)</code> 和内部滚动。</li>
             <li><strong>滚动归属：</strong>桌面外层页面不纵向滚动，只有结果表格区域上下滚动；移动端恢复自然页面滚动，卡片和分页按内容顺序排列。</li>
             <li><strong>筛选区：</strong>桌面优先单行密度；移动端使用折叠筛选、已选条件摘要和明确的“收起”操作。</li>
@@ -6754,105 +6599,105 @@
       <section class="section" id="decisions">
         <div class="section-head">
           <div>
-            <h2>决策记录</h2>
-            <p>这张表记录 V0.2 已生效的设计决策、运行时来源与后续边界。</p>
+            <h2>规范摘要</h2>
+            <p>汇总当前必须遵守的设计值、实现入口和适用范围。</p>
           </div>
-          <code>decision log</code>
+          <code>已生效规则</code>
         </div>
         <div class="table-preview-wrap">
           <table class="decision-table">
             <thead>
               <tr>
                 <th>领域</th>
-                <th>当前值</th>
+                <th>规范值</th>
                 <th>状态</th>
-                <th>后续动作</th>
+                <th>使用要求</th>
               </tr>
             </thead>
             <tbody>
               <tr>
                 <td>主色与状态色</td>
-                <td>brand #d63b00 / #fe5205 / #fff4ef；语义色保持 green / blue / amber / danger</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
-                <td>作为正式设计系统和运行时契约维护。</td>
+                <td>品牌色 #D63B00 / #FE5205 / #FFF4EF；语义色保持成功绿、信息蓝、警告琥珀和危险红</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>所有业务页面从正式颜色变量读取。</td>
               </tr>
               <tr>
                 <td>主题模式</td>
-                <td>system / light / dark；偏好持久化，解析结果写入 html[data-theme]</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
-                <td>所有页面消费同一套语义 token，不建立页面级暗色分支。</td>
+                <td>跟随系统 / 浅色 / 深色；偏好持久化，解析结果写入 <code>html[data-theme]</code></td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>所有页面消费同一套语义变量，不建立页面级暗色分支。</td>
               </tr>
               <tr>
                 <td>项目署名</td>
                 <td>POWERED BY + SPACE SVG + AI NATIVE；两侧文字使用 Ethnocentric Regular；仅用于 dy-data</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>通过共享组件覆盖侧栏、移动端“我的”、登录/授权和首页。</td>
               </tr>
               <tr>
                 <td>表头冻结</td>
-                <td>容器内 thead top 0；桌面 action bar 58px + gap 8px；移动 top subnav 独立保留</td>
-                <td><span class="status-chip success">已落地</span></td>
+                <td>容器内表头顶部偏移为 0；桌面顶部操作栏 58px + 间距 8px；移动端顶部二级导航独立保留</td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>长表优先放入明细工作台，避免外层页面和表格同时滚动。</td>
               </tr>
               <tr>
                 <td>明细工作台</td>
-                <td>桌面宽度 100%，高度 calc(100vh - topbar)，分页可见，表格区内部滚动</td>
-                <td><span class="status-chip success">已落地</span></td>
-                <td>适用于线索明细、订单明细；DYDATA-5 再实现移动端自然滚动和卡片/列表。</td>
+                <td>桌面宽度 100%，高度 <code>calc(100vh - topbar)</code>，分页可见，表格区内部滚动</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>适用于线索明细、订单明细；移动端恢复自然滚动并使用卡片或列表。</td>
               </tr>
               <tr>
                 <td>控件高度</td>
                 <td>桌面 38px，移动 44px</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
-                <td>逐步清理小于点击目标的文字按钮和 radio；移动端目标由 DYDATA-5 实现。</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>桌面小操作不小于 24px，移动端交互目标不小于 44px；单选项使用整行标签作为点击区域。</td>
               </tr>
               <tr>
                 <td>页面骨架</td>
-                <td>桌面样板为当前规范；移动端 top subnav / collapsible filters / record cards / compact pager / four-item bottom nav 属于 DYDATA-5</td>
-                <td><span class="status-chip pending">未来：DYDATA-5</span></td>
-                <td>不在 DYDATA-4 中实现移动端信息架构或业务页面迁移。</td>
+                <td>桌面使用顶部栏和高密度内容区；移动端使用顶部二级导航、折叠筛选、记录卡片、紧凑分页和四项底部一级导航</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>页面按视口和任务密度切换对应骨架，不把桌面宽表压缩到手机。</td>
               </tr>
               <tr>
                 <td>三级导航</td>
                 <td>页面标题下方的水平链接；2–5 项；桌面 38px，移动 44px；当前项为深橙文字和 2px 品牌橙下划线</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
-                <td>只用于稳定 URL 子页面，不用于筛选、临时视图或第四级导航。</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>只用于网址稳定的子页面，不用于筛选、临时视图或第四级导航。</td>
               </tr>
               <tr>
                 <td>二级导航</td>
                 <td>纯文字链接；桌面 38px，移动 44px；透明底和 2px 品牌橙当前页下划线</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>二级导航不使用图标；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；图标仅属于一级导航或明确操作。</td>
               </tr>
               <tr>
                 <td>筛选器收起操作</td>
                 <td>仅在筛选面板能够切换展开与收起状态时显示；当前线索筛选器为 640px 以下</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>桌面常驻筛选栏始终展开，不显示无效的“收起筛选”按钮。</td>
               </tr>
               <tr>
-                <td>KPI 指标卡</td>
-                <td>统一白底、8px 圆角、细边框和 shadowCard；标准态与加载态共用同一几何尺寸</td>
-                <td><span class="status-chip success">V0.2 active</span></td>
+                <td>关键指标卡</td>
+                <td>统一白底、8px 圆角、细边框和卡片阴影；标准态与加载态共用同一几何尺寸</td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>不使用彩色顶线、彩色背景或语义色制造层级；成功、警告、错误、信息色保留给状态、反馈和图表。</td>
               </tr>
               <tr>
                 <td>浏览器标签图标</td>
                 <td>浅色浏览器 #d63b00；深色浏览器 #fe5205；无外层色块；版本化文件名</td>
-                <td><span class="status-chip success">已落地</span></td>
-                <td>浏览器 chrome 与应用主题同步验证对比度。</td>
+                <td><span class="status-chip success">已定义</span></td>
+                <td>浏览器界面与应用主题同步验证对比度。</td>
               </tr>
               <tr>
                 <td>用户可见值</td>
                 <td>内部状态、原因、任务、事件、角色和数据库字段名必须先映射为中文</td>
-                <td><span class="status-chip success">已落地</span></td>
+                <td><span class="status-chip success">已定义</span></td>
                 <td>未知状态 / 未知类型 / 未知原因；原始值只进入开发日志。</td>
               </tr>
               <tr>
                 <td>设计规范执行</td>
                 <td>tokens.json + index.html + pytest</td>
-                <td><span class="status-chip success">Active</span></td>
-                <td>候选工件保留为不可变历史评审记录。</td>
+                <td><span class="status-chip success">已生效</span></td>
+                <td>任何设计变更必须同步更新三个入口并通过自动检查。</td>
               </tr>
             </tbody>
           </table>
@@ -6865,200 +6710,50 @@
             <h2>协作约束</h2>
             <p>其他人参与开发时，也需要有明确边界，避免又回到散落硬编码。</p>
           </div>
-          <code>guardrails</code>
+          <code>协作门禁</code>
         </div>
         <ul class="rule-list">
-          <li><strong>新增颜色：</strong>同步更新 <code>tokens.json</code>、本页和相关测试；候选工件只作为不可变历史记录。</li>
+          <li><strong>新增颜色：</strong>同步更新 <code>tokens.json</code>、本页和相关测试。</li>
           <li><strong>主题实现：</strong>只通过共享 ThemeProvider 和 ThemePicker 读写 <code>dydata.theme.preference</code>；页面不得直接读取系统主题或 localStorage。</li>
-          <li><strong>双主题验收：</strong>新增组件必须同时检查 light 和 dark，状态色继续表达成功、警告、错误和信息，不得统一替换成品牌橙。</li>
+          <li><strong>双主题验收：</strong>新增组件必须同时检查浅色与深色主题，状态色继续表达成功、警告、错误和信息，不得统一替换成品牌橙。</li>
           <li><strong>项目署名：</strong><code>Powered by SPACE AI Native</code> 仅用于 dy-data；SPACE 只使用确认的 SVG，POWERED BY 与 AI NATIVE 使用 Ethnocentric Regular。</li>
           <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
-          <li><strong>新增 KPI：</strong>复用统一白底圆角指标卡，不增加 tone、彩色顶线或彩色卡面；优先级通过顺序、标签、数值和说明表达。</li>
+          <li><strong>新增关键指标：</strong>复用统一白底圆角指标卡，不增加色调变体、彩色顶线或彩色卡面；优先级通过顺序、标签、数值和说明表达。</li>
           <li><strong>用户文案：</strong>内部生产值不得直接展示；通过共享映射转换，未知状态 / 未知类型 / 未知原因不得回显原值。</li>
           <li><strong>导航层级：</strong>二级导航不使用图标；父子路径同时命中时，只允许最长路径对应的导航项进入当前页状态；稳定子页面使用 <code>TertiaryNav</code>、真实链接和 <code>aria-current="page"</code>。</li>
-          <li><strong>品牌入口：</strong>浏览器标签图标使用版本化橙色资产，浅色与深色浏览器 chrome 分别验证对比度。</li>
-          <li><strong>新增长列表：</strong>桌面优先表格；移动端卡片或摘要进入 DYDATA-5 范围，不把宽表直接塞进手机。</li>
+          <li><strong>品牌入口：</strong>浏览器标签图标使用版本化橙色资产，分别验证浅色与深色浏览器界面的对比度。</li>
+          <li><strong>新增长列表：</strong>桌面优先表格，移动端使用卡片或摘要，不把宽表直接塞进手机。</li>
           <li><strong>新增明细长表：</strong>如果用户主要任务是筛选后逐行处理记录，桌面端使用明细工作台模板，保证分页可见且只让结果表格滚动。</li>
-          <li><strong>新增 sticky/fixed：</strong>必须声明对应 z-index 层级和导航避让间距，避免层叠互相遮挡。</li>
-          <li><strong>规范变更：</strong>先更新完整正式 HTML，再同步 tokens.json、产品 CSS 和测试。</li>
-          <li><strong>移动端边界：</strong>本页所有移动端信息架构与移动端明细样例均为 DYDATA-5 未来范围，不声明为当前运行时行为。</li>
+          <li><strong>新增粘性或固定定位：</strong>必须声明对应层叠层级和导航避让间距，避免互相遮挡。</li>
+          <li><strong>规范变更：</strong>先更新完整正式规范页，再同步 <code>tokens.json</code>、产品样式和测试。</li>
+          <li><strong>移动端边界：</strong>移动端使用自然页面滚动、记录卡片、紧凑分页和不小于 44px 的交互目标。</li>
         </ul>
       </section>
     </main>
-    <script src="./vendor/echarts.min.js"></script>
     <script>
-      const resolveChartColor = (name) => {
-        const probe = document.createElement("span");
-        probe.hidden = true;
-        probe.style.color = `var(${name})`;
-        document.body.append(probe);
-        const value = getComputedStyle(probe).color;
-        probe.remove();
-        return value;
-      };
-
-      const readChartPalette = () => ({
-        accent: resolveChartColor("--chart-accent"),
-        axis: resolveChartColor("--chart-axis"),
-        grid: resolveChartColor("--chart-grid"),
-        label: resolveChartColor("--chart-label"),
-        neutral: resolveChartColor("--chart-neutral"),
-        neutralFaint: resolveChartColor("--chart-neutral-faint"),
-        neutralMid: resolveChartColor("--chart-neutral-mid"),
-        primary: resolveChartColor("--chart-primary"),
-        primaryFill: resolveChartColor("--chart-primary-fill"),
-        primaryTransparent: resolveChartColor("--chart-primary-transparent"),
-        surface: resolveChartColor("--chart-surface"),
-      });
-
-      const deterministicChartJitter = (seed) => {
-        let hash = 2166136261;
-        for (let index = 0; index < seed.length; index += 1) {
-          hash ^= seed.charCodeAt(index);
-          hash = Math.imul(hash, 16777619);
-        }
-        return ((hash >>> 0) % 1000) / 999 - 0.5;
-      };
-
-      const designChartData = {
-        rainfall: [
-          ["2026-01", 468, 292],
-          ["2026-02", 502, 318],
-          ["2026-03", 476, 337],
-          ["2026-04", 538, 361],
-          ["2026-05", 455, 389],
-          ["2026-06", 548, 421],
-        ],
-        jitter: [
-          ["保养服务", [1.2, 2.4, 3.1, 4.8, 5.7, 6.9, 8.3, 10.2, 12.6, 15.1]],
-          ["洗美服务", [0.8, 1.9, 2.8, 3.7, 5.2, 6.1, 7.4, 9.2, 11.7, 13.8]],
-          ["精品汽车", [1.7, 2.8, 4.1, 5.5, 6.8, 8.2, 9.7, 11.5, 13.4, 15.6]],
-          ["轮胎服务", [1.5, 2.6, 4.3, 5.8, 7.2, 8.7, 10.4, 12.1, 14.2, 16]],
-        ],
-      };
-
-      const renderDesignCharts = () => {
-        if (!window.echarts) return;
-        const palette = readChartPalette();
-        const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-        const rainfallHost = document.getElementById("design-rainfall-chart");
-        if (rainfallHost) {
-          const rows = designChartData.rainfall;
-          const months = rows.map((row) => row[0]);
-          const maxOrders = Math.max(...rows.map((row) => row[1]));
-          const rainfallChart = window.echarts.getInstanceByDom(rainfallHost) ||
-            window.echarts.init(rainfallHost, null, { renderer: "svg" });
-          rainfallChart.setOption({
-            animationDuration: reducedMotion ? 0 : 1200,
-            animationEasing: "quarticOut",
-            aria: { enabled: true },
-            axisPointer: {
-              link: [{ xAxisIndex: "all" }],
-              lineStyle: { color: palette.axis, type: "dashed" },
-            },
-            grid: [
-              { height: "26%", left: 44, right: 14, top: 8 },
-              { bottom: 26, left: 44, right: 14, top: "42%" },
-            ],
-            tooltip: {
-              backgroundColor: palette.neutral,
-              borderWidth: 0,
-              padding: [10, 14],
-              textStyle: { color: palette.surface, fontSize: 12 },
-              trigger: "axis",
-              formatter: (params) => {
-                const row = rows[params[0]?.dataIndex || 0];
-                return `${row[0]}<br/>下单 ${row[1]} 单<br/>核销 ${row[2]} 单`;
-              },
-            },
-            xAxis: [
-              { type: "category", data: months, gridIndex: 0, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false } },
-              { type: "category", data: months, gridIndex: 1, axisLabel: { color: palette.label, fontSize: 10, fontWeight: 600 }, axisLine: { show: false }, axisTick: { show: false } },
-            ],
-            yAxis: [
-              { type: "value", gridIndex: 0, inverse: true, min: 0, max: maxOrders, axisLabel: { color: palette.label, fontSize: 9 }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
-              { type: "value", gridIndex: 1, axisLabel: { color: palette.label, fontSize: 10 }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: palette.grid } } },
-            ],
-            series: [
-              {
-                type: "bar",
-                name: "下单量",
-                xAxisIndex: 0,
-                yAxisIndex: 0,
-                barWidth: "55%",
-                data: rows.map((row) => row[1]),
-                itemStyle: { color: palette.neutralFaint, borderRadius: [0, 0, 4, 4] },
-              },
-              {
-                type: "line",
-                name: "核销量",
-                xAxisIndex: 1,
-                yAxisIndex: 1,
-                data: rows.map((row) => row[2]),
-                smooth: 0.4,
-                showSymbol: false,
-                lineStyle: { color: palette.primary, width: 2.2 },
-                areaStyle: { color: new window.echarts.graphic.LinearGradient(0, 0, 0, 1, [{ offset: 0, color: palette.primaryFill }, { offset: 1, color: palette.primaryTransparent }]) },
-              },
-            ],
-          }, { notMerge: true });
-        }
-
-        const jitterHost = document.getElementById("design-jitter-chart");
-        if (jitterHost) {
-          const rows = designChartData.jitter;
-          const points = rows.flatMap((row, rowIndex) => row[1].map((days, pointIndex) => [days, rowIndex + deterministicChartJitter(`${row[0]}:${days}:${pointIndex}`) * 0.58, row[0], `DEMO-${rowIndex + 1}-${pointIndex + 1}`, rowIndex]));
-          const jitterChart = window.echarts.getInstanceByDom(jitterHost) ||
-            window.echarts.init(jitterHost, null, { renderer: "svg" });
-          jitterChart.setOption({
-            animationDelay: (dataIndex) => {
-              const rowIndex = Math.round(Number(points[dataIndex]?.[1] || 0));
-              return reducedMotion ? 0 : rowIndex * 260 + (dataIndex % 37) * 9;
-            },
-            animationDuration: reducedMotion ? 0 : 450,
-            animationEasing: "cubicOut",
-            aria: { enabled: true },
-            grid: { bottom: 30, left: 118, right: 16, top: 14 },
-            tooltip: {
-              backgroundColor: palette.neutral,
-              borderWidth: 0,
-              padding: [10, 14],
-              textStyle: { color: palette.surface, fontSize: 12 },
-              formatter: (params) => `${params.value[2]}<br/>${params.value[3]} · ${params.value[0]} 天`,
-            },
-            xAxis: { type: "value", min: 0, max: 16, name: "核销周期（天）", nameLocation: "middle", nameTextStyle: { color: palette.axis, fontSize: 8.5 }, axisLabel: { color: palette.label, fontSize: 10, formatter: (value) => `${value} 天` }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { lineStyle: { color: palette.grid } } },
-            yAxis: { type: "value", inverse: true, min: -0.6, max: rows.length - 0.4, axisLabel: { show: false }, axisLine: { show: false }, axisTick: { show: false }, splitLine: { show: false } },
-            series: [
-              { type: "scatter", name: "订单样本", data: points, symbolSize: 7, itemStyle: { color: (params) => [palette.primary, palette.neutral, palette.neutralMid, palette.neutralFaint, palette.axis][params.value[4] % 5], opacity: 0.62 } },
-              { type: "scatter", name: "商品类型", silent: true, symbolSize: 0, data: rows.map((row, rowIndex) => ({ value: [0, rowIndex], label: { show: true, position: "left", offset: [-8, 0], formatter: row[0], color: palette.neutral, fontSize: 10, fontWeight: 700 } })) },
-            ],
-          }, { notMerge: true });
-        }
-      };
-
-      window.addEventListener("resize", () => {
-        document.querySelectorAll(".chart-echarts-demo").forEach((host) => {
-          window.echarts?.getInstanceByDom(host)?.resize();
-        });
-      });
-
-      document.querySelectorAll("[data-palette-button]").forEach((button) => {
-        button.addEventListener("click", () => {
-          const palette = button.dataset.paletteButton;
-          document.body.dataset.palette = palette;
-          document.querySelectorAll("[data-palette-button]").forEach((item) => {
-            item.setAttribute(
-              "aria-pressed",
-              String(item.dataset.paletteButton === palette),
-            );
-          });
-        });
-      });
 
       const themeStorageKey = "dydata.theme.preference";
       const systemTheme = window.matchMedia("(prefers-color-scheme: dark)");
+      const chartGalleryVersion = "20260727-1";
       const resolveColorTheme = (preference) =>
         preference === "system" ? (systemTheme.matches ? "dark" : "light") : preference;
+      const setFrameSource = (frame, source) => {
+        if (!frame || frame.getAttribute("src") === source) return;
+        frame.setAttribute("src", source);
+      };
+      const syncEmbeddedTheme = (resolved) => {
+        const catalogFrame = document.querySelector("[data-runtime-catalog-frame]");
+        setFrameSource(catalogFrame, `./runtime-catalog.html?theme=${resolved}&embedded=1`);
+
+        const galleryFrame = document.querySelector("[data-chart-gallery-frame]");
+        if (galleryFrame) {
+          const page = galleryFrame.dataset.galleryPage || "lupi-gallery.html";
+          const source = `./chart-gallery/${page}?palette=coral&theme=${resolved}&v=${chartGalleryVersion}`;
+          setFrameSource(galleryFrame, source);
+          const openLink = document.querySelector("[data-chart-gallery-open]");
+          openLink?.setAttribute("href", source);
+        }
+      };
       const applyColorTheme = (preference, persist = true) => {
         const resolved = resolveColorTheme(preference);
         document.documentElement.dataset.theme = resolved;
@@ -7076,7 +6771,7 @@
             window.localStorage.setItem(themeStorageKey, preference);
           } catch {}
         }
-        window.requestAnimationFrame(renderDesignCharts);
+        syncEmbeddedTheme(resolved);
       };
 
       document.querySelectorAll("[data-color-theme-button]").forEach((button) => {
@@ -7089,6 +6784,81 @@
         }
       });
       applyColorTheme(document.documentElement.dataset.themePreference || "system", false);
+
+      const galleryFrame = document.querySelector("[data-chart-gallery-frame]");
+      const gallerySearch = document.getElementById("chart-gallery-search");
+      const galleryCount = document.getElementById("chart-gallery-count");
+      const filterGallery = () => {
+        galleryFrame?.contentWindow?.postMessage({
+          type: "dydata-chart-filter",
+          query: gallerySearch?.value || "",
+        }, "*");
+      };
+
+      document.querySelectorAll("[data-chart-gallery-page]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const page = button.dataset.chartGalleryPage;
+          if (!page || !galleryFrame) return;
+          galleryFrame.dataset.galleryPage = page;
+          document.querySelectorAll("[data-chart-gallery-page]").forEach((item) => {
+            item.setAttribute("aria-pressed", String(item === button));
+          });
+          syncEmbeddedTheme(document.documentElement.dataset.theme || "light");
+        });
+      });
+      gallerySearch?.addEventListener("input", filterGallery);
+      galleryFrame?.addEventListener("load", filterGallery);
+      window.addEventListener("message", (event) => {
+        if (event.source !== galleryFrame?.contentWindow) return;
+        if (event.data?.type === "dydata-chart-filter-result" && galleryCount) {
+          galleryCount.textContent = `显示 ${event.data.visible} / ${event.data.total} 个图表样式`;
+        }
+        if (event.data?.type === "dydata-chart-gallery-height") {
+          const height = Number(event.data.height);
+          if (Number.isFinite(height) && height >= 320 && height <= 20000) {
+            galleryFrame.style.height = `${height}px`;
+          }
+        }
+      });
+
+      const specSearch = document.getElementById("spec-search-input");
+      const specSearchResults = document.getElementById("spec-search-results");
+      const searchableHeadings = Array.from(document.querySelectorAll("main h2, main h3"))
+        .map((heading, index) => {
+          if (!heading.id) heading.id = `spec-heading-${index + 1}`;
+          const section = heading.closest(".section");
+          return {
+            id: heading.id,
+            label: heading.textContent.trim(),
+            section: section?.querySelector(":scope > .section-head h2")?.textContent?.trim() || "规范",
+            text: `${heading.textContent} ${heading.parentElement?.textContent || ""}`.toLowerCase(),
+          };
+        });
+      const renderSpecSearch = () => {
+        if (!specSearchResults) return;
+        const query = (specSearch?.value || "").trim().toLowerCase();
+        specSearchResults.replaceChildren();
+        if (!query) {
+          specSearchResults.classList.remove("is-open");
+          return;
+        }
+        const matches = searchableHeadings.filter((item) => item.text.includes(query)).slice(0, 12);
+        specSearchResults.classList.add("is-open");
+        if (!matches.length) {
+          const empty = document.createElement("span");
+          empty.textContent = "未找到匹配规则";
+          specSearchResults.append(empty);
+          return;
+        }
+        matches.forEach((item) => {
+          const link = document.createElement("a");
+          link.href = `#${item.id}`;
+          link.textContent = item.section === item.label ? item.label : `${item.label} · ${item.section}`;
+          link.addEventListener("click", () => specSearchResults.classList.remove("is-open"));
+          specSearchResults.append(link);
+        });
+      };
+      specSearch?.addEventListener("input", renderSpecSearch);
 
       const revealCurrentTertiaryItem = (nav) => {
         const currentItem = nav.querySelector('[aria-current="page"]');
@@ -7114,16 +6884,17 @@
 
       document.querySelectorAll(".tertiary-nav").forEach(revealCurrentTertiaryItem);
 
-      const tocLinks = Array.from(document.querySelectorAll(".spec-toc a"));
-      const tocSections = tocLinks
+      const tocLinks = Array.from(document.querySelectorAll(".spec-toc a, .spec-rail a[data-section-link]"));
+      const tocSections = [...new Set(tocLinks
         .map((link) => document.querySelector(link.getAttribute("href")))
-        .filter(Boolean);
+        .filter(Boolean))];
 
       const setCurrentSection = (sectionId) => {
         tocLinks.forEach((link) => {
           if (link.getAttribute("href") === `#${sectionId}`) {
             link.setAttribute("aria-current", "true");
-            link.parentElement.scrollTo({
+            const horizontalNav = link.closest(".spec-toc");
+            horizontalNav?.scrollTo({
               left: Math.max(0, link.offsetLeft - 12),
               behavior: "smooth",
             });

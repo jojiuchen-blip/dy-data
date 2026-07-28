@@ -12,6 +12,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { AdminSkuGovernancePanel } from "../components/AdminSkuGovernancePanel";
+import { FieldInput, FieldTextarea } from "../components/FormControls";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
@@ -584,7 +585,7 @@ export function AdminSkuRulesPage() {
       align: "center",
       key: "select",
       title: (
-        <input
+        <FieldInput
           aria-label="选择当前页全部 SKU"
           checked={allSelected}
           onChange={toggleAll}
@@ -592,7 +593,7 @@ export function AdminSkuRulesPage() {
         />
       ),
       render: (row) => (
-        <input
+        <FieldInput
           aria-label={`选择 SKU ${row.sku_id}`}
           checked={selectedIds.has(row.sku_id)}
           onChange={() => toggleSelected(row.sku_id)}
@@ -688,7 +689,7 @@ export function AdminSkuRulesPage() {
           </div>
           <label className="filter-field">
             <span>管理密码</span>
-            <input
+            <FieldInput
               autoFocus
               onChange={(event) => setPassword(event.target.value)}
               placeholder="请输入管理密码"
@@ -772,7 +773,7 @@ export function AdminSkuRulesPage() {
         </div>
         <label className="filter-field">
           <span>不分佣账号列表</span>
-          <textarea
+          <FieldTextarea
             className="sku-lookup-input non-commission-account-input"
             onChange={(event) => setNonCommissionAccountText(event.target.value)}
             placeholder="例如：比亚迪汽车销售有限公司&#10;比亚迪汽车精品"
@@ -804,7 +805,7 @@ export function AdminSkuRulesPage() {
             </div>
             <label className="filter-field">
               <span>SKU ID 列表</span>
-              <textarea
+              <FieldTextarea
                 className="sku-lookup-input"
                 onChange={(event) => setLookupInput(event.target.value)}
                 placeholder="例如：sku-001&#10;sku-002, sku-003"
@@ -849,7 +850,7 @@ export function AdminSkuRulesPage() {
                   </div>
                   {lookupRows.length ? (
                     <label className="pagination-controls__size">
-                      <input
+                      <FieldInput
                         checked={allLookupSelected}
                         onChange={toggleAllLookup}
                         type="checkbox"
@@ -862,7 +863,7 @@ export function AdminSkuRulesPage() {
                   <div className="sku-lookup-list">
                     {lookupRows.map((row) => (
                       <label className="sku-lookup-row" key={row.sku_id}>
-                        <input
+                        <FieldInput
                           checked={lookupSelectedIds.has(row.sku_id)}
                           onChange={() => toggleLookupSelected(row.sku_id)}
                           type="checkbox"
@@ -893,7 +894,7 @@ export function AdminSkuRulesPage() {
           <section className="content-section admin-tools">
             <label className="filter-field">
               <span>产品范围</span>
-              <input
+              <FieldInput
                 list="product-scope-options"
                 onChange={(event) => {
                   setPage(1);
@@ -905,7 +906,7 @@ export function AdminSkuRulesPage() {
             </label>
             <label className="filter-field">
               <span>浏览搜索 SKU / 商品名称</span>
-              <input
+              <FieldInput
                 onChange={(event) => {
                   setPage(1);
                   setQuery(event.target.value);
@@ -989,7 +990,7 @@ export function AdminSkuRulesPage() {
           <div className="sku-bulk-editor">
             <label className="filter-field">
               <span>产品范围</span>
-              <input
+              <FieldInput
                 list="product-scope-options"
                 onChange={(event) => setBulkProductScope(event.target.value)}
                 placeholder="从 SKU 商品列表选择"
@@ -998,7 +999,7 @@ export function AdminSkuRulesPage() {
             </label>
             <label className="filter-field">
               <span>商品类型</span>
-              <input
+              <FieldInput
                 list="product-type-options"
                 onChange={(event) => setBulkProductType(event.target.value)}
                 placeholder="从 SKU 商品列表选择"
@@ -1007,7 +1008,7 @@ export function AdminSkuRulesPage() {
             </label>
             <label className="filter-field">
               <span>批量分账比例（%）</span>
-              <input
+              <FieldInput
                 inputMode="decimal"
                 onChange={(event) => setBulkRate(event.target.value)}
                 value={bulkRate}
@@ -1015,7 +1016,7 @@ export function AdminSkuRulesPage() {
             </label>
             <label className="filter-field checkbox-field">
               <span>参与分账</span>
-              <input
+              <FieldInput
                 checked={bulkIsServiceProduct}
                 onChange={(event) => setBulkIsServiceProduct(event.target.checked)}
                 type="checkbox"

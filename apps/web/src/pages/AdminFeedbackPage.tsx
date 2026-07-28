@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { Button } from "../components/Button";
 import { RoleBadge, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
+import { SummaryFilter } from "../components/SelectionControls";
 import { fetchFeedback, updateFeedbackStatus } from "../api/client";
 import type {
   FeedbackCategory,
@@ -228,29 +229,24 @@ export function AdminFeedbackPage() {
         </div>
       </section>
 
-      <section className="feedback-summary-row" aria-label="建议处理状态">
-        {statusOptions.map((item) => {
-          const count =
+      <SummaryFilter
+        ariaLabel="建议处理状态"
+        className="feedback-summary-row"
+        itemClassName="feedback-summary-button"
+        onChange={(nextStatus) => {
+          setStatus(nextStatus);
+          setPage(1);
+        }}
+        options={statusOptions.map((item) => ({
+          count:
             item.value === ""
               ? totalStatusCount(data)
-              : countForStatus(data, item.value);
-          return (
-            <button
-              aria-pressed={status === item.value}
-              className="feedback-summary-button"
-              key={item.value || "all"}
-              onClick={() => {
-                setStatus(item.value);
-                setPage(1);
-              }}
-              type="button"
-            >
-              <span>{item.label}</span>
-              <strong>{count}</strong>
-            </button>
-          );
-        })}
-      </section>
+              : countForStatus(data, item.value),
+          label: item.label,
+          value: item.value,
+        }))}
+        value={status}
+      />
 
       <form className="filter-bar admin-feedback-filters" onSubmit={submitSearch}>
         <SelectField
@@ -264,7 +260,7 @@ export function AdminFeedbackPage() {
         />
         <label className="filter-field">
           <span>关键词</span>
-          <input
+          <FieldInput
             onChange={(event) => setSearchDraft(event.target.value)}
             placeholder="搜索内容、账号、页面或联系方式"
             value={searchDraft}

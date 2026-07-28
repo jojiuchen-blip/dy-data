@@ -24,7 +24,7 @@
   max-height: 280px;
   overflow-y: auto;
   border: 1px solid var(--line-strong);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--surface);
   box-shadow: var(--shadow-popover);
 }
@@ -55,7 +55,7 @@
 
 .searchable-store-select__option strong {
   color: var(--ink);
-  font-size: 13px;
+  font-size: var(--font-size-table);
   font-weight: 700;
   line-height: 1.35;
   overflow-wrap: anywhere;
@@ -64,7 +64,7 @@
 
 .searchable-store-select__option small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: var(--font-size-detail);
   line-height: 1.35;
   overflow-wrap: anywhere;
   white-space: normal;
@@ -73,5 +73,5 @@
 .searchable-store-select__empty {
   padding: 10px;
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-table);
 }

@@ -16,7 +16,8 @@ import {
 import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
-import { MultiSelectField, SelectField } from "../components/FormControls";
+import { FieldInput, MultiSelectField, SelectField } from "../components/FormControls";
+import { SegmentedControl } from "../components/SelectionControls";
 import type {
   AccountRow,
   AccessControlData,
@@ -577,24 +578,16 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         </div>
       </section>
 
-      <div className="segmented-control" role="tablist" aria-label="账号权限管理视图">
-        <button
-          aria-selected={activeTab === "accounts"}
-          onClick={() => setActiveTab("accounts")}
-          role="tab"
-          type="button"
-        >
-          账号列表
-        </button>
-        <button
-          aria-selected={activeTab === "roles"}
-          onClick={() => setActiveTab("roles")}
-          role="tab"
-          type="button"
-        >
-          角色权限
-        </button>
-      </div>
+      <SegmentedControl
+        ariaLabel="账号权限管理视图"
+        className="segmented-control"
+        onChange={setActiveTab}
+        options={[
+          { label: "账号列表", value: "accounts" },
+          { label: "角色权限", value: "roles" },
+        ]}
+        value={activeTab}
+      />
 
       {statusText ? (
         <div
@@ -633,7 +626,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             />
             <label className="filter-field">
               <span>操作者</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setAuditFilters((current) => ({
                     ...current,
@@ -654,7 +647,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             />
             <label className="filter-field">
               <span>开始日期</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setAuditFilters((current) => ({ ...current, createdFrom: event.target.value }))
                 }
@@ -664,7 +657,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </label>
             <label className="filter-field">
               <span>结束日期</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setAuditFilters((current) => ({ ...current, createdTo: event.target.value }))
                 }
@@ -727,14 +720,14 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </div>
             <label className="filter-field">
               <span>账号名</span>
-              <input
+              <FieldInput
                 onChange={(event) => setDraftField("username", event.target.value)}
                 value={draft.username}
               />
             </label>
             <label className="filter-field">
               <span>显示名称</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setDraftField("display_name", event.target.value)
                 }
@@ -743,7 +736,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </label>
             <label className="filter-field">
               <span>所属账户编号</span>
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setDraftField("external_account_id", event.target.value)
                 }
@@ -818,7 +811,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             />
             <label className="filter-field">
               <span>{editingAccount ? "新密码（可选）" : "密码"}</span>
-              <input
+              <FieldInput
                 autoComplete="new-password"
                 onChange={(event) => setDraftField("password", event.target.value)}
                 type="password"
@@ -827,7 +820,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </label>
             <label className="filter-field">
               <span>确认密码</span>
-              <input
+              <FieldInput
                 autoComplete="new-password"
                 onChange={(event) =>
                   setDraftField("password_confirm", event.target.value)
@@ -854,7 +847,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                   <div className="permission-list__row" key={page.page_key}>
                     <span><strong>{page.page_key}</strong> {page.page_name}</span>
                     <label>
-                      <input
+                      <FieldInput
                         checked={extraAllow.has(page.page_key)}
                         onChange={() => toggleAccountPermission(page.page_key, "allow")}
                         type="checkbox"
@@ -862,7 +855,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                       额外允许
                     </label>
                     <label>
-                      <input
+                      <FieldInput
                         checked={extraDeny.has(page.page_key)}
                         onChange={() => toggleAccountPermission(page.page_key, "deny")}
                         type="checkbox"
@@ -902,7 +895,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               </div>
               <label className="filter-field">
                 <span>新密码</span>
-                <input
+                <FieldInput
                   autoComplete="new-password"
                   onChange={(event) => setResetPassword(event.target.value)}
                   type="password"
@@ -911,7 +904,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               </label>
               <label className="filter-field">
                 <span>确认密码</span>
-                <input
+                <FieldInput
                   autoComplete="new-password"
                   onChange={(event) => setResetPasswordConfirm(event.target.value)}
                   type="password"
@@ -944,15 +937,15 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             {accessControl.pages.map((page) => (
               <div className="role-permission-table__row" key={page.page_key} role="row">
                 <span><strong>{page.page_key}</strong> {page.page_name}</span>
-                <input aria-label={`${page.page_name} 最高管理员`} checked disabled readOnly type="checkbox" />
-                <input
+                <FieldInput aria-label={`${page.page_name} 最高管理员`} checked disabled readOnly type="checkbox" />
+                <FieldInput
                   aria-label={`${page.page_name} 管理员`}
                   checked={roleDrafts.admin.has(page.page_key)}
                   disabled={!currentUser.is_highest_admin}
                   onChange={() => toggleRolePermission("admin", page.page_key)}
                   type="checkbox"
                 />
-                <input
+                <FieldInput
                   aria-label={`${page.page_name} 门店账号`}
                   checked={roleDrafts.store.has(page.page_key)}
                   onChange={() => toggleRolePermission("store", page.page_key)}
@@ -990,7 +983,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         >
           <label className="filter-field">
             <span>所属账户编号或门店位置编号（POI ID）</span>
-            <input
+            <FieldInput
               onChange={(event) => setUnactivatedQuery(event.target.value)}
               placeholder="输入门店账户编号或位置编号"
               value={unactivatedQuery}

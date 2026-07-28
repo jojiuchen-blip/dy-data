@@ -50,8 +50,12 @@
   --chart-neutral-mid: color-mix(in srgb, var(--chart-neutral) 68%, var(--chart-surface));
   --chart-neutral-faint: color-mix(in srgb, var(--chart-neutral) 42%, var(--chart-surface));
   --chart-grid: var(--line);
-  --chart-axis: var(--line-strong);
+  --chart-axis-line: var(--line-strong);
+  --chart-axis-text: var(--muted);
   --chart-label: var(--muted);
+  --chart-data-neutral-strong: var(--ink-subtle);
+  --chart-data-neutral-medium: var(--muted);
+  --chart-data-neutral-soft: color-mix(in srgb, var(--ink) 60%, var(--surface));
   --chart-surface: var(--surface);
   --chart-inspector-surface: color-mix(in srgb, var(--surface) 88%, transparent);
   --chart-hover-surface: var(--brand-orange-8);
@@ -60,6 +64,47 @@
   --chart-info-fill: color-mix(in srgb, var(--blue) 12%, transparent);
   --chart-positive-fill: color-mix(in srgb, var(--green) 10%, transparent);
   --chart-focus-shadow: color-mix(in srgb, var(--brand-orange) 22%, transparent);
+  --chart-font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", system-ui, sans-serif;
+  --chart-label-font-size: 12px;
+  --chart-meta-font-size: 11px;
+  --chart-tooltip-radius: 6px;
+  --chart-tooltip-padding-x: 14px;
+  --chart-tooltip-padding-y: 10px;
+  --chart-compact-breakpoint: 480px;
+
+  /* Typography scale */
+  --font-size-display: 44px;
+  --font-size-page-title: 28px;
+  --font-size-mobile-page-title: 24px;
+  --font-size-section-title: 20px;
+  --font-size-body: 14px;
+  --font-size-table: 13px;
+  --font-size-caption: 12px;
+  --font-size-metric: 30px;
+  --font-size-micro: 10px;
+  --font-size-detail: 11px;
+  --font-size-emphasis: 15px;
+  --font-size-control: 16px;
+  --font-size-subtitle: 18px;
+  --font-size-title: 22px;
+  --font-size-hero: 26px;
+
+  /* Spacing scale */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 14px;
+  --space-8: 16px;
+  --space-9: 18px;
+  --space-10: 20px;
+  --space-12: 24px;
+  --space-14: 28px;
+  --space-16: 32px;
+  --space-20: 40px;
+  --space-24: 48px;
 
   /* Sizing and layers */
   --target-min: 24px;
@@ -72,8 +117,14 @@
   );
   --control-height: 38px;
   --control-height-touch: 44px;
+  --control-padding-x: 14px;
+  --control-padding-y: 7px;
   --control-radius: 6px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
   --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
   --z-dropdown: 45;
   --z-table-sticky-column: 2;
   --z-table-header: 3;

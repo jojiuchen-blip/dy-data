@@ -8,7 +8,7 @@ import {
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
@@ -217,7 +217,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         <SelectField label="销售月份" value={saleMonth} onChange={(value) => { setSaleMonth(value); setPage(1); }} options={[{ value: "", label: "全部" }, ...(meta?.saleMonths ?? []).map((value) => ({ value, label: value }))]} />
         <SelectField label="核销月份" value={verifyMonth} onChange={(value) => { setVerifyMonth(value); setPage(1); }} options={[{ value: "", label: "全部" }, ...(meta?.verifyMonths ?? []).map((value) => ({ value, label: value }))]} />
         <SelectField label="数据状态" value={dataStatus} onChange={(value) => { setDataStatus(value); setPage(1); }} options={[{ value: "", label: "全部" }, { value: "VALID", label: "有效" }, { value: "ADJUSTED", label: "有调整" }, { value: "BLOCKED", label: "数据阻断" }, { value: "LOCKED", label: "已锁账" }]} />
-        <FilterField label="搜索"><input value={queryText} placeholder="订单、券码、SKU 或商品" onChange={(event) => { setQueryText(event.target.value); setPage(1); }} /></FilterField>
+        <FilterField label="搜索"><FieldInput value={queryText} placeholder="订单、券码、SKU 或商品" onChange={(event) => { setQueryText(event.target.value); setPage(1); }} /></FilterField>
       </FilterBar>
       <section className="content-section content-section--data-workspace">
         <div className="section-title"><div><h2>明细记录</h2><p>{details ? `${details.total} 条 · ${details.context.feeRates.length} 种费率 · ${details.context.ruleVersions.length} 个版本` : hasSourceContext ? "正在读取来源上下文" : "缺少有效的来源上下文"}</p></div><div className="section-title-actions"><Button type="button" icon="fileDownload" size="sm" loading={exporting} disabled={exporting || !details?.total} onClick={handleExportOrders}>{exporting ? "导出中" : "导出"}</Button></div></div>

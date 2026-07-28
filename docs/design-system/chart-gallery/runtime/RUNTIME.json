@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "dependencies": [
+    {
+      "package": "chart.js",
+      "version": "4.5.1",
+      "file": "chart.umd.min.js",
+      "sha256": "48444a82d4edcb5bec0f1965faacdde18d9c17db3063d042abada2f705c9f54a",
+      "source": "npm:chart.js@4.5.1"
+    },
+    {
+      "package": "echarts",
+      "version": "6.1.0",
+      "file": "echarts.min.js",
+      "sha256": "b66b25aeb4df84e33199dc21694014d336d222cbd9deb0e5a7c14bd6aa0d0fd0",
+      "source": "npm:echarts@6.1.0"
+    }
+  ]
+}

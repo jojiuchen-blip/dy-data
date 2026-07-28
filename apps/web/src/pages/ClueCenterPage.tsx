@@ -22,7 +22,7 @@ import { CountPill, FilterChip, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import {
   ResourceNotice,
@@ -42,6 +42,7 @@ import type {
   AdminUser,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger, formatPercent } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import {
   displayClueReason,
   displayFollowUpTimingState,
@@ -568,7 +569,7 @@ export function ClueCenterPage({
     try {
       await exportClueAssignmentRounds(filters);
     } catch (error: unknown) {
-      setExportError(error instanceof Error ? error.message : "线索明细导出失败");
+      setExportError(userFacingError(error, "线索明细导出失败，请稍后重试。"));
     } finally {
       setExportingClues(false);
     }
@@ -839,7 +840,7 @@ export function ClueCenterPage({
         if (cancelled) {
           return;
         }
-        setDetailError(error instanceof Error ? error.message : "线索详情加载失败");
+        setDetailError(userFacingError(error, "线索详情加载失败，请稍后重试。"));
       })
       .finally(() => {
         if (!cancelled) {
@@ -931,7 +932,7 @@ export function ClueCenterPage({
       overviewResource.reload();
       roundsResource.reload();
     } catch (error: unknown) {
-      setFollowUpError(error instanceof Error ? error.message : "跟进保存失败");
+      setFollowUpError(userFacingError(error, "跟进保存失败，请稍后重试。"));
     } finally {
       setSavingFollowUp(false);
     }
@@ -955,9 +956,7 @@ export function ClueCenterPage({
       overviewResource.reload();
       roundsResource.reload();
     } catch (error: unknown) {
-      setFollowUpError(
-        error instanceof Error ? error.message : "跟进历史删除失败",
-      );
+      setFollowUpError(userFacingError(error, "跟进历史删除失败，请稍后重试。"));
     } finally {
       setDeletingFollowUpRecordId(null);
     }
@@ -1155,7 +1154,7 @@ export function ClueCenterPage({
           </>
         ) : null}
         <FilterField label="线索生成日期起">
-          <input
+          <FieldInput
             onChange={(event) => {
               setPage(1);
               setAssignedDateStart(event.target.value);
@@ -1165,7 +1164,7 @@ export function ClueCenterPage({
           />
         </FilterField>
         <FilterField label="线索生成日期止">
-          <input
+          <FieldInput
             onChange={(event) => {
               setPage(1);
               setAssignedDateEnd(event.target.value);
@@ -1450,7 +1449,7 @@ export function ClueCenterPage({
                           <fieldset>
                             <legend>跟进结果</legend>
                             <label>
-                              <input
+                              <FieldInput
                                 aria-label="已预约"
                                 checked={followResult === "appointment"}
                                 name="follow_result"
@@ -1461,7 +1460,7 @@ export function ClueCenterPage({
                               已预约
                             </label>
                             <label>
-                              <input
+                              <FieldInput
                                 aria-label="待进一步跟进"
                                 checked={followResult === "further_follow_up"}
                                 name="follow_result"
@@ -1472,7 +1471,7 @@ export function ClueCenterPage({
                               待进一步跟进
                             </label>
                             <label>
-                              <input
+                              <FieldInput
                                 aria-label="线索战败"
                                 checked={followResult === "lost"}
                                 name="follow_result"
@@ -1483,7 +1482,7 @@ export function ClueCenterPage({
                               线索战败
                             </label>
                             <label>
-                              <input
+                              <FieldInput
                                 aria-label="未联系上"
                                 checked={followResult === "unreachable"}
                                 name="follow_result"
@@ -1494,7 +1493,7 @@ export function ClueCenterPage({
                               未联系上
                             </label>
                             <label>
-                              <input
+                              <FieldInput
                                 aria-label="客户要求换门店"
                                 checked={followResult === "request_store_change"}
                                 name="follow_result"
@@ -1507,7 +1506,7 @@ export function ClueCenterPage({
                           </fieldset>
                           <label className="clue-followup-note">
                             <span>本次跟进结论/备注</span>
-                            <textarea
+                            <FieldTextarea
                               onChange={(event) => setFollowNote(event.target.value)}
                               rows={5}
                               value={followNote}

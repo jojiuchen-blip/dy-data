@@ -21,7 +21,7 @@ import {
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterField } from "../components/Filters";
-import { SelectField } from "../components/FormControls";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
 import { TablePagination } from "../components/TablePagination";
 import { TertiaryNav } from "../components/TertiaryNav";
@@ -42,6 +42,7 @@ import type {
   StoreScoreSnapshotData,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import {
   displayAllocationCycleStatus,
   displayAllocationCycleType,
@@ -428,7 +429,7 @@ export function AdminClueAllocationPage({
       .catch((error) => {
         if (!cancelled) {
           setSelectedRuleDetail(null);
-          setStatusText(error instanceof Error ? error.message : "规则版本暂时无法读取。");
+          setStatusText(userFacingError(error, "规则版本暂时无法读取。"));
         }
       });
     return () => {
@@ -516,7 +517,7 @@ export function AdminClueAllocationPage({
       setPreview(response.data);
       setStatusText("已生成预览，尚未写入任何分配结果。请确认影响后执行。");
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "分配预览失败。");
+      setStatusText(userFacingError(error, "分配预览失败。"));
     } finally {
       setAction(null);
     }
@@ -548,7 +549,7 @@ export function AdminClueAllocationPage({
       setStatusText(`试运行已完成。${summaryLabel(response.data.summary)}`);
       await load({ clearStatus: false });
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "试运行失败。");
+      setStatusText(userFacingError(error, "试运行失败。"));
     } finally {
       setAction(null);
     }
@@ -586,7 +587,7 @@ export function AdminClueAllocationPage({
       setStatusText(`试运行重建已完成。${summaryLabel(response.data.summary)}`);
       await load({ clearStatus: false });
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "试运行重建失败。");
+      setStatusText(userFacingError(error, "试运行重建失败。"));
     } finally {
       setAction(null);
     }
@@ -673,7 +674,7 @@ export function AdminClueAllocationPage({
       await load({ clearStatus: false });
       setSelectedRuleId(response.data.rule_id);
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "创建规则失败。");
+      setStatusText(userFacingError(error, "创建规则失败。"));
     } finally {
       setAction(null);
     }
@@ -700,7 +701,7 @@ export function AdminClueAllocationPage({
       setStatusText(`已创建草案版本 V${response.data.version_no}，发布前仍可继续调整。`);
       await refreshSelectedRuleDetail();
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "创建草案版本失败。");
+      setStatusText(userFacingError(error, "创建草案版本失败。"));
     } finally {
       setAction(null);
     }
@@ -721,7 +722,7 @@ export function AdminClueAllocationPage({
       await load({ clearStatus: false });
       await refreshSelectedRuleDetail();
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "发布规则版本失败。");
+      setStatusText(userFacingError(error, "发布规则版本失败。"));
     } finally {
       setAction(null);
     }
@@ -742,7 +743,7 @@ export function AdminClueAllocationPage({
       await load({ clearStatus: false });
       await refreshSelectedRuleDetail();
     } catch (error) {
-      setStatusText(error instanceof Error ? error.message : "退役规则版本失败。");
+      setStatusText(userFacingError(error, "退役规则版本失败。"));
     } finally {
       setAction(null);
     }
@@ -756,7 +757,7 @@ export function AdminClueAllocationPage({
             title: "选择",
             width: 72,
             render: (lead) => (
-              <input
+              <FieldInput
                 aria-label={`选择线索 ${lead.canonical_clue_id ?? lead.lead_key}`}
                 checked={selectedLeadKeys.has(lead.lead_key)}
                 onChange={() => toggleLead(lead.lead_key)}
@@ -1117,7 +1118,7 @@ export function AdminClueAllocationPage({
             />
             <label className="filter-field checkbox-field">
               <span>允许覆盖已有跟进记录</span>
-              <input
+              <FieldInput
                 checked={allowPrivilegedRebuild}
                 onChange={(event) => {
                   setAllowPrivilegedRebuild(event.target.checked);
@@ -1257,7 +1258,7 @@ export function AdminClueAllocationPage({
               <div className="clue-allocation-rule-editor__fields">
                 <label className="filter-field">
                   <span>规则名称</span>
-                  <input
+                  <FieldInput
                     onChange={(event) => setNewRuleName(event.target.value)}
                     placeholder="例如：上海城市规则"
                     value={newRuleName}
@@ -1286,7 +1287,7 @@ export function AdminClueAllocationPage({
                           ? "门店组 ID"
                           : "锚点门店 ID"}
                     </span>
-                    <input
+                    <FieldInput
                       onChange={(event) => setNewRuleScopeTarget(event.target.value)}
                       value={newRuleScopeTarget}
                     />
@@ -1310,7 +1311,7 @@ export function AdminClueAllocationPage({
               <div className="clue-allocation-rule-editor__fields clue-allocation-rule-editor__fields--dense">
                 <label className="filter-field checkbox-field">
                   <span>启用自动超时</span>
-                  <input
+                  <FieldInput
                     checked={ruleVersionDraft.auto_expiry_enabled}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1323,7 +1324,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>首次跟进时限（小时）</span>
-                  <input
+                  <FieldInput
                     min={1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1337,7 +1338,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>核销保护期（天）</span>
-                  <input
+                  <FieldInput
                     min={1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1351,7 +1352,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>核销转化权重</span>
-                  <input
+                  <FieldInput
                     max={1}
                     min={0}
                     onChange={(event) =>
@@ -1367,7 +1368,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>24 小时有效跟进率权重</span>
-                  <input
+                  <FieldInput
                     max={1}
                     min={0}
                     onChange={(event) =>
@@ -1383,7 +1384,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>评分窗口（天）</span>
-                  <input
+                  <FieldInput
                     min={1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1397,7 +1398,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>最小样本数</span>
-                  <input
+                  <FieldInput
                     min={1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1411,7 +1412,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field checkbox-field">
                   <span>销售店优先</span>
-                  <input
+                  <FieldInput
                     checked={ruleVersionDraft.salesStoreEnabled}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1424,7 +1425,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>销售店距离（公里）</span>
-                  <input
+                  <FieldInput
                     min={0.1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1439,7 +1440,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field checkbox-field">
                   <span>城市优选</span>
-                  <input
+                  <FieldInput
                     checked={ruleVersionDraft.nearbyCityEnabled}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1452,7 +1453,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field">
                   <span>城市优选距离（公里）</span>
-                  <input
+                  <FieldInput
                     min={0.1}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1467,7 +1468,7 @@ export function AdminClueAllocationPage({
                 </label>
                 <label className="filter-field checkbox-field">
                   <span>城市兜底</span>
-                  <input
+                  <FieldInput
                     checked={ruleVersionDraft.cityFallbackEnabled}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
@@ -1611,7 +1612,7 @@ export function AdminClueAllocationPage({
               value={headquartersFilterDraft.reason ?? ""}
             />
             <FilterField label="进入日期起">
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
                     ...current,
@@ -1623,7 +1624,7 @@ export function AdminClueAllocationPage({
               />
             </FilterField>
             <FilterField label="进入日期止">
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
                     ...current,
@@ -1649,7 +1650,7 @@ export function AdminClueAllocationPage({
               value={headquartersFilterDraft.order_status ?? ""}
             />
             <FilterField label="订单号">
-              <input
+              <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
                     ...current,

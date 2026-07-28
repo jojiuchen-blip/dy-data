@@ -16,6 +16,7 @@ DATA_TABLE_PATH = WEB_SRC_DIR / "components" / "DataTable.tsx"
 SHELL_PATH = WEB_SRC_DIR / "components" / "Shell.tsx"
 RESOURCE_STATE_PATH = WEB_SRC_DIR / "components" / "ResourceState.tsx"
 DIALOG_PATH = WEB_SRC_DIR / "components" / "Dialog.tsx"
+CHARTS_DIR = WEB_SRC_DIR / "components" / "charts"
 DESIGN_TOKENS_CSS_PATH = WEB_SRC_DIR / "design-tokens.css"
 APP_STYLES_PATH = WEB_SRC_DIR / "styles.css"
 SEARCHABLE_SELECT_PATH = WEB_SRC_DIR / "components" / "SearchableStoreSelect.tsx"
@@ -191,6 +192,25 @@ def test_iconify_imports_are_centralized_in_solar_icon_component() -> None:
     assert offenders == []
 
 
+def test_business_chart_runtime_is_centralized_and_pages_do_not_draw_private_charts() -> None:
+    echarts_offenders: list[str] = []
+    private_chart_offenders: list[str] = []
+
+    for path in iter_frontend_source_files():
+        text = read_text(path)
+        imports_echarts = 'from "echarts' in text or "from 'echarts" in text
+        if imports_echarts and not path.is_relative_to(CHARTS_DIR):
+            echarts_offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        text = read_text(path)
+        if re.search(r"<(?:svg|canvas)\b", text):
+            private_chart_offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert echarts_offenders == []
+    assert private_chart_offenders == []
+
+
 def test_business_tsx_does_not_render_native_select_controls() -> None:
     offenders: list[str] = []
 
@@ -233,6 +253,78 @@ def test_business_pages_use_shared_button_components() -> None:
             offenders.append(path.relative_to(REPO_ROOT).as_posix())
 
     assert offenders == []
+
+
+def test_business_pages_do_not_render_native_form_or_button_controls() -> None:
+    offenders: list[str] = []
+    native_control_pattern = re.compile(r"<(?:input|textarea|button)\b")
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        if native_control_pattern.search(read_text(path)):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_business_errors_use_the_shared_user_facing_presenter() -> None:
+    page_offenders: list[str] = []
+    raw_error_pattern = re.compile(
+        r"(?:error|err|exception)\s+instanceof\s+Error|"
+        r"(?:error|err|exception)\.message\b",
+        re.IGNORECASE,
+    )
+
+    for path in (WEB_SRC_DIR / "pages").rglob("*.tsx"):
+        if raw_error_pattern.search(read_text(path)):
+            page_offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    resource_state = read_text(RESOURCE_STATE_PATH)
+    presenter = read_text(WEB_SRC_DIR / "utils" / "userFacingError.ts")
+
+    assert page_offenders == []
+    assert 'userFacingError(error, "数据加载失败，请稍后重试。")' in resource_state
+    assert "STATUS_MESSAGES" in presenter
+    assert "Hidden internal error" in presenter
+
+
+def test_runtime_typography_and_radii_use_design_tokens() -> None:
+    offenders: list[str] = []
+    literal_pattern = re.compile(
+        r"font-size:\s*\d+(?:\.\d+)?px|"
+        r"border-radius:\s*(?!50%\b)\d+(?:\.\d+)?px"
+    )
+    style_paths = [
+        APP_STYLES_PATH,
+        SEARCHABLE_SELECT_CSS_PATH,
+        WEB_SRC_DIR / "design-system" / "catalog.css",
+    ]
+
+    for path in style_paths:
+        if literal_pattern.search(read_text(path)):
+            offenders.append(path.relative_to(REPO_ROOT).as_posix())
+
+    assert offenders == []
+
+
+def test_runtime_core_size_variables_match_the_design_token_source() -> None:
+    tokens = json.loads(read_text(TOKENS_PATH))["tokens"]
+    runtime_css = read_text(DESIGN_TOKENS_CSS_PATH)
+    expected_variables: dict[str, str] = {}
+
+    for role in tokens["typography"]["scale"].values():
+        expected_variables[role["cssVariable"]] = role["fontSize"]
+    for key, value in tokens["space"].items():
+        expected_variables[tokens["spaceCssVariables"][key]] = value
+    for role in tokens["radius"].values():
+        expected_variables[role["cssVariable"]] = role["value"]
+    for role in tokens["control"].values():
+        expected_variables[role["cssVariable"]] = role["value"]
+
+    for variable, value in expected_variables.items():
+        assert re.search(
+            rf"{re.escape(variable)}:\s*{re.escape(value)};",
+            runtime_css,
+        ), f"{variable} must equal {value}"
 
 
 def test_runtime_styles_use_v02_button_typography_and_elevation_entries() -> None:

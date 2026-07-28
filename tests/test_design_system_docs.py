@@ -31,6 +31,19 @@ ECHARTS_FIGURE_PATH = (
 )
 SALES_PAGE_PATH = REPO_ROOT / "apps" / "web" / "src" / "pages" / "SalesDashboardPage.tsx"
 CHART_NOTICES_PATH = DESIGN_SYSTEM_DIR / "THIRD_PARTY_NOTICES.md"
+COMPONENT_MANIFEST_PATH = DESIGN_SYSTEM_DIR / "components.json"
+RUNTIME_CATALOG_HTML_PATH = DESIGN_SYSTEM_DIR / "runtime-catalog.html"
+RUNTIME_CATALOG_DIR = DESIGN_SYSTEM_DIR / "runtime-catalog"
+CATALOG_SOURCE_PATH = (
+    REPO_ROOT / "apps" / "web" / "src" / "design-system" / "DesignSystemCatalog.tsx"
+)
+CATALOG_BUILD_SCRIPT_PATH = (
+    REPO_ROOT / "apps" / "web" / "scripts" / "build-design-system-catalog.mjs"
+)
+CATALOG_STYLES_PATH = (
+    REPO_ROOT / "apps" / "web" / "src" / "design-system" / "catalog.css"
+)
+CHART_GALLERY_DIR = DESIGN_SYSTEM_DIR / "chart-gallery"
 
 
 def read_text(path: Path) -> str:
@@ -39,6 +52,250 @@ def read_text(path: Path) -> str:
 
 def load_tokens() -> dict:
     return json.loads(read_text(TOKENS_PATH))
+
+
+def test_component_manifest_points_to_real_runtime_components() -> None:
+    manifest = json.loads(read_text(COMPONENT_MANIFEST_PATH))
+    catalog_source = read_text(CATALOG_SOURCE_PATH)
+    package = json.loads(read_text(WEB_PACKAGE_PATH))
+
+    assert manifest["schemaVersion"] == "1.0"
+    assert manifest["designSystemVersion"] == "0.2.1"
+    assert manifest["preview"] == "./runtime-catalog.html"
+    assert manifest["componentTemplate"] == [
+        "purpose",
+        "preview",
+        "useWhen",
+        "avoidWhen",
+        "states",
+        "accessibility",
+        "responsive",
+        "implementation",
+    ]
+    assert len(manifest["components"]) >= 15
+    assert len({component["id"] for component in manifest["components"]}) == len(
+        manifest["components"]
+    )
+    required_component_ids = {
+        "button",
+        "icon-button",
+        "field-input",
+        "text-fields",
+        "select-field",
+        "multi-select-field",
+        "searchable-store-select",
+        "filter-bar",
+        "selection-controls",
+        "chips",
+        "metric-card",
+        "chart-figure",
+        "data-table",
+        "table-pagination",
+        "dialog",
+        "resource-state",
+        "tertiary-nav",
+        "theme-picker",
+        "tooltip-label",
+        "shell",
+        "definition-list",
+        "solar-icon",
+        "space-ai-signature",
+    }
+    assert required_component_ids <= {
+        component["id"] for component in manifest["components"]
+    }
+
+    for component in manifest["components"]:
+        implementation = REPO_ROOT / component["implementationPath"]
+        assert implementation.exists(), component["implementationPath"]
+        assert re.search(
+            rf"export\s+(?:function|const|class|type|interface)\s+{re.escape(component['exportName'])}\b",
+            read_text(implementation),
+        ), f"{component['exportName']} is not exported by {component['implementationPath']}"
+        for field in (
+            "description",
+            "useWhen",
+            "avoidWhen",
+            "accessibility",
+            "responsive",
+            "previewAnchor",
+        ):
+            assert component[field]
+        assert component["states"]
+        assert component["tokens"]
+
+    assert 'from "../components/Button"' in catalog_source
+    assert 'from "../components/FormControls"' in catalog_source
+    assert 'from "../components/DataTable"' in catalog_source
+    assert 'from "../components/Dialog"' in catalog_source
+    assert 'from "../components/MetricCard"' in catalog_source
+    assert 'from "../components/SelectionControls"' in catalog_source
+    assert 'from "../components/ThemePicker"' in catalog_source
+    assert "id={component.previewAnchor}" in catalog_source
+    for component_id in required_component_ids - {"shell"}:
+        assert re.search(
+            rf'(?:"{re.escape(component_id)}"|{re.escape(component_id)}):\s*[A-Z]',
+            catalog_source,
+        )
+    chart_figure = next(
+        component
+        for component in manifest["components"]
+        if component["id"] == "chart-figure"
+    )
+    assert chart_figure["implementationPath"] == (
+        "apps/web/src/components/charts/EChartsFigure.tsx"
+    )
+    assert chart_figure["exportName"] == "EChartsFigure"
+    assert chart_figure["previewAnchor"] == "catalog-chart-figure"
+    assert "ChartFigurePreview" in catalog_source
+    assert '"chart-figure": ChartFigurePreview' in catalog_source
+    assert package["scripts"]["build:design-system"] == (
+        "node ./scripts/build-design-system-catalog.mjs"
+    )
+    assert "publicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
+    assert "copyPublicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
+
+
+def test_runtime_catalog_and_searchable_navigation_are_wired_into_the_spec() -> None:
+    html = read_text(HTML_PATH)
+    runtime_html = read_text(RUNTIME_CATALOG_HTML_PATH)
+
+    assert 'class="spec-rail"' in html
+    assert 'id="spec-search-input"' in html
+    assert 'id="spec-search-results"' in html
+    assert 'id="component-catalog"' in html
+    assert 'src="./runtime-catalog.html?theme=light&amp;embedded=1"' in html
+    assert "components.json" in html
+    assert "统一组件说明模板" in html
+    assert 'id="root"' in runtime_html
+    assert './runtime-catalog/catalog.css' in runtime_html
+    assert './runtime-catalog/catalog.js' in runtime_html
+    assert (RUNTIME_CATALOG_DIR / "catalog.css").exists()
+    assert (RUNTIME_CATALOG_DIR / "catalog.js").exists()
+    assert {path.name for path in RUNTIME_CATALOG_DIR.iterdir()} == {
+        "catalog.css",
+        "catalog.js",
+    }
+
+
+def test_runtime_catalog_examples_match_real_field_usage_and_do_not_trap_scroll() -> None:
+    catalog_source = read_text(CATALOG_SOURCE_PATH)
+    catalog_styles = read_text(CATALOG_STYLES_PATH)
+
+    assert 'from "../components/Filters"' in catalog_source
+    assert '<FilterField label="门店">' in catalog_source
+    assert "<TextField" in catalog_source
+    assert "<DateField" in catalog_source
+    assert "<PasswordField" in catalog_source
+    assert "<TextareaField" in catalog_source
+    assert "<CheckboxField" in catalog_source
+    assert "<Tabs" in catalog_source
+    assert "<SegmentedControl" in catalog_source
+    assert "<SummaryFilter" in catalog_source
+    assert "<ThemePicker" in catalog_source
+    assert len(re.findall(r'channel: "1\d{2}\*{4}\d{4}"', catalog_source)) >= 6
+
+    contained_table_rule = catalog_styles.split(
+        ".catalog-component .table-wrap--contained-sticky {", 1
+    )[1].split("}", 1)[0]
+    assert "max-height: none;" in contained_table_rule
+    assert "overscroll-behavior: auto;" in contained_table_rule
+
+
+def test_chart_gallery_uses_authorized_source_presets_with_dydata_tokens() -> None:
+    html = read_text(HTML_PATH)
+    notices = read_text(CHART_NOTICES_PATH)
+    token_bridge = read_text(CHART_GALLERY_DIR / "dydata-gallery-tokens.css")
+    bridge = read_text(CHART_GALLERY_DIR / "gallery-bridge.js")
+    theme_adapter = read_text(CHART_GALLERY_DIR / "lieflat-theme.js")
+    pages = [
+        "lupi-gallery.html",
+        "basics-gallery.html",
+        "glance-gallery.html",
+    ]
+    removed_pages = ["big-circular.html", "big-force.html", "big-threads.html"]
+
+    assert 'id="chart-gallery"' in html
+    assert 'id="chart-gallery-search"' in html
+    assert "图表规范与候选库" in html
+    assert "本图表库是业务图表唯一的视觉来源" in html
+    assert "候选规范 -&gt; 业务映射 -&gt; ChartFigure" in html
+    assert "先入库再使用" in html
+    assert html.count('data-chart-gallery-page="') == 3
+    assert 'id="charts"' not in html
+    assert 'href="#charts"' not in html
+    assert "--viz-accent: #fe5205;" in token_bridge
+    assert "--viz-accent-strong: #ad3000;" in token_bridge
+    assert "--viz-accent-area: #fff4ef;" in token_bridge
+    assert 'type: "dydata-chart-filter-result"' in bridge
+    assert 'type: "dydata-chart-gallery-height"' in bridge
+    assert "new ResizeObserver(reportHeight)" in bridge
+    assert 'html[data-embedded="true"] body' in token_bridge
+    assert "overflow: hidden;" in token_bridge
+    assert 'event.data?.type === "dydata-chart-gallery-height"' in html
+    assert 'const chartGalleryVersion = "20260727-1";' in html
+    assert "&v=${chartGalleryVersion}" in html
+    assert "attributes: true" not in theme_adapter
+    assert 'attributeFilter: ["fill", "stroke"' not in theme_adapter
+
+    for page_name in pages:
+        page = read_text(CHART_GALLERY_DIR / page_name)
+        assert 'href="dydata-gallery-tokens.css?v=20260727-1"' in page
+        assert 'src="lieflat-theme.js?v=20260727-1"' in page
+        assert 'src="gallery-bridge.js?v=20260727-1"' in page
+        assert page_name in html
+
+    for page_name in removed_pages:
+        assert not (CHART_GALLERY_DIR / page_name).exists()
+        assert page_name not in html
+        assert f"templates/{page_name}" not in notices
+
+    assert "templates/lupi-gallery.html" in notices
+    assert "Gallery geometry, interaction, and animation remain" in notices
+
+
+def test_active_design_system_uses_chinese_first_reader_facing_copy() -> None:
+    html = read_text(HTML_PATH)
+    catalog_source = read_text(CATALOG_SOURCE_PATH)
+
+    for discussion_term in (
+        "DYDATA-",
+        "runtime-active",
+        "状态：active",
+        "V0.2 active",
+        "未来：DYDATA-5",
+        "不代表现有运行时行为",
+        "历史对照工具",
+    ):
+        assert discussion_term not in html
+
+    assert "运行中组件" in catalog_source
+    assert "组件清单与真实运行时展厅" in catalog_source
+    assert "RUNNING COMPONENTS" not in catalog_source
+
+
+def test_chart_gallery_reader_facing_copy_is_chinese_first() -> None:
+    pages = {
+        "lupi-gallery.html": (
+            "Every hairline is a day",
+            "IMPORTANT EVENTS",
+            "OUTLINED = TRIGGERED AN INCIDENT",
+            "ONE TICK = ONE RESPONDENT",
+        ),
+        "basics-gallery.html": ("sign-ups", " tickets"),
+        "glance-gallery.html": (
+            "Happiness",
+            "P0 CRITICAL",
+            "HOURS TO RESOLVE",
+            "ARR · H1 2026",
+        ),
+    }
+
+    for page_name, forbidden_copy in pages.items():
+        page = read_text(CHART_GALLERY_DIR / page_name)
+        assert 'lang="zh-CN"' in page
+        for phrase in forbidden_copy:
+            assert phrase not in page
 
 
 def test_v02_is_the_active_runtime_design_system() -> None:
@@ -107,9 +364,9 @@ def test_v02_is_the_active_runtime_design_system() -> None:
     assert colors["amber"]["value"] == candidate["tokens"]["color"]["amber"]["value"]
     assert colors["danger"]["value"] == candidate["tokens"]["color"]["danger"]["value"]
 
-    assert f"dy-data UI 设计规范 V{tokens['meta']['version']}" in html
+    assert f"dy-data 界面设计规范 V{tokens['meta']['version']}" in html
     assert f'<meta name="dydata-design-system-version" content="{tokens["meta"]["version"]}"' in html
-    assert "状态：active" in html
+    assert "状态：正式使用" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
     assert "pending-human-approval" not in html
@@ -146,10 +403,10 @@ def test_formal_v02_artifacts_identify_the_active_runtime_contract() -> None:
     assert tokens["meta"]["status"] == "active"
     assert tokens["meta"]["colorMode"] == "light-dark-system"
     assert tokens["meta"]["darkModeStatus"] == "runtime-active"
-    assert f"dy-data UI 设计规范 V{tokens['meta']['version']}" in html
+    assert f"dy-data 界面设计规范 V{tokens['meta']['version']}" in html
     assert f'<meta name="dydata-design-system-version" content="{tokens["meta"]["version"]}"' in html
-    assert "状态：active" in html
-    assert "模式：light / dark / system" in html
+    assert "状态：正式使用" in html
+    assert "主题：浅色 / 深色 / 跟随系统" in html
     assert "更新：2026-07-25" in html
     assert "源文件：tokens.json" in html
     assert "PREVIEW ONLY" not in html
@@ -207,8 +464,12 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
         ("--chart-danger", tokens["chart"]["danger"]["value"]),
         ("--chart-neutral", tokens["chart"]["neutral"]["value"]),
         ("--chart-grid", tokens["chart"]["grid"]["value"]),
-        ("--chart-axis", tokens["chart"]["axis"]["value"]),
+        ("--chart-axis-line", tokens["chart"]["axisLine"]["value"]),
+        ("--chart-axis-text", tokens["chart"]["axisText"]["value"]),
         ("--chart-label", tokens["chart"]["label"]["value"]),
+        ("--chart-data-neutral-strong", tokens["chart"]["dataNeutralStrong"]["value"]),
+        ("--chart-data-neutral-medium", tokens["chart"]["dataNeutralMedium"]["value"]),
+        ("--chart-data-neutral-soft", tokens["chart"]["dataNeutralSoft"]["value"]),
         ("--chart-surface", tokens["chart"]["surface"]["value"]),
         ("--chart-inspector-surface", tokens["chart"]["inspectorSurface"]["value"]),
         ("--chart-hover-surface", tokens["chart"]["hoverSurface"]["value"]),
@@ -216,6 +477,13 @@ def test_core_app_css_tokens_match_design_system_tokens() -> None:
         ("--chart-info-fill", tokens["chart"]["infoFill"]["value"]),
         ("--chart-positive-fill", tokens["chart"]["positiveFill"]["value"]),
         ("--chart-focus-shadow", tokens["chart"]["focusShadow"]["value"]),
+        ("--chart-font-family", tokens["chart"]["fontFamily"]["value"]),
+        ("--chart-label-font-size", tokens["chart"]["labelFontSize"]["value"]),
+        ("--chart-meta-font-size", tokens["chart"]["metaFontSize"]["value"]),
+        ("--chart-tooltip-radius", tokens["chart"]["tooltipRadius"]["value"]),
+        ("--chart-tooltip-padding-x", tokens["chart"]["tooltipPaddingX"]["value"]),
+        ("--chart-tooltip-padding-y", tokens["chart"]["tooltipPaddingY"]["value"]),
+        ("--chart-compact-breakpoint", tokens["chart"]["compactBreakpoint"]["value"]),
     ]
 
     for variable_name, expected_value in app_variables:
@@ -245,8 +513,12 @@ def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
         "neutralMid",
         "neutralFaint",
         "grid",
-        "axis",
+        "axisLine",
+        "axisText",
         "label",
+        "dataNeutralStrong",
+        "dataNeutralMedium",
+        "dataNeutralSoft",
         "surface",
         "inspectorSurface",
         "hoverSurface",
@@ -255,6 +527,13 @@ def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
         "infoFill",
         "positiveFill",
         "focusShadow",
+        "fontFamily",
+        "labelFontSize",
+        "metaFontSize",
+        "tooltipRadius",
+        "tooltipPaddingX",
+        "tooltipPaddingY",
+        "compactBreakpoint",
     }
     assert chart_figure["titleRule"].startswith("State the finding")
     assert chart_figure["readingModes"] == {
@@ -262,10 +541,48 @@ def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
         "analytical": "20-60 second read for distribution, comparison and explanation.",
         "specialist": "Dedicated page for network, flow or high-density relationship analysis.",
     }
-    assert "lieflat-charts" in chart_figure["sourceMethod"]
-    assert chart_figure["integratedTemplates"] == [
-        "G8 Rainfall Dual Area",
-        "G15 Jitter Strip",
+    assert chart_figure["visualSource"] == (
+        "docs/design-system/index.html#chart-gallery"
+    )
+    assert set(chart_figure["candidateCollections"]) == {
+        "glance",
+        "basics",
+        "lupi",
+    }
+    assert "lieflat-charts Gallery" in chart_figure["sourceMethod"]
+    assert "candidate collection and candidate name" in chart_figure[
+        "selectionContract"
+    ]
+    assert "before using it in a business page" in chart_figure[
+        "newCandidateRule"
+    ]
+    assert chart_figure["currentRuntimeSelections"] == [
+        {
+            "collection": "glance",
+            "candidateId": "G8",
+            "candidateName": "Rainfall Dual Area",
+            "sourceFile": "docs/design-system/chart-gallery/glance-gallery.html",
+            "businessMapping": "MonthlyRainfallChart",
+            "approvedAdaptations": [
+                "business data",
+                "Chinese copy",
+                "dy-data semantic chart colors",
+                "compact month-label interval",
+            ],
+        },
+        {
+            "collection": "glance",
+            "candidateId": "G15",
+            "candidateName": "Jitter Strip",
+            "sourceFile": "docs/design-system/chart-gallery/glance-gallery.html",
+            "businessMapping": "CycleJitterChart",
+            "approvedAdaptations": [
+                "business data",
+                "Chinese copy",
+                "dy-data semantic chart colors",
+                "localized category labels within the original plot geometry",
+            ],
+        },
     ]
     assert "Apache ECharts 6" in chart_figure["runtime"]
     assert "PolyForm Noncommercial 1.0.0" in chart_figure["licenseBoundary"]
@@ -284,11 +601,13 @@ def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
         assert f"var({variable_name})" in chart_css
     for palette_role in (
         "palette.grid",
-        "palette.axis",
+        "palette.axisLine",
+        "palette.axisText",
         "palette.label",
+        "palette.dataNeutralStrong",
+        "palette.dataNeutralMedium",
+        "palette.dataNeutralSoft",
         "palette.neutral",
-        "palette.neutralMid",
-        "palette.neutralFaint",
         "palette.primary",
         "palette.primaryFill",
         "palette.primaryTransparent",
@@ -299,14 +618,27 @@ def test_chart_figure_contract_and_runtime_chart_styles_are_semantic() -> None:
     assert "var(--green)" not in chart_css
     assert "var(--amber)" not in chart_css
     assert "--chart-primary: var(--brand-orange);" in token_css
+    assert "--chart-axis-line: var(--line-strong);" in token_css
+    assert "--chart-axis-text: var(--muted);" in token_css
+    assert "--chart-label-font-size: 12px;" in token_css
+    assert "--chart-meta-font-size: 11px;" in token_css
+    assert "--chart-compact-breakpoint: 480px;" in token_css
     assert "--chart-primary-transparent: rgb(254 82 5 / 0%);" in token_css
     assert web_package["dependencies"]["echarts"].startswith("^6.1")
-    assert "G8 Rainfall Dual Area" in sales_charts
-    assert "G15 Jitter Strip" in sales_charts
+    assert 'candidateId: "G8"' in sales_charts
+    assert 'candidateName: "Rainfall Dual Area"' in sales_charts
+    assert 'candidateId: "G15"' in sales_charts
+    assert 'candidateName: "Jitter Strip"' in sales_charts
     assert 'animationEasing: "quarticOut"' in sales_charts
     assert 'animationEasing: "cubicOut"' in sales_charts
     assert 'renderer: "svg"' in chart_runtime
     assert "ResizeObserver" in chart_runtime
+    assert "keyboardTargets" in chart_runtime
+    assert 'event.key === "Enter"' in chart_runtime
+    assert 'event.key === "Escape"' in chart_runtime
+    assert "aria-keyshortcuts" in chart_runtime
+    assert "aria: { enabled: false }" in sales_charts
+    assert "ChartCandidateMetadata" in sales_charts
     assert "MonthlyRainfallChart" in sales_page
     assert "CycleJitterChart" in sales_page
     assert "<svg" not in sales_page
@@ -324,9 +656,9 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
         'id="brand-signature"',
         'id="typography"',
         'id="spacing-radius"',
-        'id="components"',
-        'id="iconography"',
-        'id="charts"',
+            'id="components"',
+            'id="iconography"',
+            'id="chart-gallery"',
         'id="table-sticky"',
         'id="mobile-card"',
         'id="clue-followup-workbench"',
@@ -378,28 +710,21 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "@iconify/react" in html
     assert "@iconify-icons/solar" in html
     assert "apps/web/src/components/SolarIcon.tsx" in html
-    assert "默认变体为 Solar" in html
+    assert "默认使用 Solar 线性样式" in html
     assert "bold-duotone" in html
     assert "cluesLine" in html
-    assert "ChartFigure / 数据图表" in html
-    assert "直接接入已实现图表" in html
-    assert "G8 Rainfall Dual Area" in html
-    assert "G15 Jitter Strip" in html
-    assert "ECharts option integration" in html
-    assert "PolyForm Noncommercial" in html
-    assert "运营快读" in html
-    assert "分析细读" in html
-    assert "专项关系" in html
+    assert "Glance 系（快读）" in html
+    assert "基础图表" in html
+    assert "Lupi 系（细读）" in html
+    assert "业务实现必须记录选用的候选族与候选名称" in html
+    assert "ChartFigure 运行时外壳" in html
     assert "结论先行" in html
     assert "固定解释条" in html
-    assert "横向条形图最多展示 8 个可见类别" in html
-    assert "热力图必须同时提供数值或可访问替代" in html
-    assert 'class="chart-inspector-demo" role="status" aria-live="polite"' in html
     assert "prefers-reduced-motion" in html
     assert "线索表格冻结表头" in html
     assert "--table-sticky-gap: 8px" in html
-    assert "action bar 58px + gap 8px" in html
-    assert "移动端 top subnav 为 DYDATA-5 未来范围" in html
+    assert "桌面顶部操作栏 58px + 间距 8px" in html
+    assert "移动端顶部二级导航独立保留" in html
     assert "明细工作台页面模板" in html
     assert "page-frame--data-workspace" in html
     assert 'class="data-workspace-demo__result"' in html
@@ -412,10 +737,10 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert 'max="447"' in html
     assert "跳转</button>" in html
     assert "请输入 1-447 之间的页码" in html
-    assert "移动端保留页码输入，按 Enter 跳转" in html
+    assert "移动端保留页码输入，按回车键跳转" in html
     assert "分页属于结果区，不放进表格滚动容器" in html
     assert "页码输入只允许 1 到总页数之间的正整数" in html
-    assert "DYDATA-5 未来移动明细页面模板" in html
+    assert "移动端明细页面模板" in html
     assert "新增明细长表" in html
     assert "action bar 58px + subnav 51px + gap 8px" not in html
     assert 'class="sticky-demo-shell"' in html
@@ -439,7 +764,7 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert "未接通也算产生跟进行为" in html
     assert "失效、已核销、已退款时显示“已失效不可跟进”" in html
     assert "店端：" in html
-    assert "不展示内部轮次 ID" in html
+    assert "不展示内部轮次编号" in html
     mobile_detail_section = html.split('id="clue-followup-mobile-detail"', 1)[1].split(
         'id="page-templates"', 1
     )[0]
@@ -842,10 +1167,10 @@ def test_active_visual_samples_do_not_bypass_the_solar_icon_contract() -> None:
         assert f'd="{favicon_path.group(1)}"' in body
         assert f'transform="{favicon_transform.group(1)}"' in body
 
-    assert 'id="design-rainfall-chart"' in html
-    assert 'id="design-jitter-chart"' in html
-    assert html.count('class="chart-echarts-demo') == 2
-    assert '<script src="./vendor/echarts.min.js"></script>' in html
+    assert 'id="design-rainfall-chart"' not in html
+    assert 'id="design-jitter-chart"' not in html
+    assert 'class="chart-echarts-demo' not in html
+    assert '<script src="./vendor/echarts.min.js"></script>' not in html
 
     visible_icons = [
         (attrs, body)
@@ -1287,10 +1612,11 @@ def test_formal_v02_records_candidate_artifacts_as_immutable_history() -> None:
         ],
         "outcome": "Approved V0.2 values are now the formal runtime design-system contract.",
     }
-    assert "候选工件保留为不可变历史评审记录" in html
+    assert "候选工件保留为不可变历史评审记录" not in html
+    assert "当前正式版本" in html
 
 
-def test_formal_v02_labels_mobile_candidate_content_as_future_dydata5() -> None:
+def test_formal_v02_keeps_mobile_implementation_status_machine_readable() -> None:
     tokens = load_tokens()
     html = read_text(HTML_PATH)
 
@@ -1309,5 +1635,7 @@ def test_formal_v02_labels_mobile_candidate_content_as_future_dydata5() -> None:
     assert tokens["pageTemplates"]["clueFollowUpMobileDetail"]["implementationStatus"] == (
         "future-DYDATA-5-not-runtime-active"
     )
-    assert "DYDATA-5 未来范围" in html
-    assert "不代表现有运行时行为" in html
+    assert "移动端实现规则" in html
+    assert "移动端明细页面模板" in html
+    assert "DYDATA-5 未来范围" not in html
+    assert "不代表现有运行时行为" not in html

@@ -6,8 +6,10 @@ import {
   resetAccountPassword,
 } from "../api/client";
 import { Button, IconButton } from "../components/Button";
+import { FieldInput } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
 import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { Tabs } from "../components/SelectionControls";
 import { ThemePicker } from "../components/ThemePicker";
 import type {
   AccountActivationCheckPayload,
@@ -390,27 +392,24 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             <a href="/login">返回账号登录</a>
           </div>
         ) : (
-          <div className="auth-tabs auth-tabs--two" role="tablist" aria-label="账号入口">
-            {(["login", "activate"] as const).map((item) => (
-              <button
-                aria-selected={mode === item}
-                className="auth-tab"
-                key={item}
-                onClick={() => switchMode(item)}
-                role="tab"
-                type="button"
-              >
-                {modeLabels[item]}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            ariaLabel="账号入口"
+            className="auth-tabs auth-tabs--two"
+            itemClassName="auth-tab"
+            onChange={switchMode}
+            options={(["login", "activate"] as const).map((item) => ({
+              label: modeLabels[item],
+              value: item,
+            }))}
+            value={mode}
+          />
         )}
 
         {mode === "login" ? (
           <form className="auth-form" onSubmit={handleLogin}>
             <label className="filter-field">
               <span>账号名、所属账户编号或门店位置编号（POI ID）</span>
-              <input
+              <FieldInput
                 autoFocus
                 autoComplete="username"
                 onChange={(event) => setIdentifier(event.target.value)}
@@ -420,7 +419,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </label>
             <label className="filter-field">
               <span>密码</span>
-              <input
+              <FieldInput
                 autoComplete="current-password"
                 onChange={(event) => setLoginPassword(event.target.value)}
                 placeholder="输入密码"
@@ -452,7 +451,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
                     variant="soft"
                   />
                 </div>
-                <input
+                <FieldInput
                   autoComplete="off"
                   id="reset-external-account-id"
                   onChange={(event) =>
@@ -475,7 +474,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
                     variant="soft"
                   />
                 </div>
-                <input
+                <FieldInput
                   autoComplete="off"
                   id="reset-poi-id"
                   onChange={(event) =>
@@ -518,7 +517,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               </div>
               <label className="filter-field">
                 <span>新密码</span>
-                <input
+                <FieldInput
                   autoComplete="new-password"
                   onChange={(event) =>
                     setResetCredentialField("password", event.target.value)
@@ -530,7 +529,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
               </label>
               <label className="filter-field">
                 <span>确认密码</span>
-                <input
+                <FieldInput
                   autoComplete="new-password"
                   onChange={(event) =>
                     setResetCredentialField("password_confirm", event.target.value)
@@ -571,7 +570,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
                   variant="soft"
                 />
               </div>
-              <input
+              <FieldInput
                 autoComplete="off"
                 id="activation-external-account-id"
                 onChange={(event) =>
@@ -594,7 +593,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
                   variant="soft"
                 />
               </div>
-              <input
+              <FieldInput
                 autoComplete="off"
                 id="activation-poi-id"
                 onChange={(event) =>
@@ -647,7 +646,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </div>
             <label className="filter-field">
               <span>账号名</span>
-              <input
+              <FieldInput
                 aria-describedby="activation-username-help activation-username-error"
                 aria-invalid={usernameHasInvalidCharacters || undefined}
                 autoComplete="username"
@@ -668,7 +667,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </label>
             <label className="filter-field">
               <span>密码</span>
-              <input
+              <FieldInput
                 autoComplete="new-password"
                 onChange={(event) =>
                   setActivationCredentialField("password", event.target.value)
@@ -680,7 +679,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </label>
             <label className="filter-field">
               <span>确认密码</span>
-              <input
+              <FieldInput
                 autoComplete="new-password"
                 onChange={(event) =>
                   setActivationCredentialField("password_confirm", event.target.value)

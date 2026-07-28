@@ -4,6 +4,7 @@ import {
   loginAdmin,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { FieldInput } from "../components/FormControls";
 
 const adminModules = [
   {
@@ -103,7 +104,7 @@ export function AdminHomePage() {
           </div>
           <label className="filter-field">
             <span>管理密码</span>
-            <input
+            <FieldInput
               autoFocus
               onChange={(event) => setPassword(event.target.value)}
               placeholder="请输入管理密码"
