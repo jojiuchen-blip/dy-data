@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import manifestSource from "../../../../docs/design-system/components.json";
+import manifestSource from "./components.generated.json";
 import { Button, IconButton } from "../components/Button";
 import {
   CycleJitterChart,

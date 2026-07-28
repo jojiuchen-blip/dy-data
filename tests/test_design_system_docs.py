@@ -43,6 +43,14 @@ CATALOG_BUILD_SCRIPT_PATH = (
 CATALOG_STYLES_PATH = (
     REPO_ROOT / "apps" / "web" / "src" / "design-system" / "catalog.css"
 )
+CATALOG_MANIFEST_PATH = (
+    REPO_ROOT
+    / "apps"
+    / "web"
+    / "src"
+    / "design-system"
+    / "components.generated.json"
+)
 CHART_GALLERY_DIR = DESIGN_SYSTEM_DIR / "chart-gallery"
 
 
@@ -56,6 +64,7 @@ def load_tokens() -> dict:
 
 def test_component_manifest_points_to_real_runtime_components() -> None:
     manifest = json.loads(read_text(COMPONENT_MANIFEST_PATH))
+    catalog_manifest = json.loads(read_text(CATALOG_MANIFEST_PATH))
     catalog_source = read_text(CATALOG_SOURCE_PATH)
     package = json.loads(read_text(WEB_PACKAGE_PATH))
 
@@ -72,6 +81,7 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
         "responsive",
         "implementation",
     ]
+    assert catalog_manifest == manifest
     assert len(manifest["components"]) >= 15
     assert len({component["id"] for component in manifest["components"]}) == len(
         manifest["components"]
@@ -125,6 +135,7 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
         assert component["tokens"]
 
     assert 'from "../components/Button"' in catalog_source
+    assert 'from "./components.generated.json"' in catalog_source
     assert 'from "../components/FormControls"' in catalog_source
     assert 'from "../components/DataTable"' in catalog_source
     assert 'from "../components/Dialog"' in catalog_source
@@ -154,6 +165,9 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
     )
     assert "publicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
     assert "copyPublicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
+    assert "copyFileSync(manifestSource, manifestTarget)" in read_text(
+        CATALOG_BUILD_SCRIPT_PATH
+    )
 
 
 def test_runtime_catalog_and_searchable_navigation_are_wired_into_the_spec() -> None:

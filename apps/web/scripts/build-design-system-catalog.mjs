@@ -1,5 +1,6 @@
 import path from "node:path";
 import {
+  copyFileSync,
   existsSync,
   lstatSync,
   readdirSync,
@@ -14,6 +15,13 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const webRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(webRoot, "..", "..");
 const outDir = path.resolve(repoRoot, "docs", "design-system", "runtime-catalog");
+const manifestSource = path.resolve(repoRoot, "docs", "design-system", "components.json");
+const manifestTarget = path.resolve(
+  webRoot,
+  "src",
+  "design-system",
+  "components.generated.json",
+);
 
 const expectedOutDir = path.resolve(repoRoot, "docs", "design-system", "runtime-catalog");
 if (outDir !== expectedOutDir) {
@@ -33,6 +41,7 @@ function removeTree(target) {
 }
 
 removeTree(outDir);
+copyFileSync(manifestSource, manifestTarget);
 
 await build({
   configFile: false,

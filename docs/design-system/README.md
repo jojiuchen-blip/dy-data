@@ -6,6 +6,7 @@
 
 - `tokens.json`：机器可读的 V0.2 token、组件规则、页面模板和运行时契约。它是唯一的规范源文件。
 - `components.json`：机器可读组件 Manifest，登记组件家族、状态、使用边界、可访问性、响应式规则、运行时实现与预览锚点。
+- `apps/web/src/design-system/components.generated.json`：由 Catalog 构建脚本从 `components.json` 同步生成的容器内镜像；不得手工修改，测试要求两者完全一致。
 - `index.html`：V0.2 完整可视化规范，展示浅色/深色颜色、排版、控件状态、图标、图表、表格、弹层、品牌署名与页面模板。
 - `runtime-catalog.html`：真实组件 Catalog 入口；预览由 `apps/web/src/design-system` 直接导入业务 React 组件生成，不使用静态 HTML 仿制运行时组件。
 - `chart-gallery/`：业务图表唯一的视觉候选库。经授权的图表实现保留几何、交互与动画，只由 `dydata-gallery-tokens.css` 映射 dy-data 品牌与语义色。
