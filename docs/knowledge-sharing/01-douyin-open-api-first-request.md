@@ -68,14 +68,14 @@ POST https://open.douyin.com/oauth/client_token/
 本项目已经封装了这一步：
 
 ```python
-from src.dy_data.douyin_client import DouyinClient, DouyinCredentials
+from src.dy_data.douyin_client import DouyinCredentials, DouyinOpenApiClient
 
 credentials = DouyinCredentials(
     app_id="APP_ID_EXAMPLE",
     app_secret="APP_SECRET_EXAMPLE",
     account_id="ACCOUNT_ID_EXAMPLE",
 )
-client = DouyinClient(credentials)
+client = DouyinOpenApiClient(credentials)
 token = client.get_client_token()
 ```
 
