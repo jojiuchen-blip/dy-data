@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -23,6 +24,7 @@ from apps.api.dy_api.models import (
     ClueLeadRuleVersionBinding,
     ClueMasterLead,
     ClueOrderStatusEvent,
+    ClueSourceIdentifierHistory,
     DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
@@ -120,10 +122,39 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     )
     existing_rows = session.scalars(select(ClueMasterLead)).all()
     existing_by_lead_key = {row.lead_key: row for row in existing_rows}
+    existing_by_source_clue_row_key = {row.source_clue_row_key: row for row in existing_rows}
     existing_by_identity = {row.source_identity_key: row for row in existing_rows}
     existing_by_canonical_clue_id = {
         row.canonical_clue_id: row for row in existing_rows if row.canonical_clue_id
     }
+    masters_by_order_id: dict[str, list[ClueMasterLead]] = defaultdict(list)
+    for row in existing_rows:
+        if order_id := _clean(row.order_id):
+            masters_by_order_id[order_id].append(row)
+    existing_by_order_id = {
+        order_id: rows[0] for order_id, rows in masters_by_order_id.items() if len(rows) == 1
+    }
+    identifier_history_rows = session.scalars(select(ClueSourceIdentifierHistory)).all()
+    identifier_history_by_key = {
+        (row.source_clue_row_key, row.identifier_type, row.identifier_value): row
+        for row in identifier_history_rows
+    }
+    current_identifier_history_by_source_type: dict[
+        tuple[str, str], list[ClueSourceIdentifierHistory]
+    ] = defaultdict(list)
+    source_history_lead_keys: dict[str, set[str]] = defaultdict(set)
+    for row in identifier_history_rows:
+        source_history_lead_keys[row.source_clue_row_key].add(row.lead_key)
+        if row.is_current:
+            current_identifier_history_by_source_type[
+                (row.source_clue_row_key, row.identifier_type)
+            ].append(row)
+    for source_clue_row_key, lead_keys in source_history_lead_keys.items():
+        if len(lead_keys) != 1:
+            continue
+        lead = existing_by_lead_key.get(next(iter(lead_keys)))
+        if lead is not None:
+            existing_by_source_clue_row_key.setdefault(source_clue_row_key, lead)
     current_round_ids = {
         row.current_assignment_round_id for row in existing_rows if row.current_assignment_round_id
     }
@@ -184,15 +215,47 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     for raw_clue in raw_clues:
         source_identity_key = _source_identity_key(raw_clue)
         canonical_clue_id = _clean(raw_clue.clue_id)
-        existing = (
-            existing_by_identity.get(source_identity_key)
-            or (existing_by_canonical_clue_id.get(canonical_clue_id) if canonical_clue_id else None)
-            or existing_by_lead_key.get(_lead_key(source_identity_key))
+        order_id = _clean(raw_clue.order_id)
+        source_match = existing_by_source_clue_row_key.get(raw_clue.clue_row_key)
+        order_match = existing_by_order_id.get(order_id) if order_id else None
+        identity_match = existing_by_identity.get(source_identity_key)
+        canonical_match = (
+            existing_by_canonical_clue_id.get(canonical_clue_id) if canonical_clue_id else None
         )
+        lead_key_match = existing_by_lead_key.get(_lead_key(source_identity_key))
+
+        conflict_reason = _master_match_conflict_reason(
+            source_match=source_match,
+            order_match=order_match,
+            identity_match=identity_match,
+            order_id=order_id,
+        )
+        if conflict_reason:
+            _record_identity_mapping_conflict(
+                session,
+                raw_clue=raw_clue,
+                source_match=source_match,
+                order_match=order_match,
+                identity_match=identity_match,
+                reason=conflict_reason,
+                now=now,
+            )
+            continue
+
+        existing = source_match or order_match
+        if existing is None:
+            existing = next(
+                (
+                    candidate
+                    for candidate in (identity_match, canonical_match, lead_key_match)
+                    if candidate is not None and _master_order_is_compatible(candidate, order_id)
+                ),
+                None,
+            )
         resolution = _resolve_status(
             raw_clue,
-            raw_orders.get(_clean(raw_clue.order_id) or ""),
-            verified_at_by_order.get(_clean(raw_clue.order_id) or ""),
+            raw_orders.get(order_id or ""),
+            verified_at_by_order.get(order_id or ""),
             now,
         )
         anchor = _resolve_anchor(raw_clue, mappings_by_poi, stores_by_id)
@@ -243,7 +306,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
 
         existing.source_identity_key = source_identity_key
         existing.canonical_clue_id = canonical_clue_id or existing.canonical_clue_id
-        existing.order_id = _clean(raw_clue.order_id)
+        existing.order_id = order_id
         existing.raw_order_status = resolution.raw_status
         existing.normalized_order_status = resolution.normalized_status
         existing.status_source = resolution.status_source
@@ -271,9 +334,37 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         existing.updated_at = now
 
         materialized_lead_keys.add(existing.lead_key)
+        existing_by_source_clue_row_key[raw_clue.clue_row_key] = existing
+        if order_id:
+            existing_by_order_id.setdefault(order_id, existing)
         existing_by_identity[source_identity_key] = existing
         if canonical_clue_id:
             existing_by_canonical_clue_id[canonical_clue_id] = existing
+        payload_hash = _source_payload_hash(raw_clue.raw_payload)
+        _set_current_source_identifier(
+            session,
+            lead_key=existing.lead_key,
+            source_clue_row_key=raw_clue.clue_row_key,
+            identifier_type="clue_id",
+            identifier_value=canonical_clue_id,
+            source_payload_hash=payload_hash,
+            observed_at=observed_at,
+            now=now,
+            history_by_key=identifier_history_by_key,
+            current_by_source_type=current_identifier_history_by_source_type,
+        )
+        _set_current_source_identifier(
+            session,
+            lead_key=existing.lead_key,
+            source_clue_row_key=raw_clue.clue_row_key,
+            identifier_type="source_identity_key",
+            identifier_value=source_identity_key,
+            source_payload_hash=payload_hash,
+            observed_at=observed_at,
+            now=now,
+            history_by_key=identifier_history_by_key,
+            current_by_source_type=current_identifier_history_by_source_type,
+        )
         if lifecycle_status != "active":
             closed_lead_keys.add(existing.lead_key)
         elif pool_location == "headquarters_pool":
@@ -764,6 +855,148 @@ def _score_rule_version_ids_for_refresh(session: Session) -> list[str]:
 def _scheduled_score_refresh_key(snapshot_date: date, rule_version_id: str | None) -> str:
     target = rule_version_id or "legacy"
     return f"scheduled-{snapshot_date.isoformat()}-{target}"
+
+
+def _master_order_is_compatible(master: ClueMasterLead, order_id: str | None) -> bool:
+    master_order_id = _clean(master.order_id)
+    return not order_id or not master_order_id or master_order_id == order_id
+
+
+def _master_match_conflict_reason(
+    *,
+    source_match: ClueMasterLead | None,
+    order_match: ClueMasterLead | None,
+    identity_match: ClueMasterLead | None,
+    order_id: str | None,
+) -> str | None:
+    if source_match is not None and not _master_order_is_compatible(source_match, order_id):
+        return "source_record_order_changed"
+    if source_match is not None and order_match is not None and source_match is not order_match:
+        return "source_record_and_order_resolve_to_different_leads"
+    selected = source_match or order_match
+    if selected is not None and identity_match is not None and selected is not identity_match:
+        return "source_identity_already_bound_to_another_lead"
+    if identity_match is not None and not _master_order_is_compatible(identity_match, order_id):
+        return "source_identity_order_conflict"
+    return None
+
+
+def _record_identity_mapping_conflict(
+    session: Session,
+    *,
+    raw_clue: RawDouyinClue,
+    source_match: ClueMasterLead | None,
+    order_match: ClueMasterLead | None,
+    identity_match: ClueMasterLead | None,
+    reason: str,
+    now: datetime,
+) -> None:
+    source = "|".join(
+        [
+            raw_clue.clue_row_key,
+            _clean(raw_clue.order_id) or "",
+            source_match.lead_key if source_match else "",
+            order_match.lead_key if order_match else "",
+            identity_match.lead_key if identity_match else "",
+            reason,
+        ]
+    )
+    issue_id = f"clue-identity-conflict:{sha256(source.encode('utf-8')).hexdigest()[:32]}"
+    upsert_data_quality_issue(
+        session,
+        issue_id,
+        issue_type="clue_identity_conflict",
+        message="clue source identifiers resolve to conflicting master leads",
+        order_id=_clean(raw_clue.order_id),
+        severity="error",
+        raw_context_json={
+            "source_clue_row_key": raw_clue.clue_row_key,
+            "canonical_clue_id": _clean(raw_clue.clue_id),
+            "source_lead_key": source_match.lead_key if source_match else None,
+            "source_order_id": _clean(source_match.order_id) if source_match else None,
+            "order_lead_key": order_match.lead_key if order_match else None,
+            "identity_lead_key": identity_match.lead_key if identity_match else None,
+            "reason": reason,
+            "observed_at": now.isoformat(),
+        },
+        source_run_id=None,
+        flush=False,
+    )
+
+
+def _source_payload_hash(raw_payload: dict[str, object] | None) -> str:
+    serialized = json.dumps(
+        raw_payload or {},
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _source_identifier_history_id(
+    source_clue_row_key: str,
+    identifier_type: str,
+    identifier_value: str,
+) -> str:
+    source = f"{source_clue_row_key}|{identifier_type}|{identifier_value}"
+    return f"clue-identifier-{sha256(source.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _set_current_source_identifier(
+    session: Session,
+    *,
+    lead_key: str,
+    source_clue_row_key: str,
+    identifier_type: str,
+    identifier_value: str | None,
+    source_payload_hash: str,
+    observed_at: datetime,
+    now: datetime,
+    history_by_key: dict[tuple[str, str, str], ClueSourceIdentifierHistory],
+    current_by_source_type: dict[tuple[str, str], list[ClueSourceIdentifierHistory]],
+) -> None:
+    source_type_key = (source_clue_row_key, identifier_type)
+    for current in current_by_source_type.get(source_type_key, []):
+        if current.identifier_value != identifier_value:
+            current.is_current = False
+            current.updated_at = now
+
+    if identifier_value is None:
+        current_by_source_type[source_type_key] = []
+        return
+
+    history_key = (source_clue_row_key, identifier_type, identifier_value)
+    history = history_by_key.get(history_key)
+    if history is None:
+        history = ClueSourceIdentifierHistory(
+            identifier_history_id=_source_identifier_history_id(
+                source_clue_row_key,
+                identifier_type,
+                identifier_value,
+            ),
+            lead_key=lead_key,
+            source_clue_row_key=source_clue_row_key,
+            identifier_type=identifier_type,
+            identifier_value=identifier_value,
+            source_payload_hash=source_payload_hash,
+            first_seen_at=observed_at,
+            last_seen_at=observed_at,
+            is_current=True,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(history)
+        history_by_key[history_key] = history
+    else:
+        if history.lead_key != lead_key:
+            raise ValueError("source identifier history is already linked to another lead")
+        history.source_payload_hash = source_payload_hash
+        history.last_seen_at = observed_at
+        history.is_current = True
+        history.updated_at = now
+    current_by_source_type[source_type_key] = [history]
 
 
 def _source_identity_key(raw_clue: RawDouyinClue) -> str:

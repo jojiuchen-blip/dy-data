@@ -19,6 +19,7 @@ from apps.api.dy_api.models import (
     ClueFollowUpRecord,
     ClueMasterLead,
     ClueOrderStatusEvent,
+    ClueSourceIdentifierHistory,
     DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
@@ -123,7 +124,11 @@ def _published_score_rule_version(
 def test_m1_clue_master_and_anchor_schema_is_declared() -> None:
     tables = Base.metadata.tables
 
-    assert {"clue_master_leads", "clue_order_status_events"}.issubset(tables)
+    assert {
+        "clue_master_leads",
+        "clue_order_status_events",
+        "clue_source_identifier_history",
+    }.issubset(tables)
     assert {"follow_poi_id", "intention_poi_id"}.issubset(tables["raw_douyin_clues"].columns.keys())
     assert {
         "standard_province",
@@ -153,6 +158,17 @@ def test_m1_clue_master_and_anchor_schema_is_declared() -> None:
         "anchor_source",
         "anchor_unavailable_reason",
     }.issubset(tables["clue_master_leads"].columns.keys())
+    assert {
+        "identifier_history_id",
+        "lead_key",
+        "source_clue_row_key",
+        "identifier_type",
+        "identifier_value",
+        "source_payload_hash",
+        "first_seen_at",
+        "last_seen_at",
+        "is_current",
+    }.issubset(tables["clue_source_identifier_history"].columns.keys())
 
 
 def test_m1_score_schema_is_declared_without_reusing_legacy_rounds_as_formal_data() -> None:
@@ -426,6 +442,144 @@ def test_master_lead_merges_missing_clue_id_when_contact_and_order_are_later_ava
     clue_allocation.materialize_clue_master_leads(db_session, now=_dt(3))
 
     assert _master_by_clue_id(db_session, "later-clue-id") is not None
+
+
+def test_master_lead_reuses_source_row_when_clue_id_and_identity_change(
+    db_session: Session,
+) -> None:
+    raw_clue = _raw_clue(
+        "mutable-source-row",
+        clue_id="clue-version-1",
+        order_id="mutable-order",
+        telephone="13812345678",
+    )
+    db_session.add(raw_clue)
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+    original_master = _master_by_clue_id(db_session, "clue-version-1")
+    assert original_master is not None
+    original_lead_key = original_master.lead_key
+    original_identity_key = original_master.source_identity_key
+
+    raw_clue.clue_id = "clue-version-2"
+    raw_clue.telephone = "13987654321"
+    raw_clue.raw_payload = {
+        "clue_id": "clue-version-2",
+        "telephone": "13987654321",
+        "follow_poi_id": "poi-anchor",
+    }
+    raw_clue.updated_at = _dt(3)
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(3))
+
+    current_master = _master_by_clue_id(db_session, "clue-version-2")
+    assert current_master is not None
+    assert current_master.lead_key == original_lead_key
+    assert current_master.source_clue_row_key == "mutable-source-row"
+    assert db_session.scalar(select(func.count()).select_from(ClueMasterLead)) == 1
+
+    history = db_session.scalars(
+        select(ClueSourceIdentifierHistory)
+        .where(ClueSourceIdentifierHistory.lead_key == original_lead_key)
+        .order_by(
+            ClueSourceIdentifierHistory.identifier_type,
+            ClueSourceIdentifierHistory.first_seen_at,
+        )
+    ).all()
+    clue_id_history = [row for row in history if row.identifier_type == "clue_id"]
+    identity_history = [
+        row for row in history if row.identifier_type == "source_identity_key"
+    ]
+    assert [(row.identifier_value, row.is_current) for row in clue_id_history] == [
+        ("clue-version-1", False),
+        ("clue-version-2", True),
+    ]
+    assert [(row.identifier_value, row.is_current) for row in identity_history] == [
+        (original_identity_key, False),
+        (current_master.source_identity_key, True),
+    ]
+    assert all(len(row.source_payload_hash or "") == 64 for row in history)
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(4))
+
+    assert db_session.scalar(
+        select(func.count()).select_from(ClueSourceIdentifierHistory)
+    ) == 4
+
+
+def test_master_lead_uses_order_key_without_merging_different_orders(
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [
+            _raw_clue(
+                "shared-order-source-1",
+                clue_id="shared-order-clue-1",
+                order_id="shared-order",
+                telephone="13812345678",
+            ),
+            _raw_clue(
+                "shared-order-source-2",
+                clue_id="shared-order-clue-2",
+                order_id="shared-order",
+                telephone="13987654321",
+            ),
+            _raw_clue(
+                "different-order-source",
+                clue_id="shared-order-clue-2",
+                order_id="different-order",
+                telephone="13987654321",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    masters = db_session.scalars(select(ClueMasterLead).order_by(ClueMasterLead.order_id)).all()
+    assert [row.order_id for row in masters] == ["different-order", "shared-order"]
+    assert masters[0].lead_key != masters[1].lead_key
+    shared_order_history_sources = set(
+        db_session.scalars(
+            select(ClueSourceIdentifierHistory.source_clue_row_key).where(
+                ClueSourceIdentifierHistory.lead_key == masters[1].lead_key
+            )
+        ).all()
+    )
+    assert shared_order_history_sources == {"shared-order-source-1", "shared-order-source-2"}
+
+
+def test_source_row_order_change_is_quarantined_as_a_data_quality_conflict(
+    db_session: Session,
+) -> None:
+    raw_clue = _raw_clue(
+        "order-conflict-source",
+        clue_id="order-conflict-clue",
+        order_id="original-order",
+        telephone="13812345678",
+    )
+    db_session.add(raw_clue)
+    db_session.commit()
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    raw_clue.order_id = "replacement-order"
+    raw_clue.updated_at = _dt(3)
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(3))
+
+    master = db_session.scalar(select(ClueMasterLead))
+    assert master is not None
+    assert master.order_id == "original-order"
+    assert db_session.scalar(select(func.count()).select_from(ClueMasterLead)) == 1
+    issue = db_session.scalar(
+        select(DataQualityIssue).where(DataQualityIssue.issue_type == "clue_identity_conflict")
+    )
+    assert issue is not None
+    assert issue.order_id == "replacement-order"
+    assert issue.raw_context_json["reason"] == "source_record_order_changed"
 
 
 def test_terminal_master_status_closes_legacy_current_round(db_session: Session) -> None:

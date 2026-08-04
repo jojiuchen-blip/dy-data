@@ -17,7 +17,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260727_0028"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260804_0029"]
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
@@ -66,6 +66,96 @@ def test_clue_allocation_m1_migration_upgrades_existing_schema(tmp_path: Path) -
     assert not {"follow_poi_id", "intention_poi_id"}.intersection(
         {column["name"] for column in downgraded.get_columns("raw_douyin_clues")}
     )
+
+
+def test_clue_source_identifier_history_migration_backfills_and_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "clue-identifier-history.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260727_0028")
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    now = datetime(2026, 8, 4, tzinfo=timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    canonical_clue_id, order_id, normalized_order_status,
+                    status_source, lifecycle_status, allocation_state,
+                    ended_without_assignment, first_seen_at, last_seen_at,
+                    created_at, updated_at
+                ) VALUES (
+                    :lead_key, :source_clue_row_key, :source_identity_key,
+                    :canonical_clue_id, :order_id, :normalized_order_status,
+                    :status_source, :lifecycle_status, :allocation_state,
+                    :ended_without_assignment, :first_seen_at, :last_seen_at,
+                    :created_at, :updated_at
+                )
+                """
+            ),
+            {
+                "lead_key": "lead-existing",
+                "source_clue_row_key": "source-existing",
+                "source_identity_key": "identity-existing",
+                "canonical_clue_id": "clue-existing",
+                "order_id": "order-existing",
+                "normalized_order_status": "active",
+                "status_source": "clue",
+                "lifecycle_status": "active",
+                "allocation_state": "pending_allocation",
+                "ended_without_assignment": False,
+                "first_seen_at": now,
+                "last_seen_at": now,
+                "created_at": now,
+                "updated_at": now,
+            },
+        )
+
+    command.upgrade(config, "head")
+
+    inspector = inspect(engine)
+    assert "clue_source_identifier_history" in inspector.get_table_names()
+    assert {
+        "identifier_history_id",
+        "lead_key",
+        "source_clue_row_key",
+        "identifier_type",
+        "identifier_value",
+        "source_payload_hash",
+        "first_seen_at",
+        "last_seen_at",
+        "is_current",
+    }.issubset(
+        {column["name"] for column in inspector.get_columns("clue_source_identifier_history")}
+    )
+    assert "uq_clue_source_identifier_history_source_type_value" in {
+        constraint["name"]
+        for constraint in inspector.get_unique_constraints("clue_source_identifier_history")
+    }
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                """
+                SELECT identifier_type, identifier_value, is_current
+                FROM clue_source_identifier_history
+                ORDER BY identifier_type
+                """
+            )
+        ).all()
+    assert rows == [
+        ("clue_id", "clue-existing", 1),
+        ("source_identity_key", "identity-existing", 1),
+    ]
+
+    command.downgrade(config, "20260727_0028")
+
+    assert "clue_source_identifier_history" not in inspect(engine).get_table_names()
 
 
 def test_clue_rule_version_migration_is_at_head_and_reversible(tmp_path: Path) -> None:

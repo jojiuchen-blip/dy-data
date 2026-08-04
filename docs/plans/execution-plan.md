@@ -13,23 +13,24 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S2 线索中心 FOUNDATION 已完成`；Phase 6 交付清单已落盘，`foundationReadyForPrd.pass=true`，下一步进入 DYDATA-42 PRD，当前尚未进入 S3/S4。
-- 当前 Linear issue：`DYDATA-41` 建立线索中心 FOUNDATION 技术地基，状态为 In Progress；`DYDATA-36` 已完成并关闭。
-- 当前子开发计划：无；本轮只建立线索中心技术规格，未修改业务代码。
-- 当前正式计划文件组：无；进入代码实施前，仍需由下游能力补齐 PRD 和正式交付计划。
+- 套包主线仍为 `S2 线索中心 FOUNDATION 已完成`，下一步进入 DYDATA-42 PRD；生产物化阻断以独立 P0 热修复 DYDATA-56 进入受控 S4，不代表线索中心整体进入全面实装。
+- 当前 Linear issue：`DYDATA-56` 修复同一来源记录变更 `clue_id`/身份后重复插入主档的问题，状态为 In Progress；`DYDATA-41` Foundation 主线保持不变。
+- 当前子开发计划：[`T1.1 线索主档稳定关联与多标识历史`](delivery-plans/sub-delivery-plan-dydata-56-clue-identity-history-T1.1-materialization.md)。
+- 当前正式计划文件组：[`DYDATA-56 主开发计划`](delivery-plans/main-delivery-plan-dydata-56-clue-identity-history.md) 与[任务看板](delivery-plans/task-kanban-dydata-56-clue-identity-history.md)。
 - 紧邻顺序：`DYDATA-41` FOUNDATION -> `DYDATA-42` PRD -> `DYDATA-43` 正式交付计划与 S4 门禁 -> `DYDATA-34` 全面下线旧线索分配引擎。
 - 关联需求：`DYDATA-35` 门店地理与 POI 数据质量闭环。
 
 ## 2. 当前目标
 
-- 以已冻结的《线索中心业务模型 V1.0》和 Foundation 正式交付清单为输入，补齐产品细则和正式交付计划。
+- 在不改变线索分配、总部池和跟进业务规则的前提下，恢复最新线索的主档物化，并让一条稳定线索主档可追溯多个历史 `clue_id` 和身份键。
 
 ## 3. 进行中任务
 
-- DYDATA-41 FOUNDATION 技术交付已完成；交付清单声明术语表、23 张目标表、6 份 API 专题和全部拆分文件，S2 路由门禁已通过。
+- DYDATA-56 T1.1 已完成本地实现与验证；当前剩余提交、部署、执行受控生产重建并回查最新线索时间与物化失败日志。
 
 ## 4. 下一步任务
 
+- 完成 DYDATA-56 本地验证后提交、部署并执行受控生产重建，确认最新线索重新进入主档与后续物化链路。
 - 由 DYDATA-42 消费 Foundation 交付清单、术语表、Schema 和 API，补齐线索中心 PRD。
 - PRD 按 BRD 定义页面字段、操作反馈、异常状态、角色交互和逐项验收条件。
 - 正式交付计划把追踪矩阵中的 `部分实现`、`未实现` 和 `应删除` 映射到 Linear、代码、测试和上线门禁；S4 门禁通过后进入 `DYDATA-34`。

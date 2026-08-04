@@ -1585,6 +1585,46 @@ class ClueMasterLead(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
+class ClueSourceIdentifierHistory(Base):
+    __tablename__ = "clue_source_identifier_history"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_clue_row_key",
+            "identifier_type",
+            "identifier_value",
+            name="uq_clue_source_identifier_history_source_type_value",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_lead_type_current",
+            "lead_key",
+            "identifier_type",
+            "is_current",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_source_type_current",
+            "source_clue_row_key",
+            "identifier_type",
+            "is_current",
+        ),
+    )
+
+    identifier_history_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        index=True,
+    )
+    source_clue_row_key: Mapped[str] = mapped_column(Text, index=True)
+    identifier_type: Mapped[str] = mapped_column(String(32))
+    identifier_value: Mapped[str] = mapped_column(Text)
+    source_payload_hash: Mapped[str | None] = mapped_column(String(64))
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
 class ClueOrderStatusEvent(Base):
     __tablename__ = "clue_order_status_events"
     __table_args__ = (

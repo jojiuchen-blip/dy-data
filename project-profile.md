@@ -1,14 +1,14 @@
 # 项目画像
 
-> 本画像由 S0.5 既有项目 baseline 建立；DYDATA-36 线索中心专项 BRD 已冻结并关闭，DYDATA-41 FOUNDATION 已完成正式交付并通过 S2 路由门禁，下一阶段进入 DYDATA-42 PRD。`【用户确认】` 来自用户明确补充、当前产品定义或已确认的 Linear 需求；`【系统推断】` 来自代码、配置或仓库结构证据，不替代业务验收。
+> 本画像由 S0.5 既有项目 baseline 建立；DYDATA-36 线索中心专项 BRD 已冻结并关闭，DYDATA-41 FOUNDATION 已完成正式交付并通过 S2 路由门禁，下一阶段进入 DYDATA-42 PRD；生产物化阻断由独立 P0 热修复 DYDATA-56 受控处理，不改变主线阶段。`【用户确认】` 来自用户明确补充、当前产品定义或已确认的 Linear 需求；`【系统推断】` 来自代码、配置或仓库结构证据，不替代业务验收。
 
 ## 1. 基本信息
 
 - 项目名称：`【用户确认】 dy-data（抖音经营引擎）`
 - 项目 slug：`【主入口回写】 dy-data`
 - 项目一句话目标：`【用户确认】 面向汽车经销商集团及门店，统一承载抖音经营数据分析、跨店核销与分账复核、线索分配与跟进、后台运营管理，以及数据采集和生产运行。`
-- 当前阶段：`【主入口回写】 S2 线索中心 FOUNDATION Phase 6 已完成；交付清单已落盘且 foundationReadyForPrd.pass=true，下一步进入 DYDATA-42 PRD，尚未进入 S3 或 S4`
-- 当前 Linear issue：`【主入口回写】 DYDATA-41 In Progress；DYDATA-36 已完成；DYDATA-42 PRD 与 DYDATA-43 正式交付计划按顺序等待，S4 通过后再进入 DYDATA-34 下线旧引擎；DYDATA-35 记录门店地理数据质量闭环`
+- 当前阶段：`【主入口回写】 S2 线索中心 FOUNDATION Phase 6 已完成；下一步进入 DYDATA-42 PRD；DYDATA-56 仅作为生产 P0 热修复进入受控 S4，不代表线索中心整体进入全面实装`
+- 当前 Linear issue：`【主入口回写】 DYDATA-56 In Progress；DYDATA-41 Foundation 主线保持不变，DYDATA-42 PRD 与 DYDATA-43 正式交付计划按顺序等待，S4 通过后再进入 DYDATA-34 下线旧引擎；DYDATA-35 记录门店地理数据质量闭环`
 - 协作模式：`【系统推断】 业务单人 + AI执行`
 
 ## 2. 身份识别
