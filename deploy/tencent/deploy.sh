@@ -72,7 +72,7 @@ log "using apt mirror $APT_MIRROR"
 compose config >/dev/null
 
 log "building images"
-compose build --progress=plain api web browser
+compose build --progress=plain api web browser worker
 
 log "starting postgres"
 compose up -d postgres
@@ -88,7 +88,7 @@ compose up -d --no-deps --force-recreate proxy
 
 if [ "$START_WORKER" = "true" ]; then
   log "starting worker because TENCENT_START_WORKER=true"
-  compose up -d --no-deps worker
+  compose up -d --no-deps --force-recreate worker
 else
   log "keeping worker stopped because TENCENT_START_WORKER is not true"
   compose stop worker >/dev/null 2>&1 || true
