@@ -15,7 +15,12 @@ from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
 from apps.worker import pipeline, scheduler
-from apps.worker.scheduler import resolve_worker_mode, run_browser_export_job, run_once
+from apps.worker.scheduler import (
+    _incremental_chunks_latest_first,
+    resolve_worker_mode,
+    run_browser_export_job,
+    run_once,
+)
 from apps.worker.sync_config import save_sync_config
 from apps.worker.repositories import (
     finish_job_run,
@@ -499,6 +504,22 @@ def test_backfill_splits_windows_by_chunk_days():
     ]
 
 
+def test_incremental_chunks_prioritize_latest_window():
+    source = CollectionWindow(
+        start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
+        end=datetime.fromisoformat("2026-01-03T12:00:00+08:00"),
+        timezone_name="Asia/Shanghai",
+    )
+
+    chunks = _incremental_chunks_latest_first(source, chunk_days=1)
+
+    assert [chunk.start.isoformat() for chunk in chunks] == [
+        "2026-01-03T00:00:00+08:00",
+        "2026-01-02T00:00:00+08:00",
+        "2026-01-01T00:00:00+08:00",
+    ]
+
+
 def test_backfill_skips_successful_completed_windows(db_session: Session):
     completed = CollectionWindow(
         start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
@@ -650,8 +671,8 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
     run_once()
 
     assert [(start, end, materialize) for _job_id, start, end, materialize in calls] == [
-        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00", False),
         ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00", False),
+        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00", False),
         ("2026-06-01T00:00:00+08:00", "2026-06-03T00:00:00+08:00", True),
     ]
     assert calls[0][0].startswith("collect_0001_")
@@ -768,10 +789,10 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
     run_once()
 
     assert [(start, materialize) for _job_id, start, materialize in calls] == [
-        ("2026-06-01T00:00:00+08:00", False),
-        ("2026-06-02T00:00:00+08:00", False),
-        ("2026-06-02T00:00:00+08:00", False),
         ("2026-06-03T00:00:00+08:00", False),
+        ("2026-06-02T00:00:00+08:00", False),
+        ("2026-06-02T00:00:00+08:00", False),
+        ("2026-06-01T00:00:00+08:00", False),
         ("2026-06-01T00:00:00+08:00", True),
     ]
     with factory() as session:

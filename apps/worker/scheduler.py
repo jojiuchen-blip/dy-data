@@ -162,7 +162,10 @@ def run_incremental_collection_chunks(factory, config) -> None:
     source_window = resolve_incremental_collection_window(
         env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
     )
-    chunks = list(iter_backfill_windows(source_window, chunk_days=config.history_chunk_days))
+    chunks = _incremental_chunks_latest_first(
+        source_window,
+        chunk_days=config.history_chunk_days,
+    )
     day_start = _window_day_start(source_window)
     with session_scope(factory) as session:
         completed_windows = _successful_collect_window_keys(session, since=day_start)
@@ -398,6 +401,16 @@ def _successful_collect_window_keys(
         if key is not None:
             keys.add(key)
     return keys
+
+
+def _incremental_chunks_latest_first(
+    source_window: CollectionWindow,
+    *,
+    chunk_days: int,
+) -> list[CollectionWindow]:
+    """Process the newest window first so long historical retries do not hide fresh data."""
+
+    return list(reversed(list(iter_backfill_windows(source_window, chunk_days=chunk_days))))
 
 
 def _metadata_window_key(metadata: dict | None) -> tuple[str, str, str] | None:
