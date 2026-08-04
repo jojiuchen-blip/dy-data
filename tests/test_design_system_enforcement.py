@@ -473,9 +473,14 @@ def test_status_and_dialog_components_keep_accessibility_contracts() -> None:
         "focusableElements",
         '"Tab"',
         '"Escape"',
+        "const onCloseRef = useRef(onClose);",
+        "onCloseRef.current = onClose;",
         "if (!closeDisabled)",
-        "[closeDisabled, initialFocusRef, onClose, open, returnFocusRef]",
+        "onCloseRef.current()",
+        "[closeDisabled, initialFocusRef, open, returnFocusRef]",
         'setAttribute("inert"',
         "returnTarget?.focus",
     ]:
         assert phrase in dialog
+
+    assert "[closeDisabled, initialFocusRef, onClose, open, returnFocusRef]" not in dialog

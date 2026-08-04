@@ -65,6 +65,11 @@ export function Dialog({
   const descriptionId = useId();
   const panelRef = useRef<HTMLElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -83,7 +88,7 @@ export function Dialog({
       if (event.key === "Escape") {
         event.preventDefault();
         if (!closeDisabled) {
-          onClose();
+          onCloseRef.current();
         }
         return;
       }
@@ -116,7 +121,7 @@ export function Dialog({
       const returnTarget = returnFocusRef?.current ?? previousFocusRef.current;
       returnTarget?.focus?.();
     };
-  }, [closeDisabled, initialFocusRef, onClose, open, returnFocusRef]);
+  }, [closeDisabled, initialFocusRef, open, returnFocusRef]);
 
   if (!open) {
     return null;
