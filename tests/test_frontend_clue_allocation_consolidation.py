@@ -71,6 +71,10 @@ def test_allocation_module_has_exactly_four_subviews_and_sync_owns_maintenance_a
     assert "线索中心数据维护" in sync_source
     assert "不会重建任何分配试运行批次" in sync_source
     assert "disabled={!isHighestAdmin || rebuildingClueCenter}" in sync_source
+    assert "ConfirmDialog" in sync_source
+    assert "window.confirm(" not in sync_source
+    assert "loading={rebuildingClueCenter}" in sync_source
+    assert 'aria-live="polite"' in sync_source
     assert "rebuildClueAllocationTrial" in allocation_source
     assert '"/admin/clue-allocation/cycles/rebuild"' in client_source
     assert "<AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />" in app_source

@@ -4653,6 +4653,13 @@ a.metric-card:hover,
   font-size: var(--font-size-emphasis);
 }
 
+.clue-center-maintenance__status {
+  margin: 8px 0 0;
+  color: var(--brand-deep);
+  font-size: var(--font-size-table);
+  line-height: 1.5;
+}
+
 .clue-center-maintenance__body .ui-button--secondary {
   flex: 0 0 auto;
 }
