@@ -38,3 +38,29 @@ describe("门店端财务流程", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("财务端财务流程", () => {
+  it("一级页只提供入口，金额指标进入推广服务费二级页后展示", async () => {
+    const user = userEvent.setup();
+    render(<App initialRole="finance" />);
+
+    expect(screen.queryByText("审核未通过金额")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "推广服务费" }));
+    expect(screen.getByText("审核未通过金额")).toBeInTheDocument();
+  });
+
+  it("导入任一行失败时整批零写入", async () => {
+    const user = userEvent.setup();
+    render(<App initialRole="finance" initialPage="finance-imports" />);
+
+    await user.click(screen.getByRole("button", { name: "演示含错误批次" }));
+    expect(screen.getByText("整批校验失败，未写入任何记录")).toBeInTheDocument();
+  });
+
+  it("SAP 异议主列表只展示处理后的有效 SAP", () => {
+    render(<App initialRole="finance" initialPage="finance-disputes" />);
+
+    expect(screen.getByRole("columnheader", { name: "有效 SAP" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "门店 SAP" })).not.toBeInTheDocument();
+  });
+});
