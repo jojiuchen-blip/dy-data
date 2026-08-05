@@ -6,6 +6,11 @@ import { scenarioFixtures } from "./data/financeData.js";
 import { StoreBillsPage } from "./pages/StoreBillsPage.jsx";
 import { StoreHistoryPage } from "./pages/StoreHistoryPage.jsx";
 import { StoreInvoicesPage } from "./pages/StoreInvoicesPage.jsx";
+import { FinanceDisputesPage } from "./pages/FinanceDisputesPage.jsx";
+import { FinanceHomePage } from "./pages/FinanceHomePage.jsx";
+import { FinanceImportsPage } from "./pages/FinanceImportsPage.jsx";
+import { FinanceManagementPage } from "./pages/FinanceManagementPage.jsx";
+import { FinancePromotionPage } from "./pages/FinancePromotionPage.jsx";
 
 const storePages = {
   "store-bills": { label: "月度账单", icon: "calendar", Component: StoreBillsPage },
@@ -13,25 +18,12 @@ const storePages = {
   "store-history": { label: "发票与调整记录", icon: "history", Component: StoreHistoryPage },
 };
 
-function FinancePlaceholder() {
-  return (
-    <section className="business-page" aria-labelledby="finance-placeholder-title">
-      <header className="page-heading">
-        <div>
-          <span className="eyebrow">财务端</span>
-          <h1 id="finance-placeholder-title">财务操作页面正在本轮继续构建</h1>
-        </div>
-      </header>
-    </section>
-  );
-}
-
 const financePages = {
-  "finance-home": { label: "财务", icon: "home", Component: FinancePlaceholder },
-  "finance-promotion": { label: "推广服务费", icon: "wallet", Component: FinancePlaceholder },
-  "finance-management": { label: "管理服务费", icon: "bill", Component: FinancePlaceholder },
-  "finance-disputes": { label: "账单异议", icon: "danger", Component: FinancePlaceholder },
-  "finance-imports": { label: "导入记录", icon: "document", Component: FinancePlaceholder },
+  "finance-home": { label: "财务", icon: "home", Component: FinanceHomePage },
+  "finance-promotion": { label: "推广服务费", icon: "wallet", Component: FinancePromotionPage },
+  "finance-management": { label: "管理服务费", icon: "bill", Component: FinanceManagementPage },
+  "finance-disputes": { label: "账单异议", icon: "danger", Component: FinanceDisputesPage },
+  "finance-imports": { label: "导入记录", icon: "document", Component: FinanceImportsPage },
 };
 
 export function App({ initialRole = "store", initialPage }) {
@@ -77,7 +69,7 @@ export function App({ initialRole = "store", initialPage }) {
         onChange={setScenarioId}
         onApply={applyScenario}
       />
-      <ActivePage scenario={scenario} />
+      <ActivePage scenario={scenario} onNavigate={setPage} />
     </AppShell>
   );
 }
