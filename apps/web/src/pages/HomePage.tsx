@@ -1,5 +1,5 @@
 import { SolarIcon } from "../components/SolarIcon";
-import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { BrandAttribution } from "../components/BrandAttribution";
 
 const modules = [
   {
@@ -51,7 +51,7 @@ export function HomePage() {
           </a>
         ))}
       </section>
-      <SpaceAiSignature className="home-space-signature" />
+      <BrandAttribution className="home-brand-attribution" placement="home-footer" />
     </main>
   );
 }

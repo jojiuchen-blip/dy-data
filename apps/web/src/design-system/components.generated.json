@@ -390,21 +390,21 @@
       "previewAnchor": "catalog-solar-icon"
     },
     {
-      "id": "space-ai-signature",
-      "name": "SpaceAiSignature",
+      "id": "brand-attribution",
+      "name": "BrandAttribution",
       "family": "Brand",
       "category": "brand",
       "status": "stable",
       "description": "dy-data 专用 Powered by SPACE AI Native 项目署名。",
-      "implementationPath": "apps/web/src/components/SpaceAiSignature.tsx",
-      "exportName": "SpaceAiSignature",
+      "implementationPath": "apps/web/src/components/BrandAttribution.tsx",
+      "exportName": "BrandAttribution",
       "useWhen": "登录、授权、移动我的页、首页页脚和桌面侧栏底部。",
       "avoidWhen": "不作为产品主标识，也不在高密度业务区重复展示。",
-      "states": ["horizontal", "stacked", "light", "dark"],
-      "tokens": ["brand.signature.*"],
+      "states": ["standard-stacked", "compact-horizontal", "light", "dark"],
+      "tokens": ["brand.attribution.*"],
       "accessibility": "组合标识提供完整可读文本替代。",
       "responsive": "SPACE SVG 比两侧文字略大，窄屏保持横排最小宽度。",
-      "previewAnchor": "catalog-space-ai-signature"
+      "previewAnchor": "catalog-brand-attribution"
     }
   ]
 }

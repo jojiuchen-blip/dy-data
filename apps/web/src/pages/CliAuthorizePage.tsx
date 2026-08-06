@@ -7,7 +7,7 @@ import {
 } from "react";
 import { ApiRequestError, approveCliAuthorization } from "../api/client";
 import { Button } from "../components/Button";
-import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { BrandAttribution } from "../components/BrandAttribution";
 import { ThemePicker } from "../components/ThemePicker";
 import type { AdminUser } from "../types/dashboard";
 import {
@@ -112,7 +112,10 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
           <p className="cli-authorize-copy">
             请回到 CLI，重新打开其提供的浏览器授权链接。
           </p>
-          <SpaceAiSignature className="authorize-space-signature" />
+          <BrandAttribution
+            className="authorize-brand-attribution"
+            placement="authorization-panel-footer"
+          />
         </section>
       </main>
     );
@@ -128,7 +131,10 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
           <p className="cli-authorize-copy">
             CLI 将获得门店线索汇总的只读权限。你可以关闭此页面并返回 CLI。
           </p>
-          <SpaceAiSignature className="authorize-space-signature" />
+          <BrandAttribution
+            className="authorize-brand-attribution"
+            placement="authorization-panel-footer"
+          />
         </section>
       </main>
     );
@@ -170,7 +176,10 @@ export function CliAuthorizePage({ currentUser, search }: CliAuthorizePageProps)
             允许此 CLI 读取门店线索汇总
           </Button>
         </form>
-        <SpaceAiSignature className="authorize-space-signature" />
+        <BrandAttribution
+          className="authorize-brand-attribution"
+          placement="authorization-panel-footer"
+        />
       </section>
     </main>
   );

@@ -80,45 +80,54 @@ def test_runtime_tokens_define_one_global_dark_theme_contract() -> None:
     assert ':root[data-theme="dark"] .auth-shell' in styles
 
 
-def test_space_ai_signature_is_a_shared_dual_theme_component() -> None:
-    signature = read_text(WEB_SRC / "components" / "SpaceAiSignature.tsx")
+def test_brand_attribution_uses_formal_assets_and_project_tokens() -> None:
+    signature = read_text(WEB_SRC / "components" / "BrandAttribution.tsx")
+    masks = read_text(WEB_SRC / "components" / "brand-attribution-masks.ts")
+    tokens = read_text(WEB_SRC / "design-tokens.css")
     styles = read_text(WEB_SRC / "styles.css")
-    light_mark = WEB_SRC / "assets" / "brand" / "space-ai-native" / "space-mark-parametric-orbit-accent.svg"
-    dark_mark = WEB_SRC / "assets" / "brand" / "space-ai-native" / "space-mark-parametric-orbit-accent-dark.svg"
-    font = WEB_SRC / "assets" / "brand" / "space-ai-native" / "Ethnocentric-Regular.otf"
 
-    assert light_mark.is_file()
-    assert dark_mark.is_file()
-    assert font.is_file()
-    assert 'export type SpaceAiSignatureVariant = "horizontal" | "stacked" | "mark"' in signature
-    assert 'variant === "mark" ? "SPACE" : "Powered by SPACE AI Native"' in signature
-    assert "aria-label={accessibleName}" in signature
-    assert '>\n          POWERED BY\n        </span>' in signature
-    assert '>\n          AI NATIVE\n        </span>' in signature
-    assert signature.count("space-ai-signature__mark-wrap") == 1
-    assert "space-ai-signature__space" not in signature
-    assert "space-ai-signature__mark--light" in signature
-    assert "space-ai-signature__mark--dark" in signature
-    assert '.space-ai-signature__copy,\n.space-ai-signature__native {' in styles
-    assert 'font-family: "Ethnocentric Regular", sans-serif;' in styles
-    assert ".space-ai-signature__mark {\n  display: block;\n  width: 84px;" in styles
-    assert ".rail-space-signature .space-ai-signature__mark {\n  width: 70px;" in styles
-    assert "color: var(--brand-orange);" not in styles[
-        styles.index(".space-ai-signature__copy") : styles.index(".space-ai-signature--mark")
-    ]
-    assert ':root[data-theme="dark"] .space-ai-signature__mark--light' in styles
+    assert not (WEB_SRC / "components" / "SpaceAiSignature.tsx").exists()
+    assert 'export type BrandAttributionVariant = "standard-stacked" | "compact-horizontal"' in signature
+    assert 'export type BrandAttributionPlacement =' in signature
+    assert 'role="img"' in signature
+    assert 'aria-label="Powered by SPACE AI Native"' in signature
+    assert '"mark"' not in signature
+    assert "SPACE_ORBIT_BACK_MASK" in signature
+    assert "SPACE_WORDMARK_MASK" in signature
+    assert "SPACE_FOCUS_MASK" in signature
+    assert "SPACE_ORBIT_FRONT_MASK" in signature
+    assert "ATTRIBUTION_STANDARD_POWERED_BY_MASK" in masks
+    assert "ATTRIBUTION_COMPACT_NATIVE_MASK" in masks
+
+    assert "--brand-attribution-accent: var(--brand-orange);" in tokens
+    assert "--brand-attribution-ai: var(--brand-orange);" in tokens
+    assert "--brand-attribution-neutral: var(--muted);" in tokens
+    assert "@font-face" not in styles
+    assert 'font-family: "Ethnocentric Regular"' not in styles
+    assert ".dc-brand-attribution--standard-stacked" in styles
+    assert ".dc-brand-attribution--compact-horizontal" in styles
+    assert '.dc-brand-attribution[data-placement="rail-footer"]' in styles
+    assert "--brand-attribution-mark-width: 70px;" in styles
+    assert ".dc-brand-attribution--accent-orbit-only" in styles
 
 
-def test_space_ai_signature_covers_every_approved_surface() -> None:
+def test_brand_attribution_covers_every_approved_surface() -> None:
     shell = read_text(WEB_SRC / "components" / "Shell.tsx")
     auth = read_text(WEB_SRC / "pages" / "AuthPage.tsx")
     home = read_text(WEB_SRC / "pages" / "HomePage.tsx")
     cli = read_text(WEB_SRC / "pages" / "CliAuthorizePage.tsx")
     mcp = read_text(WEB_SRC / "pages" / "McpAuthorizePage.tsx")
 
-    assert shell.count("<SpaceAiSignature") >= 2
-    assert 'variant="stacked"' in shell
-    assert '<SpaceAiSignature className="auth-space-signature" />' in auth
-    assert '<SpaceAiSignature className="home-space-signature" />' in home
-    assert "<SpaceAiSignature" in cli
-    assert "<SpaceAiSignature" in mcp
+    assert shell.count("<BrandAttribution") >= 2
+    assert 'placement="rail-footer"' in shell
+    assert 'placement="account-surface-footer"' in shell
+    assert '<BrandAttribution className="auth-brand-attribution" placement="auth-panel-footer" />' in auth
+    assert '<BrandAttribution className="home-brand-attribution" placement="home-footer" />' in home
+    assert 'placement="authorization-panel-footer"' in cli
+    assert 'placement="authorization-panel-footer"' in mcp
+
+    for source in [shell, auth, home, cli, mcp]:
+        assert "SpaceAiSignature" not in source
+        assert "variant=" not in "\n".join(
+            line for line in source.splitlines() if "BrandAttribution" in line
+        )

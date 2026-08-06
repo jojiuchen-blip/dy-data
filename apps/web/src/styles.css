@@ -1,13 +1,5 @@
 @import "./design-tokens.css";
 
-@font-face {
-  font-family: "Ethnocentric Regular";
-  src: url("./assets/brand/space-ai-native/Ethnocentric-Regular.otf") format("opentype");
-  font-style: normal;
-  font-weight: normal;
-  font-display: swap;
-}
-
 * {
   box-sizing: border-box;
 }
@@ -384,72 +376,202 @@ a {
   outline-offset: 3px;
 }
 
-.space-ai-signature {
+.dc-brand-attribution {
+  --dc-brand-attribution-neutral: var(--brand-attribution-neutral);
+  --dc-brand-attribution-accent: var(--brand-attribution-accent);
+  --dc-brand-attribution-ai: var(--brand-attribution-ai);
+  --dc-brand-attribution-neutral-paint: var(--dc-brand-attribution-neutral);
+  --dc-brand-attribution-accent-paint: var(--dc-brand-attribution-accent);
+  --dc-brand-attribution-ai-paint: var(--dc-brand-attribution-ai);
+  --brand-attribution-mark-width: 160px;
+  --brand-attribution-copy-width: 80px;
+  --brand-attribution-copy-height: 7px;
+  --brand-attribution-descriptor-width: 127px;
+  --brand-attribution-descriptor-height: 5px;
+  --brand-attribution-ai-width: 19px;
+  --brand-attribution-native-width: 88px;
+
   display: inline-flex;
+  max-width: 100%;
   min-width: 0;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  color: var(--muted);
+  color: var(--dc-brand-attribution-neutral);
   line-height: 1;
   white-space: nowrap;
 }
 
-.space-ai-signature--stacked {
+.dc-brand-attribution--standard-stacked {
   flex-direction: column;
-  gap: 6px;
+  gap: 7px;
   text-align: center;
 }
 
-.space-ai-signature__mark-wrap {
-  display: inline-flex;
+.dc-brand-attribution--compact-horizontal {
+  flex-direction: row;
+  gap: 4px;
+  text-align: left;
+}
+
+.dc-brand-attribution__copy {
+  position: relative;
+  display: block;
+  width: var(--brand-attribution-copy-width);
+  height: var(--brand-attribution-copy-height);
   flex: 0 0 auto;
+  color: var(--dc-brand-attribution-neutral);
 }
 
-.space-ai-signature__mark {
+.dc-brand-attribution__identity {
+  display: inline-grid;
+  min-width: 0;
+  flex: 0 0 auto;
+  justify-items: center;
+  gap: 10px;
+}
+
+.dc-brand-attribution__mark {
+  position: relative;
   display: block;
-  width: 84px;
+  width: var(--brand-attribution-mark-width);
+  max-width: 100%;
+  aspect-ratio: 1254 / 255;
+}
+
+.dc-brand-attribution__mark-layer {
+  position: absolute;
+  inset: 0;
+  display: block;
+  background-color: currentcolor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.dc-brand-attribution__glyph {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: currentcolor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+.dc-brand-attribution__mark-layer--neutral {
+  z-index: 1;
+  background: var(--dc-brand-attribution-neutral-paint);
+}
+
+.dc-brand-attribution__mark-layer--orbit-back {
+  z-index: 0;
+  background: var(--dc-brand-attribution-accent-paint);
+}
+
+.dc-brand-attribution__mark-layer--focus {
+  z-index: 2;
+  background: var(--dc-brand-attribution-accent-paint);
+}
+
+.dc-brand-attribution__mark-layer--orbit-front {
+  z-index: 3;
+  background: var(--dc-brand-attribution-accent-paint);
+}
+
+.dc-brand-attribution--accent-orbit-only .dc-brand-attribution__mark-layer--focus {
+  background: var(--dc-brand-attribution-neutral-paint);
+}
+
+.dc-brand-attribution__copy .dc-brand-attribution__glyph,
+.dc-brand-attribution__native .dc-brand-attribution__glyph {
+  background: var(--dc-brand-attribution-neutral-paint);
+}
+
+.dc-brand-attribution__ai .dc-brand-attribution__glyph {
+  background: var(--dc-brand-attribution-ai-paint);
+}
+
+.dc-brand-attribution__descriptor {
+  position: relative;
+  display: block;
+  width: var(--brand-attribution-descriptor-width);
+  height: var(--brand-attribution-descriptor-height);
+}
+
+.dc-brand-attribution__ai,
+.dc-brand-attribution__native {
+  position: absolute;
+  top: 0;
+  display: block;
+  height: var(--brand-attribution-descriptor-height);
+}
+
+.dc-brand-attribution__ai {
+  left: 0;
+  width: var(--brand-attribution-ai-width);
+  color: var(--dc-brand-attribution-ai);
+}
+
+.dc-brand-attribution__native {
+  right: 0;
+  width: var(--brand-attribution-native-width);
+  color: var(--dc-brand-attribution-neutral);
+}
+
+.dc-brand-attribution--compact-horizontal {
+  --brand-attribution-mark-width: 108px;
+  --brand-attribution-copy-width: 97px;
+  --brand-attribution-copy-height: 13px;
+  --brand-attribution-descriptor-width: 28px;
+  --brand-attribution-descriptor-height: 7px;
+  --brand-attribution-ai-width: 14px;
+  --brand-attribution-native-width: 28px;
+}
+
+.dc-brand-attribution--compact-horizontal .dc-brand-attribution__identity {
+  grid-template-columns: var(--brand-attribution-mark-width) var(--brand-attribution-descriptor-width);
+  align-items: center;
+  justify-items: start;
+  gap: 6px;
+}
+
+.dc-brand-attribution--compact-horizontal .dc-brand-attribution__descriptor {
+  display: grid;
   height: auto;
+  justify-items: start;
+  gap: 5px;
 }
 
-.space-ai-signature__mark--dark {
-  display: none;
+.dc-brand-attribution--compact-horizontal .dc-brand-attribution__ai,
+.dc-brand-attribution--compact-horizontal .dc-brand-attribution__native {
+  position: static;
 }
 
-:root[data-theme="dark"] .space-ai-signature__mark--light {
-  display: none;
+.dc-brand-attribution--compact-horizontal .dc-brand-attribution__native {
+  height: 4px;
 }
 
-:root[data-theme="dark"] .space-ai-signature__mark--dark {
-  display: block;
+.dc-brand-attribution[data-placement="rail-footer"] {
+  --brand-attribution-mark-width: 70px;
+  --brand-attribution-copy-width: 35px;
+  --brand-attribution-copy-height: 3.1px;
+  --brand-attribution-descriptor-width: 55.6px;
+  --brand-attribution-descriptor-height: 2.2px;
+  --brand-attribution-ai-width: 8.3px;
+  --brand-attribution-native-width: 38.5px;
+  gap: 5px;
 }
 
-.space-ai-signature__copy,
-.space-ai-signature__native {
-  color: var(--muted);
-  font-family: "Ethnocentric Regular", sans-serif;
-  font-size: var(--font-size-detail);
-  font-weight: normal;
-  letter-spacing: 0;
-}
-
-.space-ai-signature--mark .space-ai-signature__mark {
-  width: 64px;
-}
-
-.rail-space-signature {
+.rail-brand-attribution {
   width: 100%;
   border-top: 1px solid var(--line);
   padding-top: 12px;
-}
-
-.rail-space-signature .space-ai-signature__mark {
-  width: 70px;
-}
-
-.rail-space-signature .space-ai-signature__copy,
-.rail-space-signature .space-ai-signature__native {
-  font-size: var(--font-size-micro);
 }
 
 .mobile-bottom-nav {
@@ -1622,7 +1744,7 @@ h2 {
   box-shadow: var(--auth-panel-shadow);
 }
 
-.home-space-signature {
+.home-brand-attribution {
   justify-self: center;
   margin-top: 4px;
 }
@@ -2023,8 +2145,8 @@ h2 {
   padding: 20px 22px 22px;
 }
 
-.auth-space-signature,
-.authorize-space-signature {
+.auth-brand-attribution,
+.authorize-brand-attribution {
   justify-self: center;
   border-top: 1px solid var(--line);
   padding-top: 16px;
@@ -2197,7 +2319,7 @@ h2 {
   margin: 14px 20px 0;
 }
 
-.mine-space-signature {
+.mine-brand-attribution {
   justify-self: center;
   margin: 16px 20px 0;
 }

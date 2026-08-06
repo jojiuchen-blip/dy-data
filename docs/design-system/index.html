@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#f6f6f3" />
     <meta name="dydata-design-system-version" content="0.2.1" />
     <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="./assets/space-ai-native/attribution/brand-attribution-masks.css" />
   <title>dy-data 界面设计规范 V0.2.1</title>
     <script>
       (() => {
@@ -25,14 +26,6 @@
       })();
     </script>
     <style>
-      @font-face {
-        font-family: "Ethnocentric Regular";
-        src: url("./assets/space-ai-native/Ethnocentric-Regular.otf") format("opentype");
-        font-style: normal;
-        font-weight: 400;
-        font-display: swap;
-      }
-
       :root {
         color-scheme: light dark;
         --bg: #f6f6f3;
@@ -451,60 +444,156 @@
         background: var(--surface-subtle);
       }
 
-      .space-signature {
+      .brand-attribution {
+        --attribution-ai-color: var(--brand-accent);
+        --attribution-mark-width: 160px;
+        --attribution-copy-width: 80px;
+        --attribution-copy-height: 7px;
+        --attribution-descriptor-width: 127px;
+        --attribution-descriptor-height: 5px;
+        --attribution-ai-width: 19px;
+        --attribution-native-width: 88px;
         display: inline-flex;
+        max-width: 100%;
         align-items: center;
-        gap: 10px;
-        color: var(--space-neutral);
+        justify-content: center;
+        color: var(--muted);
+        line-height: 1;
         white-space: nowrap;
       }
 
-      .space-signature--stacked {
+      .brand-attribution--standard-stacked {
         flex-direction: column;
+        gap: 7px;
         text-align: center;
       }
 
-      .space-signature__mark {
-        width: 84px;
-        height: auto;
+      .brand-attribution--compact-horizontal {
+        --attribution-mark-width: 108px;
+        --attribution-copy-width: 97px;
+        --attribution-copy-height: 13px;
+        --attribution-descriptor-width: 28px;
+        --attribution-descriptor-height: 7px;
+        --attribution-ai-width: 14px;
+        --attribution-native-width: 28px;
+        flex-direction: row;
+        gap: 4px;
+        text-align: left;
       }
 
-      .space-signature__mark--dark {
-        display: none;
+      .brand-attribution--rail-compat {
+        --attribution-mark-width: 70px;
+        --attribution-copy-width: 35px;
+        --attribution-copy-height: 3.1px;
+        --attribution-descriptor-width: 55.6px;
+        --attribution-descriptor-height: 2.2px;
+        --attribution-ai-width: 8.3px;
+        --attribution-native-width: 38.5px;
+        gap: 5px;
       }
 
-      html[data-theme="dark"] .space-signature__mark--light {
-        display: none;
+      .brand-attribution__copy {
+        width: var(--attribution-copy-width);
+        height: var(--attribution-copy-height);
+        flex: 0 0 auto;
       }
 
-      html[data-theme="dark"] .space-signature__mark--dark {
+      .brand-attribution__identity {
+        display: inline-grid;
+        min-width: 0;
+        justify-items: center;
+        gap: 10px;
+      }
+
+      .brand-attribution__mark {
+        position: relative;
         display: block;
+        width: var(--attribution-mark-width);
+        aspect-ratio: 1254 / 255;
       }
 
-      .space-signature__copy,
-      .space-signature__native {
-        color: var(--muted);
-        font-family: "Ethnocentric Regular", "Arial Black", sans-serif;
-        font-size: 11px;
-        font-weight: normal;
-        letter-spacing: 0;
+      .brand-attribution__layer,
+      .brand-attribution__glyph {
+        display: block;
+        width: 100%;
+        height: 100%;
+        background: currentcolor;
+        -webkit-mask-image: var(--mask);
+        mask-image: var(--mask);
+        -webkit-mask-position: center;
+        mask-position: center;
+        -webkit-mask-repeat: no-repeat;
+        mask-repeat: no-repeat;
+        -webkit-mask-size: contain;
+        mask-size: contain;
       }
 
-      .space-signature--stacked {
+      .brand-attribution__layer {
+        position: absolute;
+        inset: 0;
+      }
+
+      .brand-attribution__layer--orbit-back,
+      .brand-attribution__layer--orbit-front {
+        color: var(--brand-accent);
+      }
+
+      .brand-attribution__layer--orbit-back { z-index: 0; }
+      .brand-attribution__layer--neutral { z-index: 1; }
+      .brand-attribution__layer--focus { z-index: 2; }
+      .brand-attribution__layer--orbit-front { z-index: 3; }
+
+      .brand-attribution__descriptor {
+        position: relative;
+        display: block;
+        width: var(--attribution-descriptor-width);
+        height: var(--attribution-descriptor-height);
+      }
+
+      .brand-attribution__ai,
+      .brand-attribution__native {
+        position: absolute;
+        top: 0;
+        display: block;
+        height: var(--attribution-descriptor-height);
+      }
+
+      .brand-attribution__ai {
+        left: 0;
+        width: var(--attribution-ai-width);
+        color: var(--attribution-ai-color);
+      }
+
+      .signature-role-sample__accent {
+        color: var(--brand-accent);
+      }
+
+      .brand-attribution__native {
+        right: 0;
+        width: var(--attribution-native-width);
+      }
+
+      .brand-attribution--compact-horizontal .brand-attribution__identity {
+        grid-template-columns: var(--attribution-mark-width) var(--attribution-descriptor-width);
+        align-items: center;
+        justify-items: start;
         gap: 6px;
       }
 
-      .space-signature--stacked .space-signature__mark {
-        width: 70px;
+      .brand-attribution--compact-horizontal .brand-attribution__descriptor {
+        display: grid;
+        height: auto;
+        justify-items: start;
+        gap: 5px;
       }
 
-      .space-signature--stacked .space-signature__copy,
-      .space-signature--stacked .space-signature__native {
-        font-size: 8px;
+      .brand-attribution--compact-horizontal .brand-attribution__ai,
+      .brand-attribution--compact-horizontal .brand-attribution__native {
+        position: static;
       }
 
-      .space-signature--mark .space-signature__mark {
-        width: 64px;
+      .brand-attribution--compact-horizontal .brand-attribution__native {
+        height: 4px;
       }
 
       .signature-role-grid,
@@ -562,7 +651,7 @@
         align-items: center;
         margin-top: 10px;
         color: var(--space-neutral);
-        font-family: "Ethnocentric Regular", "Arial Black", sans-serif;
+        font-family: var(--font-sans);
         font-size: 14px;
       }
 
@@ -591,7 +680,7 @@
       }
 
       .signature-lockup-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
       .signature-lockup-card {
@@ -763,21 +852,10 @@
         padding-top: 12px;
       }
 
-      .signature-mini-zone .space-signature,
-      .signature-mini-home__footer .space-signature {
-        gap: 6px;
-      }
-
-      .signature-mini-zone .space-signature__mark,
-      .signature-mini-home__footer .space-signature__mark {
-        width: 62px;
-      }
-
-      .signature-mini-zone .space-signature__copy,
-      .signature-mini-zone .space-signature__native,
-      .signature-mini-home__footer .space-signature__copy,
-      .signature-mini-home__footer .space-signature__native {
-        font-size: 8px;
+      .signature-mini-zone .brand-attribution,
+      .signature-mini-home__footer .brand-attribution {
+        transform: scale(0.68);
+        transform-origin: center;
       }
 
       .signature-mini-mobile {
@@ -4747,7 +4825,7 @@
         <div class="section-head">
           <div>
             <h2>Powered by SPACE AI Native</h2>
-            <p>dy-data 专用项目署名。字体职责、锁定比例、明暗主题、使用位置和开发入口均由本节统一定义。</p>
+            <p>dy-data 专用项目署名。正式 SVG 字形蒙版、锁定比例、明暗主题、使用位置和开发入口均由本节统一定义。</p>
           </div>
           <code>仅用于 dy-data · 已接入业务界面</code>
         </div>
@@ -4755,8 +4833,8 @@
         <div class="panel">
           <div class="component-family-head">
             <div>
-              <h3>字体与图形职责</h3>
-              <p>完整署名只包含三段：POWERED BY、SPACE SVG、AI NATIVE。字体和图形各自承担固定职责，不得互相替换。</p>
+              <h3>字形与图形职责</h3>
+              <p>完整署名只包含三段：POWERED BY、SPACE、AI NATIVE。三段均由确认的 SVG 蒙版渲染，不使用运行时字体替排。</p>
             </div>
             <code>单一 SPACE · 单一字体职责</code>
           </div>
@@ -4764,8 +4842,8 @@
             <article class="signature-role-card">
               <small>辅助文字</small>
               <div class="signature-role-sample">POWERED BY</div>
-              <strong>Ethnocentric Regular</strong>
-              <p>只用于署名前置关系文字，保持中性主题色，不使用品牌橙。</p>
+              <strong>正式 SVG 字形蒙版</strong>
+              <p>使用确认的字形轮廓，保持中性主题色，不使用品牌橙。</p>
             </article>
             <article class="signature-role-card">
               <small>品牌字标</small>
@@ -4773,20 +4851,20 @@
                 <img class="signature-role-mark signature-role-mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
                 <img class="signature-role-mark signature-role-mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
               </div>
-              <strong>确认的 SPACE SVG</strong>
-              <p>SPACE 始终由参数轨道图形字表达，不得再用字体输入一个 SPACE。</p>
+              <strong>分层 SPACE 蒙版</strong>
+              <p>字标、焦点和前后轨道分层上色，明暗主题无需替换整张图片。</p>
             </article>
             <article class="signature-role-card">
               <small>辅助文字</small>
-              <div class="signature-role-sample">AI NATIVE</div>
-              <strong>Ethnocentric Regular</strong>
-              <p>与 POWERED BY 使用同一字体、字重和中性颜色，形成完整背书关系。</p>
+              <div class="signature-role-sample"><span class="signature-role-sample__accent">AI</span> NATIVE</div>
+              <strong>正式 SVG 字形蒙版</strong>
+              <p><code>AI</code> 使用品牌重点橙，<code>NATIVE</code> 保持主题中性色；两者继续使用确认字形并形成完整背书关系。</p>
             </article>
             <article class="signature-role-card">
               <small>产品界面</small>
               <div class="signature-role-sample signature-role-sample--ui">线索跟进列表</div>
               <strong>既有界面无衬线字体</strong>
-              <p>页面标题、导航、表单、表格与正文不得使用 Ethnocentric Regular。</p>
+              <p>页面标题、导航、表单、表格与正文继续使用项目无衬线字体，不借用署名字形。</p>
             </article>
           </div>
         </div>
@@ -4794,87 +4872,77 @@
         <div class="panel">
           <div class="component-family-head">
             <div>
-              <h3>三种锁定形式</h3>
-              <p>业务页面只选择既有形式和约定位置，不自行拆开文字、修改比例或重排。</p>
+              <h3>两种正式结构</h3>
+              <p>业务页面只声明落位，由 BrandAttribution 自动选择结构，不自行拆开、修改比例或重排。</p>
             </div>
-            <code>横排 · 堆叠 · 仅标志</code>
+            <code>标准纵排 · 紧凑横排</code>
           </div>
           <div class="signature-lockup-grid">
             <article class="signature-lockup-card">
               <header class="signature-lockup-card__head">
-                <div><h3>标准横排</h3><p>认证、授权、移动端“我的”和首页页脚</p></div>
-                <code>默认</code>
+                <div><h3>标准纵排</h3><p>正式标准结构；桌面侧栏使用同一结构的项目兼容尺寸</p></div>
+                <code>160px</code>
               </header>
               <div class="signature-lockup-stage">
-                <div class="space-signature" aria-label="Powered by SPACE AI Native" role="img">
-                  <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                  <span aria-hidden="true">
-                    <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                    <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                <div class="brand-attribution brand-attribution--standard-stacked" aria-label="Powered by SPACE AI Native" role="img">
+                  <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-powered-by)"></span></span>
+                  <span class="brand-attribution__identity" aria-hidden="true">
+                    <span class="brand-attribution__mark">
+                      <span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span>
+                    </span>
+                    <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-native)"></span></span></span>
                   </span>
-                  <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
                 </div>
               </div>
               <dl class="signature-lockup-specs">
-                <div><dt>SPACE 字标</dt><dd>84px</dd></div>
-                <div><dt>辅助文字</dt><dd>11px</dd></div>
-                <div><dt>内部间距</dt><dd>10px</dd></div>
+                <div><dt>SPACE 宽度</dt><dd>160px</dd></div>
+                <div><dt>材质</dt><dd>平面</dd></div>
+                <div><dt>强调范围</dt><dd>仅轨道</dd></div>
               </dl>
             </article>
             <article class="signature-lockup-card">
               <header class="signature-lockup-card__head">
-                <div><h3>紧凑堆叠</h3><p>仅用于 108px 桌面 Rail 底部</p></div>
-                <code>Rail</code>
+                <div><h3>紧凑横排</h3><p>登录、授权、移动端“我的”和首页页脚</p></div>
+                <code>108px</code>
               </header>
               <div class="signature-lockup-stage signature-lockup-stage--soft">
-                <div class="space-signature space-signature--stacked" aria-label="Powered by SPACE AI Native" role="img">
-                  <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                  <span aria-hidden="true">
-                    <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                    <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
-                  </span>
-                  <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
-                </div>
-              </div>
-              <dl class="signature-lockup-specs">
-                <div><dt>SPACE 字标</dt><dd>70px</dd></div>
-                <div><dt>辅助文字</dt><dd>8px</dd></div>
-                <div><dt>纵向间距</dt><dd>6px</dd></div>
-              </dl>
-            </article>
-            <article class="signature-lockup-card">
-              <header class="signature-lockup-card__head">
-                <div><h3>仅标志</h3><p>浏览器图标、启动图与品牌识别</p></div>
-                <code>非署名</code>
-              </header>
-              <div class="signature-lockup-stage">
-                <div class="space-signature space-signature--mark" aria-label="SPACE" role="img">
-                  <span aria-hidden="true">
-                    <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                    <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                <div class="brand-attribution brand-attribution--compact-horizontal" aria-label="Powered by SPACE AI Native" role="img">
+                  <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-powered-by)"></span></span>
+                  <span class="brand-attribution__identity" aria-hidden="true">
+                    <span class="brand-attribution__mark">
+                      <span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span>
+                      <span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span>
+                    </span>
+                    <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-native)"></span></span></span>
                   </span>
                 </div>
               </div>
               <dl class="signature-lockup-specs">
-                <div><dt>SPACE 字标</dt><dd>64px</dd></div>
-                <div><dt>可读名称</dt><dd>SPACE</dd></div>
-                <div><dt>用途边界</dt><dd>不表达 Powered by</dd></div>
+                <div><dt>SPACE 宽度</dt><dd>108px</dd></div>
+                <div><dt>材质</dt><dd>平面</dd></div>
+                <div><dt>强调范围</dt><dd>仅轨道</dd></div>
               </dl>
             </article>
           </div>
+          <p class="section-note"><strong>独立 SPACE 标志不属于署名变体。</strong>浏览器图标和启动图继续使用独立确认资产，不通过 BrandAttribution 输出。</p>
         </div>
 
         <div class="panel">
           <div class="component-family-head">
             <div>
               <h3>颜色、背景与清晰空间</h3>
-              <p>主题切换只改变中性色和 SPACE SVG 版本，轨道重点橙保持一致；署名本身保持透明背景。</p>
+              <p>主题切换只改变中性设计变量，轨道重点橙保持一致；分层蒙版无需切换整张 SVG，署名本身保持透明背景。</p>
             </div>
-            <code>#70747A · #D8DAD4 · #FE5205</code>
+            <code>#686A66 · #B7B9B1 · #FE5205</code>
           </div>
           <div class="signature-usage-grid">
-            <article class="signature-usage-card"><strong>浅色主题</strong><p>辅助文字与 SPACE 主体使用石墨灰 <code>#70747A</code>，轨道重点色使用 <code>#FE5205</code>。</p></article>
-            <article class="signature-usage-card"><strong>深色主题</strong><p>辅助文字与 SPACE 主体切换为 <code>#D8DAD4</code>，轨道重点橙保持 <code>#FE5205</code>。</p></article>
+            <article class="signature-usage-card"><strong>浅色主题</strong><p>POWERED BY、SPACE 与 NATIVE 使用 <code>muted / #686A66</code>，轨道与 AI 使用重点橙 <code>#FE5205</code>。</p></article>
+            <article class="signature-usage-card"><strong>深色主题</strong><p>POWERED BY、SPACE 与 NATIVE 随 <code>muted</code> 切换为 <code>#B7B9B1</code>，轨道与 AI 保持重点橙 <code>#FE5205</code>。</p></article>
             <article class="signature-usage-card"><strong>透明背景</strong><p>署名不自带白底、浅橙底、渐变或阴影；外层页面负责提供合规表面。</p></article>
             <article class="signature-usage-card"><strong>清晰空间</strong><p>四周至少保留 SPACE 字标高度的 0.5 倍，不连接按钮、导航下划线或容器边缘。</p></article>
           </div>
@@ -4891,20 +4959,19 @@
           <div class="signature-placement-grid">
             <article class="signature-placement-card">
               <small>桌面侧栏</small>
-              <p>建议入口下方，使用紧凑堆叠，不进入顶部栏。</p>
+              <p>建议入口下方，使用标准纵排的 70px 项目兼容尺寸，不进入顶部栏。</p>
               <div class="signature-placement-stage">
                 <div class="signature-mini-rail" aria-label="桌面侧栏署名落位示例">
                   <span class="signature-mini-brand"></span>
                   <span class="signature-mini-nav"></span>
                   <div class="signature-mini-rail__footer">
                     <span class="signature-mini-feedback"></span>
-                    <div class="space-signature space-signature--stacked" aria-label="Powered by SPACE AI Native" role="img">
-                      <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                      <span aria-hidden="true">
-                        <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                        <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                    <div class="brand-attribution brand-attribution--standard-stacked brand-attribution--rail-compat" aria-label="Powered by SPACE AI Native" role="img">
+                      <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-powered-by)"></span></span>
+                      <span class="brand-attribution__identity" aria-hidden="true">
+                        <span class="brand-attribution__mark"><span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span><span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span><span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span><span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span></span>
+                        <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-standard-native)"></span></span></span>
                       </span>
-                      <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
                     </div>
                   </div>
                 </div>
@@ -4919,13 +4986,12 @@
                   <div class="signature-mini-field"></div>
                   <div class="signature-mini-action"></div>
                   <div class="signature-mini-zone">
-                    <div class="space-signature" aria-label="Powered by SPACE AI Native" role="img">
-                      <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                      <span aria-hidden="true">
-                        <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                        <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                    <div class="brand-attribution brand-attribution--compact-horizontal" aria-label="Powered by SPACE AI Native" role="img">
+                      <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-powered-by)"></span></span>
+                      <span class="brand-attribution__identity" aria-hidden="true">
+                        <span class="brand-attribution__mark"><span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span><span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span><span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span><span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span></span>
+                        <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-native)"></span></span></span>
                       </span>
-                      <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
                     </div>
                   </div>
                 </div>
@@ -4940,13 +5006,12 @@
                     <div class="signature-mini-field"></div>
                     <div class="signature-mini-field"></div>
                     <div class="signature-mini-zone">
-                      <div class="space-signature" aria-label="Powered by SPACE AI Native" role="img">
-                        <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                        <span aria-hidden="true">
-                          <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                          <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                      <div class="brand-attribution brand-attribution--compact-horizontal" aria-label="Powered by SPACE AI Native" role="img">
+                        <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-powered-by)"></span></span>
+                        <span class="brand-attribution__identity" aria-hidden="true">
+                          <span class="brand-attribution__mark"><span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span><span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span><span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span><span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span></span>
+                          <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-native)"></span></span></span>
                         </span>
-                        <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
                       </div>
                     </div>
                   </div>
@@ -4961,13 +5026,12 @@
                 <div class="signature-mini-home" aria-label="首页页脚署名落位示例">
                   <div class="signature-mini-home__body"><div class="signature-mini-home__line"></div><div class="signature-mini-home__line"></div><div class="signature-mini-home__line"></div></div>
                   <div class="signature-mini-home__footer">
-                    <div class="space-signature" aria-label="Powered by SPACE AI Native" role="img">
-                      <span class="space-signature__copy" aria-hidden="true">POWERED BY</span>
-                      <span aria-hidden="true">
-                        <img class="space-signature__mark space-signature__mark--light" src="./assets/space-ai-native/space-mark-parametric-orbit-accent.svg" alt="" />
-                        <img class="space-signature__mark space-signature__mark--dark" src="./assets/space-ai-native/space-mark-parametric-orbit-accent-dark.svg" alt="" />
+                    <div class="brand-attribution brand-attribution--compact-horizontal" aria-label="Powered by SPACE AI Native" role="img">
+                      <span class="brand-attribution__copy" aria-hidden="true"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-powered-by)"></span></span>
+                      <span class="brand-attribution__identity" aria-hidden="true">
+                        <span class="brand-attribution__mark"><span class="brand-attribution__layer brand-attribution__layer--orbit-back" style="--mask: var(--brand-mask-space-orbit-back)"></span><span class="brand-attribution__layer brand-attribution__layer--neutral" style="--mask: var(--brand-mask-space-wordmark)"></span><span class="brand-attribution__layer brand-attribution__layer--focus" style="--mask: var(--brand-mask-space-focus)"></span><span class="brand-attribution__layer brand-attribution__layer--orbit-front" style="--mask: var(--brand-mask-space-orbit-front)"></span></span>
+                        <span class="brand-attribution__descriptor"><span class="brand-attribution__ai"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-ai)"></span></span><span class="brand-attribution__native"><span class="brand-attribution__glyph" style="--mask: var(--brand-mask-compact-native)"></span></span></span>
                       </span>
-                      <span class="space-signature__native" aria-hidden="true">AI NATIVE</span>
                     </div>
                   </div>
                 </div>
@@ -4988,12 +5052,12 @@
             <table class="decision-table">
               <thead><tr><th>页面/区域</th><th>展示</th><th>形式</th><th>位置</th><th>边界</th></tr></thead>
               <tbody>
-                <tr><td>登录、激活、重置密码</td><td>是</td><td>标准横排</td><td>认证面板底部</td><td>主操作之后，不插入字段或按钮之间。</td></tr>
-                <tr><td>CLI / MCP 授权确认</td><td>是</td><td>标准横排</td><td>授权面板底部</td><td>不改变同意/拒绝操作层级和焦点顺序。</td></tr>
-                <tr><td>桌面已登录工作区</td><td>是</td><td>紧凑堆叠</td><td>108px 侧栏最底部</td><td>建议入口之后，不进入顶部栏。</td></tr>
-                <tr><td>移动端已登录工作区</td><td>是</td><td>标准横排</td><td>“我的”弹层底部</td><td>不进入固定底部一级导航。</td></tr>
-                <tr><td>已登录首页</td><td>是</td><td>标准横排</td><td>页面页脚</td><td>随内容收尾，不固定悬浮。</td></tr>
-                <tr><td>浏览器图标 / 启动图</td><td>可选</td><td>仅标志</td><td>品牌识别位</td><td>可读名称为 SPACE，不表达 Powered by。</td></tr>
+                <tr><td>登录、激活、重置密码</td><td>是</td><td>紧凑横排</td><td>认证面板底部</td><td>主操作之后，不插入字段或按钮之间。</td></tr>
+                <tr><td>CLI / MCP 授权确认</td><td>是</td><td>紧凑横排</td><td>授权面板底部</td><td>不改变同意/拒绝操作层级和焦点顺序。</td></tr>
+                <tr><td>桌面已登录工作区</td><td>是</td><td>标准纵排（70px 兼容尺寸）</td><td>108px 侧栏最底部</td><td>建议入口之后，不进入顶部栏。</td></tr>
+                <tr><td>移动端已登录工作区</td><td>是</td><td>紧凑横排</td><td>“我的”弹层底部</td><td>不进入固定底部一级导航。</td></tr>
+                <tr><td>已登录首页</td><td>是</td><td>紧凑横排</td><td>页面页脚</td><td>随内容收尾，不固定悬浮。</td></tr>
+                <tr><td>浏览器图标 / 启动图</td><td>可选</td><td>独立 SPACE 资产</td><td>品牌识别位</td><td>独立 SPACE 标志不属于署名变体。</td></tr>
                 <tr><td>顶部栏 / 二三级导航</td><td>否</td><td>—</td><td>—</td><td>避免与产品品牌和页面定位竞争。</td></tr>
                 <tr><td>表格 / 指标卡 / 业务弹层正文</td><td>否</td><td>—</td><td>—</td><td>不把产品级背书重复放进业务组件。</td></tr>
               </tbody>
@@ -5006,17 +5070,17 @@
             <article class="signature-rule-card">
               <strong>组件契约</strong>
               <ul>
-                <li>唯一运行时入口为 <code>SpaceAiSignature</code>。</li>
-                <li><code>variant</code> 只允许 <code>horizontal</code>、<code>stacked</code>、<code>mark</code>。</li>
-                <li>完整署名可读名称固定为 “Powered by SPACE AI Native”；仅标志固定为 “SPACE”。</li>
-                <li>SVG、字体、文字、主题资源切换和 aria 名称由组件内部提供。</li>
+                <li>唯一运行时入口为 <code>BrandAttribution</code>。</li>
+                <li>两种正式结构为 <code>standard-stacked</code> 与 <code>compact-horizontal</code>；业务页面只声明 <code>placement</code>。</li>
+                <li>完整署名可读名称固定为 “Powered by SPACE AI Native”；独立 SPACE 标志使用单独资产。</li>
+                <li>正式 SVG 字形蒙版、结构选择、主题颜色和 aria 名称由组件内部提供；轨道与 AI 使用重点橙，其他字形使用主题中性色。</li>
               </ul>
             </article>
             <article class="signature-rule-card">
               <strong>防退化规则</strong>
               <ul>
-                <li>业务页面不得手写署名文字、直接引用字体或自行拼装 SPACE。</li>
-                <li>Ethnocentric Regular 不得扩展到标题、导航、表单、表格和正文。</li>
+                <li>业务页面不得手写署名文字、使用 UI 字体替排或自行拼装 SPACE。</li>
+                <li>不得使用 UI 字体替排 POWERED BY 与 AI NATIVE；它们必须使用确认的 SVG 蒙版。</li>
                 <li>不得给署名增加独立底色、阴影、渐变或页面级颜色覆盖。</li>
                 <li>视觉冒烟测试覆盖 390 / 768 / 1440，并分别检查浅色与深色主题。</li>
               </ul>
@@ -6702,7 +6766,7 @@
               </tr>
               <tr>
                 <td>项目署名</td>
-                <td>POWERED BY + SPACE SVG + AI NATIVE；两侧文字使用 Ethnocentric Regular；仅用于 dy-data</td>
+                <td>POWERED BY + SPACE + AI NATIVE；全部使用确认的 SVG 字形蒙版；仅用于 dy-data</td>
                 <td><span class="status-chip success">已定义</span></td>
                 <td>通过共享组件覆盖侧栏、移动端“我的”、登录/授权和首页。</td>
               </tr>
@@ -6789,7 +6853,7 @@
           <li><strong>新增颜色：</strong>同步更新 <code>tokens.json</code>、本页和相关测试。</li>
           <li><strong>主题实现：</strong>只通过共享 ThemeProvider 和 ThemePicker 读写 <code>dydata.theme.preference</code>；页面不得直接读取系统主题或 localStorage。</li>
           <li><strong>双主题验收：</strong>新增组件必须同时检查浅色与深色主题，状态色继续表达成功、警告、错误和信息，不得统一替换成品牌橙。</li>
-          <li><strong>项目署名：</strong><code>Powered by SPACE AI Native</code> 仅用于 dy-data；SPACE 只使用确认的 SVG，POWERED BY 与 AI NATIVE 使用 Ethnocentric Regular。</li>
+          <li><strong>项目署名：</strong><code>Powered by SPACE AI Native</code> 仅用于 dy-data；全部字形使用确认的 SVG 蒙版，业务页面只通过 <code>BrandAttribution</code> 声明落位。</li>
           <li><strong>新增组件：</strong>先判断它属于按钮、字段、状态、卡片、表格还是页面骨架，不要单独发明一套半径和阴影。</li>
           <li><strong>新增关键指标：</strong>复用统一白底圆角指标卡，不增加色调变体、彩色顶线或彩色卡面；优先级通过顺序、标签、数值和说明表达。</li>
           <li><strong>用户文案：</strong>内部生产值不得直接展示；通过共享映射转换，未知状态 / 未知类型 / 未知原因不得回显原值。</li>

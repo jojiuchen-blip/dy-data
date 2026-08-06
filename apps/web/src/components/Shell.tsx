@@ -6,7 +6,7 @@ import { Dialog } from "./Dialog";
 import { SelectField } from "./FormControls";
 import { Button } from "./Button";
 import { SolarIcon, type SolarIconName } from "./SolarIcon";
-import { SpaceAiSignature } from "./SpaceAiSignature";
+import { BrandAttribution } from "./BrandAttribution";
 import { ThemePicker } from "./ThemePicker";
 
 const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/invoice"]);
@@ -401,10 +401,7 @@ export function Shell({
           <span>建议</span>
           <small>提交体验</small>
         </button>
-        <SpaceAiSignature
-          className="rail-space-signature"
-          variant="stacked"
-        />
+        <BrandAttribution className="rail-brand-attribution" placement="rail-footer" />
       </aside>
 
       <div className="workspace-shell">
@@ -539,7 +536,10 @@ export function Shell({
             <strong id="mine-theme-title">界面主题</strong>
             <ThemePicker />
           </section>
-          <SpaceAiSignature className="mine-space-signature" />
+          <BrandAttribution
+            className="mine-brand-attribution"
+            placement="account-surface-footer"
+          />
           <div className="mine-panel__actions" aria-label="我的操作">
             <Button
               className="mine-panel__action"

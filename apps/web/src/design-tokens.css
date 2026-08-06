@@ -25,6 +25,9 @@
   --brand-orange: #fe5205;
   --brand-orange-soft: #fff4ef;
   --brand-orange-ink: #7a2600;
+  --brand-attribution-accent: var(--brand-orange);
+  --brand-attribution-ai: var(--brand-orange);
+  --brand-attribution-neutral: var(--muted);
   --disabled-bg: #dadbd6;
   --disabled-text: #8a8c87;
 

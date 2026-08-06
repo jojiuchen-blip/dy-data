@@ -5,7 +5,7 @@ import {
   fetchMcpAuthorizationRequest,
 } from "../api/client";
 import { Button } from "../components/Button";
-import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { BrandAttribution } from "../components/BrandAttribution";
 import { ThemePicker } from "../components/ThemePicker";
 import type {
   AdminUser,
@@ -156,7 +156,10 @@ export function McpAuthorizePage({
               ? `正在确认 ${currentUser.display_name || currentUser.username} 的账号范围…`
               : message}
           </p>
-          <SpaceAiSignature className="authorize-space-signature" />
+          <BrandAttribution
+            className="authorize-brand-attribution"
+            placement="authorization-panel-footer"
+          />
         </section>
       </main>
     );
@@ -227,7 +230,10 @@ export function McpAuthorizePage({
             允许只读访问
           </Button>
         </div>
-        <SpaceAiSignature className="authorize-space-signature" />
+        <BrandAttribution
+          className="authorize-brand-attribution"
+          placement="authorization-panel-footer"
+        />
       </section>
     </main>
   );

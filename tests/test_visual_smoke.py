@@ -2821,19 +2821,26 @@ def test_auth_and_authorization_surfaces_render_dark_signature_contract(
         signature.wait_for(timeout=10000)
         signature_contract = signature.evaluate(
             """(node) => {
-              const copy = node.querySelector(".space-ai-signature__copy");
-              const native = node.querySelector(".space-ai-signature__native");
-              const visibleMark = Array.from(
-                node.querySelectorAll(".space-ai-signature__mark"),
-              ).filter((mark) => getComputedStyle(mark).display !== "none");
+              const copy = node.querySelector(
+                '.dc-brand-attribution__copy .dc-brand-attribution__glyph',
+              );
+              const native = node.querySelector(
+                '.dc-brand-attribution__native .dc-brand-attribution__glyph',
+              );
+              const ai = node.querySelector(
+                '.dc-brand-attribution__ai .dc-brand-attribution__glyph',
+              );
+              const identity = node.querySelector('.dc-brand-attribution__mark');
               return {
-                copyColor: copy ? getComputedStyle(copy).color : "",
-                copyFont: copy ? getComputedStyle(copy).fontFamily : "",
-                copyText: copy?.textContent?.trim() ?? "",
-                nativeColor: native ? getComputedStyle(native).color : "",
-                nativeFont: native ? getComputedStyle(native).fontFamily : "",
-                nativeText: native?.textContent?.trim() ?? "",
-                visibleMarkCount: visibleMark.length,
+                copyMask: copy ? getComputedStyle(copy).webkitMaskImage : "",
+                nativeMask: native ? getComputedStyle(native).webkitMaskImage : "",
+                aiColor: ai ? getComputedStyle(ai).backgroundColor : "",
+                nativeColor: native ? getComputedStyle(native).backgroundColor : "",
+                identityWidth: identity ? Math.round(identity.getBoundingClientRect().width) : 0,
+                material: node.dataset.material ?? "",
+                accentScope: node.dataset.accentScope ?? "",
+                variant: node.dataset.variant ?? "",
+                textContent: node.textContent?.trim() ?? "",
               };
             }""",
         )
@@ -2846,12 +2853,15 @@ def test_auth_and_authorization_surfaces_render_dark_signature_contract(
             full_page=True,
         )
         assert page.locator("html").get_attribute("data-theme") == "dark"
-        assert signature_contract["copyText"] == "POWERED BY"
-        assert signature_contract["nativeText"] == "AI NATIVE"
-        assert signature_contract["visibleMarkCount"] == 1
-        assert "Ethnocentric Regular" in signature_contract["copyFont"]
-        assert "Ethnocentric Regular" in signature_contract["nativeFont"]
-        assert signature_contract["copyColor"] == signature_contract["nativeColor"]
+        assert signature_contract["textContent"] == ""
+        assert signature_contract["copyMask"] != "none"
+        assert signature_contract["nativeMask"] != "none"
+        assert signature_contract["aiColor"] == "rgb(254, 82, 5)"
+        assert signature_contract["nativeColor"] == "rgb(183, 185, 177)"
+        assert signature_contract["identityWidth"] == 108
+        assert signature_contract["material"] == "flat"
+        assert signature_contract["accentScope"] == "orbit-only"
+        assert signature_contract["variant"] == "compact-horizontal"
         assert horizontal_overflow <= 2
         assert page.locator("h1").count() == 1
     finally:

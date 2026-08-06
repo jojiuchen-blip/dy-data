@@ -8,7 +8,7 @@ import {
 import { Button, IconButton } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
-import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { BrandAttribution } from "../components/BrandAttribution";
 import { Tabs } from "../components/SelectionControls";
 import { ThemePicker } from "../components/ThemePicker";
 import type {
@@ -713,7 +713,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
             </a>
           </form>
         )}
-        <SpaceAiSignature className="auth-space-signature" />
+        <BrandAttribution className="auth-brand-attribution" placement="auth-panel-footer" />
       </section>
       {activeActivationHintDetail ? (
         <aside className="auth-help-card" aria-live="polite">

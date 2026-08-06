@@ -21,7 +21,7 @@
 - 支持 `system | light | dark`。默认跟随系统主题，用户可以手动覆盖；偏好使用 `dydata.theme.preference` 持久化。
 - 解析后的主题写入根节点 `data-theme="light|dark"`，偏好写入 `data-theme-preference`；首屏脚本必须在 React 挂载前应用主题，避免闪烁。
 - 已正式记录品牌深橙、品牌橙、浅橙、黑白灰中性色、既有语义色、排版、阴影、组件状态、Solar 图标规则、ChartFigure 图表规则、二级/三级导航、浏览器标签图标和桌面明细工作台规则。
-- `Powered by SPACE AI Native` 是仅用于 dy-data 的项目署名。`SPACE` 只使用确认的 SVG 图形字，`POWERED BY` 与 `AI NATIVE` 使用 Ethnocentric Regular；字体职责、三种锁定形式、明暗主题、落位矩阵和开发约束统一维护在 `index.html#brand-signature`，不得回写或改动通用品牌资产源。
+- `Powered by SPACE AI Native` 是仅用于 dy-data 的项目署名。`POWERED BY`、`SPACE`、`AI` 与 `NATIVE` 均使用确认的 SVG 字形蒙版；轨道与 `AI` 使用品牌重点橙，其他字形使用主题中性色。两种正式结构、明暗主题、落位矩阵和开发约束统一维护在 `index.html#brand-signature`，不得回写或改动通用品牌资产源。
 - `tokens.json` 与 `apps/web/src/design-tokens.css` 的受测核心变量必须保持一致。新增或调整运行时 UI 值时，不能只修改业务页面。
 
 ## DYDATA-5 边界
@@ -67,7 +67,7 @@ npm --prefix apps/web run build
 - 主题切换只通过共享 ThemeProvider/ThemePicker，业务页面不得自行读取 `prefers-color-scheme`、`localStorage` 或拼接页面级暗色覆盖。
 - 浅色和深色必须使用同一组件结构和语义 token。成功、警告、错误、信息色保持业务语义，不纳入品牌橙替换。
 - 浏览器标签图标继续使用版本化橙色资产：浅色浏览器使用 `#d63b00`，深色浏览器使用 `#fe5205`，且不增加外层色块。
-- `Powered by SPACE AI Native` 通过共享组件渲染，仅用于 dy-data；组件固定输出 `POWERED BY + SPACE SVG + AI NATIVE`，桌面侧栏、移动端“我的”、登录/激活/重置、CLI/MCP 授权和首页按 placement 规则使用，不把 Ethnocentric Regular 用到普通 UI 文案。
+- `Powered by SPACE AI Native` 通过 `BrandAttribution` 渲染，仅用于 dy-data；组件固定输出 `POWERED BY + SPACE + AI NATIVE`，其中轨道与 `AI` 使用 `brand-orange`，`POWERED BY`、`SPACE` 与 `NATIVE` 使用主题中性色。桌面侧栏、移动端“我的”、登录/激活/重置、CLI/MCP 授权和首页只按 placement 规则使用，不允许 UI 字体替排、页面级重组或颜色覆盖。
 - 内部生产值不得直接展示。订单状态、时效状态、同步任务、分配策略、事件类型和角色通过 `apps/web/src/utils/userFacingLabels.ts` 转为用户文案；API 后端错误与运行时异常通过 `apps/web/src/utils/userFacingError.ts` 转为通用失败提示。未知值显示“未知状态 / 未知类型 / 未知原因”或通用失败提示，原值和异常详情只允许进入开发日志。
 - 业务页面不得直接写原生 `input`、`textarea`、`button`、私有 `tablist` 或分段按钮组。输入字段使用 `FormControls.tsx`，命令使用 `Button` / `IconButton`，视图切换和汇总筛选使用 `SelectionControls.tsx`；原生元素只保留在这些共享组件内部。
 - 新增公共共享组件必须登记到 `components.json`；能够独立展示的组件必须在真实组件展厅直接导入运行时实现，不用静态 HTML 仿制。

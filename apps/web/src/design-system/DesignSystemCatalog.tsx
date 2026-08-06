@@ -36,7 +36,7 @@ import {
   Tabs,
 } from "../components/SelectionControls";
 import { SolarIcon } from "../components/SolarIcon";
-import { SpaceAiSignature } from "../components/SpaceAiSignature";
+import { BrandAttribution } from "../components/BrandAttribution";
 import { TablePagination } from "../components/TablePagination";
 import { TertiaryNav } from "../components/TertiaryNav";
 import { ThemePicker } from "../components/ThemePicker";
@@ -108,7 +108,7 @@ const componentLabels: Record<string, string> = {
   "selection-controls": "选择与切换（Tabs / SegmentedControl / SummaryFilter）",
   shell: "全局页面壳层（Shell）",
   "solar-icon": "Solar 图标",
-  "space-ai-signature": "SPACE AI Native 项目署名",
+  "brand-attribution": "SPACE AI Native 项目署名",
   "table-pagination": "表格分页（TablePagination）",
   "tertiary-nav": "三级导航（TertiaryNav）",
   "text-fields": "完整字段（文本 / 日期 / 密码 / 多行 / 复选）",
@@ -562,8 +562,8 @@ function IconPreview() {
 function SignaturePreview() {
   return (
     <div className="catalog-signature-row">
-      <SpaceAiSignature />
-      <SpaceAiSignature variant="stacked" />
+      <BrandAttribution placement="auth-panel-footer" />
+      <BrandAttribution placement="rail-footer" />
     </div>
   );
 }
@@ -590,7 +590,7 @@ const previews: Record<string, () => ReactNode> = {
   "tooltip-label": TooltipPreview,
   "definition-list": DefinitionPreview,
   "solar-icon": IconPreview,
-  "space-ai-signature": SignaturePreview,
+  "brand-attribution": SignaturePreview,
 };
 
 function ComponentSpecCard({ component }: { component: ManifestComponent }) {

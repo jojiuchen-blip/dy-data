@@ -7,7 +7,8 @@
     "dev": "vite --host 127.0.0.1",
     "dev:demo": "vite --host 127.0.0.1 --mode demo",
     "build": "tsc --noEmit && vite build",
-    "build:design-system": "node ./scripts/build-design-system-catalog.mjs",
+    "build:brand-attribution": "node ./scripts/build-brand-attribution-masks.mjs",
+    "build:design-system": "npm run build:brand-attribution && node ./scripts/build-design-system-catalog.mjs",
     "preview": "vite preview --host 127.0.0.1"
   },
   "dependencies": {

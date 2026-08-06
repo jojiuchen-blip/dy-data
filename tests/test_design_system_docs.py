@@ -128,7 +128,7 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
         "shell",
         "definition-list",
         "solar-icon",
-        "space-ai-signature",
+        "brand-attribution",
     }
     assert required_component_ids <= {
         component["id"] for component in manifest["components"]
@@ -179,8 +179,11 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
     assert chart_figure["previewAnchor"] == "catalog-chart-figure"
     assert "ChartFigurePreview" in catalog_source
     assert '"chart-figure": ChartFigurePreview' in catalog_source
+    assert package["scripts"]["build:brand-attribution"] == (
+        "node ./scripts/build-brand-attribution-masks.mjs"
+    )
     assert package["scripts"]["build:design-system"] == (
-        "node ./scripts/build-design-system-catalog.mjs"
+        "npm run build:brand-attribution && node ./scripts/build-design-system-catalog.mjs"
     )
     assert "publicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
     assert "copyPublicDir: false" in read_text(CATALOG_BUILD_SCRIPT_PATH)
@@ -378,18 +381,23 @@ def test_v02_is_the_active_runtime_design_system() -> None:
     assert "Solar chevronDown" in components["field"]["selectIndicator"]
     assert "CSS or text chevron" in components["field"]["selectIndicator"]
 
-    signature = components["spaceAiSignature"]
-    assert signature["visualComposition"] == "POWERED BY + SPACE SVG + AI NATIVE"
-    assert signature["supportingTypeface"] == "Ethnocentric Regular"
-    assert signature["supportingTextTargets"] == ["POWERED BY", "AI NATIVE"]
-    assert signature["horizontalMarkWidth"] == "84px"
-    assert signature["horizontalSupportingFontSize"] == "11px"
-    assert signature["stackedRailMarkWidth"] == "70px"
-    assert signature["stackedSupportingFontSize"] == "8px"
-    assert signature["markOnlyWidth"] == "64px"
+    signature = components["brandAttribution"]
+    assert signature["visualComposition"] == "POWERED BY + SPACE + AI NATIVE"
+    assert signature["glyphSource"] == "approved SVG masks"
+    assert signature["variants"] == ["standard-stacked", "compact-horizontal"]
+    assert signature["defaultMaterial"] == "flat"
+    assert signature["accentScope"] == "orbit-only"
+    assert signature["accent"] == "#fe5205"
+    assert signature["aiColor"] == "brand accent"
+    assert signature["nativeColor"] == "theme neutral"
+    assert signature["standardMarkWidth"] == "160px"
+    assert signature["compactMarkWidth"] == "108px"
+    assert signature["railCompatibilityMarkWidth"] == "70px"
+    assert signature["railCompatibilityReason"] == "dy-data uses a 108px desktop rail"
     assert signature["background"] == "transparent"
-    assert signature["accessibleNames"]["mark"] == "SPACE"
-    assert "navigation" in signature["forbiddenTypefaceTargets"]
+    assert signature["accessibleName"] == "Powered by SPACE AI Native"
+    assert signature["markOnly"] == "Use the independent approved SPACE asset, not BrandAttribution"
+    assert "UI font substitution" in signature["forbiddenRendering"]
     assert "secondary and tertiary navigation" in signature["excludedPlacements"]
 
     assert colors["green"]["value"] == candidate["tokens"]["color"]["green"]["value"]
@@ -712,17 +720,17 @@ def test_design_system_html_renders_key_decision_surfaces() -> None:
     assert 'data-color-theme-button="dark"' in html
     assert "dydata.theme.preference" in html
     assert "SPACE AI Native" in html
-    assert "Ethnocentric Regular" in html
+    assert "正式 SVG 字形蒙版" in html
     assert "仅用于 dy-data" in html
-    assert "字体与图形职责" in html
-    assert "三种锁定形式" in html
-    assert "标准横排" in html
-    assert "紧凑堆叠" in html
-    assert "仅标志" in html
+    assert "字形与图形职责" in html
+    assert "两种正式结构" in html
+    assert "标准纵排" in html
+    assert "紧凑横排" in html
+    assert "独立 SPACE 标志不属于署名变体" in html
     assert "页面覆盖矩阵" in html
-    assert "SpaceAiSignature" in html
-    assert "不得使用 Ethnocentric Regular" in html
-    assert 'aria-label="SPACE" role="img"' in html
+    assert "BrandAttribution" in html
+    assert "不得使用 UI 字体替排" in html
+    assert 'aria-label="SPACE" role="img"' not in html
     assert html.count('aria-label="Powered by SPACE AI Native" role="img"') >= 6
     assert 'class="button-like primary"' in html
     assert 'class="button-like is-disabled"' in html
