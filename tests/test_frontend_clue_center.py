@@ -40,6 +40,25 @@ def test_api_resource_preserves_successful_data_during_background_refresh() -> N
     assert "data: current.data" in source[source.index(".catch((error)") :]
 
 
+def test_get_requests_are_deduplicated_and_cached_with_auth_isolation() -> None:
+    source = read_source("api/client.ts")
+
+    assert "const inFlightGetRequests = new Map" in source
+    assert "const cachedGetResponses = new Map" in source
+    assert "const MAX_CACHED_GET_RESPONSES = 100" in source
+    assert "maxAgeMs?: number" in source
+    assert "cacheKey?: string" in source
+    assert "forceRefresh?: boolean" in source
+    assert "inFlightGetRequests.get(requestKey)" in source
+    assert "cachedGetResponses.get(requestKey)" in source
+    assert "cachedGetResponses.keys().next().value" in source
+    assert "export function clearRequestJsonCache" in source
+    login_segment = source[source.index("export async function loginAdmin") :]
+    logout_segment = source[source.index("export async function logoutAdmin") :]
+    assert "clearRequestJsonCache();" in login_segment
+    assert "clearRequestJsonCache();" in logout_segment
+
+
 def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 

@@ -141,6 +141,25 @@ type QueryParamValue =
   | undefined;
 type QueryParams = Record<string, QueryParamValue>;
 
+interface RequestJsonOptions {
+  cacheKey?: string;
+  forceRefresh?: boolean;
+  maxAgeMs?: number;
+}
+
+interface CachedGetResponse {
+  expiresAt: number;
+  response: ApiResponse<unknown>;
+}
+
+const MAX_CACHED_GET_RESPONSES = 100;
+const inFlightGetRequests = new Map<
+  string,
+  Promise<ApiResponse<unknown>>
+>();
+const cachedGetResponses = new Map<string, CachedGetResponse>();
+let requestJsonCacheGeneration = 0;
+
 export interface ApiLoadResult<T> extends ApiResponse<T> {
   usingMock: boolean;
   fallbackReason?: string;
@@ -266,18 +285,70 @@ function isAuthError(error: unknown): boolean {
 async function requestJson<T>(
   path: string,
   params?: QueryParams,
+  options: RequestJsonOptions = {},
 ): Promise<ApiResponse<T>> {
   blockDemoNetwork();
-  const response = await fetch(apiUrl(path, params), {
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw await apiRequestError(response);
+  const url = apiUrl(path, params);
+  const requestKey = `${options.cacheKey ?? "default"}:${url}`;
+  const maxAgeMs = Math.max(0, options.maxAgeMs ?? 0);
+  const cached = cachedGetResponses.get(requestKey);
+  if (!options.forceRefresh && cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.response as ApiResponse<T>;
+    }
+    cachedGetResponses.delete(requestKey);
   }
 
-  return response.json() as Promise<ApiResponse<T>>;
+  const inFlight = inFlightGetRequests.get(requestKey);
+  if (inFlight) {
+    return inFlight as Promise<ApiResponse<T>>;
+  }
+
+  const cacheGeneration = requestJsonCacheGeneration;
+  const request = fetch(url, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw await apiRequestError(response);
+      }
+      return response.json() as Promise<ApiResponse<T>>;
+    })
+    .then((response) => {
+      if (maxAgeMs > 0 && cacheGeneration === requestJsonCacheGeneration) {
+        if (
+          !cachedGetResponses.has(requestKey) &&
+          cachedGetResponses.size >= MAX_CACHED_GET_RESPONSES
+        ) {
+          const oldestKey = cachedGetResponses.keys().next().value;
+          if (oldestKey !== undefined) {
+            cachedGetResponses.delete(oldestKey);
+          }
+        }
+        cachedGetResponses.set(requestKey, {
+          expiresAt: Date.now() + maxAgeMs,
+          response,
+        });
+      }
+      return response;
+    });
+  const trackedRequest = request.finally(() => {
+    if (inFlightGetRequests.get(requestKey) === trackedRequest) {
+      inFlightGetRequests.delete(requestKey);
+    }
+  });
+  inFlightGetRequests.set(
+    requestKey,
+    trackedRequest as Promise<ApiResponse<unknown>>,
+  );
+  return trackedRequest;
+}
+
+export function clearRequestJsonCache(): void {
+  requestJsonCacheGeneration += 1;
+  cachedGetResponses.clear();
+  inFlightGetRequests.clear();
 }
 
 function filenameFromContentDisposition(disposition: string | null): string | null {
@@ -1454,14 +1525,17 @@ export async function loginAdmin(
       meta: { generated_at: generatedAt(), source: "demo" },
     }));
   }
+  clearRequestJsonCache();
   const username = password === undefined ? "admin" : usernameOrPassword;
   const resolvedPassword = password === undefined ? usernameOrPassword : password;
-  return {
+  const result = {
     ...(await sendJson<AdminUser>("/auth/login", {
       body: { username, password: resolvedPassword },
     })),
     usingMock: false,
   };
+  clearRequestJsonCache();
+  return result;
 }
 
 export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
@@ -1481,10 +1555,15 @@ export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
       meta: { generated_at: generatedAt(), source: "demo" },
     }));
   }
-  return {
-    ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
-    usingMock: false,
-  };
+  clearRequestJsonCache();
+  try {
+    return {
+      ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
+      usingMock: false,
+    };
+  } finally {
+    clearRequestJsonCache();
+  }
 }
 
 export function approveCliAuthorization(
