@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useState, type DependencyList } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type DependencyList,
+} from "react";
 import type { ApiLoadResult } from "../api/client";
 
 interface ApiResourceState<T> {
@@ -6,6 +12,7 @@ interface ApiResourceState<T> {
   error?: string;
   rawError?: unknown;
   loading: boolean;
+  refreshing: boolean;
 }
 
 function errorMessage(error: unknown): string {
@@ -21,10 +28,14 @@ export function useApiResource<T>(
   const [reloadIndex, setReloadIndex] = useState(0);
   const [state, setState] = useState<ApiResourceState<T>>({
     loading: enabled,
+    refreshing: false,
   });
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
 
     if (!enabled) {
       setState({
@@ -32,34 +43,45 @@ export function useApiResource<T>(
         error: undefined,
         rawError: undefined,
         loading: false,
+        refreshing: false,
       });
       return () => {
         cancelled = true;
       };
     }
 
-    setState({
-      data: undefined,
+    setState((current) => ({
+      data: current.data,
       error: undefined,
       rawError: undefined,
-      loading: true,
-    });
+      loading: current.data === undefined,
+      refreshing: current.data !== undefined,
+    }));
 
     load()
       .then((data) => {
-        if (!cancelled) {
-          setState({ data, loading: false });
+        if (cancelled) {
+          return;
         }
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        setState({ data, loading: false, refreshing: false });
       })
       .catch((error) => {
-        if (!cancelled) {
-          setState({
-            data: undefined,
-            error: errorMessage(error),
-            rawError: error,
-            loading: false,
-          });
+        if (cancelled) {
+          return;
         }
+        if (requestId !== requestIdRef.current) {
+          return;
+        }
+        setState((current) => ({
+          data: current.data,
+          error: errorMessage(error),
+          rawError: error,
+          loading: false,
+          refreshing: false,
+        }));
       });
 
     return () => {

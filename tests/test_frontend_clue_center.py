@@ -28,6 +28,18 @@ def assert_column_align(source: str, key: str, align: str) -> None:
     assert f'align: "{align}"' in match.group("body")
 
 
+def test_api_resource_preserves_successful_data_during_background_refresh() -> None:
+    source = read_source("hooks/useApiResource.ts")
+
+    assert "useRef" in source
+    assert "requestIdRef" in source
+    assert "refreshing" in source
+    assert "data: current.data" in source
+    assert "loading: current.data === undefined" in source
+    assert "if (requestId !== requestIdRef.current)" in source
+    assert "data: current.data" in source[source.index(".catch((error)") :]
+
+
 def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 
