@@ -1024,6 +1024,19 @@ export interface ClueFilterMetadata {
   verification_statuses: string[];
 }
 
+export interface ClueStoreOptionQuery {
+  cacheScope: string;
+  city?: string;
+  limit?: number;
+  province?: string;
+  q?: string;
+  selected_store_id?: string;
+}
+
+export interface ClueStoreOptionsData {
+  stores: StoreOption[];
+}
+
 export interface ClueOverviewMetrics {
   total_clues: number;
   active_clues: number;

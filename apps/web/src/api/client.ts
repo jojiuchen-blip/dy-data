@@ -58,6 +58,8 @@ import type {
   ClueOverviewFilters,
   ClueOverviewMetrics,
   CluePhoneReveal,
+  ClueStoreOptionQuery,
+  ClueStoreOptionsData,
   ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
@@ -1382,13 +1384,94 @@ export function fetchSalesDashboard(
   );
 }
 
-export function fetchClueFilters(): Promise<ApiLoadResult<ClueFilterMetadata>> {
+export function fetchClueFilters(
+  includeAssignedStores = true,
+): Promise<ApiLoadResult<ClueFilterMetadata>> {
   if (CLUE_DEMO_MODE) {
-    return demoLoad(() => clueDemoRepository.getFilters());
+    return demoLoad(() => {
+      const response = clueDemoRepository.getFilters();
+      return includeAssignedStores
+        ? response
+        : {
+            ...response,
+            data: { ...response.data, assigned_stores: [] },
+          };
+    });
   }
   return withMockFallback(
-    () => requestJson<ClueFilterMetadata>("/clues/filters"),
-    mockClueFiltersResponse,
+    () =>
+      requestJson<ClueFilterMetadata>("/clues/filters", {
+        include_assigned_stores: includeAssignedStores,
+      }),
+    () => {
+      const response = mockClueFiltersResponse();
+      return includeAssignedStores
+        ? response
+        : {
+            ...response,
+            data: { ...response.data, assigned_stores: [] },
+          };
+    },
+    { fallbackOnError: false },
+  );
+}
+
+export function fetchClueStoreOptions(
+  query: ClueStoreOptionQuery,
+): Promise<ApiLoadResult<ClueStoreOptionsData>> {
+  const filterStores = (stores: ClueFilterMetadata["assigned_stores"]) => {
+    const normalizedQuery = query.q?.trim().toLowerCase() ?? "";
+    const selected = stores.find(
+      (store) => store.store_id === query.selected_store_id,
+    );
+    const matching = stores.filter(
+      (store) =>
+        !normalizedQuery ||
+        store.store_id.toLowerCase().includes(normalizedQuery) ||
+        store.store_name.toLowerCase().includes(normalizedQuery),
+    );
+    return [selected, ...matching]
+      .filter((store): store is NonNullable<typeof store> => Boolean(store))
+      .filter(
+        (store, index, rows) =>
+          rows.findIndex((candidate) => candidate.store_id === store.store_id) ===
+          index,
+      )
+      .slice(0, query.limit ?? 50);
+  };
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => {
+      const filters = clueDemoRepository.getFilters();
+      return {
+        data: { stores: filterStores(filters.data.assigned_stores) },
+        meta: filters.meta,
+      };
+    });
+  }
+  return withMockFallback(
+    () =>
+      requestJson<ClueStoreOptionsData>(
+        "/clues/filter-options/stores",
+        {
+          city: query.city,
+          limit: query.limit ?? 50,
+          province: query.province,
+          q: query.q,
+          selected_store_id: query.selected_store_id,
+        },
+        {
+          cacheKey: `clue-store-options:${query.cacheScope}`,
+          maxAgeMs: 60_000,
+        },
+      ),
+    () => {
+      const filters = mockClueFiltersResponse();
+      return {
+        data: { stores: filterStores(filters.data.assigned_stores) },
+        meta: filters.meta,
+      };
+    },
+    { fallbackOnError: false },
   );
 }
 
@@ -1401,6 +1484,7 @@ export function fetchClueOverview(
   return withMockFallback(
     () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
     () => mockClueOverviewResponse(filters),
+    { fallbackOnError: false },
   );
 }
 
@@ -1422,6 +1506,7 @@ export function fetchClueAssignmentRounds(
         page_size: query.pageSize,
       }),
     () => mockClueAssignmentRoundsResponse(query),
+    { fallbackOnError: false },
   );
 }
 

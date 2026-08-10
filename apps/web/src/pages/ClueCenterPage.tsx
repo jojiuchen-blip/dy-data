@@ -12,6 +12,7 @@ import {
   exportClueAssignmentRounds,
   fetchClueAssignmentRounds,
   fetchClueFilters,
+  fetchClueStoreOptions,
   fetchClueOrderDetail,
   fetchClueOrderPhone,
   fetchClueOverview,
@@ -32,6 +33,7 @@ import {
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type {
   ClueFilterMetadata,
   ClueAssignmentRound,
@@ -359,6 +361,10 @@ export function ClueCenterPage({
   const [assignedStoreId, setAssignedStoreId] = useState(
     searchParams.get("assigned_store_id") ?? "",
   );
+  const [storeOptionQuery, setStoreOptionQuery] = useState("");
+  const [storeOptionsEnabled, setStoreOptionsEnabled] = useState(
+    Boolean(searchParams.get("assigned_store_id")),
+  );
   const [assignedDateStart, setAssignedDateStart] = useState(
     searchParams.get("assigned_date_start") ?? "",
   );
@@ -398,9 +404,32 @@ export function ClueCenterPage({
   const detailReturnFocusRef = useRef<HTMLElement | null>(null);
   const detailTouchStartRef = useRef<{ x: number; y: number } | null>(null);
 
-  const filterResource = useApiResource(fetchClueFilters, []);
+  const debouncedStoreOptionQuery = useDebouncedValue(storeOptionQuery, 200);
+  const filterResource = useApiResource(() => fetchClueFilters(false), []);
   const meta = filterResource.data?.data;
   const activeProductType = productType || clueDefaultProductType(meta);
+  const storeOptionsResource = useApiResource(
+    () =>
+      fetchClueStoreOptions({
+        cacheScope: currentUser.user_id ?? currentUser.username,
+        city,
+        limit: 50,
+        province,
+        q: debouncedStoreOptionQuery,
+        selected_store_id: assignedStoreId,
+      }),
+    [
+      assignedStoreId,
+      city,
+      currentUser.user_id,
+      currentUser.username,
+      debouncedStoreOptionQuery,
+      province,
+    ],
+    { enabled: showStoreLocationFilters && storeOptionsEnabled },
+  );
+  const storeOptions =
+    storeOptionsResource.data?.data.stores ?? meta?.assigned_stores ?? [];
 
   const filters: ClueOverviewFilters = useMemo(
     () => ({
@@ -437,7 +466,7 @@ export function ClueCenterPage({
         key: "assignedStoreId",
         label: "门店",
         value:
-          meta?.assigned_stores.find(
+          storeOptions.find(
             (store) => store.store_id === assignedStoreId,
           )?.store_name ?? assignedStoreId,
       });
@@ -473,9 +502,9 @@ export function ClueCenterPage({
     assignedDateStart,
     assignedStoreId,
     city,
-    meta?.assigned_stores,
     province,
     showStoreLocationFilters,
+    storeOptions,
     storeDisplayStatus,
   ]);
 
@@ -525,12 +554,23 @@ export function ClueCenterPage({
   const hasPreviousClue = selectedRoundIndex > 0;
   const hasNextClue =
     selectedRoundIndex >= 0 && selectedRoundIndex < rows.length - 1;
+  const activeResourceHasData = isDetailsView
+    ? roundsResource.data !== undefined
+    : overviewResource.data !== undefined;
+  const activeResourceRefreshing = isDetailsView
+    ? roundsResource.refreshing
+    : overviewResource.refreshing;
   const loading =
-    filterResource.loading ||
-    (isDetailsView ? roundsResource.loading : overviewResource.loading);
+    !activeResourceHasData &&
+    ((filterResource.loading && meta === undefined) ||
+      (isDetailsView ? roundsResource.loading : overviewResource.loading));
   const activeResourceError =
     filterResource.error ??
     (isDetailsView ? roundsResource.error : overviewResource.error);
+  const displayedResourceError =
+    activeResourceHasData && activeResourceError
+      ? `更新失败，当前展示上次成功数据：${activeResourceError}`
+      : activeResourceError;
   const activeFallbackReason =
     filterResource.data?.fallbackReason ??
     (isDetailsView
@@ -1064,9 +1104,9 @@ export function ClueCenterPage({
       </section>
 
       <ResourceNotice
-        error={activeResourceError}
+        error={displayedResourceError}
         fallbackReason={activeFallbackReason}
-        loading={loading}
+        loading={loading || activeResourceRefreshing}
       />
 
       <div className="clue-filter-mobile-summary">
@@ -1139,7 +1179,10 @@ export function ClueCenterPage({
               <SearchableStoreSelect
                 allowEmpty
                 emptyMessage="未找到门店"
-                options={(meta?.assigned_stores ?? []).map((store) => ({
+                loading={storeOptionsResource.loading}
+                onOpen={() => setStoreOptionsEnabled(true)}
+                onSearch={setStoreOptionQuery}
+                options={storeOptions.map((store) => ({
                   label: store.store_name,
                   value: store.store_id,
                 }))}
