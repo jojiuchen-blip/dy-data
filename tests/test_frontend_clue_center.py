@@ -28,6 +28,110 @@ def assert_column_align(source: str, key: str, align: str) -> None:
     assert f'align: "{align}"' in match.group("body")
 
 
+def test_api_resource_preserves_successful_data_during_background_refresh() -> None:
+    source = read_source("hooks/useApiResource.ts")
+
+    assert "useRef" in source
+    assert "requestIdRef" in source
+    assert "refreshing" in source
+    assert "data: current.data" in source
+    assert "loading: current.data === undefined" in source
+    assert "if (requestId !== requestIdRef.current)" in source
+    assert "data: current.data" in source[source.index(".catch((error)") :]
+
+
+def test_get_requests_are_deduplicated_and_cached_with_auth_isolation() -> None:
+    source = read_source("api/client.ts")
+
+    assert "const inFlightGetRequests = new Map" in source
+    assert "const cachedGetResponses = new Map" in source
+    assert "const MAX_CACHED_GET_RESPONSES = 100" in source
+    assert "maxAgeMs?: number" in source
+    assert "cacheKey?: string" in source
+    assert "forceRefresh?: boolean" in source
+    assert "inFlightGetRequests.get(requestKey)" in source
+    assert "cachedGetResponses.get(requestKey)" in source
+    assert "cachedGetResponses.keys().next().value" in source
+    assert "export function clearRequestJsonCache" in source
+    login_segment = source[source.index("export async function loginAdmin") :]
+    logout_segment = source[source.index("export async function logoutAdmin") :]
+    assert "clearRequestJsonCache();" in login_segment
+    assert "clearRequestJsonCache();" in logout_segment
+
+
+def test_clue_store_options_load_lazily_with_debounce_and_user_cache_scope() -> None:
+    page = read_source("pages/ClueCenterPage.tsx")
+    component = read_source("components/SearchableStoreSelect.tsx")
+    client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
+
+    assert "fetchClueFilters(false)" in page
+    assert "fetchClueStoreOptions" in page
+    assert "useDebouncedValue(storeOptionQuery, 200)" in page
+    assert "storeOptionsEnabled" in page
+    assert "storeOptionsResource.data?.data.stores" in page
+    assert "cacheScope: currentUser.user_id ?? currentUser.username" in page
+    assert "onOpen={() => setStoreOptionsEnabled(true)}" in page
+    assert "onSearch={setStoreOptionQuery}" in page
+    assert "loading={storeOptionsResource.loading}" in page
+
+    assert "loading?: boolean" in component
+    assert "onOpen?: () => void" in component
+    assert "onSearch?: (query: string) => void" in component
+    assert "onSearch?.(nextValue)" in component
+    assert "onSearch?.(\"\")" in component
+
+    assert "export function fetchClueStoreOptions" in client
+    assert 'maxAgeMs: 60_000' in client
+    assert 'cacheKey: `clue-store-options:${query.cacheScope}`' in client
+    assert "export interface ClueStoreOptionsData" in types
+
+
+def test_clue_center_uses_background_refresh_without_silent_demo_fallback() -> None:
+    page = read_source("pages/ClueCenterPage.tsx")
+    client = read_source("api/client.ts")
+
+    assert "overviewResource.refreshing" in page
+    assert "roundsResource.refreshing" in page
+    assert "const activeResourceHasData" in page
+    assert "const activeResourceRefreshing" in page
+    assert "activeResourceHasData && activeResourceError" in page
+    assert "filterResource.loading ||" not in page
+    assert "!overview && overviewResource.loading" in page
+
+    filters_segment = client[
+        client.index("export function fetchClueFilters") : client.index(
+            "export function fetchClueOverview"
+        )
+    ]
+    overview_segment = client[
+        client.index("export function fetchClueOverview") : client.index(
+            "export function exportOrderDetails"
+        )
+    ]
+    rounds_segment = client[
+        client.index("export function fetchClueAssignmentRounds") : client.index(
+            "export function exportClueAssignmentRounds"
+        )
+    ]
+    assert "fallbackOnError: false" in filters_segment
+    assert "fallbackOnError: false" in overview_segment
+    assert "fallbackOnError: false" in rounds_segment
+
+
+def test_app_lazy_loads_route_pages_behind_a_stable_suspense_boundary() -> None:
+    source = read_source("App.tsx")
+
+    assert "lazy," in source
+    assert "Suspense" in source
+    assert "const ClueCenterPage = lazy(" in source
+    assert "const SalesDashboardPage = lazy(" in source
+    assert "const AdminSyncPage = lazy(" in source
+    assert "<Suspense fallback={<PageLoadingFallback />}>" in source
+    assert 'import { ClueCenterPage } from "./pages/ClueCenterPage";' not in source
+    assert 'import { SalesDashboardPage } from "./pages/SalesDashboardPage";' not in source
+
+
 def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 

@@ -662,6 +662,10 @@ class ClueFilterMetadata(BaseModel):
     verification_statuses: list[str]
 
 
+class ClueStoreOptionsData(BaseModel):
+    stores: list[StoreOption]
+
+
 class ClueOverviewMetrics(BaseModel):
     total_clues: int = 0
     active_clues: int = 0

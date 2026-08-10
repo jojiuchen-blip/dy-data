@@ -184,6 +184,57 @@ def _seed_clue_center(session: Session) -> None:
     session.commit()
 
 
+def _seed_store_two_clue(session: Session) -> None:
+    session.add_all(
+        [
+            ClueCenterOrder(
+                order_id="order-store-2",
+                source_clue_ids=["clue-store-2"],
+                source_clue_count=1,
+                canonical_clue_id="clue-store-2",
+                lead_status="active",
+                current_assignment_round_id="order-store-2-1",
+                current_round_no=1,
+                current_round_status="active_unfollowed",
+                assigned_at=_dt(2),
+                assigned_at_source="clue_create_time_detail",
+                assigned_store_id="store-2",
+                assigned_store_name="Store Two",
+                assigned_city="Beijing",
+                assigned_province="Beijing",
+                phone_masked="137****5678",
+                phone_source="telephone",
+                product_id="sku-store-2",
+                product_name="Store Two Product",
+                product_type="Car Service",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                is_self_store_verified=False,
+                created_at=_dt(2),
+                updated_at=_dt(2),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="order-store-2-1",
+                order_id="order-store-2",
+                round_no=1,
+                assigned_at=_dt(2),
+                assigned_at_source="clue_create_time_detail",
+                assigned_store_id="store-2",
+                assigned_store_name="Store Two",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                is_self_store_verified=False,
+                created_at=_dt(2),
+                updated_at=_dt(2),
+            ),
+        ]
+    )
+    session.commit()
+
+
 def _promote_order_two_to_self_owned_round(session: Session) -> None:
     """Make the mutable fixture use the M2 authoritative lead/round path."""
 
@@ -249,6 +300,90 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["store_display_status"] in {"待跟进", "已核销"}
     assert "telephone" not in row
     assert row["remaining_reassign_seconds"] is None
+
+
+def test_clue_filters_can_exclude_large_assigned_store_payload(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _login(client)
+
+    response = client.get(
+        "/api/v1/clues/filters",
+        params={"include_assigned_stores": "false"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["assigned_stores"] == []
+    assert data["default_product_type"] == "all"
+    assert data["product_types"] == ["Car Service"]
+
+
+def test_clue_store_filter_options_are_limited_searchable_and_scope_safe(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    _seed_store_two_clue(db_session)
+    _login(client)
+
+    searched = client.get(
+        "/api/v1/clues/filter-options/stores",
+        params={"q": "Two", "province": "Beijing", "city": "Beijing"},
+    )
+    assert searched.status_code == 200
+    assert searched.json()["data"]["stores"] == [
+        {"store_id": "store-2", "store_name": "Store Two"}
+    ]
+
+    selected = client.get(
+        "/api/v1/clues/filter-options/stores",
+        params={"q": "No Match", "selected_store_id": "store-2", "limit": 1},
+    )
+    assert selected.status_code == 200
+    assert selected.json()["data"]["stores"] == [
+        {"store_id": "store-2", "store_name": "Store Two"}
+    ]
+
+    limited = client.get(
+        "/api/v1/clues/filter-options/stores",
+        params={"limit": 1},
+    )
+    assert limited.status_code == 200
+    assert len(limited.json()["data"]["stores"]) == 1
+
+    db_session.add_all(
+        [
+            User(
+                user_id="filter-store-user",
+                username="filter-store-user",
+                external_account_id="store-1",
+                display_name="Filter Store User",
+                role="store",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            UserStoreScope(user_id="filter-store-user", store_id="store-1"),
+        ]
+    )
+    db_session.commit()
+    _login_user(client, "filter-store-user", "secret")
+
+    scoped = client.get("/api/v1/clues/filter-options/stores")
+    assert scoped.status_code == 200
+    assert scoped.json()["data"]["stores"] == [
+        {"store_id": "store-1", "store_name": "Store One"}
+    ]
+
+    forbidden_selected = client.get(
+        "/api/v1/clues/filter-options/stores",
+        params={"selected_store_id": "store-2"},
+    )
+    assert forbidden_selected.status_code == 200
+    assert forbidden_selected.json()["data"]["stores"] == [
+        {"store_id": "store-1", "store_name": "Store One"}
+    ]
 
 
 def test_clue_overview_separates_action_and_effective_follow_rates(

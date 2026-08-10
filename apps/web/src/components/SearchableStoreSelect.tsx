@@ -8,7 +8,10 @@ interface SearchableStoreSelectProps {
   disabled?: boolean;
   emptyLabel?: string;
   emptyMessage?: string;
+  loading?: boolean;
   onChange: (value: string) => void;
+  onOpen?: () => void;
+  onSearch?: (query: string) => void;
   options: SelectOption[];
   placeholder?: string;
   value: string;
@@ -31,7 +34,10 @@ export function SearchableStoreSelect({
   disabled = false,
   emptyLabel = "全部",
   emptyMessage = "未找到门店",
+  loading = false,
   onChange,
+  onOpen,
+  onSearch,
   options,
   placeholder = "输入门店名称",
   value,
@@ -103,11 +109,14 @@ export function SearchableStoreSelect({
         onChange={(event) => {
           const nextValue = event.target.value;
           setInputValue(nextValue);
+          onSearch?.(nextValue);
           setIsOpen(true);
           setActiveIndex(-1);
         }}
         onFocus={() => {
           setInputValue("");
+          onOpen?.();
+          onSearch?.("");
           setIsOpen(true);
           setActiveIndex(-1);
         }}
@@ -148,7 +157,9 @@ export function SearchableStoreSelect({
           id={`${inputId}-menu`}
           role="listbox"
         >
-          {filteredOptions.length > 0 ? (
+          {loading ? (
+            <div className="searchable-store-select__empty">正在加载...</div>
+          ) : filteredOptions.length > 0 ? (
             filteredOptions.map((option, index) => (
               <div
                 aria-selected={option.value === value}

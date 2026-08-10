@@ -1,28 +1,86 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
 import { CLUE_DEMO_MODE } from "./demo/clueDemoMode";
 import type { AdminUser } from "./types/dashboard";
-import { AdminHomePage } from "./pages/AdminHomePage";
-import {
-  AdminClueAllocationPage,
-  type AllocationSubview,
-} from "./pages/AdminClueAllocationPage";
-import { AdminFeedbackPage } from "./pages/AdminFeedbackPage";
-import { AdminProductTypeVisibilityPage } from "./pages/AdminProductTypeVisibilityPage";
-import { AdminAccountsPage } from "./pages/AdminAccountsPage";
+import type { AllocationSubview } from "./pages/AdminClueAllocationPage";
 import { AuthPage, type AuthMode } from "./pages/AuthPage";
 import { Shell } from "./components/Shell";
-import { AdminSkuRulesPage } from "./pages/AdminSkuRulesPage";
-import { AdminSyncPage } from "./pages/AdminSyncPage";
-import { ClueCenterPage } from "./pages/ClueCenterPage";
 import { CliAuthorizePage } from "./pages/CliAuthorizePage";
 import { McpAuthorizePage } from "./pages/McpAuthorizePage";
 import { HomePage } from "./pages/HomePage";
-import { InvoiceGuidePage } from "./pages/InvoiceGuidePage";
-import { OrderDetailsPage } from "./pages/OrderDetailsPage";
-import { SalesDashboardPage } from "./pages/SalesDashboardPage";
-import { StoreRankingPage } from "./pages/StoreRankingPage";
-import { StoreSettlementPage } from "./pages/StoreSettlementPage";
+
+const AdminHomePage = lazy(() =>
+  import("./pages/AdminHomePage").then((module) => ({
+    default: module.AdminHomePage,
+  })),
+);
+const AdminClueAllocationPage = lazy(() =>
+  import("./pages/AdminClueAllocationPage").then((module) => ({
+    default: module.AdminClueAllocationPage,
+  })),
+);
+const AdminFeedbackPage = lazy(() =>
+  import("./pages/AdminFeedbackPage").then((module) => ({
+    default: module.AdminFeedbackPage,
+  })),
+);
+const AdminProductTypeVisibilityPage = lazy(() =>
+  import("./pages/AdminProductTypeVisibilityPage").then((module) => ({
+    default: module.AdminProductTypeVisibilityPage,
+  })),
+);
+const AdminAccountsPage = lazy(() =>
+  import("./pages/AdminAccountsPage").then((module) => ({
+    default: module.AdminAccountsPage,
+  })),
+);
+const AdminSkuRulesPage = lazy(() =>
+  import("./pages/AdminSkuRulesPage").then((module) => ({
+    default: module.AdminSkuRulesPage,
+  })),
+);
+const AdminSyncPage = lazy(() =>
+  import("./pages/AdminSyncPage").then((module) => ({
+    default: module.AdminSyncPage,
+  })),
+);
+const ClueCenterPage = lazy(() =>
+  import("./pages/ClueCenterPage").then((module) => ({
+    default: module.ClueCenterPage,
+  })),
+);
+const InvoiceGuidePage = lazy(() =>
+  import("./pages/InvoiceGuidePage").then((module) => ({
+    default: module.InvoiceGuidePage,
+  })),
+);
+const OrderDetailsPage = lazy(() =>
+  import("./pages/OrderDetailsPage").then((module) => ({
+    default: module.OrderDetailsPage,
+  })),
+);
+const SalesDashboardPage = lazy(() =>
+  import("./pages/SalesDashboardPage").then((module) => ({
+    default: module.SalesDashboardPage,
+  })),
+);
+const StoreRankingPage = lazy(() =>
+  import("./pages/StoreRankingPage").then((module) => ({
+    default: module.StoreRankingPage,
+  })),
+);
+const StoreSettlementPage = lazy(() =>
+  import("./pages/StoreSettlementPage").then((module) => ({
+    default: module.StoreSettlementPage,
+  })),
+);
 
 function readLocation() {
   return {
@@ -179,6 +237,16 @@ function PageForbiddenPage() {
   );
 }
 
+function PageLoadingFallback() {
+  return (
+    <main className="page-stack">
+      <section aria-live="polite" className="content-section" role="status">
+        正在加载页面...
+      </section>
+    </main>
+  );
+}
+
 export function App() {
   const [location, setLocation] = useState(readLocation);
 
@@ -229,8 +297,9 @@ export function App() {
   );
 
   return (
-    <AuthGate pathname={location.pathname}>
-      {({ user, onLogout }) => {
+    <Suspense fallback={<PageLoadingFallback />}>
+      <AuthGate pathname={location.pathname}>
+        {({ user, onLogout }) => {
         if (location.pathname === "/auth/cli/authorize") {
           return <CliAuthorizePage currentUser={user} search={location.search} />;
         }
@@ -317,7 +386,8 @@ export function App() {
             {hasPageAccess(user, location.pathname) ? page : <PageForbiddenPage />}
           </Shell>
         );
-      }}
-    </AuthGate>
+        }}
+      </AuthGate>
+    </Suspense>
   );
 }

@@ -37,8 +37,8 @@ const assets = [
 
 const masks = await Promise.all(
   assets.map(async ([name, fileName, cssVariable]) => {
-    const svg = await readFile(path.join(assetRoot, fileName));
-    const dataUrl = `url(\"data:image/svg+xml;base64,${svg.toString("base64")}\")`;
+    const svg = (await readFile(path.join(assetRoot, fileName))).toString("utf8").replace(/\r\n?/g, "\n");
+    const dataUrl = `url(\"data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}\")`;
     return { name, cssVariable, dataUrl };
   }),
 );

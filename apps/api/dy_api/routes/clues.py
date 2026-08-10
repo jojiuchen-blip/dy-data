@@ -14,6 +14,7 @@ from dy_api.schemas import (
     ClueOverviewMetrics,
     ClueOrderDetailData,
     CluePhoneRevealData,
+    ClueStoreOptionsData,
     dump_model,
 )
 
@@ -47,11 +48,44 @@ def _operation_actor(current_user: AuthContext) -> dict:
 
 @router.get("/clues/filters")
 def clue_filters(
+    include_assigned_stores: bool = True,
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    data = ClueFilterMetadata(**store.clue_filters(_scope_store_ids(current_user)))
+    data = ClueFilterMetadata(
+        **store.clue_filters(
+            _scope_store_ids(current_user),
+            include_assigned_stores=include_assigned_stores,
+        )
+    )
+    return {
+        "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.get("/clues/filter-options/stores")
+def clue_store_filter_options(
+    q: str | None = None,
+    province: str | None = None,
+    city: str | None = None,
+    selected_store_id: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    data = ClueStoreOptionsData(
+        stores=store.clue_store_options(
+            _scope_store_ids(current_user),
+            q=q,
+            province=province,
+            city=city,
+            selected_store_id=selected_store_id,
+            limit=limit,
+        )
+    )
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},

@@ -58,6 +58,8 @@ import type {
   ClueOverviewFilters,
   ClueOverviewMetrics,
   CluePhoneReveal,
+  ClueStoreOptionQuery,
+  ClueStoreOptionsData,
   ClueHeadquartersPoolData,
   CommissionRulesSummaryData,
   DetailFilters,
@@ -140,6 +142,25 @@ type QueryParamValue =
   | null
   | undefined;
 type QueryParams = Record<string, QueryParamValue>;
+
+interface RequestJsonOptions {
+  cacheKey?: string;
+  forceRefresh?: boolean;
+  maxAgeMs?: number;
+}
+
+interface CachedGetResponse {
+  expiresAt: number;
+  response: ApiResponse<unknown>;
+}
+
+const MAX_CACHED_GET_RESPONSES = 100;
+const inFlightGetRequests = new Map<
+  string,
+  Promise<ApiResponse<unknown>>
+>();
+const cachedGetResponses = new Map<string, CachedGetResponse>();
+let requestJsonCacheGeneration = 0;
 
 export interface ApiLoadResult<T> extends ApiResponse<T> {
   usingMock: boolean;
@@ -266,18 +287,70 @@ function isAuthError(error: unknown): boolean {
 async function requestJson<T>(
   path: string,
   params?: QueryParams,
+  options: RequestJsonOptions = {},
 ): Promise<ApiResponse<T>> {
   blockDemoNetwork();
-  const response = await fetch(apiUrl(path, params), {
-    credentials: "include",
-    headers: { Accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw await apiRequestError(response);
+  const url = apiUrl(path, params);
+  const requestKey = `${options.cacheKey ?? "default"}:${url}`;
+  const maxAgeMs = Math.max(0, options.maxAgeMs ?? 0);
+  const cached = cachedGetResponses.get(requestKey);
+  if (!options.forceRefresh && cached) {
+    if (cached.expiresAt > Date.now()) {
+      return cached.response as ApiResponse<T>;
+    }
+    cachedGetResponses.delete(requestKey);
   }
 
-  return response.json() as Promise<ApiResponse<T>>;
+  const inFlight = inFlightGetRequests.get(requestKey);
+  if (inFlight) {
+    return inFlight as Promise<ApiResponse<T>>;
+  }
+
+  const cacheGeneration = requestJsonCacheGeneration;
+  const request = fetch(url, {
+    credentials: "include",
+    headers: { Accept: "application/json" },
+  })
+    .then(async (response) => {
+      if (!response.ok) {
+        throw await apiRequestError(response);
+      }
+      return response.json() as Promise<ApiResponse<T>>;
+    })
+    .then((response) => {
+      if (maxAgeMs > 0 && cacheGeneration === requestJsonCacheGeneration) {
+        if (
+          !cachedGetResponses.has(requestKey) &&
+          cachedGetResponses.size >= MAX_CACHED_GET_RESPONSES
+        ) {
+          const oldestKey = cachedGetResponses.keys().next().value;
+          if (oldestKey !== undefined) {
+            cachedGetResponses.delete(oldestKey);
+          }
+        }
+        cachedGetResponses.set(requestKey, {
+          expiresAt: Date.now() + maxAgeMs,
+          response,
+        });
+      }
+      return response;
+    });
+  const trackedRequest = request.finally(() => {
+    if (inFlightGetRequests.get(requestKey) === trackedRequest) {
+      inFlightGetRequests.delete(requestKey);
+    }
+  });
+  inFlightGetRequests.set(
+    requestKey,
+    trackedRequest as Promise<ApiResponse<unknown>>,
+  );
+  return trackedRequest;
+}
+
+export function clearRequestJsonCache(): void {
+  requestJsonCacheGeneration += 1;
+  cachedGetResponses.clear();
+  inFlightGetRequests.clear();
 }
 
 function filenameFromContentDisposition(disposition: string | null): string | null {
@@ -1311,13 +1384,94 @@ export function fetchSalesDashboard(
   );
 }
 
-export function fetchClueFilters(): Promise<ApiLoadResult<ClueFilterMetadata>> {
+export function fetchClueFilters(
+  includeAssignedStores = true,
+): Promise<ApiLoadResult<ClueFilterMetadata>> {
   if (CLUE_DEMO_MODE) {
-    return demoLoad(() => clueDemoRepository.getFilters());
+    return demoLoad(() => {
+      const response = clueDemoRepository.getFilters();
+      return includeAssignedStores
+        ? response
+        : {
+            ...response,
+            data: { ...response.data, assigned_stores: [] },
+          };
+    });
   }
   return withMockFallback(
-    () => requestJson<ClueFilterMetadata>("/clues/filters"),
-    mockClueFiltersResponse,
+    () =>
+      requestJson<ClueFilterMetadata>("/clues/filters", {
+        include_assigned_stores: includeAssignedStores,
+      }),
+    () => {
+      const response = mockClueFiltersResponse();
+      return includeAssignedStores
+        ? response
+        : {
+            ...response,
+            data: { ...response.data, assigned_stores: [] },
+          };
+    },
+    { fallbackOnError: false },
+  );
+}
+
+export function fetchClueStoreOptions(
+  query: ClueStoreOptionQuery,
+): Promise<ApiLoadResult<ClueStoreOptionsData>> {
+  const filterStores = (stores: ClueFilterMetadata["assigned_stores"]) => {
+    const normalizedQuery = query.q?.trim().toLowerCase() ?? "";
+    const selected = stores.find(
+      (store) => store.store_id === query.selected_store_id,
+    );
+    const matching = stores.filter(
+      (store) =>
+        !normalizedQuery ||
+        store.store_id.toLowerCase().includes(normalizedQuery) ||
+        store.store_name.toLowerCase().includes(normalizedQuery),
+    );
+    return [selected, ...matching]
+      .filter((store): store is NonNullable<typeof store> => Boolean(store))
+      .filter(
+        (store, index, rows) =>
+          rows.findIndex((candidate) => candidate.store_id === store.store_id) ===
+          index,
+      )
+      .slice(0, query.limit ?? 50);
+  };
+  if (CLUE_DEMO_MODE) {
+    return demoLoad(() => {
+      const filters = clueDemoRepository.getFilters();
+      return {
+        data: { stores: filterStores(filters.data.assigned_stores) },
+        meta: filters.meta,
+      };
+    });
+  }
+  return withMockFallback(
+    () =>
+      requestJson<ClueStoreOptionsData>(
+        "/clues/filter-options/stores",
+        {
+          city: query.city,
+          limit: query.limit ?? 50,
+          province: query.province,
+          q: query.q,
+          selected_store_id: query.selected_store_id,
+        },
+        {
+          cacheKey: `clue-store-options:${query.cacheScope}`,
+          maxAgeMs: 60_000,
+        },
+      ),
+    () => {
+      const filters = mockClueFiltersResponse();
+      return {
+        data: { stores: filterStores(filters.data.assigned_stores) },
+        meta: filters.meta,
+      };
+    },
+    { fallbackOnError: false },
   );
 }
 
@@ -1330,6 +1484,7 @@ export function fetchClueOverview(
   return withMockFallback(
     () => requestJson<ClueOverviewMetrics>("/clues/overview", { ...filters }),
     () => mockClueOverviewResponse(filters),
+    { fallbackOnError: false },
   );
 }
 
@@ -1351,6 +1506,7 @@ export function fetchClueAssignmentRounds(
         page_size: query.pageSize,
       }),
     () => mockClueAssignmentRoundsResponse(query),
+    { fallbackOnError: false },
   );
 }
 
@@ -1454,14 +1610,17 @@ export async function loginAdmin(
       meta: { generated_at: generatedAt(), source: "demo" },
     }));
   }
+  clearRequestJsonCache();
   const username = password === undefined ? "admin" : usernameOrPassword;
   const resolvedPassword = password === undefined ? usernameOrPassword : password;
-  return {
+  const result = {
     ...(await sendJson<AdminUser>("/auth/login", {
       body: { username, password: resolvedPassword },
     })),
     usingMock: false,
   };
+  clearRequestJsonCache();
+  return result;
 }
 
 export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
@@ -1481,10 +1640,15 @@ export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
       meta: { generated_at: generatedAt(), source: "demo" },
     }));
   }
-  return {
-    ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
-    usingMock: false,
-  };
+  clearRequestJsonCache();
+  try {
+    return {
+      ...(await sendJson<AdminUser>("/auth/logout", { method: "POST" })),
+      usingMock: false,
+    };
+  } finally {
+    clearRequestJsonCache();
+  }
 }
 
 export function approveCliAuthorization(

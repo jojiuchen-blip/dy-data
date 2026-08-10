@@ -2786,7 +2786,105 @@ class DashboardDataStore:
     def _sales_row_matches_product(self, row: dict[str, Any], product_type: str) -> bool:
         return product_type == "all" or row["product_type"] == product_type
 
-    def clue_filters(self, scope_store_ids: tuple[str, ...] | None = None) -> dict[str, Any]:
+    def clue_store_options(
+        self,
+        scope_store_ids: tuple[str, ...] | None = None,
+        *,
+        q: str | None = None,
+        province: str | None = None,
+        city: str | None = None,
+        selected_store_id: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, str]]:
+        round_scope_sql, round_scope_params = self._store_scope_clause(
+            "r.assigned_store_id", scope_store_ids
+        )
+        visibility_params: dict[str, Any] = {}
+        visibility_sql = self._visible_product_type_clause(
+            "c.product_type",
+            visibility_params,
+            prefix="clue_store_option_product",
+        )
+        base_params = {**round_scope_params, **visibility_params}
+        base_clauses = [
+            "r.assigned_store_id IS NOT NULL",
+            "r.assigned_store_id != ''",
+        ]
+        if round_scope_sql:
+            base_clauses.append(round_scope_sql.strip().removeprefix("AND "))
+        if visibility_sql:
+            base_clauses.append(visibility_sql.strip().removeprefix("AND "))
+
+        def query_rows(
+            clauses: list[str], params: dict[str, Any], row_limit: int
+        ) -> list[dict[str, Any]]:
+            return self._execute(
+                f"""
+                SELECT r.assigned_store_id AS store_id,
+                       MAX(COALESCE(NULLIF(r.assigned_store_name, ''),
+                                    r.assigned_store_id)) AS store_name
+                FROM clue_assignment_rounds r
+                JOIN clue_center_orders c ON c.order_id = r.order_id
+                WHERE {' AND '.join(f'({clause})' for clause in clauses)}
+                GROUP BY r.assigned_store_id
+                ORDER BY store_name, store_id
+                LIMIT :limit
+                """,
+                {**params, "limit": row_limit},
+            )
+
+        selected_rows: list[dict[str, Any]] = []
+        selected = _to_str(selected_store_id).strip()
+        if selected:
+            selected_rows = query_rows(
+                [*base_clauses, "r.assigned_store_id = :selected_store_id"],
+                {**base_params, "selected_store_id": selected},
+                1,
+            )
+
+        clauses = list(base_clauses)
+        params = dict(base_params)
+        query = _to_str(q).strip().lower()
+        if query:
+            clauses.append(
+                "(LOWER(COALESCE(r.assigned_store_name, '')) LIKE :query "
+                "OR LOWER(r.assigned_store_id) LIKE :query)"
+            )
+            params["query"] = f"%{query}%"
+        province_value = _to_str(province).strip()
+        if province_value:
+            clauses.append("c.assigned_province = :province")
+            params["province"] = province_value
+        city_value = _to_str(city).strip()
+        if city_value:
+            clauses.append("c.assigned_city = :city")
+            params["city"] = city_value
+
+        bounded_limit = max(1, min(int(limit), 100))
+        rows = [*selected_rows, *query_rows(clauses, params, bounded_limit)]
+        result: list[dict[str, str]] = []
+        seen: set[str] = set()
+        for row in rows:
+            store_id = _to_str(row.get("store_id"))
+            if not store_id or store_id in seen:
+                continue
+            seen.add(store_id)
+            result.append(
+                {
+                    "store_id": store_id,
+                    "store_name": _to_str(row.get("store_name"), store_id),
+                }
+            )
+            if len(result) >= bounded_limit:
+                break
+        return result
+
+    def clue_filters(
+        self,
+        scope_store_ids: tuple[str, ...] | None = None,
+        *,
+        include_assigned_stores: bool = True,
+    ) -> dict[str, Any]:
         round_scope_sql, round_scope_params = self._store_scope_clause(
             "r.assigned_store_id", scope_store_ids
         )
@@ -2827,7 +2925,7 @@ class DashboardDataStore:
                 """,
                 round_params,
             )
-        ]
+        ] if include_assigned_stores else []
         assigned_cities = [
             _to_str(row.get("assigned_city"))
             for row in self._execute(
