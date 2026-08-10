@@ -111,6 +111,12 @@ def test_brand_attribution_uses_formal_assets_and_project_tokens() -> None:
     assert ".dc-brand-attribution--accent-orbit-only" in styles
 
 
+def test_brand_attribution_generator_normalizes_svg_line_endings() -> None:
+    script = read_text(WEB_ROOT / "scripts" / "build-brand-attribution-masks.mjs")
+
+    assert '.toString("utf8").replace(/\\r\\n?/g, "\\n")' in script
+
+
 def test_brand_attribution_covers_every_approved_surface() -> None:
     shell = read_text(WEB_SRC / "components" / "Shell.tsx")
     auth = read_text(WEB_SRC / "pages" / "AuthPage.tsx")

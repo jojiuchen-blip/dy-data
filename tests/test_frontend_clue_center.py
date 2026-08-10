@@ -119,6 +119,19 @@ def test_clue_center_uses_background_refresh_without_silent_demo_fallback() -> N
     assert "fallbackOnError: false" in rounds_segment
 
 
+def test_app_lazy_loads_route_pages_behind_a_stable_suspense_boundary() -> None:
+    source = read_source("App.tsx")
+
+    assert "lazy," in source
+    assert "Suspense" in source
+    assert "const ClueCenterPage = lazy(" in source
+    assert "const SalesDashboardPage = lazy(" in source
+    assert "const AdminSyncPage = lazy(" in source
+    assert "<Suspense fallback={<PageLoadingFallback />}>" in source
+    assert 'import { ClueCenterPage } from "./pages/ClueCenterPage";' not in source
+    assert 'import { SalesDashboardPage } from "./pages/SalesDashboardPage";' not in source
+
+
 def test_clue_center_list_field_order_and_removed_internal_fields() -> None:
     source = read_source("pages/ClueCenterPage.tsx")
 
