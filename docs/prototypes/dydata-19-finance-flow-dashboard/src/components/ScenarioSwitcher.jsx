@@ -1,7 +1,8 @@
 import { scenarioFixtures } from "../data/financeData.js";
 
-export function ScenarioSwitcher({ value, onChange, onApply }) {
+export function ScenarioSwitcher({ value, role, onChange, onApply }) {
   const current = scenarioFixtures[value];
+  const availableScenarios = Object.entries(scenarioFixtures).filter(([, scenario]) => scenario.role === role);
 
   return (
     <section className="scenario-switcher" aria-labelledby="scenario-title">
@@ -13,7 +14,7 @@ export function ScenarioSwitcher({ value, onChange, onApply }) {
       <label>
         <span>选择场景</span>
         <select value={value} onChange={(event) => onChange(event.target.value)}>
-          {Object.entries(scenarioFixtures).map(([id, scenario]) => (
+          {availableScenarios.map(([id, scenario]) => (
             <option key={id} value={id}>
               {id} · {scenario.title}
             </option>

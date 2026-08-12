@@ -45,7 +45,7 @@ export function ImportDialog({ importType, rows, result, onClose, onConfirm }) {
         </table>
       </div>
       <footer className="form-actions">
-        <span>导入文件、校验结果和覆盖版本将永久保留审计记录。</span>
+        <span>系统仅保存校验、覆盖、操作人与导入时间日志，不保存原始上传文件。</span>
         <button type="button" className="button button--primary" disabled={!result.ok} onClick={onConfirm}>
           确认整批导入
         </button>

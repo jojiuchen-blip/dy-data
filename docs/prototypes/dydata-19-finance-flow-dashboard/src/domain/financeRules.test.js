@@ -40,12 +40,41 @@ describe("DYDATA-19 财务规则", () => {
       buyer: "其他公司",
       taxRate: 3,
       invoiceNumber: "123",
+      netAmount: 94,
+      taxAmount: 5,
       total: 99,
       expectedTotal: 100,
     });
 
-    expect(errors).toHaveLength(4);
+    expect(errors).toHaveLength(5);
     expect(errors[0]).toContain("比亚迪汽车销售有限公司");
+  });
+
+  it("强校验不含税金额、税额和价税合计的勾稽关系", () => {
+    const errors = validateInvoice({
+      buyer: "比亚迪汽车销售有限公司",
+      taxRate: 6,
+      invoiceNumber: "25322000000178435216",
+      netAmount: 100,
+      taxAmount: 5,
+      total: 106,
+      expectedTotal: 106,
+    });
+
+    expect(errors).toContain("不含税金额 + 税额必须等于价税合计");
+    expect(errors).toContain("不含税金额 × 6% 与税额差异必须小于0.01元");
+  });
+
+  it("允许税额与六个百分点计算结果存在小于一分钱的尾差", () => {
+    expect(validateInvoice({
+      buyer: "比亚迪汽车销售有限公司",
+      taxRate: 6,
+      invoiceNumber: "25322000000178435216",
+      netAmount: 121358.96,
+      taxAmount: 7281.54,
+      total: 128640.5,
+      expectedTotal: 128640.5,
+    })).toEqual([]);
   });
 
   it("任一行失败时整批导入失败且零写入", () => {
