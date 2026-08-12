@@ -12,7 +12,7 @@ export function AppShell({
 }) {
   function changeRole(nextRole) {
     onRoleChange(nextRole);
-    onPageChange(nextRole === "store" ? "store-bills" : "finance-home");
+    onPageChange(nextRole === "store" ? "store-bills" : "finance-promotion");
   }
 
   return (
@@ -71,7 +71,7 @@ export function AppShell({
           <strong>{role === "store" ? "2026年7月账期" : "全量门店"}</strong>
         </div>
         <nav aria-label={role === "store" ? "门店财务页面" : "财务管理页面"}>
-          {Object.entries(pages).map(([id, item]) => (
+          {Object.entries(pages).filter(([, item]) => item.nav !== false).map(([id, item]) => (
             <button
               type="button"
               key={id}

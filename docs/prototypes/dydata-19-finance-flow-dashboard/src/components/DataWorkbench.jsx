@@ -14,15 +14,15 @@ export function MetricStrip({ items }) {
   );
 }
 
-export function WorkbenchToolbar({ children, onSearch, actions }) {
+export function WorkbenchToolbar({ children, onSearch, actions, searchLabel = "搜索门店、SAP或发票号码" }) {
   return (
     <div className="workbench-toolbar">
       <label className="search-field">
         <SolarIcon name="document" size={18} />
-        <span className="sr-only">搜索门店、SAP或发票号码</span>
+        <span className="sr-only">{searchLabel}</span>
         <input
           type="search"
-          placeholder="搜索门店、SAP 或发票号码"
+          placeholder={searchLabel}
           onChange={(event) => onSearch?.(event.target.value)}
         />
       </label>
