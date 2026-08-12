@@ -2,13 +2,32 @@ import { managementInvoices, promotionInvoices } from "../data/financeData.js";
 import { money } from "../domain/financeRules.js";
 import { StatusTag } from "../components/StatusTag.jsx";
 
-export function StoreHistoryPage() {
+const activeStore = "深圳龙岗比亚迪王朝店";
+
+export function StoreHistoryPage({ scenario }) {
+  const promotionRecords = promotionInvoices.filter((invoice) => invoice.store === activeStore);
+  const managementRecords = managementInvoices.filter((invoice) => invoice.store === activeStore);
+  const promotionRows = promotionRecords.flatMap((invoice) => {
+    const periods = invoice.coveredPeriods ?? [invoice.period];
+    return periods.map((period) => ({
+      ...invoice,
+      period,
+      isMultiPeriod: periods.length > 1,
+    }));
+  });
+  const promotionStatus = scenario.title === "发票校验或审核失败" ? "已重新开具" : promotionRecords[0].auditStatus;
+  const failedAuditAmount = promotionStatus === "已重新开具" ? 0 : 76420;
+  const promotionStatusTone = promotionStatus.includes("不通过")
+    ? "danger"
+    : promotionStatus.includes("通过") || promotionStatus.includes("重新开具")
+      ? "success"
+      : "info";
   return (
     <section className="business-page" aria-labelledby="store-history-title">
       <header className="page-heading">
         <div>
-          <span className="eyebrow">门店端 · 发票与调整记录</span>
-          <h1 id="store-history-title">审核结果、管理服务费发票和调整都可追溯</h1>
+          <span className="eyebrow">门店端 · 发票状态查看</span>
+          <h1 id="store-history-title">查看发票审核状态与历史调整</h1>
           <p>只展示门店需要处理或核对的信息，不提供厂端发票附件下载。</p>
         </div>
       </header>
@@ -27,12 +46,12 @@ export function StoreHistoryPage() {
           <dd>{money(225460.5)}</dd>
         </div>
         <div>
-          <dt>发票审核通过金额</dt>
+          <dt>发票审核通过已结算金额</dt>
           <dd>{money(96820)}</dd>
         </div>
         <div>
           <dt>发票审核未通过金额</dt>
-          <dd>{money(76420)}</dd>
+          <dd>{money(failedAuditAmount)}</dd>
         </div>
       </dl>
 
@@ -43,19 +62,33 @@ export function StoreHistoryPage() {
             <h2 id="promotion-history-title">推广服务费发票记录</h2>
           </div>
         </div>
-        <div className="record-list">
-          {promotionInvoices.map((invoice) => (
-            <article key={invoice.id}>
-              <div>
-                <span>{invoice.period} · {invoice.invoiceNumber}</span>
-                <strong>{money(invoice.total)}</strong>
-              </div>
-              <StatusTag tone={invoice.auditStatus.includes("通过") ? "success" : invoice.auditStatus.includes("不通过") ? "danger" : "info"}>
-                {invoice.auditStatus}
-              </StatusTag>
-              <p>{invoice.auditReason === "—" ? `提交成功时间：${invoice.submittedAt}` : `原因：${invoice.auditReason}`}</p>
-            </article>
-          ))}
+        <div className="data-table-wrap history-table">
+          <table aria-label="推广服务费发票记录">
+            <thead>
+              <tr>
+                <th>账期</th>
+                <th>是否多账期开票</th>
+                <th>金额</th>
+                <th>发票号</th>
+                <th>开票日期</th>
+                <th>提交时间</th>
+                <th>审核状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {promotionRows.map((invoice) => (
+                <tr key={`${invoice.id}-${invoice.period}`}>
+                  <td>{invoice.period}</td>
+                  <td>{invoice.isMultiPeriod ? "是" : "否"}</td>
+                  <td className="amount">{money(invoice.total)}</td>
+                  <td>{invoice.invoiceNumber}</td>
+                  <td>{invoice.invoiceDate}</td>
+                  <td>{invoice.submittedAt}</td>
+                  <td><StatusTag tone={promotionStatusTone}>{promotionStatus}</StatusTag></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
@@ -65,25 +98,39 @@ export function StoreHistoryPage() {
             <span className="eyebrow">厂端开具</span>
             <h2 id="management-history-title">管理服务费发票信息</h2>
           </div>
-          <span>仅提供发票号码、金额和开票时间</span>
+          <span>财务上传后同步发票号码、金额、开票日期、提交时间和最新状态</span>
         </div>
-        <div className="record-list record-list--compact">
-          {managementInvoices.map((invoice) => (
-            <article key={invoice.id}>
-              <div>
-                <span>{invoice.period} · {invoice.invoiceNumber}</span>
-                <strong>{money(invoice.invoiceAmount)}</strong>
-              </div>
-              <StatusTag tone={invoice.status === "已开票" ? "success" : "warning"}>{invoice.status}</StatusTag>
-              <p>开票时间：{invoice.issuedAt}</p>
-            </article>
-          ))}
+        <div className="data-table-wrap history-table history-table--management">
+          <table aria-label="管理服务费发票信息">
+            <thead>
+              <tr>
+                <th>账期</th>
+                <th>金额</th>
+                <th>发票号</th>
+                <th>开票日期</th>
+                <th>提交时间</th>
+                <th>审核状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              {managementRecords.map((invoice) => (
+                <tr key={invoice.id}>
+                  <td>{invoice.period}</td>
+                  <td className="amount">{money(invoice.invoiceAmount)}</td>
+                  <td>{invoice.invoiceNumber}</td>
+                  <td>{invoice.invoiceDate}</td>
+                  <td>{invoice.submittedAt}</td>
+                  <td><StatusTag tone={invoice.status === "已开票" ? "success" : "warning"}>{invoice.status}</StatusTag></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
 
       <section className="adjustment-ledger" aria-labelledby="adjustment-title">
         <div>
-          <span className="eyebrow">下账期调整</span>
+          <span className="eyebrow">差异金额将在下个账期调整</span>
           <h2 id="adjustment-title">2026年8月 · 系统重算差额</h2>
           <p>7月账单已打款，不修改原发票与结算结果；差额在下账期继续抵扣。</p>
         </div>

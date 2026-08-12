@@ -35,6 +35,8 @@ export function validateInvoice({
   buyer,
   taxRate,
   invoiceNumber,
+  netAmount,
+  taxAmount,
   total,
   expectedTotal,
   duplicateInvoiceNumbers = [],
@@ -54,6 +56,12 @@ export function validateInvoice({
   }
   if (Number(total) !== Number(expectedTotal)) {
     errors.push("价税合计需要与所选账期的已确认金额一致");
+  }
+  if (Math.abs(Number(netAmount) + Number(taxAmount) - Number(total)) >= 0.01) {
+    errors.push("不含税金额 + 税额必须等于价税合计");
+  }
+  if (Math.abs(Number(netAmount) * 0.06 - Number(taxAmount)) >= 0.01) {
+    errors.push("不含税金额 × 6% 与税额差异必须小于0.01元");
   }
 
   return errors;
