@@ -4042,6 +4042,193 @@ a.metric-card:hover,
   background: var(--brand-orange-soft);
 }
 
+.commission-rules-page > .ui-tabs--underline {
+  display: flex;
+  gap: 28px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+}
+
+.commission-rules-page > .ui-tabs--underline .ui-tabs__item {
+  min-height: 46px;
+  border: 0;
+  border-bottom: 3px solid transparent;
+  padding: 0 2px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.commission-rules-page > .ui-tabs--underline .ui-tabs__item[aria-selected="true"] {
+  border-bottom-color: var(--brand-orange);
+  color: var(--brand-orange);
+}
+
+.commission-stepper {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.commission-stepper li {
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  padding: 7px 12px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  font-size: var(--font-size-table);
+  font-weight: 700;
+}
+
+.commission-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  align-items: start;
+  gap: 18px;
+}
+
+.commission-workspace__main {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+}
+
+.commission-step-card {
+  scroll-margin-top: 88px;
+}
+
+.commission-preselection {
+  position: sticky;
+  top: 88px;
+  display: grid;
+  gap: 10px;
+}
+
+.commission-preselection h2 {
+  margin: 0;
+}
+
+.commission-preselection > strong {
+  color: var(--brand-orange);
+  font-size: var(--font-size-page-title);
+}
+
+.commission-query-tools {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.commission-query-tools__input {
+  min-width: 0;
+}
+
+.commission-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--muted);
+}
+
+.commission-preview-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  background: var(--surface-subtle);
+}
+
+.commission-selected-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.commission-selected-list > div {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.5fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--line);
+  padding: 8px 0;
+}
+
+.commission-sku-catalog > .ui-tabs--segmented {
+  display: inline-flex;
+  gap: 4px;
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  background: var(--surface-muted);
+}
+
+.commission-sku-catalog > .ui-tabs--segmented .ui-tabs__item {
+  min-height: 36px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  padding: 0 14px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.commission-sku-catalog > .ui-tabs--segmented .ui-tabs__item[aria-selected="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-card);
+}
+
+.commission-confirmation-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.commission-confirmation-list > div {
+  display: grid;
+  gap: 5px;
+  border-bottom: 1px solid var(--line);
+  padding: 12px;
+}
+
+.commission-confirmation-list dt {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
+.commission-confirmation-list dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.admin-import-drawer {
+  width: min(680px, calc(100vw - 24px));
+  height: 100dvh;
+  max-height: 100dvh;
+  margin-left: auto;
+  border-radius: var(--radius-lg) 0 0 var(--radius-lg);
+}
+
+.admin-import-drawer__form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .admin-product-sync .resource-notice {
   margin-bottom: 14px;
 }
@@ -4712,6 +4899,21 @@ a.metric-card:hover,
   gap: 14px;
 }
 
+.account-admin-main__scroll {
+  max-height: calc(100dvh - 250px);
+  min-height: 280px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+
+.account-admin-main__scroll .data-table-wrap {
+  border: 0;
+  border-radius: 0;
+}
+
 .account-editor {
   display: grid;
   gap: 14px;
@@ -4721,6 +4923,60 @@ a.metric-card:hover,
 
 .account-form {
   box-shadow: none;
+}
+
+.account-create-confirmation {
+  max-width: 520px;
+}
+
+.account-confirmation-list {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface-warm);
+}
+
+.account-confirmation-list > div {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-confirmation-list > div:last-child {
+  border-bottom: 0;
+}
+
+.account-confirmation-list dt {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  font-weight: 800;
+}
+
+.account-confirmation-list dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: var(--font-size-body);
+  font-weight: 800;
+}
+
+.account-confirmation-password {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.account-confirmation-password > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .account-table {
@@ -5466,6 +5722,14 @@ a.metric-card:hover,
     grid-template-columns: 1fr;
   }
 
+  .commission-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .commission-preselection {
+    position: static;
+  }
+
   .account-admin-layout {
     grid-template-columns: 1fr;
   }
@@ -5575,6 +5839,29 @@ a.metric-card:hover,
   .admin-import-error,
   .admin-batch-list__item {
     grid-template-columns: 1fr;
+  }
+
+  .commission-query-tools,
+  .commission-preview-summary,
+  .commission-selected-list > div,
+  .commission-confirmation-list,
+  .admin-import-drawer__form {
+    grid-template-columns: 1fr;
+  }
+
+  .commission-rules-page > .ui-tabs--underline {
+    gap: 18px;
+  }
+
+  .commission-sku-catalog > .ui-tabs--segmented {
+    display: grid;
+    grid-template-columns: 1fr;
+    width: 100%;
+  }
+
+  .admin-import-drawer {
+    width: 100vw;
+    border-radius: 0;
   }
 
   .admin-inline-editor > strong,

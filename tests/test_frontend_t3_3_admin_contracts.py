@@ -26,34 +26,32 @@ def test_t3_3_client_exposes_frozen_admin_contracts() -> None:
     assert "effectiveDate" in client
 
 
-def test_rules_page_uses_new_product_fee_and_atomic_import_panel() -> None:
+def test_rules_page_uses_dual_fee_and_atomic_import_workflow() -> None:
     page = read_source("pages/AdminSkuRulesPage.tsx")
-    panel = read_source("components/AdminSkuGovernancePanel.tsx")
+    import_drawer = read_source("components/AdminSkuRuleImportDrawer.tsx")
+    sources = page + import_drawer
 
-    assert "<AdminSkuGovernancePanel" in page
-    assert "旧单费率兼容区" in page
-    assert "正式双费率发布、版本追溯与批量导入请使用上方新入口" in page
     for copy in [
-        "商品人工分类",
-        "双费率版本发布",
-        "批量导入与原子提交",
+        "SKU-ID分佣比例确认",
+        "批量导入设置",
         "整批未写入",
         "推广服务费比例",
         "管理服务费比例",
-        "生效自然日",
+        "生效日期",
         "变更原因",
     ]:
-        assert copy in panel
-    assert "rowNumber" in panel
-    assert "error.field" in panel
-    assert "error.message" in panel
-    assert "PENDING_COMMIT" in panel
-    assert "if (!value.trim()) return null" in panel
+        assert copy in sources
+    assert "rowNumber" in import_drawer
+    assert "error.field" in import_drawer
+    assert "error.message" in import_drawer
+    assert "PENDING_COMMIT" in import_drawer
+    assert "if (!value.trim()) return null" in page
 
 
 def test_sync_page_shows_product_runs_details_and_safe_statuses() -> None:
     page = read_source("pages/AdminSyncPage.tsx")
     panel = read_source("components/AdminProductSyncPanel.tsx")
+    import_drawer = read_source("components/AdminSkuRuleImportDrawer.tsx")
     labels = read_source("utils/userFacingLabels.ts")
 
     assert "<AdminProductSyncPanel" in page
@@ -74,8 +72,10 @@ def test_sync_page_shows_product_runs_details_and_safe_statuses() -> None:
         "displayProductSyncMode",
     ]:
         assert f"export function {presenter}" in labels
-        assert presenter in panel or presenter in read_source(
-            "components/AdminSkuGovernancePanel.tsx"
+        assert (
+            presenter in panel
+            or presenter in read_source("pages/AdminSkuRulesPage.tsx")
+            or presenter in import_drawer
         )
     assert "row.skippedCount" in panel
 

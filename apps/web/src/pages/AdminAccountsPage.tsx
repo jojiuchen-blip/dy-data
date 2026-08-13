@@ -16,6 +16,7 @@ import {
 import { Button } from "../components/Button";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
+import { Dialog } from "../components/Dialog";
 import { FieldInput, MultiSelectField, SelectField } from "../components/FormControls";
 import { SegmentedControl } from "../components/SelectionControls";
 import type {
@@ -160,6 +161,9 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   const [unactivatedLoading, setUnactivatedLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [statusText, setStatusText] = useState("");
+  const [pendingCreatePayload, setPendingCreatePayload] =
+    useState<AccountUpsertPayload | null>(null);
+  const [showCreatePassword, setShowCreatePassword] = useState(false);
 
   const editingAccount = useMemo(
     () => accounts.find((account) => account.user_id === editingUserId) ?? null,
@@ -251,6 +255,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     setStatusText("");
     setExtraAllow(new Set());
     setExtraDeny(new Set());
+    setPendingCreatePayload(null);
+    setShowCreatePassword(false);
   };
 
   const startEdit = (account: AccountRow) => {
@@ -403,14 +409,17 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
 
   const handleSave = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const payload = compactPayload(draft, editingUserId === null);
+    if (editingUserId === null) {
+      setPendingCreatePayload(payload);
+      setShowCreatePassword(false);
+      setStatusText("");
+      return;
+    }
     setSaving(true);
     setStatusText("");
     try {
-      const payload = compactPayload(draft, editingUserId === null);
-      const result =
-        editingUserId === null
-          ? await createAccount(payload)
-          : await updateAccount(editingUserId, payload);
+      const result = await updateAccount(editingUserId, payload);
       setAccounts((current) => {
         const withoutSaved = current.filter(
           (account) => account.user_id !== result.data.user_id,
@@ -424,6 +433,40 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       setStatusText("账号已保存。");
     } catch {
       setStatusText("保存失败，请检查账号名、所属账户编号、密码确认和门店绑定。");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const closeCreateConfirmation = () => {
+    if (saving) return;
+    setPendingCreatePayload(null);
+    setShowCreatePassword(false);
+  };
+
+  const confirmCreateAccount = async () => {
+    if (!pendingCreatePayload || saving) return;
+    setSaving(true);
+    setStatusText("");
+    try {
+      const result = await createAccount(pendingCreatePayload);
+      try {
+        const accountResponse = await fetchAccounts();
+        setAccounts(accountResponse.data.rows);
+      } catch {
+        setAccounts((current) =>
+          [...current, result.data].sort((a, b) =>
+            a.username.localeCompare(b.username),
+          ),
+        );
+      }
+      setEditingUserId(result.data.user_id);
+      setDraft(accountDraft(result.data));
+      setPendingCreatePayload(null);
+      setShowCreatePassword(false);
+      setStatusText("账号已创建。");
+    } catch {
+      setStatusText("创建失败，请检查账号名、所属账户编号、密码确认和门店绑定。");
     } finally {
       setSaving(false);
     }
@@ -701,13 +744,15 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             </div>
             {loading ? <span className="source-pill">加载中</span> : null}
           </div>
-          <DataTable
-            columns={accountColumns}
-            emptyText={loading ? "正在加载账号..." : "暂无账号"}
-            rows={accounts}
-            state={loading ? "loading" : "ready"}
-            tableClassName="account-table"
-          />
+          <div className="account-admin-main__scroll">
+            <DataTable
+              columns={accountColumns}
+              emptyText={loading ? "正在加载账号..." : "暂无账号"}
+              rows={accounts}
+              state={loading ? "loading" : "ready"}
+              tableClassName="account-table"
+            />
+          </div>
         </div>
 
         <aside className="account-editor">
@@ -829,7 +874,11 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                 value={draft.password_confirm ?? ""}
               />
             </label>
-            <Button disabled={saving} type="submit" variant="primary">
+            <Button
+              disabled={saving}
+              type="submit"
+              variant="primary"
+            >
               保存账号
             </Button>
           </form>
@@ -1008,6 +1057,69 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
           tableClassName="account-table"
         />
       </section>
+
+      <Dialog
+        actions={
+          <>
+            <Button
+              disabled={saving}
+              onClick={closeCreateConfirmation}
+              type="button"
+            >
+              返回修改
+            </Button>
+            <Button
+              disabled={saving}
+              onClick={() => void confirmCreateAccount()}
+              type="button"
+              variant="primary"
+            >
+              {saving ? "正在创建..." : "确认创建"}
+            </Button>
+          </>
+        }
+        closeDisabled={saving}
+        description="请复核账号信息。确认后才会真正创建账号。"
+        onClose={closeCreateConfirmation}
+        open={pendingCreatePayload !== null}
+        panelClassName="account-create-confirmation"
+        title="新建账号信息确认"
+      >
+        {pendingCreatePayload ? (
+          <dl className="account-confirmation-list">
+            <div>
+              <dt>账号名</dt>
+              <dd>{pendingCreatePayload.username}</dd>
+            </div>
+            <div>
+              <dt>显示名称</dt>
+              <dd>{pendingCreatePayload.display_name}</dd>
+            </div>
+            <div>
+              <dt>密码</dt>
+              <dd className="account-confirmation-password">
+                <span>
+                  {showCreatePassword
+                    ? pendingCreatePayload.password
+                    : "••••••••"}
+                </span>
+                <Button
+                  disabled={saving}
+                  onClick={() => setShowCreatePassword((current) => !current)}
+                  size="sm"
+                  type="button"
+                >
+                  {showCreatePassword ? "隐藏密码" : "显示密码"}
+                </Button>
+              </dd>
+            </div>
+            <div>
+              <dt>角色</dt>
+              <dd>{roleLabel(pendingCreatePayload.role)}</dd>
+            </div>
+          </dl>
+        ) : null}
+      </Dialog>
     </div>
   );
 }

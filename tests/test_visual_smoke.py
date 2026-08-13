@@ -2197,16 +2197,18 @@ def test_admin_rules_renders_product_fee_and_atomic_import_workflow(
     try:
         install_api_routes(page)
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
-        page.get_by_role("heading", name="商品人工分类", exact=True).wait_for(timeout=10000)
-        page.get_by_text("商品归属商户", exact=True).first.wait_for(timeout=10000)
+        page.get_by_role("heading", name="商品分账规则管理", exact=True).wait_for(timeout=10000)
+        page.get_by_role("heading", name="1. SKU 查询与批量选择", exact=True).wait_for(timeout=10000)
         body = page.locator("body").inner_text()
-        assert "商品归属商户" in body
-        assert "商品创建账号" in body
-        assert "双费率版本发布" in body
+        assert "商品人工分类" not in body
+        assert "旧单费率兼容区" not in body
+        assert "SKU-ID分佣比例确认" in body
         assert "8%" in body
-        assert "10%" in body
-        assert "批量导入与原子提交" in body
-        assert "待原子提交" in body
+        assert "2%" in body
+        assert "已启用分佣商品列表" in body
+        page.get_by_role("button", name="批量导入设置", exact=True).click()
+        page.get_by_role("heading", name="批量导入设置", exact=True).wait_for(timeout=10000)
+        assert "待原子提交" in page.locator("body").inner_text()
         assert "PENDING_COMMIT" not in body
     finally:
         context.close()
@@ -2266,7 +2268,8 @@ def test_admin_rules_invalid_import_explains_atomic_zero_write(
             encoding="utf-8",
         )
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
-        page.get_by_role("heading", name="批量导入与原子提交", exact=True).wait_for(timeout=10000)
+        page.get_by_role("button", name="批量导入设置", exact=True).click()
+        page.get_by_role("heading", name="批量导入设置", exact=True).wait_for(timeout=10000)
         page.locator('input[type="file"]').set_input_files(str(file_path))
         page.get_by_role("button", name="上传并预校验", exact=True).click()
         page.get_by_text("整批未写入", exact=False).first.wait_for(timeout=10000)
@@ -2368,6 +2371,7 @@ def test_admin_rules_switching_import_batch_replaces_stale_row_errors(
             encoding="utf-8",
         )
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
+        page.get_by_role("button", name="批量导入设置", exact=True).click()
         page.locator('input[type="file"]').set_input_files(str(file_path))
         page.get_by_role("button", name="上传并预校验", exact=True).click()
         page.get_by_text("旧批次错误", exact=False).wait_for(timeout=10000)
@@ -2419,17 +2423,21 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
         install_api_routes(page)
         page.route("**/api/v1/admin/sku-fee-rules", handle_publish)
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
-        section = page.get_by_role("heading", name="双费率版本发布", exact=True).locator("xpath=ancestor::section")
-        section.get_by_label("SKU ID", exact=True).fill("SKU-VISUAL-001")
+        page.get_by_label("选择 SKU SKU-VISUAL-001", exact=True).first.check()
+        page.get_by_role("button", name="选择当前勾选", exact=True).click()
+        section = page.get_by_role("heading", name="2. SKU-ID分佣比例确认", exact=True).locator("xpath=ancestor::section")
         section.get_by_label("两项费率一致", exact=True).uncheck()
         section.get_by_label("推广服务费比例（%）", exact=True).fill("8")
         section.get_by_label("管理服务费比例（%）", exact=True).fill("10")
-        section.get_by_label("生效自然日", exact=True).fill("2026-08-02")
+        section.get_by_label("生效日期", exact=True).fill("2026-08-02")
         section.get_by_label("变更原因", exact=True).fill("网络不确定重试")
-        section.get_by_role("button", name="发布新版本", exact=True).click()
-        page.get_by_text("费率版本发布失败", exact=False).wait_for(timeout=10000)
-        section.get_by_role("button", name="发布新版本", exact=True).click()
-        page.get_by_text("历史版本不会被覆盖", exact=False).wait_for(timeout=10000)
+        section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
+        page.get_by_role("button", name="确认发布", exact=True).first.click()
+        dialog = page.get_by_role("dialog", name="分佣规则发布确认")
+        dialog.get_by_role("button", name="确认发布", exact=True).click()
+        page.get_by_text("发布中断", exact=False).wait_for(timeout=10000)
+        dialog.get_by_role("button", name="确认发布", exact=True).click()
+        page.get_by_text("已发布 1 个 SKU", exact=False).wait_for(timeout=10000)
         assert len(observed_keys) == 2
         assert len(observed_keys[0]) >= 16
         assert observed_keys[0] == observed_keys[1]
@@ -2534,37 +2542,32 @@ def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
             f"{vite_live_admin_api_base_url}/admin/rules",
             wait_until="domcontentloaded",
         )
-        product_section = page.get_by_role(
-            "heading", name="商品人工分类", exact=True
-        ).locator("xpath=ancestor::section")
-        product_row = product_section.get_by_role("row").filter(
-            has_text="真实联调基础保养 1"
-        )
-        product_row.wait_for(timeout=10000)
-        product_row.get_by_role("button", name="编辑人工字段", exact=True).click()
-        product_section.get_by_label("产品范围", exact=True).fill("正式产品范围")
-        product_section.get_by_label("商品类型", exact=True).fill("正式商品类型")
-        product_section.get_by_label("服务类商品", exact=True).check()
-        product_section.get_by_role("button", name="保存并重新加载", exact=True).click()
-        page.get_by_text("人工分类已保存并重新加载回显", exact=False).wait_for(timeout=10000)
-        assert product_section.get_by_label("产品范围", exact=True).input_value() == "正式产品范围"
-        assert product_section.get_by_label("商品类型", exact=True).input_value() == "正式商品类型"
-
+        page.get_by_role("tab", name="未启用分佣商品列表", exact=False).click()
+        page.get_by_label("选择 SKU SKU-LIVE-ADMIN-001", exact=True).first.check()
+        page.get_by_role("button", name="选择当前勾选", exact=True).click()
         fee_section = page.get_by_role(
-            "heading", name="双费率版本发布", exact=True
+            "heading", name="2. SKU-ID分佣比例确认", exact=True
         ).locator("xpath=ancestor::section")
         fee_section.get_by_label("两项费率一致", exact=True).uncheck()
         fee_section.get_by_label("推广服务费比例（%）", exact=True).fill("8")
         fee_section.get_by_label("管理服务费比例（%）", exact=True).fill("10")
+        fee_section.get_by_label("生效日期", exact=True).fill("2026-08-02")
         fee_section.get_by_label("变更原因", exact=True).fill("真实 FastAPI 首次发布")
-        fee_section.get_by_role("button", name="发布新版本", exact=True).click()
-        page.get_by_text("历史版本不会被覆盖", exact=False).wait_for(timeout=10000)
-        fee_section.get_by_role("cell", name="8%", exact=True).wait_for(timeout=10000)
-        fee_section.get_by_role("cell", name="10%", exact=True).wait_for(timeout=10000)
+        fee_section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
+        page.get_by_role("button", name="确认发布", exact=True).first.click()
+        dialog = page.get_by_role("dialog", name="分佣规则发布确认")
+        dialog.get_by_role("button", name="确认发布", exact=True).click()
+        page.get_by_text("已发布 1 个 SKU", exact=False).wait_for(timeout=10000)
 
+        page.get_by_role("tab", name="已启用分佣商品列表", exact=False).click()
+        page.get_by_label("选择 SKU SKU-LIVE-ADMIN-001", exact=True).first.check()
+        page.get_by_role("button", name="选择当前勾选", exact=True).click()
         fee_section.get_by_label("变更原因", exact=True).fill("重复生效日冲突验证")
-        fee_section.get_by_role("button", name="发布新版本", exact=True).click()
-        page.get_by_text("已有版本，请选择其他自然日", exact=False).wait_for(timeout=10000)
+        fee_section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
+        page.get_by_role("button", name="确认发布", exact=True).first.click()
+        dialog = page.get_by_role("dialog", name="分佣规则发布确认")
+        dialog.get_by_role("button", name="确认发布", exact=True).click()
+        page.get_by_text("该生效日期已存在版本", exact=False).wait_for(timeout=10000)
     finally:
         context.close()
 
@@ -2623,15 +2626,14 @@ def test_admin_rules_uses_live_fastapi_for_atomic_import_and_result_file(
             f"{vite_live_admin_api_base_url}/admin/rules",
             wait_until="domcontentloaded",
         )
-        section = page.get_by_role(
-            "heading", name="批量导入与原子提交", exact=True
-        ).locator("xpath=ancestor::section")
+        page.get_by_role("button", name="批量导入设置", exact=True).click()
+        section = page.get_by_role("dialog", name="批量导入设置")
         valid_file = tmp_path / f"valid{extension}"
         _write_fee_import_file(
             valid_file,
             [(f"真实联调保养 SKU {valid_index}", valid_sku, "0.08", "0.10")],
         )
-        section.get_by_label("整批生效自然日", exact=True).fill(effective_date)
+        section.get_by_label("整批生效日期", exact=True).fill(effective_date)
         section.locator('input[type="file"]').set_input_files(str(valid_file))
         section.get_by_role("button", name="上传并预校验", exact=True).click()
         page.get_by_text("全量预校验通过", exact=False).wait_for(timeout=10000)
@@ -2644,7 +2646,7 @@ def test_admin_rules_uses_live_fastapi_for_atomic_import_and_result_file(
             invalid_file,
             [(f"真实联调保养 SKU {invalid_index}", invalid_sku, "2", "0.10")],
         )
-        section.get_by_label("整批生效自然日", exact=True).fill(effective_date)
+        section.get_by_label("整批生效日期", exact=True).fill(effective_date)
         section.locator('input[type="file"]').set_input_files(str(invalid_file))
         section.get_by_role("button", name="上传并预校验", exact=True).click()
         page.get_by_text("整批未写入", exact=False).first.wait_for(timeout=10000)

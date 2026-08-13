@@ -1,27 +1,56 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ApiRequestError,
+  createIdempotencyKey,
   fetchAdminSession,
   fetchNonCommissionOwnerAccounts,
-  fetchSyncAdmin,
+  fetchSkuFeeRuleImports,
+  fetchSkuFeeRules,
   fetchSkuRules,
   loginAdmin,
   lookupSkuRules,
+  publishSkuFeeRule,
   saveNonCommissionOwnerAccounts,
-  saveSkuRules,
 } from "../api/client";
+import { AdminSkuRuleImportDrawer } from "../components/AdminSkuRuleImportDrawer";
 import { Button } from "../components/Button";
-import { AdminSkuGovernancePanel } from "../components/AdminSkuGovernancePanel";
-import { FieldInput, FieldTextarea } from "../components/FormControls";
-import { StatusChip } from "../components/Chips";
+import { StatusChip, type ChipTone } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
-import type { SkuProductCommissionRule, SkuRuleLookupData } from "../types/dashboard";
-import { formatInteger, formatPercent } from "../utils/format";
+import { Dialog } from "../components/Dialog";
+import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
+import { SegmentedControl, Tabs } from "../components/SelectionControls";
+import type {
+  ImportBatchItem,
+  SkuFeeRuleItem,
+  SkuProductCommissionRule,
+} from "../types/dashboard";
+import { apiErrorText } from "../utils/apiErrors";
+import { formatDateTime, formatInteger } from "../utils/format";
+import {
+  displayFeeRuleStatus,
+  displayImportBatchStatus,
+} from "../utils/userFacingLabels";
 
 const PAGE_SIZE = 500;
 const MAX_LOOKUP_SKUS = 500;
+const FIRST_EFFECTIVE_DATE = "2026-08-01";
 
-type DraftRule = Required<
+type RulesTab = "settings" | "history" | "exceptions";
+type SkuListTab = "enabled" | "disabled";
+type HistorySource = "all" | "manual" | "import";
+
+interface HistoryRow {
+  effectiveDate: string;
+  id: string;
+  operator: string;
+  publishedAt: string;
+  rates: string;
+  skuCount: number;
+  source: "manual" | "import";
+  status: string;
+}
+
+type SkuRow = Required<
   Pick<
     SkuProductCommissionRule,
     | "sku_id"
@@ -35,7 +64,7 @@ type DraftRule = Required<
   >
 >;
 
-function normalizeRule(row: SkuProductCommissionRule): DraftRule {
+function normalizeRule(row: SkuProductCommissionRule): SkuRow {
   return {
     sku_id: row.sku_id,
     product_name: row.product_name ?? "",
@@ -48,1050 +77,389 @@ function normalizeRule(row: SkuProductCommissionRule): DraftRule {
   };
 }
 
-function rateToInput(rate: number): string {
-  return new Intl.NumberFormat("zh-CN", {
-    maximumFractionDigits: 2,
-  }).format(rate * 100);
-}
-
-function inputToRate(value: string): number {
-  const numeric = Number(value.replace("%", "").trim());
-  if (!Number.isFinite(numeric)) {
-    return 0;
-  }
-  return Math.max(0, Math.min(100, numeric)) / 100;
-}
-
 function parseSkuInput(value: string): string[] {
-  return value
-    .split(/[\s,，;；]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+  return Array.from(
+    new Set(value.split(/[\s,，;；]+/).map((item) => item.trim()).filter(Boolean)),
+  );
 }
 
 function parseOwnerAccountInput(value: string): string[] {
-  const seen = new Set<string>();
-  return value
-    .split(/[\n,，;；]+/)
-    .map((item) => item.trim())
-    .filter(Boolean)
-    .filter((item) => {
-      if (seen.has(item)) {
-        return false;
-      }
-      seen.add(item);
-      return true;
-    });
+  return Array.from(
+    new Set(value.split(/[\n,，;；]+/).map((item) => item.trim()).filter(Boolean)),
+  );
 }
 
-function ruleKey(rule: DraftRule): string {
-  return rule.sku_id;
+function percentInputToRate(value: string): string | null {
+  if (!value.trim()) return null;
+  const percent = Number(value.trim());
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) return null;
+  return (percent / 100).toFixed(6).replace(/0+$/, "").replace(/\.$/, "");
+}
+
+function formatRate(value: string | null | undefined): string {
+  const rate = Number(value ?? "0");
+  return Number.isFinite(rate)
+    ? `${new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 6 }).format(rate * 100)}%`
+    : "-";
+}
+
+function statusTone(value: string): ChipTone {
+  if (["ACTIVE", "COMPLETED"].includes(value)) return "success";
+  if (["FAILED", "VALIDATION_FAILED"].includes(value)) return "danger";
+  if (["PENDING_COMMIT", "COMMITTING"].includes(value)) return "warning";
+  return "neutral";
+}
+
+function latestEffectiveRules(rules: SkuFeeRuleItem[]): Map<string, SkuFeeRuleItem> {
+  const today = new Date().toISOString().slice(0, 10);
+  const latestBySku = new Map<string, SkuFeeRuleItem>();
+  for (const rule of rules) {
+    if (rule.effectiveDate > today) continue;
+    const current = latestBySku.get(rule.skuId);
+    if (!current || rule.effectiveDate > current.effectiveDate || (rule.effectiveDate === current.effectiveDate && rule.publishedAt > current.publishedAt)) {
+      latestBySku.set(rule.skuId, rule);
+    }
+  }
+  return new Map(Array.from(latestBySku).filter(([, rule]) => rule.ruleStatus === "ACTIVE"));
 }
 
 export function AdminSkuRulesPage() {
+  const publishIntent = useRef<Map<string, string>>(new Map());
+  const previewRef = useRef<HTMLElement | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
-  const [loginError, setLoginError] = useState("");
-  const [rows, setRows] = useState<DraftRule[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [query, setQuery] = useState("");
-  const [productScopeQuery, setProductScopeQuery] = useState("");
-  const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [loadingRows, setLoadingRows] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [statusText, setStatusText] = useState("");
-  const [bulkProductScope, setBulkProductScope] = useState("");
-  const [bulkProductType, setBulkProductType] = useState("");
-  const [bulkRate, setBulkRate] = useState("10");
-  const [bulkIsServiceProduct, setBulkIsServiceProduct] = useState(true);
-  const [rebuildJobId, setRebuildJobId] = useState("");
+  const [activeTab, setActiveTab] = useState<RulesTab>("settings");
+  const [skuListTab, setSkuListTab] = useState<SkuListTab>("enabled");
+  const [historySource, setHistorySource] = useState<HistorySource>("all");
+  const [rows, setRows] = useState<SkuRow[]>([]);
+  const [feeRules, setFeeRules] = useState<SkuFeeRuleItem[]>([]);
+  const [batches, setBatches] = useState<ImportBatchItem[]>([]);
+  const [selectedSkuMap, setSelectedSkuMap] = useState<Map<string, SkuRow>>(new Map());
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lookupInput, setLookupInput] = useState("");
-  const [lookupResult, setLookupResult] = useState<SkuRuleLookupData | null>(null);
-  const [lookupSelectedIds, setLookupSelectedIds] = useState<Set<string>>(new Set());
-  const [lookingUp, setLookingUp] = useState(false);
-  const [selectedSkuMap, setSelectedSkuMap] = useState<Map<string, DraftRule>>(new Map());
-  const [draftMap, setDraftMap] = useState<Map<string, DraftRule>>(new Map());
+  const [query, setQuery] = useState("");
+  const [productScope, setProductScope] = useState("");
+  const [promotionRate, setPromotionRate] = useState("8");
+  const [managementRate, setManagementRate] = useState("2");
+  const [sameRate, setSameRate] = useState(false);
+  const [effectiveDate, setEffectiveDate] = useState(FIRST_EFFECTIVE_DATE);
+  const [ruleStatus, setRuleStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
+  const [changeReason, setChangeReason] = useState("");
+  const [rateApplied, setRateApplied] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [nonCommissionAccountText, setNonCommissionAccountText] = useState("");
   const [nonCommissionAccountCount, setNonCommissionAccountCount] = useState(0);
-  const [loadingNonCommissionAccounts, setLoadingNonCommissionAccounts] = useState(false);
-  const [savingNonCommissionAccounts, setSavingNonCommissionAccounts] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    fetchAdminSession()
-      .then(() => {
-        if (!cancelled) {
-          setAuthenticated(true);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAuthenticated(false);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setCheckingSession(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!authenticated) {
-      return;
-    }
-    let cancelled = false;
-    setLoadingRows(true);
-    fetchSkuRules({
-      page,
-      pageSize: PAGE_SIZE,
-      productScope: productScopeQuery.trim(),
-      q: query.trim(),
-    })
-      .then((response) => {
-        if (cancelled) {
-          return;
-        }
-        setRows(response.data.rows.map(normalizeRule));
-        setTotal(response.data.pagination.total);
-        setSelectedIds(new Set());
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        if (error instanceof ApiRequestError && error.status === 401) {
-          setAuthenticated(false);
-          setStatusText("登录已过期，请重新输入管理密码。");
-          return;
-        }
-        setStatusText("商品规则暂时无法读取。");
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingRows(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authenticated, page, productScopeQuery, query]);
-
-  useEffect(() => {
-    if (!authenticated) {
-      return;
-    }
-    let cancelled = false;
-    setLoadingNonCommissionAccounts(true);
-    fetchNonCommissionOwnerAccounts()
-      .then((response) => {
-        if (cancelled) {
-          return;
-        }
-        const names = response.data.rows.map((row) => row.owner_account_name);
-        setNonCommissionAccountText(names.join("\n"));
-        setNonCommissionAccountCount(names.length);
-      })
-      .catch((error) => {
-        if (cancelled) {
-          return;
-        }
-        if (!handleAuthError(error)) {
-          setStatusText("不分佣账号规则暂时无法读取。");
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoadingNonCommissionAccounts(false);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [authenticated]);
-
-  useEffect(() => {
-    if (!authenticated || !rebuildJobId) {
-      return;
-    }
-
-    let cancelled = false;
-    const poll = () => {
-      fetchSyncAdmin()
-        .then((response) => {
-          if (cancelled) {
-            return;
-          }
-          const job = response.data.jobs.find((item) => item.job_id === rebuildJobId);
-          if (!job || job.status === "queued" || job.status === "running") {
-            setStatusText(`规则已保存，结算结果正在后台重建。任务编号：${rebuildJobId}`);
-            return;
-          }
-          if (job.status === "success") {
-            setStatusText(
-              `结算结果已按新规则重建完成，共重建 ${formatInteger(job.success_count)} 条明细。`,
-            );
-            setRebuildJobId("");
-            return;
-          }
-          setStatusText(
-            `结算重建失败，请到“数据同步管理”查看任务日志。任务编号：${rebuildJobId}`,
-          );
-          setRebuildJobId("");
-        })
-        .catch((error) => {
-          if (cancelled) {
-            return;
-          }
-          if (error instanceof ApiRequestError && error.status === 401) {
-            setAuthenticated(false);
-            setStatusText("登录已过期，请重新输入管理密码。");
-          }
-        });
-    };
-
-    poll();
-    const timer = window.setInterval(poll, 5000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [authenticated, rebuildJobId]);
-
-  const selectedRules = useMemo(
-    () => Array.from(selectedSkuMap.values()),
-    [selectedSkuMap],
-  );
-  const dirtyRows = useMemo(() => Array.from(draftMap.values()), [draftMap]);
-  const effectiveSelectedRules = useMemo(
-    () =>
-      selectedRules.map((rule) => draftMap.get(rule.sku_id) ?? rule),
-    [draftMap, selectedRules],
-  );
-  const lookupRows = useMemo(
-    () => lookupResult?.rows.map(normalizeRule) ?? [],
-    [lookupResult],
-  );
-  const productScopeOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          [...rows, ...selectedRules, ...lookupRows]
-            .map((row) => row.product_scope.trim())
-            .filter(Boolean),
-        ),
-      ).sort(),
-    [lookupRows, rows, selectedRules],
-  );
-  const productTypeOptions = useMemo(
-    () =>
-      Array.from(
-        new Set(
-          [...rows, ...selectedRules, ...dirtyRows, ...lookupRows]
-            .map((row) => row.product_type.trim())
-            .filter(Boolean),
-        ),
-      ).sort(),
-    [dirtyRows, lookupRows, rows, selectedRules],
-  );
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const allSelected =
-    rows.length > 0 && rows.every((row) => selectedIds.has(ruleKey(row)));
-  const allLookupSelected =
-    lookupRows.length > 0 &&
-    lookupRows.every((row) => lookupSelectedIds.has(ruleKey(row)));
+  const [working, setWorking] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState("");
 
   const handleAuthError = (error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
       setAuthenticated(false);
-      setStatusText("登录已过期，请重新输入管理密码。");
+      setNotice("登录已过期，请重新输入管理密码。");
       return true;
     }
     return false;
   };
 
-  const addRulesToSelection = (rules: DraftRule[]) => {
-    if (!rules.length) {
-      return;
-    }
-    let added = 0;
-    setSelectedSkuMap((current) => {
-      const next = new Map(current);
-      for (const rule of rules) {
-        if (!next.has(rule.sku_id)) {
-          next.set(rule.sku_id, rule);
-          added += 1;
-        }
-      }
-      return next;
-    });
-    setStatusText(
-      added
-        ? `已加入 ${formatInteger(added)} 个 SKU 到预选窗口。`
-        : "这些 SKU 已在预选窗口中。",
-    );
+  const loadFeeData = async () => {
+    const [rulesResponse, batchesResponse] = await Promise.all([
+      fetchSkuFeeRules({ page: 1, pageSize: 200 }),
+      fetchSkuFeeRuleImports({ page: 1, pageSize: 200 }),
+    ]);
+    setFeeRules(rulesResponse.data.list);
+    setBatches(batchesResponse.data.list);
   };
 
-  const handleLookup = async () => {
+  const loadSkuRows = async () => {
+    setLoading(true);
+    try {
+      const response = await fetchSkuRules({
+        page: 1,
+        pageSize: PAGE_SIZE,
+        productScope: productScope.trim(),
+        q: query.trim(),
+      });
+      setRows(response.data.rows.map(normalizeRule));
+      setCheckedIds(new Set());
+    } catch (error) {
+      if (!handleAuthError(error)) setNotice("SKU 商品列表暂时无法读取。");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadExceptions = async () => {
+    const response = await fetchNonCommissionOwnerAccounts();
+    const names = response.data.rows.map((row) => row.owner_account_name);
+    setNonCommissionAccountText(names.join("\n"));
+    setNonCommissionAccountCount(names.length);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchAdminSession()
+      .then(() => !cancelled && setAuthenticated(true))
+      .catch(() => !cancelled && setAuthenticated(false))
+      .finally(() => !cancelled && setCheckingSession(false));
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!authenticated) return;
+    Promise.all([loadSkuRows(), loadFeeData(), loadExceptions()]).catch((error) => {
+      if (!handleAuthError(error)) setNotice("分佣规则数据暂时无法读取。");
+    });
+  }, [authenticated]);
+
+  const effectiveRuleMap = useMemo(() => latestEffectiveRules(feeRules), [feeRules]);
+  const enabledSkuIds = useMemo(() => new Set(effectiveRuleMap.keys()), [effectiveRuleMap]);
+  const visibleSkuRows = useMemo(
+    () => rows.filter((row) => skuListTab === "enabled" ? enabledSkuIds.has(row.sku_id) : !enabledSkuIds.has(row.sku_id)),
+    [enabledSkuIds, rows, skuListTab],
+  );
+  const selectedRows = useMemo(() => Array.from(selectedSkuMap.values()), [selectedSkuMap]);
+  const historyRows = useMemo<HistoryRow[]>(() => {
+    const manualRows = feeRules.map((rule) => ({
+      effectiveDate: rule.effectiveDate,
+      id: rule.ruleVersion,
+      operator: rule.createdBy,
+      publishedAt: rule.publishedAt,
+      rates: `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}`,
+      skuCount: 1,
+      source: "manual" as const,
+      status: rule.ruleStatus,
+    }));
+    const importRows = batches.map((batch) => ({
+      effectiveDate: batch.effectiveDate,
+      id: batch.batchId,
+      operator: batch.uploadedBy,
+      publishedAt: batch.committedAt ?? batch.validatedAt ?? "",
+      rates: "-",
+      skuCount: batch.totalCount,
+      source: "import" as const,
+      status: batch.batchStatus,
+    }));
+    return [...manualRows, ...importRows].filter((row) => historySource === "all" || row.source === historySource);
+  }, [batches, feeRules, historySource]);
+  const allVisibleChecked = visibleSkuRows.length > 0 && visibleSkuRows.every((row) => checkedIds.has(row.sku_id));
+
+  const addSelection = (items: SkuRow[]) => {
+    setSelectedSkuMap((current) => {
+      const next = new Map(current);
+      items.forEach((item) => next.set(item.sku_id, item));
+      return next;
+    });
+    setRateApplied(false);
+    setNotice(`已选择 ${formatInteger(items.length)} 个 SKU。`);
+  };
+
+  const lookupAndSelect = async () => {
     const skuIds = parseSkuInput(lookupInput);
-    if (!skuIds.length) {
-      setStatusText("请先输入要查询的 SKU ID。");
-      return;
-    }
-    if (skuIds.length > MAX_LOOKUP_SKUS) {
-      setStatusText(`一次最多查询 ${formatInteger(MAX_LOOKUP_SKUS)} 个 SKU。`);
-      return;
-    }
-    setLookingUp(true);
-    setStatusText("");
+    if (!skuIds.length) return setNotice("请先输入 SKU ID。");
+    if (skuIds.length > MAX_LOOKUP_SKUS) return setNotice(`一次最多选择 ${MAX_LOOKUP_SKUS} 个 SKU。`);
+    setWorking(true);
     try {
       const response = await lookupSkuRules(skuIds);
-      setLookupResult(response.data);
-      setLookupSelectedIds(new Set(response.data.rows.map((row) => row.sku_id)));
-      setStatusText(
-        `已匹配 ${formatInteger(response.data.rows.length)} 个 SKU，未匹配 ${formatInteger(
-          response.data.missing_sku_ids.length,
-        )} 个。`,
-      );
+      addSelection(response.data.rows.map(normalizeRule));
+      setNotice(`已选择 ${response.data.rows.length} 个 SKU，未匹配 ${response.data.missing_sku_ids.length} 个，重复输入已自动去除。`);
     } catch (error) {
-      if (!handleAuthError(error)) {
-        setStatusText("批量 SKU 查询失败，请稍后重试。");
-      }
+      if (!handleAuthError(error)) setNotice("批量 SKU 查询失败，请稍后重试。");
     } finally {
-      setLookingUp(false);
+      setWorking(false);
     }
   };
 
-  const addLookupSelection = () => {
-    addRulesToSelection(
-      lookupRows.filter((row) => lookupSelectedIds.has(row.sku_id)),
-    );
+  const applyRateAndReview = () => {
+    const promotion = percentInputToRate(promotionRate);
+    const management = percentInputToRate(managementRate);
+    if (!selectedRows.length) return setNotice("请先选择至少一个 SKU。");
+    if (!promotion || !management || !effectiveDate || !changeReason.trim()) {
+      return setNotice("请完整填写两项分佣比例、生效日期和变更原因。");
+    }
+    setRateApplied(true);
+    window.requestAnimationFrame(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
-  const addPageSelection = () => {
-    addRulesToSelection(rows.filter((row) => selectedIds.has(row.sku_id)));
-  };
-
-  const toggleSelected = (skuId: string) => {
-    setSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(skuId)) {
-        next.delete(skuId);
-      } else {
-        next.add(skuId);
+  const publishSelectedRules = async () => {
+    const promotion = percentInputToRate(promotionRate);
+    const management = percentInputToRate(managementRate);
+    if (!promotion || !management || !selectedRows.length) return;
+    setWorking(true);
+    let completed = 0;
+    try {
+      for (const row of selectedRows) {
+        const payload = {
+          skuId: row.sku_id,
+          promotionServiceFeeRate: promotion,
+          managementServiceFeeRate: management,
+          effectiveDate,
+          ruleStatus,
+          changeReason: changeReason.trim(),
+        };
+        const fingerprint = JSON.stringify(payload);
+        const idempotencyKey = publishIntent.current.get(fingerprint) ?? createIdempotencyKey("sku-fee-rule");
+        publishIntent.current.set(fingerprint, idempotencyKey);
+        await publishSkuFeeRule(payload, idempotencyKey);
+        completed += 1;
       }
-      return next;
-    });
-  };
-
-  const toggleLookupSelected = (skuId: string) => {
-    setLookupSelectedIds((current) => {
-      const next = new Set(current);
-      if (next.has(skuId)) {
-        next.delete(skuId);
-      } else {
-        next.add(skuId);
-      }
-      return next;
-    });
-  };
-
-  const toggleAll = () => {
-    setSelectedIds(() =>
-      allSelected ? new Set() : new Set(rows.map((row) => ruleKey(row))),
-    );
-  };
-
-  const toggleAllLookup = () => {
-    setLookupSelectedIds(() =>
-      allLookupSelected
-        ? new Set()
-        : new Set(lookupRows.map((row) => ruleKey(row))),
-    );
-  };
-
-  const removeSelectedSku = (skuId: string) => {
-    if (
-      draftMap.has(skuId) &&
-      !window.confirm(`SKU ${skuId} 有未保存草稿，确定从预选窗口移除吗？`)
-    ) {
-      return;
+      publishIntent.current.clear();
+      setConfirmOpen(false);
+      setSelectedSkuMap(new Map());
+      setRateApplied(false);
+      setChangeReason("");
+      await loadFeeData();
+      setNotice(`已发布 ${completed} 个 SKU 的双费率版本。`);
+    } catch (error) {
+      setNotice(apiErrorText(error, `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`, {
+        403: "当前账号不是最高管理员，不能发布费率版本。",
+        409: "所选 SKU 在该生效日期已存在版本。",
+      }));
+    } finally {
+      setWorking(false);
     }
-    setSelectedSkuMap((current) => {
-      const next = new Map(current);
-      next.delete(skuId);
-      return next;
-    });
-    setDraftMap((current) => {
-      const next = new Map(current);
-      next.delete(skuId);
-      return next;
-    });
   };
 
-  const clearPreselection = () => {
-    if (!selectedSkuMap.size) {
-      return;
+  const saveExceptions = async () => {
+    const accounts = parseOwnerAccountInput(nonCommissionAccountText);
+    setWorking(true);
+    try {
+      const response = await saveNonCommissionOwnerAccounts(accounts);
+      setNonCommissionAccountCount(response.data.rows.length);
+      setNotice(`已保存 ${response.data.updated_count} 个例外账号，结算重建任务已启动。`);
+    } catch (error) {
+      if (!handleAuthError(error)) setNotice("例外账号保存失败，请稍后重试。");
+    } finally {
+      setWorking(false);
     }
-    if (
-      dirtyRows.length > 0 &&
-      !window.confirm("预选窗口中有未保存草稿，确定清空全部预选 SKU 吗？")
-    ) {
-      return;
-    }
-    setSelectedSkuMap(new Map());
-    setDraftMap(new Map());
-    setStatusText("已清空预选窗口。");
   };
 
-  const applyBulk = () => {
-    const productScope = bulkProductScope.trim();
-    const productType = bulkProductType.trim();
-    if (!selectedSkuMap.size) {
-      setStatusText("请先把 SKU 加入预选窗口。");
-      return;
-    }
-    if (!productType) {
-      setStatusText("请先填写要批量应用的商品类型。");
-      return;
-    }
-    const nextRate = inputToRate(bulkRate);
-    setDraftMap((current) => {
-      const next = new Map(current);
-      for (const baseRule of selectedSkuMap.values()) {
-        const currentRule = next.get(baseRule.sku_id) ?? baseRule;
-        next.set(baseRule.sku_id, {
-          ...currentRule,
-          commission_rate: nextRate,
-          is_service_product: bulkIsServiceProduct,
-          product_scope: productScope || currentRule.product_scope,
-          product_type: productType,
-        });
-      }
-      return next;
-    });
-    setStatusText(
-      `已为预选窗口中的 ${formatInteger(
-        selectedSkuMap.size,
-      )} 个 SKU 生成待保存规则。`,
-    );
-  };
+  const skuColumns: Column<SkuRow>[] = [
+    { key: "select", title: <FieldInput aria-label="选择当前页全部 SKU" checked={allVisibleChecked} onChange={() => setCheckedIds(allVisibleChecked ? new Set() : new Set(visibleSkuRows.map((row) => row.sku_id)))} type="checkbox" />, render: (row) => <FieldInput aria-label={`选择 SKU ${row.sku_id}`} checked={checkedIds.has(row.sku_id)} onChange={() => setCheckedIds((current) => { const next = new Set(current); next.has(row.sku_id) ? next.delete(row.sku_id) : next.add(row.sku_id); return next; })} type="checkbox" /> },
+    { key: "sku", title: "SKU ID", align: "left", render: (row) => <span className="mono-cell">{row.sku_id}</span> },
+    { key: "name", title: "商品名称", align: "left", render: (row) => row.product_name || "-" },
+    { key: "scope", title: "产品范围", render: (row) => row.product_scope || "-" },
+    { key: "type", title: "商品类型", render: (row) => row.product_type || "未配置" },
+    { key: "rate", title: "分账比例", render: (row) => { const rule = effectiveRuleMap.get(row.sku_id); return rule ? `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}` : "-"; } },
+    { key: "commission", title: "参与分账", render: (row) => enabledSkuIds.has(row.sku_id) ? "是" : "否" },
+    { key: "orders", title: "订单数", align: "right", render: (row) => formatInteger(row.order_count) },
+    { key: "verified", title: "核销券数", align: "right", render: (row) => formatInteger(row.verified_coupon_count) },
+    { key: "status", title: "状态", render: (row) => <StatusChip tone={enabledSkuIds.has(row.sku_id) ? "success" : "neutral"}>{enabledSkuIds.has(row.sku_id) ? "已启用" : "未启用"}</StatusChip> },
+  ];
+
+  const historyColumns: Column<HistoryRow>[] = [
+    { key: "id", title: "版本 / 批次", align: "left", render: (row) => <span className="mono-cell">{row.id}</span> },
+    { key: "source", title: "发布来源", render: (row) => row.source === "manual" ? "手工发布" : "批量导入" },
+    { key: "count", title: "SKU 数量", align: "right", render: (row) => formatInteger(row.skuCount) },
+    { key: "rates", title: "分佣比例", render: (row) => row.rates },
+    { key: "date", title: "生效日期", render: (row) => row.effectiveDate },
+    { key: "status", title: "状态", render: (row) => <StatusChip tone={statusTone(row.status)}>{row.source === "manual" ? displayFeeRuleStatus(row.status) : displayImportBatchStatus(row.status)}</StatusChip> },
+    { key: "audit", title: "操作人 / 时间", align: "left", render: (row) => `${row.operator} / ${formatDateTime(row.publishedAt)}` },
+  ];
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    setLoginError("");
-    try {
-      await loginAdmin(password);
-      setPassword("");
-      setAuthenticated(true);
-      setStatusText("");
-    } catch {
-      setLoginError("密码不正确，或后端未配置管理密码。");
-    }
+    try { await loginAdmin(password); setAuthenticated(true); setPassword(""); setNotice(""); }
+    catch { setNotice("密码不正确，或后端未配置管理密码。"); }
   };
 
-  const handleSaveNonCommissionAccounts = async () => {
-    const accounts = parseOwnerAccountInput(nonCommissionAccountText);
-    const confirmed = window.confirm(
-      `将保存 ${accounts.length} 个不参与分佣的订单归属账号，并触发后台重建结算结果。确定继续吗？`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    setSavingNonCommissionAccounts(true);
-    setStatusText("正在保存不分佣账号规则，并准备后台重建结算结果...");
-    try {
-      const response = await saveNonCommissionOwnerAccounts(accounts);
-      const names = response.data.rows.map((row) => row.owner_account_name);
-      setNonCommissionAccountText(names.join("\n"));
-      setNonCommissionAccountCount(names.length);
-      setRebuildJobId(response.data.job_id);
-      setStatusText(
-        `已保存 ${formatInteger(
-          response.data.updated_count,
-        )} 个不分佣账号，结算重建已在后台开始。任务编号：${response.data.job_id}`,
-      );
-    } catch (error) {
-      if (!handleAuthError(error)) {
-        setStatusText("不分佣账号规则保存失败，请稍后重试。");
-      }
-    } finally {
-      setSavingNonCommissionAccounts(false);
-    }
-  };
-
-  const handleSave = async () => {
-    const invalid = dirtyRows.find((row) => !row.product_type.trim());
-    if (invalid) {
-      setStatusText(`SKU ${invalid.sku_id} 还没有商品类型，不能保存。`);
-      return;
-    }
-    if (!dirtyRows.length) {
-      setStatusText("预选窗口中还没有待保存规则。");
-      return;
-    }
-    const confirmed = window.confirm(
-      `将保存 ${dirtyRows.length} 个预选 SKU 的规则，并触发后台重建结算结果。确定继续吗？`,
-    );
-    if (!confirmed) {
-      return;
-    }
-    setSaving(true);
-    setStatusText("正在保存规则，并准备后台重建结算结果...");
-    try {
-      const response = await saveSkuRules(
-        dirtyRows.map((row) => ({
-          commission_rate: row.commission_rate,
-          is_service_product: row.is_service_product,
-          product_scope: row.product_scope?.trim() ?? "",
-          product_type: row.product_type.trim(),
-          sku_id: row.sku_id,
-        })),
-      );
-      setSelectedSkuMap((current) => {
-        const next = new Map(current);
-        dirtyRows.forEach((row) => next.set(row.sku_id, row));
-        return next;
-      });
-      setRows((current) =>
-        current.map((row) => draftMap.get(row.sku_id) ?? row),
-      );
-      setDraftMap(new Map());
-      setRebuildJobId(response.data.job_id);
-      setStatusText(
-        `已保存 ${formatInteger(
-          response.data.updated_count,
-        )} 条规则，结算重建已在后台开始。任务编号：${response.data.job_id}`,
-      );
-    } catch (error) {
-      if (!handleAuthError(error)) {
-        setStatusText("保存失败，请稍后重试。");
-      }
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const skuColumns: Column<SkuProductCommissionRule>[] = [
-    {
-      align: "center",
-      key: "select",
-      title: (
-        <FieldInput
-          aria-label="选择当前页全部 SKU"
-          checked={allSelected}
-          onChange={toggleAll}
-          type="checkbox"
-        />
-      ),
-      render: (row) => (
-        <FieldInput
-          aria-label={`选择 SKU ${row.sku_id}`}
-          checked={selectedIds.has(row.sku_id)}
-          onChange={() => toggleSelected(row.sku_id)}
-          type="checkbox"
-        />
-      ),
-    },
-    {
-      key: "sku",
-      title: "SKU ID",
-      align: "left",
-      render: (row) => <span className="mono-cell">{row.sku_id}</span>,
-    },
-    {
-      key: "name",
-      title: "商品名称",
-      align: "left",
-      render: (row) => row.product_name || "-",
-    },
-    {
-      key: "scope",
-      title: "产品范围",
-      render: (row) => (draftMap.get(row.sku_id) ?? row).product_scope || "-",
-    },
-    {
-      key: "type",
-      title: "商品类型",
-      render: (row) => (draftMap.get(row.sku_id) ?? row).product_type || "未配置",
-    },
-    {
-      align: "right",
-      key: "rate",
-      title: "分账比例",
-      render: (row) => formatPercent((draftMap.get(row.sku_id) ?? row).commission_rate),
-    },
-    {
-      align: "center",
-      key: "service",
-      title: "参与分账",
-      render: (row) => ((draftMap.get(row.sku_id) ?? row).is_service_product ? "是" : "否"),
-    },
-    {
-      align: "right",
-      key: "orders",
-      title: "订单数",
-      render: (row) => formatInteger(row.order_count ?? 0),
-    },
-    {
-      align: "right",
-      key: "verified",
-      title: "核销券数",
-      render: (row) => formatInteger(row.verified_coupon_count ?? 0),
-    },
-    {
-      align: "center",
-      key: "status",
-      title: "状态",
-      render: (row) => {
-        const selected = selectedSkuMap.has(row.sku_id);
-        const dirty = draftMap.has(row.sku_id);
-        const label = dirty
-          ? "待保存"
-          : selected
-            ? "已预选"
-            : row.product_type
-              ? "已配置"
-              : "未配置";
-        const tone = dirty ? "warning" : selected || row.product_type ? "brand" : "neutral";
-        return (
-          <StatusChip tone={tone}>
-            {label}
-          </StatusChip>
-        );
-      },
-    },
-  ];
-
-  if (checkingSession) {
-    return (
-      <div className="admin-page">
-        <section className="admin-login-panel">正在检查管理权限...</section>
-      </div>
-    );
-  }
-
-  if (!authenticated) {
-    return (
-      <div className="admin-page admin-page--centered">
-        <form className="admin-login-panel" onSubmit={handleLogin}>
-          <div>
-            <h1>商品分账规则管理</h1>
-            <p className="admin-muted">输入管理密码后进入。</p>
-          </div>
-          <label className="filter-field">
-            <span>管理密码</span>
-            <FieldInput
-              autoFocus
-              onChange={(event) => setPassword(event.target.value)}
-              placeholder="请输入管理密码"
-              type="password"
-              value={password}
-            />
-          </label>
-          {loginError ? (
-            <p className="admin-error" role="alert">
-              {loginError}
-            </p>
-          ) : null}
-          <Button type="submit" variant="primary">
-            进入管理页
-          </Button>
-        </form>
-      </div>
-    );
-  }
+  if (checkingSession) return <div className="admin-page"><section className="admin-login-panel">正在检查管理权限...</section></div>;
+  if (!authenticated) return (
+    <div className="admin-page admin-page--centered">
+      <form className="admin-login-panel" onSubmit={handleLogin}>
+        <div><h1>商品分账规则管理</h1><p className="admin-muted">输入管理密码后进入。</p></div>
+        <label className="filter-field"><span>管理密码</span><FieldInput autoFocus onChange={(event) => setPassword(event.target.value)} type="password" value={password} /></label>
+        {notice ? <p className="admin-error" role="alert">{notice}</p> : null}
+        <Button type="submit" variant="primary">进入管理页</Button>
+      </form>
+    </div>
+  );
 
   return (
-    <div className="admin-page">
+    <div className="admin-page commission-rules-page">
       <section className="admin-header">
-        <div>
-          <h1>商品分账规则管理</h1>
-          <p className="admin-muted">
-            先查询并预选商品规格（SKU），再对预选范围批量修改；保存后会写入规则表并后台重建结算结果。
-          </p>
-        </div>
+        <div><h1>商品分账规则管理</h1><p className="admin-muted">先批量选择商品规格（SKU），再确认分佣比例，检查预选后发布不可变规则版本。</p></div>
       </section>
+      {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
 
-      {statusText ? (
-        <div
-          aria-atomic="true"
-          aria-live="polite"
-          className="resource-notice"
-          role="status"
-        >
-          {statusText}
-        </div>
+      <Tabs<RulesTab> ariaLabel="分佣规则页面" onChange={setActiveTab} options={[
+        { label: "规则设置", value: "settings" },
+        { label: "发布记录", value: "history" },
+        { label: `例外账号（${nonCommissionAccountCount}）`, value: "exceptions" },
+      ]} value={activeTab} />
+
+      {activeTab === "settings" ? (
+        <>
+          <ol className="commission-stepper" aria-label="规则发布步骤">
+            <li>1 批量选择 SKU</li><li>2 确认分佣比例</li><li>3 检查预选</li><li>4 确认发布</li>
+          </ol>
+          <div className="commission-workspace">
+            <main className="commission-workspace__main">
+              <section className="content-section commission-step-card">
+                <div className="section-title"><div><h2>1. SKU 查询与批量选择</h2><p>支持单个、批量选择；批量 SKU ID 可使用换行、空格、中英文逗号或分号分隔，自动去重。</p></div><StatusChip tone="brand">已选 {selectedRows.length}</StatusChip></div>
+                <div className="admin-tools commission-query-tools">
+                  <label className="filter-field commission-query-tools__input"><span>SKU ID 或商品名称</span><FieldTextarea onChange={(event) => setLookupInput(event.target.value)} placeholder="SKU-10231，SKU-10246；SKU-10302" rows={3} value={lookupInput} /></label>
+                  <Button disabled={working} onClick={() => void lookupAndSelect()} type="button" variant="primary">查询并选择</Button>
+                </div>
+                <div className="admin-tools">
+                  <label className="filter-field"><span>浏览搜索</span><FieldInput onChange={(event) => setQuery(event.target.value)} placeholder="SKU ID 或商品名称" value={query} /></label>
+                  <label className="filter-field"><span>产品范围</span><FieldInput onChange={(event) => setProductScope(event.target.value)} value={productScope} /></label>
+                  <Button disabled={loading} onClick={() => void loadSkuRows()} type="button">查询</Button>
+                  <Button disabled={!checkedIds.size} onClick={() => addSelection(rows.filter((row) => checkedIds.has(row.sku_id)))} type="button">选择当前勾选</Button>
+                </div>
+              </section>
+
+              <section className="content-section commission-step-card">
+                <div className="section-title"><div><h2>2. SKU-ID分佣比例确认</h2><p>手工发布与批量导入使用同一套双费率规则。</p></div><Button onClick={() => setImportDrawerOpen(true)} type="button">批量导入设置</Button></div>
+                <div className="admin-form-grid">
+                  <label className="filter-field checkbox-field"><span>两项费率一致</span><FieldInput checked={sameRate} onChange={(event) => { setSameRate(event.target.checked); if (event.target.checked) setManagementRate(promotionRate); }} type="checkbox" /></label>
+                  <label className="filter-field"><span>推广服务费比例（%）</span><FieldInput inputMode="decimal" onChange={(event) => { setPromotionRate(event.target.value); if (sameRate) setManagementRate(event.target.value); }} value={promotionRate} /></label>
+                  <label className="filter-field"><span>管理服务费比例（%）</span><FieldInput disabled={sameRate} inputMode="decimal" onChange={(event) => setManagementRate(event.target.value)} value={managementRate} /></label>
+                  <label className="filter-field"><span>生效日期</span><FieldInput min={FIRST_EFFECTIVE_DATE} onChange={(event) => setEffectiveDate(event.target.value)} type="date" value={effectiveDate} /></label>
+                  <SelectField label="规则状态" onChange={(value) => setRuleStatus(value as "ACTIVE" | "INACTIVE")} options={[{ label: "启用", value: "ACTIVE" }, { label: "停用", value: "INACTIVE" }]} value={ruleStatus} />
+                  <label className="filter-field admin-form-grid__wide"><span>变更原因</span><FieldTextarea maxLength={512} onChange={(event) => setChangeReason(event.target.value)} rows={3} value={changeReason} /></label>
+                </div>
+                <div className="commission-card-actions"><span>将应用到 {selectedRows.length} 个已选 SKU</span><Button onClick={applyRateAndReview} type="button" variant="primary">应用比例并检查预选</Button></div>
+              </section>
+
+              <section className="content-section commission-step-card" ref={previewRef} tabIndex={-1}>
+                <div className="section-title"><div><h2>3. 检查预选</h2><p>核对 SKU 范围和待发布比例。</p></div></div>
+                {rateApplied ? <div className="commission-preview-summary"><strong>已选 SKU：{selectedRows.length} 个</strong><span>推广 {promotionRate}% · 管理 {managementRate}%</span><span>{effectiveDate} 生效 · {ruleStatus === "ACTIVE" ? "启用" : "停用"}</span></div> : <div className="resource-panel">请先完成第 2 步并应用比例。</div>}
+                <div className="commission-selected-list">{selectedRows.map((row) => <div key={row.sku_id}><span className="mono-cell">{row.sku_id}</span><span>{row.product_name || "-"}</span><Button onClick={() => setSelectedSkuMap((current) => { const next = new Map(current); next.delete(row.sku_id); return next; })} size="sm">移除</Button></div>)}</div>
+              </section>
+
+              <section className="content-section commission-step-card">
+                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><Button disabled={!rateApplied || working} onClick={() => setConfirmOpen(true)} type="button" variant="primary">确认发布</Button></div>
+              </section>
+            </main>
+            <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>
+          </div>
+
+          <section className="content-section commission-sku-catalog">
+            <div className="section-title"><div><h2>全部 SKU 列表</h2><p>启用状态按当前已生效且状态为启用的双费率规则判断。</p></div></div>
+            <SegmentedControl<SkuListTab> ariaLabel="SKU 分佣状态" onChange={setSkuListTab} options={[{ count: rows.filter((row) => enabledSkuIds.has(row.sku_id)).length, label: "已启用分佣商品列表", value: "enabled" }, { count: rows.filter((row) => !enabledSkuIds.has(row.sku_id)).length, label: "未启用分佣商品列表", value: "disabled" }]} value={skuListTab} />
+            <DataTable columns={skuColumns} emptyText={loading ? "正在加载 SKU 数据..." : "当前分类暂无 SKU"} rows={visibleSkuRows} state={loading ? "loading" : "ready"} tableClassName="admin-rule-table" />
+          </section>
+        </>
       ) : null}
 
-      <AdminSkuGovernancePanel />
+      {activeTab === "history" ? (
+        <section className="content-section">
+          <div className="section-title"><div><h2>发布记录</h2><p>手工发布与批量导入统一展示。</p></div><SelectField label="发布来源" onChange={(value) => setHistorySource(value as HistorySource)} options={[{ label: "全部来源", value: "all" }, { label: "手工发布", value: "manual" }, { label: "批量导入", value: "import" }]} value={historySource} /></div>
+          <DataTable columns={historyColumns} emptyText="暂无发布记录" rows={historyRows} tableClassName="admin-rule-table" />
+        </section>
+      ) : null}
 
-      <section className="content-section legacy-rule-boundary">
-        <div className="section-title">
-          <div>
-            <h2>旧单费率兼容区</h2>
-            <p>
-              仅保留既有调用方和历史规则维护；正式双费率发布、版本追溯与批量导入请使用上方新入口。
-            </p>
-          </div>
-          <StatusChip tone="warning">兼容维护</StatusChip>
-        </div>
-      </section>
+      {activeTab === "exceptions" ? (
+        <section className="content-section non-commission-rule-panel"><div className="section-title"><div><h2>订单归属账号不分佣</h2><p>每行填写一个订单归属账号，保存后会触发后台重建结算结果。</p></div><StatusChip tone="neutral">当前 {nonCommissionAccountCount} 个</StatusChip></div><label className="filter-field"><span>不分佣账号列表</span><FieldTextarea onChange={(event) => setNonCommissionAccountText(event.target.value)} rows={8} value={nonCommissionAccountText} /></label><div className="commission-card-actions"><Button disabled={working} onClick={() => void saveExceptions()} type="button" variant="primary">保存账号规则并重建</Button></div></section>
+      ) : null}
 
-      <datalist id="product-type-options">
-        {productTypeOptions.map((productType) => (
-          <option key={productType} value={productType} />
-        ))}
-      </datalist>
-      <datalist id="product-scope-options">
-        {productScopeOptions.map((productScope) => (
-          <option key={productScope} value={productScope} />
-        ))}
-      </datalist>
-
-      <section className="content-section non-commission-rule-panel">
-        <div className="section-title">
-          <div>
-            <h2>订单归属账号不分佣</h2>
-            <p>
-              每行填写一个订单归属账号。这些账号销售的订单不参与分佣，保存后会按新规则后台重建结算结果。
-            </p>
-          </div>
-          <span className="source-pill">
-            {loadingNonCommissionAccounts
-              ? "读取中"
-              : `当前 ${formatInteger(nonCommissionAccountCount)} 个`}
-          </span>
-        </div>
-        <label className="filter-field">
-          <span>不分佣账号列表</span>
-          <FieldTextarea
-            className="sku-lookup-input non-commission-account-input"
-            onChange={(event) => setNonCommissionAccountText(event.target.value)}
-            placeholder="例如：比亚迪汽车销售有限公司&#10;比亚迪汽车精品"
-            rows={5}
-            value={nonCommissionAccountText}
-          />
-        </label>
-        <div className="admin-header-actions sku-action-row">
-          <Button
-            disabled={savingNonCommissionAccounts}
-            onClick={handleSaveNonCommissionAccounts}
-            type="button"
-            variant="primary"
-          >
-            保存账号规则并重建
-          </Button>
-        </div>
-      </section>
-
-      <div className="sku-rule-workspace">
-        <div className="sku-rule-main">
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>批量 SKU 查询</h2>
-                <p>支持粘贴多个 SKU ID，使用换行、逗号、空格或分号分隔。</p>
-              </div>
-              {lookingUp ? <span className="source-pill">查询中</span> : null}
-            </div>
-            <label className="filter-field">
-              <span>SKU ID 列表</span>
-              <FieldTextarea
-                className="sku-lookup-input"
-                onChange={(event) => setLookupInput(event.target.value)}
-                placeholder="例如：sku-001&#10;sku-002, sku-003"
-                rows={4}
-                value={lookupInput}
-              />
-            </label>
-            <div className="admin-header-actions sku-action-row">
-              <Button
-                disabled={lookingUp}
-                onClick={handleLookup}
-                type="button"
-                variant="primary"
-              >
-                精确查询 SKU
-              </Button>
-              <Button
-                onClick={() => setLookupInput("")}
-                type="button"
-              >
-                清空输入
-              </Button>
-              <Button
-                disabled={lookupSelectedIds.size === 0}
-                onClick={addLookupSelection}
-                type="button"
-              >
-                加入预选
-              </Button>
-            </div>
-
-            {lookupResult ? (
-              <div className="sku-lookup-result">
-                <div className="section-title">
-                  <div>
-                    <h2>查询结果</h2>
-                    <p>
-                      匹配 {formatInteger(lookupRows.length)} 个，未匹配{" "}
-                      {formatInteger(lookupResult.missing_sku_ids.length)} 个，重复{" "}
-                      {formatInteger(lookupResult.duplicate_sku_ids.length)} 个
-                    </p>
-                  </div>
-                  {lookupRows.length ? (
-                    <label className="pagination-controls__size">
-                      <FieldInput
-                        checked={allLookupSelected}
-                        onChange={toggleAllLookup}
-                        type="checkbox"
-                      />
-                      全选匹配项
-                    </label>
-                  ) : null}
-                </div>
-                {lookupRows.length ? (
-                  <div className="sku-lookup-list">
-                    {lookupRows.map((row) => (
-                      <label className="sku-lookup-row" key={row.sku_id}>
-                        <FieldInput
-                          checked={lookupSelectedIds.has(row.sku_id)}
-                          onChange={() => toggleLookupSelected(row.sku_id)}
-                          type="checkbox"
-                        />
-                        <span className="mono-cell">{row.sku_id}</span>
-                        <span>{row.product_name || "-"}</span>
-                        <span>{row.product_type || "未配置"}</span>
-                      </label>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="resource-panel">没有匹配到 SKU。</div>
-                )}
-                {lookupResult.missing_sku_ids.length ? (
-                  <p className="admin-muted">
-                    未匹配：{lookupResult.missing_sku_ids.join("、")}
-                  </p>
-                ) : null}
-                {lookupResult.duplicate_sku_ids.length ? (
-                  <p className="admin-muted">
-                    重复输入：{lookupResult.duplicate_sku_ids.join("、")}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-          </section>
-
-          <section className="content-section admin-tools">
-            <label className="filter-field">
-              <span>产品范围</span>
-              <FieldInput
-                list="product-scope-options"
-                onChange={(event) => {
-                  setPage(1);
-                  setProductScopeQuery(event.target.value);
-                }}
-                placeholder="输入或选择产品范围"
-                value={productScopeQuery}
-              />
-            </label>
-            <label className="filter-field">
-              <span>浏览搜索 SKU / 商品名称</span>
-              <FieldInput
-                onChange={(event) => {
-                  setPage(1);
-                  setQuery(event.target.value);
-                }}
-                placeholder="输入 SKU ID 或商品名称"
-                value={query}
-              />
-            </label>
-            <Button
-              disabled={selectedIds.size === 0}
-              onClick={addPageSelection}
-              type="button"
-            >
-              加入当前选中
-            </Button>
-          </section>
-
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>SKU 商品列表</h2>
-                <p>
-                  共 {formatInteger(total)} 个 SKU，当前页 {formatInteger(rows.length)} 个
-                </p>
-              </div>
-              {loadingRows ? <span className="source-pill">加载中</span> : null}
-            </div>
-
-            <DataTable
-              columns={skuColumns}
-              emptyText={loadingRows ? "正在加载 SKU 数据..." : "暂无 SKU 数据"}
-              rows={rows}
-              state={loadingRows ? "loading" : "ready"}
-              tableClassName="admin-rule-table"
-            />
-
-            <div className="pagination-controls">
-              <span className="pagination-controls__summary">
-                第 {formatInteger(page)} / {formatInteger(totalPages)} 页
-              </span>
-              <div className="pagination-controls__actions">
-                <Button
-                  disabled={page <= 1}
-                  onClick={() => setPage((current) => Math.max(1, current - 1))}
-                  type="button"
-                >
-                  上一页
-                </Button>
-                <Button
-                  disabled={page >= totalPages}
-                  onClick={() =>
-                    setPage((current) => Math.min(totalPages, current + 1))
-                  }
-                  type="button"
-                >
-                  下一页
-                </Button>
-              </div>
-            </div>
-          </section>
-        </div>
-
-        <aside className="content-section sku-selection-drawer">
-          <div className="section-title">
-            <div>
-              <h2>预选窗口</h2>
-              <p>
-                已预选 {formatInteger(selectedSkuMap.size)} 个，待保存{" "}
-                {formatInteger(dirtyRows.length)} 个
-              </p>
-            </div>
-            <Button
-              disabled={selectedSkuMap.size === 0}
-              onClick={clearPreselection}
-              type="button"
-            >
-              清空
-            </Button>
-          </div>
-
-          <div className="sku-bulk-editor">
-            <label className="filter-field">
-              <span>产品范围</span>
-              <FieldInput
-                list="product-scope-options"
-                onChange={(event) => setBulkProductScope(event.target.value)}
-                placeholder="从 SKU 商品列表选择"
-                value={bulkProductScope}
-              />
-            </label>
-            <label className="filter-field">
-              <span>商品类型</span>
-              <FieldInput
-                list="product-type-options"
-                onChange={(event) => setBulkProductType(event.target.value)}
-                placeholder="从 SKU 商品列表选择"
-                value={bulkProductType}
-              />
-            </label>
-            <label className="filter-field">
-              <span>批量分账比例（%）</span>
-              <FieldInput
-                inputMode="decimal"
-                onChange={(event) => setBulkRate(event.target.value)}
-                value={bulkRate}
-              />
-            </label>
-            <label className="filter-field checkbox-field">
-              <span>参与分账</span>
-              <FieldInput
-                checked={bulkIsServiceProduct}
-                onChange={(event) => setBulkIsServiceProduct(event.target.checked)}
-                type="checkbox"
-              />
-            </label>
-            <Button
-              disabled={selectedSkuMap.size === 0}
-              onClick={applyBulk}
-              type="button"
-            >
-              应用到预选 SKU
-            </Button>
-            <Button
-              disabled={dirtyRows.length === 0 || saving}
-              onClick={handleSave}
-              type="button"
-              variant="primary"
-            >
-              保存预选规则并重建
-            </Button>
-          </div>
-
-          <div className="sku-selected-list">
-            {effectiveSelectedRules.length ? (
-              effectiveSelectedRules.map((row) => {
-                const dirty = draftMap.has(row.sku_id);
-                return (
-                  <div
-                    className={`sku-selected-item${dirty ? " sku-selected-item--dirty" : ""}`}
-                    key={row.sku_id}
-                  >
-                    <div>
-                      <strong className="mono-cell">{row.sku_id}</strong>
-                      <p>{row.product_name || "-"}</p>
-                    </div>
-                    <dl>
-                      <div>
-                        <dt>产品范围</dt>
-                        <dd>{row.product_scope || "-"}</dd>
-                      </div>
-                      <div>
-                        <dt>商品类型</dt>
-                        <dd>{row.product_type || "未配置"}</dd>
-                      </div>
-                      <div>
-                        <dt>分账比例</dt>
-                        <dd>{formatPercent(row.commission_rate)}</dd>
-                      </div>
-                      <div>
-                        <dt>参与</dt>
-                        <dd>{row.is_service_product ? "是" : "否"}</dd>
-                      </div>
-                    </dl>
-                    <div className="sku-selected-item__footer">
-                      <StatusChip tone={dirty ? "warning" : "brand"}>
-                        {dirty ? "待保存" : "已预选"}
-                      </StatusChip>
-                      <Button
-                        onClick={() => removeSelectedSku(row.sku_id)}
-                        type="button"
-                      >
-                        移除
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="resource-panel">
-                先查询或浏览 SKU，再把需要修改的 SKU 加入这里。
-              </div>
-            )}
-          </div>
-        </aside>
-      </div>
+      <Dialog actions={<><Button disabled={working} onClick={() => setConfirmOpen(false)} type="button">返回修改</Button><Button disabled={working} onClick={() => void publishSelectedRules()} type="button" variant="primary">{working ? "正在发布..." : "确认发布"}</Button></>} closeDisabled={working} description="确认后将为每个选中 SKU 创建新的不可变规则版本。" onClose={() => setConfirmOpen(false)} open={confirmOpen} title="分佣规则发布确认">
+        <dl className="commission-confirmation-list"><div><dt>SKU 数量</dt><dd>{selectedRows.length} 个</dd></div><div><dt>推广服务费比例</dt><dd>{promotionRate}%</dd></div><div><dt>管理服务费比例</dt><dd>{managementRate}%</dd></div><div><dt>生效日期</dt><dd>{effectiveDate}</dd></div><div><dt>规则状态</dt><dd>{ruleStatus === "ACTIVE" ? "启用" : "停用"}</dd></div><div><dt>变更原因</dt><dd>{changeReason}</dd></div></dl>
+      </Dialog>
+      <AdminSkuRuleImportDrawer batches={batches} initialBatch={null} onChanged={loadFeeData} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
     </div>
   );
 }
