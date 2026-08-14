@@ -79,7 +79,7 @@ RUNTIME_SURFACES = [
     (
         "admin-product-types",
         "/admin/product-types",
-        "商品口径控制",
+        "商品口径",
         "heading",
     ),
 ]
@@ -549,8 +549,8 @@ def live_admin_fastapi_base_url() -> Generator[str]:
                 product_id=f"PRODUCT-LIVE-{index:03d}",
                 product_name=f"真实联调基础保养 {index}",
                 spu_id=f"SPU-LIVE-{index:03d}",
-                product_scope="原产品范围",
-                product_type="原商品类型",
+                product_scope="正式产品范围" if index == 5 else "原产品范围",
+                product_type="正式商品类型" if index == 5 else "原商品类型",
                 is_service_product=False,
                 creator_account_id="creator-live-001",
                 creator_account_name="创建账号",
@@ -852,6 +852,7 @@ def install_api_routes(page: Page) -> None:
         "spuId": "SPU-VISUAL-001",
         "productScope": "精诚养车",
         "productType": "基础保养",
+        "configurationStatus": "CONFIGURED",
         "isServiceProduct": True,
         "creatorAccountId": "creator-001",
         "creatorAccountName": "商品创建账号",
@@ -861,6 +862,7 @@ def install_api_routes(page: Page) -> None:
         "isActiveProduct": True,
         "lastSyncedAt": "2026-07-20T08:00:00Z",
         "manualModifiedAt": "2026-07-20T09:00:00Z",
+        "manualModifiedBy": "visual-admin",
     }
     fee_rule = {
         "ruleVersion": "SFR-20260801-VISUAL",
@@ -931,7 +933,13 @@ def install_api_routes(page: Page) -> None:
         lambda route: route.fulfill(
             status=200,
             content_type="application/json",
-            body=api_payload({"list": [sku_product], "total": 1, "page": 1, "pageSize": 50}),
+            body=api_payload({
+                "list": [sku_product],
+                "total": 1,
+                "page": 1,
+                "pageSize": 50,
+                "statusCounts": {"unconfigured": 0, "partial": 0, "configured": 1},
+            }),
         ),
     )
     page.route(
@@ -1184,7 +1192,7 @@ def install_settlement_user_route(page: Page, role: str) -> None:
         (
             "admin-product-types",
             "/admin/product-types",
-            "商品口径控制",
+            "商品口径",
             "heading",
         ),
     ],
@@ -1279,6 +1287,33 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
             assert link_box is not None
             assert link_box["x"] >= nav_box["x"] - 1
             assert link_box["x"] + link_box["width"] <= nav_box["x"] + nav_box["width"] + 1
+    finally:
+        context.close()
+
+
+def test_admin_product_types_drawers_open_without_runtime_errors(
+    browser: Browser,
+    vite_base_url: str,
+    tmp_path: Path,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    page_errors: list[str] = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    try:
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/admin/product-types?view=configured", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="商品口径", exact=True).wait_for(timeout=10000)
+        page.get_by_role("button", name="设置", exact=True).click()
+        drawer = page.get_by_role("dialog", name="设置商品口径")
+        drawer.wait_for(timeout=10000)
+        assert drawer.get_by_text("保持原值", exact=True).count() == 2
+        page.screenshot(path=tmp_path / "admin-product-types-drawer.png", full_page=True)
+        page.get_by_role("button", name="取消", exact=True).click()
+        page.get_by_role("button", name="批量导入", exact=True).click()
+        page.get_by_role("dialog", name="批量导入商品口径").wait_for(timeout=10000)
+        assert page.get_by_role("button", name="下载模板", exact=True).is_visible()
+        assert page_errors == []
     finally:
         context.close()
 

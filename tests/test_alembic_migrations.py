@@ -17,7 +17,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260804_0029"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260813_0030"]
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:

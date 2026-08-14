@@ -571,18 +571,10 @@ class DashboardDataStore:
         return self.session.get(ProductTypeVisibilitySetting, "global")
 
     def _visible_product_types(self) -> tuple[str, ...] | None:
-        setting = self._product_type_visibility_setting()
-        if setting is None or not setting.enabled:
-            return None
-        values = setting.visible_product_types
-        if isinstance(values, str):
-            try:
-                values = json.loads(values)
-            except json.JSONDecodeError:
-                values = []
-        if not isinstance(values, list):
-            values = []
-        return tuple(_normalize_product_type_list(values))
+        # DYDATA-72: product classification describes reporting dimensions; it no
+        # longer acts as a visibility allowlist. Keep the legacy setting readable
+        # for backwards compatibility, but never use it to hide business data.
+        return None
 
     def _visible_product_type_clause(
         self,
@@ -747,15 +739,7 @@ class DashboardDataStore:
         return f"{column} IN ({placeholders})"
 
     def default_product_type(self) -> str:
-        setting = self._product_type_visibility_setting()
-        default_product_type = _normalize_product_type_value(
-            getattr(setting, "default_product_type", "all") if setting is not None else "all"
-        )
-        if default_product_type == "all":
-            return "all"
-        if not self._is_product_type_visible(default_product_type):
-            return "all"
-        return default_product_type
+        return "all"
 
     def product_type_visibility(self) -> dict[str, Any]:
         setting = self._product_type_visibility_setting()

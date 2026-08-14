@@ -297,7 +297,7 @@ def _seed_product_visibility_data(session: Session) -> None:
     session.commit()
 
 
-def test_admin_can_limit_settlement_and_clue_data_by_product_type(
+def test_legacy_visibility_setting_no_longer_hides_settlement_or_clue_data(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_product_visibility_data(db_session)
@@ -330,48 +330,57 @@ def test_admin_can_limit_settlement_and_clue_data_by_product_type(
 
     meta = client.get("/api/v1/meta/filters")
     assert meta.status_code == 200
-    assert meta.json()["data"]["productTypes"] == ["all", JINGCHENG_PRODUCT]
-    assert meta.json()["data"]["defaultProductType"] == JINGCHENG_PRODUCT
+    assert set(meta.json()["data"]["productTypes"]) == {
+        "all",
+        JINGCHENG_PRODUCT,
+        HIDDEN_PRODUCT,
+    }
+    assert meta.json()["data"]["defaultProductType"] == "all"
 
     ranking = client.get(
         "/api/v1/dashboard/store-ranking",
         params={"periodKey": "2026-06", "productType": "all"},
     )
     assert ranking.status_code == 200
-    assert ranking.json()["data"]["totals"]["salesOrderCount"] == 4
-    assert ranking.json()["data"]["list"][0]["salesOrderCount"] == 4
+    assert ranking.json()["data"]["totals"]["salesOrderCount"] == 11
+    assert ranking.json()["data"]["list"][0]["salesOrderCount"] == 11
 
     settlement = client.get(
         "/api/v1/stores/store-1/monthly-settlement",
         params={"month": "2026-06", "productType": "all"},
     )
     assert settlement.status_code == 200
-    assert settlement.json()["data"]["metrics"]["promotionBaseCent"] == 4000
-    assert settlement.json()["data"]["metrics"]["promotionNetFeeCent"] == 400
+    assert settlement.json()["data"]["metrics"]["promotionBaseCent"] == 11000
+    assert settlement.json()["data"]["metrics"]["promotionNetFeeCent"] == 1100
 
     details = client.get("/api/v1/order-details", params={"page": 1, "page_size": 50})
     assert details.status_code == 200
-    assert [row["coupon_id"] for row in details.json()["data"]["rows"]] == [
-        "coupon-visible"
-    ]
+    assert {row["coupon_id"] for row in details.json()["data"]["rows"]} == {
+        "coupon-visible",
+        "coupon-hidden",
+    }
 
     clue_filters = client.get("/api/v1/clues/filters")
     assert clue_filters.status_code == 200
-    assert clue_filters.json()["data"]["product_types"] == [JINGCHENG_PRODUCT]
-    assert clue_filters.json()["data"]["default_product_type"] == JINGCHENG_PRODUCT
+    assert set(clue_filters.json()["data"]["product_types"]) == {
+        JINGCHENG_PRODUCT,
+        HIDDEN_PRODUCT,
+    }
+    assert clue_filters.json()["data"]["default_product_type"] == "all"
 
     clue_overview = client.get("/api/v1/clues/overview")
     assert clue_overview.status_code == 200
-    assert clue_overview.json()["data"]["total_clues"] == 1
+    assert clue_overview.json()["data"]["total_clues"] == 2
 
     clue_rounds = client.get("/api/v1/clues/assignment-rounds")
     assert clue_rounds.status_code == 200
-    assert [row["order_id"] for row in clue_rounds.json()["data"]["rows"]] == [
-        "clue-visible"
-    ]
+    assert {row["order_id"] for row in clue_rounds.json()["data"]["rows"]} == {
+        "clue-visible",
+        "clue-hidden",
+    }
 
     hidden_detail = client.get("/api/v1/clues/orders/clue-hidden")
-    assert hidden_detail.status_code == 404
+    assert hidden_detail.status_code == 200
 
 
 def test_product_type_visibility_returns_and_saves_product_scopes(

@@ -99,6 +99,9 @@ import type {
   SkuFeeRuleItem,
   SkuFeeRuleListData,
   SkuProductItem,
+  SkuProductBulkUpdate,
+  SkuProductImportBatch,
+  SkuProductImportUploadData,
   SkuProductListData,
   SkuProductManualUpdate,
   SkuSyncHistoryListData,
@@ -1842,6 +1845,7 @@ export async function fetchSkuProducts(params: {
   productScope?: string;
   productType?: string;
   productStatus?: string;
+  configurationStatus?: "PENDING" | "CONFIGURED";
 } = {}): Promise<ApiLoadResult<SkuProductListData>> {
   return {
     ...(await requestJson<SkuProductListData>("/admin/sku-products", params)),
@@ -1873,6 +1877,45 @@ export async function updateSkuProduct(
     )),
     usingMock: false,
   };
+}
+
+export async function bulkUpdateSkuProducts(
+  payload: SkuProductBulkUpdate,
+): Promise<ApiLoadResult<{ updatedCount: number; skuIds: string[] }>> {
+  return {
+    ...(await sendJson<{ updatedCount: number; skuIds: string[] }>(
+      "/admin/sku-products/bulk",
+      { body: payload, method: "PUT" },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function uploadSkuProductImport(
+  file: File,
+): Promise<ApiLoadResult<SkuProductImportUploadData>> {
+  const form = new FormData();
+  form.append("file", file);
+  return {
+    ...(await sendForm<SkuProductImportUploadData>("/admin/sku-product-imports", form)),
+    usingMock: false,
+  };
+}
+
+export async function commitSkuProductImport(
+  batchId: string,
+): Promise<ApiLoadResult<{ batch: SkuProductImportBatch }>> {
+  return {
+    ...(await sendJson<{ batch: SkuProductImportBatch }>(
+      `/admin/sku-product-imports/${encodeURIComponent(batchId)}/commit`,
+      { method: "POST" },
+    )),
+    usingMock: false,
+  };
+}
+
+export function downloadSkuProductImportTemplate(): Promise<void> {
+  return requestDownload("/admin/sku-product-imports/template");
 }
 
 export async function restoreAccountPagePermissions(

@@ -21,6 +21,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     SkuFeeRule,
     SkuFeeRuleImportBatch,
     SkuFeeRuleImportRow,
+    SkuProductImportBatch,
 )
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import fee_admin as fee_admin_routes  # noqa: E402
@@ -112,6 +113,22 @@ def _upload(
     )
 
 
+def _product_csv(rows: list[tuple[str, str, str]]) -> bytes:
+    lines = ["skuId,productScope,productType"]
+    lines.extend(",".join(row) for row in rows)
+    return ("\ufeff" + "\n".join(lines) + "\n").encode("utf-8")
+
+
+def _upload_product_import(
+    client: TestClient,
+    rows: list[tuple[str, str, str]],
+):
+    return client.post(
+        "/api/v1/admin/sku-product-imports",
+        files={"file": ("product-types.csv", _product_csv(rows))},
+    )
+
+
 @pytest.mark.parametrize(
     ("filename", "content"),
     [
@@ -169,6 +186,9 @@ def test_admin_can_filter_and_update_only_manual_sku_fields(
     db_session: Session,
 ) -> None:
     row = _seed_sku(db_session, "sku-1", "保养 SKU")
+    reference = _seed_sku(db_session, "sku-reference", "目标组合参考")
+    reference.product_scope = "精诚养车"
+    reference.product_type = "268 保养"
     db_session.commit()
     platform_before = (row.product_id, row.owner_account_id, row.last_synced_at)
     _login(client)
@@ -221,6 +241,294 @@ def test_admin_can_filter_and_update_only_manual_sku_fields(
     assert rejected.status_code == 422
     assert rejected.json()["detail"]["code"] == "VALIDATION_FAILED"
     assert rejected.json()["detail"]["requestId"] == "req-sku-reject"
+
+
+def test_sku_product_list_exposes_configuration_status_counts_and_pending_order(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    unconfigured = _seed_sku(db_session, "sku-unconfigured", "未配置商品")
+    unconfigured.product_scope = ""
+    unconfigured.product_type = ""
+    partial = _seed_sku(db_session, "sku-partial", "部分配置商品")
+    partial.product_scope = "已有范围"
+    partial.product_type = ""
+    configured = _seed_sku(db_session, "sku-configured", "已配置商品")
+    db_session.commit()
+    _login(client)
+
+    response = client.get(
+        "/api/v1/admin/sku-products",
+        params={"configurationStatus": "PENDING"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["pageSize"] == 50
+    assert data["total"] == 2
+    assert data["statusCounts"] == {
+        "unconfigured": 1,
+        "partial": 1,
+        "configured": 1,
+    }
+    assert [item["skuId"] for item in data["list"]] == [
+        "sku-unconfigured",
+        "sku-partial",
+    ]
+    assert [item["configurationStatus"] for item in data["list"]] == [
+        "UNCONFIGURED",
+        "PARTIAL",
+    ]
+
+
+def test_single_sku_product_update_preserves_omitted_manual_field(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    row = _seed_sku(db_session, "sku-partial-update", "单字段更新商品")
+    reference = _seed_sku(db_session, "sku-partial-reference", "单字段组合参考")
+    reference.product_scope = "新范围"
+    db_session.commit()
+    _login(client)
+
+    response = client.put(
+        "/api/v1/admin/sku-products/sku-partial-update",
+        json={"productScope": "新范围"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["productScope"] == "新范围"
+    assert response.json()["data"]["productType"] == "原类型"
+    db_session.refresh(row)
+    assert row.product_scope == "新范围"
+    assert row.product_type == "原类型"
+
+
+def test_bulk_sku_product_update_is_atomic_and_preserves_omitted_fields(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first = _seed_sku(db_session, "sku-bulk-1", "批量商品一")
+    second = _seed_sku(db_session, "sku-bulk-2", "批量商品二")
+    second.product_type = "第二原类型"
+    first_reference = _seed_sku(db_session, "sku-bulk-reference-1", "批量组合参考一")
+    first_reference.product_scope = "批量新范围"
+    second_reference = _seed_sku(db_session, "sku-bulk-reference-2", "批量组合参考二")
+    second_reference.product_scope = "批量新范围"
+    second_reference.product_type = "第二原类型"
+    db_session.commit()
+    _login(client)
+
+    rejected = client.put(
+        "/api/v1/admin/sku-products/bulk",
+        json={
+            "skuIds": ["sku-bulk-1", "sku-missing"],
+            "productScope": "不能部分写入",
+        },
+    )
+
+    assert rejected.status_code == 404
+    db_session.refresh(first)
+    assert first.product_scope == "原范围"
+
+    updated = client.put(
+        "/api/v1/admin/sku-products/bulk",
+        json={
+            "skuIds": ["sku-bulk-1", "sku-bulk-2"],
+            "productScope": "批量新范围",
+        },
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["data"]["updatedCount"] == 2
+    db_session.refresh(first)
+    db_session.refresh(second)
+    assert (first.product_scope, first.product_type) == ("批量新范围", "原类型")
+    assert (second.product_scope, second.product_type) == (
+        "批量新范围",
+        "第二原类型",
+    )
+
+
+def test_bulk_sku_product_update_rejects_incompatible_scope_type_combinations(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    target = _seed_sku(db_session, "sku-combination-target", "组合校验商品")
+    valid_reference = _seed_sku(db_session, "sku-combination-reference", "组合参考商品")
+    valid_reference.product_scope = "新范围"
+    valid_reference.product_type = "新范围类型"
+    db_session.commit()
+    _login(client)
+
+    response = client.put(
+        "/api/v1/admin/sku-products/bulk",
+        json={"skuIds": [target.sku_id], "productScope": "新范围"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "PRODUCT_DIMENSION_MISMATCH"
+    db_session.refresh(target)
+    assert (target.product_scope, target.product_type) == ("原范围", "原类型")
+
+
+def test_sku_product_import_template_and_atomic_commit_support_keep(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first = _seed_sku(db_session, "sku-import-1", "导入商品一")
+    second = _seed_sku(db_session, "sku-import-2", "导入商品二")
+    second.product_scope = "第二原范围"
+    first_reference = _seed_sku(db_session, "sku-import-reference-1", "导入组合参考一")
+    first_reference.product_scope = "新范围"
+    second_reference = _seed_sku(db_session, "sku-import-reference-2", "导入组合参考二")
+    second_reference.product_scope = "第二原范围"
+    second_reference.product_type = "新类型"
+    db_session.commit()
+    _login(client)
+
+    template = client.get("/api/v1/admin/sku-product-imports/template")
+    assert template.status_code == 200
+    assert template.content.decode("utf-8-sig").splitlines()[0] == (
+        "skuId,productScope,productType"
+    )
+
+    uploaded = _upload_product_import(
+        client,
+        [
+            ("sku-import-1", "新范围", "KEEP"),
+            ("sku-import-2", "KEEP", "新类型"),
+        ],
+    )
+    assert uploaded.status_code == 200
+    batch = uploaded.json()["data"]["batch"]
+    assert batch["batchStatus"] == "PENDING_COMMIT"
+    assert batch["validCount"] == 2
+
+    committed = client.post(
+        f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit"
+    )
+    assert committed.status_code == 200
+    assert committed.json()["data"]["batch"]["successCount"] == 2
+    db_session.refresh(first)
+    db_session.refresh(second)
+    assert (first.product_scope, first.product_type) == ("新范围", "原类型")
+    assert (second.product_scope, second.product_type) == ("第二原范围", "新类型")
+
+
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [("sku-invalid-import", "", "新类型")],
+        [("sku-invalid-import", "KEEP", "KEEP")],
+        [
+            ("sku-invalid-import", "新范围", "KEEP"),
+            ("sku-invalid-import", "KEEP", "新类型"),
+        ],
+    ],
+)
+def test_sku_product_import_rejects_blank_keep_only_and_duplicate_rows(
+    client: TestClient,
+    db_session: Session,
+    rows: list[tuple[str, str, str]],
+) -> None:
+    _seed_sku(db_session, "sku-invalid-import", "非法导入商品")
+    db_session.commit()
+    _login(client)
+
+    response = _upload_product_import(client, rows)
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["batch"]["batchStatus"] == "VALIDATION_FAILED"
+    assert data["batch"]["successCount"] == 0
+    assert data["errorPreview"]
+
+
+def test_sku_product_import_commit_revalidates_all_rows_before_writing(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    first = _seed_sku(db_session, "sku-atomic-import-1", "原子商品一")
+    second = _seed_sku(db_session, "sku-atomic-import-2", "原子商品二")
+    db_session.commit()
+    _login(client)
+    uploaded = _upload_product_import(
+        client,
+        [
+            ("sku-atomic-import-1", "新范围", "KEEP"),
+            ("sku-atomic-import-2", "新范围", "KEEP"),
+        ],
+    )
+    batch_id = uploaded.json()["data"]["batch"]["batchId"]
+    db_session.delete(second)
+    db_session.commit()
+
+    committed = client.post(
+        f"/api/v1/admin/sku-product-imports/{batch_id}/commit"
+    )
+
+    assert committed.status_code == 409
+    db_session.refresh(first)
+    assert first.product_scope == "原范围"
+    batch = db_session.scalar(
+        select(SkuProductImportBatch).where(SkuProductImportBatch.batch_id == batch_id)
+    )
+    assert batch is not None
+    assert batch.success_count == 0
+
+
+def test_sku_product_import_commit_revalidates_product_dimension_combinations(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    target = _seed_sku(db_session, "sku-import-dimension-target", "导入口径目标商品")
+    reference = _seed_sku(db_session, "sku-import-dimension-reference", "导入口径参考商品")
+    reference.product_scope = "目标范围"
+    reference.product_type = "目标类型"
+    db_session.commit()
+    _login(client)
+    uploaded = _upload_product_import(
+        client,
+        [(target.sku_id, "目标范围", "目标类型")],
+    )
+    assert uploaded.status_code == 200
+    batch_id = uploaded.json()["data"]["batch"]["batchId"]
+    db_session.delete(reference)
+    db_session.commit()
+
+    committed = client.post(
+        f"/api/v1/admin/sku-product-imports/{batch_id}/commit"
+    )
+
+    assert committed.status_code == 409
+    assert committed.json()["detail"]["code"] == "IMPORT_DATA_CHANGED"
+    db_session.refresh(target)
+    assert (target.product_scope, target.product_type) == ("原范围", "原类型")
+
+
+def test_sku_product_import_rejects_incompatible_product_dimensions(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    target = _seed_sku(db_session, "sku-import-mismatch", "导入组合校验商品")
+    reference = _seed_sku(db_session, "sku-import-mismatch-reference", "导入组合参考")
+    reference.product_scope = "目标范围"
+    reference.product_type = "目标类型"
+    db_session.commit()
+    _login(client)
+
+    response = _upload_product_import(
+        client,
+        [(target.sku_id, "目标范围", "KEEP")],
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["batch"]["batchStatus"] == "VALIDATION_FAILED"
+    assert data["errorPreview"][0]["errors"][0]["code"] == (
+        "PRODUCT_DIMENSION_MISMATCH"
+    )
 
 
 def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
