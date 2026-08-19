@@ -62,7 +62,14 @@ jobs:
         run: npm ci
 
       - name: Install Playwright browser
-        run: python -m playwright install chromium --with-deps
+        run: |
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' \
+              'https://archive.ubuntu.com/ubuntu' \
+              'https://security.ubuntu.com/ubuntu' \
+              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
+          fi
+          timeout 10m python -m playwright install chromium --with-deps
 
       - name: Run tests
         run: python -m pytest

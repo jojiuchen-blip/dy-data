@@ -68,6 +68,19 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "absolute_redirect off;" in nginx
 
 
+def test_browser_image_upgrades_pip_before_resolving_shared_requirements():
+    dockerfile = (ROOT / "deploy" / "browser" / "Dockerfile").read_text(encoding="utf-8")
+
+    upgrade = dockerfile.index(
+        "python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip"
+    )
+    requirements = dockerfile.index(
+        "python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt"
+    )
+
+    assert upgrade < requirements
+
+
 def test_docker_builds_do_not_force_ci_to_use_regional_apt_mirror():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     dockerfiles = [
@@ -116,6 +129,39 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert "compose up -d --no-deps --force-recreate worker" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
+
+
+def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
+    workflows = [
+        ROOT / ".github" / "workflows" / "ci-cd.yml",
+        ROOT / ".github" / "workflows" / "tencent-lighthouse-deploy.yml",
+    ]
+
+    for workflow_path in workflows:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "/etc/apt/apt-mirrors.txt" in workflow
+        assert "https://archive.ubuntu.com/ubuntu" in workflow
+        assert "timeout 10m python -m playwright install chromium --with-deps" in workflow
+
+
+def test_tencent_deploy_recovers_missing_production_revision_before_migration():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
+        encoding="utf-8"
+    )
+
+    preflight = deploy_script.index('log "checking production migration lineage"')
+    migration = deploy_script.index('log "running migrations"')
+
+    assert preflight < migration
+    assert "SELECT to_regclass" in deploy_script
+    assert "public.alembic_version" in deploy_script
+    assert 'SELECT version_num FROM alembic_version' in deploy_script
+    assert 'compose run --rm --no-deps migrate alembic show "$current_revision"' in deploy_script
+    assert 'compose exec -T api sh -c' in deploy_script
+    assert "migration-source-begin" in deploy_script
+    assert "migration-source-end" in deploy_script
+    assert "target source is missing production revision" in deploy_script
+    assert "alembic stamp" not in deploy_script
 
 
 def test_tencent_deploy_writes_deploy_record_with_privileged_write():

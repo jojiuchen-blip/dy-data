@@ -48,7 +48,8 @@ RUN useradd -ms /bin/bash browser \
 WORKDIR /app
 
 COPY requirements.txt ./
-RUN python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt
+RUN python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip \
+    && python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt
 
 COPY src ./src
 COPY scripts ./scripts
