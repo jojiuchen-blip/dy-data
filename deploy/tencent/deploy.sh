@@ -33,6 +33,63 @@ fetch_origin() {
   return 1
 }
 
+check_production_migration_lineage() {
+  local has_version_table
+  local current_revision
+
+  has_version_table="$(
+    compose exec -T postgres sh -c \
+      'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT to_regclass('\''public.alembic_version'\'')"'
+  )"
+  has_version_table="${has_version_table//$'\r'/}"
+  if [ -z "$has_version_table" ]; then
+    log "production database has no alembic_version table; allowing base migration"
+    return 0
+  fi
+
+  current_revision="$(
+    compose exec -T postgres sh -c \
+      'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc "SELECT version_num FROM alembic_version"'
+  )"
+  current_revision="${current_revision//$'\r'/}"
+  if [ -z "$current_revision" ]; then
+    log "production alembic_version is empty"
+    return 1
+  fi
+  case "$current_revision" in
+    *[!A-Za-z0-9_]*)
+      log "production alembic revision contains unexpected characters"
+      return 1
+      ;;
+  esac
+
+  log "production alembic revision=$current_revision"
+  if compose run --rm --no-deps migrate alembic show "$current_revision" >/dev/null 2>&1; then
+    log "target source contains production revision=$current_revision"
+    return 0
+  fi
+
+  log "target source is missing production revision=$current_revision"
+  log "attempting read-only recovery from the currently running API container"
+  if compose exec -T api sh -c '
+    set -eu
+    revision="$1"
+    files="$(grep -RIl --include="*.py" -- "$revision" /app/alembic/versions || true)"
+    [ -n "$files" ] || exit 1
+    for file in $files; do
+      printf "migration-source-begin path=%s revision=%s\n" "$file" "$revision"
+      cat "$file"
+      printf "\nmigration-source-end path=%s revision=%s\n" "$file" "$revision"
+    done
+  ' sh "$current_revision"; then
+    log "recovered migration source evidence for revision=$current_revision"
+  else
+    log "current API container does not contain revision=$current_revision"
+  fi
+  log "blocking deployment before alembic upgrade; restore the migration lineage first"
+  return 1
+}
+
 on_error() {
   status=$?
   log "deployment failed with status=$status"
@@ -76,6 +133,9 @@ compose build --progress=plain api web browser worker
 
 log "starting postgres"
 compose up -d postgres
+
+log "checking production migration lineage"
+check_production_migration_lineage
 
 log "running migrations"
 compose run --rm migrate

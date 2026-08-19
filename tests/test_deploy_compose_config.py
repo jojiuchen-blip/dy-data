@@ -118,6 +118,26 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
 
+def test_tencent_deploy_recovers_missing_production_revision_before_migration():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
+        encoding="utf-8"
+    )
+
+    preflight = deploy_script.index('log "checking production migration lineage"')
+    migration = deploy_script.index('log "running migrations"')
+
+    assert preflight < migration
+    assert "SELECT to_regclass" in deploy_script
+    assert "public.alembic_version" in deploy_script
+    assert 'SELECT version_num FROM alembic_version' in deploy_script
+    assert 'compose run --rm --no-deps migrate alembic show "$current_revision"' in deploy_script
+    assert 'compose exec -T api sh -c' in deploy_script
+    assert "migration-source-begin" in deploy_script
+    assert "migration-source-end" in deploy_script
+    assert "target source is missing production revision" in deploy_script
+    assert "alembic stamp" not in deploy_script
+
+
 def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")

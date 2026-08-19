@@ -50,11 +50,19 @@ It performs:
 3. Validate Docker Compose configuration.
 4. Build `api`, `web`, and `browser` images.
 5. Start PostgreSQL.
-6. Run Alembic migrations.
-7. Start `api`, `web`, `browser`, and `proxy`.
-8. Keep `worker` stopped unless `TENCENT_START_WORKER=true` is present in the
+6. Read the production `alembic_version` and verify that the target API image
+   can resolve it. If the revision is missing, print matching migration source
+   from the currently running API container between `migration-source-begin`
+   and `migration-source-end`, then stop before `alembic upgrade`.
+7. Run Alembic migrations.
+8. Start `api`, `web`, `browser`, and `proxy`.
+9. Keep `worker` stopped unless `TENCENT_START_WORKER=true` is present in the
    workflow/server environment.
-9. Smoke test `/`, `/api/v1/auth/me`, and CLI device authorization startup.
+10. Smoke test `/`, `/api/v1/auth/me`, and CLI device authorization startup.
+
+The lineage preflight is read-only. It never changes `alembic_version` and does
+not use `alembic stamp`; a missing production revision always blocks deployment
+until its migration source and parent chain are restored in the repository.
 
 Set `TENCENT_START_WORKER=true` only when this deployment is intentionally the
 active collector. Leave it unset when another environment owns collection, so
