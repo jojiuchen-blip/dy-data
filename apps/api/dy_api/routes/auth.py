@@ -50,6 +50,8 @@ SUB_ACCOUNT_TYPES = {
 }
 SUCCESSFUL_BINDING_STATUS = "认证成功"
 ACCOUNT_TYPE_KEYS = ("账号类型", "账户类型", "account_type")
+API_SUB_ACCOUNT_TYPES = {"10", "20"}
+API_ACTIVE_BINDING_STATUS = "active"
 
 
 def _session_response(auth: AuthContext) -> dict:
@@ -422,26 +424,34 @@ def _verified_activation_store(
 ) -> DimStore | None:
     normalized_account_id = normalize_account_value(external_account_id)
     normalized_poi_id = normalize_account_value(poi_id)
-    bindings = session.execute(
-        select(RawAwemeBinding).where(
-            RawAwemeBinding.account_id == normalized_account_id,
-            RawAwemeBinding.poi_id == normalized_poi_id,
-            RawAwemeBinding.binding_status == SUCCESSFUL_BINDING_STATUS,
-        )
-    ).scalars().all()
-    if not any(_is_sub_account_binding(binding) for binding in bindings):
-        return None
-
     store = session.get(DimStore, normalized_account_id)
     if store is None or not store.is_active:
         return None
+
     mapping = session.execute(
         select(DimStorePoiMapping).where(
             DimStorePoiMapping.store_id == store.store_id,
             DimStorePoiMapping.poi_id == normalized_poi_id,
         )
     ).scalar_one_or_none()
-    return store if mapping is not None else None
+    if mapping is None:
+        return None
+
+    bindings = session.execute(
+        select(RawAwemeBinding).where(
+            RawAwemeBinding.account_id == normalized_account_id,
+        )
+    ).scalars().all()
+    has_exact_export_binding = any(
+        binding.poi_id == normalized_poi_id
+        and binding.binding_status == SUCCESSFUL_BINDING_STATUS
+        and _is_sub_account_binding(binding)
+        for binding in bindings
+    )
+    has_api_sub_account_binding = any(
+        _is_active_api_sub_account_binding(binding) for binding in bindings
+    )
+    return store if has_exact_export_binding or has_api_sub_account_binding else None
 
 
 def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
@@ -455,6 +465,18 @@ def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
         "",
     )
     return not account_type or account_type in SUB_ACCOUNT_TYPES
+
+
+def _is_active_api_sub_account_binding(binding: RawAwemeBinding) -> bool:
+    if binding.binding_status != API_ACTIVE_BINDING_STATUS:
+        return False
+    raw_payload = binding.raw_payload or {}
+    raw_status = raw_payload.get("status")
+    raw_account_type = raw_payload.get("account_type")
+    account_type = normalize_account_value(
+        str(raw_account_type) if raw_account_type is not None else None
+    )
+    return str(raw_status) == "1" and account_type in API_SUB_ACCOUNT_TYPES
 
 
 def _replace_store_scopes(session, user_id: str, store_ids: list[str]) -> None:

@@ -246,6 +246,100 @@ def test_activation_status_allows_certified_store_and_region_sub_accounts(
         assert response.json()["data"]["status"] == "ready"
 
 
+def test_activation_status_allows_api_sub_account_without_poi_on_binding_row(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store-api-fallback",
+                store_name="API fallback store",
+                certified_subject_name="API fallback subject",
+                is_active=True,
+            ),
+            DimStorePoiMapping(
+                store_id="store-api-fallback",
+                poi_id="poi-api-fallback",
+                poi_name="API fallback POI",
+                mapping_source="backend_aweme_export",
+            ),
+            RawAwemeBinding(
+                binding_key="store-api-fallback:douyin-api:-:active:20",
+                account_id="store-api-fallback",
+                douyin_id="douyin-api",
+                account_name="API fallback account",
+                poi_id=None,
+                binding_status="active",
+                raw_payload={"account_type": 20, "status": 1},
+            ),
+        ]
+    )
+    db_session.commit()
+    client = create_database_client(db_session)
+
+    response = client.post(
+        "/api/v1/auth/activation-status",
+        json={
+            "external_account_id": "store-api-fallback",
+            "poi_id": "poi-api-fallback",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "ready"
+
+
+def test_activation_status_rejects_active_personal_api_binding(
+    monkeypatch: pytest.MonkeyPatch,
+    db_session,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    monkeypatch.setenv("DY_SESSION_COOKIE_SECURE", "false")
+
+    db_session.add_all(
+        [
+            DimStore(
+                store_id="store-api-personal",
+                store_name="API personal store",
+                certified_subject_name="API personal subject",
+                is_active=True,
+            ),
+            DimStorePoiMapping(
+                store_id="store-api-personal",
+                poi_id="poi-api-personal",
+                poi_name="API personal POI",
+                mapping_source="backend_aweme_export",
+            ),
+            RawAwemeBinding(
+                binding_key="store-api-personal:douyin-personal:-:active:1",
+                account_id="store-api-personal",
+                douyin_id="douyin-personal",
+                account_name="API personal account",
+                poi_id=None,
+                binding_status="active",
+                raw_payload={"account_type": 1, "status": 1},
+            ),
+        ]
+    )
+    db_session.commit()
+    client = create_database_client(db_session)
+
+    response = client.post(
+        "/api/v1/auth/activation-status",
+        json={
+            "external_account_id": "store-api-personal",
+            "poi_id": "poi-api-personal",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "invalid"
+
+
 def test_activation_status_rejects_uncertified_store_and_region_sub_accounts(
     monkeypatch: pytest.MonkeyPatch,
     db_session,
