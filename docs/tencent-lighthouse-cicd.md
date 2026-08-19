@@ -11,6 +11,8 @@ The workflow is `.github/workflows/tencent-lighthouse-deploy.yml`.
 - `workflow_dispatch`: verify the repository, then deploy to Tencent Lighthouse.
 - `push` to `main`: runs only when repository variable `TENCENT_DEPLOY_ON_PUSH`
   is set to `true`.
+- The verification job normalizes GitHub Runner's Ubuntu package mirror and
+  limits Playwright dependency installation to ten minutes.
 
 The default is intentionally manual so a normal push does not accidentally
 change a self-managed production server.

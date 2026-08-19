@@ -118,6 +118,19 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
 
+def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
+    workflows = [
+        ROOT / ".github" / "workflows" / "ci-cd.yml",
+        ROOT / ".github" / "workflows" / "tencent-lighthouse-deploy.yml",
+    ]
+
+    for workflow_path in workflows:
+        workflow = workflow_path.read_text(encoding="utf-8")
+        assert "/etc/apt/apt-mirrors.txt" in workflow
+        assert "https://archive.ubuntu.com/ubuntu" in workflow
+        assert "timeout 10m python -m playwright install chromium --with-deps" in workflow
+
+
 def test_tencent_deploy_recovers_missing_production_revision_before_migration():
     deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
         encoding="utf-8"

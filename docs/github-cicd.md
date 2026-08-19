@@ -16,6 +16,9 @@ The workflow is `.github/workflows/ci-cd.yml`.
 - Pull requests to `main`: run backend tests, frontend build, and API/Worker/Web Docker builds.
 - Pushes to `main`: run the same verification, then deploy Railway `api`, `worker`, and `web` only when `RAILWAY_DEPLOY_ENABLED=true`.
 - Railway `Postgres` is managed as a Railway database service and is not deployed by GitHub.
+- Playwright dependency installation uses the public Ubuntu archive fallback and
+  stops after ten minutes so a stalled runner mirror cannot block verification
+  indefinitely.
 
 ## GitHub variables
 
