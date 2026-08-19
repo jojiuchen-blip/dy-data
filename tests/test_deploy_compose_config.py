@@ -68,6 +68,19 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "absolute_redirect off;" in nginx
 
 
+def test_browser_image_upgrades_pip_before_resolving_shared_requirements():
+    dockerfile = (ROOT / "deploy" / "browser" / "Dockerfile").read_text(encoding="utf-8")
+
+    upgrade = dockerfile.index(
+        "python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip"
+    )
+    requirements = dockerfile.index(
+        "python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt"
+    )
+
+    assert upgrade < requirements
+
+
 def test_docker_builds_do_not_force_ci_to_use_regional_apt_mirror():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     dockerfiles = [
