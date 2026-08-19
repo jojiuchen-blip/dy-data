@@ -17,7 +17,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260804_0029"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260813_0030"]
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
@@ -1463,3 +1463,23 @@ def test_raw_settlement_field_migration_backfills_single_coupon_and_is_reversibl
     }.intersection(
         {column["name"] for column in downgraded.get_columns("raw_douyin_orders")}
     )
+
+
+def test_sku_product_import_migration_links_rows_to_batches(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "sku-product-import.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "head")
+
+    foreign_keys = inspect(create_engine(database_url)).get_foreign_keys(
+        "sku_product_import_row"
+    )
+    assert len(foreign_keys) == 1
+    assert foreign_keys[0]["constrained_columns"] == ["batch_id"]
+    assert foreign_keys[0]["referred_table"] == "sku_product_import_batch"
+    assert foreign_keys[0]["referred_columns"] == ["batch_id"]
+    assert foreign_keys[0]["options"] == {"ondelete": "CASCADE"}

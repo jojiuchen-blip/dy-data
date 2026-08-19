@@ -135,6 +135,7 @@ export function AdminSkuGovernancePanel() {
         productScope: productScope.trim(),
         productType: productType.trim(),
         isServiceProduct,
+        expectedManualModifiedAt: selectedProduct.manualModifiedAt,
       });
       const reloaded = await loadProducts();
       const saved = reloaded.find((item) => item.skuId === selectedProduct.skuId) ?? null;

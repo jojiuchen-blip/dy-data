@@ -23,34 +23,44 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert 'href: "/admin/product-types", label: "商品口径"' in shell_source
     assert 'href: "/admin/product-types"' in home_source
 
-    assert "商品口径控制" in page_source
-    assert "启用商品类型限制" in page_source
+    assert "待完善" in page_source
+    assert "已配置" in page_source
+    assert "configurationStatus" in page_source
+    assert "PENDING" in page_source
+    assert "CONFIGURED" in page_source
+    assert "默认每页 50 条" in page_source
+    assert "跨页" in page_source
     assert "产品范围" in page_source
-    assert "默认显示范围" in page_source
-    assert "全部选择" in page_source
-    assert "清空选择" in page_source
-    assert "保存口径" in page_source
-    assert "fetchProductTypeVisibility" in page_source
-    assert "saveProductTypeVisibility" in page_source
-    assert "product-type-option-grid" in page_source
-    assert "selectedProductScopes" in page_source
-    assert "visible_product_scopes" in page_source
-    assert "product_scope_type_map" in page_source
+    assert "商品类型" in page_source
+    assert "批量设置" in page_source
+    assert "批量导入" in page_source
+    assert "订单分佣" in page_source
+    assert "有效分佣规则" in page_source
+    assert "fetchSkuProducts" in page_source
+    assert "bulkUpdateSkuProducts" in page_source
+    assert "expectedManualModifiedAt: editingRow.manualModifiedAt" in page_source
+    assert "uploadSkuProductImport" in page_source
+    assert "commitSkuProductImport" in page_source
 
-    assert "export interface ProductTypeVisibilityData" in types_source
-    assert "export interface ProductTypeVisibilityUpdate" in types_source
-    assert "visible_product_scopes" in types_source
-    assert "available_product_scopes" in types_source
-    assert "product_scope_type_map" in types_source
-    assert "default_product_type" in types_source
-    assert "export async function fetchProductTypeVisibility" in client_source
-    assert 'requestJson<ProductTypeVisibilityData>("/admin/product-type-visibility")' in client_source
-    assert "export async function saveProductTypeVisibility" in client_source
-    assert "/admin/product-type-visibility" in client_source
+    assert "export type SkuProductConfigurationStatus" in types_source
+    assert "expectedManualModifiedAt: string | null" in types_source
+    assert "statusCounts" in types_source
+    assert "export interface SkuProductImportUploadData" in types_source
+    assert "configurationStatus?:" in client_source
+    assert "export async function bulkUpdateSkuProducts" in client_source
+    assert '"/admin/sku-products/bulk"' in client_source
+    assert "export async function uploadSkuProductImport" in client_source
+    assert "/admin/sku-product-imports" in client_source
 
-    assert ".product-visibility-panel" in styles_source
-    assert ".product-type-option-grid" in styles_source
-    assert ".product-type-option.is-selected" in styles_source
+    assert ".product-types-workbench" in styles_source
+    assert ".product-types-tabs" in styles_source
+    assert ".product-types-drawer" in styles_source
+
+
+def test_legacy_sku_governance_editor_sends_manual_version() -> None:
+    panel_source = read_source("components/AdminSkuGovernancePanel.tsx")
+
+    assert "expectedManualModifiedAt: selectedProduct.manualModifiedAt" in panel_source
 
 
 def test_business_product_filters_use_metadata_default_product_type() -> None:

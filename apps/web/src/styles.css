@@ -4745,6 +4745,144 @@ a.metric-card:hover,
   line-height: 1.6;
 }
 
+.product-types-workbench {
+  display: grid;
+  gap: 18px;
+}
+
+.product-types-header {
+  align-items: flex-start;
+}
+
+.product-types-header h1 {
+  margin-top: 8px;
+}
+
+.product-types-header p {
+  max-width: 840px;
+}
+
+.product-types-tabs {
+  display: flex;
+  gap: 10px;
+}
+
+.product-types-tabs .ui-button span {
+  margin-left: 8px;
+  opacity: 0.76;
+}
+
+.product-types-panel {
+  min-width: 0;
+}
+
+.product-types-toolbar,
+.product-types-selection,
+.product-types-filters,
+.product-types-import-actions {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+}
+
+.product-types-toolbar {
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.product-types-filters {
+  flex: 1;
+  flex-wrap: wrap;
+}
+
+.product-types-filters .ui-field {
+  min-width: 180px;
+  flex: 1 1 180px;
+}
+
+.product-types-selection {
+  flex: 0 0 auto;
+  align-items: center;
+  padding-bottom: 2px;
+}
+
+.product-types-hint {
+  margin: 0 0 14px;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.product-types-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-full);
+  background: var(--surface-subtle);
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.product-types-status.is-unconfigured {
+  border-color: color-mix(in srgb, var(--danger) 34%, transparent);
+  color: var(--danger);
+}
+
+.product-types-status.is-partial {
+  border-color: color-mix(in srgb, var(--amber) 42%, transparent);
+  color: var(--amber);
+}
+
+.product-types-status.is-configured {
+  border-color: color-mix(in srgb, var(--blue) 34%, transparent);
+  color: var(--blue);
+}
+
+.product-types-panel td small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+}
+
+.product-types-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: min(520px, 100vw);
+  height: 100vh;
+  max-height: none;
+  border-radius: var(--radius-xl) 0 0 var(--radius-xl);
+}
+
+.product-types-drawer .ui-dialog__body {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+}
+
+.product-types-editor-field,
+.product-types-import-summary {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xl);
+  background: var(--surface-subtle);
+}
+
+.product-types-import-actions {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.product-types-import-summary p {
+  margin: 0;
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
 .feedback-summary-row {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

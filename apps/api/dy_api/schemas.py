@@ -532,19 +532,52 @@ class ProductSyncRunRequest(BaseModel):
         return normalized
 
 
-class SkuProductManualUpdateRequest(BaseModel):
+class SkuProductManualFieldsRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
-    product_scope: str = Field(alias="productScope", min_length=1, max_length=128)
-    product_type: str = Field(alias="productType", min_length=1, max_length=128)
-    is_service_product: bool = Field(alias="isServiceProduct")
+    product_scope: str | None = Field(
+        default=None, alias="productScope", min_length=1, max_length=128
+    )
+    product_type: str | None = Field(
+        default=None, alias="productType", min_length=1, max_length=128
+    )
+    is_service_product: bool | None = Field(default=None, alias="isServiceProduct")
 
     @field_validator("product_scope", "product_type")
     @classmethod
-    def normalize_product_dimension(cls, value: str) -> str:
+    def normalize_product_dimension(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         normalized = " ".join(value.strip().split())
         if not normalized:
             raise ValueError("value is required")
+        return normalized
+
+    @model_validator(mode="after")
+    def require_manual_field(self):
+        manual_fields = {"product_scope", "product_type", "is_service_product"}
+        if not self.model_fields_set.intersection(manual_fields):
+            raise ValueError("at least one manual field is required")
+        return self
+
+
+class SkuProductManualUpdateRequest(SkuProductManualFieldsRequest):
+    expected_manual_modified_at: datetime | None = Field(
+        alias="expectedManualModifiedAt"
+    )
+
+
+class SkuProductBulkUpdateRequest(SkuProductManualFieldsRequest):
+    sku_ids: list[str] = Field(alias="skuIds", min_length=1, max_length=5000)
+
+    @field_validator("sku_ids")
+    @classmethod
+    def normalize_sku_ids(cls, value: list[str]) -> list[str]:
+        normalized = [sku_id.strip() for sku_id in value]
+        if any(not sku_id for sku_id in normalized):
+            raise ValueError("skuIds cannot contain blank values")
+        if len(set(normalized)) != len(normalized):
+            raise ValueError("skuIds cannot contain duplicates")
         return normalized
 
 

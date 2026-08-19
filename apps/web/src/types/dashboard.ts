@@ -758,6 +758,7 @@ export interface CamelPagination {
 
 export type ProductStatus = "ACTIVE" | "INACTIVE" | "BANNED" | "DELETED" | "UNKNOWN";
 export type ProductRecordSyncStatus = "SUCCESS" | "MASKED" | "NOT_FOUND" | "ERROR";
+export type SkuProductConfigurationStatus = "UNCONFIGURED" | "PARTIAL" | "CONFIGURED";
 
 export interface SkuProductItem {
   skuId: string;
@@ -767,6 +768,7 @@ export interface SkuProductItem {
   spuId: string | null;
   productScope: string;
   productType: string;
+  configurationStatus: SkuProductConfigurationStatus;
   isServiceProduct: boolean;
   creatorAccountId: string | null;
   creatorAccountName: string | null;
@@ -780,16 +782,58 @@ export interface SkuProductItem {
   isActiveProduct: boolean;
   lastSyncedAt: string | null;
   manualModifiedAt: string | null;
+  manualModifiedBy: string | null;
 }
 
 export interface SkuProductListData extends CamelPagination {
   list: SkuProductItem[];
+  statusCounts: {
+    unconfigured: number;
+    partial: number;
+    configured: number;
+  };
 }
 
-export interface SkuProductManualUpdate {
-  productScope: string;
-  productType: string;
-  isServiceProduct: boolean;
+export interface SkuProductManualFieldsUpdate {
+  productScope?: string;
+  productType?: string;
+  isServiceProduct?: boolean;
+}
+
+export interface SkuProductManualUpdate extends SkuProductManualFieldsUpdate {
+  expectedManualModifiedAt: string | null;
+}
+
+export interface SkuProductBulkUpdate extends SkuProductManualFieldsUpdate {
+  skuIds: string[];
+}
+
+export interface SkuProductImportRow {
+  rowNumber: number;
+  skuId: string | null;
+  productScope: string | null;
+  productType: string | null;
+  validationStatus: ImportRowStatus;
+  errors: ImportRowError[];
+}
+
+export interface SkuProductImportBatch {
+  batchId: string;
+  fileName: string;
+  batchStatus: ImportBatchStatus;
+  totalCount: number;
+  validCount: number;
+  successCount: number;
+  failedCount: number;
+  uploadedBy: string;
+  validatedAt: string | null;
+  committedAt: string | null;
+}
+
+export interface SkuProductImportUploadData {
+  batch: SkuProductImportBatch;
+  errorPreview: SkuProductImportRow[];
+  hasMoreErrors: boolean;
 }
 
 export type FeeRuleStatus = "ACTIVE" | "INACTIVE";

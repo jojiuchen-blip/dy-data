@@ -860,6 +860,72 @@ class SkuFeeRuleImportRow(Base):
     )
 
 
+class SkuProductImportBatch(Base):
+    __tablename__ = "sku_product_import_batch"
+    __table_args__ = (
+        UniqueConstraint("batch_id", name="uk_sku_product_import_batch_id"),
+        CheckConstraint(
+            "batch_status IN (1, 2, 3, 4, 5, 6)",
+            name="ck_sku_product_import_batch_status",
+        ),
+        Index("idx_sku_product_import_batch_user_status", "uploaded_by", "batch_status"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), Identity(), primary_key=True
+    )
+    batch_id: Mapped[str] = mapped_column(String(128))
+    file_name: Mapped[str] = mapped_column(String(512))
+    file_sha256: Mapped[str] = mapped_column(String(64))
+    batch_status: Mapped[int] = mapped_column(Integer, default=1)
+    total_count: Mapped[int] = mapped_column(Integer, default=0)
+    valid_count: Mapped[int] = mapped_column(Integer, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    uploaded_by: Mapped[str] = mapped_column(String(128))
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class SkuProductImportRow(Base):
+    __tablename__ = "sku_product_import_row"
+    __table_args__ = (
+        UniqueConstraint(
+            "batch_id", "row_number", name="uk_sku_product_import_row_number"
+        ),
+        Index("idx_sku_product_import_row_sku", "sku_id"),
+        Index("idx_sku_product_import_row_status", "batch_id", "validation_status"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), Identity(), primary_key=True
+    )
+    batch_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("sku_product_import_batch.batch_id", ondelete="CASCADE"),
+    )
+    row_number: Mapped[int] = mapped_column(Integer)
+    sku_id: Mapped[str | None] = mapped_column(String(128))
+    product_scope: Mapped[str | None] = mapped_column(String(128))
+    product_type: Mapped[str | None] = mapped_column(String(128))
+    keep_product_scope: Mapped[bool] = mapped_column(Boolean, default=False)
+    keep_product_type: Mapped[bool] = mapped_column(Boolean, default=False)
+    validation_status: Mapped[int] = mapped_column(Integer, default=1)
+    validation_errors_json: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON_TYPE)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
 class DimNonCommissionOwnerAccount(Base):
     __tablename__ = "dim_non_commission_owner_accounts"
 

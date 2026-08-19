@@ -217,7 +217,7 @@ def test_clue_store_follow_up_summary_partitions_rounds_and_matches_overview(
         assert row["action_follow_rate"] == overview["follow_rate"]
 
 
-def test_clue_store_follow_up_summary_honors_product_type_visibility(
+def test_clue_store_follow_up_summary_ignores_legacy_product_type_visibility(
     db_session: Session,
 ) -> None:
     db_session.add_all(
@@ -274,9 +274,9 @@ def test_clue_store_follow_up_summary_honors_product_type_visibility(
     )
 
     visible, zero = rows
-    assert visible["total_count"] == 1
-    assert visible["system_follow_up_rate"] == 1
-    assert visible["action_follow_rate"] == 1
+    assert visible["total_count"] == 2
+    assert visible["system_follow_up_rate"] == 0.5
+    assert visible["action_follow_rate"] == 0.5
     assert visible["system_follow_up_rate"] == store.clue_overview(filters)["follow_success_rate"]
     assert visible["action_follow_rate"] == store.clue_overview(filters)["follow_rate"]
     assert zero["total_count"] == 0
@@ -291,6 +291,6 @@ def test_clue_store_follow_up_summary_honors_product_type_visibility(
         assigned_date_start=filters["assigned_date_start"],
         assigned_date_end=filters["assigned_date_end"],
     )
-    assert [row["total_count"] for row in empty_visibility_rows] == [0, 0]
-    assert [row["system_follow_up_rate"] for row in empty_visibility_rows] == [0, 0]
-    assert [row["action_follow_rate"] for row in empty_visibility_rows] == [0, 0]
+    assert [row["total_count"] for row in empty_visibility_rows] == [2, 0]
+    assert [row["system_follow_up_rate"] for row in empty_visibility_rows] == [0.5, 0]
+    assert [row["action_follow_rate"] for row in empty_visibility_rows] == [0.5, 0]
