@@ -17,7 +17,36 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260813_0030"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260819_0037"]
+
+
+def test_production_revision_chain_resolves_orphaned_0036() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    script = ScriptDirectory.from_config(config)
+
+    assert script.get_revision("20260806_0036") is not None
+    assert script.get_revision("20260819_0037") is not None
+
+
+def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "orphaned-0036.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.stamp(config, "20260806_0036")
+    command.upgrade(config, "head")
+
+    engine = create_engine(f"sqlite:///{database_path.as_posix()}")
+    inspector = inspect(engine)
+    assert {"sku_product_import_batch", "sku_product_import_row"}.issubset(
+        inspector.get_table_names()
+    )
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260819_0037"
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
