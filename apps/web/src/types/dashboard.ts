@@ -794,13 +794,17 @@ export interface SkuProductListData extends CamelPagination {
   };
 }
 
-export interface SkuProductManualUpdate {
+export interface SkuProductManualFieldsUpdate {
   productScope?: string;
   productType?: string;
   isServiceProduct?: boolean;
 }
 
-export interface SkuProductBulkUpdate extends SkuProductManualUpdate {
+export interface SkuProductManualUpdate extends SkuProductManualFieldsUpdate {
+  expectedManualModifiedAt: string | null;
+}
+
+export interface SkuProductBulkUpdate extends SkuProductManualFieldsUpdate {
   skuIds: string[];
 }
 

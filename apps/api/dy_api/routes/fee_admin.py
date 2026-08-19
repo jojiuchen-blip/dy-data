@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from openpyxl import Workbook, load_workbook
 from pydantic import BaseModel, ValidationError
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
 
 from apps.api.dy_api.models import (
@@ -158,6 +158,11 @@ def list_sku_products(
                     (status_expressions["PARTIAL"], 1),
                     else_=2,
                 ),
+                case(
+                    (DimSkuProductRule.manual_modified_at.is_(None), 1),
+                    else_=0,
+                ),
+                DimSkuProductRule.manual_modified_at.desc(),
                 DimSkuProductRule.sku_id,
             )
             .offset((page - 1) * page_size)
@@ -233,9 +238,39 @@ def update_sku_product(
     if row is None:
         raise _error(request, 404, "RESOURCE_NOT_FOUND", "SKU 不存在")
     _validate_sku_product_update_combinations(store.session, [row], parsed, request)
-    _apply_sku_product_manual_update(
-        row, parsed, username=username, modified_at=utcnow()
+    modified_at = utcnow()
+    values: dict[str, Any] = {
+        "manual_modified_by": username,
+        "manual_modified_at": modified_at,
+    }
+    if "product_scope" in parsed.model_fields_set:
+        values["product_scope"] = parsed.product_scope or ""
+    if "product_type" in parsed.model_fields_set:
+        values["product_type"] = parsed.product_type or ""
+    if "is_service_product" in parsed.model_fields_set:
+        values["is_service_product"] = bool(parsed.is_service_product)
+    expected_modified_at = _as_utc(parsed.expected_manual_modified_at)
+    version_condition = (
+        DimSkuProductRule.manual_modified_at.is_(None)
+        if expected_modified_at is None
+        else DimSkuProductRule.manual_modified_at == expected_modified_at
     )
+    result = store.session.execute(
+        update(DimSkuProductRule)
+        .where(
+            DimSkuProductRule.sku_id == sku_id,
+            version_condition,
+        )
+        .values(**values)
+        .execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        raise _error(
+            request,
+            409,
+            "CONCURRENT_MODIFICATION",
+            "SKU 已被其他操作更新，请刷新后重试",
+        )
     store.session.commit()
     store.session.refresh(row)
     return _success(request, _sku_product_item(row))
@@ -1435,6 +1470,14 @@ def _utc_to_shanghai(value: datetime | None) -> datetime | None:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
     return value.astimezone(SHANGHAI_TZ)
+
+
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def _sku_product_item(row: DimSkuProductRule) -> dict[str, Any]:

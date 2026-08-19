@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from io import BytesIO
 import sys
@@ -207,6 +207,7 @@ def test_admin_can_filter_and_update_only_manual_sku_fields(
     updated = client.put(
         "/api/v1/admin/sku-products/sku-1",
         json={
+            "expectedManualModifiedAt": None,
             "productScope": "精诚养车",
             "productType": "268 保养",
             "isServiceProduct": True,
@@ -281,6 +282,103 @@ def test_sku_product_list_exposes_configuration_status_counts_and_pending_order(
     ]
 
 
+def test_sku_product_lists_order_each_status_by_latest_manual_change(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    base_time = datetime(2026, 8, 19, 1, 0, tzinfo=timezone.utc)
+    pending_rows = [
+        _seed_sku(db_session, "sku-u-a-old", "未配置旧记录"),
+        _seed_sku(db_session, "sku-u-z-new", "未配置新记录"),
+        _seed_sku(db_session, "sku-p-a-old", "部分配置旧记录"),
+        _seed_sku(db_session, "sku-p-z-new", "部分配置新记录"),
+    ]
+    for row in pending_rows[:2]:
+        row.product_scope = ""
+        row.product_type = ""
+    for row in pending_rows[2:]:
+        row.product_scope = "已有范围"
+        row.product_type = ""
+    pending_rows[0].manual_modified_at = base_time
+    pending_rows[1].manual_modified_at = base_time + timedelta(hours=1)
+    pending_rows[2].manual_modified_at = base_time
+    pending_rows[3].manual_modified_at = base_time + timedelta(hours=1)
+
+    configured_old = _seed_sku(db_session, "sku-c-a-old", "已配置旧记录")
+    configured_new = _seed_sku(db_session, "sku-c-z-new", "已配置新记录")
+    configured_old.manual_modified_at = base_time
+    configured_new.manual_modified_at = base_time + timedelta(hours=1)
+    db_session.commit()
+    _login(client)
+
+    pending = client.get(
+        "/api/v1/admin/sku-products",
+        params={"configurationStatus": "PENDING"},
+    )
+    configured = client.get(
+        "/api/v1/admin/sku-products",
+        params={"configurationStatus": "CONFIGURED"},
+    )
+
+    assert pending.status_code == 200
+    assert [item["skuId"] for item in pending.json()["data"]["list"]] == [
+        "sku-u-z-new",
+        "sku-u-a-old",
+        "sku-p-z-new",
+        "sku-p-a-old",
+    ]
+    assert configured.status_code == 200
+    assert [item["skuId"] for item in configured.json()["data"]["list"]] == [
+        "sku-c-z-new",
+        "sku-c-a-old",
+    ]
+
+
+def test_single_sku_product_update_rejects_stale_manual_version(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    row = _seed_sku(db_session, "sku-concurrent", "并发更新商品")
+    row.manual_modified_at = datetime(2026, 8, 19, 1, 0, tzinfo=timezone.utc)
+    reference = _seed_sku(db_session, "sku-concurrent-reference", "并发更新组合参考")
+    reference.product_scope = "首次更新范围"
+    reference.product_type = row.product_type
+    db_session.commit()
+    _login(client)
+
+    listing = client.get(
+        "/api/v1/admin/sku-products",
+        params={"q": row.sku_id},
+    )
+    expected_version = listing.json()["data"]["list"][0]["manualModifiedAt"]
+    first = client.put(
+        f"/api/v1/admin/sku-products/{row.sku_id}",
+        json={
+            "expectedManualModifiedAt": expected_version,
+            "productScope": "首次更新范围",
+        },
+    )
+    stale = client.put(
+        f"/api/v1/admin/sku-products/{row.sku_id}",
+        json={
+            "expectedManualModifiedAt": expected_version,
+            "productScope": "首次更新范围",
+        },
+        headers={"X-Request-ID": "req-stale-sku-update"},
+    )
+
+    assert first.status_code == 200
+    assert stale.status_code == 409
+    assert stale.json()["detail"] == {
+        "code": "CONCURRENT_MODIFICATION",
+        "message": "SKU 已被其他操作更新，请刷新后重试",
+        "requestId": "req-stale-sku-update",
+        "errors": [],
+    }
+    db_session.refresh(row)
+    assert row.product_scope == "首次更新范围"
+
+
 def test_single_sku_product_update_preserves_omitted_manual_field(
     client: TestClient,
     db_session: Session,
@@ -293,7 +391,7 @@ def test_single_sku_product_update_preserves_omitted_manual_field(
 
     response = client.put(
         "/api/v1/admin/sku-products/sku-partial-update",
-        json={"productScope": "新范围"},
+        json={"expectedManualModifiedAt": None, "productScope": "新范围"},
     )
 
     assert response.status_code == 200

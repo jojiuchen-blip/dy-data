@@ -906,7 +906,10 @@ class SkuProductImportRow(Base):
     id: Mapped[int] = mapped_column(
         BigInteger().with_variant(Integer, "sqlite"), Identity(), primary_key=True
     )
-    batch_id: Mapped[str] = mapped_column(String(128))
+    batch_id: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("sku_product_import_batch.batch_id", ondelete="CASCADE"),
+    )
     row_number: Mapped[int] = mapped_column(Integer)
     sku_id: Mapped[str | None] = mapped_column(String(128))
     product_scope: Mapped[str | None] = mapped_column(String(128))

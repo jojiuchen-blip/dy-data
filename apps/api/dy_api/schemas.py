@@ -532,7 +532,7 @@ class ProductSyncRunRequest(BaseModel):
         return normalized
 
 
-class SkuProductManualUpdateRequest(BaseModel):
+class SkuProductManualFieldsRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     product_scope: str | None = Field(
@@ -561,7 +561,13 @@ class SkuProductManualUpdateRequest(BaseModel):
         return self
 
 
-class SkuProductBulkUpdateRequest(SkuProductManualUpdateRequest):
+class SkuProductManualUpdateRequest(SkuProductManualFieldsRequest):
+    expected_manual_modified_at: datetime | None = Field(
+        alias="expectedManualModifiedAt"
+    )
+
+
+class SkuProductBulkUpdateRequest(SkuProductManualFieldsRequest):
     sku_ids: list[str] = Field(alias="skuIds", min_length=1, max_length=5000)
 
     @field_validator("sku_ids")

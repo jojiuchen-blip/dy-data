@@ -38,10 +38,12 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert "有效分佣规则" in page_source
     assert "fetchSkuProducts" in page_source
     assert "bulkUpdateSkuProducts" in page_source
+    assert "expectedManualModifiedAt: editingRow.manualModifiedAt" in page_source
     assert "uploadSkuProductImport" in page_source
     assert "commitSkuProductImport" in page_source
 
     assert "export type SkuProductConfigurationStatus" in types_source
+    assert "expectedManualModifiedAt: string | null" in types_source
     assert "statusCounts" in types_source
     assert "export interface SkuProductImportUploadData" in types_source
     assert "configurationStatus?:" in client_source
@@ -53,6 +55,12 @@ def test_admin_product_type_visibility_page_is_wired_to_shell_and_api_client() -
     assert ".product-types-workbench" in styles_source
     assert ".product-types-tabs" in styles_source
     assert ".product-types-drawer" in styles_source
+
+
+def test_legacy_sku_governance_editor_sends_manual_version() -> None:
+    panel_source = read_source("components/AdminSkuGovernancePanel.tsx")
+
+    assert "expectedManualModifiedAt: selectedProduct.manualModifiedAt" in panel_source
 
 
 def test_business_product_filters_use_metadata_default_product_type() -> None:

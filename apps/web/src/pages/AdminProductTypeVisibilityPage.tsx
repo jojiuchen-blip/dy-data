@@ -18,7 +18,7 @@ import type {
   SkuProductConfigurationStatus,
   SkuProductImportUploadData,
   SkuProductItem,
-  SkuProductManualUpdate,
+  SkuProductManualFieldsUpdate,
 } from "../types/dashboard";
 import { formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
@@ -148,8 +148,8 @@ export function AdminProductTypeVisibilityPage() {
     setTypeValue(row?.productType ?? "");
   };
 
-  const buildUpdate = (): SkuProductManualUpdate | null => {
-    const payload: SkuProductManualUpdate = {};
+  const buildUpdate = (): SkuProductManualFieldsUpdate | null => {
+    const payload: SkuProductManualFieldsUpdate = {};
     if (scopeMode === "set" && scopeValue.trim()) payload.productScope = scopeValue.trim();
     if (typeMode === "set" && typeValue.trim()) payload.productType = typeValue.trim();
     return Object.keys(payload).length ? payload : null;
@@ -164,7 +164,10 @@ export function AdminProductTypeVisibilityPage() {
     setSaving(true);
     try {
       if (editorMode === "single" && editingRow) {
-        await updateSkuProduct(editingRow.skuId, payload);
+        await updateSkuProduct(editingRow.skuId, {
+          ...payload,
+          expectedManualModifiedAt: editingRow.manualModifiedAt,
+        });
         setNotice(`SKU ${editingRow.skuId} 已更新。`);
       } else {
         await bulkUpdateSkuProducts({ skuIds: Array.from(selected), ...payload });

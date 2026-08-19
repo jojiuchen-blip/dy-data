@@ -158,6 +158,20 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert ("sync_run_id",) in sku_rule_indexes
     assert ("last_synced_at",) in sku_rule_indexes
 
+    product_import_row = tables["sku_product_import_row"]
+    product_import_foreign_keys = [
+        constraint
+        for constraint in product_import_row.constraints
+        if constraint.__class__.__name__ == "ForeignKeyConstraint"
+    ]
+    assert len(product_import_foreign_keys) == 1
+    product_import_foreign_key = product_import_foreign_keys[0]
+    assert tuple(product_import_foreign_key.columns.keys()) == ("batch_id",)
+    assert product_import_foreign_key.elements[0].target_fullname == (
+        "sku_product_import_batch.batch_id"
+    )
+    assert product_import_foreign_key.ondelete == "CASCADE"
+
     sync_history = tables["sku_product_sync_history"]
     assert [column.name for column in sync_history.primary_key] == ["id"]
     assert {

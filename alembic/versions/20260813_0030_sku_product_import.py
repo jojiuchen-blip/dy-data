@@ -52,6 +52,12 @@ def upgrade() -> None:
         sa.Column("validation_errors_json", sa.JSON()),
         sa.Column("gmt_create", sa.DateTime(timezone=True), nullable=False),
         sa.Column("gmt_modified", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["batch_id"],
+            ["sku_product_import_batch.batch_id"],
+            name="fk_sku_product_import_row_batch",
+            ondelete="CASCADE",
+        ),
         sa.UniqueConstraint("batch_id", "row_number", name="uk_sku_product_import_row_number"),
     )
     op.create_index("idx_sku_product_import_row_sku", "sku_product_import_row", ["sku_id"])
