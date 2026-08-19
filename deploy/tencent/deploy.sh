@@ -128,7 +128,7 @@ if [ "$SKIP_GIT_SYNC" = "true" ]; then
 else
   deployed_sha="$(git rev-parse HEAD)"
 fi
-cat > "$LOG_DIR/last-deploy.json" <<JSON
+sudo tee "$LOG_DIR/last-deploy.json" >/dev/null <<JSON
 {"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","worker_started":$([ "$START_WORKER" = "true" ] && echo true || echo false)}
 JSON
 

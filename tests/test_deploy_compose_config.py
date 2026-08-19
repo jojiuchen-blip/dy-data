@@ -118,6 +118,15 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
 
+def test_tencent_deploy_writes_deploy_record_with_privileged_write():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'sudo tee "$LOG_DIR/last-deploy.json" >/dev/null <<JSON' in deploy_script
+    assert 'cat > "$LOG_DIR/last-deploy.json"' not in deploy_script
+
+
 def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
