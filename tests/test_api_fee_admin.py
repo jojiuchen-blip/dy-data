@@ -402,6 +402,50 @@ def test_single_sku_product_update_preserves_omitted_manual_field(
     assert row.product_type == "原类型"
 
 
+def test_single_sku_product_update_allows_an_explicit_custom_pair(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    row = _seed_sku(db_session, "sku-custom-pair", "自定义口径商品")
+    db_session.commit()
+    _login(client)
+
+    response = client.put(
+        f"/api/v1/admin/sku-products/{row.sku_id}",
+        json={
+            "expectedManualModifiedAt": None,
+            "productScope": "全新产品范围",
+            "productType": "全新商品类型",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["productScope"] == "全新产品范围"
+    assert response.json()["data"]["productType"] == "全新商品类型"
+    db_session.refresh(row)
+    assert (row.product_scope, row.product_type) == ("全新产品范围", "全新商品类型")
+
+
+@pytest.mark.parametrize("reserved", ["all", "unknown", "KEEP", "  keep  "])
+def test_sku_product_update_rejects_reserved_dimension_values(
+    client: TestClient,
+    db_session: Session,
+    reserved: str,
+) -> None:
+    row = _seed_sku(db_session, f"sku-reserved-{reserved.strip()}", "保留值商品")
+    db_session.commit()
+    _login(client)
+
+    response = client.put(
+        f"/api/v1/admin/sku-products/{row.sku_id}",
+        json={"expectedManualModifiedAt": None, "productScope": reserved},
+    )
+
+    assert response.status_code == 422
+    db_session.refresh(row)
+    assert row.product_scope == "原范围"
+
+
 def test_bulk_sku_product_update_is_atomic_and_preserves_omitted_fields(
     client: TestClient,
     db_session: Session,
@@ -514,6 +558,30 @@ def test_sku_product_import_template_and_atomic_commit_support_keep(
     assert (second.product_scope, second.product_type) == ("第二原范围", "新类型")
 
 
+def test_sku_product_import_allows_an_explicit_custom_pair(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    row = _seed_sku(db_session, "sku-import-custom-pair", "导入自定义口径商品")
+    db_session.commit()
+    _login(client)
+
+    uploaded = _upload_product_import(
+        client,
+        [(row.sku_id, "导入新范围", "导入新类型")],
+    )
+
+    assert uploaded.status_code == 200
+    batch = uploaded.json()["data"]["batch"]
+    assert batch["batchStatus"] == "PENDING_COMMIT"
+    committed = client.post(
+        f"/api/v1/admin/sku-product-imports/{batch['batchId']}/commit"
+    )
+    assert committed.status_code == 200
+    db_session.refresh(row)
+    assert (row.product_scope, row.product_type) == ("导入新范围", "导入新类型")
+
+
 @pytest.mark.parametrize(
     "rows",
     [
@@ -582,13 +650,13 @@ def test_sku_product_import_commit_revalidates_product_dimension_combinations(
 ) -> None:
     target = _seed_sku(db_session, "sku-import-dimension-target", "导入口径目标商品")
     reference = _seed_sku(db_session, "sku-import-dimension-reference", "导入口径参考商品")
-    reference.product_scope = "目标范围"
+    reference.product_scope = target.product_scope
     reference.product_type = "目标类型"
     db_session.commit()
     _login(client)
     uploaded = _upload_product_import(
         client,
-        [(target.sku_id, "目标范围", "目标类型")],
+        [(target.sku_id, "KEEP", "目标类型")],
     )
     assert uploaded.status_code == 200
     batch_id = uploaded.json()["data"]["batch"]["batchId"]

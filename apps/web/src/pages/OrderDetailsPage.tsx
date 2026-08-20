@@ -22,11 +22,13 @@ interface OrderDetailsPageProps {
 
 const PAGE_SIZE = 50;
 
-function errorText(error: unknown): string {
+function errorText(error: unknown, hasSourceContext = true): string {
   return apiErrorText(error, "明细服务暂不可用，请稍后重试。", {
     403: "当前账号没有查看或导出该门店明细的权限。",
     409: "当前筛选没有可导出的记录。",
-    422: "来源上下文已变化，请返回单店分账重新进入。",
+    422: hasSourceContext
+      ? "来源上下文已变化，请返回单店分账重新进入。"
+      : "筛选条件无效，请检查后重试。",
   });
 }
 
@@ -92,7 +94,7 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const hasStatementSource = Boolean(statementId && statementLineId);
   const hasPreviewSource = Boolean(storeId && month);
   const hasSourceContext = hasStatementSource || hasPreviewSource;
-  const directionIsFrozen = Boolean(statementLineId || feeRates.length || ruleVersions.length);
+  const directionIsFrozen = hasSourceContext && Boolean(statementLineId || feeRates.length || ruleVersions.length);
 
   const requestQuery = useMemo<OrderFeeDetailsQuery>(() => ({
     statementId: hasStatementSource ? statementId : undefined,
@@ -104,8 +106,8 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     feeDirection,
     productScope,
     productType,
-    feeRates,
-    ruleVersions,
+    feeRates: hasSourceContext ? feeRates : [],
+    ruleVersions: hasSourceContext ? ruleVersions : [],
     dataStatus: dataStatus || undefined,
     q: queryText || undefined,
     page,
@@ -114,7 +116,6 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
   const detailsResource = useApiResource(
     () => fetchOrderFeeDetails(requestQuery),
     [requestQuery],
-    { enabled: hasSourceContext },
   );
   const details = detailsResource.data?.data;
   const rows = details?.list ?? [];
@@ -136,6 +137,10 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
     setExporting(true);
     setExportError(null);
     const context = details.context;
+    const exportHasSourceContext = Boolean(
+      (context.statementId && context.statementLineId)
+      || (context.storeId && context.month),
+    );
     try {
       await exportOrderFeeDetails({
         ...requestQuery,
@@ -146,11 +151,11 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         feeDirection: context.feeDirection,
         productScope: context.productScope,
         productType: context.productType,
-        feeRates: context.feeRates,
-        ruleVersions: context.ruleVersions,
+        feeRates: exportHasSourceContext ? context.feeRates : [],
+        ruleVersions: exportHasSourceContext ? context.ruleVersions : [],
       });
     } catch (error) {
-      setExportError(errorText(error));
+      setExportError(errorText(error, hasSourceContext));
     } finally {
       setExporting(false);
     }
@@ -206,8 +211,8 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
 
   return (
     <div className="page-stack page-stack--data-workspace">
-      <section className="page-heading"><div><p className="eyebrow">门店结算</p><h1>{displayedDirection === "PROMOTION" ? "推广费订单明细" : "管理服务费订单明细"}</h1><p>{normalizedContext?.statementId || hasStatementSource ? "账单行冻结来源" : normalizedContext?.month || hasPreviewSource ? `${normalizedContext?.month ?? month} 预览来源` : "请从单店分账的费用汇总行进入"} · 费用不在前端重算</p></div></section>
-      <ResourceNotice loading={metaResource.loading || detailsResource.loading} error={metaError ?? (detailsError ? errorText(detailsError) : undefined)} />
+      <section className="page-heading"><div><p className="eyebrow">门店结算</p><h1>{displayedDirection === "PROMOTION" ? "推广费订单明细" : "管理服务费订单明细"}</h1><p>{normalizedContext?.statementId || hasStatementSource ? "账单行冻结来源" : normalizedContext?.month || hasPreviewSource ? `${normalizedContext?.month ?? month} 预览来源` : "当前账号授权范围"} · 费用不在前端重算</p></div></section>
+      <ResourceNotice loading={metaResource.loading || detailsResource.loading} error={metaError ?? (detailsError ? errorText(detailsError, hasSourceContext) : undefined)} />
       <div className="fee-direction-tabs" role="group" aria-label="费用类型">
         <Button type="button" aria-pressed={displayedDirection === "PROMOTION"} disabled={directionIsFrozen && displayedDirection !== "PROMOTION"} onClick={() => setDirection("PROMOTION")}>推广服务费</Button>
         <Button type="button" aria-pressed={displayedDirection === "MANAGEMENT"} disabled={directionIsFrozen && displayedDirection !== "MANAGEMENT"} onClick={() => setDirection("MANAGEMENT")}>管理服务费</Button>
@@ -220,9 +225,9 @@ export function OrderDetailsPage({ searchParams }: OrderDetailsPageProps) {
         <FilterField label="搜索"><FieldInput value={queryText} placeholder="订单、券码、SKU 或商品" onChange={(event) => { setQueryText(event.target.value); setPage(1); }} /></FilterField>
       </FilterBar>
       <section className="content-section content-section--data-workspace">
-        <div className="section-title"><div><h2>明细记录</h2><p>{details ? `${details.total} 条 · ${details.context.feeRates.length} 种费率 · ${details.context.ruleVersions.length} 个版本` : hasSourceContext ? "正在读取来源上下文" : "缺少有效的来源上下文"}</p></div><div className="section-title-actions"><Button type="button" icon="fileDownload" size="sm" loading={exporting} disabled={exporting || !details?.total} onClick={handleExportOrders}>{exporting ? "导出中" : "导出"}</Button></div></div>
+        <div className="section-title"><div><h2>明细记录</h2><p>{details ? `${details.total} 条 · ${details.context.feeRates.length} 种费率 · ${details.context.ruleVersions.length} 个版本` : hasSourceContext ? "正在读取来源上下文" : "正在读取当前授权范围"}</p></div><div className="section-title-actions"><Button type="button" icon="fileDownload" size="sm" loading={exporting} disabled={exporting || !details?.total} onClick={handleExportOrders}>{exporting ? "导出中" : "导出"}</Button></div></div>
         {exportError ? <p className="export-error" role="status">{exportError}</p> : null}
-        {!hasSourceContext ? <ResourcePanel>请从单店分账中的推广服务费或管理服务费汇总行进入。<br /><Button type="button" variant="text" onClick={() => navigate(returnHref)}>返回单店分账</Button></ResourcePanel> : !details && detailsResource.loading ? <ResourcePanel>正在加载订单费用明细…</ResourcePanel> : !details ? <ResourcePanel tone="error">{errorText(detailsError)}<br /><Button type="button" variant="text" onClick={() => navigate(returnHref)}>返回单店分账</Button></ResourcePanel> : rows.length ? <><DataTable columns={columns} rows={rows} stickyHeader="container" tableClassName="data-table--details" /><TablePagination page={details.page} pageSize={details.pageSize} total={details.total} totalPages={Math.max(1, Math.ceil(details.total / details.pageSize))} rowsOnPage={rows.length} loading={detailsResource.loading} onPageChange={setPage} /></> : <ResourcePanel>当前筛选下没有费用记录。</ResourcePanel>}
+        {!details && detailsResource.loading ? <ResourcePanel>正在加载订单费用明细…</ResourcePanel> : !details ? <ResourcePanel tone="error">{errorText(detailsError, hasSourceContext)}{hasSourceContext ? <><br /><Button type="button" variant="text" onClick={() => navigate(returnHref)}>返回单店分账</Button></> : null}</ResourcePanel> : rows.length ? <><DataTable columns={columns} rows={rows} stickyHeader="container" tableClassName="data-table--details" /><TablePagination page={details.page} pageSize={details.pageSize} total={details.total} totalPages={Math.max(1, Math.ceil(details.total / details.pageSize))} rowsOnPage={rows.length} loading={detailsResource.loading} onPageChange={setPage} /></> : <ResourcePanel>当前筛选下没有费用记录。</ResourcePanel>}
       </section>
     </div>
   );

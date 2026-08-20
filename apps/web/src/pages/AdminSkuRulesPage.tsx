@@ -39,6 +39,13 @@ type RulesTab = "settings" | "history" | "exceptions";
 type SkuListTab = "enabled" | "disabled";
 type HistorySource = "all" | "manual" | "import";
 
+const COMMISSION_STEPS = [
+  "1 批量选择 SKU",
+  "2 确认分佣比例",
+  "3 检查预选",
+  "4 确认发布",
+];
+
 interface HistoryRow {
   effectiveDate: string;
   id: string;
@@ -126,20 +133,20 @@ function latestEffectiveRules(rules: SkuFeeRuleItem[]): Map<string, SkuFeeRuleIt
 export function AdminSkuRulesPage() {
   const publishIntent = useRef<Map<string, string>>(new Map());
   const previewRef = useRef<HTMLElement | null>(null);
+  const stepRefs = useRef<Array<HTMLElement | null>>([]);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
   const [password, setPassword] = useState("");
   const [activeTab, setActiveTab] = useState<RulesTab>("settings");
   const [skuListTab, setSkuListTab] = useState<SkuListTab>("enabled");
   const [historySource, setHistorySource] = useState<HistorySource>("all");
+  const [activeStep, setActiveStep] = useState(1);
   const [rows, setRows] = useState<SkuRow[]>([]);
   const [feeRules, setFeeRules] = useState<SkuFeeRuleItem[]>([]);
   const [batches, setBatches] = useState<ImportBatchItem[]>([]);
   const [selectedSkuMap, setSelectedSkuMap] = useState<Map<string, SkuRow>>(new Map());
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lookupInput, setLookupInput] = useState("");
-  const [query, setQuery] = useState("");
-  const [productScope, setProductScope] = useState("");
   const [promotionRate, setPromotionRate] = useState("8");
   const [managementRate, setManagementRate] = useState("2");
   const [sameRate, setSameRate] = useState(false);
@@ -179,8 +186,6 @@ export function AdminSkuRulesPage() {
       const response = await fetchSkuRules({
         page: 1,
         pageSize: PAGE_SIZE,
-        productScope: productScope.trim(),
-        q: query.trim(),
       });
       setRows(response.data.rows.map(normalizeRule));
       setCheckedIds(new Set());
@@ -213,6 +218,29 @@ export function AdminSkuRulesPage() {
       if (!handleAuthError(error)) setNotice("分佣规则数据暂时无法读取。");
     });
   }, [authenticated]);
+
+  useEffect(() => {
+    if (activeTab !== "settings") return undefined;
+    const observer = new IntersectionObserver((entries) => {
+      const visible = entries
+        .filter((entry) => entry.isIntersecting)
+        .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top);
+      const step = Number((visible[0]?.target as HTMLElement | undefined)?.dataset.step);
+      if (step) setActiveStep(step);
+    }, { rootMargin: "-22% 0px -62%", threshold: [0, 0.2, 0.6] });
+    stepRefs.current.forEach((node) => node && observer.observe(node));
+    return () => observer.disconnect();
+  }, [activeTab, authenticated]);
+
+  const registerStep = (step: number) => (node: HTMLElement | null) => {
+    stepRefs.current[step - 1] = node;
+    if (step === 3) previewRef.current = node;
+  };
+
+  const scrollToStep = (step: number) => {
+    setActiveStep(step);
+    stepRefs.current[step - 1]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const effectiveRuleMap = useMemo(() => latestEffectiveRules(feeRules), [feeRules]);
   const enabledSkuIds = useMemo(() => new Set(effectiveRuleMap.keys()), [effectiveRuleMap]);
@@ -341,7 +369,7 @@ export function AdminSkuRulesPage() {
     { key: "sku", title: "SKU ID", align: "left", render: (row) => <span className="mono-cell">{row.sku_id}</span> },
     { key: "name", title: "商品名称", align: "left", render: (row) => row.product_name || "-" },
     { key: "scope", title: "产品范围", render: (row) => row.product_scope || "-" },
-    { key: "type", title: "商品类型", render: (row) => row.product_type || "未配置" },
+    { key: "type", title: "商品类型", render: (row) => row.product_type && row.product_type.toLowerCase() !== "unknown" ? row.product_type : <a className="commission-product-type-link" href="/admin/product-types">请前往商品口径页面配置产品类型</a> },
     { key: "rate", title: "分账比例", render: (row) => { const rule = effectiveRuleMap.get(row.sku_id); return rule ? `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}` : "-"; } },
     { key: "commission", title: "参与分账", render: (row) => enabledSkuIds.has(row.sku_id) ? "是" : "否" },
     { key: "orders", title: "订单数", align: "right", render: (row) => formatInteger(row.order_count) },
@@ -393,26 +421,23 @@ export function AdminSkuRulesPage() {
       {activeTab === "settings" ? (
         <>
           <ol className="commission-stepper" aria-label="规则发布步骤">
-            <li>1 批量选择 SKU</li><li>2 确认分佣比例</li><li>3 检查预选</li><li>4 确认发布</li>
+            {COMMISSION_STEPS.map((label, index) => {
+              const step = index + 1;
+              return <li className={activeStep === step ? "is-active" : ""} key={label}><Button aria-current={activeStep === step ? "step" : undefined} className="commission-stepper__button" onClick={() => scrollToStep(step)} size="sm" type="button" variant="text">{label}</Button></li>;
+            })}
           </ol>
           <div className="commission-workspace">
             <main className="commission-workspace__main">
-              <section className="content-section commission-step-card">
-                <div className="section-title"><div><h2>1. SKU 查询与批量选择</h2><p>支持单个、批量选择；批量 SKU ID 可使用换行、空格、中英文逗号或分号分隔，自动去重。</p></div><StatusChip tone="brand">已选 {selectedRows.length}</StatusChip></div>
+              <section className="content-section commission-step-card" data-step="1" ref={registerStep(1)}>
+                <div className="section-title"><div><h2>1. SKU 查询与批量选择</h2><p>支持单个、批量选择；批量 SKU ID 可使用换行、空格、中英文逗号或分号分隔，自动去重。</p></div><div className="section-title-actions"><StatusChip tone="brand">已选 {selectedRows.length}</StatusChip><Button onClick={() => setImportDrawerOpen(true)} type="button" variant="primary">批量导入设置</Button></div></div>
                 <div className="admin-tools commission-query-tools">
-                  <label className="filter-field commission-query-tools__input"><span>SKU ID 或商品名称</span><FieldTextarea onChange={(event) => setLookupInput(event.target.value)} placeholder="SKU-10231，SKU-10246；SKU-10302" rows={3} value={lookupInput} /></label>
+                  <label className="filter-field commission-query-tools__input"><span>SKU ID</span><FieldTextarea onChange={(event) => setLookupInput(event.target.value)} placeholder="SKU-10231，SKU-10246；SKU-10302" rows={3} value={lookupInput} /></label>
                   <Button disabled={working} onClick={() => void lookupAndSelect()} type="button" variant="primary">查询并选择</Button>
-                </div>
-                <div className="admin-tools">
-                  <label className="filter-field"><span>浏览搜索</span><FieldInput onChange={(event) => setQuery(event.target.value)} placeholder="SKU ID 或商品名称" value={query} /></label>
-                  <label className="filter-field"><span>产品范围</span><FieldInput onChange={(event) => setProductScope(event.target.value)} value={productScope} /></label>
-                  <Button disabled={loading} onClick={() => void loadSkuRows()} type="button">查询</Button>
-                  <Button disabled={!checkedIds.size} onClick={() => addSelection(rows.filter((row) => checkedIds.has(row.sku_id)))} type="button">选择当前勾选</Button>
                 </div>
               </section>
 
-              <section className="content-section commission-step-card">
-                <div className="section-title"><div><h2>2. SKU-ID分佣比例确认</h2><p>手工发布与批量导入使用同一套双费率规则。</p></div><Button onClick={() => setImportDrawerOpen(true)} type="button">批量导入设置</Button></div>
+              <section className="content-section commission-step-card" data-step="2" ref={registerStep(2)}>
+                <div className="section-title"><div><h2>2. SKU-ID分佣比例确认</h2><p>手工发布与批量导入使用同一套双费率规则。</p></div></div>
                 <div className="admin-form-grid">
                   <label className="filter-field checkbox-field"><span>两项费率一致</span><FieldInput checked={sameRate} onChange={(event) => { setSameRate(event.target.checked); if (event.target.checked) setManagementRate(promotionRate); }} type="checkbox" /></label>
                   <label className="filter-field"><span>推广服务费比例（%）</span><FieldInput inputMode="decimal" onChange={(event) => { setPromotionRate(event.target.value); if (sameRate) setManagementRate(event.target.value); }} value={promotionRate} /></label>
@@ -424,13 +449,13 @@ export function AdminSkuRulesPage() {
                 <div className="commission-card-actions"><span>将应用到 {selectedRows.length} 个已选 SKU</span><Button onClick={applyRateAndReview} type="button" variant="primary">应用比例并检查预选</Button></div>
               </section>
 
-              <section className="content-section commission-step-card" ref={previewRef} tabIndex={-1}>
+              <section className="content-section commission-step-card" data-step="3" ref={registerStep(3)} tabIndex={-1}>
                 <div className="section-title"><div><h2>3. 检查预选</h2><p>核对 SKU 范围和待发布比例。</p></div></div>
                 {rateApplied ? <div className="commission-preview-summary"><strong>已选 SKU：{selectedRows.length} 个</strong><span>推广 {promotionRate}% · 管理 {managementRate}%</span><span>{effectiveDate} 生效 · {ruleStatus === "ACTIVE" ? "启用" : "停用"}</span></div> : <div className="resource-panel">请先完成第 2 步并应用比例。</div>}
                 <div className="commission-selected-list">{selectedRows.map((row) => <div key={row.sku_id}><span className="mono-cell">{row.sku_id}</span><span>{row.product_name || "-"}</span><Button onClick={() => setSelectedSkuMap((current) => { const next = new Map(current); next.delete(row.sku_id); return next; })} size="sm">移除</Button></div>)}</div>
               </section>
 
-              <section className="content-section commission-step-card">
+              <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
                 <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><Button disabled={!rateApplied || working} onClick={() => setConfirmOpen(true)} type="button" variant="primary">确认发布</Button></div>
               </section>
             </main>
@@ -439,6 +464,7 @@ export function AdminSkuRulesPage() {
 
           <section className="content-section commission-sku-catalog">
             <div className="section-title"><div><h2>全部 SKU 列表</h2><p>启用状态按当前已生效且状态为启用的双费率规则判断。</p></div></div>
+            {rows.some((row) => !row.product_type || row.product_type.toLowerCase() === "unknown") ? <div className="commission-product-type-notice" role="status">部分 SKU 尚未配置商品类型。<a href="/admin/product-types">请前往商品口径页面配置产品类型</a></div> : null}
             <SegmentedControl<SkuListTab> ariaLabel="SKU 分佣状态" onChange={setSkuListTab} options={[{ count: rows.filter((row) => enabledSkuIds.has(row.sku_id)).length, label: "已启用分佣商品列表", value: "enabled" }, { count: rows.filter((row) => !enabledSkuIds.has(row.sku_id)).length, label: "未启用分佣商品列表", value: "disabled" }]} value={skuListTab} />
             <DataTable columns={skuColumns} emptyText={loading ? "正在加载 SKU 数据..." : "当前分类暂无 SKU"} rows={visibleSkuRows} state={loading ? "loading" : "ready"} tableClassName="admin-rule-table" />
           </section>

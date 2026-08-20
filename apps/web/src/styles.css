@@ -4067,11 +4067,19 @@ a.metric-card:hover,
 }
 
 .commission-stepper {
+  position: sticky;
+  top: 72px;
+  z-index: 12;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   margin: 0;
-  padding: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
   list-style: none;
 }
 
@@ -4079,11 +4087,33 @@ a.metric-card:hover,
   min-height: 34px;
   border: 1px solid var(--line);
   border-radius: var(--radius-full);
-  padding: 7px 12px;
   background: var(--surface-muted);
   color: var(--muted);
   font-size: var(--font-size-table);
   font-weight: 700;
+}
+
+.commission-stepper li.is-active {
+  border-color: var(--brand-orange);
+  background: var(--brand-orange);
+  color: var(--surface);
+  box-shadow: 0 6px 16px var(--brand-orange-28);
+}
+
+.commission-stepper__button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  cursor: pointer;
+}
+
+.commission-stepper__button:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
 .commission-workspace {
@@ -4184,9 +4214,30 @@ a.metric-card:hover,
 }
 
 .commission-sku-catalog > .ui-tabs--segmented .ui-tabs__item[aria-selected="true"] {
-  background: var(--surface);
-  color: var(--ink);
+  border: 2px solid var(--brand-orange);
+  background: var(--brand-orange);
+  color: var(--surface);
   box-shadow: var(--shadow-card);
+}
+
+.commission-product-type-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--amber);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--surface-warning);
+  color: var(--ink);
+}
+
+.commission-product-type-notice a,
+.commission-product-type-link {
+  color: var(--brand-orange-ink);
+  font-weight: 800;
 }
 
 .commission-confirmation-list {
@@ -5057,10 +5108,37 @@ a.metric-card:hover,
   gap: 14px;
   position: sticky;
   top: 88px;
+  max-height: calc(100dvh - 108px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .account-form {
   box-shadow: none;
+}
+
+.account-store-tools {
+  display: grid;
+  gap: 10px;
+}
+
+.account-store-import {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.account-store-import__file {
+  position: relative;
+  overflow: hidden;
+}
+
+.account-store-import__file input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
 .account-create-confirmation {
@@ -5874,6 +5952,8 @@ a.metric-card:hover,
 
   .account-editor {
     position: static;
+    max-height: none;
+    overflow: visible;
   }
 
   .sku-selection-drawer {

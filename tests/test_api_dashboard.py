@@ -523,17 +523,21 @@ def test_settlement_reporting_target_contracts_are_camel_case(client: TestClient
     assert "order_001" in export.content.decode("utf-8-sig")
 
 
-def test_settlement_reporting_validation_is_structured(client: TestClient):
+def test_order_fee_details_allows_direct_access_without_source_context(
+    client: TestClient,
+):
     _login(client)
 
     response = client.get(
         "/api/v1/order-fee-details",
-        params={"storeId": "store_001", "feeDirection": "PROMOTION"},
+        params={"feeDirection": "PROMOTION"},
     )
 
-    assert response.status_code == 422
-    assert response.json()["detail"]["code"] == "VALIDATION_FAILED"
-    assert response.json()["detail"]["requestId"].startswith("req_")
+    assert response.status_code == 200
+    payload = response.json()["data"]
+    assert payload["context"]["storeId"] is None
+    assert payload["context"]["month"] is None
+    assert [row["orderId"] for row in payload["list"]] == ["order_001"]
 
 
 def test_order_fee_export_empty_result_is_a_structured_conflict(

@@ -148,6 +148,43 @@ def test_highest_admin_can_create_global_admin_without_store_scopes(client: Test
     assert login.json()["data"]["role"] == "admin"
 
 
+def test_admin_create_generates_and_preserves_technical_username(client: TestClient) -> None:
+    _login_admin(client)
+
+    created = client.post(
+        "/api/v1/admin/accounts",
+        json={
+            "external_account_id": "store-1",
+            "display_name": "Generated Account",
+            "role": "store",
+            "status": "active",
+            "store_ids": ["store-1"],
+            "password": "generated-pass",
+            "password_confirm": "generated-pass",
+        },
+    )
+
+    assert created.status_code == 200
+    data = created.json()["data"]
+    assert data["username"].startswith("acct")
+    assert data["username"].isascii()
+    assert data["username"].isalnum()
+
+    updated = client.put(
+        f"/api/v1/admin/accounts/{data['user_id']}",
+        json={
+            "external_account_id": "store-1",
+            "display_name": "Generated Account Updated",
+            "role": "store",
+            "status": "active",
+            "store_ids": ["store-1", "store-2"],
+        },
+    )
+
+    assert updated.status_code == 200
+    assert updated.json()["data"]["username"] == data["username"]
+
+
 def test_admin_can_list_prepared_unactivated_stores_and_search(
     client: TestClient,
     db_session: Session,
