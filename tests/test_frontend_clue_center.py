@@ -860,12 +860,14 @@ def test_admin_pages_use_shell_for_global_navigation_actions() -> None:
     assert "新建账号" in accounts_source
 
 
-def test_admin_sku_preselection_keeps_product_scope_separate() -> None:
+def test_admin_sku_preselection_removes_browse_filters_and_keeps_dimensions() -> None:
     page_source = read_source("pages/AdminSkuRulesPage.tsx")
 
-    assert 'const [productScope, setProductScope] = useState("");' in page_source
-    assert "productScope: productScope.trim()" in page_source
-    assert '<span>产品范围</span>' in page_source
+    assert 'const [productScope, setProductScope] = useState("");' not in page_source
+    assert "productScope: productScope.trim()" not in page_source
+    assert "浏览搜索" not in page_source
+    assert "1. SKU 查询与批量选择" in page_source
+    assert "批量导入设置" in page_source
     assert 'title: "产品范围"' in page_source
     assert 'title: "商品类型"' in page_source
     assert "商品人工分类" not in page_source

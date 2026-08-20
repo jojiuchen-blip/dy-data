@@ -212,7 +212,7 @@ class UnactivatedStoreAccountListData(BaseModel):
 
 
 class AccountUpsertRequest(BaseModel):
-    username: str
+    username: str | None = None
     display_name: str
     role: Literal["highest_admin", "admin", "store"] = "store"
     status: Literal["active", "disabled"] = "active"
@@ -222,7 +222,16 @@ class AccountUpsertRequest(BaseModel):
     password: str | None = None
     password_confirm: str | None = None
 
-    @field_validator("username", "display_name")
+    @field_validator("username")
+    def optional_username(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        value = " ".join(value.strip().split())
+        if not value:
+            return None
+        return value
+
+    @field_validator("display_name")
     def non_empty_user_input(cls, value: str) -> str:
         value = " ".join(value.strip().split())
         if not value:
@@ -551,6 +560,8 @@ class SkuProductManualFieldsRequest(BaseModel):
         normalized = " ".join(value.strip().split())
         if not normalized:
             raise ValueError("value is required")
+        if normalized.casefold() in {"all", "unknown", "keep"}:
+            raise ValueError("reserved product dimension value is not allowed")
         return normalized
 
     @model_validator(mode="after")

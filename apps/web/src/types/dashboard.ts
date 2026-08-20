@@ -110,7 +110,7 @@ export interface UnactivatedStoreAccountListData {
 }
 
 export interface AccountUpsertPayload {
-  username: string;
+  username?: string;
   display_name: string;
   role: UserRole;
   status: UserStatus;

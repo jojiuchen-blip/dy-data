@@ -681,15 +681,6 @@ def _order_fee_filters(
                 "锁账明细上下文不能与门店月份上下文混用",
                 field="storeId" if store_id else "month",
             )
-    elif not store_id or not month:
-        missing_field = "storeId" if not store_id else "month"
-        _raise_reporting_error(
-            request,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
-            "VALIDATION_FAILED",
-            "无 statementId 时 storeId 和 month 均为必填",
-            field=missing_field,
-        )
     if store_id:
         _require_store_scope(current_user, store_id)
     if month:
@@ -706,6 +697,9 @@ def _order_fee_filters(
     if normalized_data_status:
         _validate_enum(normalized_data_status, DATA_STATUSES, "dataStatus", request)
     _validate_product_selection(store, product_scope, product_type, request)
+    has_source_context = bool(statement_id and statement_line_id) or bool(
+        store_id and month
+    )
     return {
         "statement_id": statement_id,
         "statement_line_id": statement_line_id,
@@ -716,8 +710,8 @@ def _order_fee_filters(
         "fee_direction": fee_direction,
         "product_scope": product_scope,
         "product_type": product_type,
-        "fee_rates": fee_rates or [],
-        "rule_versions": rule_versions or [],
+        "fee_rates": (fee_rates or []) if has_source_context else [],
+        "rule_versions": (rule_versions or []) if has_source_context else [],
         "data_status": normalized_data_status,
         "q": (q or "").strip() or None,
         "page": page,

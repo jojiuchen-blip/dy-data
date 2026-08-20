@@ -123,3 +123,15 @@ def test_settlement_pages_have_product_scope_before_product_type_filters() -> No
     assert "productScope: string;" in types_source
     assert "product_scope?: string;" in types_source
     assert '"product_scope"' in utils_source
+
+
+def test_product_type_editor_accepts_custom_values_with_existing_suggestions() -> None:
+    page_source = read_source("pages/AdminProductTypeVisibilityPage.tsx")
+
+    assert 'list="product-scope-suggestions"' in page_source
+    assert 'id="product-scope-suggestions"' in page_source
+    assert 'list="product-type-suggestions"' in page_source
+    assert 'id="product-type-suggestions"' in page_source
+    assert "可输入新值，也可选择已有建议" in page_source
+    assert 'placeholder="输入或选择产品范围"' in page_source
+    assert 'placeholder="输入或选择商品类型"' in page_source

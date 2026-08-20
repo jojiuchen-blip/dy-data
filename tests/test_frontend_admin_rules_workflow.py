@@ -92,3 +92,41 @@ def test_import_drawer_preserves_prevalidation_errors_and_atomic_commit() -> Non
     assert "error.field" in drawer
     assert "error.message" in drawer
     assert "PENDING_COMMIT" in drawer
+
+
+def test_rules_stepper_is_sticky_clickable_and_tracks_the_visible_step() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+    styles = read_source("styles.css")
+
+    assert "IntersectionObserver" in page
+    assert "activeStep" in page
+    assert "aria-current" in page
+    assert "scrollToStep" in page
+    assert 'className="commission-stepper__button"' in page
+    stepper_styles = styles[
+        styles.index(".commission-stepper {") :
+        styles.index(".commission-workspace {")
+    ]
+    assert "position: sticky" in stepper_styles
+    assert ".commission-stepper li.is-active" in stepper_styles
+
+
+def test_rules_moves_import_to_step_one_and_removes_duplicate_browse_search() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+
+    assert "浏览搜索" not in page
+    assert page.index("批量导入设置") < page.index("2. SKU-ID分佣比例确认")
+    assert 'href="/admin/product-types"' in page
+    assert "请前往商品口径页面配置产品类型" in page
+
+
+def test_rules_enabled_and_disabled_tabs_have_strong_status_styles() -> None:
+    styles = read_source("styles.css")
+    catalog_styles = styles[
+        styles.index(".commission-sku-catalog > .ui-tabs--segmented") :
+        styles.index(".commission-confirmation-list")
+    ]
+
+    assert "border: 2px solid var(--brand-orange)" in catalog_styles
+    assert "background: var(--brand-orange)" in catalog_styles
+    assert "color: var(--surface)" in catalog_styles

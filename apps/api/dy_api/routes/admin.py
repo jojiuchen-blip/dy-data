@@ -268,9 +268,10 @@ def create_account(
     _require_account_manager(actor)
     _ensure_actor_can_manage_role(actor, payload.role)
     _validate_password_payload(payload.password, payload.password_confirm, required=True)
+    technical_username = payload.username or f"acct{uuid4().hex}"
     _ensure_unique_user_fields(
         store.session,
-        username=payload.username,
+        username=technical_username,
         external_account_id=payload.external_account_id,
         exclude_user_id=None,
     )
@@ -281,7 +282,7 @@ def create_account(
     now = generated_at()
     user = User(
         user_id=uuid4().hex,
-        username=normalize_account_value(payload.username),
+        username=normalize_account_value(technical_username),
         external_account_id=_optional_account_value(payload.external_account_id),
         display_name=normalize_account_value(payload.display_name),
         role=payload.role,
@@ -336,9 +337,10 @@ def update_account(
         )
     before = _account_audit_snapshot(store.session, user)
     _validate_password_payload(payload.password, payload.password_confirm, required=False)
+    technical_username = payload.username or user.username
     _ensure_unique_user_fields(
         store.session,
-        username=payload.username,
+        username=technical_username,
         external_account_id=payload.external_account_id,
         exclude_user_id=user_id,
     )
@@ -346,7 +348,7 @@ def update_account(
         payload.role, payload.store_scope_mode, payload.store_ids
     )
     _ensure_store_ids_exist(store.session, store_ids)
-    user.username = normalize_account_value(payload.username)
+    user.username = normalize_account_value(technical_username)
     user.external_account_id = _optional_account_value(payload.external_account_id)
     user.display_name = normalize_account_value(payload.display_name)
     user.role = payload.role

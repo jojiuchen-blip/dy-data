@@ -269,11 +269,11 @@ export function AdminProductTypeVisibilityPage() {
       <Dialog actions={<><Button disabled={saving} onClick={() => setEditorMode(null)} variant="secondary">取消</Button><Button disabled={saving} onClick={() => void saveEditor()} variant="primary">确认设置</Button></>} description={editorMode === "bulk" ? `将修改已跨页选择的 ${selected.size} 个 SKU；未选择设置的字段保持原值。` : `SKU ${editingRow?.skuId ?? ""}；未选择设置的字段保持原值。`} onClose={() => setEditorMode(null)} open={editorMode !== null} panelClassName="product-types-drawer" title={editorMode === "bulk" ? "批量设置商品口径" : "设置商品口径"}>
         <div className="product-types-editor-field">
           <SelectField label="产品范围处理方式" onChange={(value) => setScopeMode(value as FieldMode)} options={[{ label: "保持原值", value: "keep" }, { label: "设置新值", value: "set" }]} value={scopeMode} />
-          {scopeMode === "set" ? <SelectField label="产品范围" onChange={(value) => { setScopeValue(value); if (typeMode === "set" && typeValue && !(scopeTypeMap[value] ?? []).includes(typeValue)) setTypeValue(""); }} options={productScopes.map((value) => ({ label: value, value }))} placeholder="请选择产品范围" value={scopeValue} /> : null}
+          {scopeMode === "set" ? <><TextField helperText="可输入新值，也可选择已有建议。" label="产品范围" list="product-scope-suggestions" onChange={(event) => setScopeValue(event.target.value)} placeholder="输入或选择产品范围" value={scopeValue} /><datalist id="product-scope-suggestions">{productScopes.map((value) => <option key={value} value={value} />)}</datalist></> : null}
         </div>
         <div className="product-types-editor-field">
           <SelectField label="商品类型处理方式" onChange={(value) => setTypeMode(value as FieldMode)} options={[{ label: "保持原值", value: "keep" }, { label: "设置新值", value: "set" }]} value={typeMode} />
-          {typeMode === "set" ? <SelectField label="商品类型" onChange={setTypeValue} options={(scopeMode === "set" && scopeValue ? scopeTypeMap[scopeValue] ?? [] : filteredProductTypes).map((value) => ({ label: value, value }))} placeholder="请选择商品类型" value={typeValue} /> : null}
+          {typeMode === "set" ? <><TextField helperText="可输入新值，也可选择已有建议。" label="商品类型" list="product-type-suggestions" onChange={(event) => setTypeValue(event.target.value)} placeholder="输入或选择商品类型" value={typeValue} /><datalist id="product-type-suggestions">{(scopeMode === "set" && scopeValue ? scopeTypeMap[scopeValue] ?? filteredProductTypes : filteredProductTypes).map((value) => <option key={value} value={value} />)}</datalist></> : null}
         </div>
       </Dialog>
 
