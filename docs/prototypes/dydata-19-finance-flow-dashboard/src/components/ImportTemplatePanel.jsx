@@ -21,7 +21,7 @@ export function ImportTemplatePanel({ title, fields, sample, rules = [], mode = 
       {mode === "import" ? (
         <div className="form-actions">
           <span>实际导入时整批校验；任一行错误则整批不写入。</span>
-          <button type="button" className="button button--primary" onClick={onConfirm}>模拟校验并导入</button>
+          <button type="button" className="button button--primary" onClick={onConfirm}>演示动作：模拟校验并导入</button>
         </div>
       ) : null}
     </section>

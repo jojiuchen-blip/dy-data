@@ -112,10 +112,10 @@ export function StoreBillsPage({ scenario, onNavigate }) {
                 <button
                   type="button"
                   className="button button--primary"
-                  aria-label={`确认${direction.name}金额`}
+                  aria-label={`演示动作：确认${direction.name}金额`}
                   onClick={() => confirmDirection(direction.id)}
                 >
-                  确认金额
+                  演示动作：确认金额
                 </button>
               ) : direction.id === "promotion" && direction.status === "已确认" ? (
                 <button
@@ -184,9 +184,9 @@ export function StoreBillsPage({ scenario, onNavigate }) {
             </table>
           </div>
           <div className="detail-workbench__actions">
-            <span>如对账单金额、费率有异议，请准备争议订单、说明、证明材料后发起；待厂端审核确认。</span>
+            <span>以下确认与异议操作均为演示动作，只修改当前页面内存状态。</span>
             <button type="button" className="text-button text-button--compact text-button--quiet" onClick={() => setDisputeConfirmOpen(true)}>
-              发起账单异议
+              演示动作：发起账单异议
             </button>
           </div>
         </section>
@@ -199,7 +199,7 @@ export function StoreBillsPage({ scenario, onNavigate }) {
           <p>发起异议前请准备充分资料，是否发起？</p>
           <div className="form-actions">
             <button type="button" className="button button--secondary" onClick={() => setDisputeConfirmOpen(false)}>取消</button>
-            <button type="button" className="button button--primary" onClick={() => { setDisputeConfirmOpen(false); setDisputeOpen(true); }}>确认发起</button>
+            <button type="button" className="button button--primary" onClick={() => { setDisputeConfirmOpen(false); setDisputeOpen(true); }}>演示动作：确认发起</button>
           </div>
         </section>
       ) : null}
@@ -242,9 +242,9 @@ export function StoreBillsPage({ scenario, onNavigate }) {
             </label>
           </div>
           <div className="form-actions">
-            <span>提交后系统先检测数据，该费用方向整期保持未确认。</span>
+            <span>演示提交只在当前页面呈现，不会写入任何系统。</span>
             <button type="button" className="button button--primary">
-              提交异议并开始检测
+              演示动作：提交异议并开始检测
             </button>
           </div>
         </section>

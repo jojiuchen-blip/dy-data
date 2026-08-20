@@ -39,7 +39,7 @@ export function FinanceDisputesPage() {
       <div className="data-table-wrap">
         <table>
           <thead><tr><th>异议编号</th><th>异议类型</th><th>门店</th><th>费用方向 / 账期</th><th>异议金额</th><th>系统检测结果</th><th>状态</th><th>操作</th></tr></thead>
-          <tbody>{amountDisputes.map((row) => <tr key={row.id}><td>{row.id}</td><td>{row.type}</td><td><strong>{row.store}</strong></td><td>{row.feeDirection} / {row.period}</td><td className="amount">{money(row.disputedAmount)}</td><td>{row.systemResult}</td><td><StatusTag tone={row.status === "已驳回" ? "neutral" : "warning"}>{row.status}</StatusTag></td><td><button type="button" className="text-button" onClick={() => setSelectedAmount(row.id)}>{row.action}</button></td></tr>)}</tbody>
+          <tbody>{amountDisputes.map((row) => <tr key={row.id}><td>{row.id}</td><td>{row.type}</td><td><strong>{row.store}</strong></td><td>{row.feeDirection} / {row.period}</td><td className="amount">{money(row.disputedAmount)}</td><td>{row.systemResult}</td><td><StatusTag tone={row.status === "已驳回" ? "neutral" : "warning"}>{row.status}</StatusTag></td><td><button type="button" className="text-button" onClick={() => setSelectedAmount(row.id)}>演示动作：{row.action}</button></td></tr>)}</tbody>
         </table>
       </div>
 
@@ -47,7 +47,7 @@ export function FinanceDisputesPage() {
         <aside className="detail-drawer" aria-labelledby="amount-detail-title">
           <header><div><span className="eyebrow">金额异议详情</span><h2 id="amount-detail-title">{selectedAmountRow.type} · {selectedAmountRow.store}</h2></div><button type="button" className="text-button" onClick={() => setSelectedAmount(null)}>关闭</button></header>
           <dl><div><dt>系统检测结果</dt><dd>{selectedAmountRow.systemResult}</dd></div><div><dt>整期确认规则</dt><dd>处理完成前，该费用方向整期未确认，已确认金额为 0</dd></div><div><dt>处理权限</dt><dd>管理员或最高管理员均可处理</dd></div><div><dt>处理完成</dt><dd>账单自动确认，无需门店再次确认</dd></div></dl>
-          <footer><button type="button" className="button button--secondary">驳回并自动确认</button><button type="button" className="button button--primary">受理并生成新版本</button></footer>
+          <footer><button type="button" className="button button--secondary">演示动作：驳回并自动确认</button><button type="button" className="button button--primary">演示动作：受理并生成新版本</button></footer>
         </aside>
       ) : null}
     </section>

@@ -43,7 +43,7 @@ export function FinanceBaseInfoPage({ scenario }) {
           <div className="page-heading__actions page-heading__actions--wrap">
             <button type="button" className="button button--secondary" onClick={() => setPanel("template")}>下载基础信息导入模板</button>
             <button type="button" className="button button--secondary" onClick={exportBaseInformation}>导出门店基础信息</button>
-            <button type="button" className="button button--primary" onClick={() => setPanel("import")}>导入门店基础信息</button>
+            <button type="button" className="button button--primary" onClick={() => setPanel("import")}>演示动作：导入门店基础信息</button>
           </div>
         ) : null}
       </header>
@@ -64,7 +64,7 @@ export function FinanceBaseInfoPage({ scenario }) {
             title="基础信息导入模板"
             fields={templateFields}
             sample={["7123456789012345678", "深圳龙岗比亚迪王朝店", "0010028460", "2026-08-12 10:20"]}
-            rules={["全部字段必填。", "SAP编码为纯数字时必须为10位，不足前补0；非纯数字保持原值。", "系统同时记录操作人和导入日志，不保存原始上传文件。"]}
+            rules={["全部字段必填。", "SAP编码为纯数字时必须为10位，不足前补0；非纯数字保持原值。", "原文件留存政策待 DYDATA-19 财务与审计决策；原型不执行真实上传。"]}
             mode={panel}
             onClose={() => setPanel(null)}
             onConfirm={() => { setPanel(null); setNotice("模拟导入成功：基础信息已按门店ID更新"); }}

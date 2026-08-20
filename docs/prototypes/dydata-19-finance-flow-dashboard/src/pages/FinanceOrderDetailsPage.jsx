@@ -24,6 +24,7 @@ const fieldDefinitions = {
   "退款时间": "仅退款负数行有值；用于计算退款所属账期。",
   "实收金额": "正常交易为正数；退款生成独立负数行，不覆盖原交易。",
   "实际费率": "取订单命中且在业务发生时有效的费率版本。",
+  "原始费用": "按该行实收金额乘以实际费率，以分为单位四舍五入。",
   "对应发票号码": "随对应账期最新发票状态更新。",
   "发票提交时间": "门店在系统提交推广费发票信息的成功时间；管理费取财务导入时间。",
   "发票审核状态": "展示当前最新厂家审核或开票处理状态。",
@@ -164,7 +165,7 @@ function FinanceOrderDetailsPage({ direction, returnPage, onNavigate, onDirectio
                 <td><strong>{row.orderId}</strong></td><td>{row.couponId}</td><td>{row.orderStatus} / {row.couponStatus}</td>
                 <td><strong>{row.productName}</strong></td><td>{row.skuId}</td><td>{row.productType}</td><td>{row.saleChannel}</td>
                 <td>{row.saleStoreName}</td><td>{row.verifyStoreName}</td><td>{row.saleTime}</td><td>{row.verifyTime}</td><td>{row.refundTime}</td>
-                <td className="amount">{money(row.receivedAmount)}</td><td>{row.feeRate}</td><td>{row.invoiceNumber}</td><td>{row.submittedAt}</td>
+                <td className="amount">{money(row.receivedAmount)}</td><td>{row.feeRate}</td><td className="amount">{money(row.originalFee)}</td><td>{row.invoiceNumber}</td><td>{row.submittedAt}</td>
                 <td><StatusTag tone={statusTone(row.invoiceAuditStatus)}>{row.invoiceAuditStatus}</StatusTag></td><td>{row.settlementDate}</td><td>{row.rejectionReason}</td>
               </tr>
             ))}

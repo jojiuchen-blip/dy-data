@@ -14,8 +14,8 @@ export function FinanceImportsPage() {
       </header>
 
       <div className="validation-banner" role="note">
-        <strong>仅保存导入日志，不保存原始上传文件。</strong>
-        <span>日志记录导入类型、源文件名称、数据行数、校验结果、操作人、导入时间和覆盖摘要。</span>
+        <strong>留存政策待 DYDATA-19 财务与审计决策。</strong>
+        <span>下表只演示可能的日志字段；本原型不会上传、保存或覆盖任何业务数据。</span>
       </div>
 
       <section className="records-section" aria-labelledby="import-records-title">

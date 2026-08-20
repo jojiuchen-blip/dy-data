@@ -1,3 +1,5 @@
+import { calculateOriginalFee } from "../domain/financeRules.js";
+
 export const timelineSteps = [
   { id: "month-end", label: "月度结束", time: "7月31日", detail: "联网后启动排查" },
   { id: "inspection", label: "系统排查", time: "8月1日起", detail: "检查数据是否齐全" },
@@ -349,11 +351,10 @@ const sharedOrderFields = {
   dataStatus: "已锁账",
   resultStatus: "有效",
   ruleVersion: "RATE-202607-03",
-  originalFee: 1027.2,
   adjustmentFee: 0,
 };
 
-export const financeOrderDetails = [
+const financeOrderDetailFixtures = [
   {
     ...sharedOrderFields,
     id: "FEE-P-001",
@@ -500,6 +501,11 @@ export const financeOrderDetails = [
     rejectionReason: "—",
   },
 ];
+
+export const financeOrderDetails = financeOrderDetailFixtures.map((row) => ({
+  ...row,
+  originalFee: calculateOriginalFee(row.receivedAmount, row.feeRate),
+}));
 
 export const importDemoRows = {
   valid: [
