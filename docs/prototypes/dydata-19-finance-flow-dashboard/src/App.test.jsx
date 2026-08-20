@@ -340,7 +340,7 @@ describe("财务端财务流程", () => {
   it("财务端使用审核不通过状态且不展示账单版本", () => {
     render(<App initialRole="finance" initialPage="finance-promotion" />);
 
-    expect(screen.getByRole("option", { name: "审核不通过" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "审核不通过，请重新上传" })).toBeInTheDocument();
     expect(screen.queryByText("审核不通过，请红冲重开")).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "账期" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "账期 / 版本" })).not.toBeInTheDocument();
@@ -497,5 +497,51 @@ describe("财务端财务流程", () => {
     for (const type of ["基础信息导入", "推广费厂家导入信息", "管理服务费厂家导入信息", "SAP编码确认"]) {
       expect(screen.getByText(type)).toBeInTheDocument();
     }
+  });
+});
+
+describe("DYDATA-19 页面设计回环", () => {
+  it("财务导航写入稳定业务路由并支持订单费用子路由", async () => {
+    window.history.replaceState({}, "", "/finance/promotion");
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: "推广服务费" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "管理服务费" }));
+    expect(window.location.pathname).toBe("/finance/management");
+    await user.click(screen.getByRole("button", { name: "查看管理服务费订单明细" }));
+    expect(window.location.pathname).toBe("/finance/orders/management");
+  });
+
+  it("财务指标可在单月与累计之间切换并说明累计起算月", async () => {
+    const user = userEvent.setup();
+    render(<App initialRole="finance" initialPage="finance-promotion" />);
+
+    expect(screen.getByRole("button", { name: "单月" })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "累计" }));
+    expect(screen.getByText("累计自 2026 年 8 月起，不含 2026 年 7 月演示数据")).toBeInTheDocument();
+    expect(screen.getByText("已确认金额（仅单月）")).toBeInTheDocument();
+  });
+
+  it("推广费展示完整状态链并明确系统内不审核", () => {
+    render(<App initialRole="finance" initialPage="finance-promotion" />);
+
+    for (const label of ["待开票", "提交成功，待厂端审核", "审核通过，已结算", "审核不通过，请重新上传"]) {
+      expect(screen.getByRole("option", { name: label })).toBeInTheDocument();
+    }
+    expect(screen.getByText("审核在系统外完成；管理员只导入结果，系统内不创建待审核任务。", { exact: false })).toBeInTheDocument();
+  });
+
+  it("导入原型覆盖无变化、差异覆盖、整批失败和版本冲突", async () => {
+    const user = userEvent.setup();
+    render(<App initialRole="finance" initialPage="finance-management" />);
+    await user.click(screen.getByRole("button", { name: "演示动作：导入管理服务费厂家信息" }));
+
+    for (const status of ["首次成功", "无变化", "差异待确认", "整批失败", "版本冲突"]) {
+      expect(screen.getByRole("option", { name: status })).toBeInTheDocument();
+    }
+    await user.selectOptions(screen.getByRole("combobox", { name: "导入结果场景" }), "整批失败");
+    expect(screen.getByText("整批未写入")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "下载全部错误" })).toBeInTheDocument();
   });
 });

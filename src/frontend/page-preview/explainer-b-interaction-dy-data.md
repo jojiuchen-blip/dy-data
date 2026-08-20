@@ -7,6 +7,82 @@
 > 状态权威源：每条语义的 status 在卡片行和「机读表（下游消费）」各写一次，**以机读表为权威**；两处必须同步更新。
 >
 > 2026-07-20 基线确认：全部 57 条交互均已由需求方确认并标记为 `locked`。结算中心直接关联的产品入口、门店榜单、单店分账、订单明细和核销表现只冻结为“当前版本历史基线”，不代表协作者改造后的最终需求；新版合入后必须重新验证并覆盖对应条目。
+> 2026-08-20 DYDATA-19 loop 1：新增 4 条已由 Playwright 运行页面、自动化测试和用户连续推进授权共同确认的交互语义，均为 `locked`。
+
+## DYDATA-19 loop 1 交互补充
+
+### dy19.routing.navigate.1
+
+- actor: 门店或管理员
+- source_page: `/settlement`、`/settlement/invoice`、`/finance/*`
+- source_module: 角色切换、侧栏导航、订单穿透
+- source_element: 页面导航按钮
+- precondition: none
+- trigger: 点击或直接打开业务 URL
+- system_behavior: 使用稳定路由切换页面并保留角色与订单费用方向
+- user_visible_result: URL、侧栏选中态、标题和页面内容同步变化；浏览器返回可恢复上一页
+- validation: 未知路径回到对应角色默认页
+- fallback: none
+- evidence_source: Playwright 2026-08-20 + `App.jsx` + App.test.jsx
+- prototype_note: 仅表达路由语义，不连接生产认证
+- status: locked
+
+### dy19.metrics.scope.1
+
+- actor: 管理员
+- source_page: `/finance/promotion`、`/finance/management`
+- source_module: 顶部金额指标
+- source_element: 单月/累计切换
+- precondition: 已进入费用方向页面
+- trigger: 点击“单月”或“累计”
+- system_behavior: 切换可累计指标口径，已确认金额保持单月
+- user_visible_result: 指标金额、口径标签及“累计自 2026 年 8 月起”说明同步变化
+- validation: 2026 年 7 月演示数据不计入累计
+- fallback: 无可累计账期时显示 0 和累计起算说明
+- evidence_source: Playwright 点击累计 + 页面截图 + DYDATA-19 规格
+- prototype_note: 合成累计金额只用于表达交互，不是生产算法
+- status: locked
+
+### dy19.promotion.status.1
+
+- actor: 门店或管理员
+- source_page: `/settlement/invoice`、`/finance/promotion`
+- source_module: 推广费发票状态
+- source_element: 状态标签、筛选和系统边界提示
+- precondition: none
+- trigger: 查看或筛选状态
+- system_behavior: 展示待开票、待厂端审核、审核通过已结算、审核不通过请重新上传四态；管理员导入系统外结果
+- user_visible_result: 状态、原因和重新上传指引一致，页面明确系统内不创建待审核任务
+- validation: 管理服务费不得出现推广费审核状态
+- fallback: 审核结果未导入时保持“提交成功，待厂端审核”
+- evidence_source: Playwright 2026-08-20 + FinancePromotionPage.jsx + 用户历史确认
+- prototype_note: 不执行系统内审核或真实打款
+- status: locked
+
+### dy19.import.result.1
+
+- actor: 管理员
+- source_page: 四类业务导入入口与 `/finance/imports`
+- source_module: 导入预检、结果和版本冲突
+- source_element: 导入结果场景、错误下载、刷新最新数据
+- precondition: 已选择符合对应模板的文件
+- trigger: 校验导入或选择结果场景
+- system_behavior: 整批校验；区分首次成功、无变化、差异待确认、整批失败和版本冲突
+- user_visible_result: 失败展示全部错误行摘要、分页和下载；冲突展示读取版本、当前版本、最近操作人/时间及刷新入口
+- validation: 任一行错误则整批不写入；相同内容不生成新版本
+- fallback: 版本冲突时阻止覆盖并要求刷新
+- evidence_source: Playwright 导入交互 + ImportTemplatePanel.jsx + DYDATA-19 规格
+- prototype_note: 合成场景只冻结用户可见反馈，不实现真实事务与文件存储
+- status: locked
+
+### DYDATA-19 loop 1 机读表（下游消费）
+
+| id | actor | source_page | source_module | source_element | precondition | trigger | system_behavior | user_visible_result | validation | fallback | evidence_source | prototype_note | status |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| dy19.routing.navigate.1 | 门店或管理员 | /settlement、/settlement/invoice、/finance/* | 导航 | 页面导航按钮 | none | 点击或深链 | 稳定路由切页并保留方向 | URL、选中态、标题与内容同步 | 未知路径回默认页 | none | Playwright + App.jsx + tests | 不连接认证 | locked |
+| dy19.metrics.scope.1 | 管理员 | /finance/promotion、/finance/management | 金额指标 | 单月/累计 | 已进入费用页 | 点击 | 切换可累计指标，已确认金额保持单月 | 金额、标签与起算说明变化 | 累计不含 2026-07 | 无账期显示0 | Playwright + 截图 + 规格 | 合成金额非生产算法 | locked |
+| dy19.promotion.status.1 | 门店或管理员 | /settlement/invoice、/finance/promotion | 推广费状态 | 状态标签和筛选 | none | 查看或筛选 | 展示四态并读取管理员导入结果 | 状态、原因、重新上传指引一致 | 管理费不复用审核态 | 未导入保持待审核 | Playwright + 页面代码 + 用户确认 | 不执行审核打款 | locked |
+| dy19.import.result.1 | 管理员 | 业务导入入口、/finance/imports | 导入结果 | 场景、错误下载、刷新 | 已选择文件 | 校验或切换 | 整批校验并区分五类结果 | 全错行、差异、版本冲突可见 | 错一行整批不写 | 冲突阻止覆盖 | Playwright + 页面代码 + 规格 | 不实现真实事务 | locked |
 
 ## 共享业务外壳
 
