@@ -3,8 +3,8 @@
 > 生成时间: 2026-07-17 15:46
 > 来源: foundation-builder Phase 3
 > 关联: [术语表](foundation-glossary-dy-data.md) · [API](foundation-api-dy-data.md)
-> 范围: DYDATA-1/21/30/31/33/38 的商品、费率、双费用结算、原始订单主键迁移与四页查询地基；本文是结构索引，不是 DDL
-> 增量修订: 2026-07-17 补齐账单汇总行与账单来源项；2026-07-20 确认参与分账 SKU 双费率批量导入、全量原子写入、日级生效及原始订单/券内部主键迁移口径；2026-07-20 14:54 补齐 3 张结算查询既有只读依赖表的逐表字段定义
+> 范围: DYDATA-1/19/21/30/31/33/38 的商品、费率、双费用结算、账单确认、异议、发票登记、财务导入与查询地基；本文是结构索引，不是 DDL
+> 增量修订: 2026-08-20 按 DYDATA-19 将账单改为不可变版本，新增方向确认、异议、发票登记版本、财务导入与财务操作审计；最新规则覆盖旧的只读开票假设
 
 ---
 
@@ -18,6 +18,8 @@
 - 同一 SKU、同一规则生效日只能有一个费率版本，由唯一索引约束；同月不同日期允许创建新版本，订单按业务日匹配不晚于该日的最新有效版本。
 - 订单费用结果按“券 + 费用方向 + 结果版本”不可变保存；当前版本由独立指针表维护。
 - 已锁账结果不得重算或覆盖；退款、取消核销等后续事件通过独立调整记录计入事件发生月份。
+- 财务与发票表按 PostgreSQL 设计；当前有效记录使用部分唯一索引，所有更正新增版本并原子切换当前指针。
+- 系统不保存开票申请单或审核任务；推广费真实开票和厂端审核在系统外完成，管理服务费由管理员导入已完成结果。
 
 ## §1 全表总览
 
@@ -40,10 +42,18 @@
 | 15 | `settlement_statement_entry` | 锁账与开票 | 新建 | 冻结账单实际纳入的费用结果或调整记录 | [结算与报表 §6](foundation-schema-dy-data/settlement-reporting.md#6-settlement_statement_entry--账单来源项) | **新增** |
 | 16 | `agg_store_monthly_settlement` | 单店分账 | 现有·需改动 | 提供单店月度双费用汇总投影 | [结算与报表 §7](foundation-schema-dy-data/settlement-reporting.md#7-agg_store_monthly_settlement--单店月度双费用投影现有需改动) | |
 | 17 | `agg_store_ranking` | 全国榜单 | 现有·需改动 | 提供月度和正式累计的门店排名投影 | [结算与报表 §8](foundation-schema-dy-data/settlement-reporting.md#8-agg_store_ranking--门店排名投影现有需改动) | |
+| 18 | `settlement_statement_confirmation` | 账单确认 | 新建 | 保存账单版本按费用方向的确认快照 | [账单与发票 §1](foundation-schema-dy-data/billing-invoice.md#1-settlement_statement_confirmation--账单方向确认) | **新增** |
+| 19 | `settlement_dispute` | 异议 | 新建 | 保存门店异议、内部管理员处理状态和结果 | [账单与发票 §2](foundation-schema-dy-data/billing-invoice.md#2-settlement_dispute--账单异议) | **新增** |
+| 20 | `settlement_dispute_order` | 异议 | 新建 | 保存异议涉及订单/券和金额 | [账单与发票 §3](foundation-schema-dy-data/billing-invoice.md#3-settlement_dispute_order--异议订单范围) | **新增** |
+| 21 | `invoice_record` | 发票登记 | 新建 | 保存推广费门店登记和管理费管理员导入的当前/历史版本 | [账单与发票 §4](foundation-schema-dy-data/billing-invoice.md#4-invoice_record--当前及历史发票登记版本) | **新增** |
+| 22 | `invoice_status_event` | 发票登记 | 新建 | 保存登记、状态导入和版本覆盖事件 | [账单与发票 §5](foundation-schema-dy-data/billing-invoice.md#5-invoice_status_event--发票状态事件) | **新增** |
+| 23 | `finance_import_batch` | 财务导入 | 新建 | 保存四类模板的预校验、版本和原子提交状态 | [账单与发票 §6](foundation-schema-dy-data/billing-invoice.md#6-finance_import_batch--财务导入批次) | **新增** |
+| 24 | `finance_import_row` | 财务导入 | 新建 | 保存逐行标准化内容和全部校验错误 | [账单与发票 §7](foundation-schema-dy-data/billing-invoice.md#7-finance_import_row--财务导入逐行结果) | **新增** |
+| 25 | `finance_operation_audit` | 操作审计 | 新建 | 保存账单、异议、发票和导入操作留痕 | [账单与发票 §8](foundation-schema-dy-data/billing-invoice.md#8-finance_operation_audit--财务操作审计) | **新增** |
 
 ### §1.1 本轮外既有依赖表
 
-以下表不计入 17 张目标设计表，因为本轮不改变其结构；它们仍是 API 字段和结算计算的明确数据来源，不能用“查询派生”掩盖：
+以下表不计入 25 张目标设计表，因为本轮不改变其结构；它们仍是 API 字段和结算计算的明确数据来源，不能用“查询派生”掩盖：
 
 | 既有表 | 本轮读取字段 | 用途 | 定义于 |
 |--------|-------------|------|--------|
@@ -62,6 +72,7 @@
 | [product-rule-source.md](foundation-schema-dy-data/product-rule-source.md) | < 400 | 商品当前/历史、范围规则、双费率、导入批次、订单券与退款事件 |
 | [settlement-reporting.md](foundation-schema-dy-data/settlement-reporting.md) | < 400 | 费用结果、当前指针、调整、账单头、账单汇总行、账单来源项与报表投影 |
 | [existing-read-dependencies.md](foundation-schema-dy-data/existing-read-dependencies.md) | < 400 | 门店、POI 映射与核销原始记录的既有只读字段定义 |
+| [billing-invoice.md](foundation-schema-dy-data/billing-invoice.md) | < 400 | 账单方向确认、异议、发票版本、四类财务导入和操作审计 |
 
 ## §3 页面 → 表字段追溯
 
@@ -74,7 +85,11 @@
 | 单店分账 | 门店/月/产品维度、推广费、管理费、调整后净额、账单状态 | `agg_store_monthly_settlement` + `settlement_statement` + `settlement_statement_line` |
 | 锁定账单明细 | 费用方向、产品维度、逐笔订单/券、原始或调整金额、规则版本 | `settlement_statement_line` + `settlement_statement_entry` + `settlement_fee_result` + `settlement_fee_adjustment` |
 | 订单费用明细 | 订单/券、方向、规则匹配日、原始月、调整月、基数、费率、金额、规则版本 | `settlement_fee_result_current` + `settlement_fee_result` + `settlement_fee_adjustment` |
-| 开票确认 | 账单月份、状态、推广费开票范围、锁账状态 | `settlement_statement` |
+| 门店账单确认 | 账单版本、费用方向、确认金额和服务器确认时间 | `settlement_statement` + `settlement_statement_confirmation` |
+| 门店异议 | 类型、说明、订单、金额、联系人、手机号、证明资料和处理状态 | `settlement_dispute` + `settlement_dispute_order` |
+| 推广费发票登记 | 门店、账期、账单版本、20 位发票号、日期、金额、四节点状态 | `invoice_record` + `invoice_status_event` |
+| 管理服务费发票 | 门店、账期、发票/扣款金额、导入时间和版本 | `invoice_record` + `finance_import_batch` |
+| 财务导入 | 模板类型、文件摘要、读取/当前版本、整批状态、全部错误行 | `finance_import_batch` + `finance_import_row` |
 
 ## §4 逻辑关联与事务边界
 
@@ -88,6 +103,8 @@
 - `settlement_statement` 锁账事务必须冻结对应月份的当前费用结果和当月调整：先写逐笔来源项，再汇总账单行和账单头，最后原子切换为已锁账；三层金额不一致时禁止锁账。
 - 锁账后账单头、汇总行和来源项均不可修改或删除，也不允许切换已纳入账单的结果指针；后续退款只能创建调整并进入事件发生月份的另一张账单。
 - 任何缺失单券金额、未知渠道、未知归属账号、未知 SKU 或冲突费率都不得猜测计算，应进入既有 `data_quality_issue` 体系并阻断对应费用方向。
+- 财务导入按四类模板的业务唯一键精确匹配；门店只使用 `store_id`，禁止名称、SAP 编码、金额或月份模糊匹配。任一错误使正式业务表整批零写入。
+- 发票和财务导入更正只新增版本；旧记录及审计永久可追溯，允许归档到低成本存储但仍须可查询。
 
 ## §5 迁移与兼容边界
 
@@ -99,7 +116,7 @@
   2. **应用与约束切换**：采集 upsert 改为按平台业务 ID 查询后更新或新增，内部关联改用数值 ID；验证无孤儿和结算差异后再把 `id` 切为主键、平台业务 ID 切为非空唯一键，并移除字符串主键/级联角色。
 - 两阶段之间不得删除或改写 `order_id`、`coupon_id`；若第二阶段应用切换失败，应以前滚修复或切回保留的平台业务 ID 查询路径恢复，不直接回滚已产生的新主键值。
 - 迁移验证至少包含订单/券行数、内部 ID 空值和重复数、订单—券孤儿数、重复采集幂等、结算明细数量及关键样例金额；生产 `alembic upgrade head` 不在 foundation 阶段执行。
-- 目标商品归属账号 ID、真实渠道枚举和开票材料仍是上线前外部依赖；Schema 已预留稳定 ID、原始/标准化值和待通知边界，不需要硬编码占位值。
+- 目标商品归属账号 ID 和真实渠道枚举仍是上线前外部依赖；真实开票在系统外完成，系统只登记信息和管理员导入结果。
 
 ## §6 Phase 3 确认状态
 
@@ -115,6 +132,5 @@ Phase 3 全部确认完成。Phase 4 已生成并获用户确认的 [API 契约]
 - [商品与原始数据](foundation-schema-dy-data/product-rule-source.md) 中 9 张表已回填公开查询、管理员写入或“仅内部 worker 写入”的接口边界。
 - [结算与报表](foundation-schema-dy-data/settlement-reporting.md) 中 8 张表已回填榜单、单店分账、订单费用明细、导出及“无公开写接口”的锁账边界。
 - 公开 API 只使用平台/业务 ID，不暴露 DYDATA-38 迁移新增的内部自增 `id`。
-- 开票确认页不新增发票 API；账单确认和锁账本轮保持内部流程，待未来独立需求补齐角色、审计与撤回口径后再扩展。
-- 2026-07-20 用户确认 Phase 4 的 22 个目标接口、批量文件限制、不可变费率版本、只读锁账/开票边界、新订单费用路径和外部商品 API 待样例边界；Phase 5 只做一致性修正，不改变上述业务决策。
+- 2026-08-20 DYDATA-19 已补齐账单确认、异议、发票登记、四类财务导入、版本覆盖和审计口径；该确认显式覆盖 2026-07-20 的只读锁账/开票边界。
 - 2026-07-20 PRD Phase 5 回溯补齐 3 张既有只读依赖表的字段定义；API 契约未变化，无需新增或修改接口。

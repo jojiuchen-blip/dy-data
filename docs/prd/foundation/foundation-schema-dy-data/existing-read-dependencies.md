@@ -1,10 +1,10 @@
-# 结算查询既有只读依赖 Schema
+﻿# 结算查询既有只读依赖 Schema
 
 > 所属索引: [foundation-schema-dy-data.md](../foundation-schema-dy-data.md)
 > 增量原因: 2026-07-20 PRD Phase 5 发现 3 张既有依赖表只有主索引概述，缺少可校验的逐表字段定义
 > 边界: 本文件记录当前代码和既有迁移中已经存在、被结算查询消费的字段；不新增字段、索引、外键或数据库迁移
 
-## 1 `dim_stores` — 门店维表（既有·只读引用）
+### 1 `dim_stores` — 门店维表（既有·只读引用）
 
 - **现状证据**：`apps/api/dy_api/models.py` 的 `DimStore` 与 `alembic/versions/20260612_0001_backend_production_mvp.py`。
 - **本项目使用方式**：按用户门店授权范围读取业务 ID 和展示名称。
@@ -20,7 +20,7 @@
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回当前门店 ID 和名称。
 - `GET /api/v1/order-fee-details` — 补齐销售门店和核销门店展示名称。
 
-## 2 `dim_store_poi_mappings` — POI 与门店映射（既有·只读引用）
+### 2 `dim_store_poi_mappings` — POI 与门店映射（既有·只读引用）
 
 - **现状证据**：`apps/api/dy_api/models.py` 的 `DimStorePoiMapping` 与 `alembic/versions/20260612_0001_backend_production_mvp.py`。
 - **本项目使用方式**：服务层按核销 POI 查找核销门店；公开 API 不直接暴露映射表记录。
@@ -40,7 +40,7 @@
 - 结算计算和订单费用查询在服务端完成 `raw_douyin_verify_records.poi_id` → `dim_store_poi_mappings.store_id` 映射。
 - 未映射 POI 不猜测门店，应记录数据质量问题并按受影响费用方向阻断或降级。
 
-## 3 `raw_douyin_verify_records` — 抖音核销原始记录（既有·只读引用）
+### 3 `raw_douyin_verify_records` — 抖音核销原始记录（既有·只读引用）
 
 - **现状证据**：`apps/api/dy_api/models.py` 的 `RawDouyinVerifyRecord` 与 `alembic/versions/20260612_0001_backend_production_mvp.py`。
 - **本项目使用方式**：读取核销业务日、核销状态、券和 POI 原始事实；采集写入仍由既有 worker 负责。
