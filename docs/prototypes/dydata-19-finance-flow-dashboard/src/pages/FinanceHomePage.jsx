@@ -5,7 +5,7 @@ const entries = [
   { page: "finance-promotion", icon: "wallet", title: "推广服务费", detail: "查看全量门店确认、发票提交、厂端审核与结算结果。" },
   { page: "finance-management", icon: "bill", title: "管理服务费", detail: "批量登记厂端开票号码、金额和开票时间。" },
   { page: "finance-disputes", icon: "danger", title: "账单异议", detail: "统一处理 SAP 编码差异和账单金额费率异议。" },
-  { page: "finance-imports", icon: "document", title: "导入记录", detail: "统一查看四类批量导入日志，不保存原始上传文件。" },
+  { page: "finance-imports", icon: "document", title: "导入记录", detail: "统一查看四类批量导入日志；留存政策待 DYDATA-19 财务与审计决策。" },
 ];
 
 export function FinanceHomePage({ onNavigate }) {

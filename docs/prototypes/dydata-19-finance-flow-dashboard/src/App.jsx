@@ -78,6 +78,10 @@ export function App({ initialRole = "store", initialPage, initialScenario }) {
         <strong>{pageTitle}</strong>
         <span className="workspace-topline__version">DYDATA-19 · Mock</span>
       </div>
+      <aside className="prototype-boundary" role="note" aria-label="原型边界">
+        <strong>需求讨论原型</strong>
+        <span>非生产能力 · 非权威契约 · 不会提交、审核、打款或修改业务状态</span>
+      </aside>
       <FinanceTimeline scenario={scenario} />
       <ScenarioSwitcher
         value={scenarioId}

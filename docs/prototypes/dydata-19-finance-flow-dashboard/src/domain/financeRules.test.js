@@ -31,8 +31,35 @@ describe("DYDATA-19 财务规则", () => {
   });
 
   it("按提交成功时间判断结算归属月", () => {
+    expect(getSettlementMonth("2026-08-10 23:59:59")).toBe("2026-08");
+    expect(getSettlementMonth("2026-08-11 00:00:00")).toBe("2026-09");
     expect(getSettlementMonth("2026-08-10T23:59:59+08:00")).toBe("2026-08");
     expect(getSettlementMonth("2026-08-11T00:00:00+08:00")).toBe("2026-09");
+  });
+
+  const amountErrors = {
+    netAmount: "不含税金额必须填写有效数字",
+    taxAmount: "税额必须填写有效数字",
+    total: "价税合计必须填写有效数字",
+    expectedTotal: "已确认金额必须是有效数字",
+  };
+  const invalidAmounts = ["", "not-a-number", Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY];
+
+  it.each(Object.entries(amountErrors).flatMap(([field, expectedError]) => (
+    invalidAmounts.map((value) => [field, value, expectedError])
+  )))("拒绝非有限金额 %s=%s", (field, value, expectedError) => {
+    const invoice = {
+      buyer: "比亚迪汽车销售有限公司",
+      taxRate: 6,
+      invoiceNumber: "25322000000178435216",
+      netAmount: 100,
+      taxAmount: 6,
+      total: 106,
+      expectedTotal: 106,
+      [field]: value,
+    };
+
+    expect(validateInvoice(invoice)).toContain(expectedError);
   });
 
   it("拒绝错误的购买方、税率、号码和金额", () => {

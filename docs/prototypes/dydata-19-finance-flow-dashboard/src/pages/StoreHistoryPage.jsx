@@ -16,7 +16,16 @@ export function StoreHistoryPage({ scenario }) {
     }));
   });
   const promotionStatus = scenario.title === "发票校验或审核失败" ? "已重新开具" : promotionRecords[0].auditStatus;
-  const failedAuditAmount = promotionStatus === "已重新开具" ? 0 : 76420;
+  const sumPromotionAmount = (predicate, field = "total") => promotionRecords
+    .filter(predicate)
+    .reduce((total, invoice) => total + Number(invoice[field] ?? 0), 0);
+  const promotionTotal = sumPromotionAmount(() => true, "totalFee");
+  const confirmedAmount = sumPromotionAmount(() => true, "confirmedAmount");
+  const invoicedAmount = sumPromotionAmount((invoice) => /^\d{20}$/.test(invoice.invoiceNumber));
+  const settledAmount = sumPromotionAmount((invoice) => invoice.auditStatus.includes("审核通过") || invoice.auditStatus.includes("已结算"));
+  const failedAuditAmount = promotionStatus === "已重新开具"
+    ? 0
+    : sumPromotionAmount((invoice) => invoice.auditStatus.includes("不通过"));
   const promotionStatusTone = promotionStatus.includes("不通过")
     ? "danger"
     : promotionStatus.includes("通过") || promotionStatus.includes("重新开具")
@@ -35,19 +44,19 @@ export function StoreHistoryPage({ scenario }) {
       <dl className="metric-strip" aria-label="推广服务费金额汇总">
         <div>
           <dt>推广服务费总额</dt>
-          <dd>{money(301880.5)}</dd>
+          <dd>{money(promotionTotal)}</dd>
         </div>
         <div>
           <dt>已确认金额</dt>
-          <dd>{money(301880.5)}</dd>
+          <dd>{money(confirmedAmount)}</dd>
         </div>
         <div>
           <dt>已开票金额</dt>
-          <dd>{money(225460.5)}</dd>
+          <dd>{money(invoicedAmount)}</dd>
         </div>
         <div>
           <dt>发票审核通过已结算金额</dt>
-          <dd>{money(96820)}</dd>
+          <dd>{money(settledAmount)}</dd>
         </div>
         <div>
           <dt>发票审核未通过金额</dt>

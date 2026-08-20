@@ -14,17 +14,17 @@ export function ImportDialog({ importType, rows, result, onClose, onConfirm }) {
         <StatusTag tone={result.ok ? "success" : "danger"}>
           {result.ok ? "整批校验通过" : "整批校验失败"}
         </StatusTag>
-        <span>共 {rows.length} 行 · 可写入 {result.accepted} 行 · 拒绝 {result.rejected} 行</span>
+        <span>共 {rows.length} 行 · 演示可写入 {result.accepted} 行 · 拒绝 {result.rejected} 行</span>
       </div>
       {!result.ok ? (
         <div className="validation-banner validation-banner--danger" role="alert">
-          <strong>整批校验失败，未写入任何记录</strong>
-          <span>请修正所有错误行后重新上传；本次不会产生部分成功数据。</span>
+          <strong>整批演示校验失败，未修改任何业务记录</strong>
+          <span>请修正所有错误行后重新选择；本原型不会上传文件或产生部分成功数据。</span>
         </div>
       ) : (
         <div className="validation-banner validation-banner--success" role="status">
-          <strong>数据齐全，可以一次性写入</strong>
-          <span>如识别到同业务键的不同版本，系统将在确认前提示覆盖范围。</span>
+          <strong>数据齐全，可以演示一次性写入</strong>
+          <span>确认仅修改当前页面内存状态，不会覆盖真实业务数据。</span>
         </div>
       )}
       <div className="data-table-wrap">
@@ -45,9 +45,9 @@ export function ImportDialog({ importType, rows, result, onClose, onConfirm }) {
         </table>
       </div>
       <footer className="form-actions">
-        <span>系统仅保存校验、覆盖、操作人与导入时间日志，不保存原始上传文件。</span>
+        <span>原文件留存政策待 DYDATA-19 财务与审计决策；本原型不执行真实上传或保存。</span>
         <button type="button" className="button button--primary" disabled={!result.ok} onClick={onConfirm}>
-          确认整批导入
+          演示动作：确认整批导入
         </button>
       </footer>
     </section>

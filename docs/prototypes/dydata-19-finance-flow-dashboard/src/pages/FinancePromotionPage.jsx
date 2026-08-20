@@ -48,7 +48,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
         </div>
         <div className="page-heading__actions page-heading__actions--wrap">
           <button type="button" className="button button--secondary" onClick={() => setImportPanel("template")}>下载推广费厂家导入模板</button>
-          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>导入推广费厂家信息</button>
+          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>演示动作：导入推广费厂家信息</button>
         </div>
       </header>
       {importPanel ? <ImportTemplatePanel

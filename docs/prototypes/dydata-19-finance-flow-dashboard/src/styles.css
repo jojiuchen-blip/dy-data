@@ -100,6 +100,9 @@ small { color: var(--text-muted); }
 .workspace-topline i { color: var(--border-strong); font-style: normal; }
 .workspace-topline strong { color: var(--text); }
 .workspace-topline__version { margin-left: auto; font-size: 12px; }
+.prototype-boundary { display: flex; align-items: center; gap: 10px; max-width: 1540px; margin: 14px auto 0; padding: 12px 14px; color: var(--danger); background: var(--danger-soft); border: 1px solid color-mix(in srgb, var(--danger) 32%, transparent); border-radius: 8px; }
+.prototype-boundary strong { flex: 0 0 auto; }
+.prototype-boundary span { font-size: 13px; }
 
 .timeline-panel, .scenario-switcher, .business-page { max-width: 1540px; margin-inline: auto; }
 .timeline-panel { margin-top: 20px; padding: 18px 20px; background: var(--surface); border: 1px solid var(--border); box-shadow: var(--shadow-small); }
@@ -371,6 +374,7 @@ td.amount { text-align: right; font-variant-numeric: tabular-nums; }
   .app-header__actions { justify-self: end; }
   .brand-lockup small { display: none; }
   .workspace-topline__version { display: none; }
+  .prototype-boundary { align-items: flex-start; flex-direction: column; gap: 4px; }
   .metric-strip { grid-template-columns: 1fr; }
   .form-grid { grid-template-columns: 1fr; }
   .form-grid__wide { grid-column: auto; }

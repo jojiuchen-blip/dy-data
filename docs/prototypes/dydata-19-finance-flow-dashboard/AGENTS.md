@@ -2,7 +2,11 @@
 
 Run the local server and open the preview in the browser available to this environment. Do not ask the user to start the server when it can be run locally.
 
-This prototype is the confirmed DYDATA-19 finance-flow discussion artifact. Keep these durable decisions:
+This directory is a historical DYDATA-19 requirement-discussion prototype. It is not a production capability, an approved business contract, or an authority for finance policy.
+
+For current scope and acceptance, use [Linear DYDATA-19](https://linear.app/keith-lim/issue/DYDATA-19), [Linear DYDATA-74](https://linear.app/keith-lim/issue/DYDATA-74), `../../prd/mainprd-dy-data.md`, and `../../prd/subprd/04-subprd-invoice-guide.md`. If this prototype conflicts with those sources, the current Linear issue and PRD/Foundation documents take precedence.
+
+The following items describe historical demonstration assumptions only. They must not be promoted into production behavior without a separately reviewed Linear requirement:
 
 - The demo covers both store and finance views; finance uses the existing administrator permission model.
 - Store-facing terminology is “账单确认”; the dispute entrance exists inside bill details but is deliberately not prominent.
@@ -13,4 +17,4 @@ This prototype is the confirmed DYDATA-19 finance-flow discussion artifact. Keep
 - External audit approval equals full payment; external audit rejection requires red-flush and reissue.
 - Paid results do not roll back; recompute differences move to the next billing period.
 
-Build application UI in `src/`. Use realistic Chinese mock data, V0.2.1 semantic tokens, Solar icons, visible focus, responsive record cards, and reduced-motion support. Before delivery run `npm test`, `npm run build`, and real-browser interaction checks.
+Keep all work inside this standalone mock. Do not connect real APIs, databases, authentication, payment actions, production data, or deployment workflows. Use synthetic Chinese mock data only. Before delivery run `npm test`, `npm run build`, and real-browser interaction checks.

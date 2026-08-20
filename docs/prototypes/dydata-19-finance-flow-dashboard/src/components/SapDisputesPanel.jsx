@@ -15,7 +15,7 @@ export function SapDisputesPanel() {
       <div className="dispute-action-bar" role="group" aria-label="SAP异议操作">
         <button type="button" className="button button--secondary" onClick={() => setTemplate("sap-export")}>导出 SAP 编码差异清单</button>
         <button type="button" className="button button--secondary" onClick={() => setTemplate("sap-download")}>下载 SAP 编码确认模板</button>
-        <button type="button" className="button button--primary" onClick={() => setTemplate("sap-import")}>导入最终确认 SAP 编码</button>
+        <button type="button" className="button button--primary" onClick={() => setTemplate("sap-import")}>演示动作：导入最终确认 SAP 编码</button>
       </div>
 
       {template ? (
@@ -37,7 +37,7 @@ export function SapDisputesPanel() {
           {template === "sap-import" ? (
             <div className="form-actions">
               <span>导入后以门店ID匹配差异记录，并把厂家确认结果写入有效SAP编码。</span>
-              <button type="button" className="button button--primary" onClick={() => { setEffectiveSap(sapDisputes[0].finalSap); setSapImportApplied(true); setTemplate(null); }}>确认导入并更新有效SAP编码</button>
+              <button type="button" className="button button--primary" onClick={() => { setEffectiveSap(sapDisputes[0].finalSap); setSapImportApplied(true); setTemplate(null); }}>演示动作：确认导入并更新有效SAP编码</button>
             </div>
           ) : null}
         </section>
