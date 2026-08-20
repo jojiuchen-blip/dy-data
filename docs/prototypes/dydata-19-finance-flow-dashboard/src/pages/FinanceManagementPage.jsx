@@ -5,6 +5,7 @@ import { managementInvoices } from "../data/financeData.js";
 import { money } from "../domain/financeRules.js";
 import { exportAllFields } from "../domain/csvExport.js";
 import { ImportTemplatePanel } from "../components/ImportTemplatePanel.jsx";
+import { MetricScopeToggle } from "../components/MetricScopeToggle.jsx";
 
 const managementImportFields = ["门店ID（所属账户关联poi-id）", "账期", "服务店名称", "发票号码", "发票开具日期", "厂家扣款日期", "厂家扣款金额"];
 
@@ -15,6 +16,7 @@ export function FinanceManagementPage({ onNavigate }) {
   const [exportNotice, setExportNotice] = useState("");
   const [importPanel, setImportPanel] = useState(null);
   const [importNotice, setImportNotice] = useState("");
+  const [metricScope, setMetricScope] = useState("month");
   const rows = useMemo(() => managementInvoices.filter((row) => {
     const matchesSearch = `${row.store}${row.effectiveSap}${row.invoiceNumber}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch
@@ -23,6 +25,7 @@ export function FinanceManagementPage({ onNavigate }) {
   }), [search, status, period]);
   const total = rows.reduce((sum, row) => sum + row.totalFee, 0);
   const issued = rows.reduce((sum, row) => sum + row.invoiceAmount, 0);
+  const scopeMultiplier = metricScope === "cumulative" ? 2.1 : 1;
 
   function exportCurrentRows() {
     const count = exportAllFields(rows, `管理服务费-${period === "全部账期" ? "全部账期" : period}.csv`);
@@ -51,11 +54,12 @@ export function FinanceManagementPage({ onNavigate }) {
         onConfirm={() => { setImportPanel(null); setImportNotice("模拟导入成功：管理服务费厂家信息已更新"); }}
       /> : null}
       {importNotice ? <div className="inline-notice" role="status">{importNotice}</div> : null}
+      <MetricScopeToggle value={metricScope} onChange={setMetricScope} />
       <MetricStrip items={[
-        { label: "管理费总额", value: money(total) },
-        { label: "已确认金额", value: money(total) },
-        { label: "待开票金额", value: money(total - issued), tone: "warning" },
-        { label: "已开票金额", value: money(issued), tone: "success" },
+        { label: "管理费总额", value: money(total * scopeMultiplier) },
+        { label: "已确认金额（仅单月）", value: money(total) },
+        { label: "待开票金额", value: money((total - issued) * scopeMultiplier), tone: "warning" },
+        { label: "已开票金额", value: money(issued * scopeMultiplier), tone: "success" },
       ]} />
       <div className="export-guidance">账期、状态与搜索条件同时作用于列表、金额汇总和导出结果。</div>
       <WorkbenchToolbar onSearch={setSearch} actions={<><button type="button" className="button button--secondary" onClick={() => onNavigate?.("finance-orders", { direction: "管理服务费" })}>查看管理服务费订单明细</button><button type="button" className="button button--secondary" onClick={exportCurrentRows}>导出当前筛选结果</button></>}>

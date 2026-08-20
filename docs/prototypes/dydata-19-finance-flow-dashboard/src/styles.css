@@ -220,13 +220,19 @@ td.amount { text-align: right; font-variant-numeric: tabular-nums; }
 .audit-failure { display: flex; align-items: flex-start; gap: 13px; margin-bottom: 14px; padding: 14px; color: var(--danger); background: var(--danger-soft); border-left: 3px solid var(--danger); }
 .audit-failure div { display: grid; gap: 5px; }
 
-.metric-strip { display: grid; grid-template-columns: repeat(5, minmax(145px, 1fr)); gap: 1px; margin: 16px 0; background: var(--border); border: 1px solid var(--border); }
+.metric-strip { display: grid; grid-template-columns: repeat(var(--metric-count, 5), minmax(145px, 1fr)); gap: 1px; margin: 16px 0; background: var(--border); border: 1px solid var(--border); }
 .metric-strip > div, .metric-card { min-width: 0; padding: 14px; background: var(--surface); }
 .metric-strip dd { font-size: clamp(15px, 1.35vw, 21px); }
 .metric-strip small { display: block; margin-top: 3px; font-size: 10px; }
 .metric-card--success { border-top: 2px solid var(--success); }
 .metric-card--warning { border-top: 2px solid var(--warning); }
 .metric-card--danger { border-top: 2px solid var(--danger); }
+.metric-scope { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
+.metric-scope > span { color: var(--text-muted); font-size: 11px; }
+.metric-scope__buttons { display: inline-flex; padding: 3px; background: var(--surface-muted); border: 1px solid var(--border); border-radius: 8px; }
+.metric-scope__buttons button { min-width: 64px; min-height: 30px; padding: 0 12px; color: var(--text-muted); background: transparent; border: 0; border-radius: 6px; font-weight: 750; }
+.metric-scope__buttons button[aria-pressed="true"] { color: var(--text); background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 8%); }
+.system-boundary-note { display: flex; gap: 8px; margin-top: 14px; padding: 10px 12px; color: var(--info); background: var(--info-soft); border-left: 3px solid var(--info); font-size: 12px; }
 
 .history-section { margin-top: 12px; }
 .history-table table { min-width: 920px; }
@@ -280,6 +286,15 @@ td.amount { text-align: right; font-variant-numeric: tabular-nums; }
 .template-preview { margin-bottom: 16px; padding: 16px; background: var(--surface); border: 1px solid var(--border); }
 .template-preview p { margin-top: 10px; color: var(--text-muted); font-size: 12px; }
 .import-template-panel { margin-top: 0; }
+.import-scenario-control { display: grid; grid-template-columns: 120px minmax(220px, 360px); align-items: center; gap: 12px; margin: 14px 0; }
+.import-scenario-control span { font-size: 12px; font-weight: 750; }
+.import-scenario-control select { min-height: 38px; }
+.import-result { display: grid; gap: 5px; margin: 12px 0; padding: 12px; border-left: 3px solid var(--info); background: var(--info-soft); }
+.import-result span { font-size: 12px; }
+.import-result--success { color: var(--success); border-left-color: var(--success); background: var(--success-soft); }
+.import-result--warning { color: var(--warning); border-left-color: var(--warning); background: var(--warning-soft); }
+.import-result--danger { color: var(--danger); border-left-color: var(--danger); background: var(--danger-soft); }
+.import-error-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .template-rules { display: grid; gap: 6px; margin-top: 12px; padding: 12px; color: var(--text-muted); background: var(--surface-muted); border: 1px solid var(--border); }
 .template-rules ul { margin: 0; padding-left: 18px; font-size: 12px; }
 .segmented-tabs { display: flex; gap: 2px; margin: 18px 0 0; border-bottom: 1px solid var(--border); }
@@ -339,6 +354,8 @@ td.amount { text-align: right; font-variant-numeric: tabular-nums; }
 }
 
 @media (max-width: 760px) {
+  .metric-scope, .import-error-actions { align-items: stretch; flex-direction: column; }
+  .import-scenario-control { grid-template-columns: 1fr; }
   .app-shell { grid-template-rows: auto auto 1fr; }
   .app-header { position: relative; grid-template-columns: 1fr auto; gap: 10px; min-height: 112px; padding: 12px 14px; }
   .role-switcher { grid-row: 2; grid-column: 1 / -1; justify-self: stretch; margin: 0; }

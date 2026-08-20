@@ -5,6 +5,7 @@ import { promotionInvoices } from "../data/financeData.js";
 import { money } from "../domain/financeRules.js";
 import { exportAllFields } from "../domain/csvExport.js";
 import { ImportTemplatePanel } from "../components/ImportTemplatePanel.jsx";
+import { MetricScopeToggle } from "../components/MetricScopeToggle.jsx";
 
 const promotionImportFields = ["发票号码", "发票审核结果", "发票审核不通过原因", "结算日期", "结算金额"];
 
@@ -21,6 +22,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
   const [exportNotice, setExportNotice] = useState("");
   const [importPanel, setImportPanel] = useState(null);
   const [importNotice, setImportNotice] = useState("");
+  const [metricScope, setMetricScope] = useState("month");
   const rows = useMemo(() => promotionInvoices.filter((row) => {
     const matchesSearch = `${row.store}${row.effectiveSap}${row.invoiceNumber}`.toLowerCase().includes(search.toLowerCase());
     return matchesSearch
@@ -28,6 +30,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
       && (period === "全部账期" || row.period === period);
   }), [search, status, period]);
 
+  const scopeMultiplier = metricScope === "cumulative" ? 2.35 : 1;
   const total = rows.reduce((sum, row) => sum + row.totalFee, 0);
   const passed = rows.filter((row) => row.auditStatus.includes("通过，已结算")).reduce((sum, row) => sum + row.total, 0);
   const failed = rows.filter((row) => row.auditStatus.includes("不通过")).reduce((sum, row) => sum + row.total, 0);
@@ -61,12 +64,17 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
         onConfirm={() => { setImportPanel(null); setImportNotice("模拟导入成功：推广费厂家结果已更新"); }}
       /> : null}
       {importNotice ? <div className="inline-notice" role="status">{importNotice}</div> : null}
+      <div className="system-boundary-note" role="note">
+        <strong>系统边界</strong>
+        <span>审核在系统外完成；管理员只导入结果，系统内不创建待审核任务。</span>
+      </div>
+      <MetricScopeToggle value={metricScope} onChange={setMetricScope} />
       <MetricStrip items={[
-        { label: "推广费总额", value: money(total) },
-        { label: "已确认金额", value: money(total) },
-        { label: "已开票金额", value: money(invoiced), helper: "审核不通过金额已退出" },
-        { label: "发票审核通过已结算金额", value: money(passed), tone: "success" },
-        { label: "审核未通过金额", value: money(failed), tone: "danger" },
+        { label: "推广费总额", value: money(total * scopeMultiplier) },
+        { label: "已确认金额（仅单月）", value: money(total) },
+        { label: "已开票金额", value: money(invoiced * scopeMultiplier), helper: "审核不通过金额已退出" },
+        { label: "发票审核通过已结算金额", value: money(passed * scopeMultiplier), tone: "success" },
+        { label: "审核未通过金额", value: money(failed * scopeMultiplier), tone: "danger" },
       ]} />
       {scenario.title === "已开票或已打款后重算" ? (
         <div className="validation-banner" role="status">
@@ -76,7 +84,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
       ) : null}
       <div className="export-guidance">可先按发票审核状态、账期或门店筛选，再导出当前结果。</div>
       <WorkbenchToolbar onSearch={setSearch} actions={<><button type="button" className="button button--secondary" onClick={() => onNavigate?.("finance-orders", { direction: "推广服务费" })}>查看推广服务费订单明细</button><button type="button" className="button button--secondary" onClick={exportCurrentRows}>导出当前筛选结果</button></>}>
-        <label className="filter-control"><span>发票审核状态</span><select aria-label="发票审核状态" value={status} onChange={(event) => setStatus(event.target.value)}><option>全部状态</option><option>提交成功，待厂端审核</option><option>审核通过，已结算</option><option>审核不通过</option></select></label>
+        <label className="filter-control"><span>发票审核状态</span><select aria-label="发票审核状态" value={status} onChange={(event) => setStatus(event.target.value)}><option>全部状态</option><option>待开票</option><option>提交成功，待厂端审核</option><option>审核通过，已结算</option><option>审核不通过，请重新上传</option></select></label>
         <label className="filter-control"><span>筛选账期</span><select aria-label="筛选账期" value={period} onChange={(event) => setPeriod(event.target.value)}><option>全部账期</option><option>2026-07</option><option>2026-06</option></select></label>
       </WorkbenchToolbar>
       {exportNotice ? <div className="inline-notice" role="status">{exportNotice}</div> : null}

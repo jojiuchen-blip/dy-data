@@ -6,7 +6,7 @@ export const timelineSteps = [
   { id: "confirmation", label: "账单确认", time: "1—6日", detail: "门店确认或发起异议" },
   { id: "auto-confirm", label: "自动确认", time: "6日24:00", detail: "门店无确认，系统自动确认" },
   { id: "invoice", label: "发票提交", time: "10日24:00前", detail: "决定当月结算批次" },
-  { id: "audit", label: "厂端审核", time: "系统外完成", detail: "财务导回审核结果" },
+  { id: "audit", label: "系统外审核", time: "系统外完成", detail: "管理员导入已完成结果" },
   { id: "settled", label: "审核通过，已结算", time: "全额打款", detail: "不设部分结算" },
 ];
 
@@ -89,7 +89,7 @@ export const promotionInvoices = [
     total: 76420,
     invoiceDate: "2026-08-11",
     submittedAt: "2026-08-11 09:05",
-    auditStatus: "审核不通过",
+    auditStatus: "审核不通过，请重新上传",
     auditReason: "发票项目名称不符合开票要求",
     settlementMonth: "2026-09",
     updatedAt: "2026-08-14 15:18",

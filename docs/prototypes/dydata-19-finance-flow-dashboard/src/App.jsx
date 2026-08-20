@@ -28,12 +28,49 @@ const financePages = {
   "finance-imports": { label: "导入记录", icon: "document", Component: FinanceImportsPage },
 };
 
-export function App({ initialRole = "store", initialPage, initialScenario }) {
-  const [role, setRole] = useState(initialRole);
-  const [page, setPage] = useState(initialPage ?? (initialRole === "store" ? "store-bills" : "finance-promotion"));
-  const [scenarioId, setScenarioId] = useState(initialScenario ?? (initialRole === "store" ? "F01" : "F05"));
+const pageRoutes = {
+  "store-bills": "/settlement",
+  "store-invoices": "/settlement/invoice",
+  "store-history": "/settlement/invoice",
+  "finance-promotion": "/finance/promotion",
+  "finance-management": "/finance/management",
+  "finance-orders": "/finance/orders/promotion",
+  "finance-base-info": "/finance/stores",
+  "finance-disputes": "/finance/disputes",
+  "finance-imports": "/finance/imports",
+};
+
+function routeFromLocation() {
+  const path = window.location.pathname;
+  if (path === "/settlement/invoice") return { role: "store", page: "store-invoices" };
+  if (path === "/settlement") return { role: "store", page: "store-bills" };
+  if (path === "/finance/management") return { role: "finance", page: "finance-management" };
+  if (path === "/finance/orders/management") return { role: "finance", page: "finance-orders", direction: "管理服务费" };
+  if (path === "/finance/orders/promotion") return { role: "finance", page: "finance-orders", direction: "推广服务费" };
+  if (path === "/finance/stores") return { role: "finance", page: "finance-base-info" };
+  if (path === "/finance/disputes") return { role: "finance", page: "finance-disputes" };
+  if (path === "/finance/imports") return { role: "finance", page: "finance-imports" };
+  if (path.startsWith("/finance")) return { role: "finance", page: "finance-promotion" };
+  return { role: "store", page: "store-bills" };
+}
+
+function routeForPage(page, direction) {
+  if (page === "finance-orders") {
+    return direction === "管理服务费" ? "/finance/orders/management" : "/finance/orders/promotion";
+  }
+  if (page === "store-history") return "/settlement/invoice?view=history";
+  return pageRoutes[page] ?? "/settlement";
+}
+
+export function App({ initialRole, initialPage, initialScenario }) {
+  const initialRoute = routeFromLocation();
+  const resolvedRole = initialRole ?? initialRoute.role;
+  const resolvedPage = initialPage ?? (initialRole ? (initialRole === "store" ? "store-bills" : "finance-promotion") : initialRoute.page);
+  const [role, setRole] = useState(resolvedRole);
+  const [page, setPage] = useState(resolvedPage);
+  const [scenarioId, setScenarioId] = useState(initialScenario ?? (resolvedRole === "store" ? "F01" : "F05"));
   const [theme, setTheme] = useState("light");
-  const [financeOrderDirection, setFinanceOrderDirection] = useState("推广服务费");
+  const [financeOrderDirection, setFinanceOrderDirection] = useState(initialPage || initialRole ? "推广服务费" : (initialRoute.direction ?? "推广服务费"));
 
   const pages = role === "store" ? storePages : financePages;
   const ActivePage = pages[page]?.Component ?? Object.values(pages)[0].Component;
@@ -43,23 +80,37 @@ export function App({ initialRole = "store", initialPage, initialScenario }) {
     document.documentElement.dataset.theme = theme;
   }, [theme]);
 
+  useEffect(() => {
+    function syncFromHistory() {
+      const next = routeFromLocation();
+      setRole(next.role);
+      setPage(next.page);
+      if (next.direction) setFinanceOrderDirection(next.direction);
+    }
+    window.addEventListener("popstate", syncFromHistory);
+    return () => window.removeEventListener("popstate", syncFromHistory);
+  }, []);
+
   const pageTitle = useMemo(() => pages[page]?.label ?? Object.values(pages)[0].label, [page, pages]);
 
   function applyScenario(nextScenario) {
     setRole(nextScenario.role);
-    setPage(nextScenario.page);
+    navigate(nextScenario.page);
   }
 
   function changeRole(nextRole) {
     setRole(nextRole);
     setScenarioId(nextRole === "store" ? "F01" : "F05");
+    const nextPage = nextRole === "store" ? "store-bills" : "finance-promotion";
+    setPage(nextPage);
+    window.history.pushState({}, "", routeForPage(nextPage));
   }
 
   function navigate(nextPage, options = {}) {
-    if (nextPage === "finance-orders" && options.direction) {
-      setFinanceOrderDirection(options.direction);
-    }
+    const nextDirection = nextPage === "finance-orders" ? (options.direction ?? financeOrderDirection) : financeOrderDirection;
+    if (nextPage === "finance-orders") setFinanceOrderDirection(nextDirection);
     setPage(nextPage);
+    window.history.pushState({}, "", routeForPage(nextPage, nextDirection));
   }
 
   return (
@@ -69,7 +120,7 @@ export function App({ initialRole = "store", initialPage, initialScenario }) {
       page={page}
       theme={theme}
       onRoleChange={changeRole}
-      onPageChange={setPage}
+      onPageChange={navigate}
       onThemeChange={setTheme}
     >
       <div className="workspace-topline">
@@ -99,4 +150,4 @@ export function App({ initialRole = "store", initialPage, initialScenario }) {
   );
 }
 
-export { financePages, storePages };
+export { financePages, pageRoutes, storePages };

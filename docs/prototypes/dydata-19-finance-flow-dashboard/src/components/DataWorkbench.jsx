@@ -2,7 +2,7 @@ import { SolarIcon } from "./SolarIcon.jsx";
 
 export function MetricStrip({ items }) {
   return (
-    <dl className="metric-strip">
+    <dl className="metric-strip" style={{ "--metric-count": items.length }}>
       {items.map((item) => (
         <div className={`metric-card metric-card--${item.tone ?? "neutral"}`} key={item.label}>
           <dt>{item.label}</dt>
