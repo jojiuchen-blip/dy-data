@@ -35,16 +35,33 @@
 | 角色 | 页面 | 路由 | 页面组件 | 本轮状态 |
 |---|---|---|---|---|
 | 门店 | 月度账单确认 | `/settlement` | `src/pages/StoreBillsPage.jsx` | 已验证 |
-| 门店 | 开票确认与状态 | `/settlement/invoice` | `src/pages/StoreInvoicesPage.jsx`、`src/pages/StoreHistoryPage.jsx` | 已验证 |
-| 管理员 | 推广服务费 | `/finance/promotion` | `src/pages/FinancePromotionPage.jsx` | 已验证 |
-| 管理员 | 管理服务费 | `/finance/management` | `src/pages/FinanceManagementPage.jsx` | 已验证 |
-| 管理员 | 推广服务费订单明细 | `/finance/orders/promotion` | `src/pages/FinanceOrderDetailsPage.jsx` | 已验证 |
-| 管理员 | 管理服务费订单明细 | `/finance/orders/management` | `src/pages/FinanceOrderDetailsPage.jsx` | 已验证 |
-| 管理员 | 门店基础信息与 SAP | `/finance/stores` | `src/pages/FinanceBaseInfoPage.jsx` | 已验证 |
+| 门店 | 推广费发票登记 | `/settlement/invoice` | `src/pages/StoreInvoicesPage.jsx`、`src/pages/StoreHistoryPage.jsx` | 已验证 |
+| 管理员 | 管理员推广服务费 | `/finance/promotion` | `src/pages/FinancePromotionPage.jsx` | 已验证 |
+| 管理员 | 管理员管理服务费 | `/finance/management` | `src/pages/FinanceManagementPage.jsx` | 已验证 |
+| 管理员 | 管理员推广服务费 | `/finance/orders/promotion` | `src/pages/FinanceOrderDetailsPage.jsx` | 已验证 |
+| 管理员 | 管理员管理服务费 | `/finance/orders/management` | `src/pages/FinanceOrderDetailsPage.jsx` | 已验证 |
+| 管理员 | 门店基础信息 | `/finance/stores` | `src/pages/FinanceBaseInfoPage.jsx` | 已验证 |
 | 管理员 | 账单异议 | `/finance/disputes` | `src/pages/FinanceDisputesPage.jsx` | 已验证 |
-| 管理员 | 导入记录 | `/finance/imports` | `src/pages/FinanceImportsPage.jsx` | 已验证 |
+| 管理员 | 财务导入 | `/finance/imports` | `src/pages/FinanceImportsPage.jsx` | 已验证 |
 
 以上组件路径均相对于 `docs/prototypes/dydata-19-finance-flow-dashboard/`。
+
+## 页面代码文件
+
+| 页面/入口 | 文件路径 |
+|---|---|
+| 原型应用入口 | docs/prototypes/dydata-19-finance-flow-dashboard/src/App.jsx |
+| 门店月度账单 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/StoreBillsPage.jsx |
+| 门店发票登记 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/StoreInvoicesPage.jsx |
+| 门店发票历史 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/StoreHistoryPage.jsx |
+| 管理员推广服务费 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinancePromotionPage.jsx |
+| 管理员管理服务费 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinanceManagementPage.jsx |
+| 管理员订单明细 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinanceOrderDetailsPage.jsx |
+| 管理员门店信息 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinanceBaseInfoPage.jsx |
+| 管理员异议 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinanceDisputesPage.jsx |
+| 管理员导入记录 | docs/prototypes/dydata-19-finance-flow-dashboard/src/pages/FinanceImportsPage.jsx |
+| 导入结果组件 | docs/prototypes/dydata-19-finance-flow-dashboard/src/components/ImportTemplatePanel.jsx |
+| 指标口径组件 | docs/prototypes/dydata-19-finance-flow-dashboard/src/components/MetricScopeToggle.jsx |
 
 ## 本轮冻结的页面行为
 

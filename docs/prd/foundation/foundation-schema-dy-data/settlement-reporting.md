@@ -1,13 +1,13 @@
-# 双费用结果、调整、锁账与报表 Schema
+﻿# 双费用结果、调整、锁账与报表 Schema
 
 > 所属索引: [foundation-schema-dy-data.md](../foundation-schema-dy-data.md)
 > 覆盖表: `douyin_refund_event`、`settlement_fee_result`、`settlement_fee_result_current`、`settlement_fee_adjustment`、`settlement_statement`、`settlement_statement_line`、`settlement_statement_entry`、`agg_store_monthly_settlement`、`agg_store_ranking`
 
-## 0 `douyin_refund_event` — 退款事件
+### 0 `douyin_refund_event` — 退款事件
 
 在既有退款事件字段基础上新增 `successful_observed_at datetime NULL`：首次观察到 `refund_status=2`（成功）时写入，之后重复同步只允许更新来源元数据，不得修改该时间。存量成功事件按 `gmt_create`、`gmt_modified`、`occurred_at` 的顺序回填。结算结果以该不可变时间判断事件是否已进入计算快照，避免重复同步把同一退款再次计为调整。
 
-## 1 `settlement_fee_result` — 单券费用结果
+### 1 `settlement_fee_result` — 单券费用结果
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -53,7 +53,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出同口径费用依据。
 - 无公开写接口；仅结算计算 worker 新增不可变结果版本。
 
-## 2 `settlement_fee_result_current` — 当前结果指针
+### 2 `settlement_fee_result_current` — 当前结果指针
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -76,7 +76,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出当前结果口径。
 - 无公开写接口；仅未锁账重算事务原子切换指针。
 
-## 3 `settlement_fee_adjustment` — 费用调整记录
+### 3 `settlement_fee_adjustment` — 费用调整记录
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -114,7 +114,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出调整入账月份、类型、金额和净额。
 - 无公开修改/删除接口；退款、取消核销和受控纠错流程只能新增调整。
 
-## 4 `settlement_statement` — 门店月度账单与锁账
+### 4 `settlement_statement` — 门店月度账单与锁账
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -152,7 +152,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出账单/锁账状态。
 - 本轮无确认、锁账、解锁、修改或删除 Web 接口；仅内部账单事务写入。
 
-## 5 `settlement_statement_line` — 账单汇总行
+### 5 `settlement_statement_line` — 账单汇总行
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -187,7 +187,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出同一账单行的来源明细。
 - 无公开写接口；锁账事务生成后不可修改。
 
-## 6 `settlement_statement_entry` — 账单来源项
+### 6 `settlement_statement_entry` — 账单来源项
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -231,7 +231,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出锁账来源快照。
 - 无公开写接口；仅锁账事务写入并在三层金额一致后冻结。
 
-## 7 `agg_store_monthly_settlement` — 单店月度双费用投影（现有·需改动）
+### 7 `agg_store_monthly_settlement` — 单店月度双费用投影（现有·需改动）
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -267,7 +267,7 @@
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回单店月度双费用投影与未锁账预览。
 - 无公开写接口；仅投影任务重建。
 
-## 8 `agg_store_ranking` — 门店排名投影（现有·需改动）
+### 8 `agg_store_ranking` — 门店排名投影（现有·需改动）
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|

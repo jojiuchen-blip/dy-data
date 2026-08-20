@@ -52,7 +52,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 **数据来源**：`GET /api/v1/order-fee-details` 返回服务端验证并规范化后的 `context`。直接访问不要求来源参数，按登录账号授权门店范围读取默认列表；从来源页进入时可传入 `statementId/statementLineId` 或 `storeId/month`，以及产品维度、费用方向、费率和规则版本上下文。
 > 接口详情见[双费用结算与报表 API §3](../foundation/foundation-api-dy-data/settlement-reporting.md#3-get-apiv1order-fee-details--订单费用明细)。
 
-**交互语义引用**：`order-fee-detail.restore-context.1`
+**交互语义引用**：`orders.filters.scope.1`
 
 **布局**：
 
@@ -145,7 +145,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 **数据来源**：`GET /api/v1/meta/filters` 返回 `saleMonths`、`verifyMonths`、`feeDirections`、`productScopes`、`productScopeTypeMap`、`productTypes` 和 `timezone`；`GET /api/v1/order-fee-details` 返回规范化 `context`、`list` 和分页信息。
 > 接口详情见[公共 API 契约 §6](../foundation/foundation-api-dy-data/common-contract.md#6-get-apiv1metafilters--结算筛选元数据)与[双费用结算与报表 API §3](../foundation/foundation-api-dy-data/settlement-reporting.md#3-get-apiv1order-fee-details--订单费用明细)。
 
-**交互语义引用**：`order-fee-detail.direction-tabs.2`、`order-fee-detail.filter-export.3`
+**交互语义引用**：`orders.filters.scope.1`、`orders.filters.clear.1`
 
 **布局**：
 
@@ -240,7 +240,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 **数据来源**：`GET /api/v1/order-fee-details` 返回 `list[]`；每行是一张券在一个费用方向下的不可变费用结果，并可展开其 `adjustments[]`。
 > 接口详情见[双费用结算与报表 API §3](../foundation/foundation-api-dy-data/settlement-reporting.md#3-get-apiv1order-fee-details--订单费用明细)，字段来源见[结算与报表 Schema](../foundation/foundation-schema-dy-data/settlement-reporting.md)。
 
-**交互语义引用**：`order-fee-detail.direction-tabs.2`、`order-fee-detail.filter-export.3`
+**交互语义引用**：`orders.filters.scope.1`
 
 **布局**：
 
@@ -348,7 +348,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 **数据来源**：`GET /api/v1/order-fee-details/export` 使用与当前列表完全相同的来源上下文、费用方向和筛选参数，返回带 UTF-8 BOM 的 CSV 文件。
 > 接口详情见[双费用结算与报表 API §4](../foundation/foundation-api-dy-data/settlement-reporting.md#4-get-apiv1order-fee-detailsexport--导出订单费用明细)。
 
-**交互语义引用**：`order-fee-detail.filter-export.3`
+**交互语义引用**：`orders.filters.scope.1`
 
 **布局**：
 
