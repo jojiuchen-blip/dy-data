@@ -371,7 +371,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert [column.name for column in statement.primary_key] == ["id"]
     assert {
         ("statement_id",),
-        ("store_id", "statement_month"),
+        ("store_id", "statement_month", "version_no"),
         ("lock_version",),
     }.issubset(
         {
@@ -403,7 +403,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     statement_entry = tables["settlement_statement_entry"]
     assert {
         ("statement_entry_id",),
-        ("source_type", "source_record_id"),
+        ("statement_id", "source_type", "source_record_id"),
     }.issubset(
         {
             tuple(constraint.columns.keys())
@@ -585,3 +585,32 @@ def test_finance_closure_schema_declares_versioned_and_audited_records() -> None
         "request_id",
         "occurred_at",
     }.issubset(audit.columns.keys())
+
+
+def test_settlement_statement_schema_supports_immutable_versions() -> None:
+    tables = Base.metadata.tables
+    statement = tables["settlement_statement"]
+    statement_unique_constraints = {
+        tuple(constraint.columns.keys())
+        for constraint in statement.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+
+    assert {"version_no", "is_current", "supersedes_statement_id"}.issubset(
+        statement.columns.keys()
+    )
+    assert ("store_id", "statement_month", "version_no") in statement_unique_constraints
+    assert ("store_id", "statement_month") not in statement_unique_constraints
+    assert {
+        "idx_settlement_statement_current_slot",
+        "idx_settlement_statement_supersedes",
+    }.issubset({index.name for index in statement.indexes})
+
+    entry = tables["settlement_statement_entry"]
+    entry_unique_constraints = {
+        tuple(constraint.columns.keys())
+        for constraint in entry.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert ("statement_id", "source_type", "source_record_id") in entry_unique_constraints
+    assert ("source_type", "source_record_id") not in entry_unique_constraints

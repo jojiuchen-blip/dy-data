@@ -148,3 +148,11 @@
 - **结果**：`python -m pytest tests/test_data_schema.py tests/test_alembic_migrations.py -q` 通过（20 passed）；新迁移在临时 SQLite 数据库完成 upgrade/downgrade 验证；8 张表及索引的 PostgreSQL DDL 编译通过。
 - **限制 / 风险**：全链离线 `alembic upgrade head --sql` 被历史迁移 `20260616_0003_clue_center_mvp.py` 的 `inspect(op.get_bind())` 阻断，未修改历史迁移。全量 pytest 的 16 个视觉失败已定位为测试权限夹具漂移：mock `visual-admin` 缺少 B04；实时 FastAPI 测试构造 `AuthContext` 时没有传入 `page_keys`，导致页面授权为空。这两项均不属于 T5.1 的 Schema 改动，留待相应前端 / 测试维护任务处理。
 - **涉及文件**：`apps/api/dy_api/models.py`、`alembic/versions/20260821_0028_finance_closure_schema.py`、`tests/test_data_schema.py`、`tests/test_alembic_migrations.py`
+
+## 任务 5：T5.1 月度账单不可变版本兼容迁移
+
+- **目标**：按已采纳的 `S4-FCR-001`，使既有月度账单能保留 V1 并追加 Vn+1，而不修改历史迁移文件或覆盖历史账单来源。
+- **操作**：先新增模型与既有库升级测试并确认失败；新增 `version_no`、`is_current`、`supersedes_statement_id`、版本唯一约束和当前版本部分唯一索引；将账单来源唯一键收敛为账单版本内唯一；新增 `20260821_0029` 前向兼容迁移及受保护降级逻辑。
+- **结果**：`python -m pytest tests/test_data_schema.py tests/test_alembic_migrations.py -q` 通过（22 passed）；临时 SQLite 从 `20260821_0028` 升级到 head 后可保留 V1、创建 V2 并重用来源，且第二个当前版本被拒绝；无 Vn+1 数据时可降级回 `20260821_0028`；PostgreSQL DDL 编译与 Alembic 单 head 均通过。
+- **漂移结论**：Foundation 已按用户确认补齐并采纳 FCR；本次是兼容性演进，不修改 `20260821_0028` 及其以前的任何历史迁移。全量 pytest 已知的 16 个视觉测试权限夹具问题与本次 Schema 变更无关，仍待独立任务处理。
+- **涉及文件**：`apps/api/dy_api/models.py`、`alembic/versions/20260821_0029_version_settlement_statements.py`、`tests/test_data_schema.py`、`tests/test_alembic_migrations.py`、`docs/prd/foundation/foundation-schema-dy-data.md`、`docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md`
