@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import date
+from datetime import date, datetime, timezone
 from hashlib import sha256
 from urllib.parse import quote
 from uuid import uuid4
@@ -601,6 +601,236 @@ def register_promotion_invoice(
     return _reporting_success(request, _promotion_invoice_header_item(session, invoice))
 
 
+@router.get("/admin/finance/summary")
+def get_admin_finance_summary(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(alias="metricScope"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request)
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
+    if store_id is not None:
+        _require_billing_store(session, store_id, request)
+
+    return _reporting_success(
+        request,
+        {
+            "month": month,
+            "store_id": store_id,
+            "fee_direction": direction,
+            "metric_scope": normalized_scope,
+            "metrics": _finance_summary_metrics(
+                session,
+                month=month,
+                fee_direction=direction,
+                metric_scope=normalized_scope,
+                store_id=store_id,
+            ),
+        },
+    )
+
+
+@router.get("/admin/finance/invoices")
+def list_admin_finance_invoices(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request)
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    if store_id is not None:
+        _require_billing_store(session, store_id, request)
+    status_code = _normalize_invoice_status(invoice_status, request)
+
+    if direction == "PROMOTION":
+        conditions = [
+            PromotionInvoiceAllocation.statement_month == month,
+            PromotionInvoiceAllocation.is_current.is_(True),
+            PromotionInvoice.is_current.is_(True),
+            SettlementStatement.is_current.is_(True),
+        ]
+        if store_id is not None:
+            conditions.append(PromotionInvoiceAllocation.store_id == store_id)
+        if status_code is not None:
+            conditions.append(PromotionInvoice.invoice_status == status_code)
+        query = (
+            select(PromotionInvoice, PromotionInvoiceAllocation)
+            .join(
+                PromotionInvoiceAllocation,
+                PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
+            )
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == PromotionInvoiceAllocation.statement_id,
+            )
+            .where(*conditions)
+            .order_by(PromotionInvoice.registered_at.desc(), PromotionInvoice.invoice_id)
+        )
+        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+        rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
+        items = [_promotion_invoice_item(invoice, allocation) for invoice, allocation in rows]
+    else:
+        conditions = [
+            InvoiceRecord.statement_month == month,
+            InvoiceRecord.fee_direction == CONFIRMATION_DIRECTION_TO_DB[direction],
+            InvoiceRecord.is_current.is_(True),
+            SettlementStatement.is_current.is_(True),
+        ]
+        if store_id is not None:
+            conditions.append(InvoiceRecord.store_id == store_id)
+        if status_code is not None:
+            conditions.append(InvoiceRecord.invoice_status == status_code)
+        query = (
+            select(InvoiceRecord)
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == InvoiceRecord.statement_id,
+            )
+            .where(*conditions)
+            .order_by(InvoiceRecord.registered_at.desc(), InvoiceRecord.invoice_id)
+        )
+        total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+        invoices = list(session.scalars(query.offset((page - 1) * page_size).limit(page_size)))
+        items = [_management_invoice_item(invoice) for invoice in invoices]
+
+    return _reporting_success(
+        request,
+        {"list": items, "total": total, "page": page, "page_size": page_size},
+    )
+
+
+@router.get("/admin/finance/order-details")
+def list_admin_finance_order_details(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=500, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request)
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    if store_id is not None:
+        _require_billing_store(session, store_id, request)
+    conditions = [
+        SettlementStatement.statement_month == month,
+        SettlementStatement.is_current.is_(True),
+        SettlementStatementEntry.fee_direction == CONFIRMATION_DIRECTION_TO_DB[direction],
+    ]
+    if store_id is not None:
+        conditions.append(SettlementStatement.store_id == store_id)
+    query = (
+        select(SettlementStatementEntry, SettlementStatement)
+        .join(
+            SettlementStatement,
+            SettlementStatement.statement_id == SettlementStatementEntry.statement_id,
+        )
+        .where(*conditions)
+        .order_by(SettlementStatementEntry.order_id, SettlementStatementEntry.statement_entry_id)
+    )
+    total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
+    return _reporting_success(
+        request,
+        {
+            "list": [
+                _finance_order_detail_item(entry, statement, direction)
+                for entry, statement in rows
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        },
+    )
+
+
+@router.get("/admin/finance/stores")
+def list_admin_finance_stores(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(alias="metricScope"),
+    q: str | None = Query(default=None),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request)
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
+    conditions = _finance_statement_conditions(
+        month=month, metric_scope=normalized_scope, store_id=None
+    )
+    normalized_query = (q or "").strip()
+    if normalized_query:
+        conditions.append(
+            (SettlementStatement.store_id.contains(normalized_query))
+            | (DimStore.store_name.contains(normalized_query))
+        )
+    store_ids_query = (
+        select(SettlementStatement.store_id)
+        .join(DimStore, DimStore.store_id == SettlementStatement.store_id)
+        .where(*conditions)
+        .distinct()
+        .order_by(SettlementStatement.store_id)
+    )
+    total = session.scalar(select(func.count()).select_from(store_ids_query.subquery())) or 0
+    store_ids = list(
+        session.scalars(store_ids_query.offset((page - 1) * page_size).limit(page_size))
+    )
+    stores = {
+        store_row.store_id: store_row
+        for store_row in session.scalars(select(DimStore).where(DimStore.store_id.in_(store_ids)))
+    }
+    items = []
+    for current_store_id in store_ids:
+        store_row = stores[current_store_id]
+        metrics = _finance_summary_metrics(
+            session,
+            month=month,
+            fee_direction=direction,
+            metric_scope=normalized_scope,
+            store_id=current_store_id,
+        )
+        items.append(
+            {
+                "store_id": store_row.store_id,
+                "store_name": store_row.store_name,
+                "sap_code": None,
+                "updated_at": store_row.updated_at,
+                **metrics,
+            }
+        )
+    return _reporting_success(
+        request,
+        {"list": items, "total": total, "page": page, "page_size": page_size},
+    )
+
+
 @router.get("/stores/{store_id}/monthly-settlement")
 def monthly_settlement(
     request: Request,
@@ -983,6 +1213,168 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
     return data
 
 
+def _require_finance_admin(current_user: AuthContext, request: Request) -> None:
+    if not current_user.is_admin:
+        _raise_reporting_error(
+            request,
+            status.HTTP_403_FORBIDDEN,
+            "DATA_SCOPE_FORBIDDEN",
+            "仅管理员和最高管理员可以查询财务汇总",
+        )
+
+
+def _finance_statement_conditions(
+    *, month: str, metric_scope: str, store_id: str | None
+) -> list:
+    conditions = [SettlementStatement.is_current.is_(True)]
+    if metric_scope == "CUMULATIVE":
+        conditions.extend(
+            [
+                SettlementStatement.statement_month >= FORMAL_PERIOD_START_MONTH,
+                SettlementStatement.statement_month <= month,
+            ]
+        )
+    else:
+        conditions.append(SettlementStatement.statement_month == month)
+    if store_id is not None:
+        conditions.append(SettlementStatement.store_id == store_id)
+    return conditions
+
+
+def _finance_summary_metrics(
+    session,
+    *,
+    month: str,
+    fee_direction: str,
+    metric_scope: str,
+    store_id: str | None,
+) -> dict:
+    statement_conditions = _finance_statement_conditions(
+        month=month, metric_scope=metric_scope, store_id=store_id
+    )
+    direction_code = CONFIRMATION_DIRECTION_TO_DB[fee_direction]
+    fee_column = (
+        SettlementStatement.promotion_net_fee_cent
+        if fee_direction == "PROMOTION"
+        else SettlementStatement.management_net_fee_cent
+    )
+    statement_total = session.scalar(
+        select(func.coalesce(func.sum(fee_column), 0)).where(*statement_conditions)
+    )
+    monthly_confirmation_total = _finance_confirmation_total(
+        session,
+        statement_conditions=_finance_statement_conditions(
+            month=month, metric_scope="MONTH", store_id=store_id
+        ),
+        direction_code=direction_code,
+    )
+    pending_confirmation_total = (
+        monthly_confirmation_total
+        if metric_scope == "MONTH"
+        else _finance_confirmation_total(
+            session,
+            statement_conditions=statement_conditions,
+            direction_code=direction_code,
+        )
+    )
+    if fee_direction == "PROMOTION":
+        issued_total = session.scalar(
+            select(func.coalesce(func.sum(PromotionInvoiceAllocation.allocated_amount_cent), 0))
+            .join(
+                PromotionInvoice,
+                PromotionInvoice.invoice_id == PromotionInvoiceAllocation.invoice_id,
+            )
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == PromotionInvoiceAllocation.statement_id,
+            )
+            .where(
+                *statement_conditions,
+                PromotionInvoiceAllocation.is_current.is_(True),
+                PromotionInvoice.is_current.is_(True),
+                PromotionInvoice.invoice_status.in_((2, 3)),
+            )
+        )
+        settled_total = session.scalar(
+            select(func.coalesce(func.sum(PromotionInvoiceAllocation.allocated_amount_cent), 0))
+            .join(
+                PromotionInvoice,
+                PromotionInvoice.invoice_id == PromotionInvoiceAllocation.invoice_id,
+            )
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == PromotionInvoiceAllocation.statement_id,
+            )
+            .where(
+                *statement_conditions,
+                PromotionInvoiceAllocation.is_current.is_(True),
+                PromotionInvoice.is_current.is_(True),
+                PromotionInvoice.invoice_status == 3,
+            )
+        )
+    else:
+        issued_total = session.scalar(
+            select(func.coalesce(func.sum(InvoiceRecord.invoice_amount_cent), 0))
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == InvoiceRecord.statement_id,
+            )
+            .where(
+                *statement_conditions,
+                InvoiceRecord.is_current.is_(True),
+                InvoiceRecord.fee_direction == direction_code,
+                InvoiceRecord.invoice_status == 3,
+            )
+        )
+        settled_total = session.scalar(
+            select(func.coalesce(func.sum(InvoiceRecord.invoice_amount_cent), 0))
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id == InvoiceRecord.statement_id,
+            )
+            .where(
+                *statement_conditions,
+                InvoiceRecord.is_current.is_(True),
+                InvoiceRecord.fee_direction == direction_code,
+                InvoiceRecord.invoice_status == 3,
+            )
+        )
+
+    confirmed_amount = int(monthly_confirmation_total or 0)
+    pending_confirmation_amount = int(pending_confirmation_total or 0)
+    issued_amount = int(issued_total or 0)
+    return {
+        "statement_total_cent": int(statement_total or 0),
+        "confirmed_amount_cent": confirmed_amount,
+        "pending_invoice_amount_cent": max(pending_confirmation_amount - issued_amount, 0),
+        "issued_amount_cent": issued_amount,
+        "settled_or_deducted_amount_cent": int(settled_total or 0),
+    }
+
+
+def _finance_confirmation_total(session, *, statement_conditions: list, direction_code: int) -> int:
+    return int(
+        session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(SettlementStatementConfirmation.confirmed_amount_cent), 0
+                )
+            )
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id
+                == SettlementStatementConfirmation.statement_id,
+            )
+            .where(
+                *statement_conditions,
+                SettlementStatementConfirmation.fee_direction == direction_code,
+                SettlementStatementConfirmation.confirmation_status == 1,
+            )
+        )
+        or 0
+    )
+
+
 def _statement_header_item(session, statement: SettlementStatement) -> dict:
     store = session.get(DimStore, statement.store_id)
     confirmations = {
@@ -1191,6 +1583,58 @@ def _promotion_invoice_header_item_from_invoice(invoice: PromotionInvoice) -> di
         "status": INVOICE_STATUS_NAMES[invoice.invoice_status],
         "registered_at": invoice.registered_at,
     }
+
+
+def _management_invoice_item(invoice: InvoiceRecord) -> dict:
+    return {
+        "invoice_id": invoice.invoice_id,
+        "store_id": invoice.store_id,
+        "statement_id": invoice.statement_id,
+        "statement_month": invoice.statement_month,
+        "fee_direction": CONFIRMATION_DIRECTION_FROM_DB[invoice.fee_direction],
+        "version_no": invoice.version_no,
+        "is_current": invoice.is_current,
+        "invoice_number": invoice.invoice_number,
+        "invoice_date": invoice.invoice_date,
+        "invoice_amount_cent": invoice.invoice_amount_cent,
+        "status": INVOICE_STATUS_NAMES[invoice.invoice_status],
+        "registered_at": _finance_datetime(invoice.registered_at),
+        "settled_at": (
+            _finance_datetime(invoice.registered_at) if invoice.invoice_status == 3 else None
+        ),
+    }
+
+
+def _finance_order_detail_item(
+    entry: SettlementStatementEntry, statement: SettlementStatement, direction: str
+) -> dict:
+    return {
+        "statement_entry_id": entry.statement_entry_id,
+        "statement_id": statement.statement_id,
+        "store_id": statement.store_id,
+        "statement_month": statement.statement_month,
+        "fee_direction": direction,
+        "order_id": entry.order_id,
+        "coupon_id": entry.coupon_id,
+        "original_business_month": entry.original_business_month,
+        "statement_posting_month": entry.statement_posting_month,
+        "base_amount_cent": entry.base_amount_cent,
+        "fee_amount_cent": entry.fee_amount_cent,
+    }
+
+
+def _normalize_invoice_status(value: str | None, request: Request) -> int | None:
+    if value is None:
+        return None
+    normalized = value.upper()
+    _validate_enum(normalized, set(INVOICE_STATUS_NAMES.values()), "invoiceStatus", request)
+    return _invoice_status_db(normalized)
+
+
+def _finance_datetime(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
 
 
 def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:

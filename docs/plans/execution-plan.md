@@ -4,12 +4,12 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S4 DYDATA-19 T5.2 门店确认与推广费发票登记进行中`。
+- 套包阶段：`S4 DYDATA-19 T5.4 账单异议生命周期进行中`。
 - 当前 Linear issue：`DYDATA-19`，状态 `In Progress`，由当前分支单一窗口负责。
 - 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
-- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.2 子开发计划。
-- 当前子开发计划：[sub-delivery-plan-dy-data-T5.2-store-billing.md](delivery-plans/sub-delivery-plan-dy-data-T5.2-store-billing.md)。
-- 当前 Task：T5.1 已完成；T5.2 为唯一 `进行中` 任务，T5.3～T5.7 等待后续审阅与前置完成。
+- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.4 子开发计划。
+- 当前子开发计划：[sub-delivery-plan-dy-data-T5.4-disputes.md](delivery-plans/sub-delivery-plan-dy-data-T5.4-disputes.md)。
+- 当前 Task：T5.1～T5.3 已完成；T5.4 为唯一 `进行中` 任务，T5.5～T5.7 等待前置完成。
 
 ## 2. 当前目标
 
@@ -17,12 +17,12 @@
 
 ## 3. 进行中任务
 
-- T5.2：实现门店账单读取、分方向确认与推广费系统外发票登记接口；历史 T4.1 仍等待外部发布依赖。
+- T5.4：实现门店异议提交、撤回和管理员内部处理；成立调整生成新账单版本；历史 T4.1 仍等待外部发布依赖。
 
 ## 4. 下一步任务
 
-- 以 TDD 完成 T5.2：门店范围鉴权、当前账单版本读取、分方向确认及推广费发票登记/重登接口。
-- 完成后记录接口响应、数据库回读与 Foundation 漂移结论，并提交 T5.3/T5.4 的审阅申请。
+- 以 TDD 完成 T5.4：方向隔离的异议、受控证据、撤回和原子账单新版本。
+- 完成后记录状态迁移、并发冲突和账单版本验证，并提交 T5.5 的审阅申请。
 
 ## 5. 完成标准摘要
 
