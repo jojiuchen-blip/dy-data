@@ -511,3 +511,77 @@ def test_follow_up_response_owns_soft_delete_fields() -> None:
     assert {"is_deleted", "deleted_at"}.issubset(ClueFollowUpRecordRow.model_fields)
     assert "is_deleted" not in ClueAllocationRuleVersionData.model_fields
     assert "deleted_at" not in ClueAllocationRuleVersionData.model_fields
+
+
+def test_finance_closure_schema_declares_versioned_and_audited_records() -> None:
+    tables = Base.metadata.tables
+
+    assert {
+        "settlement_statement_confirmation",
+        "settlement_dispute",
+        "settlement_dispute_order",
+        "invoice_record",
+        "invoice_status_event",
+        "finance_import_batch",
+        "finance_import_row",
+        "finance_operation_audit",
+    }.issubset(tables)
+
+    invoice = tables["invoice_record"]
+    assert {
+        "invoice_id",
+        "store_id",
+        "statement_month",
+        "statement_id",
+        "fee_direction",
+        "version_no",
+        "is_current",
+        "invoice_number",
+        "invoice_date",
+        "invoice_amount_cent",
+        "invoice_status",
+        "source_type",
+        "registered_by",
+        "registered_at",
+    }.issubset(invoice.columns.keys())
+    assert "idx_invoice_record_current_slot" in {
+        index.name for index in invoice.indexes
+    }
+
+    import_batch = tables["finance_import_batch"]
+    assert {
+        "batch_id",
+        "import_type",
+        "statement_month",
+        "file_sha256",
+        "normalized_sha256",
+        "read_version",
+        "current_version",
+        "batch_status",
+        "total_rows",
+        "success_rows",
+        "error_rows",
+    }.issubset(import_batch.columns.keys())
+
+    dispute = tables["settlement_dispute"]
+    dispute_checks = " ".join(
+        str(constraint.sqltext)
+        for constraint in dispute.constraints
+        if constraint.__class__.__name__ == "CheckConstraint"
+    )
+    assert "fee_direction IN (1, 2)" in dispute_checks
+
+    audit = tables["finance_operation_audit"]
+    assert {
+        "audit_id",
+        "operation_type",
+        "target_type",
+        "target_id",
+        "operator_id",
+        "operator_role",
+        "before_snapshot",
+        "after_snapshot",
+        "result_status",
+        "request_id",
+        "occurred_at",
+    }.issubset(audit.columns.keys())
