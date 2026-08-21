@@ -171,6 +171,8 @@ def _is_structured_contract_path(path: str) -> bool:
             "/api/v1/meta/filters",
             "/api/v1/dashboard/store-ranking",
             "/api/v1/order-fee-details",
+            "/api/v1/store-settlements",
+            "/api/v1/promotion-invoices",
             "/api/v1/stores/",
         )
     )

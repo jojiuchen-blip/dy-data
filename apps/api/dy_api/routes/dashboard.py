@@ -1,9 +1,15 @@
 from __future__ import annotations
 
+import json
+from datetime import date
+from hashlib import sha256
 from urllib.parse import quote
+from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, status
 from fastapi.responses import Response
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import (
@@ -21,12 +27,25 @@ from dy_api.schemas import (
     SalesDashboardData,
     dump_model,
 )
+from apps.api.dy_api.models import (
+    DimStore,
+    InvoiceRecord,
+    PromotionInvoice,
+    PromotionInvoiceAllocation,
+    SettlementDispute,
+    SettlementStatement,
+    SettlementStatementConfirmation,
+    SettlementStatementEntry,
+    SettlementStatementLine,
+    utcnow,
+)
 
 
 router = APIRouter()
 
 FORMAL_PERIOD_START_MONTH = "2026-08"
 PERIOD_TYPES = {"MONTHLY", "CUMULATIVE"}
+METRIC_SCOPES = {"MONTH", "CUMULATIVE"}
 FEE_DIRECTIONS = {"PROMOTION", "MANAGEMENT"}
 DATA_STATUSES = {"VALID", "ADJUSTED", "BLOCKED", "LOCKED"}
 RANKING_SORT_FIELDS = {
@@ -37,6 +56,21 @@ RANKING_SORT_FIELDS = {
     "NET_SETTLEMENT_REFERENCE",
 }
 SORT_ORDERS = {"ASC", "DESC"}
+CONFIRMATION_DIRECTION_TO_DB = {"PROMOTION": 1, "MANAGEMENT": 2}
+CONFIRMATION_DIRECTION_FROM_DB = {value: key for key, value in CONFIRMATION_DIRECTION_TO_DB.items()}
+STATEMENT_STATUS_NAMES = {
+    1: "GENERATING",
+    2: "PENDING_CONFIRMATION",
+    3: "CONFIRMED",
+    4: "LOCKED",
+}
+CONFIRMATION_STATUS_NAMES = {1: "CONFIRMED", 2: "REVOKED"}
+INVOICE_STATUS_NAMES = {
+    1: "PENDING_INVOICE",
+    2: "SUBMITTED_PENDING_FACTORY_REVIEW",
+    3: "APPROVED_SETTLED",
+    4: "REJECTED_REUPLOAD",
+}
 
 
 STORE_RANKING_DEFINITIONS = [
@@ -224,6 +258,316 @@ def commission_rules_summary(
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
+
+
+@router.get("/store-settlements")
+def list_store_settlements(
+    request: Request,
+    store_id: str = Query(alias="storeId"),
+    month: str = Query(),
+    metric_scope: str = Query(alias="metricScope"),
+    fee_direction: str | None = Query(default=None, alias="feeDirection"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_billing_store_scope(current_user, store_id, request)
+    _validate_month(month, "month", request)
+    metric_scope = metric_scope.upper()
+    _validate_enum(metric_scope, METRIC_SCOPES, "metricScope", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    _require_billing_store(session, store_id, request)
+
+    conditions = [
+        SettlementStatement.store_id == store_id,
+        SettlementStatement.statement_month == month,
+        SettlementStatement.is_current.is_(True),
+    ]
+    total = session.scalar(
+        select(func.count()).select_from(SettlementStatement).where(*conditions)
+    ) or 0
+    statements = list(
+        session.scalars(
+            select(SettlementStatement)
+            .where(*conditions)
+            .order_by(SettlementStatement.statement_month.desc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
+    )
+    data = {
+        "list": [
+            _statement_list_item(session, statement, direction=direction)
+            for statement in statements
+        ],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "metric_scope": metric_scope,
+        "metrics": _statement_metrics(session, store_id, month, metric_scope),
+    }
+    return _reporting_success(request, data)
+
+
+@router.get("/store-settlements/{statement_id}")
+def get_store_settlement_detail(
+    statement_id: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    statement = _get_billing_statement(session, statement_id, request)
+    _require_billing_store_scope(current_user, statement.store_id, request)
+    versions = list(
+        session.scalars(
+            select(SettlementStatement)
+            .where(
+                SettlementStatement.store_id == statement.store_id,
+                SettlementStatement.statement_month == statement.statement_month,
+            )
+            .order_by(SettlementStatement.version_no.desc())
+        )
+    )
+    lines = list(
+        session.scalars(
+            select(SettlementStatementLine)
+            .where(SettlementStatementLine.statement_id == statement.statement_id)
+            .order_by(
+                SettlementStatementLine.fee_direction,
+                SettlementStatementLine.product_scope,
+                SettlementStatementLine.product_type,
+            )
+        )
+    )
+    entry_count = session.scalar(
+        select(func.count())
+        .select_from(SettlementStatementEntry)
+        .where(SettlementStatementEntry.statement_id == statement.statement_id)
+    ) or 0
+    dispute_count = session.scalar(
+        select(func.count())
+        .select_from(SettlementDispute)
+        .where(SettlementDispute.statement_id == statement.statement_id)
+    ) or 0
+    invoices = list(
+        session.scalars(
+            select(InvoiceRecord).where(InvoiceRecord.statement_id == statement.statement_id)
+        )
+    )
+    data = {
+        **_statement_header_item(session, statement),
+        "versions": [_statement_version_item(row) for row in versions],
+        "lines": [_statement_line_item(line) for line in lines],
+        "source_summary": {"entry_count": entry_count},
+        "dispute_summary": {"count": dispute_count},
+        "invoice_summary": [
+            {
+                "invoice_id": invoice.invoice_id,
+                "fee_direction": CONFIRMATION_DIRECTION_FROM_DB[invoice.fee_direction],
+                "status": INVOICE_STATUS_NAMES[invoice.invoice_status],
+                "invoice_amount_cent": invoice.invoice_amount_cent,
+            }
+            for invoice in invoices
+        ],
+    }
+    return _reporting_success(request, data)
+
+
+@router.post("/store-settlements/{statement_id}/confirmations")
+def confirm_store_settlement(
+    statement_id: str,
+    payload: dict,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    statement = _get_billing_statement(session, statement_id, request)
+    _require_billing_store_scope(current_user, statement.store_id, request)
+    parsed = _parse_confirmation_payload(payload, request)
+    key_hash = _billing_idempotency_key_hash(idempotency_key, request)
+    payload_hash = _canonical_billing_sha256(parsed)
+    replay = session.scalar(
+        select(SettlementStatementConfirmation).where(
+            SettlementStatementConfirmation.idempotency_key_hash == key_hash
+        )
+    )
+    if replay is not None:
+        if replay.request_payload_sha256 != payload_hash:
+            _raise_reporting_error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key 已用于不同请求",
+            )
+        return _reporting_success(request, _confirmation_item(replay, statement))
+
+    if not statement.is_current or statement.version_no != parsed["read_version"]:
+        _raise_statement_version_conflict(request, statement)
+    direction = parsed["fee_direction"]
+    expected_amount = (
+        statement.promotion_net_fee_cent
+        if direction == "PROMOTION"
+        else statement.management_net_fee_cent
+    )
+    if parsed["confirmed_amount_cent"] != expected_amount:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "确认金额必须等于当前账单净额",
+            field="confirmedAmountCent",
+        )
+    existing = session.scalar(
+        select(SettlementStatementConfirmation).where(
+            SettlementStatementConfirmation.statement_id == statement.statement_id,
+            SettlementStatementConfirmation.fee_direction
+            == CONFIRMATION_DIRECTION_TO_DB[direction],
+        )
+    )
+    if existing is not None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "CONFIRMATION_ALREADY_RECORDED",
+            "该费用方向已确认",
+        )
+    now = utcnow()
+    confirmation = SettlementStatementConfirmation(
+        confirmation_id=f"confirmation-{uuid4().hex}",
+        statement_id=statement.statement_id,
+        fee_direction=CONFIRMATION_DIRECTION_TO_DB[direction],
+        confirmation_status=1,
+        confirmed_amount_cent=expected_amount,
+        confirmed_by=current_user.username,
+        confirmed_at=now,
+        idempotency_key_hash=key_hash,
+        request_payload_sha256=payload_hash,
+    )
+    session.add(confirmation)
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        _raise_reporting_error(
+            request,
+            status.HTTP_409_CONFLICT,
+            "CONFIRMATION_ALREADY_RECORDED",
+            "该费用方向已确认或幂等键已被使用",
+        )
+    return _reporting_success(request, _confirmation_item(confirmation, statement))
+
+
+@router.get("/promotion-invoices")
+def list_promotion_invoices(
+    request: Request,
+    store_id: str = Query(alias="storeId"),
+    month: str = Query(),
+    status_filter: str | None = Query(default=None, alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_billing_store_scope(current_user, store_id, request)
+    _require_billing_store(session, store_id, request)
+    _validate_month(month, "month", request)
+    conditions = [
+        PromotionInvoiceAllocation.store_id == store_id,
+        PromotionInvoiceAllocation.statement_month == month,
+        PromotionInvoiceAllocation.is_current.is_(True),
+        PromotionInvoice.is_current.is_(True),
+    ]
+    if status_filter is not None:
+        normalized_status = status_filter.upper()
+        if normalized_status not in set(INVOICE_STATUS_NAMES.values()):
+            _validate_enum(normalized_status, set(INVOICE_STATUS_NAMES.values()), "status", request)
+        if normalized_status == "PENDING_INVOICE":
+            return _reporting_success(request, {"list": [], "total": 0, "page": page, "page_size": page_size})
+        conditions.append(PromotionInvoice.invoice_status == _invoice_status_db(normalized_status))
+    query = (
+        select(PromotionInvoice, PromotionInvoiceAllocation)
+        .join(PromotionInvoiceAllocation, PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id)
+        .where(*conditions)
+        .order_by(PromotionInvoice.registered_at.desc())
+    )
+    total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
+    rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
+    return _reporting_success(request, {
+        "list": [_promotion_invoice_item(invoice, allocation) for invoice, allocation in rows],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+    })
+
+
+@router.post("/promotion-invoices")
+def register_promotion_invoice(
+    payload: dict,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    parsed = _parse_promotion_invoice_payload(payload, request)
+    _require_billing_store_scope(current_user, parsed["store_id"], request)
+    _require_billing_store(session, parsed["store_id"], request)
+    key_hash = _billing_idempotency_key_hash(idempotency_key, request)
+    payload_hash = _canonical_billing_sha256(parsed)
+    replay = session.scalar(select(PromotionInvoice).where(PromotionInvoice.idempotency_key_hash == key_hash))
+    if replay is not None:
+        if replay.request_payload_sha256 != payload_hash:
+            _raise_reporting_error(request, status.HTTP_409_CONFLICT, "IDEMPOTENCY_KEY_REUSED", "Idempotency-Key 已用于不同请求")
+        return _reporting_success(request, _promotion_invoice_header_item(session, replay))
+    allocations = []
+    for item in parsed["allocations"]:
+        statement = _get_billing_statement(session, item["statement_id"], request)
+        if (not statement.is_current or statement.store_id != parsed["store_id"]
+                or statement.statement_month != item["statement_month"]
+                or statement.version_no != item["read_version"]):
+            _raise_statement_version_conflict(request, statement)
+        confirmed = session.scalar(select(SettlementStatementConfirmation).where(
+            SettlementStatementConfirmation.statement_id == statement.statement_id,
+            SettlementStatementConfirmation.fee_direction == 1,
+            SettlementStatementConfirmation.confirmation_status == 1,
+        ))
+        if confirmed is None or confirmed.confirmed_amount_cent != item["allocated_amount_cent"]:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "每个账期分配金额必须等于当前有效推广费确认金额", field="allocations")
+        occupied = session.scalar(select(PromotionInvoiceAllocation).where(
+            PromotionInvoiceAllocation.store_id == statement.store_id,
+            PromotionInvoiceAllocation.statement_month == statement.statement_month,
+            PromotionInvoiceAllocation.is_current.is_(True),
+        ))
+        if occupied is not None:
+            _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
+        allocations.append((statement, item))
+    now = utcnow()
+    invoice = PromotionInvoice(
+        invoice_id=f"promotion-invoice-{uuid4().hex}", store_id=parsed["store_id"],
+        invoice_number=parsed["invoice_number"], invoice_date=parsed["invoice_date"],
+        invoice_amount_cent=parsed["invoice_amount_cent"], invoice_status=2,
+        registered_by=current_user.username, registered_at=now,
+        idempotency_key_hash=key_hash, request_payload_sha256=payload_hash,
+    )
+    session.add(invoice)
+    for statement, item in allocations:
+        session.add(PromotionInvoiceAllocation(
+            allocation_id=f"promotion-allocation-{uuid4().hex}", invoice_id=invoice.invoice_id,
+            store_id=statement.store_id, statement_id=statement.statement_id,
+            statement_month=statement.statement_month, allocated_amount_cent=item["allocated_amount_cent"],
+        ))
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_CONFLICT", "发票号码或账期分配已存在")
+    return _reporting_success(request, _promotion_invoice_header_item(session, invoice))
 
 
 @router.get("/stores/{store_id}/monthly-settlement")
@@ -501,6 +845,362 @@ def _reporting_success(
     if definitions:
         payload["definitions"] = [camelize(item) for item in definitions]
     return payload
+
+
+def _billing_session(store, request: Request):
+    session = getattr(store, "session", None)
+    if session is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "DATABASE_UNAVAILABLE",
+            "数据库暂不可用",
+        )
+    return session
+
+
+def _require_billing_store_scope(
+    current_user: AuthContext, store_id: str, request: Request
+) -> None:
+    if not current_user.has_global_data_access and store_id not in current_user.store_ids:
+        _raise_reporting_error(
+            request,
+            status.HTTP_403_FORBIDDEN,
+            "DATA_SCOPE_FORBIDDEN",
+            "门店不在当前账号数据范围内",
+            field="storeId",
+        )
+
+
+def _require_billing_store(session, store_id: str, request: Request) -> None:
+    if session.get(DimStore, store_id) is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "门店不存在",
+            field="storeId",
+        )
+
+
+def _normalize_billing_direction(value: str | None, request: Request) -> str | None:
+    if value is None:
+        return None
+    direction = value.upper()
+    _validate_enum(direction, FEE_DIRECTIONS, "feeDirection", request)
+    return direction
+
+
+def _get_billing_statement(session, statement_id: str, request: Request) -> SettlementStatement:
+    statement = session.scalar(
+        select(SettlementStatement).where(SettlementStatement.statement_id == statement_id)
+    )
+    if statement is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "账单不存在",
+            field="statementId",
+        )
+    return statement
+
+
+def _statement_list_item(
+    session, statement: SettlementStatement, *, direction: str | None
+) -> dict:
+    item = _statement_header_item(session, statement)
+    if direction is not None:
+        item["fee_direction"] = direction
+    return item
+
+
+def _statement_metrics(session, store_id: str, month: str, metric_scope: str) -> dict:
+    monthly_conditions = [
+        SettlementStatement.store_id == store_id,
+        SettlementStatement.statement_month == month,
+        SettlementStatement.is_current.is_(True),
+    ]
+    monthly = session.execute(
+        select(
+            func.coalesce(func.sum(SettlementStatement.promotion_net_fee_cent), 0),
+            func.coalesce(func.sum(SettlementStatement.management_net_fee_cent), 0),
+        ).where(*monthly_conditions)
+    ).one()
+    data = {
+        "month": {
+            "promotion_amount_cent": int(monthly[0]),
+            "management_amount_cent": int(monthly[1]),
+        }
+    }
+    if metric_scope == "CUMULATIVE":
+        cumulative = session.execute(
+            select(
+                func.coalesce(func.sum(SettlementStatement.promotion_net_fee_cent), 0),
+                func.coalesce(func.sum(SettlementStatement.management_net_fee_cent), 0),
+            ).where(
+                SettlementStatement.store_id == store_id,
+                SettlementStatement.statement_month >= FORMAL_PERIOD_START_MONTH,
+                SettlementStatement.statement_month <= month,
+                SettlementStatement.is_current.is_(True),
+            )
+        ).one()
+        data["cumulative"] = {
+            "promotion_amount_cent": int(cumulative[0]),
+            "management_amount_cent": int(cumulative[1]),
+        }
+    return data
+
+
+def _statement_header_item(session, statement: SettlementStatement) -> dict:
+    store = session.get(DimStore, statement.store_id)
+    confirmations = {
+        row.fee_direction: row
+        for row in session.scalars(
+            select(SettlementStatementConfirmation).where(
+                SettlementStatementConfirmation.statement_id == statement.statement_id
+            )
+        )
+    }
+    invoices = {
+        row.fee_direction: row
+        for row in session.scalars(
+            select(InvoiceRecord).where(
+                InvoiceRecord.statement_id == statement.statement_id,
+                InvoiceRecord.is_current.is_(True),
+            )
+        )
+    }
+    return {
+        "statement_id": statement.statement_id,
+        "store_id": statement.store_id,
+        "store_name": store.store_name if store is not None else None,
+        "month": statement.statement_month,
+        "version_no": statement.version_no,
+        "is_current": statement.is_current,
+        "supersedes_statement_id": statement.supersedes_statement_id,
+        "status": STATEMENT_STATUS_NAMES[statement.statement_status],
+        "promotion_amount_cent": statement.promotion_net_fee_cent,
+        "management_amount_cent": statement.management_net_fee_cent,
+        "promotion_confirmation": _confirmation_summary(confirmations.get(1)),
+        "management_confirmation": _confirmation_summary(confirmations.get(2)),
+        "promotion_invoice_status": _invoice_status(invoices.get(1)),
+        "management_invoice_status": _invoice_status(invoices.get(2)),
+    }
+
+
+def _confirmation_summary(
+    confirmation: SettlementStatementConfirmation | None,
+) -> dict | None:
+    if confirmation is None:
+        return None
+    return {
+        "confirmation_id": confirmation.confirmation_id,
+        "status": CONFIRMATION_STATUS_NAMES[confirmation.confirmation_status],
+        "confirmed_amount_cent": confirmation.confirmed_amount_cent,
+        "confirmed_at": confirmation.confirmed_at,
+    }
+
+
+def _invoice_status(invoice: InvoiceRecord | None) -> str:
+    return INVOICE_STATUS_NAMES[invoice.invoice_status] if invoice else "PENDING_INVOICE"
+
+
+def _statement_version_item(statement: SettlementStatement) -> dict:
+    return {
+        "statement_id": statement.statement_id,
+        "version_no": statement.version_no,
+        "is_current": statement.is_current,
+        "supersedes_statement_id": statement.supersedes_statement_id,
+        "status": STATEMENT_STATUS_NAMES[statement.statement_status],
+        "created_at": statement.created_at,
+    }
+
+
+def _statement_line_item(line: SettlementStatementLine) -> dict:
+    return {
+        "statement_line_id": line.statement_line_id,
+        "fee_direction": CONFIRMATION_DIRECTION_FROM_DB[line.fee_direction],
+        "product_scope": line.product_scope,
+        "product_type": line.product_type,
+        "original_entry_count": line.original_entry_count,
+        "adjustment_entry_count": line.adjustment_entry_count,
+        "original_base_cent": line.original_base_cent,
+        "adjustment_base_cent": line.adjustment_base_cent,
+        "net_base_cent": line.net_base_cent,
+        "original_fee_cent": line.original_fee_cent,
+        "adjustment_fee_cent": line.adjustment_fee_cent,
+        "net_fee_cent": line.net_fee_cent,
+    }
+
+
+def _parse_confirmation_payload(payload: dict, request: Request) -> dict:
+    fee_direction = payload.get("feeDirection")
+    confirmed_amount = payload.get("confirmedAmountCent")
+    read_version = payload.get("readVersion")
+    if not isinstance(fee_direction, str):
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "feeDirection 为必填项",
+            field="feeDirection",
+        )
+    direction = _normalize_billing_direction(fee_direction, request)
+    if isinstance(confirmed_amount, bool) or not isinstance(confirmed_amount, int):
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "confirmedAmountCent 必须为整数",
+            field="confirmedAmountCent",
+        )
+    if isinstance(read_version, bool) or not isinstance(read_version, int) or read_version < 1:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "readVersion 必须为正整数",
+            field="readVersion",
+        )
+    return {
+        "fee_direction": direction,
+        "confirmed_amount_cent": confirmed_amount,
+        "read_version": read_version,
+    }
+
+
+def _billing_idempotency_key_hash(value: str | None, request: Request) -> str:
+    normalized = (value or "").strip()
+    if not 16 <= len(normalized) <= 128:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "Idempotency-Key 长度必须为 16～128",
+            field="Idempotency-Key",
+        )
+    return sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _canonical_billing_sha256(value: dict) -> str:
+    return sha256(
+        json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode(
+            "utf-8"
+        )
+    ).hexdigest()
+
+
+def _confirmation_item(
+    confirmation: SettlementStatementConfirmation, statement: SettlementStatement
+) -> dict:
+    return {
+        "confirmation_id": confirmation.confirmation_id,
+        "status": CONFIRMATION_STATUS_NAMES[confirmation.confirmation_status],
+        "confirmed_amount_cent": confirmation.confirmed_amount_cent,
+        "confirmed_at": confirmation.confirmed_at,
+        "statement_id": statement.statement_id,
+        "version_no": statement.version_no,
+        "is_current": statement.is_current,
+    }
+
+
+def _raise_statement_version_conflict(
+    request: Request, statement: SettlementStatement
+) -> None:
+    _raise_reporting_error(
+        request,
+        status.HTTP_409_CONFLICT,
+        "STATEMENT_VERSION_CONFLICT",
+        "账单版本已变化或不是当前版本",
+        field="readVersion",
+    )
+
+
+def _invoice_status_db(value: str) -> int:
+    return next(key for key, status_name in INVOICE_STATUS_NAMES.items() if status_name == value)
+
+
+def _promotion_invoice_item(
+    invoice: PromotionInvoice, allocation: PromotionInvoiceAllocation
+) -> dict:
+    return {
+        **_promotion_invoice_header_item_from_invoice(invoice),
+        "statement_id": allocation.statement_id,
+        "statement_month": allocation.statement_month,
+        "allocated_amount_cent": allocation.allocated_amount_cent,
+    }
+
+
+def _promotion_invoice_header_item(session, invoice: PromotionInvoice) -> dict:
+    allocations = list(session.scalars(select(PromotionInvoiceAllocation).where(
+        PromotionInvoiceAllocation.invoice_id == invoice.invoice_id,
+        PromotionInvoiceAllocation.is_current.is_(True),
+    )))
+    return {
+        **_promotion_invoice_header_item_from_invoice(invoice),
+        "allocations": [{
+            "statement_id": allocation.statement_id,
+            "statement_month": allocation.statement_month,
+            "allocated_amount_cent": allocation.allocated_amount_cent,
+        } for allocation in allocations],
+    }
+
+
+def _promotion_invoice_header_item_from_invoice(invoice: PromotionInvoice) -> dict:
+    return {
+        "invoice_id": invoice.invoice_id,
+        "store_id": invoice.store_id,
+        "version_no": invoice.version_no,
+        "is_current": invoice.is_current,
+        "supersedes_invoice_id": invoice.supersedes_invoice_id,
+        "invoice_number": invoice.invoice_number,
+        "invoice_date": invoice.invoice_date,
+        "invoice_amount_cent": invoice.invoice_amount_cent,
+        "status": INVOICE_STATUS_NAMES[invoice.invoice_status],
+        "registered_at": invoice.registered_at,
+    }
+
+
+def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
+    store_id = payload.get("storeId")
+    invoice_number = payload.get("invoiceNumber")
+    invoice_date_value = payload.get("invoiceDate")
+    invoice_amount = payload.get("invoiceAmountCent")
+    rows = payload.get("allocations")
+    if not isinstance(store_id, str) or not store_id.strip():
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "storeId 为必填项", field="storeId")
+    if not isinstance(invoice_number, str) or not invoice_number.isdigit() or len(invoice_number) != 20:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceNumber 必须为 20 位数字", field="invoiceNumber")
+    try:
+        parsed_date = date.fromisoformat(invoice_date_value) if isinstance(invoice_date_value, str) else None
+    except ValueError:
+        parsed_date = None
+    if parsed_date is None:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceDate 必须为 YYYY-MM-DD", field="invoiceDate")
+    if isinstance(invoice_amount, bool) or not isinstance(invoice_amount, int) or invoice_amount < 0:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceAmountCent 必须为非负整数", field="invoiceAmountCent")
+    if not isinstance(rows, list) or not rows:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "allocations 至少包含一个完整账期", field="allocations")
+    allocations = []
+    seen_months = set()
+    for item in rows:
+        if not isinstance(item, dict):
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "allocations 元素必须为对象", field="allocations")
+        statement_id, statement_month = item.get("statementId"), item.get("statementMonth")
+        allocated, read_version = item.get("allocatedAmountCent"), item.get("readVersion")
+        if not isinstance(statement_id, str) or not isinstance(statement_month, str):
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配必须包含 statementId 和 statementMonth", field="allocations")
+        _validate_month(statement_month, "statementMonth", request)
+        if statement_month in seen_months:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "同一账期不得拆分多张发票", field="allocations")
+        seen_months.add(statement_month)
+        if isinstance(allocated, bool) or not isinstance(allocated, int) or allocated < 0 or isinstance(read_version, bool) or not isinstance(read_version, int) or read_version < 1:
+            _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配金额和 readVersion 不合法", field="allocations")
+        allocations.append({"statement_id": statement_id, "statement_month": statement_month, "allocated_amount_cent": allocated, "read_version": read_version})
+    if sum(item["allocated_amount_cent"] for item in allocations) != invoice_amount:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "分配金额合计必须等于发票金额", field="invoiceAmountCent")
+    return {"store_id": store_id.strip(), "invoice_number": invoice_number, "invoice_date": parsed_date, "invoice_amount_cent": invoice_amount, "allocations": allocations}
 
 
 def _call_reporting_store(request: Request, operation, filters: dict):
