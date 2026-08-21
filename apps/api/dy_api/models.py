@@ -1037,7 +1037,10 @@ class SettlementStatement(Base):
     __table_args__ = (
         UniqueConstraint("statement_id", name="uk_settlement_statement_id"),
         UniqueConstraint(
-            "store_id", "statement_month", name="uk_settlement_statement_store_month"
+            "store_id",
+            "statement_month",
+            "version_no",
+            name="uk_settlement_statement_store_month_version",
         ),
         UniqueConstraint(
             "lock_version", name="uk_settlement_statement_lock_version"
@@ -1062,6 +1065,15 @@ class SettlementStatement(Base):
             "statement_month",
         ),
         Index("idx_settlement_statement_locked_at", "locked_at"),
+        Index(
+            "idx_settlement_statement_current_slot",
+            "store_id",
+            "statement_month",
+            unique=True,
+            postgresql_where=text("is_current"),
+            sqlite_where=text("is_current"),
+        ),
+        Index("idx_settlement_statement_supersedes", "supersedes_statement_id"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -1073,6 +1085,9 @@ class SettlementStatement(Base):
     statement_id: Mapped[str] = mapped_column(String(128))
     store_id: Mapped[str] = mapped_column(String(128))
     statement_month: Mapped[str] = mapped_column(String(7))
+    version_no: Mapped[int] = mapped_column(Integer, default=1)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    supersedes_statement_id: Mapped[str | None] = mapped_column(String(128))
     statement_status: Mapped[int] = mapped_column(Integer, default=1)
     promotion_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     promotion_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
@@ -1161,6 +1176,7 @@ class SettlementStatementEntry(Base):
             "statement_entry_id", name="uk_settlement_statement_entry_id"
         ),
         UniqueConstraint(
+            "statement_id",
             "source_type",
             "source_record_id",
             name="uk_settlement_statement_entry_source",

@@ -1014,3 +1014,173 @@ def test_finance_closure_migration_creates_versioned_tables(tmp_path: Path) -> N
     assert "idx_invoice_record_current_slot" in {
         index["name"] for index in upgraded.get_indexes("invoice_record")
     }
+
+
+def test_statement_versioning_migration_preserves_and_versions_snapshots(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "statement-versioning.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260821_0028")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO settlement_statement (
+                    statement_id, store_id, statement_month
+                ) VALUES ('statement-v1', 'store-001', '2026-08')
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO settlement_statement_entry (
+                    statement_entry_id, statement_id, statement_line_id,
+                    source_type, source_record_id, original_fee_result_id,
+                    coupon_id, order_id, fee_direction, original_business_month,
+                    statement_posting_month, product_scope, product_type,
+                    base_amount_cent, fee_amount_cent, rule_version
+                ) VALUES (
+                    'entry-v1', 'statement-v1', 'line-v1',
+                    1, 'fee-result-001', 'fee-result-001',
+                    'coupon-001', 'order-001', 1, '2026-08',
+                    '2026-08', '', '', 10000, 800, 'rule-v1'
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "head")
+    inspector = inspect(create_engine(database_url))
+    statement_columns = {
+        column["name"] for column in inspector.get_columns("settlement_statement")
+    }
+    statement_constraints = {
+        tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints("settlement_statement")
+    }
+    entry_constraints = {
+        tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints("settlement_statement_entry")
+    }
+
+    assert {"version_no", "is_current", "supersedes_statement_id"}.issubset(
+        statement_columns
+    )
+    assert ("store_id", "statement_month", "version_no") in statement_constraints
+    assert ("store_id", "statement_month") not in statement_constraints
+    assert ("statement_id", "source_type", "source_record_id") in entry_constraints
+    with engine.connect() as connection:
+        version_one = connection.execute(
+            text(
+                """
+                SELECT version_no, is_current
+                FROM settlement_statement
+                WHERE statement_id = 'statement-v1'
+                """
+            )
+        ).one()
+    assert version_one == (1, 1)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                UPDATE settlement_statement
+                SET is_current = 0
+                WHERE statement_id = 'statement-v1'
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO settlement_statement (
+                    statement_id, store_id, statement_month, version_no,
+                    is_current, supersedes_statement_id
+                ) VALUES (
+                    'statement-v2', 'store-001', '2026-08', 2,
+                    1, 'statement-v1'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO settlement_statement_entry (
+                    statement_entry_id, statement_id, statement_line_id,
+                    source_type, source_record_id, original_fee_result_id,
+                    coupon_id, order_id, fee_direction, original_business_month,
+                    statement_posting_month, product_scope, product_type,
+                    base_amount_cent, fee_amount_cent, rule_version
+                ) VALUES (
+                    'entry-v2', 'statement-v2', 'line-v2',
+                    1, 'fee-result-001', 'fee-result-001',
+                    'coupon-001', 'order-001', 1, '2026-08',
+                    '2026-08', '', '', 10000, 800, 'rule-v1'
+                )
+                """
+            )
+        )
+
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO settlement_statement (
+                        statement_id, store_id, statement_month, version_no,
+                        is_current
+                    ) VALUES (
+                        'statement-v3', 'store-001', '2026-08', 3, 1
+                    )
+                """
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="version history exists"):
+        command.downgrade(config, "20260821_0028")
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                DELETE FROM settlement_statement_entry
+                WHERE statement_id = 'statement-v2'
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                DELETE FROM settlement_statement
+                WHERE statement_id = 'statement-v2'
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                UPDATE settlement_statement
+                SET is_current = 1
+                WHERE statement_id = 'statement-v1'
+                """
+            )
+        )
+
+    command.downgrade(config, "20260821_0028")
+    downgraded = inspect(create_engine(database_url))
+    downgraded_statement_columns = {
+        column["name"] for column in downgraded.get_columns("settlement_statement")
+    }
+    assert not {"version_no", "is_current", "supersedes_statement_id"}.intersection(
+        downgraded_statement_columns
+    )

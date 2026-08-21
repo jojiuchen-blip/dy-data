@@ -5,6 +5,7 @@
 > 关联: [术语表](foundation-glossary-dy-data.md) · [API](foundation-api-dy-data.md)
 > 范围: DYDATA-1/19/21/30/31/33/38 的商品、费率、双费用结算、账单确认、异议、发票登记、财务导入与查询地基；本文是结构索引，不是 DDL
 > 增量修订: 2026-08-20 按 DYDATA-19 将账单改为不可变版本，新增方向确认、异议、发票登记版本、财务导入与财务操作审计；最新规则覆盖旧的只读开票假设
+> S4 回捞: 2026-08-21 按 `S4-FCR-001` 补齐 `settlement_statement.version_no/is_current/supersedes_statement_id`、当前版本部分唯一索引及账单来源的版本内唯一口径
 
 ---
 

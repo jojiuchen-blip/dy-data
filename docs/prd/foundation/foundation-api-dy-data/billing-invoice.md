@@ -2,13 +2,15 @@
 
 > 增量来源: DYDATA-19 冻结规格（2026-08-20）
 > 消费路由: `/settlement`、`/settlement/invoice`、`/finance/promotion`、`/finance/management`、`/finance/orders/*`、`/finance/stores`、`/finance/disputes`、`/finance/imports`
+> S4 回捞: 2026-08-21 按 `S4-FCR-001` 补齐不可变账单版本链、当前版本并发校验和新版本原子切换契约
 
 ## 0 公共业务约束
 
 - 所有接口沿用 `{ data, definitions?, meta }` 项目包络；JSON 使用 camelCase；时间返回 ISO 8601 +08:00。
 - 门店接口同时校验页面权限和 `storeId` 范围；管理员接口要求管理员或最高管理员角色，两者在本模块业务动作权限一致。财务人员使用管理员角色，不新增财务角色。
-- 所有 POST 接受 `Idempotency-Key`；确认、发票登记、异议处理和导入提交同时校验当前版本。
-- 409 至少区分 `STATEMENT_VERSION_CONFLICT`、`INVOICE_VERSION_CONFLICT`、`IMPORT_VERSION_CONFLICT`；响应返回 `readVersion/currentVersion/lastOperator/lastOperatedAt`。
+- 所有 POST 接受 `Idempotency-Key`；确认、发票登记、异议处理和导入提交同时校验当前版本。账单相关请求的 `readVersion` 固定对应 `settlement_statement.version_no`，不是数据库自增 ID 或锁版本号。
+- 409 至少区分 `STATEMENT_VERSION_CONFLICT`、`INVOICE_VERSION_CONFLICT`、`IMPORT_VERSION_CONFLICT`；账单版本冲突响应返回 `readVersion/currentVersion/currentStatementId/lastOperator/lastOperatedAt`。
+- 同一 `storeId + month` 可以永久保留多个不可变账单版本，但只能有一个 `isCurrent=true`；任何新版本都通过 `supersedesStatementId` 指向直接上一版本。
 - 系统不创建开票申请单、不执行真实开票，也不创建“待财务审核”任务；厂端审核结果只由管理员导入后改变推广费发票状态。
 
 ## 1 接口总览
@@ -40,19 +42,19 @@
 
 ### 2.1 `GET /api/v1/store-settlements`
 
-查询：`storeId` 必填，`month` 必填，`metricScope=MONTH/CUMULATIVE` 必填，`feeDirection` 可选，`page/pageSize`。累计从 `2026-08` 开始，测试账期不计入。
+查询：`storeId` 必填，`month` 必填，`metricScope=MONTH/CUMULATIVE` 必填，`feeDirection` 可选，`page/pageSize`。列表按门店和账期只返回当前有效账单版本；累计从 `2026-08` 开始，测试账期不计入。
 
-`data`：`list[]` 至少返回 `statementId/storeId/storeName/month/versionNo/isCurrent/status/promotionAmountCent/managementAmountCent/promotionConfirmation/managementConfirmation/promotionInvoiceStatus/managementInvoiceStatus`；`metrics` 返回当前单月值及可选 `cumulative`，确认金额只按单月展示。
+`data`：`list[]` 至少返回 `statementId/storeId/storeName/month/versionNo/isCurrent/supersedesStatementId/status/promotionAmountCent/managementAmountCent/promotionConfirmation/managementConfirmation/promotionInvoiceStatus/managementInvoiceStatus`；其中列表行的 `isCurrent` 必须为 `true`，首版 `supersedesStatementId=null`。`metrics` 返回当前单月值及可选 `cumulative`，确认金额只按单月展示。
 
 ### 2.2 `GET /api/v1/store-settlements/{statementId}`
 
-返回账单头、方向确认、产品汇总行、来源明细摘要、当前/历史版本列表、异议摘要和发票摘要。历史版本可查但不可再确认或登记发票。
+返回账单头、方向确认、产品汇总行、来源明细摘要、异议摘要和发票摘要，并必返 `statementId/versionNo/isCurrent/supersedesStatementId`。`versions[]` 按 `versionNo` 倒序返回同门店同账期的 `statementId/versionNo/isCurrent/supersedesStatementId/status/createdAt`，使每个历史版本可独立回读；历史版本可查但不可再确认或登记发票。
 
 ### 2.3 `POST /api/v1/store-settlements/{statementId}/confirmations`
 
-请求：`feeDirection` 必填，`confirmedAmountCent` 必填，`readVersion` 必填。服务端重新计算当前净额；仅当前账单版本可确认。提交成功时间取系统校验无误后的服务器时间。
+请求：`feeDirection` 必填，`confirmedAmountCent` 必填，`readVersion` 必填。服务端必须同时校验路径 `statementId` 仍是该门店账期的当前版本，且 `readVersion` 等于其 `versionNo`，再重新计算当前净额；任一条件不成立返回 `409 STATEMENT_VERSION_CONFLICT`。提交成功时间取系统校验无误后的服务器时间。
 
-成功：返回 `confirmationId/status/confirmedAmountCent/confirmedAt/statementVersion`。重复同幂等键返回原结果。推广费与管理服务费分别确认，不互相阻断。
+成功：返回 `confirmationId/status/confirmedAmountCent/confirmedAt/statementId/versionNo/isCurrent`。重复同幂等键返回原结果。推广费与管理服务费分别确认，不互相阻断。
 
 ## 3 门店异议与内部处理
 
@@ -70,7 +72,9 @@
 
 列表筛选：`storeId/month/feeDirection/status/disputeType/submittedFrom/submittedTo/page/pageSize`。
 
-处理请求：`targetStatus=IN_REVIEW/PENDING_ADMIN_APPROVAL/ACCEPTED_WITH_ADJUSTMENT/REJECTED`、`resolutionNote`、`adjustmentAmountCent?`、`readVersion`。成立并调整时同事务生成新账单版本，旧账单和确认永久保留。不存在“外部结果”字段。
+处理请求：`targetStatus=IN_REVIEW/PENDING_ADMIN_APPROVAL/ACCEPTED_WITH_ADJUSTMENT/REJECTED`、`resolutionNote`、`adjustmentAmountCent?`、`readVersion`。`readVersion` 必须等于处理开始时该门店账期当前账单的 `versionNo`；冲突时返回 `409 STATEMENT_VERSION_CONFLICT`，不得写入部分结果。不存在“外部结果”字段。
+
+`ACCEPTED_WITH_ADJUSTMENT` 必须在单一事务内完成：锁定当前账单 Vn → 生成完整不可变快照 Vn+1 → 复制 Vn 的账单行和版本内来源项并写入本次调整 → 设置 `supersedesStatementId=Vn.statementId` → 校验账单头、汇总行、来源项金额一致 → 将 Vn 切为 `isCurrent=false`、Vn+1 切为 `isCurrent=true` → 写入异议处理和操作审计。任一步失败都回滚，旧账单和旧确认永久保留。成功返回 `previousStatementId/previousVersion/currentStatementId/currentVersion`。
 
 ## 4 发票登记与财务查询
 
