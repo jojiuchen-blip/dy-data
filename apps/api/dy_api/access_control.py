@@ -316,6 +316,8 @@ def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None
         return None
     if path.startswith("/api/v1/dashboard/store-ranking"):
         return "B01"
+    if path.startswith(("/api/v1/store-settlements", "/api/v1/promotion-invoices")):
+        return "B02"
     if path.startswith("/api/v1/stores/") and "monthly-settlement" in path:
         return "B02"
     if path.startswith(("/api/v1/order-details", "/api/v1/order-fee-details")):

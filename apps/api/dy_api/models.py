@@ -1235,6 +1235,10 @@ class SettlementStatementConfirmation(Base):
             name="uk_statement_confirmation_direction",
         ),
         UniqueConstraint("confirmation_id", name="uk_statement_confirmation_id"),
+        UniqueConstraint(
+            "idempotency_key_hash",
+            name="uk_statement_confirmation_idempotency_key",
+        ),
         CheckConstraint(
             "fee_direction IN (1, 2)",
             name="ck_statement_confirmation_direction",
@@ -1260,6 +1264,8 @@ class SettlementStatementConfirmation(Base):
     confirmed_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     confirmed_by: Mapped[str] = mapped_column(String(128))
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         "gmt_create", DateTime(timezone=True), default=utcnow
     )
@@ -1433,6 +1439,91 @@ class InvoiceStatusEvent(Base):
     operator_id: Mapped[str] = mapped_column(String(128))
     import_batch_id: Mapped[str | None] = mapped_column(String(128))
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PromotionInvoice(Base):
+    __tablename__ = "promotion_invoice"
+    __table_args__ = (
+        UniqueConstraint("invoice_id", name="uk_promotion_invoice_id"),
+        UniqueConstraint("invoice_number", name="uk_promotion_invoice_number"),
+        UniqueConstraint(
+            "idempotency_key_hash", name="uk_promotion_invoice_idempotency_key"
+        ),
+        CheckConstraint("version_no > 0", name="ck_promotion_invoice_version"),
+        CheckConstraint(
+            "invoice_status IN (2, 3, 4)", name="ck_promotion_invoice_status"
+        ),
+        CheckConstraint("invoice_amount_cent >= 0", name="ck_promotion_invoice_amount"),
+        Index("idx_promotion_invoice_current", "store_id", "is_current"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    invoice_id: Mapped[str] = mapped_column(String(128))
+    store_id: Mapped[str] = mapped_column(String(128))
+    version_no: Mapped[int] = mapped_column(Integer, default=1)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
+    supersedes_invoice_id: Mapped[str | None] = mapped_column(String(128))
+    invoice_number: Mapped[str] = mapped_column(String(20))
+    invoice_date: Mapped[date] = mapped_column(Date)
+    invoice_amount_cent: Mapped[int] = mapped_column(BigInteger)
+    invoice_status: Mapped[int] = mapped_column(Integer, default=2)
+    registered_by: Mapped[str] = mapped_column(String(128))
+    registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(
+        "gmt_create", DateTime(timezone=True), default=utcnow
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class PromotionInvoiceAllocation(Base):
+    __tablename__ = "promotion_invoice_allocation"
+    __table_args__ = (
+        UniqueConstraint("allocation_id", name="uk_promotion_invoice_allocation_id"),
+        UniqueConstraint(
+            "invoice_id", "statement_id", name="uk_promotion_invoice_allocation_statement"
+        ),
+        CheckConstraint(
+            "allocated_amount_cent >= 0", name="ck_promotion_invoice_allocation_amount"
+        ),
+        Index(
+            "idx_promotion_invoice_allocation_current_period",
+            "store_id",
+            "statement_month",
+            unique=True,
+            postgresql_where=text("is_current"),
+            sqlite_where=text("is_current"),
+        ),
+        Index("idx_promotion_invoice_allocation_invoice", "invoice_id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    allocation_id: Mapped[str] = mapped_column(String(128))
+    invoice_id: Mapped[str] = mapped_column(String(128))
+    store_id: Mapped[str] = mapped_column(String(128))
+    statement_id: Mapped[str] = mapped_column(String(128))
+    statement_month: Mapped[str] = mapped_column(String(7))
+    allocated_amount_cent: Mapped[int] = mapped_column(BigInteger)
+    is_current: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
         "gmt_create", DateTime(timezone=True), default=utcnow
     )

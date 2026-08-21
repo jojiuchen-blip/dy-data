@@ -1070,6 +1070,16 @@ def test_statement_versioning_migration_preserves_and_versions_snapshots(
         tuple(constraint["column_names"])
         for constraint in inspector.get_unique_constraints("settlement_statement_entry")
     }
+    confirmation_columns = {
+        column["name"]
+        for column in inspector.get_columns("settlement_statement_confirmation")
+    }
+    confirmation_constraints = {
+        tuple(constraint["column_names"])
+        for constraint in inspector.get_unique_constraints(
+            "settlement_statement_confirmation"
+        )
+    }
 
     assert {"version_no", "is_current", "supersedes_statement_id"}.issubset(
         statement_columns
@@ -1077,6 +1087,10 @@ def test_statement_versioning_migration_preserves_and_versions_snapshots(
     assert ("store_id", "statement_month", "version_no") in statement_constraints
     assert ("store_id", "statement_month") not in statement_constraints
     assert ("statement_id", "source_type", "source_record_id") in entry_constraints
+    assert {"idempotency_key_hash", "request_payload_sha256"}.issubset(
+        confirmation_columns
+    )
+    assert ("idempotency_key_hash",) in confirmation_constraints
     with engine.connect() as connection:
         version_one = connection.execute(
             text(

@@ -4,12 +4,12 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S4 DYDATA-19 T5.1 财务闭环 Schema 与领域地基进行中`。
+- 套包阶段：`S4 DYDATA-19 T5.2 门店确认与推广费发票登记进行中`。
 - 当前 Linear issue：`DYDATA-19`，状态 `In Progress`，由当前分支单一窗口负责。
 - 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
-- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.1 子开发计划。
-- 当前子开发计划：[sub-delivery-plan-dy-data-T5.1-finance-schema.md](delivery-plans/sub-delivery-plan-dy-data-T5.1-finance-schema.md)。
-- 当前 Task：T5.1 为唯一 `进行中` 任务；T5.2～T5.7 等待后续审阅与前置完成。
+- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.2 子开发计划。
+- 当前子开发计划：[sub-delivery-plan-dy-data-T5.2-store-billing.md](delivery-plans/sub-delivery-plan-dy-data-T5.2-store-billing.md)。
+- 当前 Task：T5.1 已完成；T5.2 为唯一 `进行中` 任务，T5.3～T5.7 等待后续审阅与前置完成。
 
 ## 2. 当前目标
 
@@ -17,12 +17,12 @@
 
 ## 3. 进行中任务
 
-- T5.1：新增 8 张财务闭环表、SQLAlchemy 模型、Alembic 迁移和结构验证；已新增账单 V1/Vn+1 前向兼容迁移，历史迁移文件保持不变；历史 T4.1 仍等待外部发布依赖。
+- T5.2：实现门店账单读取、分方向确认与推广费系统外发票登记接口；历史 T4.1 仍等待外部发布依赖。
 
 ## 4. 下一步任务
 
-- 以 TDD 完成 T5.1：8 张财务闭环表、SQLAlchemy 模型、Alembic 迁移和结构验证，并复核账单 V1/Vn+1 的兼容升级边界。
-- 完成后记录 Foundation 漂移结论，回写验证证据并提交 T5.2 的审阅申请。
+- 以 TDD 完成 T5.2：门店范围鉴权、当前账单版本读取、分方向确认及推广费发票登记/重登接口。
+- 完成后记录接口响应、数据库回读与 Foundation 漂移结论，并提交 T5.3/T5.4 的审阅申请。
 
 ## 5. 完成标准摘要
 
