@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -17,8 +17,12 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     DimStore,
+    InvoiceRecord,
+    PromotionInvoice,
+    PromotionInvoiceAllocation,
     SettlementStatement,
     SettlementStatementConfirmation,
+    SettlementStatementEntry,
 )
 
 
@@ -275,3 +279,365 @@ def test_promotion_invoice_registers_multiple_complete_period_allocations(
     )
     assert listed.status_code == 200
     assert listed.json()["data"]["list"][0]["invoiceNumber"] == "12345678901234567890"
+
+
+def test_rejected_promotion_invoice_replaces_current_period_allocations(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    allocations = [
+        {
+            "statementId": "statement-1-v2",
+            "statementMonth": "2026-08",
+            "allocatedAmountCent": 1100,
+            "readVersion": 2,
+        },
+        {
+            "statementId": "statement-1-sep-v1",
+            "statementMonth": "2026-09",
+            "allocatedAmountCent": 1300,
+            "readVersion": 1,
+        },
+    ]
+    for statement_id, amount, version, key in (
+        ("statement-1-v2", 1100, 2, "reupload-confirmation-key-01"),
+        ("statement-1-sep-v1", 1300, 1, "reupload-confirmation-key-02"),
+    ):
+        response = client.post(
+            f"/api/v1/store-settlements/{statement_id}/confirmations",
+            json={
+                "feeDirection": "PROMOTION",
+                "confirmedAmountCent": amount,
+                "readVersion": version,
+            },
+            headers={"Idempotency-Key": key},
+        )
+        assert response.status_code == 200
+
+    first = client.post(
+        "/api/v1/promotion-invoices",
+        json={
+            "storeId": "store-1",
+            "invoiceNumber": "12345678901234567890",
+            "invoiceDate": "2026-10-05",
+            "invoiceAmountCent": 2400,
+            "allocations": allocations,
+        },
+        headers={"Idempotency-Key": "reupload-invoice-register-0001"},
+    )
+    assert first.status_code == 200
+    previous = db_session.scalar(select(PromotionInvoice))
+    assert previous is not None
+    previous.invoice_status = 4
+    db_session.commit()
+
+    replacement = client.post(
+        "/api/v1/promotion-invoices",
+        json={
+            "storeId": "store-1",
+            "invoiceNumber": "09876543210987654321",
+            "invoiceDate": "2026-10-06",
+            "invoiceAmountCent": 2400,
+            "allocations": allocations,
+        },
+        headers={"Idempotency-Key": "reupload-invoice-register-0002"},
+    )
+
+    assert replacement.status_code == 200
+    assert replacement.json()["data"]["versionNo"] == 2
+    assert replacement.json()["data"]["supersedesInvoiceId"] == previous.invoice_id
+    db_session.expire_all()
+    assert db_session.scalar(
+        select(PromotionInvoice.is_current).where(
+            PromotionInvoice.invoice_id == previous.invoice_id
+        )
+    ) is False
+
+
+def test_admin_finance_summary_reads_current_monthly_fee_facts(
+    client: TestClient,
+) -> None:
+    _login(client)
+
+    response = client.get(
+        "/api/v1/admin/finance/summary",
+        params={
+            "month": "2026-08",
+            "storeId": "store-1",
+            "feeDirection": "PROMOTION",
+            "metricScope": "MONTH",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["feeDirection"] == "PROMOTION"
+    assert data["metrics"]["statementTotalCent"] == 1100
+    assert data["metrics"]["confirmedAmountCent"] == 0
+    assert data["metrics"]["issuedAmountCent"] == 0
+
+
+def test_admin_finance_queries_read_current_invoices_orders_and_stores(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    _seed_finance_query_facts(db_session)
+
+    promotion_invoices = client.get(
+        "/api/v1/admin/finance/invoices",
+        params={"month": "2026-08", "feeDirection": "PROMOTION"},
+    )
+    assert promotion_invoices.status_code == 200
+    promotion_row = promotion_invoices.json()["data"]["list"][0]
+    assert promotion_row["invoiceId"] == "promotion-invoice-current"
+    assert promotion_row["allocatedAmountCent"] == 1100
+    assert promotion_row["status"] == "APPROVED_SETTLED"
+
+    management_invoices = client.get(
+        "/api/v1/admin/finance/invoices",
+        params={"month": "2026-08", "feeDirection": "MANAGEMENT"},
+    )
+    assert management_invoices.status_code == 200
+    management_row = management_invoices.json()["data"]["list"][0]
+    assert management_row["invoiceId"] == "management-invoice-current"
+    assert management_row["invoiceAmountCent"] == 2200
+    assert management_row["settledAt"] == "2026-10-05T00:00:00+00:00"
+
+    orders = client.get(
+        "/api/v1/admin/finance/order-details",
+        params={"month": "2026-08", "feeDirection": "PROMOTION"},
+    )
+    assert orders.status_code == 200
+    assert orders.json()["data"]["list"] == [
+        {
+            "statementEntryId": "entry-promotion-current",
+            "statementId": "statement-1-v2",
+            "storeId": "store-1",
+            "statementMonth": "2026-08",
+            "feeDirection": "PROMOTION",
+            "orderId": "order-promotion-current",
+            "couponId": "coupon-promotion-current",
+            "originalBusinessMonth": "2026-08",
+            "statementPostingMonth": "2026-08",
+            "baseAmountCent": 11000,
+            "feeAmountCent": 1100,
+        }
+    ]
+
+    stores = client.get(
+        "/api/v1/admin/finance/stores",
+        params={
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "metricScope": "MONTH",
+        },
+    )
+    assert stores.status_code == 200
+    store_row = stores.json()["data"]["list"][0]
+    assert store_row["storeId"] == "store-1"
+    assert store_row["statementTotalCent"] == 1100
+    assert store_row["issuedAmountCent"] == 1100
+
+
+def test_admin_finance_summary_keeps_confirmations_monthly_and_pending_nonnegative(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    _seed_finance_query_facts(db_session)
+    db_session.add_all(
+        [
+            SettlementStatementConfirmation(
+                confirmation_id="confirmation-promotion-aug",
+                statement_id="statement-1-v2",
+                fee_direction=1,
+                confirmation_status=1,
+                confirmed_amount_cent=1100,
+                confirmed_by="store-1",
+            ),
+            SettlementStatementConfirmation(
+                confirmation_id="confirmation-promotion-sep",
+                statement_id="statement-1-sep-v1",
+                fee_direction=1,
+                confirmation_status=1,
+                confirmed_amount_cent=1300,
+                confirmed_by="store-1",
+            ),
+            SettlementStatement(
+                statement_id="statement-1-oct-v1",
+                store_id="store-1",
+                statement_month="2026-10",
+                version_no=1,
+                is_current=True,
+                statement_status=4,
+                promotion_original_fee_cent=0,
+                promotion_adjustment_fee_cent=0,
+                promotion_net_fee_cent=0,
+                management_original_fee_cent=-100,
+                management_adjustment_fee_cent=0,
+                management_net_fee_cent=-100,
+            ),
+        ]
+    )
+    db_session.flush()
+    db_session.add(
+        SettlementStatementConfirmation(
+            confirmation_id="confirmation-management-oct",
+            statement_id="statement-1-oct-v1",
+            fee_direction=2,
+            confirmation_status=1,
+            confirmed_amount_cent=-100,
+            confirmed_by="store-1",
+        )
+    )
+    db_session.commit()
+
+    cumulative = client.get(
+        "/api/v1/admin/finance/summary",
+        params={
+            "month": "2026-09",
+            "storeId": "store-1",
+            "feeDirection": "PROMOTION",
+            "metricScope": "CUMULATIVE",
+        },
+    )
+    assert cumulative.status_code == 200
+    assert cumulative.json()["data"]["metrics"] == {
+        "statementTotalCent": 2400,
+        "confirmedAmountCent": 1300,
+        "pendingInvoiceAmountCent": 1300,
+        "issuedAmountCent": 1100,
+        "settledOrDeductedAmountCent": 1100,
+    }
+
+    negative = client.get(
+        "/api/v1/admin/finance/summary",
+        params={
+            "month": "2026-10",
+            "storeId": "store-1",
+            "feeDirection": "MANAGEMENT",
+            "metricScope": "MONTH",
+        },
+    )
+    assert negative.status_code == 200
+    assert negative.json()["data"]["metrics"]["pendingInvoiceAmountCent"] == 0
+
+
+def test_admin_finance_queries_reject_store_role(client: TestClient) -> None:
+    client.app.dependency_overrides[get_current_user] = lambda: AuthContext(
+        user_id="admin-user",
+        username="admin-user",
+        display_name="Admin User",
+        role="admin",
+        store_ids=(),
+        auth_type="user",
+        store_scope_mode="all",
+    )
+    admin_response = client.get(
+        "/api/v1/admin/finance/summary",
+        params={
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "metricScope": "MONTH",
+        },
+    )
+    assert admin_response.status_code == 200
+
+    client.app.dependency_overrides[get_current_user] = lambda: AuthContext(
+        user_id="store-user",
+        username="store-user",
+        display_name="Store User",
+        role="store",
+        store_ids=("store-1",),
+        auth_type="user",
+        store_scope_mode="assigned",
+    )
+    response = client.get(
+        "/api/v1/admin/finance/summary",
+        params={
+            "month": "2026-08",
+            "feeDirection": "PROMOTION",
+            "metricScope": "MONTH",
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "DATA_SCOPE_FORBIDDEN"
+
+
+def _seed_finance_query_facts(db_session: Session) -> None:
+    settled_at = datetime(2026, 10, 5, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            PromotionInvoice(
+                invoice_id="promotion-invoice-current",
+                store_id="store-1",
+                version_no=2,
+                is_current=True,
+                supersedes_invoice_id="promotion-invoice-old",
+                invoice_number="12345678901234567890",
+                invoice_date=date(2026, 10, 5),
+                invoice_amount_cent=1100,
+                invoice_status=3,
+                registered_by="system-admin",
+                registered_at=settled_at,
+            ),
+            PromotionInvoiceAllocation(
+                allocation_id="promotion-allocation-current",
+                invoice_id="promotion-invoice-current",
+                store_id="store-1",
+                statement_id="statement-1-v2",
+                statement_month="2026-08",
+                allocated_amount_cent=1100,
+                is_current=True,
+            ),
+            InvoiceRecord(
+                invoice_id="management-invoice-current",
+                store_id="store-1",
+                statement_month="2026-08",
+                statement_id="statement-1-v2",
+                fee_direction=2,
+                version_no=1,
+                is_current=True,
+                invoice_number="12345678901234567891",
+                invoice_date=date(2026, 10, 5),
+                invoice_amount_cent=2200,
+                invoice_status=3,
+                source_type=2,
+                registered_by="system-admin",
+                registered_at=settled_at,
+            ),
+            SettlementStatementEntry(
+                statement_entry_id="entry-promotion-current",
+                statement_id="statement-1-v2",
+                statement_line_id="line-promotion-current",
+                source_type=1,
+                source_record_id="source-promotion-current",
+                original_fee_result_id="fee-result-promotion-current",
+                coupon_id="coupon-promotion-current",
+                order_id="order-promotion-current",
+                fee_direction=1,
+                original_business_month="2026-08",
+                statement_posting_month="2026-08",
+                base_amount_cent=11000,
+                fee_amount_cent=1100,
+                rule_version="rule-v1",
+            ),
+            SettlementStatementEntry(
+                statement_entry_id="entry-management-current",
+                statement_id="statement-1-v2",
+                statement_line_id="line-management-current",
+                source_type=1,
+                source_record_id="source-management-current",
+                original_fee_result_id="fee-result-management-current",
+                coupon_id="coupon-management-current",
+                order_id="order-management-current",
+                fee_direction=2,
+                original_business_month="2026-08",
+                statement_posting_month="2026-08",
+                base_amount_cent=11000,
+                fee_amount_cent=2200,
+                rule_version="rule-v1",
+            ),
+        ]
+    )
+    db_session.commit()
