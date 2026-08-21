@@ -30,6 +30,7 @@ from dy_api.schemas import (
 from apps.api.dy_api.models import (
     DimStore,
     InvoiceRecord,
+    InvoiceStatusEvent,
     PromotionInvoice,
     PromotionInvoiceAllocation,
     SettlementDispute,
@@ -545,11 +546,36 @@ def register_promotion_invoice(
             PromotionInvoiceAllocation.is_current.is_(True),
         ))
         if occupied is not None:
-            _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
+            previous_invoice = session.scalar(select(PromotionInvoice).where(
+                PromotionInvoice.invoice_id == occupied.invoice_id,
+                PromotionInvoice.is_current.is_(True),
+            ))
+            if previous_invoice is None or previous_invoice.invoice_status != 4:
+                _raise_reporting_error(request, status.HTTP_409_CONFLICT, "PROMOTION_INVOICE_PERIOD_OCCUPIED", "账期已存在当前有效推广费发票分配", field="allocations")
         allocations.append((statement, item))
     now = utcnow()
+    rejected_invoices = list(session.scalars(select(PromotionInvoice).join(
+        PromotionInvoiceAllocation,
+        PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
+    ).where(
+        PromotionInvoiceAllocation.store_id == parsed["store_id"],
+        PromotionInvoiceAllocation.statement_month.in_([item["statement_month"] for _, item in allocations]),
+        PromotionInvoiceAllocation.is_current.is_(True),
+        PromotionInvoice.is_current.is_(True),
+        PromotionInvoice.invoice_status == 4,
+    )))
+    previous_invoice = rejected_invoices[0] if rejected_invoices else None
+    if previous_invoice is not None:
+        previous_invoice.is_current = False
+        for allocation in session.scalars(select(PromotionInvoiceAllocation).where(
+            PromotionInvoiceAllocation.invoice_id == previous_invoice.invoice_id,
+            PromotionInvoiceAllocation.is_current.is_(True),
+        )):
+            allocation.is_current = False
     invoice = PromotionInvoice(
         invoice_id=f"promotion-invoice-{uuid4().hex}", store_id=parsed["store_id"],
+        version_no=(previous_invoice.version_no + 1) if previous_invoice else 1,
+        supersedes_invoice_id=previous_invoice.invoice_id if previous_invoice else None,
         invoice_number=parsed["invoice_number"], invoice_date=parsed["invoice_date"],
         invoice_amount_cent=parsed["invoice_amount_cent"], invoice_status=2,
         registered_by=current_user.username, registered_at=now,
@@ -562,6 +588,11 @@ def register_promotion_invoice(
             store_id=statement.store_id, statement_id=statement.statement_id,
             statement_month=statement.statement_month, allocated_amount_cent=item["allocated_amount_cent"],
         ))
+    session.add(InvoiceStatusEvent(
+        event_id=f"invoice-event-{uuid4().hex}", invoice_id=invoice.invoice_id,
+        event_type=1, from_status=None, to_status=2, operator_id=current_user.username,
+        occurred_at=now,
+    ))
     try:
         session.commit()
     except IntegrityError:
