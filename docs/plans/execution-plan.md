@@ -4,10 +4,12 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S3 DYDATA-19 正式交付计划已生成并通过结构校验，等待人类 Owner 审阅`。
+- 套包阶段：`S4 DYDATA-19 T5.1 财务闭环 Schema 与领域地基进行中`。
 - 当前 Linear issue：`DYDATA-19`，状态 `In Progress`，由当前分支单一窗口负责。
 - 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
-- 当前 Task：T5.1～T5.7 均为 `待审阅`；尚未进入 S4 生产代码开发。
+- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.1 子开发计划。
+- 当前子开发计划：[sub-delivery-plan-dy-data-T5.1-finance-schema.md](delivery-plans/sub-delivery-plan-dy-data-T5.1-finance-schema.md)。
+- 当前 Task：T5.1 为唯一 `进行中` 任务；T5.2～T5.7 等待后续审阅与前置完成。
 
 ## 2. 当前目标
 
@@ -15,13 +17,12 @@
 
 ## 3. 进行中任务
 
-- 无 DYDATA-19 代码任务进行中；历史 T4.1 保留外部发布依赖，不消耗本轮实现范围。
+- T5.1：新增 8 张财务闭环表、SQLAlchemy 模型、Alembic 迁移和结构验证；历史 T4.1 仍等待外部发布依赖。
 
 ## 4. 下一步任务
 
-- 人类 Owner 审阅 T5.1～T5.7；通过后先将 T5.1 三处状态同步为 `进行中`。
-- 执行 S4 计划一致性、环境与编码规则门禁。
-- 以 TDD 完成第一批 T5.1：8 张财务闭环表、SQLAlchemy 模型、Alembic 迁移和结构验证。
+- 以 TDD 完成 T5.1：8 张财务闭环表、SQLAlchemy 模型、Alembic 迁移和结构验证。
+- 完成后记录 Foundation 漂移结论，回写验证证据并提交 T5.2 的审阅申请。
 
 ## 5. 完成标准摘要
 

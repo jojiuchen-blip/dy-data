@@ -128,7 +128,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T4.1 | [端到端核验与生产发布](sub-delivery-plan-dy-data-T4.1-release-verification.md) | 进行中（等待外部依赖） |
+| T4.1 | [端到端核验与生产发布](sub-delivery-plan-dy-data-T4.1-release-verification.md) | 待开发（等待外部依赖） |
 
 ### Phase 5：DYDATA-19 账单与财务闭环
 
@@ -138,7 +138,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T5.1 | [财务闭环 Schema 与领域地基](sub-delivery-plan-dy-data-T5.1-finance-schema.md) | 待审阅 |
+| T5.1 | [财务闭环 Schema 与领域地基](sub-delivery-plan-dy-data-T5.1-finance-schema.md) | 进行中 |
 | T5.2 | [门店确认与推广费发票登记](sub-delivery-plan-dy-data-T5.2-store-billing.md) | 待审阅 |
 | T5.3 | [管理员财务查询与订单穿透](sub-delivery-plan-dy-data-T5.3-finance-queries.md) | 待审阅 |
 | T5.4 | [账单异议生命周期](sub-delivery-plan-dy-data-T5.4-disputes.md) | 待审阅 |

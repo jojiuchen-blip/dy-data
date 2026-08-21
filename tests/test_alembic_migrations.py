@@ -989,3 +989,28 @@ def test_raw_settlement_field_migration_backfills_single_coupon_and_is_reversibl
     }.intersection(
         {column["name"] for column in downgraded.get_columns("raw_douyin_orders")}
     )
+
+
+def test_finance_closure_migration_creates_versioned_tables(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "finance-closure.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "head")
+
+    upgraded = inspect(create_engine(config.get_main_option("sqlalchemy.url")))
+    assert {
+        "settlement_statement_confirmation",
+        "settlement_dispute",
+        "settlement_dispute_order",
+        "invoice_record",
+        "invoice_status_event",
+        "finance_import_batch",
+        "finance_import_row",
+        "finance_operation_audit",
+    }.issubset(upgraded.get_table_names())
+    assert "idx_invoice_record_current_slot" in {
+        index["name"] for index in upgraded.get_indexes("invoice_record")
+    }
