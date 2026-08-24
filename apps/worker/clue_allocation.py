@@ -49,6 +49,7 @@ DEFAULT_STORE_WEIGHT = Decimal("1")
 SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
 MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
 MASTER_STATUS_REPAIR_LOCK = "clue-allocation-master-status-repair"
+MASTER_TERMINAL_SYNC_LOCK = "clue-allocation-master-terminal-sync"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
@@ -589,6 +590,147 @@ def refresh_unknown_clue_master_statuses(
                 session.flush()
                 session.commit()
                 session.expunge_all()
+    finally:
+        _release_session_advisory_lock(session, lock_key)
+    return stats
+
+
+def synchronize_non_active_clue_states(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> dict[str, int | bool | str]:
+    """Close stale center snapshots and rounds for terminal master leads.
+
+    This is deliberately separate from full materialization. It scans the
+    non-active master ledger in keyset pages, closes only already-existing
+    rounds, and never creates a new assignment.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    now = _aware(now or utcnow())
+    lock_key = _advisory_lock_key(MASTER_TERMINAL_SYNC_LOCK)
+    if not _try_session_advisory_lock(session, lock_key):
+        return {
+            "scanned": 0,
+            "orders": 0,
+            "rounds_closed": 0,
+            "centers_closed": 0,
+            "headquarters_closed": 0,
+            "batches": 0,
+            "dry_run": dry_run,
+            "skipped": "locked",
+        }
+
+    stats: dict[str, int | bool | str] = {
+        "scanned": 0,
+        "orders": 0,
+        "rounds_closed": 0,
+        "centers_closed": 0,
+        "headquarters_closed": 0,
+        "batches": 0,
+        "dry_run": dry_run,
+    }
+    last_lead_key = ""
+    active_round_statuses = ("active_unfollowed", "active_followed")
+    try:
+        while True:
+            leads = session.scalars(
+                select(ClueMasterLead)
+                .where(ClueMasterLead.lifecycle_status != "active")
+                .where(ClueMasterLead.lead_key > last_lead_key)
+                .order_by(ClueMasterLead.lead_key)
+                .limit(batch_size)
+            ).all()
+            if not leads:
+                break
+
+            last_lead_key = leads[-1].lead_key
+            stats["batches"] = int(stats["batches"]) + 1
+            stats["scanned"] = int(stats["scanned"]) + len(leads)
+            lead_keys = {lead.lead_key for lead in leads}
+            leads_by_order: dict[str, list[ClueMasterLead]] = defaultdict(list)
+            for lead in leads:
+                if order_id := _clean(lead.order_id):
+                    leads_by_order[order_id].append(lead)
+
+            order_ids = set(leads_by_order)
+            centers = {
+                row.order_id: row
+                for row in session.scalars(
+                    select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_ids))
+                ).all()
+            }
+            rounds_by_order: dict[str, list[ClueAssignmentRound]] = defaultdict(list)
+            if order_ids:
+                for round_row in session.scalars(
+                    select(ClueAssignmentRound)
+                    .where(ClueAssignmentRound.order_id.in_(order_ids))
+                    .where(ClueAssignmentRound.round_status.in_(active_round_statuses))
+                ).all():
+                    rounds_by_order[round_row.order_id].append(round_row)
+            active_hq_by_lead = {
+                row.lead_key: row
+                for row in session.scalars(
+                    select(ClueHeadquartersPoolEntry)
+                    .where(ClueHeadquartersPoolEntry.lead_key.in_(lead_keys))
+                    .where(ClueHeadquartersPoolEntry.status == "active")
+                ).all()
+            }
+
+            for lead in leads:
+                if lead.lead_key not in active_hq_by_lead:
+                    continue
+                stats["headquarters_closed"] = int(stats["headquarters_closed"]) + 1
+                if not dry_run:
+                    close_current_headquarters_pool_entry(
+                        session,
+                        lead.lead_key,
+                        closed_at=_aware(lead.closed_at) if lead.closed_at else now,
+                        close_reason=lead.closed_reason or "order_status_terminal",
+                        _active_entries_by_lead=active_hq_by_lead,
+                    )
+
+            for order_id, order_leads in leads_by_order.items():
+                lifecycle_status = _terminal_lifecycle_for_order(order_leads)
+                closed_at = _terminal_closed_at(order_leads, now)
+                order_rounds = rounds_by_order.get(order_id, [])
+                stats["orders"] = int(stats["orders"]) + 1
+                stats["rounds_closed"] = int(stats["rounds_closed"]) + len(order_rounds)
+                center = centers.get(order_id)
+                center_needs_update = center is not None and (
+                    center.lead_status
+                    != _terminal_center_lead_status(lifecycle_status)
+                    or center.current_round_status
+                    != _terminal_round_status(lifecycle_status)
+                )
+                if center_needs_update:
+                    stats["centers_closed"] = int(stats["centers_closed"]) + 1
+
+                if dry_run:
+                    continue
+                for round_row in order_rounds:
+                    _close_current_assignment(
+                        session,
+                        order_id,
+                        lifecycle_status,
+                        closed_at,
+                        current_assignment_round_id=round_row.assignment_round_id,
+                    )
+                if center_needs_update:
+                    _close_current_assignment(
+                        session,
+                        order_id,
+                        lifecycle_status,
+                        closed_at,
+                    )
+
+            if not dry_run:
+                session.flush()
+                session.commit()
+            session.expunge_all()
     finally:
         _release_session_advisory_lock(session, lock_key)
     return stats
@@ -1509,22 +1651,9 @@ def _close_current_assignment(
         if center_orders_by_id is not None
         else session.get(ClueCenterOrder, order_id)
     )
-    if lifecycle_status == "closed_verified":
-        round_status = "closed_order_verified"
-        terminal_reason = "order_verified"
-        lead_status = "converted"
-    elif lifecycle_status == "closed_refunded":
-        round_status = "closed_order_refunded"
-        terminal_reason = "order_refunded"
-        lead_status = "refunded"
-    elif lifecycle_status == "closed_order":
-        round_status = "closed_order_closed"
-        terminal_reason = "order_closed"
-        lead_status = "closed"
-    else:
-        round_status = "closed_order_status_unknown"
-        terminal_reason = "order_status_unknown"
-        lead_status = "status_review"
+    round_status = _terminal_round_status(lifecycle_status)
+    terminal_reason = _terminal_reason(lifecycle_status)
+    lead_status = _terminal_center_lead_status(lifecycle_status)
     round_id = current_assignment_round_id or (
         center_order.current_assignment_round_id if center_order is not None else None
     )
@@ -1546,6 +1675,49 @@ def _close_current_assignment(
         center_order.current_round_status = round_status
         center_order.reassign_reason = terminal_reason
         center_order.updated_at = closed_at
+
+
+def _terminal_lifecycle_for_order(leads: list[ClueMasterLead]) -> str:
+    """Choose one deterministic terminal state for an order-level snapshot."""
+    lifecycle_statuses = {lead.lifecycle_status for lead in leads}
+    for lifecycle_status in (
+        "closed_verified",
+        "closed_refunded",
+        "closed_order",
+        "status_review",
+    ):
+        if lifecycle_status in lifecycle_statuses:
+            return lifecycle_status
+    return "status_review"
+
+
+def _terminal_round_status(lifecycle_status: str) -> str:
+    return {
+        "closed_verified": "closed_order_verified",
+        "closed_refunded": "closed_order_refunded",
+        "closed_order": "closed_order_closed",
+    }.get(lifecycle_status, "closed_order_status_unknown")
+
+
+def _terminal_reason(lifecycle_status: str) -> str:
+    return {
+        "closed_verified": "order_verified",
+        "closed_refunded": "order_refunded",
+        "closed_order": "order_closed",
+    }.get(lifecycle_status, "order_status_unknown")
+
+
+def _terminal_center_lead_status(lifecycle_status: str) -> str:
+    return {
+        "closed_verified": "converted",
+        "closed_refunded": "refunded",
+        "closed_order": "closed",
+    }.get(lifecycle_status, "status_review")
+
+
+def _terminal_closed_at(leads: list[ClueMasterLead], fallback: datetime) -> datetime:
+    timestamps = [_aware(lead.closed_at) for lead in leads if lead.closed_at is not None]
+    return min(timestamps) if timestamps else fallback
 
 
 def _is_candidate_eligible(store: DimStore) -> bool:
