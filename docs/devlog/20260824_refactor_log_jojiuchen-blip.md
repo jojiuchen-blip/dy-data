@@ -1,0 +1,86 @@
+# 开发日志 — 2026-08-24
+
+> 主题：补充更新 15（T5.7 G3 冻结回归）
+> 操作人：jojiuchen-blip
+> 关联计划：docs/plans/execution-plan.md
+
+---
+
+## 一、执行概要
+
+| # | 任务 | 关联 | 状态 |
+|---|------|------|------|
+| 1 | 补充更新 15（T5.7 G3 冻结回归） | S4 / T5.7 | ✅ |
+
+**本日关键结论**：G3 已完成并冻结，可进入最新主线干净集成；尚未完成全量、目标 PostgreSQL、CI、生产 smoke 和业务验收，不得宣称发布完成
+
+---
+
+## 二、操作详情
+
+### 任务 1：补充更新 15（T5.7 G3 冻结回归）
+- **目标**：完成历史账单与订单明细冻结快照、财务订单明细完整投影和发布异常归零门禁的最终闭合
+- **操作**：修复并复核 0043 快照迁移、Vn+1 快照继承、财务订单明细列表与导出、导出审计、前端完整字段与筛选分页状态，以及部署脚本 unresolved exception 归零检查；对旧迁移测试的保护性错误信息做最小兼容更新
+- **结果**：最终完整相关回归 152 passed, 170 warnings；Web production build 通过；Alembic 单头 20260824_0043；git diff --check 通过；独立七项复审 Critical 0、Important 0、Minor 0，Ready yes
+- **涉及文件**：alembic/versions/20260824_0043_statement_store_snapshots.py、apps/api/dy_api/models.py、apps/api/dy_api/routes/dashboard.py、apps/worker/settlement.py、apps/web/src/pages/FinanceOrderDetailsPage.tsx、deploy/tencent/deploy.sh、tests/test_api_store_billing.py、tests/test_data_settlement.py、tests/test_alembic_migrations.py、tests/test_deploy_compose_config.py、tests/test_frontend_user_facing_contracts.py
+
+<!-- 复杂决策型任务可展开分析：
+### 任务 N：标题（决策类）
+- **背景问题**：为什么要做这个决策
+- **方案对比**：（表格或列表）
+- **最终决策**：选了什么 + 为什么
+- **涉及文件**：列表
+-->
+
+---
+
+## 三、变更总览
+
+### 文件变更清单
+
+| 操作 | 文件 | 说明 |
+|------|------|------|
+| 新建/修改/删除 | `path/to/file` | 一句话说明 |
+
+> 收口时由 AI 从各任务「涉及文件」聚合去重生成。操作类型：新建 / 修改 / 删除。
+
+### Git 提交记录
+
+| 时间 | Commit | 内容 |
+|------|--------|------|
+
+---
+
+## 四、发现的问题 / 缺陷
+
+无
+
+---
+
+## 五、复盘
+
+### 做得好的
+- （列举）
+
+### 遇到的问题
+- **现象**：
+- **根因**：
+- **经验**：> 可执行的一句话
+- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录
+
+### 今日经验总结
+1. 经验 1 → 🔧 建议加入 project-rules.md
+2. 经验 2 → 仅记录
+
+---
+
+## 五·附、方法论沉淀（可选）
+
+> 当天工作中如果有可复用的方法论、设计原则、或跨项目通用的经验，在此抽象记录。
+> 普通开发日不需要填写此章节。
+
+---
+
+## 六、待跟进事项
+
+- [ ] 形成可恢复 checkpoint 后，从最新 origin/main 建立干净集成分支，重建财务迁移链并执行全量发布门禁
