@@ -65,6 +65,31 @@ def rebuild_clue_center(
         .where(RawDouyinClue.order_id != "0")
     ).all()
 
+    # The legacy projection must not resurrect a center row after the master
+    # ledger has resolved the order as terminal or status-review. During old
+    # standalone imports there may be no master row yet, so retain the legacy
+    # fallback for those rows.
+    if raw_clues:
+        master_rows = session.scalars(
+            select(ClueMasterLead).where(
+                ClueMasterLead.source_clue_row_key.in_(
+                    [clue.clue_row_key for clue in raw_clues]
+                )
+            )
+        ).all()
+        master_by_source = {row.source_clue_row_key: row for row in master_rows}
+        raw_clues = [
+            clue
+            for clue in raw_clues
+            if (
+                (master := master_by_source.get(clue.clue_row_key)) is None
+                or (
+                    master.lifecycle_status == "active"
+                    and master.normalized_order_status == "active"
+                )
+            )
+        ]
+
     grouped: dict[str, list[RawDouyinClue]] = defaultdict(list)
     for clue in raw_clues:
         order_id = (clue.order_id or "").strip()

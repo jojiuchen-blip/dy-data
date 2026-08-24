@@ -357,6 +357,79 @@ def test_materialization_maps_order_api_waiting_use_status_to_active(db_session:
     assert master.allocation_state == "pending_allocation"
 
 
+def test_materialization_resolves_completed_or_refunded_numeric_order_status(
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [
+            _store("store-anchor", city_code="上海"),
+            DimStorePoiMapping(store_id="store-anchor", poi_id="poi-anchor", mapping_source="test"),
+            _raw_clue(
+                "completed-row",
+                clue_id="completed-clue",
+                order_id="completed-order",
+                order_status="交易关闭",
+            ),
+            _raw_clue(
+                "refunded-row",
+                clue_id="refunded-clue",
+                order_id="refunded-order",
+                order_status="交易关闭",
+            ),
+            RawDouyinOrder(
+                order_id="completed-order",
+                order_status="1",
+                raw_payload={"order_status": 1, "certificate": [{"item_status": 401, "refund_time": 0}]},
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            RawDouyinOrder(
+                order_id="refunded-order",
+                order_status="1",
+                raw_payload={"order_status": 1, "certificate": [{"item_status": 301, "refund_time": 123}]},
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    completed = _master_by_clue_id(db_session, "completed-clue")
+    refunded = _master_by_clue_id(db_session, "refunded-clue")
+    assert completed is not None
+    assert completed.normalized_order_status == "verified"
+    assert completed.lifecycle_status == "closed_verified"
+    assert refunded is not None
+    assert refunded.normalized_order_status == "refunded"
+    assert refunded.lifecycle_status == "closed_refunded"
+
+
+def test_materialization_quarantines_missing_order_status_instead_of_allocating(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        _raw_clue(
+            "missing-status-row",
+            clue_id="missing-status-clue",
+            order_id="missing-status-order",
+            order_status=None,
+        )
+    )
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    master = _master_by_clue_id(db_session, "missing-status-clue")
+    assert master is not None
+    assert master.normalized_order_status == "unknown"
+    assert master.lifecycle_status == "status_review"
+    assert master.pool_location == "status_review"
+    assert master.allocation_state == "status_review"
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
+
+
 def test_materialization_persists_new_master_before_creating_headquarters_entry(
     db_session: Session,
 ) -> None:

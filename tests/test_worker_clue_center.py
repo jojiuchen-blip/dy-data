@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -178,6 +179,42 @@ def test_rebuild_materializes_eligible_order_level_clues(db_session: Session) ->
 
     assert db_session.get(ClueCenterOrder, "order-closed") is None
     assert db_session.get(ClueCenterOrder, "0") is None
+
+
+def test_rebuild_does_not_resurrect_terminal_master_lead(db_session: Session) -> None:
+    clue = _raw_clue(
+        "row-terminal",
+        order_id="order-terminal",
+        clue_id="clue-terminal",
+        create_time=_dt(1),
+    )
+    db_session.add(
+        ClueMasterLead(
+            lead_key="lead-terminal",
+            source_clue_row_key=clue.clue_row_key,
+            source_identity_key="identity-terminal",
+            canonical_clue_id=clue.clue_id,
+            order_id=clue.order_id,
+            raw_order_status="1",
+            normalized_order_status="verified",
+            status_source="order",
+            lifecycle_status="closed_verified",
+            pool_location="closed",
+            allocation_state="closed",
+            first_seen_at=clue.create_time_detail,
+            last_seen_at=clue.create_time_detail,
+            created_at=clue.create_time_detail,
+            updated_at=clue.create_time_detail,
+        )
+    )
+    db_session.add(clue)
+    db_session.commit()
+
+    stats = rebuild_clue_center(db_session, now=_dt(2))
+
+    assert stats == {"eligible_orders": 0, "assignment_rounds": 0}
+    assert db_session.get(ClueCenterOrder, "order-terminal") is None
+    assert db_session.scalar(select(ClueAssignmentRound.assignment_round_id)) is None
 
 
 def test_rebuild_masks_phone_from_raw_payload_when_telephone_column_is_empty(

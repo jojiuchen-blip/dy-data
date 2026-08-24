@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from apps.worker.collectors.normalizers import amount_cent, first, get_path, source_datetime, text
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
+from apps.worker.order_status import normalize_coupon_status, normalize_order_status
 from apps.worker.repositories import upsert_order_coupon, upsert_raw_order
 
 
@@ -38,7 +39,7 @@ def collect_orders(
             order_id,
             order_status=order_status_raw,
             order_status_raw=order_status_raw,
-            order_status_normalized=_normalize_order_status(order_status_raw),
+            order_status_normalized=normalize_order_status(order_status_raw, order),
             sku_id=text(first(order, "sku_id", "sku.sku_id", "sku_info.sku_id")),
             product_name=text(first(order, "product_name", "sku_name", "sku.title", "sku_info.title")),
             pay_time=sale_time,
@@ -102,7 +103,7 @@ def collect_orders(
                 order_item_id=text(first(coupon, "order_item_id", "item_id")),
                 coupon_status=coupon_status_raw,
                 coupon_status_raw=coupon_status_raw,
-                coupon_status_normalized=_normalize_coupon_status(coupon_status_raw),
+                coupon_status_normalized=normalize_coupon_status(coupon_status_raw),
                 coupon_paid_amount_cent=coupon_paid_amount,
                 coupon_updated_at=source_datetime(first(coupon, "coupon_updated_at", "update_time", "updated_at", "item_update_time")),
                 coupon_refunded_cent=refunded_amount,
@@ -114,30 +115,6 @@ def collect_orders(
             )
             stats.upserted += 1
     return stats
-
-
-def _normalize_order_status(value: str | None) -> str:
-    normalized = (value or "").strip().lower().replace("-", "_")
-    if normalized in {"paid", "success", "completed", "fulfilled"}:
-        return "paid"
-    if normalized in {"closed", "cancelled", "canceled", "unpaid_closed"}:
-        return "closed"
-    if normalized in {"refund", "refunded", "fully_refunded"}:
-        return "refunded"
-    return "unknown"
-
-
-def _normalize_coupon_status(value: str | None) -> str:
-    normalized = (value or "").strip().lower().replace("-", "_")
-    if normalized in {"available", "unused", "valid"}:
-        return "available"
-    if normalized in {"verified", "fulfilled", "used", "success"}:
-        return "verified"
-    if normalized in {"cancelled", "canceled", "revoked", "reversed"}:
-        return "cancelled"
-    if normalized in {"refund", "refunded", "fully_refunded"}:
-        return "refunded"
-    return "unknown"
 
 
 def _normalize_sale_channel(value: str | None) -> str:
@@ -166,3 +143,15 @@ def _coupon_rows(order: dict[str, Any]) -> list[dict[str, Any]]:
             if isinstance(nested, list):
                 rows.extend({**coupon, "order_item_id": item.get("order_item_id") or item.get("item_id")} for coupon in nested)
     return rows
+
+
+# Backward-compatible private aliases for older callers and focused tests.
+def _normalize_order_status(
+    value: str | None,
+    payload: dict[str, Any] | None = None,
+) -> str:
+    return normalize_order_status(value, payload)
+
+
+def _normalize_coupon_status(value: str | None) -> str:
+    return normalize_coupon_status(value)

@@ -39,6 +39,7 @@ from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     ensure_active_headquarters_pool_entry,
 )
+from apps.worker.order_status import resolve_clue_order_status
 from apps.worker.repositories import upsert_data_quality_issue
 
 
@@ -286,9 +287,12 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
             current_rounds_by_id=current_rounds_by_id,
         )
         active_headquarters_entry = existing.lead_key in active_headquarters_entries_by_lead
-        if lifecycle_status != "active":
+        if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
             pool_location = "closed"
             allocation_state = "closed"
+        elif lifecycle_status == "status_review":
+            pool_location = "status_review"
+            allocation_state = "status_review"
         elif current_self_owned_round is not None:
             pool_location = "store_follow_up_pool"
             allocation_state = "assigned"
@@ -314,7 +318,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         existing.pool_location = pool_location
         existing.allocation_state = allocation_state
         existing.ended_without_assignment = (
-            lifecycle_status != "active"
+            lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
             and existing.current_assignment_round_id is None
             and existing.allocation_cycle_id is None
         )
@@ -365,7 +369,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
             history_by_key=identifier_history_by_key,
             current_by_source_type=current_identifier_history_by_source_type,
         )
-        if lifecycle_status != "active":
+        if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
             closed_lead_keys.add(existing.lead_key)
         elif pool_location == "headquarters_pool":
             headquarters_pool_keys.add(existing.lead_key)
@@ -1082,14 +1086,17 @@ def _resolve_status(
     order_status = _clean(raw_order.order_status) if raw_order is not None else None
     source = "order" if order_status else "clue"
     raw_status = order_status or _clean(raw_clue.order_status)
-    if raw_status and "退款" in raw_status:
-        return StatusResolution(raw_status, "refunded", source, _status_observed_at(raw_clue, raw_order, now))
-    if raw_status and "核销" in raw_status:
-        return StatusResolution(raw_status, "verified", source, _status_observed_at(raw_clue, raw_order, now))
-    # The order-query API uses 201 for 待使用, the same allocatable state as 履约中.
-    if raw_status in {"履约中", "201"}:
-        return StatusResolution(raw_status, "active", source, None)
-    return StatusResolution(raw_status, "unknown", source, None)
+    payload = raw_order.raw_payload if order_status and raw_order is not None else raw_clue.raw_payload
+    normalized_status = resolve_clue_order_status(
+        raw_status,
+        payload,
+    )
+    closed_at = (
+        _status_observed_at(raw_clue, raw_order, now)
+        if normalized_status in {"verified", "refunded", "closed"}
+        else None
+    )
+    return StatusResolution(raw_status, normalized_status, source, closed_at)
 
 
 def _resolve_anchor(
@@ -1131,11 +1138,21 @@ def _resolve_anchor(
 
 
 def _lifecycle_status(normalized_status: str) -> str:
-    return {"verified": "closed_verified", "refunded": "closed_refunded"}.get(normalized_status, "active")
+    return {
+        "verified": "closed_verified",
+        "refunded": "closed_refunded",
+        "closed": "closed_order",
+        "active": "active",
+    }.get(normalized_status, "status_review")
 
 
 def _closed_reason(normalized_status: str) -> str | None:
-    return {"verified": "order_verified", "refunded": "order_refunded"}.get(normalized_status)
+    return {
+        "verified": "order_verified",
+        "refunded": "order_refunded",
+        "closed": "order_closed",
+        "unknown": "order_status_unknown",
+    }.get(normalized_status)
 
 
 def _first_seen_at(raw_clue: RawDouyinClue, now: datetime) -> datetime:
@@ -1273,10 +1290,18 @@ def _close_current_assignment(
         round_status = "closed_order_verified"
         terminal_reason = "order_verified"
         lead_status = "converted"
-    else:
+    elif lifecycle_status == "closed_refunded":
         round_status = "closed_order_refunded"
         terminal_reason = "order_refunded"
         lead_status = "refunded"
+    elif lifecycle_status == "closed_order":
+        round_status = "closed_order_closed"
+        terminal_reason = "order_closed"
+        lead_status = "closed"
+    else:
+        round_status = "closed_order_status_unknown"
+        terminal_reason = "order_status_unknown"
+        lead_status = "status_review"
     round_id = current_assignment_round_id or (
         center_order.current_assignment_round_id if center_order is not None else None
     )

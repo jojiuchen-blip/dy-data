@@ -32,6 +32,7 @@ const orderStatusLabels: LabelMap = {
   cancelled: "已关闭",
   canceled: "已关闭",
   closed: "已关闭",
+  unknown: "待核实",
 };
 
 const followUpTimingStateLabels: LabelMap = {

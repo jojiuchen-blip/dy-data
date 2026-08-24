@@ -21,7 +21,7 @@ FOLLOW_UP_ACTIONS = {
 }
 PROTECTION_ACTIONS = {"appointment", "further_follow_up", "unreachable"}
 ACTIVE_ROUND_STATUSES = {"active_unfollowed", "active_followed"}
-TERMINAL_ORDER_STATUSES = {"verified", "refunded"}
+TERMINAL_ORDER_STATUSES = {"verified", "refunded", "closed"}
 
 
 @dataclass(frozen=True)
@@ -362,11 +362,20 @@ def _close_for_terminal_order(
     session: Session,
 ) -> None:
     verified = lead.normalized_order_status == "verified"
-    round_row.round_status = "closed_order_verified" if verified else "closed_order_refunded"
-    round_row.terminal_reason = "order_verified" if verified else "order_refunded"
+    refunded = lead.normalized_order_status == "refunded"
+    round_row.round_status = (
+        "closed_order_verified"
+        if verified
+        else "closed_order_refunded"
+        if refunded
+        else "closed_order_closed"
+    )
+    round_row.terminal_reason = (
+        "order_verified" if verified else "order_refunded" if refunded else "order_closed"
+    )
     round_row.matured_at = now
     round_row.updated_at = now
-    lead.lifecycle_status = "closed_verified" if verified else "closed_refunded"
+    lead.lifecycle_status = "closed_verified" if verified else "closed_refunded" if refunded else "closed_order"
     lead.pool_location = "closed"
     lead.allocation_state = "closed"
     lead.current_assignment_round_id = None
@@ -375,7 +384,7 @@ def _close_for_terminal_order(
     lead.updated_at = now
     center = session.get(ClueCenterOrder, round_row.order_id)
     if center is not None and center.current_assignment_round_id == round_row.assignment_round_id:
-        center.lead_status = "converted" if verified else "refunded"
+        center.lead_status = "converted" if verified else "refunded" if refunded else "closed"
         center.current_round_status = round_row.round_status
         center.reassign_reason = round_row.terminal_reason
         center.updated_at = now
