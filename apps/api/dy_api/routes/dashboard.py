@@ -7075,7 +7075,6 @@ def _statement_header_item(
     *,
     promotion_projection: dict[str, dict] | None = None,
 ) -> dict:
-    store = session.get(DimStore, statement.store_id)
     confirmations = {
         row.fee_direction: row
         for row in session.scalars(
@@ -7118,7 +7117,7 @@ def _statement_header_item(
     return {
         "statement_id": statement.statement_id,
         "store_id": statement.store_id,
-        "store_name": store.store_name if store is not None else None,
+        "store_name": statement.store_name_snapshot,
         "month": statement.statement_month,
         "version_no": statement.version_no,
         "is_current": statement.is_current,

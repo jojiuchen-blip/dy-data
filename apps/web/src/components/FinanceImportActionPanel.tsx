@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 import {
+  ApiRequestError,
   commitFinanceImport,
   correctFinanceImport,
   downloadFinanceImportErrors,
@@ -7,6 +8,7 @@ import {
 } from "../api/client";
 import type { FeeDirection, FinanceImportBatchRow } from "../types/dashboard";
 import { displayFinanceImportScenario } from "../utils/userFacingLabels";
+import { userFacingError } from "../utils/userFacingError";
 import { Button } from "./Button";
 import { ResourcePanel } from "./ResourceState";
 import { SearchableStoreSelect } from "./SearchableStoreSelect";
@@ -59,7 +61,7 @@ export function FinanceImportActionPanel({
             : "整批校验通过，请核对版本和变更原因后提交。",
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "上传校验失败，请稍后重试。");
+      setMessage(userFacingError(error, "上传校验失败，请稍后重试。"));
     } finally {
       setUploading(false);
     }
@@ -84,7 +86,19 @@ export function FinanceImportActionPanel({
       setFile(null);
       onCommitted();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "提交失败，请刷新后重新预览。");
+      const conflict = error instanceof ApiRequestError && error.status === 409;
+      if (conflict) {
+        setPreview(null);
+        setFile(null);
+      }
+      setMessage(
+        userFacingError(
+          error,
+          conflict
+            ? "版本已发生变化，请重新上传并预览。"
+            : "提交失败，请刷新后重新预览。",
+        ),
+      );
     } finally {
       setCommitting(false);
     }

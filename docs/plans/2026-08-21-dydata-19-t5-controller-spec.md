@@ -1,14 +1,14 @@
 # DYDATA-19 T5.1—T5.6 Controller Spec
 
-Status: Active
+Status: Active for historical T5 controller evidence; release authorization superseded by the 2026-08-24 T5.7 decision below
 Date: 2026-08-21
 Controller: Codex
 Repo / workspace: `.`
-Branch / target: `codex/dydata-19-page-loop`; stop at release review pending Owner confirmation
+Historical branch / target: `codex/dydata-19-page-loop`; current release integration is handled by `codex/dydata-19-main-integration`
 
 ## 1. User Goal
 
-Complete DYDATA-19 T5.1 through T5.6 and close every release blocker found by T5.7 system acceptance against the current Linear description: Foundation migrations, backend business APIs, production pages, integration, system test, UAT/release preparation and a release-review package. Production migration and deployment require a fresh Owner confirmation after every hard gate passes.
+Complete DYDATA-19 T5.1 through T5.6 and close every release blocker found by T5.7 system acceptance against the current Linear description: Foundation migrations, backend business APIs, production pages, integration, system test, UAT/release preparation and a release-review package. The original release-review confirmation boundary is retained as historical evidence; the current 2026-08-24 user instruction authorizes production migration and deployment directly after every hard gate passes, with any failed gate stopping release.
 
 ## 2. Current Evidence
 
@@ -46,7 +46,7 @@ Scope control rule: pause for a newly discovered requirement conflict, irreversi
 |---|---|---|---|---|
 | A1 | Promotion invoice may allocate one invoice across multiple full periods; no cross-store allocation | Confirmed rule | Linear DYDATA-19 | Implement through invoice allocation records and exact sums |
 | A2 | T5.3 active edits belong to the current scoped effort | Assumption | Controller | Preserve and verify; do not revert or overwrite |
-| A3 | Production migration and deployment require fresh confirmation after all hard gates pass | Confirmed boundary | User | Stop at the release review and wait for Owner confirmation |
+| A3 | Production migration and deployment require fresh confirmation after all hard gates pass | Historical boundary | User | Superseded on 2026-08-24 by the explicit instruction to proceed automatically after all hard gates pass; any failed gate still stops release |
 | A4 | Linear current description overrides narrower SubPRD/T5 task wording | Confirmed rule | User | Implement the Linear gaps and update downstream specs/evidence |
 
 ## 5. Work Breakdown
@@ -78,7 +78,7 @@ For each T5 task: read sub-plan, add/verify red-green tests for new behavior, in
 | System acceptance | API integration tests, web build, browser route checks and cross-page flow | Yes |
 | Business/UAT preparation | Given/When/Then checklist, role/data fixtures, current/history/audit evidence and release/rollback plan | Yes |
 | Known visual fixtures | Record separately; 16 permission-fixture failures do not fail DYDATA-19 gates | Yes |
-| Production release | Not authorized in the current task; submit release review and wait for fresh Owner confirmation | Yes |
+| Production release | Authorized after all hard gates pass; no additional confirmation is required; retain CI, migration, backup, deploy, smoke and rollback evidence | Yes |
 
 ## 8. Decision Log
 
@@ -86,5 +86,6 @@ For each T5 task: read sub-plan, add/verify red-green tests for new behavior, in
 |---|---|---|---|
 | 2026-08-21 | Treat DYDATA-19 description as the requirement authority for multi-period promotion invoices | Current Linear body supersedes legacy Foundation wording | Linear DYDATA-19 §4 |
 | 2026-08-24 | Do not execute production release in this task | Owner explicitly requires a fresh confirmation after T5.6/release preparation | Latest user instruction |
+| 2026-08-24 | Supersede the prior release-review stop and proceed automatically after hard gates | User explicitly instructed the workflow to continue through production deployment without another confirmation; failed gates remain blocking | Latest user instruction in the active T5.7 conversation |
 | 2026-08-21 | Expand T5.7 blocker closure to the full current Linear body | User replied “继续” after the controller reported the narrowed-plan conflict | User confirmation and Linear DYDATA-19 §§4–8 |
 | 2026-08-21 | Add G0 and historical snapshot gates before invoice/order-detail release closure | Independent spec review proved current worker skips locked-period adjustments and current master data cannot satisfy historical acceptance | `dydata-19-task-g0-carryforward-source-brief.md`, G1c/G2/G3 review findings |

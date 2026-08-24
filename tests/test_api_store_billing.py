@@ -284,7 +284,9 @@ def _with_current_promotion_group_ids(
     return result
 
 
-def test_store_settlement_reads_current_list_and_version_history(client: TestClient) -> None:
+def test_store_settlement_reads_current_list_and_version_history(
+    client: TestClient, db_session: Session
+) -> None:
     _login(client)
 
     listed = client.get(
@@ -328,6 +330,14 @@ def test_store_settlement_reads_current_list_and_version_history(client: TestCli
         "statement-1-v2",
         "statement-1-v1",
     ]
+
+    db_session.scalar(
+        select(DimStore).where(DimStore.store_id == "store-1")
+    ).store_name = "Store One Renamed"
+    db_session.commit()
+    historical_detail = client.get("/api/v1/store-settlements/statement-1-v2")
+    assert historical_detail.status_code == 200
+    assert historical_detail.json()["data"]["storeName"] == "Store One Historical"
 
 
 def test_store_confirmation_rechecks_current_version_and_replays_idempotently(

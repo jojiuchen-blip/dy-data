@@ -73,7 +73,7 @@ Owner: G3 implementer; controller reviews and integrates
 - `apps/api/dy_api/routes/dashboard.py`
 - `apps/api/dy_api/models.py`
 - `apps/worker/settlement.py`
-- one reversible single-head Alembic migration and migration-exception evidence
+- one single-head Alembic migration with an empty-schema upgrade/downgrade proof and migration-exception evidence; a populated schema refuses destructive downgrade, so production rollback uses backup/restore or a forward correction
 - `apps/web/src/types/dashboard.ts`
 - `apps/web/src/api/client.ts`
 - `apps/web/src/pages/FinanceOrderDetailsPage.tsx`
