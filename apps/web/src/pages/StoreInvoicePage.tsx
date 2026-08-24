@@ -10,6 +10,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { FieldInput } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
@@ -24,6 +25,7 @@ import type {
   StoreBillingStatement,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceInvoiceStatus } from "../utils/userFacingLabels";
 
 interface StoreInvoicePageProps {
@@ -205,7 +207,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
         );
       });
     } catch (error) {
-      setSubmitMessage(error instanceof Error ? error.message : "抵扣组加载失败。");
+      setSubmitMessage(userFacingError(error, "抵扣组加载失败。"));
     }
   };
 
@@ -294,7 +296,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       .then(() => setSubmitMessage("已恢复待替换发票并加载完整账期组。"))
       .catch((error) =>
         setSubmitMessage(
-          error instanceof Error ? error.message : "待替换发票恢复失败。",
+          userFacingError(error, "待替换发票恢复失败。"),
         ),
       )
       .finally(() => setSubmitting(false));
@@ -323,7 +325,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       setSubmitMessage("已恢复待替换发票并加载完整账期组。");
     } catch (error) {
       setSubmitMessage(
-        error instanceof Error ? error.message : "待替换发票恢复失败。",
+        userFacingError(error, "待替换发票恢复失败。"),
       );
     } finally {
       setSubmitting(false);
@@ -336,7 +338,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       const result = await fetchPromotionInvoiceDetail(invoiceId);
       setInvoiceDetail(result.data);
     } catch (error) {
-      setSubmitMessage(error instanceof Error ? error.message : "发票历史加载失败。");
+      setSubmitMessage(userFacingError(error, "发票历史加载失败。"));
     }
   };
 
@@ -383,7 +385,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       await loadReleasedStatements(nextReplacementContext);
       setSubmitMessage(`已登记系统外${actionLabel}事实；请使用新发票号码覆盖全部释放账期。`);
     } catch (error) {
-      const message = error instanceof Error ? error.message : `${actionLabel}登记失败。`;
+      const message = userFacingError(error, `${actionLabel}登记失败。`);
       setSubmitMessage(
         lifecycleRecorded
           ? `系统外${actionLabel}事实已登记，但释放账期自动加载失败：${message}`
@@ -565,7 +567,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       invoiceResource.reload();
       replacementCandidateResource.reload();
     } catch (error) {
-      setSubmitMessage(error instanceof Error ? error.message : "登记失败，请稍后重试。");
+      setSubmitMessage(userFacingError(error, "登记失败，请稍后重试。"));
     } finally {
       setSubmitting(false);
     }
@@ -584,7 +586,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       <section className="finance-filter-bar" aria-label="开票筛选条件">
         <label>
           <span>门店 ID</span>
-          <input
+          <FieldInput
             value={storeId}
             onChange={(event) => {
               setStoreId(event.target.value);
@@ -597,7 +599,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
         </label>
         <label>
           <span>账期</span>
-          <input type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
+          <FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
         </label>
         <label>
           <span>指标口径</span>
@@ -663,7 +665,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
                 loadReleasedStatements(replacementContext)
                   .then(() => setSubmitMessage("已重新加载全部释放账期。"))
                   .catch((error) => setSubmitMessage(
-                    error instanceof Error ? error.message : "释放账期加载失败。",
+                    userFacingError(error, "释放账期加载失败。"),
                   ))
                   .finally(() => setSubmitting(false));
               }}
@@ -696,27 +698,27 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
             </div>
             <label>
               <span>购买方名称</span>
-              <input disabled value={PROMOTION_INVOICE_BUYER_NAME} />
+              <FieldInput disabled value={PROMOTION_INVOICE_BUYER_NAME} />
             </label>
             <label>
               <span>购买方纳税人识别号</span>
-              <input disabled value={PROMOTION_INVOICE_BUYER_TAXPAYER_ID} />
+              <FieldInput disabled value={PROMOTION_INVOICE_BUYER_TAXPAYER_ID} />
             </label>
             <label>
               <span>税率</span>
-              <input disabled value={`${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`} />
+              <FieldInput disabled value={`${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`} />
             </label>
             <label>
               <span>20 位数电专票号码</span>
-              <input inputMode="numeric" maxLength={20} minLength={20} pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />
+              <FieldInput inputMode="numeric" maxLength={20} minLength={20} pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />
             </label>
             <label>
               <span>开票日期</span>
-              <input type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
+              <FieldInput type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
             </label>
             <label>
               <span>发票金额</span>
-              <input disabled value={formatCurrency(selectedAmountCent)} />
+              <FieldInput disabled value={formatCurrency(selectedAmountCent)} />
             </label>
             <div className="finance-form-actions">
               <Button loading={submitting} type="submit" variant="primary">登记并提交</Button>

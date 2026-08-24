@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ApiRequestError,
   decideSapSuggestion,
   fetchFinanceStores,
   fetchStoreSapSuggestions,
@@ -8,6 +9,7 @@ import {
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
@@ -18,6 +20,7 @@ import type {
   FinanceStoreRow,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 
 type SapDecisionAction = "CONFIRM" | "CORRECT" | "REJECT";
 type ActionState = "idle" | "loading" | "success" | "error" | "conflict";
@@ -38,8 +41,8 @@ function suggestionStatusLabel(status: FinanceStoreRow["suggestionStatus"]): str
 }
 
 function actionErrorMessage(error: unknown): { state: ActionState; message: string } {
-  const message = error instanceof Error ? error.message : "操作失败，请稍后重试。";
-  return message.includes("409") || message.includes("CONFLICT")
+  const message = userFacingError(error, "操作失败，请稍后重试。");
+  return error instanceof ApiRequestError && error.status === 409
     ? { state: "conflict", message: "数据版本已变化，请刷新后重新处理。" }
     : { state: "error", message };
 }
@@ -172,8 +175,8 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
         <section className="content-section finance-registration-card">
           <div className="section-title"><div><h2>提交 SAP 建议</h2><p>当前建议版本 V{storeSuggestionResource.data?.data.currentVersion ?? 0}；当前确认版本 V{storeSuggestionResource.data?.data.confirmedVersion ?? 0}。</p></div></div>
           <div className="finance-form-grid">
-            <label><span>建议 SAP 编码</span><input required value={suggestedSapCode} onChange={(event) => setSuggestedSapCode(event.target.value)} /></label>
-            <label><span>说明</span><input required value={suggestionNote} onChange={(event) => setSuggestionNote(event.target.value)} /></label>
+            <label><span>建议 SAP 编码</span><FieldInput required value={suggestedSapCode} onChange={(event) => setSuggestedSapCode(event.target.value)} /></label>
+            <label><span>说明</span><FieldInput required value={suggestionNote} onChange={(event) => setSuggestionNote(event.target.value)} /></label>
             <div className="finance-form-actions"><Button disabled={!suggestedSapCode.trim() || !suggestionNote.trim()} loading={actionState === "loading"} onClick={submitStoreSuggestion} variant="primary">提交建议</Button></div>
           </div>
           {actionMessage ? <p role={actionState === "error" || actionState === "conflict" ? "alert" : "status"}>{actionMessage}</p> : null}
@@ -193,10 +196,10 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
     <div className="page-stack finance-page">
       <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店财务汇总</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
       <section className="finance-filter-bar" aria-label="门店财务筛选条件">
-        <label><span>账期</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label><span>费用方向</span><SearchableStoreSelect emptyMessage="未找到费用方向" onChange={(value) => setFeeDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} placeholder="选择费用方向" value={feeDirection} /></label>
         <label><span>指标口径</span><SearchableStoreSelect emptyMessage="未找到指标口径" onChange={(value) => setMetricScope(value as BillingMetricScope)} options={[{ value: "MONTH", label: "单月" }, { value: "CUMULATIVE", label: "累计" }]} placeholder="选择指标口径" value={metricScope} /></label>
-        <label><span>搜索门店</span><input placeholder="门店 ID、名称或 SAP" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
+        <label><span>搜索门店</span><FieldInput placeholder="门店 ID、名称或 SAP" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
       </section>
       <ResourceNotice loading={financeResource.loading} error={financeResource.error} />
       <section className="content-section"><div className="section-title"><div><h2>门店汇总</h2><p>共 {financeResource.data?.data.total ?? 0} 家门店。</p></div></div><DataTable columns={columns} rows={financeResource.data?.data.list ?? []} state={financeResource.loading ? "loading" : financeResource.error ? "error" : "ready"} /></section>
@@ -204,9 +207,9 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
         <div className="section-title"><div><h2>处理 SAP 建议</h2><p>{selectedSuggestion.storeName} · 建议 V{selectedSuggestion.suggestionVersion} · 确认 V{selectedSuggestion.confirmedVersion}</p></div><Button onClick={() => setSelectedSuggestion(null)} variant="text">关闭</Button></div>
         <ResourcePanel>门店建议：{selectedSuggestion.suggestedSapCode}；说明：{selectedSuggestion.suggestionNote ?? "-"}</ResourcePanel>
         <div className="finance-form-grid">
-          <label><span>处理动作</span><select value={decisionAction} onChange={(event) => { const action = event.target.value as SapDecisionAction; setDecisionAction(action); if (action === "CONFIRM") setConfirmedSapCode(selectedSuggestion.suggestedSapCode ?? ""); resetAction(); }}><option value="CONFIRM">确认建议值</option><option value="CORRECT">修正后确认</option><option value="REJECT">驳回</option></select></label>
-          {decisionAction !== "REJECT" ? <label><span>确认 SAP 编码</span><input required value={confirmedSapCode} onChange={(event) => setConfirmedSapCode(event.target.value)} /></label> : null}
-          <label><span>处理原因</span><input required value={handlingReason} onChange={(event) => setHandlingReason(event.target.value)} /></label>
+          <SelectField label="处理动作" onChange={(value) => { const action = value as SapDecisionAction; setDecisionAction(action); if (action === "CONFIRM") setConfirmedSapCode(selectedSuggestion.suggestedSapCode ?? ""); resetAction(); }} options={[{ value: "CONFIRM", label: "确认建议值" }, { value: "CORRECT", label: "修正后确认" }, { value: "REJECT", label: "驳回" }]} value={decisionAction} />
+          {decisionAction !== "REJECT" ? <label><span>确认 SAP 编码</span><FieldInput required value={confirmedSapCode} onChange={(event) => setConfirmedSapCode(event.target.value)} /></label> : null}
+          <label><span>处理原因</span><FieldInput required value={handlingReason} onChange={(event) => setHandlingReason(event.target.value)} /></label>
           <div className="finance-form-actions"><Button disabled={!handlingReason.trim() || (decisionAction !== "REJECT" && !confirmedSapCode.trim())} loading={actionState === "loading"} onClick={submitDecision} variant="primary">提交处理结果</Button></div>
         </div>
         {actionMessage ? <p role={actionState === "error" || actionState === "conflict" ? "alert" : "status"}>{actionMessage}</p> : null}

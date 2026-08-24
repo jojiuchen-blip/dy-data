@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { correctManagementInvoice, fetchFinanceInvoices, fetchFinanceSummary } from "../api/client";
+import { ApiRequestError, correctManagementInvoice, fetchFinanceInvoices, fetchFinanceSummary } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
+import { FieldInput } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
@@ -13,6 +14,7 @@ import type {
   FinanceInvoiceRow,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceInvoiceStatus } from "../utils/userFacingLabels";
 
 interface FinanceFeePageProps {
@@ -120,8 +122,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       summaryResource.reload();
       invoiceResource.reload();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "更正失败，请重试";
-      const conflict = message.includes("409") || message.includes("VERSION_CONFLICT");
+      const message = userFacingError(error, "更正失败，请重试。");
+      const conflict = error instanceof ApiRequestError && error.status === 409;
       setCorrectionState(conflict ? "conflict" : "error");
       setCorrectionMessage(conflict ? "版本已变化，请刷新当前版本后重新提交。" : message);
     }
@@ -137,8 +139,8 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         </div>
       </section>
       <section className="finance-filter-bar" aria-label="财务筛选条件">
-        <label><span>账期</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
-        <label><span>门店 ID（可选）</span><input value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>
+        <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label><span>门店 ID（可选）</span><FieldInput value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>
         <label>
           <span>指标口径</span>
           <SearchableStoreSelect
@@ -168,12 +170,12 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
       {feeDirection === "MANAGEMENT" && correction ? <section className="content-section finance-correction-panel">
         <div className="section-title"><div><h2>更正管理服务费记录</h2><p>{correction.row.storeId} · {correction.row.statementMonth} · 当前 V{correction.row.versionNo}；金额只读且必须保持结转后全额。</p></div><Button variant="text" onClick={() => setCorrection(null)}>关闭</Button></div>
         <div className="finance-filter-bar">
-          <label><span>发票号码</span><input value={correction.invoiceNumber} onChange={(event) => setCorrection({ ...correction, invoiceNumber: event.target.value })} /></label>
-          <label><span>发票日期</span><input type="date" value={correction.invoiceDate} onChange={(event) => setCorrection({ ...correction, invoiceDate: event.target.value })} /></label>
-          <label><span>厂家扣款日期</span><input type="date" value={correction.deductionDate} onChange={(event) => setCorrection({ ...correction, deductionDate: event.target.value })} /></label>
-          <label><span>发票金额（分）</span><input aria-label="发票金额（分）" type="number" min="1" step="1" value={correction.invoiceAmountCent} onChange={(event) => setCorrection({ ...correction, invoiceAmountCent: event.target.value })} /></label>
-          <label><span>厂家扣款金额（分）</span><input aria-label="厂家扣款金额（分）" type="number" min="1" step="1" value={correction.deductionAmountCent} onChange={(event) => setCorrection({ ...correction, deductionAmountCent: event.target.value })} /></label>
-          <label><span>更正原因</span><input value={correction.changeReason} onChange={(event) => setCorrection({ ...correction, changeReason: event.target.value })} /></label>
+          <label><span>发票号码</span><FieldInput value={correction.invoiceNumber} onChange={(event) => setCorrection({ ...correction, invoiceNumber: event.target.value })} /></label>
+          <label><span>发票日期</span><FieldInput type="date" value={correction.invoiceDate} onChange={(event) => setCorrection({ ...correction, invoiceDate: event.target.value })} /></label>
+          <label><span>厂家扣款日期</span><FieldInput type="date" value={correction.deductionDate} onChange={(event) => setCorrection({ ...correction, deductionDate: event.target.value })} /></label>
+          <label><span>发票金额（分）</span><FieldInput aria-label="发票金额（分）" type="number" min="1" step="1" value={correction.invoiceAmountCent} onChange={(event) => setCorrection({ ...correction, invoiceAmountCent: event.target.value })} /></label>
+          <label><span>厂家扣款金额（分）</span><FieldInput aria-label="厂家扣款金额（分）" type="number" min="1" step="1" value={correction.deductionAmountCent} onChange={(event) => setCorrection({ ...correction, deductionAmountCent: event.target.value })} /></label>
+          <label><span>更正原因</span><FieldInput value={correction.changeReason} onChange={(event) => setCorrection({ ...correction, changeReason: event.target.value })} /></label>
         </div>
         {correctionMessage ? <p role={correctionState === "error" || correctionState === "conflict" ? "alert" : "status"}>{correctionMessage}</p> : null}
         <Button disabled={correctionState === "loading" || !correction.changeReason.trim()} onClick={submitCorrection}>{correctionState === "loading" ? "提交中…" : "确认更正"}</Button>

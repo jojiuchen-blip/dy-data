@@ -1126,6 +1126,12 @@ def install_api_routes(page: Page) -> None:
         },
         "managementConfirmation": None,
         "promotionInvoiceStatus": "PENDING_INVOICE",
+        "promotionInvoiceableAmountCent": 38000,
+        "promotionCarryforwardBalanceCent": 0,
+        "promotionInvoiceGroupId": "promotion-group-visual-001",
+        "promotionRequiredStatementIds": ["STMT-VISUAL-001"],
+        "promotionPositiveAmountCent": 38000,
+        "promotionNegativeAmountCent": 0,
         "managementInvoiceStatus": "PENDING_INVOICE",
     }
     invoice = {
@@ -1522,7 +1528,7 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
         nav_box = nav.bounding_box()
         assert nav_box is not None
         links = nav.locator("a")
-        assert links.count() == 4
+        assert links.count() == 5
         for index in range(links.count()):
             link_box = links.nth(index).bounding_box()
             assert link_box is not None
@@ -3574,13 +3580,13 @@ def test_store_invoice_preserves_422_input_then_reads_back_success(
             f"{vite_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
             wait_until="domcontentloaded",
         )
-        page.get_by_role("button", name="加入").click()
+        page.get_by_role("button", name="选择抵扣组").click()
         number = page.get_by_label("20 位数电专票号码")
         invoice_date = page.get_by_label("开票日期")
         number.fill("12345678901234567890")
         invoice_date.fill("2026-08-08")
         page.get_by_role("button", name="登记并提交").click()
-        page.get_by_text("发票信息校验失败，请核对后重试", exact=True).wait_for(timeout=10000)
+        page.get_by_text("提交内容未通过校验，请检查后重试。", exact=True).wait_for(timeout=10000)
         assert number.input_value() == "12345678901234567890"
         assert invoice_date.input_value() == "2026-08-08"
 

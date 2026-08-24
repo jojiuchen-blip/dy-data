@@ -42,7 +42,7 @@
 .finance-form-grid label > span,
 .finance-change-reason > span {
   color: var(--muted);
-  font-size: 13px;
+  font-size: var(--font-size-table);
   font-weight: 600;
 }
 
@@ -107,7 +107,7 @@
 
 .finance-order-detail-grid dt {
   color: var(--muted);
-  font-size: 12px;
+  font-size: var(--font-size-caption);
 }
 
 .finance-order-detail-grid dd {
@@ -137,7 +137,7 @@
 
 .finance-import-summary strong {
   color: var(--ink);
-  font-size: 18px;
+  font-size: var(--font-size-subtitle);
 }
 
 .finance-change-reason {

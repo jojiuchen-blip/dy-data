@@ -1,5 +1,6 @@
 import { useState } from "react";
 import {
+  ApiRequestError,
   downloadFinanceImportErrors,
   fetchFinanceImportDetail,
   fetchFinanceImports,
@@ -7,6 +8,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { FieldInput } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
@@ -16,6 +18,7 @@ import type {
   FinanceImportReversalRow,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import {
   displayFinanceImportScenario,
   displayFinanceImportType,
@@ -96,8 +99,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
       listResource.reload();
       detailResource.reload();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "撤销失败，请重试";
-      const conflict = message.includes("409") || message.includes("CONFLICT");
+      const message = userFacingError(error, "撤销失败，请重试。");
+      const conflict = error instanceof ApiRequestError && error.status === 409;
       setReversalState(conflict ? "conflict" : "error");
       setReversalMessage(conflict ? "批次或逐行业务版本已变化，请刷新后检查。" : message);
     }
@@ -121,7 +124,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             value={importType}
           />
         </label>
-        <label><span>业务账期</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
       </section>
       <ResourceNotice loading={listResource.loading} error={listResource.error} />
       <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listResource.loading ? "loading" : listResource.error ? "error" : "ready"} /></section>
@@ -140,7 +143,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             <DataTable columns={errorColumns} rows={detail.errors.list} emptyText="本批次没有校验错误" />
             {detail.errorRows > 0 ? <Button onClick={() => downloadFinanceImportErrors(detail.batchId)} variant="secondary">下载全部错误</Button> : null}
             {detail.canReverse ? <div className="finance-reversal-panel">
-              <label><span>撤销原因</span><input value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明为何需要生成更正覆盖版本" /></label>
+              <label><span>撤销原因</span><FieldInput value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明为何需要生成更正覆盖版本" /></label>
               <p>撤销批次会逐业务键校验当前版本；任一行已被覆盖时整批不会写入。</p>
               {reversalMessage ? <p role={reversalState === "error" || reversalState === "conflict" ? "alert" : "status"}>{reversalMessage}</p> : null}
               <Button disabled={reversalState === "loading" || !changeReason.trim()} onClick={submitReversal} variant="secondary">{reversalState === "loading" ? "撤销中…" : "撤销批次"}</Button>

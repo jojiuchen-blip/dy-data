@@ -6,11 +6,13 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { FieldInput, FieldTextarea } from "../components/FormControls";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type { FeeDirection, FinanceDisputeRow } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 import {
   displayFeeDirection,
   displayFinanceDisputeStatus,
@@ -57,7 +59,10 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
         pageSize: 50,
       });
       const current = statements.data.list.find((item) => item.isCurrent);
-      if (!current) throw new Error("未找到当前有效账单版本，请刷新后重试。");
+      if (!current) {
+        setActionMessage("未找到当前有效账单版本，请刷新后重试。");
+        return;
+      }
       await transitionFinanceDispute(selected.disputeId, {
         targetStatus,
         resolutionNote: resolutionNote.trim(),
@@ -70,7 +75,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
       setAdjustmentYuan("");
       resource.reload();
     } catch (error) {
-      setActionMessage(error instanceof Error ? error.message : "处理失败，请稍后重试。");
+      setActionMessage(userFacingError(error, "处理失败，请稍后重试。"));
     } finally {
       setSaving(false);
     }
@@ -80,8 +85,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
     <div className="page-stack finance-page">
       <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>账单异议处理</h1><p>门店提交异议和证明资料，内部管理员在本页处理；异议不阻断推广费或管理服务费后续流程。</p></div></section>
       <section className="finance-filter-bar" aria-label="异议筛选条件">
-        <label><span>账期</span><input type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
-        <label><span>门店 ID</span><input value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>
+        <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label><span>门店 ID</span><FieldInput value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>
         <label>
           <span>费用方向</span>
           <SearchableStoreSelect
@@ -137,8 +142,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
                 value={targetStatus}
               />
             </label>
-            {targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? <label><span>调整金额（元，非零）</span><input required type="number" step="0.01" value={adjustmentYuan} onChange={(event) => setAdjustmentYuan(event.target.value)} /></label> : null}
-            <label className="finance-form-grid__wide"><span>处理说明</span><textarea required rows={3} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} /></label>
+            {targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? <label><span>调整金额（元，非零）</span><FieldInput required type="number" step="0.01" value={adjustmentYuan} onChange={(event) => setAdjustmentYuan(event.target.value)} /></label> : null}
+            <label className="finance-form-grid__wide"><span>处理说明</span><FieldTextarea required rows={3} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} /></label>
             <div className="finance-form-actions"><Button disabled={!resolutionNote.trim()} loading={saving} onClick={handleTransition} variant="primary">确认处理</Button>{actionMessage ? <span role="status">{actionMessage}</span> : null}</div>
           </div>
         </section>

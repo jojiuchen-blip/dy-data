@@ -2,6 +2,7 @@ import { FormEvent, useState } from "react";
 import { downloadFinanceOrderDetails, fetchFinanceOrderDetails } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { FieldInput, SelectField } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
@@ -10,6 +11,7 @@ import type {
   FinanceOrderDetailsQuery,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { userFacingError } from "../utils/userFacingError";
 
 interface FinanceOrderDetailsPageProps {
   feeDirection: FeeDirection;
@@ -212,7 +214,7 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       );
     } catch (error) {
       setExportState("error");
-      setExportMessage(error instanceof Error ? error.message : "导出失败，请缩小筛选范围后重试。");
+      setExportMessage(userFacingError(error, "导出失败，请缩小筛选范围后重试。"));
     }
   };
 
@@ -230,34 +232,35 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       </section>
 
       <form className="finance-filter-bar" aria-label="订单明细筛选条件" onSubmit={submitFilters}>
-        <label><span>账期</span><input type="month" value={draft.month} onChange={(event) => setField("month", event.target.value)} /></label>
-        <label><span>门店 ID</span><input value={draft.storeId} onChange={(event) => setField("storeId", event.target.value)} /></label>
-        <label><span>门店名称</span><input value={draft.storeName} onChange={(event) => setField("storeName", event.target.value)} /></label>
-        <label><span>SAP</span><input value={draft.sapCode} onChange={(event) => setField("sapCode", event.target.value)} /></label>
-        <label><span>发票号</span><input value={draft.invoiceNumber} onChange={(event) => setField("invoiceNumber", event.target.value)} /></label>
-        <label><span>订单 ID</span><input value={draft.orderId} onChange={(event) => setField("orderId", event.target.value)} /></label>
-        <label><span>SKU ID</span><input value={draft.skuId} onChange={(event) => setField("skuId", event.target.value)} /></label>
-        <label><span>销售渠道</span><input value={draft.saleChannel} onChange={(event) => setField("saleChannel", event.target.value)} /></label>
-        <label>
-          <span>{feeDirection === "PROMOTION" ? "审核/结算状态" : "结算状态"}</span>
-          <select value={draft.invoiceStatus} onChange={(event) => setField("invoiceStatus", event.target.value)}>
-            <option value="">全部</option>
-            {feeDirection === "PROMOTION" ? <>
-              <option value="PENDING_INVOICE">待开票</option>
-              <option value="SUBMITTED_PENDING_FACTORY_REVIEW">提交成功，待厂端审核</option>
-              <option value="APPROVED_SETTLED">审核通过，已结算</option>
-              <option value="REJECTED_REUPLOAD">审核不通过，请重新上传</option>
-            </> : <>
-              <option value="SETTLED">已结算</option>
-              <option value="UNSETTLED">未结算</option>
-            </>}
-          </select>
-        </label>
-        <label><span>提交时间起</span><input type="datetime-local" value={draft.submittedFrom} onChange={(event) => setField("submittedFrom", event.target.value)} /></label>
-        <label><span>提交时间止</span><input type="datetime-local" value={draft.submittedTo} onChange={(event) => setField("submittedTo", event.target.value)} /></label>
-        <label><span>核销时间起</span><input type="datetime-local" value={draft.verifyFrom} onChange={(event) => setField("verifyFrom", event.target.value)} /></label>
-        <label><span>核销时间止</span><input type="datetime-local" value={draft.verifyTo} onChange={(event) => setField("verifyTo", event.target.value)} /></label>
-        <label><span>每页条数</span><select value={draft.pageSize} onChange={(event) => setField("pageSize", Number(event.target.value))}>{[20, 50, 100, 200, 500].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label><span>账期</span><FieldInput type="month" value={draft.month} onChange={(event) => setField("month", event.target.value)} /></label>
+        <label><span>门店 ID</span><FieldInput value={draft.storeId} onChange={(event) => setField("storeId", event.target.value)} /></label>
+        <label><span>门店名称</span><FieldInput value={draft.storeName} onChange={(event) => setField("storeName", event.target.value)} /></label>
+        <label><span>SAP</span><FieldInput value={draft.sapCode} onChange={(event) => setField("sapCode", event.target.value)} /></label>
+        <label><span>发票号</span><FieldInput value={draft.invoiceNumber} onChange={(event) => setField("invoiceNumber", event.target.value)} /></label>
+        <label><span>订单 ID</span><FieldInput value={draft.orderId} onChange={(event) => setField("orderId", event.target.value)} /></label>
+        <label><span>SKU ID</span><FieldInput value={draft.skuId} onChange={(event) => setField("skuId", event.target.value)} /></label>
+        <label><span>销售渠道</span><FieldInput value={draft.saleChannel} onChange={(event) => setField("saleChannel", event.target.value)} /></label>
+        <SelectField
+          label={feeDirection === "PROMOTION" ? "审核/结算状态" : "结算状态"}
+          onChange={(value) => setField("invoiceStatus", value)}
+          options={feeDirection === "PROMOTION" ? [
+            { value: "", label: "全部" },
+            { value: "PENDING_INVOICE", label: "待开票" },
+            { value: "SUBMITTED_PENDING_FACTORY_REVIEW", label: "提交成功，待厂端审核" },
+            { value: "APPROVED_SETTLED", label: "审核通过，已结算" },
+            { value: "REJECTED_REUPLOAD", label: "审核不通过，请重新上传" },
+          ] : [
+            { value: "", label: "全部" },
+            { value: "SETTLED", label: "已结算" },
+            { value: "UNSETTLED", label: "未结算" },
+          ]}
+          value={draft.invoiceStatus}
+        />
+        <label><span>提交时间起</span><FieldInput type="datetime-local" value={draft.submittedFrom} onChange={(event) => setField("submittedFrom", event.target.value)} /></label>
+        <label><span>提交时间止</span><FieldInput type="datetime-local" value={draft.submittedTo} onChange={(event) => setField("submittedTo", event.target.value)} /></label>
+        <label><span>核销时间起</span><FieldInput type="datetime-local" value={draft.verifyFrom} onChange={(event) => setField("verifyFrom", event.target.value)} /></label>
+        <label><span>核销时间止</span><FieldInput type="datetime-local" value={draft.verifyTo} onChange={(event) => setField("verifyTo", event.target.value)} /></label>
+        <SelectField label="每页条数" onChange={(value) => setField("pageSize", Number(value))} options={[20, 50, 100, 200, 500].map((value) => ({ label: String(value), value: String(value) }))} value={String(draft.pageSize)} />
         <div className="finance-form-actions">
           <Button type="submit" variant="primary">应用筛选</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
