@@ -38,6 +38,29 @@ def test_clue_status_only_treats_waiting_use_as_active() -> None:
     assert resolve_clue_order_status("交易成功") == "verified"
 
 
+def test_clue_status_uses_separate_coupon_projection_when_order_payload_is_sparse() -> None:
+    assert resolve_clue_order_status(
+        "1",
+        normalized_order_status="refunded",
+        coupon_statuses=["refunded"],
+    ) == "refunded"
+    assert resolve_clue_order_status(
+        "1",
+        normalized_order_status="closed",
+        coupon_statuses=["closed"],
+    ) == "closed"
+    assert resolve_clue_order_status(
+        "1",
+        normalized_order_status="paid",
+        coupon_statuses=["verified"],
+    ) == "verified"
+    assert resolve_clue_order_status(
+        "1",
+        normalized_order_status="paid",
+        coupon_statuses=["available"],
+    ) == "unknown"
+
+
 def test_numeric_coupon_statuses_are_normalized() -> None:
     assert normalize_coupon_status("100") == "available"
     assert normalize_coupon_status("400") == "available"

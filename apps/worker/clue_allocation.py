@@ -30,6 +30,7 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     RawDouyinClue,
     RawDouyinOrder,
+    RawDouyinOrderCoupon,
     SettlementOrderDetail,
     StoreScoreSnapshot,
     StoreScoreSnapshotRun,
@@ -39,7 +40,7 @@ from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     ensure_active_headquarters_pool_entry,
 )
-from apps.worker.order_status import resolve_clue_order_status
+from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
 from apps.worker.repositories import upsert_data_quality_issue
 
 
@@ -47,6 +48,7 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 DEFAULT_STORE_WEIGHT = Decimal("1")
 SCHEDULED_SCORE_REFRESH_TIME = time(hour=3)
 MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
+MASTER_STATUS_REPAIR_LOCK = "clue-allocation-master-status-repair"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
@@ -111,6 +113,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     order_ids = {_clean(row.order_id) for row in raw_clues}
     order_ids.discard(None)
     raw_orders = _raw_orders_by_id(session, order_ids)
+    coupon_statuses_by_order = _coupon_statuses_by_order(session, order_ids)
     verified_at_by_order = _verified_at_by_order(session, order_ids)
     stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
     mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
@@ -258,6 +261,7 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
             raw_orders.get(order_id or ""),
             verified_at_by_order.get(order_id or ""),
             now,
+            coupon_statuses_by_order.get(order_id or "", ()),
         )
         anchor = _resolve_anchor(raw_clue, mappings_by_poi, stores_by_id)
         lifecycle_status = _lifecycle_status(resolution.normalized_status)
@@ -422,6 +426,172 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         "closed_leads": len(closed_lead_keys),
         "headquarters_pool": len(headquarters_pool_keys),
     }
+
+
+def refresh_unknown_clue_master_statuses(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    batch_size: int = 500,
+    dry_run: bool = False,
+) -> dict[str, int | bool | str]:
+    """Refresh unresolved master statuses without loading the full clue ledger.
+
+    This path is intentionally limited to existing ``unknown`` rows. It uses a
+    session advisory lock and commits each keyset page independently so status
+    repair cannot recreate the full materialization memory peak.
+    """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+    now = _aware(now or utcnow())
+    lock_key = _advisory_lock_key(MASTER_STATUS_REPAIR_LOCK)
+    if not _try_session_advisory_lock(session, lock_key):
+        return {"scanned": 0, "updated": 0, "resolved": 0, "status_review": 0, "batches": 0, "dry_run": dry_run, "skipped": "locked"}
+
+    stats: dict[str, int | bool | str] = {
+        "scanned": 0,
+        "updated": 0,
+        "resolved": 0,
+        "status_review": 0,
+        "batches": 0,
+        "dry_run": dry_run,
+    }
+    last_lead_key = ""
+    try:
+        while True:
+            leads = session.scalars(
+                select(ClueMasterLead)
+                .where(ClueMasterLead.normalized_order_status == "unknown")
+                .where(ClueMasterLead.lead_key > last_lead_key)
+                .order_by(ClueMasterLead.lead_key)
+                .limit(batch_size)
+            ).all()
+            if not leads:
+                break
+
+            last_lead_key = leads[-1].lead_key
+            stats["batches"] = int(stats["batches"]) + 1
+            stats["scanned"] = int(stats["scanned"]) + len(leads)
+            source_keys = {lead.source_clue_row_key for lead in leads}
+            order_ids = {_clean(lead.order_id) for lead in leads}
+            order_ids.discard(None)
+            raw_clues = {
+                row.clue_row_key: row
+                for row in session.scalars(
+                    select(RawDouyinClue).where(RawDouyinClue.clue_row_key.in_(source_keys))
+                ).all()
+            }
+            raw_orders = _raw_orders_by_id(session, order_ids)
+            coupon_statuses_by_order = _coupon_statuses_by_order(session, order_ids)
+            verified_at_by_order = _verified_at_by_order(session, order_ids)
+            event_ids = set(
+                session.scalars(
+                    select(ClueOrderStatusEvent.event_id).where(
+                        ClueOrderStatusEvent.lead_key.in_({lead.lead_key for lead in leads})
+                    )
+                ).all()
+            )
+
+            for lead in leads:
+                raw_clue = raw_clues.get(lead.source_clue_row_key)
+                if raw_clue is None:
+                    stats["status_review"] = int(stats["status_review"]) + 1
+                    continue
+                order_id = _clean(lead.order_id)
+                resolution = _resolve_status(
+                    raw_clue,
+                    raw_orders.get(order_id or ""),
+                    verified_at_by_order.get(order_id or ""),
+                    now,
+                    coupon_statuses_by_order.get(order_id or "", ()),
+                )
+                lifecycle_status = _lifecycle_status(resolution.normalized_status)
+                previous_state = (
+                    lead.raw_order_status,
+                    lead.normalized_order_status,
+                    lead.status_source,
+                    lead.lifecycle_status,
+                    lead.pool_location,
+                    lead.allocation_state,
+                )
+                if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
+                    pool_location = "closed"
+                    allocation_state = "closed"
+                elif lifecycle_status == "status_review":
+                    pool_location = "status_review"
+                    allocation_state = "status_review"
+                elif lead.pool_location == "headquarters_pool":
+                    pool_location = "headquarters_pool"
+                    allocation_state = "headquarters"
+                else:
+                    current_round = _active_self_owned_current_round(session, lead)
+                    pool_location = "store_follow_up_pool" if current_round else None
+                    allocation_state = "assigned" if current_round else "pending_allocation"
+
+                next_state = (
+                    resolution.raw_status,
+                    resolution.normalized_status,
+                    resolution.status_source,
+                    lifecycle_status,
+                    pool_location,
+                    allocation_state,
+                )
+                if next_state != previous_state:
+                    stats["updated"] = int(stats["updated"]) + 1
+                    if resolution.normalized_status == "unknown":
+                        stats["status_review"] = int(stats["status_review"]) + 1
+                    else:
+                        stats["resolved"] = int(stats["resolved"]) + 1
+                if dry_run or next_state == previous_state:
+                    continue
+
+                lead.raw_order_status = resolution.raw_status
+                lead.normalized_order_status = resolution.normalized_status
+                lead.status_source = resolution.status_source
+                lead.lifecycle_status = lifecycle_status
+                lead.pool_location = pool_location
+                lead.allocation_state = allocation_state
+                lead.ended_without_assignment = (
+                    lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
+                    and lead.current_assignment_round_id is None
+                    and lead.allocation_cycle_id is None
+                )
+                lead.closed_at = resolution.closed_at if lifecycle_status != "active" else None
+                lead.closed_reason = _closed_reason(resolution.normalized_status)
+                lead.updated_at = now
+                if lifecycle_status != "active":
+                    close_at = resolution.closed_at or now
+                    close_current_headquarters_pool_entry(
+                        session,
+                        lead.lead_key,
+                        closed_at=close_at,
+                        close_reason=lead.closed_reason or "order_status_unknown",
+                    )
+                    _close_current_assignment(
+                        session,
+                        order_id or "",
+                        lifecycle_status,
+                        close_at,
+                        current_assignment_round_id=lead.current_assignment_round_id,
+                    )
+                if resolution.normalized_status != "unknown" or previous_state[3] != lifecycle_status:
+                    _record_status_event(
+                        session,
+                        lead_key=lead.lead_key,
+                        order_id=order_id,
+                        resolution=resolution,
+                        observed_at=_observed_at(raw_clue, now),
+                        created_at=now,
+                        known_event_ids=event_ids,
+                    )
+
+            if not dry_run:
+                session.flush()
+                session.commit()
+                session.expunge_all()
+    finally:
+        _release_session_advisory_lock(session, lock_key)
+    return stats
 
 
 def import_store_locations(
@@ -1024,8 +1194,32 @@ def _try_transaction_lock(session: Session, *, lock_name: str) -> bool:
     """Prevent parallel PostgreSQL workers from materializing the same M1 state."""
     if session.get_bind().dialect.name != "postgresql":
         return True
-    lock_key = int.from_bytes(sha256(lock_name.encode("utf-8")).digest()[:8], byteorder="big", signed=True)
+    lock_key = _advisory_lock_key(lock_name)
     return bool(session.scalar(select(func.pg_try_advisory_xact_lock(lock_key))))
+
+
+def _advisory_lock_key(lock_name: str) -> int:
+    return int.from_bytes(
+        sha256(lock_name.encode("utf-8")).digest()[:8],
+        byteorder="big",
+        signed=True,
+    )
+
+
+def _try_session_advisory_lock(session: Session, lock_key: int) -> bool:
+    if session.get_bind().dialect.name != "postgresql":
+        return True
+    return bool(session.scalar(select(func.pg_try_advisory_lock(lock_key))))
+
+
+def _release_session_advisory_lock(session: Session, lock_key: int) -> None:
+    if session.get_bind().dialect.name != "postgresql":
+        return
+    try:
+        session.scalar(select(func.pg_advisory_unlock(lock_key)))
+    except Exception:
+        # The surrounding session scope will roll back a failed transaction.
+        pass
 
 
 def _raw_orders_by_id(session: Session, order_ids: set[str]) -> dict[str, RawDouyinOrder]:
@@ -1037,6 +1231,32 @@ def _raw_orders_by_id(session: Session, order_ids: set[str]) -> dict[str, RawDou
             select(RawDouyinOrder).where(RawDouyinOrder.order_id.in_(order_id_batch))
         ).all()
         values.update({row.order_id: row for row in rows})
+    return values
+
+
+def _coupon_statuses_by_order(
+    session: Session,
+    order_ids: set[str],
+) -> dict[str, list[str]]:
+    if not order_ids:
+        return {}
+    values: dict[str, list[str]] = defaultdict(list)
+    for order_id_batch in _materialization_order_id_batches(order_ids):
+        rows = session.execute(
+            select(
+                RawDouyinOrderCoupon.order_id,
+                RawDouyinOrderCoupon.coupon_status,
+                RawDouyinOrderCoupon.coupon_status_raw,
+                RawDouyinOrderCoupon.coupon_status_normalized,
+            ).where(RawDouyinOrderCoupon.order_id.in_(order_id_batch))
+        ).all()
+        for order_id, coupon_status, coupon_status_raw, normalized in rows:
+            if not order_id:
+                continue
+            values[order_id].append(
+                _clean(normalized)
+                or normalize_coupon_status(coupon_status_raw or coupon_status)
+            )
     return values
 
 
@@ -1075,6 +1295,7 @@ def _resolve_status(
     raw_order: RawDouyinOrder | None,
     verified_at: datetime | None,
     now: datetime,
+    coupon_statuses: list[str] | tuple[str, ...] = (),
 ) -> StatusResolution:
     if verified_at is not None:
         return StatusResolution(
@@ -1090,6 +1311,8 @@ def _resolve_status(
     normalized_status = resolve_clue_order_status(
         raw_status,
         payload,
+        normalized_order_status=(raw_order.order_status_normalized if raw_order else None),
+        coupon_statuses=coupon_statuses,
     )
     closed_at = (
         _status_observed_at(raw_clue, raw_order, now)

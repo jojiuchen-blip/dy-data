@@ -81,5 +81,5 @@ def test_status_backfill_dry_run_does_not_write(db_session: Session) -> None:
 
     assert result["dry_run"] is True
     assert result["orders_scanned"] == 1
-    assert result["orders_updated"] == 0
+    assert result["orders_updated"] == 1
     assert db_session.get(RawDouyinOrder, order.id).order_status_normalized == "unknown"

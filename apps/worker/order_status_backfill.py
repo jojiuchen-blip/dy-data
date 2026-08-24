@@ -61,13 +61,14 @@ def backfill_normalized_statuses(
             )
             if row.order_status_normalized != normalized:
                 changes.append({"_row_id": row.id, "_normalized": normalized})
-        if changes and not dry_run:
-            session.execute(
-                update(RawDouyinOrder.__table__)
-                .where(RawDouyinOrder.id == bindparam("_row_id"))
-                .values(order_status_normalized=bindparam("_normalized")),
-                changes,
-            )
+        if changes:
+            if not dry_run:
+                session.execute(
+                    update(RawDouyinOrder.__table__)
+                    .where(RawDouyinOrder.id == bindparam("_row_id"))
+                    .values(order_status_normalized=bindparam("_normalized")),
+                    changes,
+                )
             stats["orders_updated"] = int(stats["orders_updated"]) + len(changes)
         last_order_id = int(rows[-1].id)
 
@@ -95,13 +96,14 @@ def backfill_normalized_statuses(
             )
             if row.coupon_status_normalized != normalized:
                 changes.append({"_row_id": row.id, "_normalized": normalized})
-        if changes and not dry_run:
-            session.execute(
-                update(RawDouyinOrderCoupon.__table__)
-                .where(RawDouyinOrderCoupon.id == bindparam("_row_id"))
-                .values(coupon_status_normalized=bindparam("_normalized")),
-                changes,
-            )
+        if changes:
+            if not dry_run:
+                session.execute(
+                    update(RawDouyinOrderCoupon.__table__)
+                    .where(RawDouyinOrderCoupon.id == bindparam("_row_id"))
+                    .values(coupon_status_normalized=bindparam("_normalized")),
+                    changes,
+                )
             stats["coupons_updated"] = int(stats["coupons_updated"]) + len(changes)
         last_coupon_id = int(rows[-1].id)
 

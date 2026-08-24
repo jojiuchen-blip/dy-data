@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Iterable
 
 
 # Douyin's local-life order API returns numeric values. The raw value remains
@@ -61,7 +61,13 @@ def normalize_order_status(value: Any, payload: dict[str, Any] | None = None) ->
     return "unknown"
 
 
-def resolve_clue_order_status(value: Any, payload: dict[str, Any] | None = None) -> str:
+def resolve_clue_order_status(
+    value: Any,
+    payload: dict[str, Any] | None = None,
+    *,
+    normalized_order_status: Any | None = None,
+    coupon_statuses: Iterable[Any] | None = None,
+) -> str:
     """Resolve the business status used by the clue master.
 
     Only 201/履约中/待使用 is allocatable. Numeric 1 is terminal but needs
@@ -71,10 +77,32 @@ def resolve_clue_order_status(value: Any, payload: dict[str, Any] | None = None)
 
     status = _status_text(value)
     certificates = certificate_statuses(payload)
+    normalized_order = _status_text(normalized_order_status)
+    normalized_coupons = {
+        _status_text(coupon_status)
+        for coupon_status in (coupon_statuses or ())
+        if _status_text(coupon_status)
+    }
     if status in CLOSED_ORDER_STATUSES:
         return "closed"
     if status in REFUNDED_ORDER_STATUSES or _all_certificates_refunded(certificates):
         return "refunded"
+    # Order/coupon projections are populated from separate Douyin endpoints.
+    # Use them when the order payload does not embed certificate details.
+    if normalized_order == "closed":
+        return "closed"
+    if normalized_order == "refunded":
+        return "refunded"
+    if normalized_coupons and normalized_coupons <= CLOSED_COUPON_STATUSES:
+        return "closed"
+    if normalized_coupons and normalized_coupons <= REFUNDED_COUPON_STATUSES:
+        return "refunded"
+    if (
+        normalized_coupons
+        and normalized_coupons & VERIFIED_COUPON_STATUSES
+        and not normalized_coupons & ACTIVE_COUPON_STATUSES
+    ):
+        return "verified"
     if status in ACTIVE_ORDER_STATUSES:
         if _all_certificates_closed(certificates):
             return "closed"
