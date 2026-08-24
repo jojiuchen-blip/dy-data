@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -60,7 +61,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--command",
         default=os.environ.get("BROWSER_EXPORT_COMMAND", ""),
-        help="Shell command for the concrete export automation.",
+        help="Command line for the concrete export automation; shell operators are not evaluated.",
     )
     parser.add_argument(
         "--skip-cdp-check",
@@ -160,22 +161,24 @@ def check_cdp(cdp_url: str) -> None:
         raise RuntimeError(f"Chromium CDP is not reachable at {version_url}.") from exc
 
 
-def build_command(args: argparse.Namespace) -> tuple[str | list[str], bool]:
+def build_command(args: argparse.Namespace) -> list[str]:
     remainder = list(args.command_args)
     if remainder and remainder[0] == "--":
         remainder = remainder[1:]
 
     if args.command:
-        return args.command, True
+        command = shlex.split(args.command)
+        if command:
+            return command
     if remainder:
-        return remainder, False
+        return remainder
     raise RuntimeError("Provide --command or command arguments after -- for the concrete export workflow.")
 
 
-def run_export(command: str | list[str], shell: bool, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+def run_export(command: list[str], env: dict[str, str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         command,
-        shell=shell,
+        shell=False,
         check=False,
         text=True,
         capture_output=True,
@@ -216,7 +219,7 @@ def main() -> int:
             )
             job_inserted = True
 
-        command, shell = build_command(args)
+        command = build_command(args)
 
         if not args.skip_cdp_check:
             check_cdp(args.cdp_url)
@@ -232,7 +235,7 @@ def main() -> int:
             }
         )
 
-        result = run_export(command, shell, child_env)
+        result = run_export(command, child_env)
         if result.stdout:
             sys.stdout.write(result.stdout)
         if result.stderr:

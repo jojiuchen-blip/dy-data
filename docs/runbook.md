@@ -7,7 +7,7 @@
 - 生产配置只允许来自环境变量、Docker secret 或服务器上的未跟踪配置文件。
 - 不提交真实业务数据、抖音账号、cookie、密钥、本地路径或导出文件。
 - `config.local.json`、采集输出、浏览器 profile 和下载目录必须保持未跟踪状态。
-- v1 不接退款接口，不上线发票/到票/OCR/财务审核流程；退款只通过订单/券状态参与内部分账排除和异常诊断。
+- 开票、红冲、作废和厂家审核均在系统外完成；生产系统只登记发票事实、导入已完成的结果、计算结转投影并保留查询、导出和审计记录，不接 OCR 或外部验真。
 
 ## 2. 本地开发
 
@@ -51,23 +51,29 @@ Python scripts under `scripts/` add the repository root before importing `src.dy
 cp deploy/.env.example deploy/.env
 ```
 
-2. 校验 Compose 插值：
+2. 校验 Compose 插值，并确认输出不包含任何 `CHANGE_ME_*` 占位符：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml config
 ```
 
-3. 启动服务：
+3. 标准发布使用受控脚本并传入已经通过 CI 的目标提交：
 
 ```bash
-docker compose --env-file deploy/.env -f deploy/compose.yaml up -d --build
+APP_DIR=/opt/dy-dashboard/repo \
+ENV_FILE=/opt/dy-dashboard/env/production.env \
+bash deploy/tencent/deploy.sh <verified-commit-sha>
 ```
 
-Compose 会先运行一次 `migrate` 服务执行 `alembic upgrade head`，API 和 worker 会等迁移成功后启动。排障时可以单独运行：
+脚本会在构建前展开并校验 Compose 配置，发现 `CHANGE_ME_*` 立即终止；启动 PostgreSQL 后、执行 migration 前使用 `pg_dump --format=custom` 生成非空备份，默认写入 `/opt/dy-dashboard/logs/backups/pre-migrate-<UTC时间>.dump` 并设置为 `0600`。随后执行 `alembic upgrade head`、启动运行服务并校验首页、未登录鉴权和 CLI 登录入口。任何步骤失败都会退出非零并输出受限尾部日志。
+
+Compose 的 `migrate` 服务执行 `alembic upgrade head`，API 和 worker 会等迁移成功后启动。排障时可以单独运行：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml run --rm migrate
 ```
+
+发布后必须保存目标提交、CI/部署日志、备份文件路径和 smoke 结果。若 migration 或 smoke 失败，不得删除历史迁移或直接修改生产数据掩盖问题：先停止新流量/worker，保留故障日志，使用最近一次验证通过的提交前滚修复；确需数据库恢复时，在确认会丢弃故障发布后的写入后，使用本次 `pre-migrate-*.dump` 在隔离环境验证恢复，再按事故流程执行生产恢复。应用层可回退到上一个已验证提交，但只有 migration 明确支持 downgrade 且已评估数据影响时才允许数据库降级。
 
 只有 `proxy` 服务发布宿主机端口。`postgres`、`api`、`worker`、`web`、noVNC 和 Chromium CDP 只暴露在 Docker 网络中。公网部署时，在 proxy 或上游负载均衡终止 TLS，并确保容器原始端口不对宿主机开放。
 

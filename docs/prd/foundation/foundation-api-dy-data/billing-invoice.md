@@ -80,11 +80,11 @@
 
 ### 4.1 `GET /api/v1/promotion-invoices`
 
-筛选：`storeId/month/status/page/pageSize`。返回当前有效及可选历史版本；状态固定为 `PENDING_INVOICE/SUBMITTED_PENDING_FACTORY_REVIEW/APPROVED_SETTLED/REJECTED_REUPLOAD`。
+筛选：`storeId/month/status/page/pageSize`。列表按账期分配行返回当前有效及可选历史版本；每行同时返回发票头字段和 `statementId/statementMonth/allocatedAmountCent`，因此同一张合票会在其覆盖的每个账期各出现一行。状态固定为 `PENDING_INVOICE/SUBMITTED_PENDING_FACTORY_REVIEW/APPROVED_SETTLED/REJECTED_REUPLOAD`。
 
 ### 4.2 `POST /api/v1/promotion-invoices`
 
-请求：`storeId/statementId/statementMonth/invoiceNumber/invoiceDate/invoiceAmountCent/readVersion`。校验 20 位数电专票号码、日期、金额和该账期推广费有效确认金额；一门店一账期只允许一张当前有效推广费发票，不跨账期、不拆票。
+请求：`storeId/invoiceNumber/invoiceDate/invoiceAmountCent/allocations[]`；每个 `allocations[]` 元素为 `statementId/statementMonth/allocatedAmountCent/readVersion`。校验 20 位数电专票号码、日期、金额和每个账期推广费当前有效确认金额。发票可覆盖同一门店的多个完整账期；每个账期分配金额必须等于该账期有效确认金额，全部分配金额必须严格等于发票总额。同一门店同一账期只允许一条当前有效分配，不允许把账期拆到多张发票，也不允许跨门店合票。
 
 成功状态为 `SUBMITTED_PENDING_FACTORY_REVIEW`，登记时间取服务器校验通过时间。重新上传生成新版本覆盖；不要求原发票 ID，不接收附件和备注，不调用外部验真或企业微信发送。
 
@@ -92,15 +92,24 @@
 
 `feeDirection=PROMOTION/MANAGEMENT` 强制单选；`metricScope=MONTH/CUMULATIVE`；通用筛选含 `month/storeId/invoiceStatus/confirmationStatus/page/pageSize`。`summary` 返回账单总额、已确认金额、待开票金额、已开票金额、已结算/厂家扣款金额；管理费厂端视角“已开票金额”等于厂家扣款金额。
 
-订单明细必须按 `feeDirection` 分页查询，推广服务费和管理服务费由两个子页面消费；导出复用同一筛选和授权。业务视图按账期统计，资金视图按实际结算/厂家扣款时间统计。
+订单明细必须按 `feeDirection` 分页查询，推广服务费和管理服务费由两个子页面消费；`GET /api/v1/admin/finance/order-details/export` 必须复用 `month/feeDirection/storeId` 的筛选、数据范围和管理员授权，导出所有匹配行而不受列表分页影响。业务视图按账期统计，资金视图按实际结算/厂家扣款时间统计。
 
 ## 5 四类财务导入
 
 ### 5.1 `POST /api/v1/admin/finance-imports`
 
-multipart 请求：`importType`、`statementMonth`、`file`。模板类型固定四类；只保存文件名、文件摘要、标准化摘要和逐行结果，不长期保存原文件。
+multipart 请求：`importType`、`statementMonth`、`file`，并要求 `Idempotency-Key`。模板类型固定为以下四类；只保存文件名、文件摘要、标准化摘要和逐行结果，不长期保存原文件。
 
-处理顺序：流式解析 → 全行格式校验 → 门店 ID 精确匹配 → 业务唯一键校验 → 当前版本差异比较。禁止 SAP 编码、名称、金额或月份模糊匹配；禁止部分写入、自动截断和人工待匹配池。
+| `importType` | 模板字段 | 业务唯一键 | 正式写入目标 |
+|---|---|---|---|
+| `BASIC_INFO` | `storeId/storeName/sapCode/importedAt` | `storeId` | `store_finance_profile` 基础信息新版本 |
+| `PROMOTION_FACTORY_RESULT` | `invoiceNumber/reviewResult/rejectionReason/settlementDate/settlementAmountCent` | `invoiceNumber` | `promotion_invoice` 新版本及 `invoice_status_event` |
+| `MANAGEMENT_FACTORY_RESULT` | `storeId/statementMonth/storeName/invoiceNumber/invoiceDate/deductionDate/deductionAmountCent` | `storeId + statementMonth` | `invoice_record` 管理费厂家结果新版本 |
+| `SAP_CONFIRMATION` | `storeId/storeName/financeInitialSap/serviceStoreCode/factoryConfirmationResult/confirmedAt` | `storeId` | `store_finance_profile` SAP 确认新版本 |
+
+处理顺序：流式解析 → 全行格式校验 → 业务唯一键精确匹配 → 门店 ID 与门店名称二次一致性校验（适用模板）→ 当前版本差异比较。推广服务费厂家结果只按 20 位发票号码精确匹配当前发票及批次账期；禁止 SAP 编码、名称、金额或月份模糊匹配；禁止部分写入、自动截断和人工待匹配池。
+
+同一上传幂等键与相同“模板 + 账期 + 文件摘要”重放原批次；同键不同请求返回 `409 IDEMPOTENCY_KEY_REUSED`。相同标准化业务内容但使用新幂等键时返回 `NO_CHANGE`，不生成业务版本。
 
 返回五种场景：`FIRST_IMPORT_READY`、`NO_CHANGE`、`DIFF_CONFIRMATION_REQUIRED`、`BATCH_VALIDATION_FAILED`、`VERSION_CONFLICT`。失败时返回错误总数和分页首批错误；完整错误由 #42 下载。
 
@@ -112,7 +121,7 @@ multipart 请求：`importType`、`statementMonth`、`file`。模板类型固定
 
 请求：`readVersion/changeReason`。提交前重新校验当前版本；冲突返回 409 和最近操作人/时间。四类模板统一采用版本机制：新值生成新版本；更正导入覆盖当前版本；不删除历史。
 
-管理服务费发票明细在当期导入上一账期，导入成功时间同时作为审核通过和已结算时间；不设置推广费的待审核状态链。厂家扣款不允许部分扣款，分配金额必须严格等于账期有效确认金额及发票金额。
+管理服务费厂家结果在当期导入上一账期，并在同一行登记发票号码、开票日期、厂家扣款日期和全额扣款金额；不再提供独立“管理费发票明细”和“厂家扣款结果”模板。系统导入时间为审核通过/已结算记录时间，厂家扣款不允许部分扣款，金额必须严格等于账期有效确认金额。推广费模板登记系统外厂家结果，不创建系统内审核任务。
 
 ## 6 明确不提供
 

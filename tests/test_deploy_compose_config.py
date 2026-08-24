@@ -124,3 +124,41 @@ def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     assert 'DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose' in deploy_script
     assert '"$HEALTH_URL/api/v1/auth/cli/device/start"' in deploy_script
     assert 'if [ "$auth_status" = "401" ] && [ "$cli_start_status" = "200" ]; then' in deploy_script
+
+
+def test_tencent_deploy_rejects_placeholder_secrets_before_building_images():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(encoding="utf-8")
+
+    validation = deploy_script.index('grep -q "CHANGE_ME_"')
+    build = deploy_script.index('log "building images"')
+
+    assert validation < build
+    assert 'log "deployment configuration still contains CHANGE_ME placeholders"' in deploy_script
+
+
+def test_tencent_deploy_backs_up_postgres_before_running_migrations():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(encoding="utf-8")
+
+    backup = deploy_script.index("pg_dump")
+    migration = deploy_script.index('log "running migrations"')
+
+    assert backup < migration
+    assert 'test -s "$backup_file"' in deploy_script
+    assert 'chmod 600 "$backup_file"' in deploy_script
+
+
+def test_tencent_deploy_blocks_unresolved_statement_snapshot_migration_exceptions():
+    deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(encoding="utf-8")
+
+    migration = deploy_script.index('log "running migrations"')
+    exception_gate = deploy_script.index(
+        'log "checking unresolved statement snapshot migration exceptions"'
+    )
+    runtime_start = deploy_script.index('log "starting runtime services without worker"')
+
+    assert migration < exception_gate < runtime_start
+    assert "settlement_statement_snapshot_migration_exception" in deploy_script
+    assert "settlement_statement_entry_snapshot_migration_exception" in deploy_script
+    assert 'if [ "$unresolved_snapshot_exceptions" -ne 0 ]' in deploy_script
+    assert "snapshot exception gate returned an invalid count" in deploy_script
+    assert "deployment blocked by unresolved statement snapshot migration exceptions" in deploy_script

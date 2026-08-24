@@ -23,11 +23,15 @@ from apps.api.dy_api.models import (
     DimStore,
     DimStorePoiMapping,
     DouyinRefundEvent,
+    InvoiceRecord,
+    PromotionInvoiceAllocation,
     RawAwemeBinding,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
     SettlementOrderDetail,
+    SettlementCarryforwardApplication,
+    SettlementCarryforwardSource,
     SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
@@ -36,6 +40,7 @@ from apps.api.dy_api.models import (
     SettlementStatementEntry,
     SettlementStatementLine,
     SkuFeeRule,
+    StoreFinanceProfile,
     utcnow,
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
@@ -123,6 +128,22 @@ class StatementSource:
     fee_amount_cent: int
     source_amount_cent: int
     rule_version: str
+    order_status: str | None = None
+    coupon_status: str | None = None
+    product_name: str | None = None
+    sku_id: str | None = None
+    sku_name: str | None = None
+    sale_channel: str | None = None
+    sale_store_id: str | None = None
+    sale_store: str | None = None
+    verify_store_id: str | None = None
+    verify_store: str | None = None
+    sale_time: datetime | None = None
+    verify_time: datetime | None = None
+    received_amount_cent: int | None = None
+    fee_rate: Decimal | None = None
+    refund_at: datetime | None = None
+    adjustment_type: int | None = None
 
 
 def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> SettlementStats:
@@ -762,6 +783,37 @@ def _materialize_refund_adjustments(
                 # Timestamp equality is possible on coarse clocks; the amount
                 # snapshot proves whether this event was actually included.
                 continue
+            source_event_key = f"refund:{event.refund_event_id}"
+            existing_source = _carryforward_source(
+                session,
+                source_event_key=source_event_key,
+                original_fee_result_id=original.fee_result_id,
+                fee_direction=direction,
+            )
+            if existing_source is not None:
+                if event.refund_type == 2:
+                    cumulative_refund = original.source_amount_cent
+                else:
+                    cumulative_refund = min(
+                        original.source_amount_cent,
+                        cumulative_refund + event.refund_amount_cent,
+                    )
+                applied_base_adjustment += existing_source.adjustment_base_cent
+                applied_fee_adjustment += existing_source.adjustment_fee_cent
+                _record_issue(
+                    session,
+                    issue_type="dual_fee_carryforward_source_idempotent",
+                    message="顺延来源已存在，重复任务幂等命中。",
+                    order_id=original.order_id,
+                    coupon_id=original.coupon_id,
+                    source_run_id=calculation_run_id,
+                    raw_context={
+                        "carryforward_source_id": existing_source.carryforward_source_id,
+                        "fee_direction": direction,
+                    },
+                    identity_suffix=existing_source.carryforward_source_id,
+                )
+                continue
             adjustment_id = _stable_business_id(
                 "refund-adjustment",
                 event.refund_event_id,
@@ -793,30 +845,6 @@ def _materialize_refund_adjustments(
                 raise ValueError(
                     f"refund adjustment has no responsible store: {original.fee_result_id}"
                 )
-            posting_month = _business_month(event.occurred_at)
-            _lock_settlement_slot(session, responsible_store_id, posting_month)
-            if _is_fee_result_locked(
-                session,
-                store_id=responsible_store_id,
-                month=posting_month,
-            ):
-                _record_issue(
-                    session,
-                    issue_type="dual_fee_locked_adjustment_posting_month",
-                    message="调整入账月已锁定，缺少补充账单或顺延政策，退款调整已阻断。",
-                    order_id=original.order_id,
-                    coupon_id=original.coupon_id,
-                    source_run_id=calculation_run_id,
-                    severity="error",
-                    raw_context={
-                        "fee_direction": direction,
-                        "refund_event_id": event.refund_event_id,
-                        "store_id": responsible_store_id,
-                        "posting_month": posting_month,
-                    },
-                    identity_suffix=f"{event.refund_event_id}:{direction}",
-                )
-                continue
             if event.refund_type == 2:
                 cumulative_refund = original.source_amount_cent
             else:
@@ -832,6 +860,53 @@ def _materialize_refund_adjustments(
             adjustment_fee = (
                 target_fee - original.fee_amount_cent - applied_fee_adjustment
             )
+            adjustment_reason = (
+                "全额退款，按原规则版本将费用净额调整为零。"
+                if event.refund_type == 2
+                else "部分退款，按退款后净额和原规则版本同比例调减费用。"
+            )
+            posting_month = _business_month(event.occurred_at)
+            _lock_settlement_slot(session, responsible_store_id, posting_month)
+            if _is_fee_result_locked(
+                session,
+                store_id=responsible_store_id,
+                month=posting_month,
+            ):
+                source = _create_carryforward_source(
+                    session,
+                    source_event_type=1,
+                    source_event_key=source_event_key,
+                    original=original,
+                    refund_event_id=event.refund_event_id,
+                    verify_id=None,
+                    store_id=responsible_store_id,
+                    event_month=posting_month,
+                    adjustment_type=event.refund_type,
+                    adjustment_base_cent=adjustment_base,
+                    adjustment_fee_cent=adjustment_fee,
+                    carryforward_reason=adjustment_reason,
+                    occurred_at=event.occurred_at,
+                    calculation_run_id=calculation_run_id,
+                )
+                _record_issue(
+                    session,
+                    issue_type="dual_fee_locked_adjustment_posting_month",
+                    message="调整事件月已锁定，退款差额已保存并等待顺延。",
+                    order_id=original.order_id,
+                    coupon_id=original.coupon_id,
+                    source_run_id=calculation_run_id,
+                    raw_context={
+                        "fee_direction": direction,
+                        "refund_event_id": event.refund_event_id,
+                        "store_id": responsible_store_id,
+                        "posting_month": posting_month,
+                        "carryforward_source_id": source.carryforward_source_id,
+                    },
+                    identity_suffix=f"{event.refund_event_id}:{direction}",
+                )
+                applied_base_adjustment += source.adjustment_base_cent
+                applied_fee_adjustment += source.adjustment_fee_cent
+                continue
             session.add(
                 SettlementFeeAdjustment(
                     adjustment_id=adjustment_id,
@@ -846,11 +921,7 @@ def _materialize_refund_adjustments(
                     adjustment_base_cent=adjustment_base,
                     adjustment_fee_cent=adjustment_fee,
                     rule_version=original.rule_version,
-                    adjustment_reason=(
-                        "全额退款，按原规则版本将费用净额调整为零。"
-                        if event.refund_type == 2
-                        else "部分退款，按退款后净额和原规则版本同比例调减费用。"
-                    ),
+                    adjustment_reason=adjustment_reason,
                     occurred_at=event.occurred_at,
                     created_by=f"settlement:{calculation_run_id}",
                 )
@@ -957,6 +1028,37 @@ def _materialize_verify_cancellation_adjustment(
         )
     ):
         return
+    source_event_key = (
+        f"verify-cancellation:{cancelled.verify_id}:{cancelled.cancel_time.isoformat()}"
+    )
+    existing_source = _carryforward_source(
+        session,
+        source_event_key=source_event_key,
+        original_fee_result_id=original.fee_result_id,
+        fee_direction=MANAGEMENT_FEE,
+    )
+    if existing_source is not None:
+        _record_issue(
+            session,
+            issue_type="dual_fee_carryforward_source_idempotent",
+            message="顺延来源已存在，重复任务幂等命中。",
+            order_id=original.order_id,
+            coupon_id=original.coupon_id,
+            source_run_id=calculation_run_id,
+            raw_context={
+                "carryforward_source_id": existing_source.carryforward_source_id,
+                "fee_direction": MANAGEMENT_FEE,
+            },
+            identity_suffix=existing_source.carryforward_source_id,
+        )
+        return
+    existing_base, existing_fee = _effective_adjustment_totals(
+        session,
+        original_fee_result_id=original.fee_result_id,
+    )
+    adjustment_base = -original.fee_base_cent - existing_base
+    adjustment_fee = -original.fee_amount_cent - existing_fee
+    adjustment_reason = "取消核销，仅将管理服务费按原规则版本调整为零。"
     posting_month = _business_month(cancelled.cancel_time)
     _lock_settlement_slot(session, original.verify_store_id, posting_month)
     if _is_fee_result_locked(
@@ -964,33 +1066,39 @@ def _materialize_verify_cancellation_adjustment(
         store_id=original.verify_store_id,
         month=posting_month,
     ):
+        source = _create_carryforward_source(
+            session,
+            source_event_type=2,
+            source_event_key=source_event_key,
+            original=original,
+            refund_event_id=None,
+            verify_id=cancelled.verify_id,
+            store_id=original.verify_store_id,
+            event_month=posting_month,
+            adjustment_type=3,
+            adjustment_base_cent=adjustment_base,
+            adjustment_fee_cent=adjustment_fee,
+            carryforward_reason=adjustment_reason,
+            occurred_at=cancelled.cancel_time,
+            calculation_run_id=calculation_run_id,
+        )
         _record_issue(
             session,
             issue_type="dual_fee_locked_adjustment_posting_month",
-            message="调整入账月已锁定，缺少补充账单或顺延政策，取消核销调整已阻断。",
+            message="调整事件月已锁定，取消核销差额已保存并等待顺延。",
             order_id=original.order_id,
             coupon_id=original.coupon_id,
             source_run_id=calculation_run_id,
-            severity="error",
             raw_context={
                 "fee_direction": MANAGEMENT_FEE,
                 "verify_id": cancelled.verify_id,
                 "store_id": original.verify_store_id,
                 "posting_month": posting_month,
+                "carryforward_source_id": source.carryforward_source_id,
             },
             identity_suffix=f"{cancelled.verify_id}:{MANAGEMENT_FEE}",
         )
         return
-    existing_base = session.scalar(
-        select(func.coalesce(func.sum(SettlementFeeAdjustment.adjustment_base_cent), 0)).where(
-            SettlementFeeAdjustment.original_fee_result_id == original.fee_result_id
-        )
-    )
-    existing_fee = session.scalar(
-        select(func.coalesce(func.sum(SettlementFeeAdjustment.adjustment_fee_cent), 0)).where(
-            SettlementFeeAdjustment.original_fee_result_id == original.fee_result_id
-        )
-    )
     session.add(
         SettlementFeeAdjustment(
             adjustment_id=adjustment_id,
@@ -1002,15 +1110,135 @@ def _materialize_verify_cancellation_adjustment(
             original_business_month=original.original_business_month,
             adjustment_posting_month=_business_month(cancelled.cancel_time),
             adjustment_type=3,
-            adjustment_base_cent=-original.fee_base_cent - int(existing_base or 0),
-            adjustment_fee_cent=-original.fee_amount_cent - int(existing_fee or 0),
+            adjustment_base_cent=adjustment_base,
+            adjustment_fee_cent=adjustment_fee,
             rule_version=original.rule_version,
-            adjustment_reason="取消核销，仅将管理服务费按原规则版本调整为零。",
+            adjustment_reason=adjustment_reason,
             occurred_at=cancelled.cancel_time,
             created_by=f"settlement:{calculation_run_id}",
         )
     )
     session.flush()
+
+
+def _carryforward_source(
+    session: Session,
+    *,
+    source_event_key: str,
+    original_fee_result_id: str,
+    fee_direction: int,
+) -> SettlementCarryforwardSource | None:
+    return session.scalar(
+        select(SettlementCarryforwardSource).where(
+            SettlementCarryforwardSource.source_event_key == source_event_key,
+            SettlementCarryforwardSource.original_fee_result_id
+            == original_fee_result_id,
+            SettlementCarryforwardSource.fee_direction == fee_direction,
+        )
+    )
+
+
+def _effective_adjustment_totals(
+    session: Session,
+    *,
+    original_fee_result_id: str,
+) -> tuple[int, int]:
+    """Count every business delta once, whether pending or already applied."""
+
+    sources = list(
+        session.scalars(
+            select(SettlementCarryforwardSource).where(
+                SettlementCarryforwardSource.original_fee_result_id
+                == original_fee_result_id
+            )
+        )
+    )
+    source_ids = {source.carryforward_source_id for source in sources}
+    materialized_adjustment_ids = (
+        set(
+            session.scalars(
+                select(SettlementCarryforwardApplication.target_adjustment_id).where(
+                    SettlementCarryforwardApplication.carryforward_source_id.in_(
+                        source_ids
+                    )
+                )
+            )
+        )
+        if source_ids
+        else set()
+    )
+    ordinary_adjustments = [
+        adjustment
+        for adjustment in session.scalars(
+            select(SettlementFeeAdjustment).where(
+                SettlementFeeAdjustment.original_fee_result_id
+                == original_fee_result_id
+            )
+        )
+        if adjustment.adjustment_id not in materialized_adjustment_ids
+    ]
+    return (
+        sum(row.adjustment_base_cent for row in sources)
+        + sum(row.adjustment_base_cent for row in ordinary_adjustments),
+        sum(row.adjustment_fee_cent for row in sources)
+        + sum(row.adjustment_fee_cent for row in ordinary_adjustments),
+    )
+
+
+def _create_carryforward_source(
+    session: Session,
+    *,
+    source_event_type: int,
+    source_event_key: str,
+    original: SettlementFeeResult,
+    refund_event_id: str | None,
+    verify_id: str | None,
+    store_id: str,
+    event_month: str,
+    adjustment_type: int,
+    adjustment_base_cent: int,
+    adjustment_fee_cent: int,
+    carryforward_reason: str,
+    occurred_at: datetime,
+    calculation_run_id: str,
+) -> SettlementCarryforwardSource:
+    existing = _carryforward_source(
+        session,
+        source_event_key=source_event_key,
+        original_fee_result_id=original.fee_result_id,
+        fee_direction=original.fee_direction,
+    )
+    if existing is not None:
+        return existing
+    source = SettlementCarryforwardSource(
+        carryforward_source_id=_stable_business_id(
+            "carryforward-source",
+            source_event_key,
+            original.fee_result_id,
+            str(original.fee_direction),
+        ),
+        source_event_type=source_event_type,
+        source_event_key=source_event_key,
+        original_fee_result_id=original.fee_result_id,
+        refund_event_id=refund_event_id,
+        verify_id=verify_id,
+        coupon_id=original.coupon_id,
+        order_id=original.order_id,
+        store_id=store_id,
+        fee_direction=original.fee_direction,
+        original_business_month=original.original_business_month,
+        event_month=event_month,
+        adjustment_type=adjustment_type,
+        adjustment_base_cent=adjustment_base_cent,
+        adjustment_fee_cent=adjustment_fee_cent,
+        rule_version=original.rule_version,
+        carryforward_reason=carryforward_reason,
+        occurred_at=occurred_at,
+        created_by=f"settlement:{calculation_run_id}",
+    )
+    session.add(source)
+    session.flush()
+    return source
 
 
 def _match_scope_rule(
@@ -1146,14 +1374,7 @@ def _is_fee_result_locked(
     month: str,
     current_fee_result_id: str | None = None,
 ) -> bool:
-    locked_slot = session.scalar(
-        select(SettlementStatement.id).where(
-            SettlementStatement.store_id == store_id,
-            SettlementStatement.statement_month == month,
-            SettlementStatement.statement_status == 4,
-        )
-    )
-    if locked_slot:
+    if _is_settlement_period_immutable(session, store_id=store_id, month=month):
         return True
     if not current_fee_result_id:
         return False
@@ -1299,17 +1520,40 @@ def lock_settlement_statement(
                 .where(
                     SettlementStatement.store_id == store_id,
                     SettlementStatement.statement_month == statement_month,
+                    SettlementStatement.is_current.is_(True),
                 )
                 .with_for_update()
             )
             if statement is not None and statement.statement_status == 4:
                 return statement
             if statement is None:
+                basic_profile = session.scalar(
+                    select(StoreFinanceProfile)
+                    .where(
+                        StoreFinanceProfile.store_id == store_id,
+                        StoreFinanceProfile.profile_type == 1,
+                        StoreFinanceProfile.is_current.is_(True),
+                        StoreFinanceProfile.is_tombstone.is_(False),
+                    )
+                    .order_by(
+                        StoreFinanceProfile.version_no.desc(),
+                        StoreFinanceProfile.profile_id.desc(),
+                    )
+                    .limit(1)
+                )
                 statement = SettlementStatement(
                     statement_id=statement_id,
                     store_id=store_id,
                     statement_month=statement_month,
                     statement_status=1,
+                    store_name_snapshot=store.store_name,
+                    sap_code_snapshot=(
+                        basic_profile.sap_code if basic_profile is not None else None
+                    ),
+                    store_snapshot_status="LIVE_CAPTURED",
+                    store_snapshot_profile_id=(
+                        basic_profile.profile_id if basic_profile is not None else None
+                    ),
                 )
                 session.add(statement)
                 session.flush()
@@ -1330,6 +1574,11 @@ def lock_settlement_statement(
                 )
                 session.flush()
 
+            _apply_carryforward_sources(
+                session,
+                statement=statement,
+                application_run_id=lock_run_id,
+            )
             sources = _statement_sources(
                 session, store_id=store_id, statement_month=statement_month
             )
@@ -1400,6 +1649,22 @@ def lock_settlement_statement(
                             base_amount_cent=source.base_amount_cent,
                             fee_amount_cent=source.fee_amount_cent,
                             rule_version=source.rule_version,
+                            order_status_snapshot=source.order_status,
+                            coupon_status_snapshot=source.coupon_status,
+                            product_name_snapshot=source.product_name,
+                            sku_id_snapshot=source.sku_id,
+                            sku_name_snapshot=source.sku_name,
+                            sale_channel_snapshot=source.sale_channel,
+                            sale_store_id_snapshot=source.sale_store_id,
+                            sale_store_snapshot=source.sale_store,
+                            verify_store_id_snapshot=source.verify_store_id,
+                            verify_store_snapshot=source.verify_store,
+                            sale_time_snapshot=source.sale_time,
+                            verify_time_snapshot=source.verify_time,
+                            received_amount_cent_snapshot=source.received_amount_cent,
+                            fee_rate_snapshot=source.fee_rate,
+                            refund_at_snapshot=source.refund_at,
+                            adjustment_type_snapshot=source.adjustment_type,
                         )
                     )
             session.flush()
@@ -1441,6 +1706,200 @@ def lock_settlement_statement(
         raise
     assert statement is not None
     return statement
+
+
+def _apply_carryforward_sources(
+    session: Session,
+    *,
+    statement: SettlementStatement,
+    application_run_id: str,
+) -> None:
+    candidates = list(
+        session.scalars(
+            select(SettlementCarryforwardSource)
+            .where(
+                SettlementCarryforwardSource.store_id == statement.store_id,
+                SettlementCarryforwardSource.event_month < statement.statement_month,
+            )
+            .order_by(
+                SettlementCarryforwardSource.occurred_at,
+                SettlementCarryforwardSource.carryforward_source_id,
+            )
+            .with_for_update()
+        )
+    )
+    for source in candidates:
+        current_application = session.scalar(
+            select(SettlementCarryforwardApplication).where(
+                SettlementCarryforwardApplication.carryforward_source_id
+                == source.carryforward_source_id,
+                SettlementCarryforwardApplication.is_current.is_(True),
+            )
+        )
+        if current_application is not None:
+            _record_issue(
+                session,
+                issue_type="dual_fee_carryforward_application_idempotent",
+                message="顺延来源已有当前有效应用，重复任务未再次入账。",
+                order_id=source.order_id,
+                coupon_id=source.coupon_id,
+                source_run_id=application_run_id,
+                raw_context={
+                    "carryforward_source_id": source.carryforward_source_id,
+                    "carryforward_application_id": (
+                        current_application.carryforward_application_id
+                    ),
+                },
+                identity_suffix=source.carryforward_source_id,
+            )
+            continue
+        earlier_month = _first_unlocked_month_between(
+            session,
+            store_id=source.store_id,
+            event_month=source.event_month,
+            target_month=statement.statement_month,
+        )
+        if earlier_month is not None:
+            _record_issue(
+                session,
+                issue_type="dual_fee_carryforward_waiting",
+                message="顺延来源仍等待更早的可处理账期。",
+                order_id=source.order_id,
+                coupon_id=source.coupon_id,
+                source_run_id=application_run_id,
+                raw_context={
+                    "carryforward_source_id": source.carryforward_source_id,
+                    "earlier_unlocked_month": earlier_month,
+                    "requested_month": statement.statement_month,
+                },
+                identity_suffix=source.carryforward_source_id,
+            )
+            continue
+        original = session.scalar(
+            select(SettlementFeeResult).where(
+                SettlementFeeResult.fee_result_id == source.original_fee_result_id
+            )
+        )
+        if original is None:
+            _record_failure_issue(
+                session,
+                issue_type="dual_fee_carryforward_application_conflict",
+                message="顺延来源缺少原始费用结果，禁止应用。",
+                order_id=source.order_id,
+                coupon_id=source.coupon_id,
+                source_run_id=application_run_id,
+                severity="error",
+                raw_context={
+                    "carryforward_source_id": source.carryforward_source_id,
+                    "original_fee_result_id": source.original_fee_result_id,
+                },
+                identity_suffix=source.carryforward_source_id,
+            )
+            raise ValueError(
+                "carryforward source has no original fee result: "
+                f"{source.carryforward_source_id}"
+            )
+        latest_version = int(
+            session.scalar(
+                select(
+                    func.coalesce(
+                        func.max(
+                            SettlementCarryforwardApplication.application_version
+                        ),
+                        0,
+                    )
+                ).where(
+                    SettlementCarryforwardApplication.carryforward_source_id
+                    == source.carryforward_source_id
+                )
+            )
+            or 0
+        )
+        application_version = latest_version + 1
+        adjustment_id = _stable_business_id(
+            "carryforward-adjustment",
+            source.carryforward_source_id,
+            str(application_version),
+        )
+        session.add(
+            SettlementFeeAdjustment(
+                adjustment_id=adjustment_id,
+                original_fee_result_id=source.original_fee_result_id,
+                refund_event_id=source.refund_event_id,
+                coupon_id=source.coupon_id,
+                order_id=source.order_id,
+                fee_direction=source.fee_direction,
+                original_business_month=source.original_business_month,
+                adjustment_posting_month=statement.statement_month,
+                adjustment_type=source.adjustment_type,
+                adjustment_base_cent=source.adjustment_base_cent,
+                adjustment_fee_cent=source.adjustment_fee_cent,
+                rule_version=source.rule_version,
+                adjustment_reason=source.carryforward_reason,
+                occurred_at=source.occurred_at,
+                created_by=f"settlement:{application_run_id}",
+            )
+        )
+        session.flush()
+        application = SettlementCarryforwardApplication(
+            carryforward_application_id=_stable_business_id(
+                "carryforward-application",
+                source.carryforward_source_id,
+                str(application_version),
+            ),
+            carryforward_source_id=source.carryforward_source_id,
+            target_statement_id=statement.statement_id,
+            target_statement_version=statement.version_no,
+            target_adjustment_id=adjustment_id,
+            target_posting_month=statement.statement_month,
+            application_version=application_version,
+            is_current=True,
+            applied_by=f"settlement:{application_run_id}",
+            applied_at=utcnow(),
+        )
+        session.add(application)
+        session.flush()
+        _record_issue(
+            session,
+            issue_type="dual_fee_carryforward_applied",
+            message="顺延来源已完整应用到下一可处理账期。",
+            order_id=source.order_id,
+            coupon_id=source.coupon_id,
+            source_run_id=application_run_id,
+            raw_context={
+                "carryforward_source_id": source.carryforward_source_id,
+                "carryforward_application_id": application.carryforward_application_id,
+                "target_statement_id": statement.statement_id,
+                "target_posting_month": statement.statement_month,
+            },
+            identity_suffix=source.carryforward_source_id,
+        )
+
+
+def _first_unlocked_month_between(
+    session: Session,
+    *,
+    store_id: str,
+    event_month: str,
+    target_month: str,
+) -> str | None:
+    month = _next_month_key(event_month)
+    while month < target_month:
+        if not _is_settlement_period_immutable(
+            session,
+            store_id=store_id,
+            month=month,
+        ):
+            return month
+        month = _next_month_key(month)
+    return None
+
+
+def _next_month_key(month: str) -> str:
+    year, month_number = (int(part) for part in month.split("-", 1))
+    if month_number == 12:
+        return f"{year + 1:04d}-01"
+    return f"{year:04d}-{month_number + 1:02d}"
 
 
 def rebuild_dual_fee_projections(
@@ -1630,17 +2089,43 @@ def _projection_months(session: Session) -> list[str]:
             SettlementFeeResultCurrent.fee_result_id
             == SettlementFeeResult.fee_result_id,
         ),
-        select(SettlementFeeAdjustment.adjustment_posting_month).join(
-            SettlementFeeResultCurrent,
-            SettlementFeeResultCurrent.fee_result_id
-            == SettlementFeeAdjustment.original_fee_result_id,
-        ),
         select(AggStoreMonthlySettlement.month),
         select(AggStoreRanking.period_key),
     )
     for query in month_queries:
         months.update(str(value) for value in session.scalars(query.distinct()))
+    months.update(
+        adjustment.adjustment_posting_month
+        for adjustment in _active_fee_adjustments(session)
+    )
     return sorted(month for month in months if month >= "2026-08")
+
+
+def _active_fee_adjustments(
+    session: Session,
+    *,
+    posting_month: str | None = None,
+) -> list[SettlementFeeAdjustment]:
+    """Return ordinary adjustments plus only the current version per carryforward."""
+
+    applications = list(session.scalars(select(SettlementCarryforwardApplication)))
+    versioned_adjustment_ids = {
+        row.target_adjustment_id for row in applications
+    }
+    current_adjustment_ids = {
+        row.target_adjustment_id for row in applications if row.is_current
+    }
+    query = select(SettlementFeeAdjustment)
+    if posting_month is not None:
+        query = query.where(
+            SettlementFeeAdjustment.adjustment_posting_month == posting_month
+        )
+    return [
+        adjustment
+        for adjustment in session.scalars(query)
+        if adjustment.adjustment_id not in versioned_adjustment_ids
+        or adjustment.adjustment_id in current_adjustment_ids
+    ]
 
 
 def _statement_sources(
@@ -1667,19 +2152,10 @@ def _statement_sources(
             else result.verify_store_id
         )
         if result_store == store_id:
-            sources.append(_result_statement_source(result))
-    adjustments = list(
-        session.scalars(
-            select(SettlementFeeAdjustment)
-            .join(
-                SettlementFeeResultCurrent,
-                SettlementFeeResultCurrent.fee_result_id
-                == SettlementFeeAdjustment.original_fee_result_id,
-            )
-            .where(
-                SettlementFeeAdjustment.adjustment_posting_month == statement_month
-            )
-        )
+            sources.append(_result_statement_source(session, result))
+    adjustments = _active_fee_adjustments(
+        session,
+        posting_month=statement_month,
     )
     for adjustment in adjustments:
         original = session.scalar(
@@ -1698,7 +2174,7 @@ def _statement_sources(
             else original.verify_store_id
         )
         if result_store == store_id:
-            sources.append(_adjustment_statement_source(adjustment, original))
+            sources.append(_adjustment_statement_source(session, adjustment, original))
     sources.sort(key=lambda row: (row.source_type, row.source_record_id))
     return sources
 
@@ -1821,6 +2297,7 @@ def _projection_sources(
         )
         .where(
             SettlementStatement.statement_status == 4,
+            SettlementStatement.is_current.is_(True),
             SettlementStatement.statement_month == posting_month,
         )
         .execution_options(yield_per=batch_size)
@@ -1843,6 +2320,22 @@ def _projection_sources(
             fee_amount_cent=entry.fee_amount_cent,
             source_amount_cent=source_amount_cent,
             rule_version=entry.rule_version,
+            order_status=entry.order_status_snapshot,
+            coupon_status=entry.coupon_status_snapshot,
+            product_name=entry.product_name_snapshot,
+            sku_id=entry.sku_id_snapshot,
+            sku_name=entry.sku_name_snapshot,
+            sale_channel=entry.sale_channel_snapshot,
+            sale_store_id=entry.sale_store_id_snapshot,
+            sale_store=entry.sale_store_snapshot,
+            verify_store_id=entry.verify_store_id_snapshot,
+            verify_store=entry.verify_store_snapshot,
+            sale_time=entry.sale_time_snapshot,
+            verify_time=entry.verify_time_snapshot,
+            received_amount_cent=entry.received_amount_cent_snapshot,
+            fee_rate=entry.fee_rate_snapshot,
+            refund_at=entry.refund_at_snapshot,
+            adjustment_type=entry.adjustment_type_snapshot,
         )
 
     current_results = session.scalars(
@@ -1857,7 +2350,7 @@ def _projection_sources(
     )
     locked_slot_cache: dict[str, bool] = {}
     for result in current_results:
-        source = _result_statement_source(result)
+        source = _result_statement_source(session, result)
         if source.store_id not in locked_slot_cache:
             locked_slot_cache[source.store_id] = (
                 _locked_statement(session, source.store_id, posting_month) is not None
@@ -1886,7 +2379,7 @@ def _projection_sources(
         .execution_options(yield_per=batch_size)
     )
     for adjustment, original in adjustments:
-        source = _adjustment_statement_source(adjustment, original)
+        source = _adjustment_statement_source(session, adjustment, original)
         if source.store_id not in locked_slot_cache:
             locked_slot_cache[source.store_id] = (
                 _locked_statement(session, source.store_id, posting_month) is not None
@@ -1899,7 +2392,7 @@ def _projection_sources(
         yield source
 
 
-def _result_statement_source(result: SettlementFeeResult) -> StatementSource:
+def _result_statement_source(session: Session, result: SettlementFeeResult) -> StatementSource:
     store_id = (
         result.sale_store_id
         if result.fee_direction == PROMOTION_FEE
@@ -1923,11 +2416,12 @@ def _result_statement_source(result: SettlementFeeResult) -> StatementSource:
         fee_amount_cent=result.fee_amount_cent,
         source_amount_cent=result.source_amount_cent,
         rule_version=result.rule_version,
+        **_statement_source_snapshots(session, result=result),
     )
 
 
 def _adjustment_statement_source(
-    adjustment: SettlementFeeAdjustment, original: SettlementFeeResult
+    session: Session, adjustment: SettlementFeeAdjustment, original: SettlementFeeResult
 ) -> StatementSource:
     store_id = (
         original.sale_store_id
@@ -1954,7 +2448,79 @@ def _adjustment_statement_source(
         fee_amount_cent=adjustment.adjustment_fee_cent,
         source_amount_cent=0,
         rule_version=adjustment.rule_version,
+        **_statement_source_snapshots(
+            session,
+            result=original,
+            adjustment=adjustment,
+        ),
     )
+
+
+def _statement_source_snapshots(
+    session: Session,
+    *,
+    result: SettlementFeeResult,
+    adjustment: SettlementFeeAdjustment | None = None,
+) -> dict[str, Any]:
+    """Capture display facts once while assembling an immutable statement entry."""
+    order = session.scalar(
+        select(RawDouyinOrder).where(RawDouyinOrder.order_id == result.order_id)
+    )
+    product = session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == result.sku_id)
+    )
+    verify = _select_valid_verify_record(session, result.coupon_id)
+    coupon = session.scalar(
+        select(RawDouyinOrderCoupon).where(
+            RawDouyinOrderCoupon.coupon_id == result.coupon_id
+        )
+    )
+    sale_store = (
+        session.get(DimStore, result.sale_store_id)
+        if result.sale_store_id is not None
+        else None
+    )
+    verify_mapping = (
+        _find_poi_mapping(session, verify.poi_id) if verify is not None else None
+    )
+    verify_store_id = result.verify_store_id or (
+        verify_mapping.store_id if verify_mapping is not None else None
+    )
+    verify_store = (
+        session.get(DimStore, verify_store_id)
+        if verify_store_id is not None
+        else None
+    )
+    return {
+        "order_status": order.order_status_normalized if order is not None else None,
+        "coupon_status": (
+            coupon.coupon_status_normalized
+            if coupon is not None
+            else None
+        ),
+        "product_name": (
+            product.product_name
+            if product is not None
+            else (order.product_name if order is not None else None)
+        ),
+        "sku_id": result.sku_id,
+        "sku_name": product.sku_name if product is not None else None,
+        "sale_channel": result.sale_channel_normalized,
+        "sale_store_id": result.sale_store_id,
+        "sale_store": sale_store.store_name if sale_store is not None else None,
+        "verify_store_id": verify_store_id,
+        "verify_store": verify_store.store_name if verify_store is not None else None,
+        "sale_time": order.sale_time if order is not None else None,
+        "verify_time": verify.verify_time if verify is not None else None,
+        "received_amount_cent": result.source_amount_cent,
+        "fee_rate": result.fee_rate,
+        "refund_at": (
+            adjustment.occurred_at
+            if adjustment is not None
+            else (coupon.coupon_refund_time if coupon is not None else None)
+        ),
+        "adjustment_type": adjustment.adjustment_type if adjustment is not None else None,
+    }
 
 
 def _locked_statement(
@@ -1965,8 +2531,36 @@ def _locked_statement(
             SettlementStatement.store_id == store_id,
             SettlementStatement.statement_month == month,
             SettlementStatement.statement_status == 4,
+            SettlementStatement.is_current.is_(True),
         )
     )
+
+
+def _is_settlement_period_immutable(
+    session: Session,
+    *,
+    store_id: str,
+    month: str,
+) -> bool:
+    if _locked_statement(session, store_id, month) is not None:
+        return True
+    promotion_invoice_fact = session.scalar(
+        select(PromotionInvoiceAllocation.id).where(
+            PromotionInvoiceAllocation.store_id == store_id,
+            PromotionInvoiceAllocation.statement_month == month,
+            PromotionInvoiceAllocation.is_current.is_(True),
+        )
+    )
+    if promotion_invoice_fact is not None:
+        return True
+    management_invoice_fact = session.scalar(
+        select(InvoiceRecord.id).where(
+            InvoiceRecord.store_id == store_id,
+            InvoiceRecord.statement_month == month,
+            InvoiceRecord.is_current.is_(True),
+        )
+    )
+    return management_invoice_fact is not None
 
 
 def _projection_dimensions(

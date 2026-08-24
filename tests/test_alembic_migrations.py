@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from io import StringIO
 from pathlib import Path
+from threading import Barrier
 
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 
 def test_alembic_migration_graph_has_single_head() -> None:
@@ -19,9 +22,1044 @@ def test_alembic_migration_graph_has_single_head() -> None:
     heads = ScriptDirectory.from_config(config).get_heads()
 
     assert len(heads) == 1, f"expected one Alembic head, got {heads}"
-from sqlalchemy.exc import IntegrityError
 
 
+def test_g2_management_sap_reversal_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "g2-management-sap-reversal.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260821_0040")
+    command.upgrade(config, "20260824_0041")
+
+    engine = create_engine(database_url)
+    upgraded = inspect(engine)
+    assert {"sap_suggestion", "management_carryforward_application"}.issubset(
+        upgraded.get_table_names()
+    )
+    assert {"source_type", "import_batch_id"}.issubset(
+        {column["name"] for column in upgraded.get_columns("store_finance_profile")}
+    )
+    import_batch_column = next(
+        column
+        for column in upgraded.get_columns("store_finance_profile")
+        if column["name"] == "import_batch_id"
+    )
+    assert import_batch_column["nullable"] is True
+    assert "reverses_batch_id" in {
+        column["name"] for column in upgraded.get_columns("finance_import_batch")
+    }
+    for table_name in (
+        "store_finance_profile",
+        "invoice_record",
+        "promotion_invoice",
+    ):
+        assert "is_tombstone" in {
+            column["name"] for column in upgraded.get_columns(table_name)
+        }
+    assert {
+        "reversal_effect_type",
+        "reverses_target_record_id",
+        "previous_target_record_id",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("finance_import_row")}
+    )
+    assert "idx_sap_suggestion_current" in {
+        index["name"] for index in upgraded.get_indexes("sap_suggestion")
+    }
+    assert "idx_management_carryforward_current" in {
+        index["name"]
+        for index in upgraded.get_indexes("management_carryforward_application")
+    }
+    assert "uk_finance_import_batch_final_version" not in {
+        index["name"] for index in upgraded.get_indexes("finance_import_batch")
+    }
+
+    command.downgrade(config, "20260821_0040")
+    downgraded = inspect(engine)
+    assert "sap_suggestion" not in downgraded.get_table_names()
+    assert "management_carryforward_application" not in downgraded.get_table_names()
+    assert "source_type" not in {
+        column["name"] for column in downgraded.get_columns("store_finance_profile")
+    }
+    assert "reverses_batch_id" not in {
+        column["name"] for column in downgraded.get_columns("finance_import_batch")
+    }
+    assert "is_tombstone" not in {
+        column["name"] for column in downgraded.get_columns("invoice_record")
+    }
+
+
+def test_g2_management_sap_reversal_migration_refuses_lossy_downgrade(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "g2-management-sap-reversal-downgrade-guard.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260824_0041")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO sap_suggestion "
+                "(suggestion_id, store_id, version_no, is_current, suggested_sap_code, "
+                "suggestion_note, suggestion_status, submitted_by, submitted_at, gmt_create) "
+                "VALUES ('sap-downgrade-guard', 'store-1', 1, 1, 'SAP-001', "
+                "'keep immutable history', 1, 'store-user', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="cannot downgrade 20260824_0041.*SAP suggestions"):
+        command.downgrade(config, "20260821_0040")
+    with engine.begin() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM sap_suggestion")).scalar_one() == 1
+        connection.execute(text("DELETE FROM sap_suggestion"))
+
+    command.downgrade(config, "20260821_0040")
+
+
+def test_finance_import_final_version_guard_migration_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "finance-import-final-version-guard.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260824_0041")
+    command.upgrade(config, "20260824_0042")
+    engine = create_engine(database_url)
+    upgraded = inspect(engine)
+    assert "uk_finance_import_batch_final_version" in {
+        index["name"] for index in upgraded.get_indexes("finance_import_batch")
+    }
+
+    insert_sql = text(
+        "INSERT INTO finance_import_batch "
+        "(batch_id, import_type, statement_month, file_name, file_sha256, "
+        "normalized_sha256, read_version, current_version, batch_status, "
+        "total_rows, success_rows, error_rows, content_changed, submitted_by, "
+        "submitted_at, gmt_create, gmt_modified) "
+        "VALUES (:batch_id, 1, '2026-08', :file_name, :file_sha256, "
+        ":normalized_sha256, 0, 1, :batch_status, 0, 0, 0, 0, 'admin', "
+        ":occurred_at, :occurred_at, :occurred_at)"
+    )
+    values = {
+        "file_sha256": "a" * 64,
+        "normalized_sha256": "b" * 64,
+        "occurred_at": datetime(2026, 8, 24, tzinfo=timezone.utc),
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            insert_sql,
+            {**values, "batch_id": "final-v1", "file_name": "final-v1.csv", "batch_status": 5},
+        )
+        connection.execute(
+            insert_sql,
+            {**values, "batch_id": "preview-a", "file_name": "preview-a.csv", "batch_status": 3},
+        )
+        connection.execute(
+            insert_sql,
+            {**values, "batch_id": "preview-b", "file_name": "preview-b.csv", "batch_status": 4},
+        )
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                insert_sql,
+                {**values, "batch_id": "final-v1-duplicate", "file_name": "duplicate.csv", "batch_status": 8},
+            )
+
+    command.downgrade(config, "20260824_0041")
+    downgraded = inspect(engine)
+    assert "uk_finance_import_batch_final_version" not in {
+        index["name"] for index in downgraded.get_indexes("finance_import_batch")
+    }
+
+
+def test_g3_statement_snapshot_migration_backfills_deterministically_and_tracks_exceptions(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "g3-statement-snapshot.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260824_0042")
+    engine = create_engine(database_url)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO finance_import_batch "
+                "(batch_id, import_type, statement_month, file_name, file_sha256, "
+                "normalized_sha256, read_version, current_version, batch_status, "
+                "total_rows, success_rows, error_rows, content_changed, submitted_by, "
+                "committed_by, submitted_at, committed_at, gmt_create, gmt_modified) "
+                "VALUES ('snapshot-profile-batch', 1, '2026-08', 'profile.csv', "
+                ":file_sha256, :normalized_sha256, 0, 1, 5, 2, 2, 0, 1, "
+                "'admin', 'admin', :submitted_at, :committed_at, :submitted_at, :committed_at)"
+            ),
+            {
+                "file_sha256": "c" * 64,
+                "normalized_sha256": "d" * 64,
+                "submitted_at": datetime(2026, 8, 1, 8, tzinfo=timezone.utc),
+                "committed_at": datetime(2026, 8, 1, 9, tzinfo=timezone.utc),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO store_finance_profile "
+                "(profile_id, store_id, profile_type, source_type, version_no, is_current, "
+                "is_tombstone, store_name_snapshot, sap_code, import_batch_id, gmt_create, gmt_modified) "
+                "VALUES "
+                "('profile-v1', 'store-1', 1, 1, 1, 0, 0, 'Historical Store V1', "
+                "'SAP-OLD', 'snapshot-profile-batch', :v1_at, :v1_at), "
+                "('profile-v2', 'store-1', 1, 1, 2, 1, 1, 'Historical Store V2', "
+                "NULL, 'snapshot-profile-batch', :v2_at, :v2_at)"
+            ),
+            {
+                "v1_at": datetime(2026, 8, 1, 10, tzinfo=timezone.utc),
+                "v2_at": datetime(2026, 8, 1, 11, tzinfo=timezone.utc),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_statement "
+                "(statement_id, store_id, statement_month, version_no, is_current, gmt_create, gmt_modified) "
+                "VALUES "
+                "('statement-backfilled', 'store-1', '2026-08', 1, 1, :statement_at, :statement_at), "
+                "('statement-unresolved', 'store-2', '2026-08', 1, 1, :statement_at, :statement_at), "
+                "('statement-invalid-version-order', 'store-3', '2026-08', 1, 1, :statement_at, :statement_at)"
+            ),
+            {"statement_at": datetime(2026, 8, 2, 8, tzinfo=timezone.utc)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO dim_stores "
+                "(store_id, store_name, is_active, created_at, updated_at) VALUES "
+                "('sale-store-historical', 'Historical Sale Store', 1, :at, :at), "
+                "('verify-store-historical', 'Historical Verify Store', 1, :at, :at)"
+            ),
+            {"at": datetime(2026, 8, 1, 8, tzinfo=timezone.utc)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO dim_sku_product_rules "
+                "(sku_id, sku_name, product_name, product_scope, product_type, "
+                "is_service_product, is_active_product, commission_rate, gmt_create, gmt_modified) "
+                "VALUES ('sku-snapshot-history', 'Historical SKU', 'Historical Product', "
+                "'service', 'maintenance', 1, 1, 0.1000, :at, :at)"
+            ),
+            {"at": datetime(2026, 8, 1, 8, tzinfo=timezone.utc)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO raw_douyin_orders "
+                "(order_id, order_status, order_status_normalized, sku_id, product_name, "
+                "sale_time, sale_channel, sale_channel_normalized, raw_payload, created_at, updated_at) "
+                "VALUES ('order-snapshot-history', 'completed', 'COMPLETED', "
+                "'sku-snapshot-history', 'Historical Product', :sale_time, "
+                "'short_video', 'short_video', '{}', :created_at, :created_at)"
+            ),
+            {
+                "sale_time": datetime(2026, 7, 31, 8, tzinfo=timezone.utc),
+                "created_at": datetime(2026, 8, 1, 8, tzinfo=timezone.utc),
+            },
+        )
+        connection.execute(
+            text(
+                "INSERT INTO raw_douyin_order_coupons "
+                "(coupon_id, order_id, raw_order_id, coupon_status, "
+                "coupon_status_normalized, coupon_paid_amount_cent, raw_payload) "
+                "SELECT 'coupon-snapshot-history', 'order-snapshot-history', id, "
+                "'used', 'USED', 11000, '{}' FROM raw_douyin_orders "
+                "WHERE order_id = 'order-snapshot-history'"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO raw_douyin_verify_records "
+                "(verify_id, coupon_id, verify_status, verify_time, poi_id, "
+                "verify_store_name_raw, sku_id, product_name, paid_amount_cent, raw_payload) "
+                "VALUES ('verify-snapshot-history', 'coupon-snapshot-history', "
+                "'used', :verify_time, 'poi-history', 'Historical Verify Store', "
+                "'sku-snapshot-history', 'Historical Product', 11000, '{}')"
+            ),
+            {"verify_time": datetime(2026, 8, 1, 9, tzinfo=timezone.utc)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_fee_result "
+                "(fee_result_id, coupon_id, order_id, fee_direction, result_version, "
+                "original_business_month, rule_match_date, sale_store_id, verify_store_id, "
+                "sku_id, product_scope, product_type, sale_channel_normalized, "
+                "source_amount_cent, refunded_amount_cent, fee_base_cent, fee_rate, "
+                "fee_amount_cent, rule_version, scope_rule_version, result_status, "
+                "calculation_run_id, calculated_at) "
+                "VALUES ('fee-result-snapshot-history', 'coupon-snapshot-history', "
+                "'order-snapshot-history', 1, 1, '2026-08', '2026-08-01', "
+                "'sale-store-historical', 'verify-store-historical', "
+                "'sku-snapshot-history', 'service', 'maintenance', 'short_video', "
+                "11000, 0, 11000, 0.100000, 1100, 'rule-history', 'scope-history', "
+                "1, 'run-history', :calculated_at)"
+            ),
+            {"calculated_at": datetime(2026, 8, 1, 10, tzinfo=timezone.utc)},
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_statement_line "
+                "(statement_line_id, statement_id, fee_direction, product_scope, "
+                "product_type, original_entry_count, adjustment_entry_count, "
+                "original_base_cent, adjustment_base_cent, net_base_cent, "
+                "original_fee_cent, adjustment_fee_cent, net_fee_cent) "
+                "VALUES ('line-snapshot-history', 'statement-backfilled', 1, "
+                "'service', 'maintenance', 1, 0, 11000, 0, 11000, 1100, 0, 1100)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_statement_line "
+                "(statement_line_id, statement_id, fee_direction, product_scope, "
+                "product_type, original_entry_count, adjustment_entry_count, "
+                "original_base_cent, adjustment_base_cent, net_base_cent, "
+                "original_fee_cent, adjustment_fee_cent, net_fee_cent) "
+                "VALUES ('line-snapshot-missing', 'statement-unresolved', 1, "
+                "'service', 'maintenance', 1, 0, 5000, 0, 5000, 500, 0, 500)"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_statement_entry "
+                "(statement_entry_id, statement_id, statement_line_id, source_type, "
+                "source_record_id, original_fee_result_id, coupon_id, order_id, "
+                "fee_direction, original_business_month, statement_posting_month, "
+                "product_scope, product_type, base_amount_cent, fee_amount_cent, rule_version) "
+                "VALUES ('entry-snapshot-history', 'statement-backfilled', "
+                "'line-snapshot-history', 1, 'fee-result-snapshot-history', "
+                "'fee-result-snapshot-history', 'coupon-snapshot-history', "
+                "'order-snapshot-history', 1, '2026-08', '2026-08', "
+                "'service', 'maintenance', 11000, 1100, 'rule-history')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO settlement_statement_entry "
+                "(statement_entry_id, statement_id, statement_line_id, source_type, "
+                "source_record_id, original_fee_result_id, coupon_id, order_id, "
+                "fee_direction, original_business_month, statement_posting_month, "
+                "product_scope, product_type, base_amount_cent, fee_amount_cent, rule_version) "
+                "VALUES ('entry-snapshot-missing', 'statement-unresolved', "
+                "'line-snapshot-missing', 1, 'missing-fee-result', "
+                "'missing-fee-result', 'missing-coupon', 'missing-order', 1, "
+                "'2026-08', '2026-08', 'service', 'maintenance', 5000, 500, 'rule-missing')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO store_finance_profile "
+                "(profile_id, store_id, profile_type, source_type, version_no, is_current, "
+                "is_tombstone, store_name_snapshot, sap_code, gmt_create, gmt_modified) "
+                "VALUES "
+                "('invalid-version-v2', 'store-3', 1, 1, 2, 1, 0, 'Invalid V2', 'SAP-2', :v2_at, :v2_at), "
+                "('invalid-version-v1', 'store-3', 1, 1, 1, 0, 0, 'Invalid V1', 'SAP-1', :v1_at, :v1_at)"
+            ),
+            {
+                "v1_at": datetime(2026, 8, 1, 12, tzinfo=timezone.utc),
+                "v2_at": datetime(2026, 8, 1, 11, tzinfo=timezone.utc),
+            },
+        )
+
+    command.upgrade(config, "20260824_0043")
+    upgraded = inspect(engine)
+    assert {
+        "store_name_snapshot",
+        "sap_code_snapshot",
+        "store_snapshot_status",
+        "store_snapshot_profile_id",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("settlement_statement")}
+    )
+    assert {
+        "settlement_statement_snapshot_migration_exception",
+        "settlement_statement_entry_snapshot_migration_exception",
+    }.issubset(upgraded.get_table_names())
+    with engine.begin() as connection:
+        backfilled = connection.execute(
+            text(
+                "SELECT store_name_snapshot, sap_code_snapshot, store_snapshot_status, "
+                "store_snapshot_profile_id FROM settlement_statement "
+                "WHERE statement_id = 'statement-backfilled'"
+            )
+        ).mappings().one()
+        assert backfilled == {
+            "store_name_snapshot": "Historical Store V2",
+            "sap_code_snapshot": None,
+            "store_snapshot_status": "BACKFILLED_PROFILE",
+            "store_snapshot_profile_id": "profile-v2",
+        }
+        entry_snapshot = connection.execute(
+            text(
+                "SELECT order_status_snapshot, coupon_status_snapshot, "
+                "product_name_snapshot, sku_id_snapshot, sale_channel_snapshot, "
+                "sale_store_id_snapshot, sale_store_snapshot, verify_store_id_snapshot, "
+                "verify_store_snapshot, received_amount_cent_snapshot, fee_rate_snapshot "
+                "FROM settlement_statement_entry "
+                "WHERE statement_entry_id = 'entry-snapshot-history'"
+            )
+        ).mappings().one()
+        assert entry_snapshot == {
+            "order_status_snapshot": "COMPLETED",
+            "coupon_status_snapshot": "USED",
+            "product_name_snapshot": "Historical Product",
+            "sku_id_snapshot": "sku-snapshot-history",
+            "sale_channel_snapshot": "short_video",
+            "sale_store_id_snapshot": "sale-store-historical",
+            "sale_store_snapshot": "Historical Sale Store",
+            "verify_store_id_snapshot": "verify-store-historical",
+            "verify_store_snapshot": "Historical Verify Store",
+            "received_amount_cent_snapshot": 11000,
+            "fee_rate_snapshot": 0.1,
+        }
+        unresolved = connection.execute(
+            text(
+                "SELECT store_snapshot_status FROM settlement_statement "
+                "WHERE statement_id = 'statement-unresolved'"
+            )
+        ).scalar_one()
+        assert unresolved == "UNRESOLVED"
+        invalid_version = connection.execute(
+            text(
+                "SELECT store_snapshot_status FROM settlement_statement "
+                "WHERE statement_id = 'statement-invalid-version-order'"
+            )
+        ).scalar_one()
+        assert invalid_version == "UNRESOLVED"
+        exceptions = connection.execute(
+            text(
+                "SELECT statement_id, reason_code, resolved_at "
+                "FROM settlement_statement_snapshot_migration_exception "
+                "ORDER BY statement_id"
+            )
+        ).mappings().all()
+        assert exceptions == [
+            {
+                "statement_id": "statement-invalid-version-order",
+                "reason_code": "INVALID_PROFILE_VERSION_ORDER",
+                "resolved_at": None,
+            },
+            {
+                "statement_id": "statement-unresolved",
+                "reason_code": "NO_PRIOR_BASIC_PROFILE",
+                "resolved_at": None,
+            },
+        ]
+        entry_exceptions = connection.execute(
+            text(
+                "SELECT statement_entry_id, statement_id, reason_code, resolved_at "
+                "FROM settlement_statement_entry_snapshot_migration_exception"
+            )
+        ).mappings().all()
+        assert entry_exceptions == [
+            {
+                "statement_entry_id": "entry-snapshot-missing",
+                "statement_id": "statement-unresolved",
+                "reason_code": "MISSING_REQUIRED_ENTRY_SNAPSHOT",
+                "resolved_at": None,
+            }
+        ]
+
+        # Local release-gate fixture: once historical evidence is supplied and
+        # every exception is explicitly resolved, the unresolved count reaches zero.
+        connection.execute(
+            text(
+                "UPDATE settlement_statement SET "
+                "store_name_snapshot = CASE statement_id "
+                "WHEN 'statement-unresolved' THEN 'Recovered Store 2' ELSE 'Invalid V2' END, "
+                "sap_code_snapshot = CASE statement_id "
+                "WHEN 'statement-unresolved' THEN NULL ELSE 'SAP-2' END, "
+                "store_snapshot_status = 'BACKFILLED_PROFILE', "
+                "store_snapshot_profile_id = CASE statement_id "
+                "WHEN 'statement-unresolved' THEN NULL ELSE 'invalid-version-v2' END "
+                "WHERE statement_id IN ('statement-unresolved', 'statement-invalid-version-order')"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE settlement_statement_snapshot_migration_exception "
+                "SET resolved_at = CURRENT_TIMESTAMP, "
+                "resolution_note = 'fixture evidence reviewed and backfilled', "
+                "gmt_modified = CURRENT_TIMESTAMP WHERE resolved_at IS NULL"
+            )
+        )
+        connection.execute(
+            text(
+                "UPDATE settlement_statement_entry_snapshot_migration_exception "
+                "SET resolved_at = CURRENT_TIMESTAMP, "
+                "resolution_note = 'fixture entry evidence reviewed', "
+                "gmt_modified = CURRENT_TIMESTAMP WHERE resolved_at IS NULL"
+            )
+        )
+        assert connection.execute(
+            text(
+                "SELECT "
+                "(SELECT COUNT(*) FROM settlement_statement_snapshot_migration_exception "
+                " WHERE resolved_at IS NULL) + "
+                "(SELECT COUNT(*) FROM settlement_statement_entry_snapshot_migration_exception "
+                " WHERE resolved_at IS NULL)"
+            )
+        ).scalar_one() == 0
+
+    with pytest.raises(RuntimeError, match="cannot downgrade 20260824_0043.*snapshot"):
+        command.downgrade(config, "20260824_0042")
+    still_upgraded = inspect(engine)
+    assert "settlement_statement_snapshot_migration_exception" in still_upgraded.get_table_names()
+    assert "store_name_snapshot" in {
+        column["name"] for column in still_upgraded.get_columns("settlement_statement")
+    }
+
+
+def test_g3_statement_snapshot_migration_empty_schema_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "g3-empty-downgrade.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260824_0043")
+    command.downgrade(config, "20260824_0042")
+
+    downgraded = inspect(create_engine(database_url))
+    assert "settlement_statement_snapshot_migration_exception" not in downgraded.get_table_names()
+    assert "store_name_snapshot" not in {
+        column["name"] for column in downgraded.get_columns("settlement_statement")
+    }
+
+
+def test_finance_import_final_version_guard_postgresql_ddl() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    output = StringIO()
+    config = Config(str(repo_root / "alembic.ini"), output_buffer=output)
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option(
+        "sqlalchemy.url", "postgresql+psycopg://user:pass@localhost/test"
+    )
+
+    command.upgrade(config, "20260824_0041:20260824_0042", sql=True)
+
+    ddl = output.getvalue()
+    assert "CREATE UNIQUE INDEX uk_finance_import_batch_final_version" in ddl
+    assert "WHERE batch_status IN (5, 8, 9)" in ddl
+
+
+def test_finance_import_final_version_guard_serializes_sqlite_writers(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "finance-import-final-version-concurrency.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260824_0042")
+    engine = create_engine(
+        database_url,
+        connect_args={"check_same_thread": False, "timeout": 10},
+    )
+    barrier = Barrier(2)
+    insert_sql = text(
+        "INSERT INTO finance_import_batch "
+        "(batch_id, import_type, statement_month, file_name, file_sha256, "
+        "normalized_sha256, read_version, current_version, batch_status, "
+        "total_rows, success_rows, error_rows, content_changed, submitted_by, "
+        "submitted_at, gmt_create, gmt_modified) "
+        "VALUES (:batch_id, 2, '2026-09', :file_name, :file_sha256, "
+        ":normalized_sha256, 0, 1, 5, 0, 0, 0, 0, 'admin', "
+        ":occurred_at, :occurred_at, :occurred_at)"
+    )
+
+    def finalize(batch_id: str) -> str:
+        barrier.wait()
+        try:
+            with engine.begin() as connection:
+                connection.execute(
+                    insert_sql,
+                    {
+                        "batch_id": batch_id,
+                        "file_name": f"{batch_id}.csv",
+                        "file_sha256": "c" * 64,
+                        "normalized_sha256": "d" * 64,
+                        "occurred_at": datetime(2026, 8, 24, tzinfo=timezone.utc),
+                    },
+                )
+            return "COMMITTED"
+        except IntegrityError:
+            return "VERSION_CONFLICT"
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = sorted(executor.map(finalize, ["concurrent-a", "concurrent-b"]))
+
+    assert results == ["COMMITTED", "VERSION_CONFLICT"]
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT COUNT(*) FROM finance_import_batch "
+                "WHERE import_type = 2 AND statement_month = '2026-09' "
+                "AND current_version = 1 AND batch_status IN (5, 8, 9)"
+            )
+        ).scalar_one() == 1
+
+
+def test_dispute_idempotency_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "dispute-idempotency.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260821_0031")
+    command.upgrade(config, "20260821_0032")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert {"idempotency_key_hash", "request_payload_sha256"}.issubset(
+        {column["name"] for column in upgraded.get_columns("settlement_dispute")}
+    )
+    assert {"idempotency_key_hash", "request_payload_sha256"}.issubset(
+        {column["name"] for column in upgraded.get_columns("finance_operation_audit")}
+    )
+    assert "uk_settlement_dispute_idempotency_key" in {
+        constraint["name"]
+        for constraint in upgraded.get_unique_constraints("settlement_dispute")
+    }
+
+    command.downgrade(config, "20260821_0031")
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert "idempotency_key_hash" not in {
+        column["name"] for column in downgraded.get_columns("settlement_dispute")
+    }
+
+
+def test_finance_import_result_migrations_are_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "finance-import-results.sqlite"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+
+    command.upgrade(config, "20260821_0032")
+    command.upgrade(config, "20260821_0036")
+
+    upgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert "store_finance_profile" in upgraded.get_table_names()
+    assert {"factory_deduction_date", "factory_deduction_amount_cent"}.issubset(
+        {column["name"] for column in upgraded.get_columns("invoice_record")}
+    )
+    assert {"result_reason", "business_date", "business_amount_cent"}.issubset(
+        {column["name"] for column in upgraded.get_columns("invoice_status_event")}
+    )
+    assert "idx_promotion_invoice_current_number" in {
+        index["name"] for index in upgraded.get_indexes("promotion_invoice")
+    }
+    assert {
+        "upload_idempotency_key_hash",
+        "upload_request_payload_sha256",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("finance_import_batch")}
+    )
+
+    command.downgrade(config, "20260821_0032")
+    downgraded = inspect(create_engine(f"sqlite:///{database_path.as_posix()}"))
+    assert "store_finance_profile" not in downgraded.get_table_names()
+    assert "factory_deduction_date" not in {
+        column["name"] for column in downgraded.get_columns("invoice_record")
+    }
+    assert "business_date" not in {
+        column["name"] for column in downgraded.get_columns("invoice_status_event")
+    }
+
+
+def test_promotion_invoice_registration_facts_migration_is_reversible_and_backfills(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "promotion-invoice-registration-facts.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260821_0036")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO promotion_invoice (
+                    invoice_id, store_id, version_no, is_current,
+                    invoice_number, invoice_date, invoice_amount_cent,
+                    invoice_status, registered_by, registered_at,
+                    gmt_create, gmt_modified
+                ) VALUES (
+                    'legacy-promotion-invoice', 'store-1', 1, 1,
+                    '12345678901234567890', '2026-10-10', 1100,
+                    2, 'legacy-user', '2026-10-10 15:59:59+00:00',
+                    '2026-10-10 15:59:59+00:00', '2026-10-10 15:59:59+00:00'
+                )
+                """
+            )
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO promotion_invoice_allocation (
+                    allocation_id, invoice_id, store_id, statement_id,
+                    statement_month, allocated_amount_cent, is_current,
+                    gmt_create, gmt_modified
+                ) VALUES (
+                    'legacy-promotion-allocation', 'legacy-promotion-invoice',
+                    'store-1', 'statement-1', '2026-08', 1100, 1,
+                    '2026-10-10 15:59:59+00:00', '2026-10-10 15:59:59+00:00'
+                )
+                """
+            )
+        )
+
+    command.upgrade(config, "20260821_0037")
+    upgraded = inspect(engine)
+    assert {"buyer_name", "tax_rate_percent"}.issubset(
+        {column["name"] for column in upgraded.get_columns("promotion_invoice")}
+    )
+    assert "settlement_batch_month" in {
+        column["name"]
+        for column in upgraded.get_columns("promotion_invoice_allocation")
+    }
+    with engine.connect() as connection:
+        invoice_facts = connection.execute(
+            text(
+                "SELECT buyer_name, tax_rate_percent FROM promotion_invoice "
+                "WHERE invoice_id = 'legacy-promotion-invoice'"
+            )
+        ).one()
+        allocation_batch = connection.execute(
+            text(
+                "SELECT settlement_batch_month FROM promotion_invoice_allocation "
+                "WHERE allocation_id = 'legacy-promotion-allocation'"
+            )
+        ).scalar_one()
+    assert invoice_facts == ("比亚迪汽车销售有限公司", 6)
+    assert allocation_batch == "2026-09"
+
+    command.downgrade(config, "20260821_0036")
+    downgraded = inspect(engine)
+    assert "buyer_name" not in {
+        column["name"] for column in downgraded.get_columns("promotion_invoice")
+    }
+    assert "settlement_batch_month" not in {
+        column["name"]
+        for column in downgraded.get_columns("promotion_invoice_allocation")
+    }
+
+
+def test_settlement_carryforward_migration_is_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "settlement-carryforward.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260821_0037")
+    command.upgrade(config, "20260821_0038")
+
+    upgraded = inspect(create_engine(database_url))
+    assert {
+        "settlement_carryforward_source",
+        "settlement_carryforward_application",
+    }.issubset(upgraded.get_table_names())
+    assert "uk_settlement_carryforward_source_business" in {
+        constraint["name"]
+        for constraint in upgraded.get_unique_constraints(
+            "settlement_carryforward_source"
+        )
+    }
+    assert "idx_settlement_carryforward_application_current" in {
+        index["name"]
+        for index in upgraded.get_indexes("settlement_carryforward_application")
+    }
+    assert "ck_settlement_carryforward_source_event_reference" in {
+        constraint["name"]
+        for constraint in upgraded.get_check_constraints(
+            "settlement_carryforward_source"
+        )
+    }
+
+    command.downgrade(config, "20260821_0037")
+    downgraded = inspect(create_engine(database_url))
+    assert "settlement_carryforward_source" not in downgraded.get_table_names()
+    assert "settlement_carryforward_application" not in downgraded.get_table_names()
+
+
+def test_promotion_invoice_lifecycle_migration_backfills_and_reverses(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "promotion-invoice-lifecycle.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260821_0038")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice "
+                "(invoice_id, store_id, version_no, is_current, invoice_number, "
+                "invoice_date, invoice_amount_cent, buyer_name, tax_rate_percent, "
+                "invoice_status, registered_by, registered_at, supersedes_invoice_id, "
+                "gmt_create, gmt_modified) VALUES "
+                "('invoice-backfill-v1', 'store-1', 1, 0, '81345678901234567890', "
+                "'2026-08-10', 1100, '比亚迪汽车销售有限公司', 6, 2, 'store-user', "
+                "'2026-08-10 00:00:00', NULL, '2026-08-10 00:00:00', '2026-08-10 00:00:00'), "
+                "('invoice-backfill-v2', 'store-1', 2, 1, '81345678901234567890', "
+                "'2026-08-10', 1100, '比亚迪汽车销售有限公司', 6, 3, 'store-user', "
+                "'2026-08-21 00:00:00', 'invoice-backfill-v1', "
+                "'2026-08-21 00:00:00', '2026-08-21 00:00:00')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice "
+                "(invoice_id, store_id, version_no, is_current, invoice_number, "
+                "invoice_date, invoice_amount_cent, buyer_name, tax_rate_percent, "
+                "invoice_status, registered_by, registered_at, supersedes_invoice_id, "
+                "gmt_create, gmt_modified) VALUES "
+                "('invoice-missing-parent', 'store-1', 2, 1, '83345678901234567890', "
+                "'2026-08-12', 800, '比亚迪汽车销售有限公司', 6, 3, 'store-user', "
+                "'2026-08-12 00:00:00', 'invoice-parent-not-present', "
+                "'2026-08-12 00:00:00', '2026-08-12 00:00:00')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice "
+                "(invoice_id, store_id, version_no, is_current, invoice_number, "
+                "invoice_date, invoice_amount_cent, buyer_name, tax_rate_percent, "
+                "invoice_status, registered_by, registered_at, gmt_create, gmt_modified) VALUES "
+                "('invoice-ambiguous-a', 'store-1', 1, 0, '82345678901234567890', "
+                "'2026-08-10', 900, '比亚迪汽车销售有限公司', 6, 2, 'store-user', "
+                "'2026-08-10 00:00:00', '2026-08-10 00:00:00', '2026-08-10 00:00:00'), "
+                "('invoice-ambiguous-b', 'store-1', 1, 0, '82345678901234567890', "
+                "'2026-08-11', 900, '比亚迪汽车销售有限公司', 6, 2, 'store-user', "
+                "'2026-08-11 00:00:00', '2026-08-11 00:00:00', '2026-08-11 00:00:00')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice "
+                "(invoice_id, store_id, version_no, is_current, invoice_number, "
+                "invoice_date, invoice_amount_cent, buyer_name, tax_rate_percent, "
+                "invoice_status, registered_by, registered_at, supersedes_invoice_id, "
+                "gmt_create, gmt_modified) VALUES "
+                "('invoice-invalid-current-v1', 'store-1', 1, 1, '84345678901234567890', "
+                "'2026-08-10', 700, 'BYD', 6, 2, 'store-user', "
+                "'2026-08-10 00:00:00', NULL, '2026-08-10 00:00:00', '2026-08-10 00:00:00'), "
+                "('invoice-invalid-current-v2', 'store-1', 2, 0, '84345678901234567890', "
+                "'2026-08-10', 700, 'BYD', 6, 3, 'store-user', "
+                "'2026-08-21 00:00:00', 'invoice-invalid-current-v1', "
+                "'2026-08-21 00:00:00', '2026-08-21 00:00:00')"
+            )
+        )
+
+    command.upgrade(config, "20260821_0039")
+    upgraded = inspect(engine)
+    assert {
+        "promotion_invoice_lifecycle_event",
+        "promotion_invoice_number_registry",
+        "promotion_invoice_lifecycle_migration_exception",
+        "promotion_invoice_replacement_source",
+    }.issubset(upgraded.get_table_names())
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text(
+                "SELECT physical_invoice_id, version_kind FROM promotion_invoice "
+                "WHERE invoice_number = '81345678901234567890' ORDER BY version_no"
+            )
+        ).all()
+        ambiguous_rows = connection.execute(
+            text(
+                "SELECT physical_invoice_id FROM promotion_invoice "
+                "WHERE invoice_number = '82345678901234567890' ORDER BY invoice_id"
+            )
+        ).all()
+        registry_count = connection.execute(
+            text("SELECT COUNT(*) FROM promotion_invoice_number_registry")
+        ).scalar_one()
+        exception_count = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM promotion_invoice_lifecycle_migration_exception "
+                "WHERE reason_code = 'AMBIGUOUS_INVOICE_VERSION_CHAIN'"
+            )
+        ).scalar_one()
+        missing_parent_exception_count = connection.execute(
+            text(
+                "SELECT COUNT(*) FROM promotion_invoice_lifecycle_migration_exception "
+                "WHERE invoice_id = 'invoice-missing-parent' "
+                "AND reason_code = 'AMBIGUOUS_INVOICE_VERSION_CHAIN'"
+            )
+        ).scalar_one()
+    assert rows[0][0] == rows[1][0]
+    assert [row[1] for row in rows] == [1, 2]
+    assert registry_count == 1
+    assert ambiguous_rows[0][0] != ambiguous_rows[1][0]
+    assert exception_count == 5
+    assert missing_parent_exception_count == 1
+
+    command.downgrade(config, "20260821_0038")
+    downgraded = inspect(engine)
+    assert "promotion_invoice_lifecycle_event" not in downgraded.get_table_names()
+    assert "physical_invoice_id" not in {
+        column["name"] for column in downgraded.get_columns("promotion_invoice")
+    }
+
+
+def test_promotion_invoice_negative_allocation_migration_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "promotion-invoice-negative-allocation.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260821_0039")
+    engine = create_engine(database_url)
+
+    command.upgrade(config, "20260821_0040")
+    upgraded = inspect(engine)
+    assert "ck_promotion_invoice_allocation_amount" not in {
+        constraint["name"]
+        for constraint in upgraded.get_check_constraints(
+            "promotion_invoice_allocation"
+        )
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice_allocation "
+                "(allocation_id, invoice_id, store_id, statement_id, "
+                "statement_month, settlement_batch_month, allocated_amount_cent, "
+                "is_current, gmt_create, gmt_modified) VALUES "
+                "('negative-allocation', 'invoice-negative', 'store-1', "
+                "'statement-negative', '2026-10', '2026-12', -150, 1, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    with pytest.raises(
+        RuntimeError,
+        match="negative promotion invoice allocations exist",
+    ):
+        command.downgrade(config, "20260821_0039")
+    with engine.connect() as connection:
+        assert connection.execute(
+            text(
+                "SELECT allocated_amount_cent FROM promotion_invoice_allocation "
+                "WHERE allocation_id = 'negative-allocation'"
+            )
+        ).scalar_one() == -150
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "DELETE FROM promotion_invoice_allocation "
+                "WHERE allocation_id = 'negative-allocation'"
+            )
+        )
+
+    command.downgrade(config, "20260821_0039")
+    downgraded = inspect(engine)
+    assert "ck_promotion_invoice_allocation_amount" in {
+        constraint["name"]
+        for constraint in downgraded.get_check_constraints(
+            "promotion_invoice_allocation"
+        )
+    }
+
+
+def test_promotion_invoice_lifecycle_migration_refuses_lossy_downgrade(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "promotion-invoice-lifecycle-downgrade-guard.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260821_0039")
+    engine = create_engine(database_url)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice_lifecycle_event "
+                "(lifecycle_event_id, physical_invoice_id, invoice_id, invoice_version, "
+                "event_type, reason, read_version, is_current, operator_id, "
+                "idempotency_key_hash, request_payload_sha256, occurred_at, gmt_create) "
+                "VALUES ('event-downgrade-guard', 'physical-downgrade-guard', "
+                "'invoice-downgrade-guard', 1, 2, 'external void', 1, 1, "
+                "'store-user', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', "
+                "'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb', "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="lifecycle or replacement facts exist"):
+        command.downgrade(config, "20260821_0038")
+    with engine.begin() as connection:
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM promotion_invoice_lifecycle_event")
+        ).scalar_one() == 1
+        connection.execute(text("DELETE FROM promotion_invoice_lifecycle_event"))
+        connection.execute(
+            text(
+                "INSERT INTO promotion_invoice "
+                "(invoice_id, physical_invoice_id, store_id, version_no, version_kind, "
+                "is_current, replaces_invoice_id, invoice_number, invoice_date, "
+                "invoice_amount_cent, buyer_name, tax_rate_percent, invoice_status, "
+                "registered_by, registered_at, gmt_create, gmt_modified) VALUES "
+                "('replacement-pointer-only', 'physical-pointer-only', 'store-1', "
+                "1, 1, 1, 'missing-source-link', '85345678901234567890', "
+                "'2026-08-21', 100, 'BYD', 6, 2, 'store-user', CURRENT_TIMESTAMP, "
+                "CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            )
+        )
+
+    with pytest.raises(RuntimeError, match="lifecycle or replacement facts exist"):
+        command.downgrade(config, "20260821_0038")
+    with engine.begin() as connection:
+        assert connection.execute(
+            text(
+                "SELECT replaces_invoice_id FROM promotion_invoice "
+                "WHERE invoice_id = 'replacement-pointer-only'"
+            )
+        ).scalar_one() == "missing-source-link"
+        connection.execute(
+            text(
+                "UPDATE promotion_invoice SET replaces_invoice_id = NULL "
+                "WHERE invoice_id = 'replacement-pointer-only'"
+            )
+        )
+
+    command.downgrade(config, "20260821_0038")
 def test_clue_allocation_m1_migration_upgrades_existing_schema(tmp_path: Path) -> None:
     repo_root = Path(__file__).resolve().parents[1]
     database_path = tmp_path / "migration.sqlite"
@@ -1014,6 +2052,13 @@ def test_finance_closure_migration_creates_versioned_tables(tmp_path: Path) -> N
     assert "idx_invoice_record_current_slot" in {
         index["name"] for index in upgraded.get_indexes("invoice_record")
     }
+    assert "idx_promotion_invoice_current_number" in {
+        index["name"] for index in upgraded.get_indexes("promotion_invoice")
+    }
+    assert "uk_promotion_invoice_number" not in {
+        constraint["name"]
+        for constraint in upgraded.get_unique_constraints("promotion_invoice")
+    }
 
 
 def test_statement_versioning_migration_preserves_and_versions_snapshots(
@@ -1057,7 +2102,7 @@ def test_statement_versioning_migration_preserves_and_versions_snapshots(
             )
         )
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260821_0030")
     inspector = inspect(create_engine(database_url))
     statement_columns = {
         column["name"] for column in inspector.get_columns("settlement_statement")
@@ -1160,7 +2205,10 @@ def test_statement_versioning_migration_preserves_and_versions_snapshots(
             )
         )
 
-    with pytest.raises(RuntimeError, match="version history exists"):
+    with pytest.raises(
+        RuntimeError,
+        match="(?:version history exists|statement snapshot or exception facts exist)",
+    ):
         command.downgrade(config, "20260821_0028")
 
     with engine.begin() as connection:

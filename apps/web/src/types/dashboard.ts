@@ -1405,3 +1405,456 @@ export interface ProductTypeVisibilityUpdate {
   visible_product_types: string[];
   default_product_type: string;
 }
+
+export type BillingMetricScope = "MONTH" | "CUMULATIVE";
+export type PromotionInvoiceStatus =
+  | "PENDING_INVOICE"
+  | "SUBMITTED_PENDING_FACTORY_REVIEW"
+  | "APPROVED_SETTLED"
+  | "REJECTED_REUPLOAD";
+export type PromotionInvoiceVersionKind = "REGISTRATION" | "FACTORY_RESULT";
+export type PromotionInvoiceLifecycleEventType = "RED_FLUSHED" | "VOIDED";
+
+export interface BillingConfirmationSummary {
+  confirmationId: string;
+  status: string;
+  confirmedAmountCent: number;
+  confirmedAt: string | null;
+}
+
+export interface StoreBillingStatement {
+  statementId: string;
+  storeId: string;
+  storeName: string | null;
+  month: string;
+  versionNo: number;
+  isCurrent: boolean;
+  supersedesStatementId: string | null;
+  status: string;
+  promotionAmountCent: number;
+  managementAmountCent: number;
+  promotionConfirmation: BillingConfirmationSummary | null;
+  managementConfirmation: BillingConfirmationSummary | null;
+  promotionInvoiceStatus: PromotionInvoiceStatus;
+  promotionInvoiceableAmountCent: number;
+  promotionCarryforwardBalanceCent: number;
+  promotionInvoiceGroupId: string | null;
+  promotionRequiredStatementIds: string[];
+  promotionPositiveAmountCent: number;
+  promotionNegativeAmountCent: number;
+  managementInvoiceStatus: string;
+}
+
+export interface BillingMetrics {
+  statementTotalCent: number;
+  confirmedAmountCent: number;
+  pendingInvoiceAmountCent: number;
+  issuedAmountCent: number;
+  settledOrDeductedAmountCent: number;
+}
+
+export interface StoreStatementMetrics {
+  month: {
+    promotionAmountCent: number;
+    managementAmountCent: number;
+    promotionInvoiceableAmountCent: number;
+  };
+  cumulative?: {
+    promotionAmountCent: number;
+    managementAmountCent: number;
+    promotionInvoiceableAmountCent: number;
+  };
+}
+
+export interface StoreBillingStatementListData {
+  list: StoreBillingStatement[];
+  total: number;
+  page: number;
+  pageSize: number;
+  metricScope: BillingMetricScope;
+  metrics: StoreStatementMetrics;
+}
+
+export interface PromotionInvoiceRow {
+  invoiceId: string;
+  physicalInvoiceId: string;
+  storeId: string;
+  versionNo: number;
+  versionKind: PromotionInvoiceVersionKind;
+  isCurrent: boolean;
+  supersedesInvoiceId: string | null;
+  replacesInvoiceId: string | null;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceAmountCent: number;
+  buyerName: string;
+  taxRatePercent: number;
+  status: PromotionInvoiceStatus;
+  registeredAt: string;
+  statementId: string;
+  statementMonth: string;
+  settlementBatchMonth: string;
+  allocatedAmountCent: number;
+}
+
+export interface PromotionInvoiceListData {
+  list: PromotionInvoiceRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface PromotionInvoiceRegistrationPayload {
+  storeId: string;
+  buyerName: string;
+  taxRatePercent: number;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceAmountCent: number;
+  replacesInvoiceId?: string;
+  allocations: Array<{
+    statementId: string;
+    statementMonth: string;
+    allocatedAmountCent: number;
+    readVersion: number;
+    promotionInvoiceGroupId: string;
+  }>;
+}
+
+export interface PromotionInvoiceHeader {
+  invoiceId: string;
+  physicalInvoiceId: string;
+  storeId: string;
+  versionNo: number;
+  versionKind: PromotionInvoiceVersionKind;
+  isCurrent: boolean;
+  supersedesInvoiceId: string | null;
+  replacesInvoiceId: string | null;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceAmountCent: number;
+  buyerName: string;
+  taxRatePercent: number;
+  status: PromotionInvoiceStatus;
+  registeredAt: string;
+}
+
+export interface PromotionInvoiceRegistrationResult extends PromotionInvoiceHeader {
+  allocations: Array<{
+    statementId: string;
+    statementMonth: string;
+    settlementBatchMonth: string;
+    allocatedAmountCent: number;
+  }>;
+}
+
+export interface PromotionInvoiceLifecycleEvent {
+  lifecycleEventId: string;
+  physicalInvoiceId: string;
+  invoiceId: string;
+  invoiceVersion: number;
+  eventType: PromotionInvoiceLifecycleEventType;
+  reason: string;
+  readVersion: number;
+  isCurrent: boolean;
+  operatorId: string;
+  occurredAt: string;
+}
+
+export interface PromotionInvoiceLifecycleResult {
+  invoice: PromotionInvoiceHeader;
+  lifecycleEvent: PromotionInvoiceLifecycleEvent;
+  releasedStatementMonths: string[];
+}
+
+export interface PromotionInvoiceReplacementCandidate {
+  invoice: PromotionInvoiceHeader;
+  lifecycleEvent: PromotionInvoiceLifecycleEvent;
+  releasedStatementMonths: string[];
+}
+
+export interface PromotionInvoiceReplacementCandidateListData {
+  list: PromotionInvoiceReplacementCandidate[];
+  total: number;
+}
+
+export interface PromotionInvoiceDetail extends PromotionInvoiceHeader {
+  versions: PromotionInvoiceHeader[];
+  allocations: Array<{
+    allocationId: string;
+    invoiceId: string;
+    statementId: string;
+    statementMonth: string;
+    settlementBatchMonth: string;
+    allocatedAmountCent: number;
+    isCurrent: boolean;
+  }>;
+  statusEvents: Array<{
+    eventId: string;
+    invoiceId: string;
+    fromStatus: PromotionInvoiceStatus | null;
+    toStatus: PromotionInvoiceStatus;
+    operatorId: string;
+    occurredAt: string;
+  }>;
+  lifecycleEvents: PromotionInvoiceLifecycleEvent[];
+  replacements: PromotionInvoiceHeader[];
+  replacementChain: PromotionInvoiceHeader[];
+}
+
+export interface FinanceSummaryData {
+  month: string;
+  storeId: string | null;
+  feeDirection: FeeDirection;
+  metricScope: BillingMetricScope;
+  metrics: BillingMetrics;
+}
+
+export interface FinanceInvoiceRow {
+  invoiceId: string;
+  storeId: string;
+  statementId: string;
+  statementMonth: string;
+  feeDirection: FeeDirection;
+  versionNo: number;
+  isCurrent: boolean;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceAmountCent: number;
+  status: string;
+  sourceType: number;
+  importBatchId: string | null;
+  registeredAt: string;
+  factoryDeductionDate?: string | null;
+  factoryDeductionAmountCent?: number | null;
+  settledAt?: string | null;
+  allocatedAmountCent?: number;
+}
+
+export interface FinanceInvoiceListData {
+  list: FinanceInvoiceRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface FinanceOrderDetailRow {
+  statementEntryId: string;
+  statementId: string;
+  storeId: string;
+  storeName: string | null;
+  sapCode: string | null;
+  statementMonth: string;
+  feeDirection: FeeDirection;
+  orderId: string;
+  couponId: string | null;
+  orderStatus: string | null;
+  couponStatus: string | null;
+  productName: string | null;
+  skuId: string | null;
+  skuName: string | null;
+  saleChannel: string | null;
+  saleStoreId: string | null;
+  saleStoreName: string | null;
+  verifyStoreId: string | null;
+  verifyStoreName: string | null;
+  saleTime: string | null;
+  verifyTime: string | null;
+  receivedAmountCent: number | null;
+  frozenFeeBaseCent: number;
+  actualFeeRate: string | null;
+  frozenFeeAmountCent: number;
+  refundTime: string | null;
+  adjustmentType: string | null;
+  rowType: "ORIGINAL" | "ADJUSTMENT";
+  invoiceNumber: string | null;
+  submittedAt: string | null;
+  invoiceStatus: string | null;
+  settledAt: string | null;
+  rejectionReason: string | null;
+  importedAt: string | null;
+  settlementStatus: "SETTLED" | "UNSETTLED" | null;
+  factoryDeductionDate: string | null;
+  factoryDeductionAmountCent: number | null;
+}
+
+export interface FinanceOrderDetailFieldDefinition {
+  source: string;
+  description: string;
+}
+
+export type FinanceOrderDetailFieldDefinitions = Record<
+  string,
+  FinanceOrderDetailFieldDefinition
+>;
+
+export interface FinanceOrderDetailsQuery {
+  [key: string]: string | number | undefined;
+  month: string;
+  feeDirection: FeeDirection;
+  storeId?: string;
+  storeName?: string;
+  sapCode?: string;
+  invoiceNumber?: string;
+  orderId?: string;
+  skuId?: string;
+  saleChannel?: string;
+  invoiceStatus?: string;
+  submittedFrom?: string;
+  submittedTo?: string;
+  verifyFrom?: string;
+  verifyTo?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface FinanceOrderDetailListData {
+  list: FinanceOrderDetailRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+  definitions: FinanceOrderDetailFieldDefinitions;
+}
+
+export interface FinanceStoreRow {
+  storeId: string;
+  storeName: string;
+  sapCode: string | null;
+  confirmedVersion: number;
+  confirmedSourceType: number | null;
+  suggestionId: string | null;
+  suggestedSapCode: string | null;
+  suggestionNote: string | null;
+  suggestionStatus: "PENDING" | "CONFIRMED" | "CORRECTED" | "REJECTED" | null;
+  suggestionVersion: number;
+  suggestionUpdatedAt: string | null;
+  updatedAt: string;
+  statementTotalCent: number;
+  confirmedAmountCent: number;
+  pendingInvoiceAmountCent: number;
+  issuedAmountCent: number;
+  settledOrDeductedAmountCent: number;
+}
+
+export interface FinanceStoreListData {
+  list: FinanceStoreRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface FinanceDisputeRow {
+  disputeId: string;
+  statementId: string;
+  storeId: string;
+  statementMonth: string;
+  feeDirection: FeeDirection;
+  disputeType: string;
+  status: string;
+  disputedAmountCent: number;
+  description: string;
+  contactName: string;
+  contactPhoneMasked: string;
+  evidence: unknown[];
+  orders: unknown[];
+  submittedAt: string;
+  resolutionNote: string | null;
+  resultStatementId: string | null;
+}
+
+export interface FinanceDisputeListData {
+  list: FinanceDisputeRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface FinanceImportErrorRow {
+  rowNumber: number;
+  businessKey: string;
+  field: string;
+  originalValue: string | null;
+  reason: string;
+  suggestion: string;
+}
+
+export interface FinanceImportBatchRow {
+  batchId: string;
+  importType: string;
+  statementMonth: string;
+  fileName: string;
+  scenario: string;
+  readVersion: number;
+  currentVersion: number;
+  contentChanged: boolean;
+  reversesBatchId: string | null;
+  reversedByBatchId: string | null;
+  reversalChain: string[];
+  canReverse: boolean;
+  reverseNotAllowedCode: string | null;
+  reverseNotAllowedReason: string | null;
+  totalRows: number;
+  successRows: number;
+  errorRows: number;
+  submittedBy: string;
+  submittedAt: string;
+  committedBy: string | null;
+  committedAt: string | null;
+}
+
+export interface FinanceImportBatchListData {
+  list: FinanceImportBatchRow[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
+export interface FinanceImportReversalRow {
+  businessKey: string;
+  originalTargetRecordId: string | null;
+  previousTargetRecordId: string | null;
+  reversalTargetRecordId: string | null;
+  effectType: "VALUE" | "TOMBSTONE" | null;
+  isCurrent: boolean;
+}
+
+export interface FinanceImportBatchDetailData extends FinanceImportBatchRow {
+  diffSummary: Record<string, number>;
+  errors: {
+    list: FinanceImportErrorRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+  };
+  reversalRows: {
+    list: FinanceImportReversalRow[];
+    total: number;
+    page: number;
+    pageSize: number;
+  };
+}
+
+export interface SapSuggestionRow {
+  suggestionId: string;
+  storeId: string;
+  versionNo: number;
+  isCurrent: boolean;
+  suggestedSapCode: string;
+  suggestionNote: string;
+  status: "PENDING" | "CONFIRMED" | "CORRECTED" | "REJECTED";
+  submittedBy: string;
+  submittedAt: string;
+  handledBy: string | null;
+  handledAt: string | null;
+  handlingReason: string | null;
+  confirmedProfileId: string | null;
+  confirmedSapCode: string | null;
+  confirmedVersion: number;
+}
+
+export interface SapSuggestionListData {
+  list: SapSuggestionRow[];
+  total: number;
+  currentVersion: number;
+  confirmedVersion: number;
+}

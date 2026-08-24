@@ -1,6 +1,6 @@
 # Foundation 交付清单 - dy-data（抖音经营引擎）
 
-> 生成时间: 2026-08-20
+> 生成时间: 2026-08-21（增量修订）
 > Skill: foundation-builder
 > 模式: 增量更新
 > 范围: DYDATA-19 月度账单确认、异议、发票登记、财务导入、查询与审计；最新规则覆盖旧的只读开票假设
@@ -19,26 +19,26 @@
 | 产物 | 文件路径 | 行数 | 拆分子文件 |
 |---|---|---:|---|
 | 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 167 | — |
-| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 136 | docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
-| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 256 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
+| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 141 | docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
+| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 273 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
 
 ## 产物摘要
 
 | 指标 | 数值 |
 |---|---|
-| 数据表总数 | 25 张目标设计表 + 5 张结构不变既有依赖表 |
+| 数据表总数 | 28 张目标设计表 + 5 张结构不变既有依赖表 |
 | API 接口数 | 42 |
 | DYDATA-19 新增接口 | 20 |
-| DYDATA-19 新增表 | 8（并变更 `settlement_statement` 版本模型） |
+| DYDATA-19 新增表 | 11（并变更 `settlement_statement` 版本模型） |
 | DYDATA-19 冻结交互语义 | 4 |
 | 正式累计起点 | `2026-08` |
 
 ## 一致性自查结果
 
-- 检查时间: 2026-08-20
+- 检查时间: 2026-08-21
 - DYDATA-19 页面可写操作覆盖率: 5/5 (100%)
 - 新增 API ↔ Schema 覆盖率: 20/20 (100%)
-- 新增表消费覆盖率: 8/8 (100%)
+- 新增表消费覆盖率: 9/9 (100%)
 - 交互语义 → API/Schema 覆盖率: 4/4 (100%)
 - 术语一致性: 全部通过
 - 孤立项: 无
@@ -50,7 +50,9 @@
 - 门店账号按费用方向确认账单、提交异议和登记推广费发票；财务人员使用管理员角色导入结果，管理员与最高管理员在本模块权限一致。
 - 推广费状态固定为“待开票 / 提交成功，待厂端审核 / 审核通过，已结算 / 审核不通过，请重新上传”；管理服务费不套用此审核状态链。
 - 账单、发票和四类导入均采用不可变版本；更正覆盖当前指针，不删除历史。四类导入任一错误行时正式业务表整批零写入。
-- 门店只按 `store_id` 精确匹配；禁止 SAP 编码、名称、金额或月份模糊匹配。一个门店、一个账期仅一张当前有效发票，不跨账期、不拆票。
+- 四类导入固定为基础信息、推广服务费厂家结果、管理服务费厂家结果和 SAP 确认；管理服务费厂家结果在同一行登记发票与全额厂家扣款，不再拆成两个模板。
+- 推广费发票号码只在当前有效版本中唯一；状态导入或更正可沿用原号码生成新版本，历史版本通过 `supersedes_invoice_id` 永久保留。
+- 门店只按 `store_id` 精确匹配；禁止 SAP 编码、名称、金额或月份模糊匹配。推广费一张发票可覆盖同一门店多个完整账期，但每个账期仅一条当前有效分配且不得拆分；管理服务费仍是一门店一账期一张当前有效发票/厂家扣款事实。
 - 单月与正式累计同时可查；正式累计从 `2026-08` 开始，确认金额只显示单月。历史审计可归档低成本存储，但必须可查询。
 
 ## 外部依赖与非阻断项

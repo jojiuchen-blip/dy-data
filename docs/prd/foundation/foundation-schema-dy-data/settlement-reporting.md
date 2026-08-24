@@ -191,6 +191,7 @@
 
 **使用接口**：
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回按费用方向和产品维度冻结的汇总行。
+- `GET /api/v1/store-settlements/{statementId}` — 返回指定不可变版本的账单汇总行。
 - `GET /api/v1/order-fee-details` — 通过 `statementLineId` 下钻冻结来源。
 - `GET /api/v1/order-fee-details/export` — 导出同一账单行的来源明细。
 - 无公开写接口；锁账事务生成后不可修改。
@@ -236,6 +237,7 @@
 
 **使用接口**：
 - `GET /api/v1/order-fee-details` — 有 `statementId` 时只读取已冻结来源项。
+- `GET /api/v1/store-settlements/{statementId}` — 返回指定不可变版本的来源明细摘要。
 - `GET /api/v1/order-fee-details/export` — 导出锁账来源快照。
 - 无公开写接口；仅锁账事务写入并在三层金额一致后冻结。
 

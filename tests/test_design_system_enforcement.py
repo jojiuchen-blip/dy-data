@@ -264,6 +264,20 @@ def test_runtime_styles_use_v02_button_typography_and_elevation_entries() -> Non
     assert weights <= {500, 600, 700, 800}
 
 
+def test_finance_pages_only_reference_registered_design_tokens() -> None:
+    styles = read_text(APP_STYLES_PATH)
+    design_tokens = read_text(DESIGN_TOKENS_CSS_PATH)
+    finance_styles = styles.split(
+        "/* DYDATA-19 settlement and finance production pages */", 1
+    )[1].split('.segmented-control[role="tablist"]', 1)[0]
+    defined_tokens = set(
+        re.findall(r"(--[A-Za-z0-9_-]+)\s*:", design_tokens + finance_styles)
+    )
+    referenced_tokens = set(re.findall(r"var\((--[A-Za-z0-9_-]+)", finance_styles))
+
+    assert sorted(referenced_tokens - defined_tokens) == []
+
+
 def test_legacy_green_is_reserved_for_semantic_success_styles() -> None:
     styles = read_text(APP_STYLES_PATH)
     allowed_selector_fragments = {

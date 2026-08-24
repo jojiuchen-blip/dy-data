@@ -208,6 +208,52 @@ const productSyncModeLabels: LabelMap = {
   FULL: "全量同步",
 };
 
+const feeDirectionLabels: LabelMap = {
+  PROMOTION: "推广服务费",
+  MANAGEMENT: "管理服务费",
+};
+
+const financeInvoiceStatusLabels: LabelMap = {
+  PENDING_INVOICE: "待开票",
+  SUBMITTED_PENDING_FACTORY_REVIEW: "提交成功，待厂端审核",
+  APPROVED_SETTLED: "审核通过，已结算",
+  REJECTED_REUPLOAD: "审核不通过，请重新上传",
+};
+
+const financeImportTypeLabels: LabelMap = {
+  BASIC_INFO: "门店基础信息",
+  PROMOTION_FACTORY_RESULT: "推广服务费厂家结果",
+  MANAGEMENT_FACTORY_RESULT: "管理服务费厂家结果",
+  SAP_CONFIRMATION: "SAP 确认",
+};
+
+const financeImportScenarioLabels: LabelMap = {
+  VALIDATING: "校验中",
+  NO_CHANGE: "无变化",
+  DIFF_CONFIRMATION_REQUIRED: "有差异，待确认",
+  FIRST_IMPORT_READY: "首次导入，待确认",
+  COMMITTED: "已生效",
+  BATCH_VALIDATION_FAILED: "整批校验失败",
+  VERSION_CONFLICT: "版本冲突",
+  CORRECTED: "已更正",
+};
+
+const financeDisputeStatusLabels: LabelMap = {
+  PENDING: "待处理",
+  IN_REVIEW: "审核中",
+  PENDING_ADMIN_APPROVAL: "待管理员审批",
+  ACCEPTED_WITH_ADJUSTMENT: "成立并调整",
+  REJECTED: "不成立",
+  WITHDRAWN: "已撤回",
+};
+
+const financeDisputeTypeLabels: LabelMap = {
+  RATE_ERROR: "费率错误",
+  DATA_MISSING: "订单 / 数据遗漏",
+  AMOUNT_ERROR: "金额错误",
+  OTHER: "其他",
+};
+
 export function displayOrderStatus(value: string | null | undefined): string {
   return displayEnumLabel(value, orderStatusLabels, "未知订单状态", "order status");
 }
@@ -336,4 +382,61 @@ export function displayProductSyncStatus(value: string | null | undefined): stri
 
 export function displayProductSyncMode(value: string | null | undefined): string {
   return displayEnumLabel(value, productSyncModeLabels, "未知同步方式", "product sync mode");
+}
+
+export function displayFeeDirection(value: string | null | undefined): string {
+  return displayEnumLabel(value, feeDirectionLabels, "未知费用方向", "fee direction");
+}
+
+export function displayFinanceInvoiceStatus(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeInvoiceStatusLabels,
+    "未知发票状态",
+    "finance invoice status",
+  );
+}
+
+export function displayFinanceImportType(value: string | null | undefined): string {
+  return displayEnumLabel(
+    value,
+    financeImportTypeLabels,
+    "未知导入类型",
+    "finance import type",
+  );
+}
+
+export function displayFinanceImportScenario(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeImportScenarioLabels,
+    "未知导入结果",
+    "finance import scenario",
+  );
+}
+
+export function displayFinanceDisputeStatus(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeDisputeStatusLabels,
+    "未知异议状态",
+    "finance dispute status",
+  );
+}
+
+export function displayFinanceDisputeType(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeDisputeTypeLabels,
+    "未知异议类型",
+    "finance dispute type",
+  );
 }

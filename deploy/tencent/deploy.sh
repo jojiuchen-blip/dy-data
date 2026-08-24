@@ -8,6 +8,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-deploy/compose.yaml}"
 HEALTH_URL="${HEALTH_URL:-http://127.0.0.1:8080}"
 START_WORKER="${TENCENT_START_WORKER:-false}"
 LOG_DIR="${LOG_DIR:-/opt/dy-dashboard/logs}"
+BACKUP_DIR="${BACKUP_DIR:-$LOG_DIR/backups}"
 SKIP_GIT_SYNC="${SKIP_GIT_SYNC:-false}"
 APT_MIRROR="${APT_MIRROR:-http://mirrors.tencentyun.com}"
 DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"
@@ -31,6 +32,32 @@ fetch_origin() {
   done
   log "git fetch failed after retries"
   return 1
+}
+
+validate_compose_config() {
+  config_file="$(mktemp)"
+  if ! compose config > "$config_file"; then
+    rm -f "$config_file"
+    return 1
+  fi
+  if grep -q "CHANGE_ME_" "$config_file"; then
+    rm -f "$config_file"
+    log "deployment configuration still contains CHANGE_ME placeholders"
+    return 1
+  fi
+  rm -f "$config_file"
+}
+
+backup_database() {
+  backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_file="$BACKUP_DIR/pre-migrate-$backup_stamp.dump"
+  mkdir -p "$BACKUP_DIR"
+  compose exec -T postgres sh -c \
+    'pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' \
+    > "$backup_file"
+  test -s "$backup_file"
+  chmod 600 "$backup_file"
+  log "database backup complete path=$backup_file"
 }
 
 on_error() {
@@ -69,7 +96,7 @@ fi
 
 log "validating compose configuration"
 log "using apt mirror $APT_MIRROR"
-compose config >/dev/null
+validate_compose_config
 
 log "building images"
 compose build --progress=plain api web browser
@@ -77,8 +104,28 @@ compose build --progress=plain api web browser
 log "starting postgres"
 compose up -d postgres
 
+log "backing up postgres before migrations"
+backup_database
+
 log "running migrations"
 compose run --rm migrate
+
+log "checking unresolved statement snapshot migration exceptions"
+unresolved_snapshot_exceptions="$(
+  compose exec -T postgres sh -c \
+    'psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command="SELECT (SELECT COUNT(*) FROM settlement_statement_snapshot_migration_exception WHERE resolved_at IS NULL) + (SELECT COUNT(*) FROM settlement_statement_entry_snapshot_migration_exception WHERE resolved_at IS NULL);"' \
+    | tr -d '[:space:]'
+)"
+case "$unresolved_snapshot_exceptions" in
+  ''|*[!0-9]*)
+    log "deployment blocked because snapshot exception gate returned an invalid count"
+    exit 1
+    ;;
+esac
+if [ "$unresolved_snapshot_exceptions" -ne 0 ]; then
+  log "deployment blocked by unresolved statement snapshot migration exceptions count=$unresolved_snapshot_exceptions"
+  exit 1
+fi
 
 log "starting runtime services without worker"
 compose up -d --no-deps api web browser
