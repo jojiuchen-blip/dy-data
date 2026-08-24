@@ -83,3 +83,40 @@ def test_account_list_owns_its_scroll_region() -> None:
     ]
     assert "overflow: auto" in scroll_styles
     assert "max-height:" in scroll_styles
+
+
+def test_account_create_hides_technical_username_and_supports_store_batch_selection() -> None:
+    page_source = read_source("pages/AdminAccountsPage.tsx")
+    types_source = read_source("types/dashboard.ts")
+
+    create_form = page_source[
+        page_source.index('<form className="content-section account-form"') :
+        page_source.index("{editingAccount &&")
+    ]
+    confirmation = page_source[page_source.index('title="新建账号信息确认"') :]
+
+    assert "<span>账号名</span>" not in create_form
+    assert "<dt>账号名</dt>" not in confirmation
+    assert "username?: string" in types_source
+    assert "storeQuery" in page_source
+    assert "filteredStores" in page_source
+    assert "selectedStoreIds" in page_source
+    assert "selectedStores" in page_source
+    assert "[...selectedStores, ...filteredStores]" in page_source
+    assert "importAccountStores" in page_source
+    assert "下载门店导入模板" in page_source
+    assert "批量导入门店" in page_source
+    assert "门店名称或门店 ID" in page_source
+    assert "指定门店" in confirmation
+
+
+def test_account_editor_owns_an_independent_scroll_region() -> None:
+    styles_source = read_source("styles.css")
+    editor_styles = styles_source[
+        styles_source.index(".account-editor {") :
+        styles_source.index(".account-form {")
+    ]
+
+    assert "max-height:" in editor_styles
+    assert "overflow-y: auto" in editor_styles
+    assert "overscroll-behavior: contain" in editor_styles

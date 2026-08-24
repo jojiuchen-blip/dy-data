@@ -2,6 +2,16 @@
 
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代后续 S3 正式交付计划。
 
+## 0. 当前增量交付：DYDATA-71 / DYDATA-72 / DYDATA-75
+
+- 用户已于 2026-08-20 明确授权核验本轮四项反馈、进入开发并最终生产部署。
+- 当前隔离分支：`codex/dydata-71-72-75-production-fixes`，基线为远端 `main` 的 `ee7fb990acb83274f6443135eafdf498c39925cb`。
+- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dydata-71-72-75-production-fixes.md)；[任务看板](delivery-plans/task-kanban-dydata-71-72-75-production-fixes.md)。
+- T1.1 已完成：分佣步骤条/入口/状态提醒与账号指定门店搜索、批量导入、技术用户名隐藏、右侧独立滚动。
+- T1.2 已完成：商品口径支持自定义产品范围/商品类型并保持单项兼容校验和导入原子性。
+- 当前执行 T1.3：订单费用明细直接访问、全量本地门禁与最终独立评审均已完成；当前进入提交、远端 CI 与腾讯云公网环境发布。
+- Linear 是范围与验收权威；本驾驶舱只记录当前执行顺序。下文历史增量保留为历史证据，不覆盖本轮计划。
+
 ## 0. 当前增量交付：DYDATA-45
 
 - 隔离 worktree `feat/dydata-45-agent-connect` 已完成腾讯云测试环境 Agent 一句话接入层；Linear `DYDATA-45` 已进入 In Review。这里的 `production` 专指未来尚未部署的企业内网服务器版本。

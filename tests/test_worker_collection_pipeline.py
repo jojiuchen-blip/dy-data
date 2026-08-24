@@ -663,6 +663,7 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
@@ -731,6 +732,7 @@ def test_run_once_skips_successful_incremental_chunks(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
@@ -781,6 +783,7 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
@@ -849,6 +852,7 @@ def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
+    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)

@@ -149,8 +149,8 @@
 |------|------|:---:|------|
 | `statementId` | string | 否 | 锁账口径；有值时读取冻结来源项 |
 | `statementLineId` | string | 否 | 须属于 `statementId` |
-| `storeId` | string | 条件必填 | 无 `statementId` 时必填且需授权 |
-| `month` | string | 条件必填 | 无 `statementId` 时必填；按方向解释业务月 |
+| `storeId` | string | 否 | 无 `statementId` 时可选；提供时必须在当前账号授权范围内 |
+| `month` | string | 否 | 无 `statementId` 时可选；提供时按方向解释业务月 |
 | `saleMonth` | string | 否 | 额外按销售月份筛选 |
 | `verifyMonth` | string | 否 | 额外按核销月份筛选，支撑当前页面筛选语义 |
 | `feeDirection` | string | 是 | `PROMOTION/MANAGEMENT` |
@@ -201,7 +201,7 @@
 
 `adjustments[]` 必返字段：`adjustmentId`、`adjustmentPostingMonth`、`adjustmentType`、`adjustmentBaseCent`、`adjustmentFeeCent`、`ruleVersion`、`adjustmentReason`、`occurredAt`，均映射调整表同名列。
 
-**查询口径**：有 `statementId` 时只返回已冻结来源；无账单时从当前指针读取最新未锁账结果。响应 `context` 必须返回服务端核验后的 `feeRates/ruleVersions`。非法/过期来源上下文返回 422 并保留用户可返回汇总页的信息；不得按 URL 中的费率或规则版本重新计算。
+**查询口径**：有 `statementId` 时只返回已冻结来源；无账单时从当前指针读取最新未锁账结果。`storeId/month` 均未提供时按当前账号授权门店范围返回默认列表，二者任一存在时作为附加过滤条件；门店范围约束始终生效。响应 `context` 必须返回服务端核验后的 `feeRates/ruleVersions`。非法/过期账单来源上下文返回 422 并保留用户可返回汇总页的信息；不得按 URL 中的费率或规则版本重新计算。
 
 ## 4 `GET /api/v1/order-fee-details/export` — 导出订单费用明细
 

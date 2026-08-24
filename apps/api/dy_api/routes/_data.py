@@ -1676,15 +1676,13 @@ class DashboardDataStore:
         return cleaned
 
     def order_fee_details(self, filters: dict[str, Any]) -> dict[str, Any]:
-        has_detail_filters = any(
-            filters.get(key) for key in ("sale_month", "verify_month", "q")
-        )
         context_filters = {
             **filters,
             "sale_month": None,
             "verify_month": None,
             "q": None,
             "data_status": None,
+            "_select_mode": "context",
         }
         context_rows, statement_status = self._order_fee_source_rows(context_filters)
         fee_rates = sorted(
@@ -1714,24 +1712,47 @@ class DashboardDataStore:
                 field="ruleVersions",
             )
 
-        rows = (
-            self._order_fee_source_rows(filters)[0]
-            if has_detail_filters
-            else context_rows
-        )
-
-        cleaned = [self._clean_order_fee_row(row, statement_status) for row in rows]
+        page = _to_int(filters.get("page"), 1)
+        page_size = _to_int(filters.get("page_size"), 50)
         data_status = filters.get("data_status")
+        if filters.get("export"):
+            rows = self._order_fee_source_rows(filters)[0]
+            adjustments_by_result = self._order_fee_adjustments_by_result(rows)
+            cleaned = [
+                self._clean_order_fee_row(
+                    row,
+                    statement_status,
+                    adjustments_by_result.get(_to_str(row.get("fee_result_id")), []),
+                )
+                for row in rows
+            ]
+        else:
+            count_rows = self._order_fee_source_rows(
+                {**filters, "_select_mode": "count"}
+            )[0]
+            total = _to_int(count_rows[0].get("total")) if count_rows else 0
+            rows = self._order_fee_source_rows(
+                {
+                    **filters,
+                    "_limit": page_size,
+                    "_offset": (page - 1) * page_size,
+                }
+            )[0]
+            adjustments_by_result = self._order_fee_adjustments_by_result(rows)
+            cleaned = [
+                self._clean_order_fee_row(
+                    row,
+                    statement_status,
+                    adjustments_by_result.get(_to_str(row.get("fee_result_id")), []),
+                )
+                for row in rows
+            ]
         if data_status:
             cleaned = [
                 row for row in cleaned if self._order_fee_data_status(row) == data_status
             ]
-        total = len(cleaned)
-        page = _to_int(filters.get("page"), 1)
-        page_size = _to_int(filters.get("page_size"), 50)
-        if not filters.get("export"):
-            offset = (page - 1) * page_size
-            cleaned = cleaned[offset : offset + page_size]
+        if filters.get("export"):
+            total = len(cleaned)
         context = {
             "statement_id": filters.get("statement_id"),
             "statement_line_id": filters.get("statement_line_id"),
@@ -1844,12 +1865,6 @@ class DashboardDataStore:
                 "e.statement_entry_id, e.statement_id, e.statement_line_id"
             )
         else:
-            params.update(
-                {
-                    "store_id": filters.get("store_id"),
-                    "month": filters.get("month"),
-                }
-            )
             source_sql = """
                 settlement_fee_result_current c
                 JOIN settlement_fee_result r ON r.fee_result_id = c.fee_result_id
@@ -1859,18 +1874,56 @@ class DashboardDataStore:
                 if filters["fee_direction"] == "PROMOTION"
                 else "r.verify_store_id"
             )
-            clauses = [
-                "r.fee_direction = :fee_direction",
-                "(r.original_business_month = :month OR EXISTS ("
-                "SELECT 1 FROM settlement_fee_adjustment month_adjustment "
-                "WHERE month_adjustment.original_fee_result_id = r.fee_result_id "
-                "AND month_adjustment.adjustment_posting_month = :month))",
-                f"{store_column} = :store_id",
-            ]
+            clauses = ["r.fee_direction = :fee_direction"]
+            month = filters.get("month")
+            if month:
+                params["month"] = month
+                clauses.append(
+                    "(r.original_business_month = :month OR EXISTS ("
+                    "SELECT 1 FROM settlement_fee_adjustment month_adjustment "
+                    "WHERE month_adjustment.original_fee_result_id = r.fee_result_id "
+                    "AND month_adjustment.adjustment_posting_month = :month))"
+                )
+            store_id = filters.get("store_id")
+            if store_id:
+                params["store_id"] = store_id
+                clauses.append(f"{store_column} = :store_id")
+            scope_store_ids = filters.get("scope_store_ids")
+            if scope_store_ids is not None:
+                placeholders, scope_params = _in_clause_params(
+                    "order_fee_scope_store", tuple(scope_store_ids)
+                )
+                if not placeholders:
+                    clauses.append("1 = 0")
+                else:
+                    params.update(scope_params)
+                    clauses.append(f"{store_column} IN ({placeholders})")
             entry_fields = (
                 "NULL AS statement_entry_id, NULL AS statement_id, "
                 "NULL AS statement_line_id"
             )
+
+        data_status = filters.get("data_status")
+        if data_status:
+            if statement_id:
+                if data_status != "LOCKED":
+                    clauses.append("1 = 0")
+            elif data_status == "LOCKED":
+                clauses.append("1 = 0")
+            elif data_status == "BLOCKED":
+                clauses.append("COALESCE(r.result_status, 0) NOT IN (1, 2)")
+            elif data_status == "ADJUSTED":
+                clauses.append("r.result_status IN (1, 2)")
+                clauses.append(
+                    "EXISTS (SELECT 1 FROM settlement_fee_adjustment status_adjustment "
+                    "WHERE status_adjustment.original_fee_result_id = r.fee_result_id)"
+                )
+            elif data_status == "VALID":
+                clauses.append("r.result_status IN (1, 2)")
+                clauses.append(
+                    "NOT EXISTS (SELECT 1 FROM settlement_fee_adjustment status_adjustment "
+                    "WHERE status_adjustment.original_fee_result_id = r.fee_result_id)"
+                )
 
         if requested_product_scope != "all":
             params["product_scope"] = requested_product_scope
@@ -1910,6 +1963,34 @@ class DashboardDataStore:
                 "(LOWER(r.order_id) LIKE :q OR LOWER(r.coupon_id) LIKE :q "
                 "OR LOWER(r.sku_id) LIKE :q OR LOWER(COALESCE(o.product_name, '')) LIKE :q)"
             )
+        select_mode = filters.get("_select_mode")
+        if select_mode == "context":
+            rows = self._execute(
+                f"""
+                SELECT DISTINCT r.fee_rate, r.rule_version
+                FROM {source_sql}
+                LEFT JOIN raw_douyin_orders o ON o.order_id = r.order_id
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
+            return rows, statement_status
+        if select_mode == "count":
+            rows = self._execute(
+                f"""
+                SELECT COUNT(*) AS total
+                FROM {source_sql}
+                LEFT JOIN raw_douyin_orders o ON o.order_id = r.order_id
+                WHERE {' AND '.join(clauses)}
+                """,
+                params,
+            )
+            return rows, statement_status
+        pagination_sql = ""
+        if filters.get("_limit") is not None:
+            params["order_fee_limit"] = _to_int(filters.get("_limit"), 50)
+            params["order_fee_offset"] = _to_int(filters.get("_offset"), 0)
+            pagination_sql = "LIMIT :order_fee_limit OFFSET :order_fee_offset"
         rows = self._execute(
             f"""
             SELECT {entry_fields},
@@ -1942,15 +2023,85 @@ class DashboardDataStore:
             LEFT JOIN raw_douyin_order_coupons cp ON cp.coupon_id = r.coupon_id
             WHERE {' AND '.join(clauses)}
             ORDER BY o.sale_time DESC, r.order_id, r.coupon_id, r.fee_result_id
+            {pagination_sql}
             """,
             params,
         )
         return rows, statement_status
 
+    def _order_fee_adjustments_by_result(
+        self, rows: list[dict[str, Any]]
+    ) -> dict[str, list[dict[str, Any]]]:
+        fee_result_ids = sorted(
+            {
+                _to_str(row.get("fee_result_id"))
+                for row in rows
+                if row.get("fee_result_id")
+            }
+        )
+        grouped: dict[str, list[dict[str, Any]]] = {
+            fee_result_id: [] for fee_result_id in fee_result_ids
+        }
+        if not fee_result_ids:
+            return grouped
+        statement_id = rows[0].get("statement_id")
+        statement_line_id = rows[0].get("statement_line_id")
+        for chunk_index in range(0, len(fee_result_ids), 500):
+            chunk = tuple(fee_result_ids[chunk_index : chunk_index + 500])
+            placeholders, params = _in_clause_params(
+                f"order_fee_adjustment_{chunk_index}", chunk
+            )
+            if statement_id:
+                params.update(
+                    {
+                        "statement_id": statement_id,
+                        "statement_line_id": statement_line_id,
+                    }
+                )
+                adjustment_rows = self._execute(
+                    f"""
+                    SELECT a.original_fee_result_id, a.adjustment_id,
+                           a.adjustment_posting_month, a.adjustment_type,
+                           a.adjustment_base_cent, a.adjustment_fee_cent,
+                           a.rule_version, a.adjustment_reason, a.occurred_at
+                    FROM settlement_fee_adjustment a
+                    JOIN settlement_statement_entry e
+                      ON e.source_type = 2
+                     AND e.source_record_id = a.adjustment_id
+                     AND e.original_fee_result_id = a.original_fee_result_id
+                    WHERE a.original_fee_result_id IN ({placeholders})
+                      AND e.statement_id = :statement_id
+                      AND e.statement_line_id = :statement_line_id
+                    ORDER BY a.original_fee_result_id, a.occurred_at, a.adjustment_id
+                    """,
+                    params,
+                )
+            else:
+                adjustment_rows = self._execute(
+                    f"""
+                    SELECT original_fee_result_id, adjustment_id,
+                           adjustment_posting_month, adjustment_type,
+                           adjustment_base_cent, adjustment_fee_cent, rule_version,
+                           adjustment_reason, occurred_at
+                    FROM settlement_fee_adjustment
+                    WHERE original_fee_result_id IN ({placeholders})
+                    ORDER BY original_fee_result_id, occurred_at, adjustment_id
+                    """,
+                    params,
+                )
+            for adjustment in adjustment_rows:
+                grouped.setdefault(
+                    _to_str(adjustment.get("original_fee_result_id")), []
+                ).append(adjustment)
+        return grouped
+
     def _clean_order_fee_row(
-        self, row: dict[str, Any], statement_status: str | None
+        self,
+        row: dict[str, Any],
+        statement_status: str | None,
+        adjustment_rows: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
-        if row.get("statement_id"):
+        if adjustment_rows is None and row.get("statement_id"):
             adjustment_rows = self._execute(
                 """
                 SELECT a.adjustment_id, a.adjustment_posting_month, a.adjustment_type,
@@ -1972,7 +2123,7 @@ class DashboardDataStore:
                     "statement_line_id": row.get("statement_line_id"),
                 },
             )
-        else:
+        elif adjustment_rows is None:
             adjustment_rows = self._execute(
                 """
                 SELECT adjustment_id, adjustment_posting_month, adjustment_type,

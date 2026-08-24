@@ -374,6 +374,14 @@ async def upload_sku_product_import(
             errors.append(_row_error("productScope", "REQUIRED", "产品范围不能为空，请填写值或 KEEP"))
         if not type_text:
             errors.append(_row_error("productType", "REQUIRED", "商品类型不能为空，请填写值或 KEEP"))
+        if scope_text and not scope_keep and scope_text.casefold() in {"all", "unknown"}:
+            errors.append(_row_error("productScope", "RESERVED_VALUE", "产品范围不能使用保留值 all 或 unknown"))
+        if type_text and not type_keep and type_text.casefold() in {"all", "unknown"}:
+            errors.append(_row_error("productType", "RESERVED_VALUE", "商品类型不能使用保留值 all 或 unknown"))
+        if len(scope_text) > 128:
+            errors.append(_row_error("productScope", "VALUE_TOO_LONG", "产品范围不能超过 128 个字符"))
+        if len(type_text) > 128:
+            errors.append(_row_error("productType", "VALUE_TOO_LONG", "商品类型不能超过 128 个字符"))
         if scope_keep and type_keep:
             errors.append(_row_error("productScope", "NO_CHANGES", "产品范围和商品类型不能同时 KEEP"))
         sku = skus.get(sku_id)
@@ -383,6 +391,7 @@ async def upload_sku_product_import(
             _is_configured_product_dimension(next_scope)
             and _is_configured_product_dimension(next_type)
             and valid_pairs
+            and (scope_keep or type_keep)
             and (next_scope, next_type) not in valid_pairs
         ):
             errors.append(
@@ -479,6 +488,7 @@ def commit_sku_product_import(
             _is_configured_product_dimension(next_scope)
             and _is_configured_product_dimension(next_type)
             and valid_pairs
+            and (import_row.keep_product_scope or import_row.keep_product_type)
             and (next_scope, next_type) not in valid_pairs
         ):
             import_data_changed = True
@@ -1564,6 +1574,9 @@ def _validate_sku_product_update_combinations(
 ) -> None:
     if not {"product_scope", "product_type"}.intersection(payload.model_fields_set):
         return
+    explicitly_sets_pair = {"product_scope", "product_type"}.issubset(
+        payload.model_fields_set
+    )
     valid_pairs = set(
         session.execute(
             select(
@@ -1579,7 +1592,7 @@ def _validate_sku_product_update_combinations(
     for row in rows:
         next_scope = payload.product_scope if "product_scope" in payload.model_fields_set else row.product_scope
         next_type = payload.product_type if "product_type" in payload.model_fields_set else row.product_type
-        if _is_configured_product_dimension(next_scope) and _is_configured_product_dimension(next_type) and valid_pairs and (next_scope, next_type) not in valid_pairs:
+        if _is_configured_product_dimension(next_scope) and _is_configured_product_dimension(next_type) and valid_pairs and not explicitly_sets_pair and (next_scope, next_type) not in valid_pairs:
             invalid_sku_ids.append(row.sku_id)
     if invalid_sku_ids:
         raise _error(

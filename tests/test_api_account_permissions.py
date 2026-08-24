@@ -29,7 +29,7 @@ from apps.api.dy_api.models import (  # noqa: E402
 )
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
-from dy_api.routes._data import get_session_dependency  # noqa: E402
+from dy_api.routes._data import DashboardDataStore, get_session_dependency  # noqa: E402
 
 
 @pytest.fixture()
@@ -92,6 +92,16 @@ def _seed(session: Session) -> None:
                 external_account_id=None,
                 display_name="Viewer User",
                 role="viewer",
+                status="active",
+                is_initialized=True,
+                password_hash=hash_password_pbkdf2("secret"),
+            ),
+            User(
+                user_id="empty-store-user",
+                username="empty-store-user",
+                external_account_id=None,
+                display_name="Empty Store User",
+                role="store",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("secret"),
@@ -234,6 +244,66 @@ def _seed(session: Session) -> None:
                 fee_direction=1,
                 fee_result_id="fee-other",
             ),
+            SettlementFeeResult(
+                fee_result_id="fee-management-own",
+                coupon_id="coupon-fee-own",
+                order_id="order-fee-own",
+                fee_direction=2,
+                result_version=1,
+                original_business_month="2026-05",
+                rule_match_date=date(2026, 5, 1),
+                sale_store_id="store-1",
+                verify_store_id="store-2",
+                sku_id="sku",
+                product_scope="all",
+                product_type="all",
+                sale_channel_normalized="LIVE",
+                source_amount_cent=1000,
+                refunded_amount_cent=0,
+                fee_base_cent=1000,
+                fee_rate=Decimal("0.050000"),
+                fee_amount_cent=50,
+                rule_version="rule-v1",
+                scope_rule_version="scope-v1",
+                result_status=1,
+                calculation_run_id="run-1",
+                calculated_at=timestamp,
+            ),
+            SettlementFeeResultCurrent(
+                coupon_id="coupon-fee-own",
+                fee_direction=2,
+                fee_result_id="fee-management-own",
+            ),
+            SettlementFeeResult(
+                fee_result_id="fee-management-other",
+                coupon_id="coupon-fee-other",
+                order_id="order-fee-other",
+                fee_direction=2,
+                result_version=1,
+                original_business_month="2026-05",
+                rule_match_date=date(2026, 5, 1),
+                sale_store_id="store-2",
+                verify_store_id="store-1",
+                sku_id="sku",
+                product_scope="all",
+                product_type="all",
+                sale_channel_normalized="LIVE",
+                source_amount_cent=1000,
+                refunded_amount_cent=0,
+                fee_base_cent=1000,
+                fee_rate=Decimal("0.050000"),
+                fee_amount_cent=50,
+                rule_version="rule-v1",
+                scope_rule_version="scope-v1",
+                result_status=1,
+                calculation_run_id="run-1",
+                calculated_at=timestamp,
+            ),
+            SettlementFeeResultCurrent(
+                coupon_id="coupon-fee-other",
+                fee_direction=2,
+                fee_result_id="fee-management-other",
+            ),
             SettlementStatement(
                 statement_id="statement-own",
                 store_id="store-1",
@@ -319,6 +389,14 @@ def _login_viewer(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def _login_empty_store(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"username": "empty-store-user", "password": "secret"},
+    )
+    assert response.status_code == 200
+
+
 def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     assert client.get("/api/v1/order-details").status_code == 401
     _login_store(client)
@@ -361,6 +439,65 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
         "order-fee-own"
     ]
 
+    direct_fee_details = client.get(
+        "/api/v1/order-fee-details",
+        params={"feeDirection": "PROMOTION"},
+    )
+    assert direct_fee_details.status_code == 200
+    assert [
+        row["orderId"] for row in direct_fee_details.json()["data"]["list"]
+    ] == ["order-fee-own"]
+
+    direct_fee_export = client.get(
+        "/api/v1/order-fee-details/export",
+        params={"feeDirection": "PROMOTION"},
+    )
+    assert direct_fee_export.status_code == 200
+    direct_export_text = direct_fee_export.content.decode("utf-8-sig")
+    assert "order-fee-own" in direct_export_text
+    assert "order-fee-other" not in direct_export_text
+
+    stale_direct = client.get(
+        "/api/v1/order-fee-details",
+        params=[
+            ("feeDirection", "PROMOTION"),
+            ("feeRates", "0.990000"),
+            ("ruleVersions", "stale-rule"),
+        ],
+    )
+    assert stale_direct.status_code == 200
+    assert [row["orderId"] for row in stale_direct.json()["data"]["list"]] == [
+        "order-fee-own"
+    ]
+    stale_direct_export = client.get(
+        "/api/v1/order-fee-details/export",
+        params=[
+            ("feeDirection", "PROMOTION"),
+            ("feeRates", "0.990000"),
+            ("ruleVersions", "stale-rule"),
+        ],
+    )
+    assert stale_direct_export.status_code == 200
+    assert "order-fee-own" in stale_direct_export.content.decode("utf-8-sig")
+
+    management_details = client.get(
+        "/api/v1/order-fee-details",
+        params={"feeDirection": "MANAGEMENT"},
+    )
+    assert management_details.status_code == 200
+    assert [row["orderId"] for row in management_details.json()["data"]["list"]] == [
+        "order-fee-other"
+    ]
+
+    management_export = client.get(
+        "/api/v1/order-fee-details/export",
+        params={"feeDirection": "MANAGEMENT"},
+    )
+    assert management_export.status_code == 200
+    management_export_text = management_export.content.decode("utf-8-sig")
+    assert "order-fee-other" in management_export_text
+    assert "order-fee-own" not in management_export_text
+
     other_fee_details = client.get(
         "/api/v1/order-fee-details",
         params={
@@ -400,6 +537,115 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     )
     assert stale_context.status_code == 422
     assert stale_context.json()["detail"]["code"] == "VALIDATION_FAILED"
+
+
+def test_direct_order_fee_details_uses_sql_pagination_and_batched_adjustments(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    executed_sql: list[str] = []
+    original_execute = DashboardDataStore._execute
+
+    def recording_execute(
+        self: DashboardDataStore,
+        sql: str,
+        params: dict | None = None,
+    ) -> list[dict]:
+        executed_sql.append(sql)
+        return original_execute(self, sql, params)
+
+    monkeypatch.setattr(DashboardDataStore, "_execute", recording_execute)
+    _login_viewer(client)
+
+    first_page = client.get(
+        "/api/v1/order-fee-details",
+        params={"feeDirection": "PROMOTION", "pageSize": 1},
+    )
+
+    assert first_page.status_code == 200
+    assert first_page.json()["data"]["total"] == 2
+    assert len(first_page.json()["data"]["list"]) == 1
+    assert any(
+        "LIMIT :order_fee_limit OFFSET :order_fee_offset" in sql
+        for sql in executed_sql
+    )
+
+    executed_sql.clear()
+    full_page = client.get(
+        "/api/v1/order-fee-details",
+        params={"feeDirection": "PROMOTION", "pageSize": 50},
+    )
+
+    assert full_page.status_code == 200
+    adjustment_queries = [
+        sql
+        for sql in executed_sql
+        if "FROM settlement_fee_adjustment" in sql
+        and "WHERE original_fee_result_id IN" in sql
+    ]
+    assert len(adjustment_queries) == 1
+
+    executed_sql.clear()
+    adjusted_second_page = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "feeDirection": "PROMOTION",
+            "dataStatus": "ADJUSTED",
+            "page": 2,
+            "pageSize": 1,
+        },
+    )
+
+    assert adjusted_second_page.status_code == 200
+    assert adjusted_second_page.json()["data"]["total"] == 1
+    assert adjusted_second_page.json()["data"]["list"] == []
+    assert any(
+        "LIMIT :order_fee_limit OFFSET :order_fee_offset" in sql
+        and "EXISTS (SELECT 1 FROM settlement_fee_adjustment status_adjustment" in sql
+        for sql in executed_sql
+    )
+
+    executed_sql.clear()
+    locked_page = client.get(
+        "/api/v1/order-fee-details",
+        params={
+            "statementId": "statement-own",
+            "statementLineId": "line-own",
+            "feeDirection": "PROMOTION",
+        },
+    )
+
+    assert locked_page.status_code == 200
+    assert any(
+        "JOIN settlement_statement_entry e" in sql
+        and "a.original_fee_result_id IN" in sql
+        for sql in executed_sql
+    )
+    assert not any(
+        "WHERE a.original_fee_result_id = :fee_result_id" in sql
+        for sql in executed_sql
+    )
+
+
+def test_direct_order_fee_details_respects_empty_store_scope(
+    client: TestClient,
+) -> None:
+    _login_empty_store(client)
+
+    response = client.get(
+        "/api/v1/order-fee-details",
+        params={"feeDirection": "PROMOTION"},
+    )
+    export = client.get(
+        "/api/v1/order-fee-details/export",
+        params={"feeDirection": "PROMOTION"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["data"]["list"] == []
+    assert response.json()["data"]["total"] == 0
+    assert export.status_code == 409
+    assert export.json()["detail"]["code"] == "EXPORT_EMPTY"
 
 
 def test_legacy_viewer_is_mapped_to_global_admin(client: TestClient) -> None:

@@ -963,6 +963,26 @@ def install_api_routes(page: Page) -> None:
         ),
     )
     page.route(
+        "**/api/v1/admin/sku-rules/lookup",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "rows": [{
+                    "sku_id": "SKU-VISUAL-001",
+                    "product_name": "精诚养车基础保养",
+                    "product_scope": "精诚养车",
+                    "product_type": "基础保养",
+                    "commission_rate": 0.1,
+                    "is_service_product": True,
+                    "order_count": 12,
+                    "verified_coupon_count": 8,
+                }],
+                "missing_sku_ids": [],
+            }),
+        ),
+    )
+    page.route(
         "**/api/v1/admin/non-commission-owner-accounts",
         lambda route: route.fulfill(
             status=200,
@@ -1629,7 +1649,7 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
         context.close()
 
 
-def test_order_details_direct_url_requires_a_source_context(
+def test_order_details_direct_url_loads_authorized_default_scope(
     browser: Browser,
     vite_real_api_base_url: str,
 ) -> None:
@@ -1650,17 +1670,91 @@ def test_order_details_direct_url_requires_a_source_context(
         def record_request(route: object) -> None:
             request = getattr(route, "request")
             order_detail_requests.append(str(request.url))
+            payload = order_fee_details_data(empty=True)
+            payload["context"] = {
+                **payload["context"],
+                "storeId": None,
+                "month": None,
+            }
             getattr(route, "fulfill")(
-                status=500,
+                status=200,
                 content_type="application/json",
-                body=json.dumps({"detail": "should not be called"}),
+                body=api_payload(payload),
             )
 
         page.route("**/api/v1/order-fee-details*", record_request)
+        page.goto(
+            f"{vite_real_api_base_url}/details?feeRates=0.990000&ruleVersions=stale-rule",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_text("当前筛选下没有费用记录。", exact=True).wait_for(timeout=10000)
+        assert page.get_by_text("当前账号授权范围", exact=False).first.is_visible()
+        assert page.get_by_role("button", name="返回单店分账", exact=True).count() == 0
+        assert page.get_by_role("button", name="管理服务费", exact=True).is_enabled()
+        assert len(order_detail_requests) == 1
+        assert "feeDirection=PROMOTION" in order_detail_requests[0]
+        assert "storeId=" not in order_detail_requests[0]
+        assert "month=" not in order_detail_requests[0]
+        assert "feeRates=" not in order_detail_requests[0]
+        assert "ruleVersions=" not in order_detail_requests[0]
+    finally:
+        context.close()
+
+
+def test_order_details_direct_export_omits_source_rate_context(
+    browser: Browser,
+    vite_real_api_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    export_requests: list[str] = []
+    try:
+        install_settlement_user_route(page, "admin")
+        page.route(
+            "**/api/v1/meta/filters",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(settlement_filter_meta()),
+            ),
+        )
+
+        def fulfill_export(route: object) -> None:
+            request = getattr(route, "request")
+            export_requests.append(str(request.url))
+            getattr(route, "fulfill")(
+                status=200,
+                content_type="text/csv",
+                headers={"Content-Disposition": 'attachment; filename="order-fees.csv"'},
+                body="orderId,feeDirection\nORDER-VISUAL-001,PROMOTION\n",
+            )
+
+        def fulfill_details(route: object) -> None:
+            payload = order_fee_details_data()
+            payload["context"] = {
+                **payload["context"],
+                "storeId": None,
+                "month": None,
+            }
+            getattr(route, "fulfill")(
+                status=200,
+                content_type="application/json",
+                body=api_payload(payload),
+            )
+
+        page.route("**/api/v1/order-fee-details/export*", fulfill_export)
+        page.route("**/api/v1/order-fee-details?*", fulfill_details)
         page.goto(f"{vite_real_api_base_url}/details", wait_until="domcontentloaded")
-        page.get_by_text("请从单店分账中的推广服务费或管理服务费汇总行进入。", exact=False).first.wait_for(timeout=10000)
-        assert page.get_by_role("button", name="返回单店分账", exact=True).is_visible()
-        assert order_detail_requests == []
+        page.get_by_text("ORDER-VISUAL-001", exact=True).first.wait_for(timeout=10000)
+
+        with page.expect_download(timeout=10000):
+            page.get_by_role("button", name="导出", exact=True).click()
+
+        assert len(export_requests) == 1
+        assert "storeId=" not in export_requests[0]
+        assert "month=" not in export_requests[0]
+        assert "feeRates=" not in export_requests[0]
+        assert "ruleVersions=" not in export_requests[0]
     finally:
         context.close()
 
@@ -2458,8 +2552,11 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
         install_api_routes(page)
         page.route("**/api/v1/admin/sku-fee-rules", handle_publish)
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
-        page.get_by_label("选择 SKU SKU-VISUAL-001", exact=True).first.check()
-        page.get_by_role("button", name="选择当前勾选", exact=True).click()
+        selection_section = page.get_by_role(
+            "heading", name="1. SKU 查询与批量选择", exact=True
+        ).locator("xpath=ancestor::section")
+        selection_section.get_by_label("SKU ID", exact=True).fill("SKU-VISUAL-001")
+        selection_section.get_by_role("button", name="查询并选择", exact=True).click()
         section = page.get_by_role("heading", name="2. SKU-ID分佣比例确认", exact=True).locator("xpath=ancestor::section")
         section.get_by_label("两项费率一致", exact=True).uncheck()
         section.get_by_label("推广服务费比例（%）", exact=True).fill("8")
@@ -2578,8 +2675,11 @@ def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
             wait_until="domcontentloaded",
         )
         page.get_by_role("tab", name="未启用分佣商品列表", exact=False).click()
-        page.get_by_label("选择 SKU SKU-LIVE-ADMIN-001", exact=True).first.check()
-        page.get_by_role("button", name="选择当前勾选", exact=True).click()
+        selection_section = page.get_by_role(
+            "heading", name="1. SKU 查询与批量选择", exact=True
+        ).locator("xpath=ancestor::section")
+        selection_section.get_by_label("SKU ID", exact=True).fill("SKU-LIVE-ADMIN-001")
+        selection_section.get_by_role("button", name="查询并选择", exact=True).click()
         fee_section = page.get_by_role(
             "heading", name="2. SKU-ID分佣比例确认", exact=True
         ).locator("xpath=ancestor::section")
@@ -2595,8 +2695,7 @@ def test_admin_rules_uses_live_fastapi_for_save_reload_publish_and_conflict(
         page.get_by_text("已发布 1 个 SKU", exact=False).wait_for(timeout=10000)
 
         page.get_by_role("tab", name="已启用分佣商品列表", exact=False).click()
-        page.get_by_label("选择 SKU SKU-LIVE-ADMIN-001", exact=True).first.check()
-        page.get_by_role("button", name="选择当前勾选", exact=True).click()
+        selection_section.get_by_role("button", name="查询并选择", exact=True).click()
         fee_section.get_by_label("变更原因", exact=True).fill("重复生效日冲突验证")
         fee_section.get_by_role("button", name="应用比例并检查预选", exact=True).click()
         page.get_by_role("button", name="确认发布", exact=True).first.click()
