@@ -21,6 +21,7 @@ def test_alembic_has_one_deployable_head() -> None:
 
     assert ScriptDirectory.from_config(config).get_heads() == ["20260824_0043"]
 
+
 def test_production_revision_chain_resolves_orphaned_0036() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     config = Config(str(repo_root / "alembic.ini"))
@@ -38,7 +39,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
     config.set_main_option("script_location", str(repo_root / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
 
-    command.stamp(config, "20260806_0036")
+    command.upgrade(config, "20260806_0036")
     command.upgrade(config, "head")
 
     engine = create_engine(f"sqlite:///{database_path.as_posix()}")
