@@ -527,7 +527,7 @@ def test_successful_follow_self_store_verification_counts_as_converted(db_sessio
     _assert_same_instant(order.verified_at, _dt(2))
 
 
-def test_legacy_rebuild_preserves_current_self_owned_projection_while_refreshing_source_data(
+def test_rebuild_preserves_current_self_owned_projection_without_creating_legacy_round(
     db_session: Session,
 ) -> None:
     db_session.add(
@@ -603,9 +603,7 @@ def test_legacy_rebuild_preserves_current_self_owned_projection_while_refreshing
     assert formal is not None
     assert formal.execution_mode == "formal"
     assert formal.assigned_store_id == "self-owned-store"
-    assert legacy is not None
-    assert legacy.execution_mode == "legacy"
-    assert legacy.assigned_store_id == "douyin-store"
+    assert legacy is None
     assert order is not None
     assert order.current_assignment_round_id == "formal-order-1-1"
     assert order.assigned_store_id == "self-owned-store"

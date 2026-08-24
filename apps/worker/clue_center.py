@@ -116,6 +116,19 @@ def rebuild_clue_center(
         sorted_clues = sorted(clues, key=_clue_sort_key)
         canonical = sorted_clues[0]
         assigned_at = _aware(canonical.create_time_detail)
+        center_order = existing_center_orders.get(order_id)
+        if center_order is not None and _has_current_self_owned_assignment(session, center_order):
+            product_rule = sku_rules.get(_clean(canonical.product_id) or "")
+            _refresh_center_source_fields(
+                center_order,
+                sorted_clues=sorted_clues,
+                canonical=canonical,
+                product_rule=product_rule,
+                encrypted_phone_plain_values=encrypted_phone_plain_values,
+            )
+            center_order.updated_at = now
+            continue
+
         assignment_round_id = f"{order_id}-1"
         round_row = existing_rounds.get(order_id)
         if round_row is None:
@@ -186,30 +199,18 @@ def rebuild_clue_center(
         assignment_rounds += 1
 
         product_rule = sku_rules.get(_clean(canonical.product_id) or "")
-        center_order = existing_center_orders.get(order_id)
         if center_order is None:
             center_order = ClueCenterOrder(order_id=order_id, created_at=now, updated_at=now)
             session.add(center_order)
             existing_center_orders[order_id] = center_order
 
-        center_order.source_clue_ids = [_clue_identifier(clue) for clue in sorted_clues]
-        center_order.source_clue_count = len(sorted_clues)
-        center_order.canonical_clue_id = _clean(canonical.clue_id)
-        phone_plain, phone_source = _first_clue_phone(sorted_clues, encrypted_phone_plain_values)
-        if not phone_plain:
-            phone_plain = normalize_phone(center_order.phone_plain)
-            phone_source = _clean(center_order.phone_source)
-        phone_masked = mask_phone(phone_plain)
-        if not phone_masked:
-            phone_masked = _mask_or_masked_phone(center_order.phone_masked)
-            phone_source = phone_source or _clean(center_order.phone_source)
-        center_order.phone_plain = phone_plain or None
-        center_order.phone_masked = phone_masked
-        center_order.phone_source = phone_source if phone_plain or phone_masked else None
-        center_order.product_id = _clean(canonical.product_id)
-        center_order.product_name = _clean(canonical.product_name)
-        center_order.product_type = product_rule.product_type if product_rule else None
-        center_order.author_nickname = _clean(canonical.author_nickname)
+        _refresh_center_source_fields(
+            center_order,
+            sorted_clues=sorted_clues,
+            canonical=canonical,
+            product_rule=product_rule,
+            encrypted_phone_plain_values=encrypted_phone_plain_values,
+        )
         if not _has_current_self_owned_assignment(session, center_order):
             center_order.lead_status = _lead_status(round_row)
             center_order.current_assignment_round_id = assignment_round_id
@@ -475,6 +476,34 @@ def _has_current_self_owned_assignment(session: Session, center_order: ClueCente
         return False
     round_row = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
     return round_row is not None and round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
+
+
+def _refresh_center_source_fields(
+    center_order: ClueCenterOrder,
+    *,
+    sorted_clues: list[RawDouyinClue],
+    canonical: RawDouyinClue,
+    product_rule: DimSkuProductRule | None,
+    encrypted_phone_plain_values: dict[str, str],
+) -> None:
+    center_order.source_clue_ids = [_clue_identifier(clue) for clue in sorted_clues]
+    center_order.source_clue_count = len(sorted_clues)
+    center_order.canonical_clue_id = _clean(canonical.clue_id)
+    phone_plain, phone_source = _first_clue_phone(sorted_clues, encrypted_phone_plain_values)
+    if not phone_plain:
+        phone_plain = normalize_phone(center_order.phone_plain)
+        phone_source = _clean(center_order.phone_source)
+    phone_masked = mask_phone(phone_plain)
+    if not phone_masked:
+        phone_masked = _mask_or_masked_phone(center_order.phone_masked)
+        phone_source = phone_source or _clean(center_order.phone_source)
+    center_order.phone_plain = phone_plain or None
+    center_order.phone_masked = phone_masked
+    center_order.phone_source = phone_source if phone_plain or phone_masked else None
+    center_order.product_id = _clean(canonical.product_id)
+    center_order.product_name = _clean(canonical.product_name)
+    center_order.product_type = product_rule.product_type if product_rule else None
+    center_order.author_nickname = _clean(canonical.author_nickname)
 
 
 def _existing_center_orders(session: Session, order_ids: set[str]) -> dict[str, ClueCenterOrder]:
