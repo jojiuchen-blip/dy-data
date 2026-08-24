@@ -27,11 +27,19 @@
 **核心文件**：
 - `apps/web/src/App.tsx`
 - `apps/web/src/components/Shell.tsx`
-- `apps/web/src/pages/InvoiceGuidePage.tsx`
+- `apps/web/src/components/FinanceImportActionPanel.tsx`
+- `apps/web/src/pages/StoreInvoicePage.tsx`
+- `apps/web/src/pages/FinanceFeePage.tsx`
+- `apps/web/src/pages/FinanceOrderDetailsPage.tsx`
+- `apps/web/src/pages/FinanceStoresPage.tsx`
+- `apps/web/src/pages/FinanceDisputesPage.tsx`
+- `apps/web/src/pages/FinanceImportsPage.tsx`
 - `apps/web/src/pages/StoreSettlementPage.tsx`
 - `apps/web/src/api/client.ts`
 - `apps/web/src/types/dashboard.ts`
+- `apps/web/src/utils/userFacingLabels.ts`
 - `apps/web/src/styles.css`
+- `tests/test_design_system_enforcement.py`
 - `tests/test_frontend_user_facing_contracts.py`
 - `tests/test_visual_smoke.py`
 
@@ -45,8 +53,18 @@
 - Playwright 逐路由验证并保存最终截图。
 
 **Evidence**：
-- `<projectRoot>/pwScreenShot/dydata-19-*.png`。
+- `output/playwright/`（8 条路由 × 390/768/1440，共 24 张）。
 - `docs/devlog/` 中 T5.6 浏览器矩阵、构建与接口回读记录。
+
+**完成证据（2026-08-21）**：
+- 设计系统、设计执行与前端契约：54 passed；财务样式只引用已注册 V0.2 令牌，所有选择控件复用共享可搜索选择器，内部财务枚举统一转为中文安全文案。
+- `tests/test_api_store_billing.py`：22 passed；`tests/test_api_finance_imports.py`：5 passed。
+- `npm --prefix apps/web run build`：通过；仅保留 545.96 kB chunk 体积提示，不影响功能验收。
+- `tests/test_visual_smoke.py -k "finance or invoice"`：30 passed；含 8 路由 × 3 视口、旧 `/invoice` 兼容、真实 FastAPI 管理员空态/门店 403、发票 422 保留输入后回读及导入 409 重试。
+- `git diff --check`：通过；仅有工作树既有 LF/CRLF 提示。
+- 旧 `InvoiceGuidePage.tsx` 已删除；`/invoice` 仅保留到 `/settlement/invoice` 的兼容跳转，不保留第二套业务页面。
+- 推广费页面可逐月选择同一门店一个或多个完整账期，提交 `allocations[]`；待厂端审核状态不允许重复登记。
+- Foundation 漂移判断：本任务按当前 Foundation API/Schema 契约消费服务端结果，无新增 Schema、API 或术语漂移。
 
 **Failure Handling**：
 - API 缺字段或失败时显示真实错误，不回退 mock 或在前端补算。
@@ -60,4 +78,4 @@
 
 **前置**：T5.2～T5.5
 
-**状态**：待审阅
+**状态**：已完成（2026-08-21；技术验收与页面浏览器门禁通过）

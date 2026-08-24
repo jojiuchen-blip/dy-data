@@ -2,6 +2,46 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
+## S4-FCR-004：财务导入四模板仍保留旧拆分口径
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-004` |
+| 来源 Task | `T5.5 四类财务导入与更正` |
+| 分类 | `DRIFT` |
+| 改动项 | 将旧的“推广审核结果、推广结算结果、管理费发票明细、厂家扣款结果”替换为 Linear 正文冻结的“基础信息、推广服务费厂家结果、管理服务费厂家结果、SAP 确认”；管理费发票与扣款合并为同一模板。 |
+| 原因 | 旧 SubPRD/Foundation 在正文收敛前形成，和 DYDATA-19 当前 Linear 权威正文冲突；若继续实施会缺失基础/SAP 版本事实并重复管理费导入。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py`；`apps/api/dy_api/models.py`；`alembic/versions/20260821_0034*`～`0036*`；`tests/test_api_finance_imports.py` |
+| 目标 foundation 文件:章节 | `foundation-glossary-dy-data.md`；`foundation-schema-dy-data/billing-invoice.md §4～§7`；`foundation-api-dy-data/billing-invoice.md §5` |
+| 严重度 | `阻断（旧模板不可作为发布契约）` |
+| 状态 | `已改（2026-08-21；Linear 最终四模板、Schema、API、术语、迁移和测试已统一）` |
+
+### 裁决与实现
+
+- Linear 为需求权威，当前正文覆盖旧 SubPRD 和历史评论中的拆分模板。
+- 基础信息与 SAP 确认写入 `store_finance_profile` 不可变版本；推广厂家结果按发票号码精确匹配；管理厂家结果按门店与账期原子登记发票及全额扣款。
+- 上传和提交分别保留幂等键与规范化请求摘要；同键不同请求返回 409，同内容新键返回无变化。
+
+## S4-FCR-003：推广费发票号码唯一范围与不可变版本冲突
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-003` |
+| 来源 Task | `T5.5 四类财务导入与更正` |
+| 分类 | `DRIFT` |
+| 改动项 | 将 `promotion_invoice.invoice_number` 的“全历史唯一”改为“仅当前版本唯一”，允许同一张外部发票在状态导入或更正时使用原号码生成 Vn+1，同时通过 `supersedes_invoice_id` 保留版本链。 |
+| 原因 | Foundation 同时要求推广费发票和四类财务导入采用不可变新版本，但 §4.1 又把发票号码定义为全局唯一；同号 V2 会直接违反唯一约束，导致外部审核结果无法按版本落库。 |
+| 指向代码块 | `apps/api/dy_api/models.py` 的 `PromotionInvoice`；`alembic/versions/20260821_0033_promotion_invoice_version_number.py`；`tests/test_alembic_migrations.py`；`tests/test_api_store_billing.py` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md §4.1` |
+| 严重度 | `阻断（阻塞推广费审核/结算结果的不可变版本提交）` |
+| 状态 | `已改（2026-08-21；Foundation Schema/Delivery、页面说明、模型、迁移与回归已统一为当前版本部分唯一）` |
+
+### 建议裁决
+
+- 发票号码继续标识同一外部发票事实，但只约束一个当前有效版本；历史版本允许重复该号码。
+- 新版本仍使用新的 `invoice_id`，并以 `supersedes_invoice_id` 指向上一版本；任何时刻只允许一条同号 `is_current=true` 记录。
+- 若后续需要区分“同号状态版本”与“换票版本”，应新增稳定发票链 ID，而不是恢复全历史号码唯一并覆盖旧记录。
+
 ## S4-FCR-002：推广费发票跨账期口径冲突
 
 | 字段 | 内容 |
@@ -14,7 +54,7 @@
 | 指向代码位 | `apps/api/dy_api/models.py` 的 `InvoiceRecord` 当前按 `store_id + statement_month + fee_direction` 建模；尚未开始 `POST /api/v1/promotion-invoices` 写入实现。 |
 | 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §4.1–4.2`，以及对应 Schema / SubPRD 发票分配规则。 |
 | 严重度 | `阻塞（仅阻塞推广费发票接口 #29–#30；不阻塞账单读取与费用确认 #23–#25）` |
-| 状态 | `已采纳（2026-08-21，以 DYDATA-19 当前正文为准）` |
+| 状态 | `已改（2026-08-21；Foundation Schema/API/Delivery 已按 DYDATA-19 当前正文收敛）` |
 
 ### 裁决与实现边界
 
@@ -34,7 +74,7 @@
 | 指向代码块 | `apps/api/dy_api/models.py`；`alembic/versions/20260821_0029_version_settlement_statements.py`；`tests/test_data_schema.py`；`tests/test_alembic_migrations.py` |
 | 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md §4`；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §2.1～§2.3、§3.3` |
 | 严重度 | `阻断` |
-| 状态 | `已采纳` |
+| 状态 | `已改（2026-08-21；兼容迁移、Schema/API 契约和专属回归均已完成）` |
 
 ### 验收口径
 

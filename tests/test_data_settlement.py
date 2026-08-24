@@ -7,6 +7,7 @@ import pytest
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 
+from apps.api.dy_api import models as dy_models
 from apps.api.dy_api.models import (
     AggStoreMonthlySettlement,
     AggStoreRanking,
@@ -29,6 +30,7 @@ from apps.api.dy_api.models import (
     SettlementStatementEntry,
     SettlementStatementLine,
     SkuFeeRule,
+    StoreFinanceProfile,
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 import apps.worker.settlement as settlement_worker
@@ -1345,6 +1347,21 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     db_session: Session,
 ) -> None:
     _load_dual_fee_fixture(db_session, amount_cent=10000)
+    db_session.add(
+        StoreFinanceProfile(
+            profile_id="profile-store-sale-v1",
+            store_id="store-sale",
+            profile_type=1,
+            source_type=1,
+            version_no=1,
+            is_current=True,
+            store_name_snapshot="Store Sale",
+            sap_code="SAP-SALE-001",
+            import_batch_id=None,
+            created_at=datetime(2026, 8, 1, tzinfo=timezone.utc),
+        )
+    )
+    db_session.flush()
     rebuild_dual_fee_results(db_session, calculation_run_id="statement-calc")
 
     first = lock_settlement_statement(
@@ -1367,6 +1384,10 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     assert first.promotion_adjustment_fee_cent == 0
     assert first.promotion_net_fee_cent == 123
     assert first.management_net_fee_cent == 0
+    assert first.store_name_snapshot == "Sale Store"
+    assert first.sap_code_snapshot == "SAP-SALE-001"
+    assert first.store_snapshot_status == "LIVE_CAPTURED"
+    assert first.store_snapshot_profile_id == "profile-store-sale-v1"
     lines = list(
         db_session.scalars(
             select(SettlementStatementLine).where(
@@ -1393,9 +1414,44 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     assert entries[0].source_record_id == _fee_result(
         db_session, "coupon-dual", 1
     ).fee_result_id
+    assert entries[0].order_status_snapshot == "paid"
+    assert entries[0].coupon_status_snapshot == "available"
+    assert entries[0].product_name_snapshot == "Dual fee product"
+    assert entries[0].sku_id_snapshot == "sku-dual"
+    assert entries[0].sku_name_snapshot == "Dual fee SKU"
+    assert entries[0].sale_channel_snapshot == "short_video"
+    assert entries[0].sale_store_id_snapshot == "store-sale"
+    assert entries[0].sale_store_snapshot == "Sale Store"
+    assert entries[0].verify_store_id_snapshot == "store-verify"
+    assert entries[0].verify_store_snapshot == "Verify Store"
+    assert entries[0].sale_time_snapshot == _dual_time(8, 10).replace(tzinfo=None)
+    assert entries[0].verify_time_snapshot == _dual_time(9, 5).replace(tzinfo=None)
+    assert entries[0].received_amount_cent_snapshot == 10000
+    assert entries[0].fee_rate_snapshot == Decimal("0.012345")
     assert count(db_session, SettlementStatement) == 1
     assert count(db_session, SettlementStatementLine) == 1
     assert count(db_session, SettlementStatementEntry) == 1
+
+    store = db_session.get(dy_models.DimStore, "store-sale")
+    profile = db_session.scalar(
+        select(StoreFinanceProfile).where(
+            StoreFinanceProfile.profile_id == "profile-store-sale-v1"
+        )
+    )
+    assert store is not None
+    assert profile is not None
+    store.store_name = "Renamed Store Sale"
+    profile.sap_code = "SAP-SALE-999"
+    db_session.flush()
+    frozen_again = lock_settlement_statement(
+        db_session,
+        store_id="store-sale",
+        statement_month="2026-08",
+        lock_run_id="statement-lock-after-master-change",
+    )
+    assert frozen_again.store_name_snapshot == "Sale Store"
+    assert frozen_again.sap_code_snapshot == "SAP-SALE-001"
+    assert frozen_again.store_snapshot_profile_id == "profile-store-sale-v1"
 
     upsert_store(db_session, "store-sale-moved", "Moved Sale Store")
     sale_account = db_session.get(DimAwemeAccount, "owner-dual")
@@ -1417,6 +1473,84 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     frozen = _fee_result(db_session, "coupon-dual", 1)
     assert frozen is not None
     assert frozen.fee_result_id == entries[0].source_record_id
+
+
+def test_unlocked_statement_rebuild_keeps_original_store_snapshot(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="snapshot-unlocked-calc")
+    db_session.add(
+        SettlementStatement(
+            statement_id="statement-unlocked-snapshot",
+            store_id="store-sale",
+            statement_month="2026-08",
+            version_no=1,
+            is_current=True,
+            statement_status=1,
+            store_name_snapshot="Frozen Store Sale",
+            sap_code_snapshot="SAP-FROZEN-001",
+            store_snapshot_status="LIVE_CAPTURED",
+            store_snapshot_profile_id="profile-at-first-create",
+        )
+    )
+    store = db_session.get(dy_models.DimStore, "store-sale")
+    assert store is not None
+    store.store_name = "Current Store Sale"
+    db_session.flush()
+
+    statement = lock_settlement_statement(
+        db_session,
+        store_id="store-sale",
+        statement_month="2026-08",
+        lock_run_id="snapshot-unlocked-lock",
+    )
+
+    assert statement.statement_id == "statement-unlocked-snapshot"
+    assert statement.store_name_snapshot == "Frozen Store Sale"
+    assert statement.sap_code_snapshot == "SAP-FROZEN-001"
+    assert statement.store_snapshot_profile_id == "profile-at-first-create"
+
+
+def test_statement_lock_queries_only_the_current_statement_version(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="current-statement-calc")
+    db_session.add_all(
+        [
+            SettlementStatement(
+                statement_id="statement-history-locked",
+                store_id="store-sale",
+                statement_month="2026-08",
+                version_no=1,
+                is_current=False,
+                statement_status=4,
+            ),
+            SettlementStatement(
+                statement_id="statement-current-unlocked",
+                store_id="store-sale",
+                statement_month="2026-08",
+                version_no=2,
+                is_current=True,
+                supersedes_statement_id="statement-history-locked",
+                statement_status=1,
+            ),
+        ]
+    )
+    db_session.flush()
+
+    assert settlement_worker._locked_statement(db_session, "store-sale", "2026-08") is None
+    statement = lock_settlement_statement(
+        db_session,
+        store_id="store-sale",
+        statement_month="2026-08",
+        lock_run_id="current-statement-lock",
+    )
+
+    assert statement.statement_id == "statement-current-unlocked"
+    assert statement.is_current is True
+    assert statement.statement_status == 4
 
 
 def test_recalculation_and_statement_lock_share_store_month_slot_lock(
@@ -1502,6 +1636,418 @@ def test_locked_event_month_blocks_unbillable_refund_adjustments(
     assert len(blocked_issues) == 2
 
 
+def test_locked_refund_creates_immutable_carryforward_sources(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="carryforward-base")
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2026-10",
+            lock_run_id=f"carryforward-lock-{store_id}",
+        )
+    db_session.add(
+        DouyinRefundEvent(
+            refund_event_id="refund-carryforward-source",
+            order_id="order-coupon-dual",
+            coupon_id="coupon-dual",
+            refund_type=1,
+            refund_status=2,
+            refund_amount_cent=1000,
+            occurred_at=_dual_time(10, 20),
+            source_run_id="carryforward-refund",
+            raw_payload={},
+        )
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="carryforward-calc")
+
+    source_model = getattr(dy_models, "SettlementCarryforwardSource", None)
+    assert source_model is not None, "locked refunds require immutable carryforward sources"
+    sources = list(
+        db_session.scalars(
+            select(source_model).order_by(source_model.fee_direction)
+        )
+    )
+    assert len(sources) == 2
+    assert [source.fee_direction for source in sources] == [1, 2]
+    assert [source.adjustment_base_cent for source in sources] == [-1000, -1000]
+    assert [source.adjustment_fee_cent for source in sources] == [-12, -200]
+    assert {source.event_month for source in sources} == {"2026-10"}
+    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+
+
+def test_carryforward_applies_once_after_consecutive_locked_months(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="carryforward-apply-base")
+    for month in ("2026-10", "2026-11"):
+        for store_id in ("store-sale", "store-verify"):
+            lock_settlement_statement(
+                db_session,
+                store_id=store_id,
+                statement_month=month,
+                lock_run_id=f"carryforward-apply-lock-{month}-{store_id}",
+            )
+    db_session.add(
+        DouyinRefundEvent(
+            refund_event_id="refund-carryforward-apply",
+            order_id="order-coupon-dual",
+            coupon_id="coupon-dual",
+            refund_type=1,
+            refund_status=2,
+            refund_amount_cent=1000,
+            occurred_at=_dual_time(10, 20),
+            source_run_id="carryforward-apply-refund",
+            raw_payload={},
+        )
+    )
+    db_session.flush()
+    rebuild_dual_fee_results(
+        db_session, calculation_run_id="carryforward-apply-calc"
+    )
+
+    target_statements = {
+        lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2026-12",
+            lock_run_id=f"carryforward-apply-december-{store_id}",
+        ).statement_id
+        for store_id in ("store-sale", "store-verify")
+    }
+
+    source_model = dy_models.SettlementCarryforwardSource
+    application_model = dy_models.SettlementCarryforwardApplication
+    sources = list(db_session.scalars(select(source_model)))
+    applications = list(db_session.scalars(select(application_model)))
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert len(sources) == 2
+    assert len(applications) == 2
+    assert {row.carryforward_source_id for row in applications} == {
+        row.carryforward_source_id for row in sources
+    }
+    assert {row.target_statement_id for row in applications} == target_statements
+    assert {row.target_posting_month for row in applications} == {"2026-12"}
+    assert {row.application_version for row in applications} == {1}
+    assert all(row.is_current for row in applications)
+    assert len(adjustments) == 2
+    assert {row.adjustment_posting_month for row in adjustments} == {"2026-12"}
+    assert {row.adjustment_base_cent for row in adjustments} == {-1000}
+    assert {row.adjustment_fee_cent for row in adjustments} == {-12, -200}
+    target_rows = list(
+        db_session.scalars(
+            select(SettlementStatement).where(
+                SettlementStatement.statement_id.in_(target_statements)
+            )
+        )
+    )
+    assert sum(row.promotion_adjustment_fee_cent for row in target_rows) == -12
+    assert sum(row.management_adjustment_fee_cent for row in target_rows) == -200
+    carryforward_entry_ids = set(
+        db_session.scalars(
+            select(SettlementStatementEntry.source_record_id).where(
+                SettlementStatementEntry.statement_id.in_(target_statements),
+                SettlementStatementEntry.source_type == 2,
+            )
+        )
+    )
+    assert carryforward_entry_ids == {
+        row.target_adjustment_id for row in applications
+    }
+
+    rebuild_dual_fee_results(
+        db_session, calculation_run_id="carryforward-apply-repeat"
+    )
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2026-12",
+            lock_run_id=f"carryforward-apply-repeat-{store_id}",
+        )
+    assert count(db_session, source_model) == 2
+    assert count(db_session, application_model) == 2
+    assert count(db_session, SettlementFeeAdjustment) == 2
+
+    management_pointer = db_session.scalar(
+        select(SettlementFeeResultCurrent).where(
+            SettlementFeeResultCurrent.coupon_id == "coupon-dual",
+            SettlementFeeResultCurrent.fee_direction == 2,
+        )
+    )
+    assert management_pointer is not None
+    management_pointer.fee_result_id = "superseding-fee-result-not-yet-materialized"
+    db_session.flush()
+    frozen_sources = settlement_worker._statement_sources(
+        db_session,
+        store_id="store-verify",
+        statement_month="2026-12",
+    )
+    assert [row.fee_amount_cent for row in frozen_sources if row.source_type == 2] == [
+        -200
+    ]
+    assert "2026-12" in settlement_worker._projection_months(db_session)
+
+
+def test_invoice_facts_make_event_month_immutable_without_locked_statement(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="invoice-fact-base")
+    db_session.add_all(
+        [
+            dy_models.PromotionInvoiceAllocation(
+                allocation_id="allocation-immutable-october",
+                invoice_id="promotion-invoice-immutable-october",
+                store_id="store-sale",
+                statement_id="promotion-statement-immutable-october",
+                statement_month="2026-10",
+                settlement_batch_month="2026-09",
+                allocated_amount_cent=123,
+                is_current=True,
+            ),
+            dy_models.InvoiceRecord(
+                invoice_id="management-invoice-immutable-october",
+                store_id="store-verify",
+                statement_month="2026-10",
+                statement_id="management-statement-immutable-october",
+                fee_direction=2,
+                version_no=1,
+                is_current=True,
+                invoice_number="12345678901234567890",
+                invoice_date=date(2026, 10, 10),
+                invoice_amount_cent=2000,
+                invoice_status=3,
+                source_type=2,
+                factory_deduction_date=date(2026, 10, 10),
+                factory_deduction_amount_cent=2000,
+                registered_by="finance-admin",
+            ),
+            dy_models.PromotionInvoiceAllocation(
+                allocation_id="allocation-immutable-november",
+                invoice_id="promotion-invoice-immutable-november",
+                store_id="store-sale",
+                statement_id="promotion-statement-immutable-november",
+                statement_month="2026-11",
+                settlement_batch_month="2026-10",
+                allocated_amount_cent=123,
+                is_current=True,
+            ),
+            dy_models.InvoiceRecord(
+                invoice_id="management-invoice-immutable-november",
+                store_id="store-verify",
+                statement_month="2026-11",
+                statement_id="management-statement-immutable-november",
+                fee_direction=2,
+                version_no=1,
+                is_current=True,
+                invoice_number="12345678901234567891",
+                invoice_date=date(2026, 11, 10),
+                invoice_amount_cent=2000,
+                invoice_status=3,
+                source_type=2,
+                factory_deduction_date=date(2026, 11, 10),
+                factory_deduction_amount_cent=2000,
+                registered_by="finance-admin",
+            ),
+            DouyinRefundEvent(
+                refund_event_id="refund-after-invoice-facts",
+                order_id="order-coupon-dual",
+                coupon_id="coupon-dual",
+                refund_type=1,
+                refund_status=2,
+                refund_amount_cent=1000,
+                occurred_at=_dual_time(10, 20),
+                source_run_id="invoice-fact-refund",
+                raw_payload={},
+            ),
+        ]
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="invoice-fact-calc")
+
+    sources = list(
+        db_session.scalars(select(dy_models.SettlementCarryforwardSource))
+    )
+    assert len(sources) == 2
+    assert {row.fee_direction for row in sources} == {1, 2}
+    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+    issues = list(
+        db_session.scalars(
+            select(DataQualityIssue).where(
+                DataQualityIssue.source_run_id == "invoice-fact-calc",
+                DataQualityIssue.issue_type
+                == "dual_fee_locked_adjustment_posting_month",
+            )
+        )
+    )
+    assert len(issues) == 2
+    assert {row.severity for row in issues} == {"warning"}
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2026-12",
+            lock_run_id=f"invoice-fact-december-{store_id}",
+        )
+    assert count(db_session, dy_models.SettlementCarryforwardApplication) == 2
+    assert {
+        row.target_posting_month
+        for row in db_session.scalars(
+            select(dy_models.SettlementCarryforwardApplication)
+        )
+    } == {"2026-12"}
+
+
+def test_pending_refund_then_cancellation_reaches_zero_without_double_counting(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="combined-base")
+    for month in ("2026-10", "2026-11"):
+        for store_id in ("store-sale", "store-verify"):
+            lock_settlement_statement(
+                db_session,
+                store_id=store_id,
+                statement_month=month,
+                lock_run_id=f"combined-lock-{month}-{store_id}",
+            )
+    db_session.add(
+        DouyinRefundEvent(
+            refund_event_id="refund-before-cancellation",
+            order_id="order-coupon-dual",
+            coupon_id="coupon-dual",
+            refund_type=1,
+            refund_status=2,
+            refund_amount_cent=1000,
+            occurred_at=_dual_time(10, 19),
+            source_run_id="combined-refund",
+            raw_payload={},
+        )
+    )
+    verify = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    assert verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 20)
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="combined-calc")
+
+    management_sources = list(
+        db_session.scalars(
+            select(dy_models.SettlementCarryforwardSource).where(
+                dy_models.SettlementCarryforwardSource.fee_direction == 2
+            )
+        )
+    )
+    assert len(management_sources) == 2
+    assert sum(row.adjustment_base_cent for row in management_sources) == -10000
+    assert sum(row.adjustment_fee_cent for row in management_sources) == -2000
+
+    target = lock_settlement_statement(
+        db_session,
+        store_id="store-verify",
+        statement_month="2026-12",
+        lock_run_id="combined-apply",
+    )
+    assert target.management_original_fee_cent == 0
+    assert target.management_adjustment_fee_cent == -2000
+    assert target.management_net_fee_cent == -2000
+    management_adjustments = list(
+        db_session.scalars(
+            select(SettlementFeeAdjustment).where(
+                SettlementFeeAdjustment.fee_direction == 2
+            )
+        )
+    )
+    assert sum(row.adjustment_base_cent for row in management_adjustments) == -10000
+    assert sum(row.adjustment_fee_cent for row in management_adjustments) == -2000
+
+
+def test_applied_source_then_later_refund_uses_each_delta_once(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="later-refund-base")
+    for month in ("2026-10", "2026-11"):
+        for store_id in ("store-sale", "store-verify"):
+            lock_settlement_statement(
+                db_session,
+                store_id=store_id,
+                statement_month=month,
+                lock_run_id=f"later-refund-lock-{month}-{store_id}",
+            )
+    db_session.add(
+        DouyinRefundEvent(
+            refund_event_id="refund-first-locked",
+            order_id="order-coupon-dual",
+            coupon_id="coupon-dual",
+            refund_type=1,
+            refund_status=2,
+            refund_amount_cent=1000,
+            occurred_at=_dual_time(10, 20),
+            source_run_id="later-refund-first",
+            raw_payload={},
+        )
+    )
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="later-refund-first-calc")
+    december = {
+        store_id: lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2026-12",
+            lock_run_id=f"later-refund-december-{store_id}",
+        )
+        for store_id in ("store-sale", "store-verify")
+    }
+
+    db_session.add(
+        DouyinRefundEvent(
+            refund_event_id="refund-second-after-application",
+            order_id="order-coupon-dual",
+            coupon_id="coupon-dual",
+            refund_type=1,
+            refund_status=2,
+            refund_amount_cent=500,
+            occurred_at=_dual_time(12, 20),
+            source_run_id="later-refund-second",
+            raw_payload={},
+        )
+    )
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="later-refund-second-calc")
+    january = {
+        store_id: lock_settlement_statement(
+            db_session,
+            store_id=store_id,
+            statement_month="2027-01",
+            lock_run_id=f"later-refund-january-{store_id}",
+        )
+        for store_id in ("store-sale", "store-verify")
+    }
+
+    assert december["store-sale"].promotion_adjustment_fee_cent == -12
+    assert december["store-verify"].management_adjustment_fee_cent == -200
+    assert january["store-sale"].promotion_adjustment_fee_cent == -6
+    assert january["store-verify"].management_adjustment_fee_cent == -100
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert sum(
+        row.adjustment_base_cent for row in adjustments if row.fee_direction == 1
+    ) == -1500
+    assert sum(
+        row.adjustment_base_cent for row in adjustments if row.fee_direction == 2
+    ) == -1500
+    assert count(db_session, dy_models.SettlementCarryforwardSource) == 4
+    assert count(db_session, dy_models.SettlementCarryforwardApplication) == 4
+
+
 def test_locked_event_month_blocks_unbillable_cancellation_adjustment(
     db_session: Session,
 ) -> None:
@@ -1531,6 +2077,68 @@ def test_locked_event_month_blocks_unbillable_cancellation_adjustment(
     )
     assert issue is not None
     assert issue.raw_context_json["verify_id"] == "verify-coupon-dual"
+
+
+def test_locked_cancellation_carries_management_fee_forward_once(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="cancel-carry-base")
+    for month in ("2026-10", "2026-11"):
+        lock_settlement_statement(
+            db_session,
+            store_id="store-verify",
+            statement_month=month,
+            lock_run_id=f"cancel-carry-lock-{month}",
+        )
+    verify = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    assert verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 20)
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="cancel-carry-source")
+
+    source_model = dy_models.SettlementCarryforwardSource
+    application_model = dy_models.SettlementCarryforwardApplication
+    sources = list(db_session.scalars(select(source_model)))
+    assert len(sources) == 1
+    assert sources[0].fee_direction == 2
+    assert sources[0].verify_id == "verify-coupon-dual"
+    assert sources[0].refund_event_id is None
+    assert sources[0].adjustment_base_cent == -10000
+    assert sources[0].adjustment_fee_cent == -2000
+    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+
+    target = lock_settlement_statement(
+        db_session,
+        store_id="store-verify",
+        statement_month="2026-12",
+        lock_run_id="cancel-carry-apply",
+    )
+    applications = list(db_session.scalars(select(application_model)))
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert len(applications) == 1
+    assert applications[0].carryforward_source_id == sources[0].carryforward_source_id
+    assert applications[0].target_statement_id == target.statement_id
+    assert applications[0].target_posting_month == "2026-12"
+    assert applications[0].application_version == 1
+    assert applications[0].is_current is True
+    assert len(adjustments) == 1
+    assert adjustments[0].fee_direction == 2
+    assert adjustments[0].adjustment_type == 3
+    assert adjustments[0].adjustment_posting_month == "2026-12"
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="cancel-carry-repeat")
+    lock_settlement_statement(
+        db_session,
+        store_id="store-verify",
+        statement_month="2026-12",
+        lock_run_id="cancel-carry-repeat-apply",
+    )
+    assert count(db_session, source_model) == 1
+    assert count(db_session, application_model) == 1
+    assert count(db_session, SettlementFeeAdjustment) == 1
 
 
 def test_post_lock_refund_enters_event_month_without_changing_original_statements(

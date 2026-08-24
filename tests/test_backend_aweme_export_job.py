@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from pathlib import Path
+from argparse import Namespace
+import subprocess
 import zipfile
 
 import pytest
@@ -28,6 +30,7 @@ from apps.worker.browser_exports.backend_aweme import (
     workbook_filename,
 )
 from apps.worker.browser_exports import backend_aweme
+from scripts.exports import auto_export_backend_aweme_chromium as export_adapter
 
 
 def write_workbook(path: Path) -> None:
@@ -53,6 +56,33 @@ def count(session: Session, model: type) -> int:
     value = session.scalar(select(func.count()).select_from(model))
     assert value is not None
     return value
+
+
+def test_browser_export_adapter_parses_command_without_enabling_a_shell(monkeypatch):
+    args = Namespace(
+        command="python -m apps.worker.browser_exports.backend_aweme --flag value",
+        command_args=[],
+    )
+    captured: dict[str, object] = {}
+
+    def fake_run(command, **kwargs):
+        captured["command"] = command
+        captured.update(kwargs)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(export_adapter.subprocess, "run", fake_run)
+
+    command = export_adapter.build_command(args)
+    export_adapter.run_export(command, {})
+
+    assert command == [
+        "python",
+        "-m",
+        "apps.worker.browser_exports.backend_aweme",
+        "--flag",
+        "value",
+    ]
+    assert captured["shell"] is False
 
 
 def test_backend_aweme_export_requires_cdp_when_no_workbook_path(db_session: Session):

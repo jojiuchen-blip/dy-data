@@ -35,6 +35,12 @@ def test_internal_production_values_use_shared_safe_presenters() -> None:
         "displayAllocationExecutionMode",
         "displayAllocationCycleType",
         "displayUserRole",
+        "displayFeeDirection",
+        "displayFinanceInvoiceStatus",
+        "displayFinanceImportType",
+        "displayFinanceImportScenario",
+        "displayFinanceDisputeStatus",
+        "displayFinanceDisputeType",
     ]
     for presenter in required_presenters:
         assert f"export function {presenter}" in labels
@@ -342,9 +348,10 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "data: current.data" in resource_hook
     assert "refreshing: current.data !== undefined" in resource_hook
     assert "requestId !== requestIdRef.current" in resource_hook
-    assert 'location.pathname === "/invoice"' in app
-    assert 'import("./pages/InvoiceGuidePage")' in app
-    assert '["/invoice", "B03"]' in app
+    assert 'location.pathname === "/settlement/invoice"' in app
+    assert 'import("./pages/StoreInvoicePage")' in app
+    assert '["/settlement/invoice", "B02"]' in app
+    assert '["/invoice", "B02"]' in app
 
 
 def test_metric_cards_use_one_neutral_visual_treatment() -> None:
@@ -378,3 +385,275 @@ def test_metric_cards_use_one_neutral_visual_treatment() -> None:
         assert "不使用彩色顶线" in document
     assert 'class="metric-preview primary"' not in html
     assert 'class="metric-preview semantic"' not in html
+
+
+def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
+    app = read_source("App.tsx")
+    shell = read_source("components/Shell.tsx")
+    client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
+    invoice_page = read_source("pages/StoreInvoicePage.tsx")
+    finance_page = read_source("pages/FinanceFeePage.tsx")
+    disputes_page = read_source("pages/FinanceDisputesPage.tsx")
+    imports_page = read_source("pages/FinanceImportsPage.tsx")
+    labels = read_source("utils/userFacingLabels.ts")
+
+    production_routes = [
+        "/settlement/invoice",
+        "/finance/promotion",
+        "/finance/management",
+        "/finance/orders/promotion",
+        "/finance/orders/management",
+        "/finance/stores",
+        "/finance/disputes",
+        "/finance/imports",
+    ]
+    for route in production_routes:
+        assert route in app
+        assert route in shell
+
+    assert 'location.pathname === "/finance"' in app
+    assert 'window.history.replaceState(null, "", "/finance/promotion")' in app
+    assert 'import("./pages/StoreInvoicePage")' in app
+    assert "InvoiceGuidePage" not in app
+    assert 'export type BillingMetricScope = "MONTH" | "CUMULATIVE"' in types
+    for live_field in [
+        "statementId", "promotionAmountCent", "invoiceNumber",
+        "statementTotalCent", "orderId", "storeName", "disputeId",
+        "batchId", "pageSize",
+    ]:
+        assert live_field in types
+    assert "FinanceImportActionPanel" in finance_page
+    import_panel = read_source("components/FinanceImportActionPanel.tsx")
+    for import_type in [
+        "BASIC_INFO",
+        "PROMOTION_FACTORY_RESULT",
+        "MANAGEMENT_FACTORY_RESULT",
+        "SAP_CONFIRMATION",
+    ]:
+        assert import_type in import_panel
+    for obsolete_import_type in [
+        "PROMOTION_REVIEW_RESULT",
+        "MANAGEMENT_INVOICE_DETAIL",
+        "SAP_SETTLEMENT_RESULT",
+    ]:
+        assert obsolete_import_type not in import_panel
+        assert obsolete_import_type not in imports_page
+    assert "uploadFinanceImport" not in imports_page
+    assert "commitFinanceImport" not in imports_page
+    assert "processSteps" not in invoice_page
+    assert "发票提交财务审核" not in invoice_page
+    assert "系统不创建开票申请单" in invoice_page
+    assert "比亚迪汽车销售有限公司" in invoice_page
+    assert "914403007604674476" in invoice_page
+    assert "const PROMOTION_INVOICE_TAX_RATE_PERCENT = 6" in invoice_page
+    assert "taxRatePercent: PROMOTION_INVOICE_TAX_RATE_PERCENT" in invoice_page
+    for promotion_invoice_field in [
+        "buyerName",
+        "taxRatePercent",
+        "settlementBatchMonth",
+        "promotionInvoiceableAmountCent",
+        "promotionCarryforwardBalanceCent",
+        "promotionInvoiceGroupId",
+        "promotionRequiredStatementIds",
+    ]:
+        assert promotion_invoice_field in types
+    assert "promotionInvoiceGroupId: statement.promotionInvoiceGroupId" in invoice_page
+    assert "toggleInvoiceGroup" in invoice_page
+    assert "positiveOriginalAmountCent" in invoice_page
+    assert "negativeOffsetAmountCent" in invoice_page
+    assert "结转抵扣中" in invoice_page
+    assert "正数原费用" in invoice_page
+    assert "负数抵扣" in invoice_page
+    assert "净开票金额" in invoice_page
+    assert "PromotionInvoiceRegistrationResult" in types
+    assert "ApiLoadResult<PromotionInvoiceRegistrationResult>" in client
+    for lifecycle_contract in [
+        "PromotionInvoiceLifecycleEvent",
+        "PromotionInvoiceDetail",
+        "replacesInvoiceId",
+        "physicalInvoiceId",
+        "versionKind",
+    ]:
+        assert lifecycle_contract in types
+    for lifecycle_client in [
+        "fetchPromotionInvoiceDetail",
+        "fetchPromotionInvoiceReplacementCandidates",
+        "createPromotionInvoiceLifecycleEvent",
+        "releasedStatementMonths",
+    ]:
+        assert lifecycle_client in client + invoice_page
+    for lifecycle_copy in [
+        "登记红冲",
+        "登记作废",
+        "系统只登记事实并释放全部账期",
+        "必须使用新发票号码覆盖账期",
+    ]:
+        assert lifecycle_copy in invoice_page
+    for recovery_contract in [
+        "待替换发票",
+        "恢复替换",
+        "replacementCandidateResource",
+        "fetchPromotionInvoiceDetail(replacedInvoiceId)",
+        "replacementChain",
+    ]:
+        assert recovery_contract in invoice_page + client
+    assert "SUBMITTED_PENDING_REVIEW" not in invoice_page
+    assert "SUBMITTED_PENDING_FACTORY_REVIEW" in labels
+    for presenter, source in [
+        ("displayFinanceInvoiceStatus", invoice_page + finance_page),
+        ("displayFinanceImportType", imports_page),
+        ("displayFinanceImportScenario", imports_page + import_panel),
+        ("displayFinanceDisputeStatus", disputes_page),
+        ("displayFinanceDisputeType", disputes_page),
+        ("displayFeeDirection", disputes_page),
+    ]:
+        assert presenter in source
+    for raw_fallback in [
+        "?? row.status",
+        "?? row.importType",
+        "?? row.scenario",
+        "?? row.disputeType",
+    ]:
+        assert raw_fallback not in invoice_page + finance_page + disputes_page + imports_page
+
+    required_endpoints = [
+        '"/store-settlements"',
+        '"/promotion-invoices"',
+        '"/admin/finance/summary"',
+        '"/admin/finance/invoices"',
+        '"/admin/finance/order-details"',
+        '"/admin/finance/order-details/export"',
+        '"/admin/finance/stores"',
+        '"/admin/disputes"',
+        '"/admin/finance-imports"',
+    ]
+    for endpoint in required_endpoints:
+        assert endpoint in client
+
+    for type_name in [
+        "StoreBillingStatement",
+        "PromotionInvoiceRow",
+        "FinanceSummaryData",
+        "FinanceInvoiceRow",
+        "FinanceOrderDetailRow",
+        "FinanceStoreRow",
+        "FinanceDisputeRow",
+        "FinanceImportBatchRow",
+    ]:
+        assert f"interface {type_name}" in types
+
+
+def test_dydata_19_g2_frontend_exposes_correction_sap_and_reversal_actions() -> None:
+    app = read_source("App.tsx")
+    shell = read_source("components/Shell.tsx")
+    client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
+    management_page = read_source("pages/FinanceFeePage.tsx")
+    stores_page = read_source("pages/FinanceStoresPage.tsx")
+    imports_page = read_source("pages/FinanceImportsPage.tsx")
+
+    assert 'pathname === "/finance/stores" && user.role === "store"' in app
+    assert 'user.page_keys.includes("B02")' in app
+    assert '{ href: "/finance/stores", label: "SAP 建议", pageKey: "B02" }' in shell
+    assert 'currentPath === "/finance/stores" && currentUser?.role === "store"' in shell
+    assert "correctManagementInvoice" in client + management_page
+    assert "更正管理服务费记录" in management_page
+    assert "readVersion" in management_page
+    assert "历史版本" in management_page
+    assert "invoiceAmountCent: string" in management_page
+    assert "deductionAmountCent: string" in management_page
+    assert 'type="number"' in management_page
+    assert "<input disabled" not in management_page
+    assert "submitSapSuggestion" in client + stores_page
+    assert "decideSapSuggestion" in client + stores_page
+    assert "suggestionVersion" in stores_page
+    assert "expectedConfirmedVersion" in stores_page
+    assert "currentUser={user}" in app
+    assert "reverseFinanceImport" in client + imports_page
+
+
+def test_dydata_19_g3_order_detail_page_exposes_complete_server_filters_pagination_export_state_and_definitions() -> None:
+    """The two fee-direction pages share a complete, observable order-detail workflow."""
+    page = read_source("pages/FinanceOrderDetailsPage.tsx")
+    client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
+    imports_page = read_source("pages/FinanceImportsPage.tsx")
+
+    for control in [
+        "sapCode",
+        "invoiceNumber",
+        "orderId",
+        "skuId",
+        "saleChannel",
+        "invoiceStatus",
+        "submittedFrom",
+        "submittedTo",
+        "verifyFrom",
+        "verifyTo",
+        "pageSize",
+        "导出中",
+        "字段来源与计算说明",
+        "上一页",
+        "下一页",
+        "重置筛选",
+    ]:
+        assert control in page
+    assert "fetchFinanceOrderDetails" in page
+    assert "downloadFinanceOrderDetails" in page
+    assert "finance-order-detail-grid" in page
+    for field in [
+        "statementEntryId",
+        "statementId",
+        "statementMonth",
+        "feeDirection",
+        "orderStatus",
+        "couponStatus",
+        "saleStoreId",
+        "saleStoreName",
+        "verifyStoreId",
+        "verifyStoreName",
+        "saleTime",
+        "refundTime",
+        "adjustmentType",
+        "submittedAt",
+        "settledAt",
+        "rejectionReason",
+        "importedAt",
+        "factoryDeductionDate",
+        "factoryDeductionAmountCent",
+    ]:
+        assert f"row.{field}" in page
+    assert "FinanceOrderDetailFieldDefinitions" in types
+    assert "FinanceOrderDetailsQuery" in types
+    download_contract = client.split(
+        "export function downloadFinanceOrderDetails", 1
+    )[1].split("export function fetchFinanceStores", 1)[0]
+    assert "Promise<void>" not in download_contract
+    assert "撤销批次" in imports_page
+    assert "changeReason" in imports_page
+    for field in [
+        "sourceType",
+        "suggestionStatus",
+        "suggestionVersion",
+        "confirmedVersion",
+        "reversesBatchId",
+        "reversedByBatchId",
+        "reverseNotAllowedReason",
+        "reversalChain",
+        "canReverse",
+    ]:
+        assert field in types
+    for field in [
+        "originalTargetRecordId",
+        "previousTargetRecordId",
+        "reversalTargetRecordId",
+        "effectType",
+        "isCurrent",
+        "reversalRows",
+    ]:
+        assert field in types
+    assert "逐业务键撤销覆盖链" in imports_page
+    assert "originalTargetRecordId" in imports_page
+    for field in ["reversedByBatchId", "reverseNotAllowedReason", "reversalChain"]:
+        assert field in imports_page

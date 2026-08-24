@@ -18,8 +18,8 @@
 | T4.1 | [端到端核验与生产发布](sub-delivery-plan-dy-data-T4.1-release-verification.md) | AI 执行 -> 人审核 | T3.1、T3.2、T3.3；外部依赖关闭 | 待开发 | - | 等待外部商品 API 样例、稳定归属账号 ID、真实渠道枚举、DYDATA-32 权限矩阵和目标 PostgreSQL/生产环境；当前仅做发布准备 |
 | T5.1 | [财务闭环 Schema 与领域地基](sub-delivery-plan-dy-data-T5.1-finance-schema.md) | AI 执行 -> 人审核 | PRD/Foundation 冻结 | 已完成（2026-08-21） | 2026-08-21 | 8 张表、模型、迁移与结构测试完成；账单 V1/Vn+1 兼容迁移、SQLite 升降级与 PostgreSQL DDL 已复验 |
 | T5.2 | [门店确认与推广费发票登记](sub-delivery-plan-dy-data-T5.2-store-billing.md) | AI 执行 -> 人审核 | T5.1 | 已完成（2026-08-21） | 2026-08-21 | 当前/历史账单、分方向确认、跨账期发票分配、状态事件与重登版本；专项 API 5 passed |
-| T5.3 | [管理员财务查询与订单穿透](sub-delivery-plan-dy-data-T5.3-finance-queries.md) | AI 执行 -> 人审核 | T5.1、T5.2 | 已完成（2026-08-21） | 2026-08-21 | #31～#34、当前版本筛选、单月/累计、双方向订单与门店聚合；专项/回归 33 passed |
-| T5.4 | [账单异议生命周期](sub-delivery-plan-dy-data-T5.4-disputes.md) | AI 执行 -> 人审核 | T5.1、T5.2 | 进行中 | - | 门店提交/撤回、管理员处理、新账单版本 |
-| T5.5 | [四类财务导入与更正](sub-delivery-plan-dy-data-T5.5-finance-imports.md) | AI 执行 -> 人审核 | T5.1～T5.4 | 待审阅 | - | 流式校验、差异、原子提交、更正与错误下载 |
-| T5.6 | [生产页面与跨页流程](sub-delivery-plan-dy-data-T5.6-finance-pages.md) | AI 执行 -> 人审核 | T5.2～T5.5 | 待审阅 | - | 复用已验证原型和现有设计系统，替换旧五节点页 |
-| T5.7 | [系统测试与用户验收](sub-delivery-plan-dy-data-T5.7-system-uat.md) | AI 执行 -> 人审核 | T5.1～T5.6 | 待审阅 | - | 全量回归、真实浏览器、并发/大文件与 UAT |
+| T5.3 | [管理员财务查询与订单穿透](sub-delivery-plan-dy-data-T5.3-finance-queries.md) | AI 执行 -> 人审核 | T5.1、T5.2 | 已完成（2026-08-21） | 2026-08-21 | #31～#34、当前版本筛选、单月/累计、双方向订单/CSV 导出与门店聚合；`test_api_store_billing` 12、`test_api_dashboard` 17、Schema 5、相关迁移 2 均通过 |
+| T5.4 | [账单异议生命周期](sub-delivery-plan-dy-data-T5.4-disputes.md) | AI 执行 -> 人审核 | T5.1、T5.2 | 已完成（2026-08-21） | 2026-08-21 | 提交/撤回、管理员处理、方向范围冻结、Vn+1、自动确认、审计与幂等迁移；账单 API 14 passed，迁移 2 passed |
+| T5.5 | [四类财务导入与更正](sub-delivery-plan-dy-data-T5.5-finance-imports.md) | AI 执行 -> 人审核 | T5.1～T5.4 | 已完成（2026-08-21） | 2026-08-21 | 最终四模板、六接口、五场景、全错误下载、上传/提交幂等、原子提交/更正与并发冲突；导入专项 5、账单回归 22、迁移专项 2 均通过 |
+| T5.6 | [生产页面与跨页流程](sub-delivery-plan-dy-data-T5.6-finance-pages.md) | AI 执行 -> 人审核 | T5.2～T5.5 | 已完成（2026-08-21） | 2026-08-21 | 8 路由接入真实 API；设计/前端契约 54、账单/导入 API 27、相关浏览器 30 项通过；24 张三视口截图已留存，旧五节点页面删除并保留单向兼容跳转；Foundation 无新增漂移 |
+| T5.7 | [系统测试与用户验收](sub-delivery-plan-dy-data-T5.7-system-uat.md) | AI 执行 -> 人审核 | T5.1～T5.6 | 进行中（主线集成与生产交付） | - | G1/G2/G3 已关闭且最终复审 Ready；当前从最新主线重建迁移链并执行全量发布门禁。Owner 已授权全部硬门禁通过后无需二次确认直接部署，任一门禁失败即停止并记录证据 |

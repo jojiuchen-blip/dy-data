@@ -93,6 +93,9 @@
 | 字段 | 类型 | 说明 | 来源表.列 |
 |------|------|------|----------|
 | `statementId` | string | 账单业务 ID | `settlement_statement.statement_id` |
+| `versionNo` | integer | 当前账单版本号 | `.version_no` |
+| `isCurrent` | boolean | 是否为该门店账期当前版本 | `.is_current` |
+| `supersedesStatementId` | string/null | 直接被当前版本替代的上一账单 ID；首版为空 | `.supersedes_statement_id` |
 | `statementStatus` | string | 账单状态 | `.statement_status` |
 | `confirmedAt` | datetime/null | 确认时间 | `.confirmed_at` |
 | `lockedAt` | datetime/null | 锁账时间 | `.locked_at` |
@@ -136,7 +139,7 @@
 | `feeRates` | decimal-string[] | 行内实际费率去重集合 | 关联 `settlement_fee_result.fee_rate` 去重 |
 | `ruleVersions` | string[] | 行内实际规则版本集合 | 关联 `settlement_fee_result.rule_version` 去重 |
 
-**下钻规则**：日级规则使同一产品行可能包含多个费率和版本，前端不得把汇总行伪装为单一费率。下钻时优先携带 `statementId + statementLineId + feeRates + ruleVersions`；未生成账单时携带 `storeId + month + feeDirection + productScope + productType + feeRates + ruleVersions`。费率和版本只用于恢复来源上下文，服务端以账单行或实际结果重新校验并授权。
+**下钻规则**：月度分账只返回该门店账期的当前账单版本；日级规则使同一产品行可能包含多个费率和版本，前端不得把汇总行伪装为单一费率。下钻时优先携带 `statementId + statementLineId + feeRates + ruleVersions`；未生成账单时携带 `storeId + month + feeDirection + productScope + productType + feeRates + ruleVersions`。费率和版本只用于恢复来源上下文，服务端以账单行或实际结果重新校验并授权。
 
 ## 3 `GET /api/v1/order-fee-details` — 订单费用明细
 
