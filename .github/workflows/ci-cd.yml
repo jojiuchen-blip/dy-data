@@ -63,6 +63,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
+      - name: Select current formal delivery plan
+        run: node scripts/prepare_governance_plan.mjs .
+
       - name: Run project governance gates
         run: |
           npm --prefix .agent/project-manager-suite run test:ai-pm
