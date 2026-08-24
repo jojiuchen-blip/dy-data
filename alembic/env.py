@@ -45,20 +45,28 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         migration_lock_acquired = False
+        migration_lock_connection = None
         if connection.dialect.name == "postgresql":
             connection.exec_driver_sql("SET statement_timeout = '10min'")
             connection.commit()
             try:
-                connection.execute(
+                # Keep the session-level lock on a separate autocommit
+                # connection. A blocked waiter must not retain a virtual
+                # transaction while CREATE INDEX CONCURRENTLY is running on
+                # the migration connection.
+                migration_lock_connection = connectable.connect().execution_options(
+                    isolation_level="AUTOCOMMIT"
+                )
+                migration_lock_connection.execute(
                     text("SELECT pg_advisory_lock(:lock_key)"),
                     {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
                 )
                 migration_lock_acquired = True
-            finally:
-                if connection.in_transaction():
-                    connection.rollback()
-                connection.exec_driver_sql("RESET statement_timeout")
-                connection.commit()
+            except BaseException:
+                if migration_lock_connection is not None:
+                    migration_lock_connection.close()
+                    migration_lock_connection = None
+                raise
 
         try:
             context.configure(connection=connection, target_metadata=target_metadata)
@@ -68,11 +76,12 @@ def run_migrations_online() -> None:
             if migration_lock_acquired:
                 if connection.in_transaction():
                     connection.rollback()
-                connection.execute(
+                migration_lock_connection.execute(
                     text("SELECT pg_advisory_unlock(:lock_key)"),
                     {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
                 )
-                connection.commit()
+            if migration_lock_connection is not None:
+                migration_lock_connection.close()
 
 
 if context.is_offline_mode():

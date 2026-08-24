@@ -57,6 +57,7 @@ def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
 
     assert "pg_advisory_lock" in env_source
     assert "pg_advisory_unlock" in env_source
+    assert 'isolation_level="AUTOCOMMIT"' in env_source
     assert "SET statement_timeout = '10min'" in env_source
 
 
