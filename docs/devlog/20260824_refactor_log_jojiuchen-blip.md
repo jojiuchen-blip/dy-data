@@ -84,3 +84,15 @@
 ## 六、待跟进事项
 
 - [ ] 形成可恢复 checkpoint 后，从最新 origin/main 建立干净集成分支，重建财务迁移链并执行全量发布门禁
+
+---
+
+## 七、2026-08-25 发布前验证记录
+
+- **集成提交**：`bea1f70 test: align finance import conflict smoke contract`
+- **CI 运行**：[32796993246](https://github.com/jojiuchen-blip/dy-data/actions/runs/32796993246)
+- **治理门禁**：suite lock、全局文件校验、阶段路由校验均通过；0 errors、0 warnings。
+- **数据库发布门禁**：真实 PostgreSQL 下两路并发 `alembic upgrade head` 通过；迁移头为 `20260824_0043`。迁移锁改为 `pg_try_advisory_lock` 轮询，避免阻塞等待期间与并发 DDL 形成死锁。
+- **全量测试**：`1369 passed, 2 skipped`；前端构建通过；API、Worker、Browser、Web 四个 Docker 镜像构建通过。
+- **财务导入冲突契约**：409 冲突返回安全的用户提示，清除旧预览和文件，禁止沿用过期预览重复提交；对应视觉冒烟测试已同步并通过。
+- **当前状态**：代码与 CI 门禁已完成；生产合并、部署、生产冒烟及 Linear 回填仍待本轮发布流程完成，不能提前宣称生产已完成。
