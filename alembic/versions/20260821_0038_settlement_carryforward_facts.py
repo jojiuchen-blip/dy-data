@@ -186,5 +186,20 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop carryforward application facts before their source facts."""
+    bind = op.get_bind()
+    populated_tables = [
+        table_name
+        for table_name in (
+            "settlement_carryforward_application",
+            "settlement_carryforward_source",
+        )
+        if bind.execute(sa.text(f"SELECT 1 FROM {table_name} LIMIT 1")).first()
+        is not None
+    ]
+    if populated_tables:
+        raise RuntimeError(
+            "cannot downgrade 20260821_0038: carryforward facts exist in "
+            + ", ".join(populated_tables)
+        )
     op.drop_table("settlement_carryforward_application")
     op.drop_table("settlement_carryforward_source")
