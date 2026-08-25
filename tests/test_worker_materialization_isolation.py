@@ -3,7 +3,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import pytest
+from sqlalchemy import event, func, select
+from sqlalchemy.orm import sessionmaker
 
+from apps.api.dy_api.models import (
+    ClueMasterLead,
+    ClueSourceIdentifierHistory,
+    RawDouyinClue,
+)
 from apps.worker.collectors.types import CollectionWindow
 from apps.worker import scheduler
 
@@ -141,3 +148,66 @@ def test_materialize_once_dispatches_exactly_one_stage(
     assert result
     if expected_call == "clue_center":
         assert result["has_resolver"] is True
+
+
+def test_clue_master_stage_materializes_keyset_pages_with_bounded_sessions(
+    db_session,
+    monkeypatch,
+) -> None:
+    from apps.worker import materialize_once
+
+    db_session.add_all(
+        [
+            RawDouyinClue(
+                clue_row_key=f"row-{index}",
+                clue_id=f"clue-{index}",
+                order_id=f"order-{index}",
+                order_status="履约中",
+                telephone=f"1380000{index:04d}",
+                raw_payload={"clue_id": f"clue-{index}"},
+            )
+            for index in range(5)
+        ]
+    )
+    db_session.commit()
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        expire_on_commit=False,
+        future=True,
+    )
+    monkeypatch.setenv("WORKER_CLUE_MASTER_BATCH_SIZE", "2")
+    statements: list[str] = []
+
+    def record_selects(_connection, _cursor, statement, _parameters, _context, _many):
+        if statement.lstrip().upper().startswith("SELECT"):
+            statements.append(statement.lower())
+
+    event.listen(db_session.get_bind(), "before_cursor_execute", record_selects)
+    try:
+        result = materialize_once.run_bounded_clue_master_materialization(factory)
+    finally:
+        event.remove(db_session.get_bind(), "before_cursor_execute", record_selects)
+
+    assert result["raw_rows"] == 5
+    assert result["batches"] == 3
+    assert result["master_leads"] == 5
+    assert db_session.scalar(select(func.count()).select_from(ClueMasterLead)) == 5
+    assert (
+        db_session.scalar(select(func.count()).select_from(ClueSourceIdentifierHistory))
+        == 10
+    )
+    bounded_tables = ("clue_master_leads", "clue_source_identifier_history")
+    for table_name in bounded_tables:
+        table_selects = [statement for statement in statements if f"from {table_name}" in statement]
+        assert table_selects
+        assert all("where" in statement for statement in table_selects), table_selects
+
+    replay = materialize_once.run_bounded_clue_master_materialization(factory)
+
+    assert replay["batches"] == 3
+    assert db_session.scalar(select(func.count()).select_from(ClueMasterLead)) == 5
+    assert (
+        db_session.scalar(select(func.count()).select_from(ClueSourceIdentifierHistory))
+        == 10
+    )
