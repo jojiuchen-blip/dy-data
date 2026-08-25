@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 import signal
+import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from collections.abc import Mapping
@@ -15,6 +17,7 @@ from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
+from apps.worker.materialize_once import MATERIALIZATION_STAGES
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
 from apps.worker.queued_jobs import process_queued_settlement_rebuilds
@@ -27,6 +30,7 @@ from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secr
 _STOP = False
 DISABLED_POLL_SECONDS = 60
 DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS = 2
+DEFAULT_MATERIALIZATION_STAGE_TIMEOUT_SECONDS = 7200
 DEFAULT_PRODUCT_SYNC_INTERVAL_SECONDS = 86400
 BrowserExportRunner = Callable[[Session, str], PhaseStats]
 
@@ -219,24 +223,75 @@ def run_incremental_collection_chunks(factory, config) -> None:
     materialize_job_id = _job_id("collect_materialize")
     _log(f"incremental_materialize_start job_id={materialize_job_id}")
     try:
-        with session_scope(factory) as session:
-            stats = run_collect_and_settle(
-                session,
-                job_id=materialize_job_id,
-                window=source_window,
-                include_browser_export=False,
-                include_materialization=True,
-                collectors=[],
-            )
+        completed_stages = run_isolated_materialization(
+            window=source_window,
+            job_id=materialize_job_id,
+        )
+        _record_successful_materialization(
+            factory,
+            job_id=materialize_job_id,
+            window=source_window,
+            completed_stages=completed_stages or MATERIALIZATION_STAGES,
+        )
     except Exception as exc:
         _record_failed_collect_chunk(factory, job_id=materialize_job_id, window=source_window, error=exc)
-        _log(f"incremental_materialize_failed job_id={materialize_job_id}")
+        _log(
+            f"incremental_materialize_failed job_id={materialize_job_id} "
+            f"error={sanitize_error_message(str(exc))}"
+        )
         return
-    _log(
-        f"incremental_materialize_done job_id={materialize_job_id} "
-        f"success={stats.success_count} failed={stats.failed_count}"
-    )
+    _log(f"incremental_materialize_done job_id={materialize_job_id}")
     _log(f"incremental_done failed_chunks={failed_chunks}")
+
+
+def run_isolated_materialization(
+    *,
+    window: CollectionWindow,
+    job_id: str,
+    command_runner=subprocess.run,
+    timeout_seconds: int | None = None,
+) -> tuple[str, ...]:
+    """Run each memory-heavy projection in a fresh process."""
+
+    timeout = timeout_seconds or _configured_materialization_stage_timeout()
+    completed: list[str] = []
+    for stage in MATERIALIZATION_STAGES:
+        command = [
+            sys.executable,
+            "-m",
+            "apps.worker.materialize_once",
+            "--job-id",
+            job_id,
+            "--stage",
+            stage,
+        ]
+        _log(
+            f"materialization_stage_start job_id={job_id} stage={stage} "
+            f"start={window.start.isoformat()} end={window.end.isoformat()}"
+        )
+        try:
+            result = command_runner(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError(
+                f"materialization stage {stage} timed out after {timeout} seconds"
+            ) from exc
+        if result.returncode != 0:
+            detail = _subprocess_detail(result.stderr or result.stdout)
+            raise RuntimeError(
+                f"materialization stage {stage} exited {result.returncode}: {detail}"
+            )
+        completed.append(stage)
+        _log(
+            f"materialization_stage_done job_id={job_id} stage={stage} "
+            f"result={_subprocess_detail(result.stdout)}"
+        )
+    return tuple(completed)
 
 
 def run_browser_export_once(factory) -> None:
@@ -341,6 +396,19 @@ def _configured_chunk_max_attempts() -> int:
     return max(1, min(5, attempts))
 
 
+def _configured_materialization_stage_timeout() -> int:
+    try:
+        seconds = int(
+            os.getenv(
+                "WORKER_MATERIALIZATION_STAGE_TIMEOUT_SECONDS",
+                str(DEFAULT_MATERIALIZATION_STAGE_TIMEOUT_SECONDS),
+            )
+        )
+    except ValueError:
+        seconds = DEFAULT_MATERIALIZATION_STAGE_TIMEOUT_SECONDS
+    return max(60, min(21600, seconds))
+
+
 def _bounded_product_sync_interval() -> int:
     try:
         seconds = int(
@@ -380,6 +448,32 @@ def _record_failed_collect_chunk(
             status="failed",
             failed_count=1,
             error_message=sanitize_error_message(str(error)),
+        )
+
+
+def _record_successful_materialization(
+    factory,
+    *,
+    job_id: str,
+    window: CollectionWindow,
+    completed_stages: tuple[str, ...],
+) -> None:
+    phases = {
+        stage: {"name": stage, "status": "success"}
+        for stage in completed_stages
+    }
+    with session_scope(factory) as session:
+        start_job_run(
+            session,
+            job_id,
+            "collect_and_settle",
+            metadata_json={"source_window": window.as_metadata(), "phases": phases},
+        )
+        finish_job_run(
+            session,
+            job_id,
+            status="success",
+            success_count=len(completed_stages),
         )
 
 
@@ -431,6 +525,11 @@ def _window_key(window: CollectionWindow) -> tuple[str, str, str]:
 
 def _window_day_start(window: CollectionWindow) -> datetime:
     return window.end.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def _subprocess_detail(value: str | None) -> str:
+    lines = [line.strip() for line in (value or "").splitlines() if line.strip()]
+    return sanitize_error_message(lines[-1] if lines else "no output")
 
 
 def _log(message: str) -> None:

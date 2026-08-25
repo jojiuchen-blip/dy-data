@@ -642,6 +642,7 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, str, bool]] = []
+    materialization_calls: list[tuple[str, str, str]] = []
 
     def fake_runner(
         session: Session,
@@ -667,6 +668,14 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(
+        scheduler,
+        "run_isolated_materialization",
+        lambda *, window, job_id: materialization_calls.append(
+            (job_id, window.start.isoformat(), window.end.isoformat())
+        ),
+        raising=False,
+    )
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
@@ -674,11 +683,15 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
     assert [(start, end, materialize) for _job_id, start, end, materialize in calls] == [
         ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00", False),
         ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00", False),
-        ("2026-06-01T00:00:00+08:00", "2026-06-03T00:00:00+08:00", True),
     ]
     assert calls[0][0].startswith("collect_0001_")
     assert calls[1][0].startswith("collect_0002_")
-    assert calls[2][0].startswith("collect_materialize_")
+    assert len(materialization_calls) == 1
+    assert materialization_calls[0][0].startswith("collect_materialize_")
+    assert materialization_calls[0][1:] == (
+        "2026-06-01T00:00:00+08:00",
+        "2026-06-03T00:00:00+08:00",
+    )
 
 
 def test_run_once_skips_successful_incremental_chunks(monkeypatch):
@@ -716,6 +729,7 @@ def test_run_once_skips_successful_incremental_chunks(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, bool]] = []
+    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -736,14 +750,20 @@ def test_run_once_skips_successful_incremental_chunks(monkeypatch):
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(
+        scheduler,
+        "run_isolated_materialization",
+        lambda *, window, job_id: materialization_calls.append(job_id),
+        raising=False,
+    )
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
 
     assert [(start, materialize) for _job_id, start, materialize in calls] == [
         ("2026-06-02T00:00:00+08:00", False),
-        ("2026-06-01T00:00:00+08:00", True),
     ]
+    assert len(materialization_calls) == 1
 
 
 def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
@@ -765,6 +785,7 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, bool]] = []
+    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -787,6 +808,12 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(
+        scheduler,
+        "run_isolated_materialization",
+        lambda *, window, job_id: materialization_calls.append(job_id),
+        raising=False,
+    )
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
@@ -796,8 +823,8 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
         ("2026-06-02T00:00:00+08:00", False),
         ("2026-06-02T00:00:00+08:00", False),
         ("2026-06-01T00:00:00+08:00", False),
-        ("2026-06-01T00:00:00+08:00", True),
     ]
+    assert len(materialization_calls) == 1
     with factory() as session:
         failed = session.scalar(
             select(JobRun).where(
@@ -828,6 +855,7 @@ def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     attempts_by_call: dict[tuple[str, bool], int] = {}
+    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -856,13 +884,19 @@ def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
     monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
+    monkeypatch.setattr(
+        scheduler,
+        "run_isolated_materialization",
+        lambda *, window, job_id: materialization_calls.append(job_id),
+        raising=False,
+    )
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
 
     assert attempts_by_call[("2026-06-01T00:00:00+08:00", False)] == 1
     assert attempts_by_call[("2026-06-02T00:00:00+08:00", False)] == 2
-    assert attempts_by_call[("2026-06-01T00:00:00+08:00", True)] == 1
+    assert len(materialization_calls) == 1
     with factory() as session:
         failed_count = session.query(JobRun).where(JobRun.status == "failed").count()
         assert failed_count == 0
