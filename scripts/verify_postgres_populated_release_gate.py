@@ -68,7 +68,7 @@ def _seed_fixture(database_url: str) -> None:
                     "batch_status, total_rows, success_rows, error_rows, content_changed, "
                     "submitted_by, committed_by, submitted_at, committed_at, gmt_create, gmt_modified) "
                     "VALUES ('release-gate-profile-batch', 1, '2026-08', 'profile.csv', "
-                    ":file_sha256, :normalized_sha256, 0, 1, 5, 1, 1, 0, 1, "
+                    ":file_sha256, :normalized_sha256, 0, 1, 5, 1, 1, 0, TRUE, "
                     "'admin', 'admin', :occurred_at, :occurred_at, :occurred_at, :occurred_at)"
                 ),
                 {
@@ -83,7 +83,7 @@ def _seed_fixture(database_url: str) -> None:
                     "(profile_id, store_id, profile_type, source_type, version_no, "
                     "is_current, is_tombstone, store_name_snapshot, sap_code, "
                     "import_batch_id, gmt_create, gmt_modified) "
-                    "VALUES ('release-gate-profile', 'store-1', 1, 1, 1, 1, 0, "
+                    "VALUES ('release-gate-profile', 'store-1', 1, 1, TRUE, TRUE, FALSE, "
                     "'Release Gate Store', 'SAP-RELEASE', 'release-gate-profile-batch', "
                     ":profile_at, :profile_at)"
                 ),
@@ -94,8 +94,8 @@ def _seed_fixture(database_url: str) -> None:
                     "INSERT INTO settlement_statement "
                     "(statement_id, store_id, statement_month, version_no, is_current, "
                     "gmt_create, gmt_modified) VALUES "
-                    "('release-gate-backfilled', 'store-1', '2026-08', 1, 1, :statement_at, :statement_at), "
-                    "('release-gate-unresolved', 'store-2', '2026-08', 1, 1, :statement_at, :statement_at)"
+                    "('release-gate-backfilled', 'store-1', '2026-08', 1, TRUE, :statement_at, :statement_at), "
+                    "('release-gate-unresolved', 'store-2', '2026-08', 1, TRUE, :statement_at, :statement_at)"
                 ),
                 {"statement_at": statement_at},
             )
