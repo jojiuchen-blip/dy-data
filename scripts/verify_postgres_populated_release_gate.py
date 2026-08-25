@@ -83,7 +83,7 @@ def _seed_fixture(database_url: str) -> None:
                     "(profile_id, store_id, profile_type, source_type, version_no, "
                     "is_current, is_tombstone, store_name_snapshot, sap_code, "
                     "import_batch_id, gmt_create, gmt_modified) "
-                    "VALUES ('release-gate-profile', 'store-1', 1, 1, TRUE, TRUE, FALSE, "
+                    "VALUES ('release-gate-profile', 'store-1', 1, 1, 1, TRUE, FALSE, "
                     "'Release Gate Store', 'SAP-RELEASE', 'release-gate-profile-batch', "
                     ":profile_at, :profile_at)"
                 ),
