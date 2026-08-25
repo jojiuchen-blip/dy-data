@@ -55,8 +55,9 @@ def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     env_source = (repo_root / "alembic" / "env.py").read_text(encoding="utf-8")
 
-    assert "pg_advisory_lock" in env_source
+    assert "pg_try_advisory_lock" in env_source
     assert "pg_advisory_unlock" in env_source
+    assert "SELECT pg_advisory_lock(%s)" not in env_source
     assert "driver_connection.autocommit = True" in env_source
     assert "connection.connection.driver_connection" in env_source
     assert "connectable.raw_connection()" not in env_source
