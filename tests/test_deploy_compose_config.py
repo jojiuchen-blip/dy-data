@@ -24,6 +24,8 @@ def test_compose_wires_worker_collection_defaults():
 
     assert "${WORKER_COMMAND:-python -m apps.worker.scheduler}" in compose
     assert "WORKER_MODE: ${WORKER_MODE:-collect_and_settle}" in compose
+    assert "mem_limit: ${WORKER_MEMORY_LIMIT:-5g}" in compose
+    assert "memswap_limit: ${WORKER_MEMORY_SWAP_LIMIT:-7g}" in compose
     assert "DOUYIN_COLLECT_START: ${DOUYIN_COLLECT_START:-2026-01-01}" in compose
     assert "DOUYIN_COLLECT_OVERLAP_DAYS: ${DOUYIN_COLLECT_OVERLAP_DAYS:-7}" in compose
     assert "DOUYIN_VERIFY_CHUNK_DAYS: ${DOUYIN_VERIFY_CHUNK_DAYS:-7}" in compose

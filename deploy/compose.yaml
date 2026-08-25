@@ -72,6 +72,8 @@ services:
         APT_MIRROR: ${APT_MIRROR:-}
     image: ${WORKER_IMAGE:-dy-dashboard-worker:local}
     restart: unless-stopped
+    mem_limit: ${WORKER_MEMORY_LIMIT:-5g}
+    memswap_limit: ${WORKER_MEMORY_SWAP_LIMIT:-7g}
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -84,6 +86,7 @@ services:
       DOUYIN_APP_SECRET: ${DOUYIN_APP_SECRET:-CHANGE_ME_DOUYIN_APP_SECRET}
       DOUYIN_ACCOUNT_ID: ${DOUYIN_ACCOUNT_ID:-CHANGE_ME_DOUYIN_ACCOUNT_ID}
       WORKER_MODE: ${WORKER_MODE:-collect_and_settle}
+      WORKER_MATERIALIZATION_STAGE_TIMEOUT_SECONDS: ${WORKER_MATERIALIZATION_STAGE_TIMEOUT_SECONDS:-7200}
       DOUYIN_COLLECT_START: ${DOUYIN_COLLECT_START:-2026-01-01}
       DOUYIN_COLLECT_OVERLAP_DAYS: ${DOUYIN_COLLECT_OVERLAP_DAYS:-7}
       DOUYIN_VERIFY_CHUNK_DAYS: ${DOUYIN_VERIFY_CHUNK_DAYS:-7}
