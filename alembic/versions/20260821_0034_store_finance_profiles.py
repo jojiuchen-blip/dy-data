@@ -54,6 +54,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Remove the profile table and its indexes."""
+    bind = op.get_bind()
+    if bind.execute(sa.text("SELECT 1 FROM store_finance_profile LIMIT 1")).first():
+        raise RuntimeError(
+            "cannot downgrade 20260821_0034: store finance profile facts exist"
+        )
     op.drop_index("idx_store_finance_profile_batch", table_name="store_finance_profile")
     op.drop_index("idx_store_finance_profile_current", table_name="store_finance_profile")
     op.drop_table("store_finance_profile")

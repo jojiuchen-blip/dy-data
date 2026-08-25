@@ -59,6 +59,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _refuse_lossy_downgrade()
     op.drop_table("finance_operation_audit")
     op.drop_table("finance_import_row")
     op.drop_table("finance_import_batch")
@@ -67,6 +68,31 @@ def downgrade() -> None:
     op.drop_table("settlement_dispute_order")
     op.drop_table("settlement_dispute")
     op.drop_table("settlement_statement_confirmation")
+
+
+def _refuse_lossy_downgrade() -> None:
+    table_names = (
+        "finance_operation_audit",
+        "finance_import_row",
+        "finance_import_batch",
+        "invoice_status_event",
+        "invoice_record",
+        "settlement_dispute_order",
+        "settlement_dispute",
+        "settlement_statement_confirmation",
+    )
+    bind = op.get_bind()
+    populated_tables = [
+        table_name
+        for table_name in table_names
+        if bind.execute(sa.text(f"SELECT 1 FROM {table_name} LIMIT 1")).first()
+        is not None
+    ]
+    if populated_tables:
+        raise RuntimeError(
+            "cannot downgrade 20260821_0028: finance facts exist in "
+            + ", ".join(populated_tables)
+        )
 
 
 def _create_statement_confirmations() -> None:

@@ -131,6 +131,28 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
 
+def test_railway_deploy_fails_closed_when_required_settings_are_missing():
+    workflow = (ROOT / ".github" / "workflows" / "ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    deploy = workflow.split("  deploy:", 1)[1]
+    required = deploy.split("required=(", 1)[1].split(")", 1)[0]
+
+    assert "Skip Railway deployment when token is absent" not in deploy
+    for name in (
+        "RAILWAY_TOKEN",
+        "RAILWAY_PROJECT_ID",
+        "RAILWAY_ENVIRONMENT",
+        "RAILWAY_API_SERVICE_ID",
+        "RAILWAY_WORKER_SERVICE_ID",
+        "RAILWAY_BROWSER_SERVICE_ID",
+        "RAILWAY_WEB_SERVICE_ID",
+        "RAILWAY_WEB_URL",
+    ):
+        assert name in required
+    assert "if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_WEB_URL != '' }}" not in deploy
+
+
 def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
     workflows = [
         ROOT / ".github" / "workflows" / "ci-cd.yml",

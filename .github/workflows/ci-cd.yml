@@ -129,13 +129,7 @@ jobs:
       RAILWAY_WEB_URL: ${{ vars.RAILWAY_WEB_URL }}
 
     steps:
-      - name: Skip Railway deployment when token is absent
-        if: ${{ env.RAILWAY_TOKEN == '' }}
-        run: |
-          echo "::warning::RAILWAY_TOKEN secret is not configured; verification passed but Railway deployment is skipped."
-
       - name: Check required Railway settings
-        if: ${{ env.RAILWAY_TOKEN != '' }}
         run: |
           required=(
             RAILWAY_TOKEN
@@ -143,7 +137,9 @@ jobs:
             RAILWAY_ENVIRONMENT
             RAILWAY_API_SERVICE_ID
             RAILWAY_WORKER_SERVICE_ID
+            RAILWAY_BROWSER_SERVICE_ID
             RAILWAY_WEB_SERVICE_ID
+            RAILWAY_WEB_URL
           )
           for name in "${required[@]}"; do
             if [ -z "${!name}" ]; then
@@ -408,7 +404,6 @@ jobs:
           wait_for_deployment "$RAILWAY_WEB_SERVICE_ID" "${{ steps.deploy_web.outputs.deployment_id }}"
 
       - name: Smoke test deployed site
-        if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_WEB_URL != '' }}
         run: |
           curl --fail --silent --show-error "$RAILWAY_WEB_URL/" >/dev/null
           agent_manifest="$(curl --fail --silent --show-error "$RAILWAY_WEB_URL/.well-known/dydata-agent.json")"

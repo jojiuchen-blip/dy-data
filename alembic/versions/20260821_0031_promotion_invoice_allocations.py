@@ -75,8 +75,24 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _refuse_lossy_downgrade()
     op.drop_index("idx_promotion_invoice_allocation_current_period", table_name="promotion_invoice_allocation")
     op.drop_index("idx_promotion_invoice_allocation_invoice", table_name="promotion_invoice_allocation")
     op.drop_table("promotion_invoice_allocation")
     op.drop_index("idx_promotion_invoice_current", table_name="promotion_invoice")
     op.drop_table("promotion_invoice")
+
+
+def _refuse_lossy_downgrade() -> None:
+    bind = op.get_bind()
+    populated_tables = [
+        table_name
+        for table_name in ("promotion_invoice_allocation", "promotion_invoice")
+        if bind.execute(sa.text(f"SELECT 1 FROM {table_name} LIMIT 1")).first()
+        is not None
+    ]
+    if populated_tables:
+        raise RuntimeError(
+            "cannot downgrade 20260821_0031: promotion invoice facts exist in "
+            + ", ".join(populated_tables)
+        )

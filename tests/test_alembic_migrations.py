@@ -164,6 +164,85 @@ def test_g2_management_sap_reversal_migration_refuses_lossy_downgrade(
     command.downgrade(config, "20260821_0040")
 
 
+@pytest.mark.parametrize(
+    ("revision", "target", "insert_sql", "error_match"),
+    [
+        (
+            "20260821_0028",
+            "20260819_0037",
+            """
+            INSERT INTO finance_import_batch
+                (batch_id, import_type, statement_month, file_name,
+                 file_sha256, normalized_sha256, read_version, current_version,
+                 submitted_by)
+            VALUES ('downgrade-guard-0028', 1, '2026-08', 'guard.csv',
+                    'sha-file', 'sha-normalized', 1, 1, 'test-user')
+            """,
+            "cannot downgrade 20260821_0028.*finance facts",
+        ),
+        (
+            "20260821_0031",
+            "20260821_0030",
+            """
+            INSERT INTO promotion_invoice
+                (invoice_id, store_id, invoice_number, invoice_date,
+                 invoice_amount_cent, registered_by, registered_at,
+                 gmt_create, gmt_modified)
+            VALUES ('downgrade-guard-0031', 'store-1', '12345678901234567890',
+                    '2026-08-01', 100, 'test-user', CURRENT_TIMESTAMP,
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            "cannot downgrade 20260821_0031.*promotion invoice facts",
+        ),
+        (
+            "20260821_0034",
+            "20260821_0033",
+            """
+            INSERT INTO store_finance_profile
+                (profile_id, store_id, profile_type, store_name_snapshot,
+                 import_batch_id, gmt_create, gmt_modified)
+            VALUES ('downgrade-guard-0034', 'store-1', 1, 'Test Store',
+                    'batch-1', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+            """,
+            "cannot downgrade 20260821_0034.*profile facts",
+        ),
+        (
+            "20260821_0038",
+            "20260821_0037",
+            """
+            INSERT INTO settlement_carryforward_application
+                (carryforward_application_id, carryforward_source_id,
+                 target_statement_id, target_statement_version,
+                 target_adjustment_id, target_posting_month, applied_by,
+                 applied_at)
+            VALUES ('downgrade-guard-0038', 'source-1', 'statement-1', 1,
+                    'adjustment-1', '2026-08', 'test-user', CURRENT_TIMESTAMP)
+            """,
+            "cannot downgrade 20260821_0038.*carryforward facts",
+        ),
+    ],
+)
+def test_finance_foundation_downgrades_refuse_populated_facts(
+    tmp_path: Path,
+    revision: str,
+    target: str,
+    insert_sql: str,
+    error_match: str,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_url = f"sqlite:///{(tmp_path / 'downgrade-guard.sqlite').as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, revision)
+    with create_engine(database_url).begin() as connection:
+        connection.execute(text(insert_sql))
+
+    with pytest.raises(RuntimeError, match=error_match):
+        command.downgrade(config, target)
+
+
 def test_finance_import_final_version_guard_migration_is_reversible(
     tmp_path: Path,
 ) -> None:
