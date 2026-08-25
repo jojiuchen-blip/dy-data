@@ -153,6 +153,29 @@ def test_railway_deploy_fails_closed_when_required_settings_are_missing():
     assert "if: ${{ env.RAILWAY_TOKEN != '' && env.RAILWAY_WEB_URL != '' }}" not in deploy
 
 
+def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
+    workflow = (ROOT / ".github" / "workflows" / "ci-cd.yml").read_text(
+        encoding="utf-8"
+    )
+    verify = workflow.split("  railway_release_gate:", 1)[0]
+    target_gate = workflow.split("  railway_release_gate:", 1)[1].split(
+        "  deploy:", 1
+    )[0]
+    api_dockerfile = (ROOT / "apps" / "api" / "Dockerfile").read_text(
+        encoding="utf-8"
+    )
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+
+    assert "scripts/verify_postgres_release_gate.py" in verify
+    assert "scripts/verify_postgres_populated_release_gate.py" in verify
+    assert "scripts/verify_postgres_finance_import_concurrency.py" in verify
+    assert "RAILWAY_RELEASE_DATABASE_URL" in target_gate
+    assert "scripts/verify_postgres_target_release.py" in target_gate
+    assert "needs: [verify, railway_release_gate]" in workflow
+    assert "alembic upgrade head" not in api_dockerfile
+    assert 'command: ["alembic", "upgrade", "head"]' in compose
+
+
 def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
     workflows = [
         ROOT / ".github" / "workflows" / "ci-cd.yml",

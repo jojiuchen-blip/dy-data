@@ -16,6 +16,10 @@ The workflow is `.github/workflows/ci-cd.yml`.
 - Pull requests to `main`: run backend tests, frontend build, and API/Worker/Web Docker builds.
 - Pushes to `main`: run the same verification, then deploy Railway `api`, `worker`, and `web` only when `RAILWAY_DEPLOY_ENABLED=true`.
 - Railway `Postgres` is managed as a Railway database service and is not deployed by GitHub.
+- The verification job also upgrades a populated PostgreSQL fixture from `20260824_0042` to the current head and checks both backfilled and unresolved snapshot outcomes.
+- The verification job exercises two concurrent finance-import commits against that PostgreSQL service and requires serialized versions `1` and `2` plus two operation audits.
+- When Railway deployment is enabled, a separate target gate backs up the configured Railway database, validates Alembic lineage, runs the migration explicitly, and blocks unresolved snapshot exceptions before deployment.
+- The API image does not run migrations at process startup; the Compose `migrate` service and the Railway target gate own the migration boundary.
 - Playwright dependency installation uses the public Ubuntu archive fallback and
   stops after ten minutes so a stalled runner mirror cannot block verification
   indefinitely.
@@ -43,12 +47,15 @@ inactive or rollback environment unintentionally.
 Repository secrets used by the workflow:
 
 - `RAILWAY_TOKEN`
+- `RAILWAY_RELEASE_DATABASE_URL`
 
 Create this token in Railway as a project token with deploy access to the project referenced by the repository variable `RAILWAY_PROJECT_ID`, then add it in GitHub repository settings. The workflow passes this GitHub secret to Railway CLI as `RAILWAY_TOKEN`. Do not copy a real project ID into this document.
 
-When `RAILWAY_DEPLOY_ENABLED=true`, `RAILWAY_TOKEN`, all service IDs, and
-`RAILWAY_WEB_URL` are mandatory. A missing value fails the deploy job instead
-of producing a green verification-only result. The deployment also requires a
+When `RAILWAY_DEPLOY_ENABLED=true`, `RAILWAY_TOKEN`, all service IDs,
+`RAILWAY_WEB_URL`, and `RAILWAY_RELEASE_DATABASE_URL` are mandatory. A missing
+value fails the release gate instead of producing a green verification-only
+result. The release gate creates a pre-migration backup artifact, verifies the
+target head and migration exception tables, and the deployment also requires a
 successful Web smoke check.
 
 ## Railway runtime variables

@@ -38,4 +38,4 @@ COPY apps/worker ./apps/worker
 
 EXPOSE 8000
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn dy_api.main:app --host ${UVICORN_HOST:-0.0.0.0} --port ${PORT:-8000}"]
+CMD ["sh", "-c", "uvicorn dy_api.main:app --host ${UVICORN_HOST:-0.0.0.0} --port ${PORT:-8000}"]
