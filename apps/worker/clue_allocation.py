@@ -12,7 +12,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -53,6 +53,15 @@ MASTER_TERMINAL_SYNC_LOCK = "clue-allocation-master-terminal-sync"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
+ANCHOR_UNAVAILABLE_REASONS = (
+    "follow_poi_missing",
+    "follow_poi_unmapped",
+    "follow_poi_store_missing",
+    "anchor_coordinates_invalid",
+    "anchor_province_missing",
+    "anchor_city_missing",
+    "anchor_city_code_missing",
+)
 
 
 @dataclass(frozen=True)
@@ -102,12 +111,22 @@ class StoreScoreConfig:
     store_weight: Decimal
 
 
-def materialize_clue_master_leads(session: Session, *, now: datetime | None = None) -> dict[str, object]:
-    """Build the new full clue master ledger without mutating raw Douyin rows."""
+def materialize_clue_master_leads(
+    session: Session,
+    *,
+    now: datetime | None = None,
+    raw_clues: list[RawDouyinClue] | None = None,
+) -> dict[str, object]:
+    """Build clue master state from the full ledger or one explicit raw page."""
     now = _aware(now or utcnow())
     if not _try_transaction_lock(session, lock_name=MASTER_MATERIALIZATION_LOCK):
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0, "skipped": "locked"}
-    raw_clues = session.scalars(select(RawDouyinClue)).all()
+    bounded_context = raw_clues is not None
+    raw_clues = (
+        list(raw_clues)
+        if raw_clues is not None
+        else session.scalars(select(RawDouyinClue)).all()
+    )
     if not raw_clues:
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0}
 
@@ -116,8 +135,11 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     raw_orders = _raw_orders_by_id(session, order_ids)
     coupon_statuses_by_order = _coupon_statuses_by_order(session, order_ids)
     verified_at_by_order = _verified_at_by_order(session, order_ids)
-    stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
-    mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
+    if bounded_context:
+        mappings_by_poi, stores_by_id = _bounded_location_context(session, raw_clues)
+    else:
+        stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
+        mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
     _enrich_store_locations_from_raw_evidence(
         session,
         raw_clues,
@@ -125,7 +147,11 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
         stores_by_id,
         now,
     )
-    existing_rows = session.scalars(select(ClueMasterLead)).all()
+    existing_rows = (
+        _bounded_existing_masters(session, raw_clues, order_ids=order_ids)
+        if bounded_context
+        else session.scalars(select(ClueMasterLead)).all()
+    )
     existing_by_lead_key = {row.lead_key: row for row in existing_rows}
     existing_by_source_clue_row_key = {row.source_clue_row_key: row for row in existing_rows}
     existing_by_identity = {row.source_identity_key: row for row in existing_rows}
@@ -139,7 +165,11 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
     existing_by_order_id = {
         order_id: rows[0] for order_id, rows in masters_by_order_id.items() if len(rows) == 1
     }
-    identifier_history_rows = session.scalars(select(ClueSourceIdentifierHistory)).all()
+    identifier_history_rows = (
+        _bounded_identifier_history(session, raw_clues)
+        if bounded_context
+        else session.scalars(select(ClueSourceIdentifierHistory)).all()
+    )
     identifier_history_by_key = {
         (row.source_clue_row_key, row.identifier_type, row.identifier_value): row
         for row in identifier_history_rows
@@ -201,18 +231,27 @@ def materialize_clue_master_leads(session: Session, *, now: datetime | None = No
                 ).all()
             }
         )
-    active_headquarters_entries_by_lead = {
-        row.lead_key: row
-        for row in session.scalars(
-            select(ClueHeadquartersPoolEntry).where(ClueHeadquartersPoolEntry.status == "active")
-        ).all()
-    }
-    anchor_issue_ids = set(
-        session.scalars(
-            select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
-        ).all()
-    )
-    status_event_ids = set(session.scalars(select(ClueOrderStatusEvent.event_id)).all())
+    affected_lead_keys = set(existing_by_lead_key)
+    if bounded_context:
+        active_headquarters_entries_by_lead = {
+            row.lead_key: row
+            for row in _bounded_active_headquarters_entries(session, affected_lead_keys)
+        }
+        anchor_issue_ids = set(_bounded_anchor_issue_ids(session, affected_lead_keys))
+        status_event_ids = None
+    else:
+        active_headquarters_entries_by_lead = {
+            row.lead_key: row
+            for row in session.scalars(
+                select(ClueHeadquartersPoolEntry).where(ClueHeadquartersPoolEntry.status == "active")
+            ).all()
+        }
+        anchor_issue_ids = set(
+            session.scalars(
+                select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
+            ).all()
+        )
+        status_event_ids = set(session.scalars(select(ClueOrderStatusEvent.event_id)).all())
 
     materialized_lead_keys: set[str] = set()
     closed_lead_keys: set[str] = set()
@@ -1430,6 +1469,147 @@ def _materialization_order_id_batches(order_ids: set[str]) -> list[list[str]]:
         ordered_ids[offset : offset + MATERIALIZATION_QUERY_BATCH_SIZE]
         for offset in range(0, len(ordered_ids), MATERIALIZATION_QUERY_BATCH_SIZE)
     ]
+
+
+def _bounded_location_context(
+    session: Session,
+    raw_clues: list[RawDouyinClue],
+) -> tuple[dict[str, DimStorePoiMapping], dict[str, DimStore]]:
+    poi_ids = {
+        value
+        for raw_clue in raw_clues
+        for value in (_clean(raw_clue.follow_poi_id), _clean(raw_clue.intention_poi_id))
+        if value
+    }
+    if not poi_ids:
+        return {}, {}
+    mappings = session.scalars(
+        select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id.in_(poi_ids))
+    ).all()
+    mappings_by_poi = {row.poi_id: row for row in mappings}
+    store_ids = {row.store_id for row in mappings if row.store_id}
+    if not store_ids:
+        return mappings_by_poi, {}
+    stores = session.scalars(select(DimStore).where(DimStore.store_id.in_(store_ids))).all()
+    return mappings_by_poi, {row.store_id: row for row in stores}
+
+
+def _bounded_existing_masters(
+    session: Session,
+    raw_clues: list[RawDouyinClue],
+    *,
+    order_ids: set[str],
+) -> list[ClueMasterLead]:
+    row_keys = {row.clue_row_key for row in raw_clues if row.clue_row_key}
+    canonical_ids = {_clean(row.clue_id) for row in raw_clues}
+    canonical_ids.discard(None)
+    source_identities = {_source_identity_key(row) for row in raw_clues}
+
+    history_selectors = []
+    if row_keys:
+        history_selectors.append(ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys))
+    if canonical_ids:
+        history_selectors.append(
+            and_(
+                ClueSourceIdentifierHistory.identifier_type == "clue_id",
+                ClueSourceIdentifierHistory.identifier_value.in_(canonical_ids),
+            )
+        )
+    if source_identities:
+        history_selectors.append(
+            and_(
+                ClueSourceIdentifierHistory.identifier_type == "source_identity_key",
+                ClueSourceIdentifierHistory.identifier_value.in_(source_identities),
+            )
+        )
+    history_lead_keys = (
+        set(
+            session.scalars(
+                select(ClueSourceIdentifierHistory.lead_key).where(or_(*history_selectors))
+            ).all()
+        )
+        if history_selectors
+        else set()
+    )
+
+    selectors = []
+    if row_keys:
+        selectors.append(ClueMasterLead.source_clue_row_key.in_(row_keys))
+    if canonical_ids:
+        selectors.append(ClueMasterLead.canonical_clue_id.in_(canonical_ids))
+    if source_identities:
+        selectors.append(ClueMasterLead.source_identity_key.in_(source_identities))
+    if order_ids:
+        selectors.append(ClueMasterLead.order_id.in_(order_ids))
+    if history_lead_keys:
+        selectors.append(ClueMasterLead.lead_key.in_(history_lead_keys))
+    if not selectors:
+        return []
+    return list(
+        session.scalars(
+            select(ClueMasterLead)
+            .where(or_(*selectors))
+            .order_by(ClueMasterLead.lead_key)
+        ).all()
+    )
+
+
+def _bounded_identifier_history(
+    session: Session,
+    raw_clues: list[RawDouyinClue],
+) -> list[ClueSourceIdentifierHistory]:
+    row_keys = {row.clue_row_key for row in raw_clues if row.clue_row_key}
+    if not row_keys:
+        return []
+    return list(
+        session.scalars(
+            select(ClueSourceIdentifierHistory)
+            .where(ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys))
+            .order_by(
+                ClueSourceIdentifierHistory.source_clue_row_key,
+                ClueSourceIdentifierHistory.identifier_type,
+                ClueSourceIdentifierHistory.identifier_value,
+            )
+        ).all()
+    )
+
+
+def _bounded_active_headquarters_entries(
+    session: Session,
+    lead_keys: set[str],
+) -> list[ClueHeadquartersPoolEntry]:
+    if not lead_keys:
+        return []
+    return list(
+        session.scalars(
+            select(ClueHeadquartersPoolEntry).where(
+                ClueHeadquartersPoolEntry.status == "active",
+                ClueHeadquartersPoolEntry.lead_key.in_(lead_keys),
+            )
+        ).all()
+    )
+
+
+def _bounded_anchor_issue_ids(session: Session, lead_keys: set[str]) -> list[str]:
+    if not lead_keys:
+        return []
+    candidate_ids = [
+        f"clue-anchor:{lead_key}:{reason}"
+        for lead_key in lead_keys
+        for reason in ANCHOR_UNAVAILABLE_REASONS
+    ]
+    issue_ids: list[str] = []
+    for offset in range(0, len(candidate_ids), MATERIALIZATION_QUERY_BATCH_SIZE):
+        issue_ids.extend(
+            session.scalars(
+                select(DataQualityIssue.issue_id).where(
+                    DataQualityIssue.issue_id.in_(
+                        candidate_ids[offset : offset + MATERIALIZATION_QUERY_BATCH_SIZE]
+                    )
+                )
+            ).all()
+        )
+    return issue_ids
 
 
 def _resolve_status(
