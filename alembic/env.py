@@ -45,28 +45,32 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         migration_lock_acquired = False
-        migration_lock_connection = None
+        migration_driver_connection = None
         if connection.dialect.name == "postgresql":
             connection.exec_driver_sql("SET statement_timeout = '10min'")
             connection.commit()
-            # Use a raw psycopg connection with explicit DBAPI autocommit.
-            # SQLAlchemy's execution_options can still expose a virtual
-            # transaction while a lock waiter is blocked; that transaction
-            # interferes with historical CREATE INDEX CONCURRENTLY steps.
-            migration_lock_connection = connectable.raw_connection()
+            # Acquire the session lock on the same DBAPI connection that
+            # Alembic will use for the migration. A separate raw connection
+            # can release the lock's coverage when Alembic switches the
+            # migration connection into an autocommit block for
+            # CREATE INDEX CONCURRENTLY. Raw DBAPI autocommit keeps a waiting
+            # process outside SQLAlchemy's virtual transaction while keeping
+            # the lock attached to the migration session.
+            migration_driver_connection = connection.connection.driver_connection
             try:
-                driver_connection = migration_lock_connection.driver_connection
-                driver_connection.autocommit = True
-                with driver_connection.cursor() as cursor:
+                migration_driver_connection.autocommit = True
+                with migration_driver_connection.cursor() as cursor:
                     cursor.execute(
                         "SELECT pg_advisory_lock(%s)",
                         (MIGRATION_ADVISORY_LOCK_KEY,),
                     )
                 migration_lock_acquired = True
             except BaseException:
-                migration_lock_connection.close()
-                migration_lock_connection = None
                 raise
+            finally:
+                if not migration_lock_acquired:
+                    migration_driver_connection.autocommit = False
+            migration_driver_connection.autocommit = False
 
         try:
             context.configure(connection=connection, target_metadata=target_metadata)
@@ -75,15 +79,16 @@ def run_migrations_online() -> None:
         finally:
             if migration_lock_acquired:
                 try:
-                    driver_connection = migration_lock_connection.driver_connection
-                    driver_connection.autocommit = True
-                    with driver_connection.cursor() as cursor:
+                    if connection.in_transaction():
+                        connection.rollback()
+                    migration_driver_connection.autocommit = True
+                    with migration_driver_connection.cursor() as cursor:
                         cursor.execute(
                             "SELECT pg_advisory_unlock(%s)",
                             (MIGRATION_ADVISORY_LOCK_KEY,),
                         )
                 finally:
-                    migration_lock_connection.close()
+                    migration_driver_connection.autocommit = False
 
 
 if context.is_offline_mode():
