@@ -9,7 +9,7 @@ import { SolarIcon, type SolarIconName } from "./SolarIcon";
 import { BrandAttribution } from "./BrandAttribution";
 import { ThemePicker } from "./ThemePicker";
 
-const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/invoice"]);
+const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/settlement/invoice"]);
 const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const adminPaths = new Set([
@@ -22,6 +22,13 @@ const adminPaths = new Set([
   "/admin/product-types",
   "/rule-admin",
   "/sync-admin",
+  "/finance/promotion",
+  "/finance/management",
+  "/finance/orders/promotion",
+  "/finance/orders/management",
+  "/finance/stores",
+  "/finance/disputes",
+  "/finance/imports",
 ]);
 
 type NavSection = "settlement" | "verification" | "clues" | "admin";
@@ -82,14 +89,25 @@ const moduleNavItems: ModuleNavItem[] = [
 
 const settlementNavItems: NavItem[] = [
   { href: "/ranking", label: "全国门店榜单", pageKey: "B01" },
-  { href: "/settlement", label: "单店结算", pageKey: "B02" },
-  { href: "/details", label: "订单明细", pageKey: "B03" },
-  { href: "/invoice", label: "开票确认", pageKey: "B03" },
+  { href: "/settlement", label: "单店分账", pageKey: "B02" },
+  { href: "/details", label: "订单费用明细", pageKey: "B03" },
+  { href: "/settlement/invoice", label: "开票确认", pageKey: "B02" },
+  { href: "/finance/stores", label: "SAP 建议", pageKey: "B02" },
 ];
 
 const clueNavItems: NavItem[] = [
   { href: "/clues", label: "线索看板", pageKey: "A01" },
   { href: "/clues/details", label: "线索明细", pageKey: "A02" },
+];
+
+const financeNavItems: NavItem[] = [
+  { href: "/finance/promotion", label: "推广费看板", pageKey: "D01" },
+  { href: "/finance/management", label: "管理服务费看板", pageKey: "D01" },
+  { href: "/finance/orders/promotion", label: "推广费订单", pageKey: "D01" },
+  { href: "/finance/orders/management", label: "管理费订单", pageKey: "D01" },
+  { href: "/finance/stores", label: "门店财务汇总", pageKey: "D01" },
+  { href: "/finance/disputes", label: "异议处理", pageKey: "D01" },
+  { href: "/finance/imports", label: "财务结果导入", pageKey: "D01" },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -156,8 +174,11 @@ function activeSection(currentPath: string): NavSection {
   return "settlement";
 }
 
-function secondaryNav(section: NavSection): NavItem[] {
+function secondaryNav(section: NavSection, currentPath: string): NavItem[] {
   if (section === "admin") {
+    if (currentPath.startsWith("/finance")) {
+      return financeNavItems;
+    }
     return adminNavItems;
   }
   if (section === "clues") {
@@ -241,8 +262,11 @@ export function Shell({
     "error" | "success" | null
   >(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
-  const section = activeSection(currentPath);
-  const sectionNavItems = secondaryNav(section).filter((item) => {
+  const section =
+    currentPath === "/finance/stores" && currentUser?.role === "store"
+      ? "settlement"
+      : activeSection(currentPath);
+  const sectionNavItems = secondaryNav(section, currentPath).filter((item) => {
     const pageKey = item.pageKey ?? pageKeyByNavHref[item.href];
     return pageKey ? currentUser?.page_keys.includes(pageKey) : false;
   });

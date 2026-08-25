@@ -2,7 +2,7 @@
 
 > 所属索引: [foundation-api-dy-data.md](../foundation-api-dy-data.md)
 > 消费页面: 全国门店榜单、单店分账、订单费用明细
-> 只读边界: 开票确认页不调用发票 API；本轮无账单确认、锁账、修改或删除 Web 接口
+> 增量边界: 本文件保留双费用查询契约；DYDATA-19 的账单确认、异议、发票登记和财务导入见 `billing-invoice.md`。系统仍不执行真实开票或系统内审核
 
 ## 0 共享枚举与口径
 
@@ -93,6 +93,9 @@
 | 字段 | 类型 | 说明 | 来源表.列 |
 |------|------|------|----------|
 | `statementId` | string | 账单业务 ID | `settlement_statement.statement_id` |
+| `versionNo` | integer | 当前账单版本号 | `.version_no` |
+| `isCurrent` | boolean | 是否为该门店账期当前版本 | `.is_current` |
+| `supersedesStatementId` | string/null | 直接被当前版本替代的上一账单 ID；首版为空 | `.supersedes_statement_id` |
 | `statementStatus` | string | 账单状态 | `.statement_status` |
 | `confirmedAt` | datetime/null | 确认时间 | `.confirmed_at` |
 | `lockedAt` | datetime/null | 锁账时间 | `.locked_at` |
@@ -136,7 +139,7 @@
 | `feeRates` | decimal-string[] | 行内实际费率去重集合 | 关联 `settlement_fee_result.fee_rate` 去重 |
 | `ruleVersions` | string[] | 行内实际规则版本集合 | 关联 `settlement_fee_result.rule_version` 去重 |
 
-**下钻规则**：日级规则使同一产品行可能包含多个费率和版本，前端不得把汇总行伪装为单一费率。下钻时优先携带 `statementId + statementLineId + feeRates + ruleVersions`；未生成账单时携带 `storeId + month + feeDirection + productScope + productType + feeRates + ruleVersions`。费率和版本只用于恢复来源上下文，服务端以账单行或实际结果重新校验并授权。
+**下钻规则**：月度分账只返回该门店账期的当前账单版本；日级规则使同一产品行可能包含多个费率和版本，前端不得把汇总行伪装为单一费率。下钻时优先携带 `statementId + statementLineId + feeRates + ruleVersions`；未生成账单时携带 `storeId + month + feeDirection + productScope + productType + feeRates + ruleVersions`。费率和版本只用于恢复来源上下文，服务端以账单行或实际结果重新校验并授权。
 
 ## 3 `GET /api/v1/order-fee-details` — 订单费用明细
 
@@ -213,9 +216,9 @@
 
 **约束**：导出前重新验权；筛选摘要与生成时间写入响应头；空结果返回 409 `EXPORT_EMPTY`；失败可重试且不改变任何业务状态。
 
-## 5 开票确认页与账单写入边界
+## 5 开票确认页与账单写入边界（DYDATA-19 已更新）
 
-- `#/invoice` 的五节点、材料、预计范围和 FAQ 是前端静态只读内容，不调用发票接口。
-- 单店分账 #2 可返回账单状态和推广费预计开票范围，但不得据此声称已经在线确认或开票。
-- 本轮不提供 `confirm/lock/unlock/update/delete` 账单路由；内部锁账事务必须先冻结来源项，再汇总账单行和账单头，三层一致后才切为 `LOCKED`。
+- `/settlement/invoice` 是推广费发票登记入口，调用 `GET/POST /api/v1/promotion-invoices`；登记不等于系统开票。
+- 单店分账 #2 返回账单状态和推广费待开票范围；确认和异议写入使用 `billing-invoice.md` #25—#28。
+- 不提供账单 `PUT/DELETE/unlock`；重算或异议成立生成新账单版本，三层一致后原子切换当前版本并永久保留旧版本。
 - 若后续要开放门店确认或财务锁账操作，必须新建/更新 Linear issue，补充角色、幂等、撤回、审计和异常验收后再扩展本契约。

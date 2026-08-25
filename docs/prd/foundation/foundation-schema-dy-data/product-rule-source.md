@@ -1,9 +1,9 @@
-# 商品、费率规则与原始数据 Schema
+﻿# 商品、费率规则与原始数据 Schema
 
 > 所属索引: [foundation-schema-dy-data.md](../foundation-schema-dy-data.md)
 > 覆盖表: `dim_sku_product_rules`、`sku_product_sync_history`、`settlement_scope_rule`、`sku_fee_rule`、`sku_fee_rule_import_batch`、`sku_fee_rule_import_row`、`raw_douyin_orders`、`raw_douyin_order_coupons`、`douyin_refund_event`
 
-## 1 `dim_sku_product_rules` — SKU 统一事实源（现有·需改动）
+### 1 `dim_sku_product_rules` — SKU 统一事实源（现有·需改动）
 
 > 兼容说明: 保留现有表名；目标结构新增自增主键并把 `sku_id` 改为业务唯一键。现有 `commission_rate` 不作为新双费用运行时事实源，也不自动迁移为 2026-08 正式费率。
 
@@ -50,7 +50,7 @@
 - `POST /api/v1/admin/sku-fee-rules` — 发布费率时读取名称和产品维度快照。
 - `POST /api/v1/admin/product-sync-runs` — 触发 worker 更新平台字段，不覆盖人工字段。
 
-## 2 `sku_product_sync_history` — 商品同步历史
+### 2 `sku_product_sync_history` — 商品同步历史
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -87,7 +87,7 @@
 - `GET /api/v1/admin/sku-products/{skuId}/sync-history` — 查询单个 SKU 的同步历史。
 - `POST /api/v1/admin/product-sync-runs` — 触发内部 worker 写入历史快照。
 
-## 3 `settlement_scope_rule` — 结算范围规则
+### 3 `settlement_scope_rule` — 结算范围规则
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -115,7 +115,7 @@
 - `GET /api/v1/admin/settlement-scope-rules` — 查询范围规则版本。
 - `POST /api/v1/admin/settlement-scope-rules` — 按归属账号、渠道和月份发布不可变版本。
 
-## 4 `sku_fee_rule` — SKU 双费率版本
+### 4 `sku_fee_rule` — SKU 双费率版本
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -155,7 +155,7 @@
 - `POST /api/v1/admin/sku-fee-rule-imports/{batchId}/commit` — 全量原子发布导入批次。
 - `GET /api/v1/stores/{storeId}/monthly-settlement`、`GET /api/v1/order-fee-details` — 追溯汇总中的费率区间和订单实际使用版本。
 
-## 5 `sku_fee_rule_import_batch` — 费率导入批次
+### 5 `sku_fee_rule_import_batch` — 费率导入批次
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -196,7 +196,7 @@
 - `POST /api/v1/admin/sku-fee-rule-imports/{batchId}/commit` — 原子提交整批规则。
 - `GET /api/v1/admin/sku-fee-rule-imports/{batchId}/result-file` — 下载结果文件。
 
-## 6 `sku_fee_rule_import_row` — 导入逐行结果
+### 6 `sku_fee_rule_import_row` — 导入逐行结果
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -232,7 +232,7 @@
 - `POST /api/v1/admin/sku-fee-rule-imports/{batchId}/commit` — 原子更新逐行写入状态与版本。
 - `GET /api/v1/admin/sku-fee-rule-imports/{batchId}/result-file` — 输出全部行的校验与写入结果。
 
-## 7 `raw_douyin_orders` — 原始订单（现有·需改动）
+### 7 `raw_douyin_orders` — 原始订单（现有·需改动）
 
 保留现有字段，新增或明确以下本轮关键字段：
 
@@ -264,7 +264,7 @@
 - `GET /api/v1/order-fee-details/export` — 按同一授权口径导出业务字段。
 - 无公开写接口；仅订单采集 worker 按平台 `order_id` 幂等写入。
 
-## 8 `raw_douyin_order_coupons` — 原始券（现有·需改动）
+### 8 `raw_douyin_order_coupons` — 原始券（现有·需改动）
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -295,7 +295,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出券级费用依据。
 - 无公开写接口；仅订单/券采集 worker 写入，API 永不暴露内部 `id/raw_order_id`。
 
-## 9 `douyin_refund_event` — 退款事件
+### 9 `douyin_refund_event` — 退款事件
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|

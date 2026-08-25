@@ -56,9 +56,29 @@ const ClueCenterPage = lazy(() =>
     default: module.ClueCenterPage,
   })),
 );
-const InvoiceGuidePage = lazy(() =>
-  import("./pages/InvoiceGuidePage").then((module) => ({
-    default: module.InvoiceGuidePage,
+const FinanceDisputesPage = lazy(() =>
+  import("./pages/FinanceDisputesPage").then((module) => ({
+    default: module.FinanceDisputesPage,
+  })),
+);
+const FinanceFeePage = lazy(() =>
+  import("./pages/FinanceFeePage").then((module) => ({
+    default: module.FinanceFeePage,
+  })),
+);
+const FinanceImportsPage = lazy(() =>
+  import("./pages/FinanceImportsPage").then((module) => ({
+    default: module.FinanceImportsPage,
+  })),
+);
+const FinanceOrderDetailsPage = lazy(() =>
+  import("./pages/FinanceOrderDetailsPage").then((module) => ({
+    default: module.FinanceOrderDetailsPage,
+  })),
+);
+const FinanceStoresPage = lazy(() =>
+  import("./pages/FinanceStoresPage").then((module) => ({
+    default: module.FinanceStoresPage,
   })),
 );
 const OrderDetailsPage = lazy(() =>
@@ -79,6 +99,11 @@ const StoreRankingPage = lazy(() =>
 const StoreSettlementPage = lazy(() =>
   import("./pages/StoreSettlementPage").then((module) => ({
     default: module.StoreSettlementPage,
+  })),
+);
+const StoreInvoicePage = lazy(() =>
+  import("./pages/StoreInvoicePage").then((module) => ({
+    default: module.StoreInvoicePage,
   })),
 );
 
@@ -134,12 +159,20 @@ const pageKeyByPath: Array<[string, string]> = [
   ["/admin/sync", "D10"],
   ["/sync-admin", "D10"],
   ["/admin", "D01"],
+  ["/finance/promotion", "D01"],
+  ["/finance/management", "D01"],
+  ["/finance/orders/promotion", "D01"],
+  ["/finance/orders/management", "D01"],
+  ["/finance/stores", "D01"],
+  ["/finance/disputes", "D01"],
+  ["/finance/imports", "D01"],
   ["/clues/details", "A02"],
   ["/clues", "A01"],
   ["/ranking", "B01"],
   ["/settlement", "B02"],
+  ["/settlement/invoice", "B02"],
   ["/details", "B03"],
-  ["/invoice", "B03"],
+  ["/invoice", "B02"],
   ["/sales", "C01"],
 ];
 
@@ -149,6 +182,9 @@ function firstAccessiblePath(user: AdminUser): string {
 }
 
 export function hasPageAccess(user: AdminUser, pathname: string): boolean {
+  if (pathname === "/finance/stores" && user.role === "store") {
+    return user.page_keys.includes("B02");
+  }
   const match = pageKeyByPath.find(
     ([path]) => pathname === path,
   );
@@ -291,6 +327,18 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (location.pathname === "/invoice") {
+      window.history.replaceState(null, "", "/settlement/invoice");
+      setLocation(readLocation());
+      return;
+    }
+    if (location.pathname === "/finance") {
+      window.history.replaceState(null, "", "/finance/promotion");
+      setLocation(readLocation());
+    }
+  }, [location.pathname]);
+
   const searchParams = useMemo(
     () => new URLSearchParams(location.search),
     [location.search],
@@ -354,8 +402,22 @@ export function App() {
         const page =
           location.pathname === "/settlement" ? (
             <StoreSettlementPage searchParams={searchParams} />
-          ) : location.pathname === "/invoice" ? (
-            <InvoiceGuidePage />
+          ) : location.pathname === "/settlement/invoice" ? (
+            <StoreInvoicePage currentUser={user} searchParams={searchParams} />
+          ) : location.pathname === "/finance/promotion" ? (
+            <FinanceFeePage feeDirection="PROMOTION" searchParams={searchParams} />
+          ) : location.pathname === "/finance/management" ? (
+            <FinanceFeePage feeDirection="MANAGEMENT" searchParams={searchParams} />
+          ) : location.pathname === "/finance/orders/promotion" ? (
+            <FinanceOrderDetailsPage feeDirection="PROMOTION" searchParams={searchParams} />
+          ) : location.pathname === "/finance/orders/management" ? (
+            <FinanceOrderDetailsPage feeDirection="MANAGEMENT" searchParams={searchParams} />
+          ) : location.pathname === "/finance/stores" ? (
+            <FinanceStoresPage currentUser={user} searchParams={searchParams} />
+          ) : location.pathname === "/finance/disputes" ? (
+            <FinanceDisputesPage searchParams={searchParams} />
+          ) : location.pathname === "/finance/imports" ? (
+            <FinanceImportsPage searchParams={searchParams} />
           ) : location.pathname === "/clues" ? (
             <ClueCenterPage
               currentUser={user}

@@ -3,8 +3,9 @@
 > 生成时间: 2026-07-20 11:20
 > 来源: foundation-builder Phase 4
 > 关联: [术语表](foundation-glossary-dy-data.md) · [Schema](foundation-schema-dy-data.md)
-> 范围: DYDATA-1/21/30/31/33/38 的商品、双费率、批量导入、商品同步、双费用结算与四页生产查询
-> 状态: **Phase 4 已于 2026-07-20 获用户确认**；本文描述目标契约，不表示对应运行接口已经实现
+> 范围: DYDATA-1/19/21/30/31/33/38 的商品、双费率、商品同步、双费用结算、账单确认、异议、发票登记与财务导入
+> 状态: **2026-08-20 按 DYDATA-19 增量冻结**；最新规则覆盖 2026-07-20 的只读开票假设，本文不表示运行接口已经实现
+> S4 回捞: 2026-08-21 按 `S4-FCR-001` 将不可变账单版本字段、版本链和原子切换并发语义同步到 API 契约
 
 ---
 
@@ -48,6 +49,23 @@
 | 20 | GET | `/api/v1/stores/{storeId}/monthly-settlement` | 现有·需改动 | 查询单店月度双费用及账单行 | 月度投影、账单头、账单行 | **变更** | [结算报表 §2](foundation-api-dy-data/settlement-reporting.md#2-get-apiv1storesstoreidmonthly-settlement--单店月度分账) |
 | 21 | GET | `/api/v1/order-fee-details` | 新建 | 分页查询一券一行的双费用依据 | 费用结果、当前指针、调整、账单来源项及原始数据 | **新增** | [结算报表 §3](foundation-api-dy-data/settlement-reporting.md#3-get-apiv1order-fee-details--订单费用明细) |
 | 22 | GET | `/api/v1/order-fee-details/export` | 新建 | 导出与当前明细筛选一致的 CSV | 同订单费用明细 | **新增** | [结算报表 §4](foundation-api-dy-data/settlement-reporting.md#4-get-apiv1order-fee-detailsexport--导出订单费用明细) |
+| 23 | GET | `/api/v1/store-settlements` | 新建 | 门店账单列表及单月/累计指标 | 账单、确认、发票 | **新增** | [账单发票 §2.1](foundation-api-dy-data/billing-invoice.md#21-get-apiv1store-settlements) |
+| 24 | GET | `/api/v1/store-settlements/{statementId}` | 新建 | 当前/历史账单版本详情 | 账单头/行/来源项 | **新增** | [账单发票 §2.2](foundation-api-dy-data/billing-invoice.md#22-get-apiv1store-settlementsstatementid) |
+| 25 | POST | `/api/v1/store-settlements/{statementId}/confirmations` | 新建 | 按费用方向确认账单 | 方向确认、审计 | **新增** | [账单发票 §2.3](foundation-api-dy-data/billing-invoice.md#23-post-apiv1store-settlementsstatementidconfirmations) |
+| 26 | GET | `/api/v1/store-settlements/{statementId}/disputes` | 新建 | 查询账单异议 | 两张异议表 | **新增** | [账单发票 §3](foundation-api-dy-data/billing-invoice.md#3-门店异议与内部处理) |
+| 27 | POST | `/api/v1/store-settlements/{statementId}/disputes` | 新建 | 门店提交异议 | 两张异议表、审计 | **新增** | [账单发票 §3.1](foundation-api-dy-data/billing-invoice.md#31-post-apiv1store-settlementsstatementiddisputes) |
+| 28 | POST | `/api/v1/disputes/{disputeId}/withdrawals` | 新建 | 撤回异议 | 异议、审计 | **新增** | [账单发票 §3.2](foundation-api-dy-data/billing-invoice.md#32-post-apiv1disputesdisputeidwithdrawals) |
+| 29 | GET | `/api/v1/promotion-invoices` | 新建 | 门店查询推广费发票 | 发票、事件 | **新增** | [账单发票 §4.1](foundation-api-dy-data/billing-invoice.md#41-get-apiv1promotion-invoices) |
+| 30 | POST | `/api/v1/promotion-invoices` | 新建 | 门店登记/重新登记推广费发票 | 发票、事件、审计 | **新增** | [账单发票 §4.2](foundation-api-dy-data/billing-invoice.md#42-post-apiv1promotion-invoices) |
+| 31—34 | GET | `/api/v1/admin/finance/*` | 新建 | 财务指标、发票、订单和门店查询 | 账单、确认、发票、费用结果 | **新增** | [账单发票 §4.3](foundation-api-dy-data/billing-invoice.md#43-管理员财务查询-3134) |
+| 35 | GET | `/api/v1/admin/disputes` | 新建 | 管理员异议工作台 | 两张异议表 | **新增** | [账单发票 §3.3](foundation-api-dy-data/billing-invoice.md#33-get-apiv1admindisputes-与-post-transitions) |
+| 36 | POST | `/api/v1/admin/disputes/{disputeId}/transitions` | 新建 | 内部管理员处理异议 | 异议、账单版本、审计 | **新增** | [账单发票 §3.3](foundation-api-dy-data/billing-invoice.md#33-get-apiv1admindisputes-与-post-transitions) |
+| 37 | GET | `/api/v1/admin/finance-imports` | 新建 | 查询财务导入历史 | 导入批次 | **新增** | [账单发票 §5](foundation-api-dy-data/billing-invoice.md#5-四类财务导入) |
+| 38 | POST | `/api/v1/admin/finance-imports` | 新建 | 上传并全量预校验四类模板 | 导入批次/行 | **新增** | [账单发票 §5.1](foundation-api-dy-data/billing-invoice.md#51-post-apiv1adminfinance-imports) |
+| 39 | GET | `/api/v1/admin/finance-imports/{batchId}` | 新建 | 查询差异和分页错误 | 导入批次/行 | **新增** | [账单发票 §5.2](foundation-api-dy-data/billing-invoice.md#52-get-apiv1adminfinance-importsbatchid) |
+| 40 | POST | `/api/v1/admin/finance-imports/{batchId}/commits` | 新建 | 确认差异并原子提交 | 导入、发票、事件、审计 | **新增** | [账单发票 §5.3](foundation-api-dy-data/billing-invoice.md#53-post-batchidcommits-与-corrections) |
+| 41 | POST | `/api/v1/admin/finance-imports/{batchId}/corrections` | 新建 | 更正导入覆盖当前版本 | 同上 | **新增** | [账单发票 §5.3](foundation-api-dy-data/billing-invoice.md#53-post-batchidcommits-与-corrections) |
+| 42 | GET | `/api/v1/admin/finance-imports/{batchId}/error-file` | 新建 | 下载全部错误行 | 导入行 | **新增** | [账单发票 §5](foundation-api-dy-data/billing-invoice.md#5-四类财务导入) |
 
 ## §2 拆分子文件
 
@@ -57,8 +75,9 @@
 | [sku-fee-admin.md](foundation-api-dy-data/sku-fee-admin.md) | SKU 人工分类、双费率、原子导入、结算范围规则 | < 400 |
 | [product-sync.md](foundation-api-dy-data/product-sync.md) | 商品同步运行、SKU 历史与外部接口待映射边界 | < 400 |
 | [settlement-reporting.md](foundation-api-dy-data/settlement-reporting.md) | 门店榜单、单店分账、订单费用明细与导出 | < 400 |
+| [billing-invoice.md](foundation-api-dy-data/billing-invoice.md) | 账单确认、异议、发票登记、财务查询和四类导入 | < 400 |
 
-## §3 17 张表 → 接口覆盖
+## §3 27 张表 → 接口覆盖
 
 | 表 | 读取接口 | 写入接口 / 写入主体 |
 |----|----------|--------------------|
@@ -74,11 +93,21 @@
 | `settlement_fee_result` | #20、#21、#22 | 结算计算 worker；无公开写接口 |
 | `settlement_fee_result_current` | #21、#22 | 未锁账重算事务内切换；无公开写接口 |
 | `settlement_fee_adjustment` | #20、#21、#22 | 退款/取消核销处理器新增；无公开修改接口 |
-| `settlement_statement` | #20、#21、#22 | 内部账单生成/锁账流程；本轮无 Web 写接口 |
-| `settlement_statement_line` | #20、#21、#22 | 内部锁账事务生成；锁账后不可改 |
-| `settlement_statement_entry` | #21、#22 | 内部锁账事务生成；锁账后不可改 |
+| `settlement_statement` | #20—#27、#31—#36 | 内部生成不可变版本；#25 写方向确认，#36 可生成纠正版本，无 PUT/DELETE |
+| `settlement_statement_line` | #20、#21、#22、#24 | 内部锁账/更正事务按版本生成；任一版本锁账后不可改 |
+| `settlement_statement_entry` | #21、#22、#24 | 内部锁账/更正事务按版本生成完整来源快照；任一版本锁账后不可改 |
 | `agg_store_monthly_settlement` | #1、#20 | 投影任务重建；无公开写接口 |
 | `agg_store_ranking` | #1、#19 | 投影任务重建；无公开写接口 |
+| `settlement_statement_confirmation` | #23—#25、#31 | #25 门店按方向确认；新账单版本使旧确认失效但不删除 |
+| `settlement_dispute` | #26—#28、#35—#36 | #27 门店创建，#28 撤回，#36 内部管理员处理 |
+| `settlement_dispute_order` | #26—#27、#35—#36 | 随异议提交原子写入；不单独修改 |
+| `invoice_record` | #23—#24、#31—#34、#40/#41 | 管理服务费发票/厂家扣款导入或更正 |
+| `promotion_invoice` | #29—#34 | #30 门店登记系统外推广费发票头 |
+| `promotion_invoice_allocation` | #29—#34 | #30 按完整账期原子写入分配；#31/#32 按分配聚合/查询 |
+| `invoice_status_event` | #29—#32 | #30/#40/#41 随业务事务新增事件 |
+| `finance_import_batch` | #37—#42 | #38 创建，#40 提交，#41 更正覆盖 |
+| `finance_import_row` | #38—#42 | 流式校验逐行写入；正式业务表保持整批原子 |
+| `finance_operation_audit` | #25、#27—#30、#36、#38—#41 | 业务写接口在同事务记录，不提供业务修改/删除 |
 
 ## §4 旧接口兼容边界
 
@@ -94,7 +123,7 @@
 
 ## §5 明确不设计的接口
 
-- 不设计在线开票、发票提交或财务审核接口；`#/invoice` 继续作为静态只读准备指引。
+- 不设计开票申请单、真实开票、外部验真、企业微信发送或系统内财务审核任务接口；#30 仅登记门店已经在系统外开具的推广费发票，#38—#41 仅导入系统外已完成结果。
 - 不设计已锁账账单的 PUT/DELETE；后续退款只新增 `settlement_fee_adjustment` 并进入事件发生月份。
 - 不设计原始订单、券、退款事件和费用结果的 Web 写接口；它们只能由受控 worker/内部服务写入。
 - 不把数据库自增 `id` 暴露为公开资源标识。
@@ -104,16 +133,17 @@
 
 1. **已确认**：批量导入首版同时接受 `.xlsx` 与 UTF-8 `.csv`，单文件不超过 10 MiB、数据行不超过 5000；任一行错误仍整批不写入。
 2. **已确认**：SKU 费率版本采用“只新增版本”的 POST 模型，不提供原地 PUT/DELETE；同一 SKU + 生效日冲突返回 409。
-3. **已确认**：已锁账账单及开票页本轮保持只读；账单确认/锁账由内部流程完成，不新增 Web 操作接口。
+3. **已被 DYDATA-19 覆盖**：2026-07-20 的“账单及开票页只读”仅保留为历史决定；2026-08-20 起提供方向确认、异议、发票登记和管理员导入接口，但仍不执行真实开票或系统内审核。
 4. **已确认**：订单费用明细使用新路径 `/order-fee-details`，旧 `/order-details` 保留通用订单查询，避免双费用字段破坏旧调用方。
 5. **已确认**：抖音商品在线 API 外部契约等脱敏样例后补齐；不阻塞本项目内部商品同步管理接口的确认。
+6. **2026-08-21 已确认**：账单相关 `readVersion` 固定使用 `settlement_statement.version_no`；列表只返回每个门店账期的当前版本，详情返回完整版本链；异议成立调整以完整快照生成 Vn+1，并在单一事务中原子切换当前版本。
 
-Phase 5 将以上五项作为冻结边界执行全量一致性自查。
+Phase 5 以 2026-08-20 的 DYDATA-19 增量规则作为最新冻结边界执行一致性自查。
 
 ## §7 Phase 5 一致性自查
 
 > 自查日期: 2026-07-20
-> 范围: 页面可写字段、22 个目标接口、17 张目标设计表、5 张本轮外既有依赖表、9 条已锁定交互语义及其校验规则
+> 范围: 页面可写字段、22 个目标接口、27 张目标设计表、5 张本轮外既有依赖表、9 条已锁定交互语义及其校验规则
 
 ### §7.1 C2 页面可写字段 → API → Schema
 
@@ -126,14 +156,14 @@ Phase 5 将以上五项作为冻结边界执行全量一致性自查。
 | 结算范围发布 | `effectiveMonth`、`ownerAccountId`、`allowedSaleChannels`、`changeReason` | `POST /api/v1/admin/settlement-scope-rules` | `settlement_scope_rule` 按渠道拆分为不可变版本 |
 | 商品同步触发 | `mode`、`reason` | `POST /api/v1/admin/product-sync-runs` | `job_runs` 运行元数据；worker 写商品历史和当前平台字段 |
 
-共 22 个可写字段槽位全部有写入契约和持久化/任务来源。全国榜单、单店分账、订单费用明细仅提供查询与导出；开票确认页是静态只读指引，因此没有页面写字段，也不应补造写接口。
+原 22 个可写字段槽位继续有效；DYDATA-19 另新增方向确认、异议、推广费发票登记、管理员异议处理和四类财务导入写入契约，详见 [账单发票 API](foundation-api-dy-data/billing-invoice.md)。这些接口只登记事实，不执行真实开票或系统内审核。
 
 ### §7.2 C3 API ↔ Schema
 
 - 22/22 个总览接口均有详细契约；详细契约的方法和路径与总览逐项一致。
 - 所有请求写字段都映射到目标列、导入文件暂存列或既有任务元数据；所有业务响应字段都映射到表列、受控枚举、授权关系或明确的服务端派生值。
-- 17 张目标设计表已逐表回填读取接口、写入接口或“仅内部 worker/事务写入”边界；`dim_stores`、`dim_store_poi_mappings`、`raw_douyin_verify_records`、`job_runs`、`data_quality_issues` 作为结构不变的既有依赖单列说明。
-- 模板下载没有持久化表是有意设计；开票只读页没有发票 API 是已确认边界，不属于覆盖缺口。
+- 27 张目标设计表已逐表回填读取接口、写入接口或“仅内部 worker/事务写入”边界；`dim_stores`、`dim_store_poi_mappings`、`raw_douyin_verify_records`、`job_runs`、`data_quality_issues` 作为结构不变的既有依赖单列说明。
+- 模板下载没有持久化表是有意设计；DYDATA-19 已补齐登记、查询和导入所需持久化，不新增开票申请单或审核任务表。
 
 ### §7.3 C4 术语一致性
 
@@ -144,7 +174,7 @@ Phase 5 将以上五项作为冻结边界执行全量一致性自查。
 
 ### §7.4 C5 孤立检测
 
-- 17/17 张目标设计表均被公开查询、管理员写入、采集/结算 worker、锁账事务或投影任务消费；没有孤立表。
+- 27/27 张目标设计表均被公开查询、管理员写入、采集/结算 worker、锁账事务或投影任务消费；没有孤立表。
 - 内部自增 `id`、载荷摘要、幂等摘要、来源指针、锁账审计列和归一化枚举等字段不直接暴露给 Web 是有意的安全/一致性边界，不是孤立字段。
 - 外部抖音商品 API 的真实 URL、鉴权、游标和枚举仍等待脱敏样例；该依赖只阻断真实外部适配验收，不影响内部接口与 Schema 的一致性结论。
 
@@ -159,8 +189,12 @@ Phase 5 将以上五项作为冻结边界执行全量一致性自查。
 | `order-fee-detail.restore-context.1` | `GET /api/v1/order-fee-details` | 服务端返回核验后的 `context` |
 | `order-fee-detail.direction-tabs.2` | `feeDirection=PROMOTION/MANAGEMENT` | 强制单一费用方向 |
 | `order-fee-detail.filter-export.3` | 查询与 `/export` 复用同一筛选、鉴权和口径 | 覆盖列表/文件一致性 |
-| `invoice-guide.readonly-process.1` | 无写 API | 静态只读是已锁定系统行为 |
-| `invoice-guide.preparation.2` | 月度分账提供可核对账单值；无发票提交 API | 覆盖准备信息且不伪造开票能力 |
+| `invoice-guide.readonly-process.1` | 被 `dy19.routing.navigate.1` 与账单发票 #29/#30 覆盖 | 保留“系统不执行开票”，页面升级为可登记 |
+| `invoice-guide.preparation.2` | 被 `dy19.promotion.status.1` 与账单发票 #29/#30 覆盖 | 提供登记与状态查询但不伪造真实开票能力 |
+| `dy19.routing.navigate.1` | #23—#42 稳定资源路径 | 覆盖门店/管理员跨页跳转与直达 |
+| `dy19.metrics.scope.1` | #23、#31 的 `metricScope` | 覆盖单月和正式累计；确认金额保持单月 |
+| `dy19.promotion.status.1` | #29/#30/#38—#40 | 门店登记后由管理员导入系统外审核/结算结果 |
+| `dy19.import.result.1` | #37—#42 | 覆盖首次成功、无变化、待确认差异、整批失败、版本冲突 |
 
 9/9 条已锁定交互语义均有接口支撑或明确的“无需接口”只读边界。
 
@@ -175,7 +209,7 @@ Phase 5 将以上五项作为冻结边界执行全量一致性自查。
 | 来源上下文的费率和规则版本不得直接用于计算 | `settlement_fee_result` 固化实际值；API 参数只用于上下文校验 |
 | 费用方向始终单选 | API `feeDirection` 单值枚举；前端保持单选状态 |
 | 导出重验权限并记录规则版本与口径 | 导出复用查询鉴权；文件包含规则版本、原始月和调整月 |
-| 开票页不得出现误导性在线主操作 | 静态页面约束；本轮不设计发票写接口 |
+| 开票页不得出现误导性在线主操作 | #30 命名为“发票登记”，并明确系统不创建申请单、不执行开票或审核 |
 | 开票范围排除 7 月测试数据和管理服务费 | `settlement_statement.promotion_*` 独立字段 + 正式账期/开票展示规则 |
 
 9/9 条已锁定校验均落实到 Schema 约束、不可变事实、API 枚举/上下文或必须由服务层执行的授权规则；服务层规则不伪装成数据库约束。
@@ -185,3 +219,55 @@ Phase 5 将以上五项作为冻结边界执行全量一致性自查。
 本轮修正了三类实际缺口：单店五项指标补齐销售/核销订单数与金额；日级费率导致的汇总下钻改为多费率/多版本集合；结构不变的门店、POI、核销、任务和数据质量表补为显式依赖。同时补齐订单明细的销售/核销月份与时间、门店/商品展示来源，以及四类 POST 的持久化幂等追溯。
 
 Phase 5 自查未改变 Phase 4 已确认的业务边界；需用户确认本节后才能进入 Phase 6 交付规划。
+
+## §8 DYDATA-19 增量一致性自查（2026-08-20）
+
+> 本节覆盖 §7 中与“静态只读开票”有关的历史结论；其他商品、费率、订单计算结论继续有效。
+
+### §8.1 C2 页面可写字段 → API → Schema
+
+| 页面操作 | 关键字段 | 写入 API | Schema 落点 | 结论 |
+|---|---|---|---|---|
+| 门店方向确认 | 账单版本、费用方向、确认金额 | #25 | `settlement_statement_confirmation` | ✓ |
+| 门店提交/撤回异议 | 类型、订单、金额、说明、联系人、手机号、证明资料 | #27/#28 | `settlement_dispute`、`settlement_dispute_order` | ✓ |
+| 门店登记推广费发票 | 发票头、一个或多个完整账期及各自读取版本、20 位号码、日期、总金额与分配金额 | #30 | `promotion_invoice`、`promotion_invoice_allocation`、`invoice_status_event` | ✓ |
+| 管理员处理异议 | 目标状态、说明、调整金额、读取版本、上一/当前版本链 | #36 | 异议表、`settlement_statement.version_no/is_current/supersedes_statement_id`、账单行/来源快照、审计 | ✓ |
+| 管理员导入 | 四类模板、账期、文件、读取版本、变更原因 | #38/#40/#41 | `finance_import_batch/row`、发票、事件、审计 | ✓ |
+
+单月/累计切换、状态筛选、查询、下钻和导出均为只读参数，不产生独立写表。
+
+### §8.2 C3—C5 API/Schema、术语与孤立检测
+
+- #23—#42 的请求写字段全部映射到新增表或账单版本；响应指标由账单、确认、当前有效发票及事件时间派生。
+- #20、#23—#25、#36 返回或校验的 `versionNo/isCurrent/supersedesStatementId/readVersion` 已分别映射到 `settlement_statement.version_no/is_current/supersedes_statement_id/version_no`；#24 的账单行和来源摘要均按路径 `statementId` 精确读取对应不可变版本。
+- “推广费发票登记”“管理服务费发票明细”“系统外审核”“管理员导入”在术语、Schema 和 API 中一致；不存在开票申请单、财务角色或审核任务实体。
+- 10 张新增表均被门店或管理员 API 读取/写入；审计表由每个业务写事务消费，无孤立表。
+
+### §8.3 C6—C7 已冻结交互语义
+
+| 语义 ID | API | Schema/校验 | 结论 |
+|---|---|---|---|
+| `dy19.routing.navigate.1` | #23—#42 稳定资源接口 | 路由不承担授权，服务端重验页面和门店范围 | ✓ |
+| `dy19.metrics.scope.1` | #23/#31 `metricScope` | 正式累计从 `2026-08` 起；确认金额只返回单月 | ✓ |
+| `dy19.promotion.status.1` | #29/#30/#38—#40 | `promotion_invoice.invoice_status` 四态；管理员导入系统外结果 | ✓ |
+| `dy19.import.result.1` | #37—#42 | 批次五场景、整批零写入、分页全部错误、409 版本冲突 | ✓ |
+
+### §8.4 S4 账单版本回捞一致性
+
+| 检查项 | 页面/API | Schema | 结论 |
+|---|---|---|---|
+| 月度分账读取当前版本 | #20 `statement.versionNo/isCurrent/supersedesStatementId` | `settlement_statement.version_no/is_current/supersedes_statement_id` | ✓ |
+| 账单列表读取当前版本 | #23 当前版本列表行 | `is_current` 部分唯一约束 | ✓ |
+| 账单详情回读历史链 | #24 `versions[]` | `version_no + supersedes_statement_id` | ✓ |
+| 方向确认并发校验 | #25 `readVersion` | `version_no` | ✓ |
+| 异议调整生成 Vn+1 | #36 完整快照与原子切换 | 版本唯一键、当前部分唯一索引、直接替代链 | ✓ |
+| 历史来源独立回读 | #24 指定 `statementId` 读取行/来源 | 来源唯一键包含 `statement_id` | ✓ |
+
+### §8.5 结论
+
+- 页面可写操作覆盖率：5/5（100%）
+- 新增 API ↔ Schema 覆盖率：20/20（100%）
+- 新增表消费覆盖率：8/8（100%）
+- DYDATA-19 locked 交互语义覆盖率：4/4（100%）
+- S4 账单版本回捞覆盖率：6/6（100%）
+- 未解决冲突：0；旧的静态只读开票假设已显式标记为历史并被覆盖

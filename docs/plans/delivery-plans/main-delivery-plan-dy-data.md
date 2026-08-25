@@ -1,21 +1,21 @@
-# dy-data 商品治理与双费用结算主开发计划
+# dy-data 商品治理、双费用结算与财务闭环主开发计划
 
-> **版本**：v1
-> **发布日期**：2026-07-20
-> **前序版本**：无；DYDATA-22 历史计划不属于本计划
-> **适用范围**：DYDATA-1/21/30/31/33/38；DYDATA-23 仅作为已完成的页面设计证据
+> **版本**：v2
+> **发布日期**：2026-08-20
+> **前序版本**：v1（2026-07-20）
+> **适用范围**：DYDATA-1/19/21/30/31/33/38；DYDATA-23 仅作为历史页面设计证据
 > **参与角色**：AI 执行，人类 Owner 审核与业务验收
 > **开发模式**：solo-local；保留生产发布与数据正确性闸门
 > **执行约束**：TDD；FastAPI / SQLAlchemy / PostgreSQL / Alembic / React / TypeScript / Vite；金额使用整数分，费率使用精确小数；不执行真实资金划拨
-> **目标**：在不破坏平台业务 ID 和既有调用方的前提下，落地统一 SKU 商品事实、日级双费率与原子导入、商品同步、不可变双费用结果与调整、账单投影，以及四个生产查询页面
-> **当前需求基线**：Linear DYDATA-1/21/30/31/33/38，已确认的 mainprd、4 份 subprd 与 Foundation
-> **上游发现结论**：`collect-upstream-context.mjs` 返回 `canProceed=true, slug=dy-data, mode=pipeline`；全部必需产物存在。`03-subprd-order-fee-details.md` 已按章节读取，Foundation 拆分文件已全部读取
+> **目标**：在复用既有双费用事实与查询能力的前提下，完成账单分方向确认、异议、系统外发票登记、管理员财务查询、四类原子导入和操作审计闭环
+> **当前需求基线**：Linear DYDATA-19；2026-08-20 已确认的 mainprd、9 份 subprd、Foundation 与页面设计回环
+> **上游发现结论**：`collect-upstream-context.mjs` 于 2026-08-20 返回 `canProceed=true, slug=dy-data, mode=pipeline`；无必需产物缺失；大文件继续按章节读取
 
 ## 0. 本计划使用指南
 
 1. 先读取本主计划和任务看板，只选择依赖已满足且状态为 `待开发` 的 Task。
 2. 再读取该 Task 的子计划、其中列出的 PRD 章节、Linear issue、真实代码和测试文件。
-3. 人类 Owner 已于 2026-07-20 确认全部计划；T1.1～T3.3 已完成本地实现与验证，T4.1 已切换为唯一 `进行中（等待外部依赖）` Task；依赖关闭前只进行发布准备，不执行生产迁移或部署。
+3. T1.1～T3.3 是已完成历史能力，T4.1 保留原发布依赖；本次新增 T5.1～T5.7，初始均为 `待审阅`，人类 Owner 审阅通过前不执行代码。
 4. 每个 Task 先补失败测试，再做最小实现，最后回填测试、数据核对、截图或发布证据。
 
 ### 0.1 PRD 加载约束
@@ -65,6 +65,10 @@
 | Web 仍使用旧三指标、旧分佣表和通用订单明细，没有生产开票指引页 | P1 | 页面与 4 份 subprd 不一致 | T3.2 | 已处理 |
 | `/admin/rules` 仍是单费率批量覆盖式保存，缺版本、原子导入、商品同步运行与历史 | P1 | 管理员无法安全配置和追溯 | T3.3 | 已处理 |
 | 外部商品 API 样例、稳定归属账号 ID、真实渠道枚举与最终权限矩阵未关闭 | P0 发布依赖 | 阻断生产数据正确性和权限验收 | T2.1、T2.3、T4.1 | 外部依赖 |
+| 账单确认、异议、发票版本、状态事件、财务导入与审计表尚不存在 | P0 | DYDATA-19 无可靠写入事实与版本追溯 | T5.1 | 已完成（2026-08-21） |
+| 系统仍无门店确认/异议/推广费发票登记与管理员财务接口 | P0 | 页面只能展示旧只读数据 | T5.2～T5.5 | 已完成（2026-08-21） |
+| `/invoice` 仍保留旧五节点流程，管理员财务页面尚未进入生产应用 | P0 | 与已冻结的系统外开票边界冲突 | T5.6 | 已完成（2026-08-21） |
+| 新财务闭环尚未关闭 Linear 正文差额、目标环境与用户验收 | P0 | 不满足发布条件 | T5.7 | 进行中（硬门禁通过后直接部署；失败即停止） |
 
 ## 2. 分工与边界
 
@@ -74,7 +78,7 @@
 | 人类 Owner | 审阅本计划；提供/确认外部 API 样例、稳定账号 ID、渠道枚举；完成财务、运营和权限业务验收 |
 | Linear | 需求范围、优先级、Issue 状态、验收和剩余风险的权威来源 |
 
-边界：本计划不执行真实资金划拨，不开放账单确认/锁账/解锁或发票写接口，不把当前单费率自动复制成首批正式双费率，不扩建 DYDATA-32 的完整权限管理功能，不重新实现 DYDATA-23。
+边界：本计划不执行真实开票或资金划拨，不创建开票申请单或系统内厂端审核任务，不调用外部验真或企业微信，不扩建新的财务角色；DYDATA-19 仅开放已冻结的确认、异议、发票信息登记、查询、导入和审计接口。
 
 ## 3. 执行阶段
 
@@ -124,7 +128,23 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T4.1 | [端到端核验与生产发布](sub-delivery-plan-dy-data-T4.1-release-verification.md) | 进行中（等待外部依赖） |
+| T4.1 | [端到端核验与生产发布](sub-delivery-plan-dy-data-T4.1-release-verification.md) | 待开发（等待外部依赖） |
+
+### Phase 5：DYDATA-19 账单与财务闭环
+
+**Entry Criteria**：PRD/Schema/API/page loop 已冻结；T5.1～T5.7 计划经人类 Owner 审阅通过；DYDATA-19 继续由当前分支单一窗口负责。
+
+**Exit Criteria**：8 张目标表、20 个接口和 8 条生产路由完成；系统外开票、四态状态、分方向异议、四类原子导入、版本审计与单月/累计指标通过系统测试和用户验收。
+
+| Task | 子开发计划 | 状态 |
+|---|---|---|
+| T5.1 | [财务闭环 Schema 与领域地基](sub-delivery-plan-dy-data-T5.1-finance-schema.md) | 已完成（2026-08-21） |
+| T5.2 | [门店确认与推广费发票登记](sub-delivery-plan-dy-data-T5.2-store-billing.md) | 已完成（2026-08-21） |
+| T5.3 | [管理员财务查询与订单穿透](sub-delivery-plan-dy-data-T5.3-finance-queries.md) | 已完成（2026-08-21） |
+| T5.4 | [账单异议生命周期](sub-delivery-plan-dy-data-T5.4-disputes.md) | 已完成（2026-08-21） |
+| T5.5 | [四类财务导入与更正](sub-delivery-plan-dy-data-T5.5-finance-imports.md) | 已完成（2026-08-21；Linear 最终四模板已收敛） |
+| T5.6 | [生产页面与跨页流程](sub-delivery-plan-dy-data-T5.6-finance-pages.md) | 已完成（2026-08-21） |
+| T5.7 | [系统测试与用户验收](sub-delivery-plan-dy-data-T5.7-system-uat.md) | 进行中（G3 已通过；最新主线集成与发布门禁执行中） |
 
 ## 4. 任务看板
 
@@ -139,9 +159,12 @@
 - [ ] 推广费按销售业务日/销售门店，管理费按核销业务日/核销门店；仅有效商品、稳定归属账号和直播/短视频渠道纳入。
 - [ ] 部分/全额退款和取消核销形成独立调整；原结果、已锁账账单和规则版本不被覆盖。
 - [ ] 全国榜单、单店分账、订单费用明细和导出均服务端重验权限；全国前 20 例外不扩展明细权限。
-- [ ] 开票页仅为静态只读指引，无发票、账单确认或财务写操作。
+- [x] 开票页仅登记系统外已开具的推广费发票事实，不创建申请单、不执行开票或审核；旧五节点静态页已删除。
 - [ ] 外部商品 API 样例、稳定归属账号 ID、真实渠道枚举和最终权限矩阵已形成生产验收证据。
 - [ ] `python -m pytest`、Web build、治理校验、计划一致性、目标环境迁移和生产 smoke test 通过。
+- [ ] DYDATA-19 不产生开票申请、真实开票、厂端审核任务、验真或企业微信发送；推广费状态只由门店登记和管理员导入改变。
+- [ ] 四类财务导入任一行错误时正式业务表零写入；全部错误行可分页和下载；更正生成新版本且不删除历史。
+- [ ] 推广费与管理费按方向确认和异议互不阻断；成立调整生成新账单版本并保留旧账单及确认。
 
 ## 6. 风险与应对
 
@@ -154,6 +177,9 @@
 | 旧单分佣调用方仍在使用 | 契约切换造成回归 | 保留旧 `/order-details` 和只读兼容边界；目标页面独立切换新双费用接口 | AI | API 兼容边界已控制；T3.2 页面切换已完成 |
 | 后台页面没有独立 subprd | UI 可能无边界扩张 | T3.3 仅复用现有 `/admin/rules` 与 `/admin/sync` 布局，实现 Foundation 已冻结字段和 Linear 验收；新增交互先回到 Linear/PRD | AI -> 人审核 | 已控制 |
 | 2026-07 测试数据混入正式账期 | 累计、账单和开票口径错误 | 投影和 API 固定正式起点 `2026-08`，专项回归验证 | AI | T2.4 投影与 T3.1 API 均已控制 |
+| 旧 `/invoice` 五节点语义残留 | 用户误以为系统内执行开票和审核 | T5.6 删除旧语义并以契约测试、浏览器截图锁定系统边界 | AI 执行 -> 人审核 | 已关闭（旧页面删除；仅保留兼容跳转） |
+| 大文件导入错误量导致内存峰值 | 服务不稳定或错误被截断 | T5.5 流式解析、错误落库、分页查询与下载；压测峰值并禁止一次性装载 | AI 执行 -> 人审核 | 已控制（5,001 行拒绝并整批回滚；峰值工作集 160.37 MiB） |
+| 账单/发票/导入并发覆盖 | 财务历史不可追溯 | 所有写入使用读取版本、幂等键和原子事务；409 返回当前版本及最近操作 | AI 执行 -> 人审核 | 已控制（T5.2～T5.5 专项回归） |
 
 ## 7. AI 执行示例
 
@@ -176,3 +202,10 @@
 | 4/4 SubPRD；9 条 locked 交互语义 | DYDATA-33-WEB | T3.2 | [T3.2](sub-delivery-plan-dy-data-T3.2-settlement-pages.md) |
 | DYDATA-1/21/30；Foundation 管理接口 | DYDATA-ADMIN-WEB | T3.3 | [T3.3](sub-delivery-plan-dy-data-T3.3-admin-console.md) |
 | MainPRD §4-§6；全部 issue 验收 | DYDATA-RELEASE | T4.1 | [T4.1](sub-delivery-plan-dy-data-T4.1-release-verification.md) |
+| DYDATA-19；Foundation Schema 账单发票 §1-§8 | DYDATA-19-SCHEMA | T5.1 | [T5.1](sub-delivery-plan-dy-data-T5.1-finance-schema.md) |
+| SubPRD 2、4；Foundation API #23-#30 | DYDATA-19-STORE-BILLING | T5.2 | [T5.2](sub-delivery-plan-dy-data-T5.2-store-billing.md) |
+| SubPRD 5～7；Foundation API #31-#34 | DYDATA-19-FINANCE-QUERY | T5.3 | [T5.3](sub-delivery-plan-dy-data-T5.3-finance-queries.md) |
+| SubPRD 8；Foundation API #26-#28/#35-#36 | DYDATA-19-DISPUTE | T5.4 | [T5.4](sub-delivery-plan-dy-data-T5.4-disputes.md) |
+| SubPRD 9；Foundation API #37-#42 | DYDATA-19-IMPORT | T5.5 | [T5.5](sub-delivery-plan-dy-data-T5.5-finance-imports.md) |
+| SubPRD 2、4～9；页面交付清单 | DYDATA-19-WEB | T5.6 | [T5.6](sub-delivery-plan-dy-data-T5.6-finance-pages.md) |
+| MainPRD §4～§6；DYDATA-19 验收 | DYDATA-19-UAT | T5.7 | [T5.7](sub-delivery-plan-dy-data-T5.7-system-uat.md) |

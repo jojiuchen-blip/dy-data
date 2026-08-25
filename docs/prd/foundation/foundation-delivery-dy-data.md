@@ -1,76 +1,77 @@
 # Foundation 交付清单 - dy-data（抖音经营引擎）
 
-> 生成时间: 2026-07-20 12:31
+> 生成时间: 2026-08-21（增量修订）
 > Skill: foundation-builder
 > 模式: 增量更新
-> 范围: DYDATA-1/21/30/31/33/38 的商品治理、双费率、原子导入、商品同步、双费用结算、订单/券主键迁移设计与四页生产查询地基
-> 增量修订: 2026-07-20 14:54 补齐 3 张结算查询既有只读依赖表的逐表字段定义；不改变数据库结构或 API 契约
+> 范围: DYDATA-19 月度账单确认、异议、发票登记、财务导入、查询与审计；最新规则覆盖旧的只读开票假设
 
 ## 上游依赖
 
 | 上游 Skill | 产物文件 |
-|-----------|---------|
+|---|---|
 | brd-writer | docs/brd/BRD-dy-data-20260716-1255.md |
 | page-designer | src/frontend/page-preview/page-delivery-dy-data.md |
 | page-explainer | src/frontend/page-preview/explainer-flow-dy-data.md<br>src/frontend/page-preview/explainer-b-interaction-dy-data.md<br>src/frontend/page-preview/explainer-delivery-dy-data.md |
+| 冻结规格 | docs/superpowers/specs/2026-08-20-dydata-19-settlement-finance-design.md |
 
 ## 交付产物
 
 | 产物 | 文件路径 | 行数 | 拆分子文件 |
-|------|--------|------|----------|
-| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 150 | — |
-| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 120 | docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md |
-| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 187 | docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
+|---|---|---:|---|
+| 术语表 | docs/prd/foundation/foundation-glossary-dy-data.md | 167 | — |
+| 数据库 Schema | docs/prd/foundation/foundation-schema-dy-data.md | 141 | docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md<br>docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md<br>docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md |
+| API 接口设计 | docs/prd/foundation/foundation-api-dy-data.md | 273 | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md<br>docs/prd/foundation/foundation-api-dy-data/common-contract.md<br>docs/prd/foundation/foundation-api-dy-data/product-sync.md<br>docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md<br>docs/prd/foundation/foundation-api-dy-data/sku-fee-admin.md |
 
 ## 产物摘要
 
 | 指标 | 数值 |
-|------|------|
-| 术语总数 | 91 |
-| 数据表总数 | 17 张目标设计表 + 5 张结构不变的既有依赖表 |
-| API 接口数 | 22 |
-| 锁定交互语义 | 9 |
-| 正式账期起点 | `2026-08` |
+|---|---|
+| 数据表总数 | 28 张目标设计表 + 5 张结构不变既有依赖表 |
+| API 接口数 | 42 |
+| DYDATA-19 新增接口 | 20 |
+| DYDATA-19 新增表 | 11（并变更 `settlement_statement` 版本模型） |
+| DYDATA-19 冻结交互语义 | 4 |
+| 正式累计起点 | `2026-08` |
 
 ## 一致性自查结果
 
-- 检查时间: 2026-07-20 12:20
-- 页面可写字段覆盖率: 22/22 (100%)
-- API 总览 ↔ 详细契约覆盖率: 22/22 (100%)
-- Schema 定义 ↔ 使用边界覆盖率: 17/17 (100%)
-- 结算查询既有依赖逐表字段定义覆盖率: 3/3 (100%)
+- 检查时间: 2026-08-21
+- DYDATA-19 页面可写操作覆盖率: 5/5 (100%)
+- 新增 API ↔ Schema 覆盖率: 20/20 (100%)
+- 新增表消费覆盖率: 9/9 (100%)
+- 交互语义 → API/Schema 覆盖率: 4/4 (100%)
 - 术语一致性: 全部通过
-- 交互语义 → API 覆盖率: 9/9 (100%)
-- 交互校验 → Schema / 服务层覆盖率: 9/9 (100%)
-- 孤立目标表: 无
-- Foundation 本地断链: 无
+- 孤立项: 无
 - 文件拆分约束: 主文件及全部子文件均少于 400 行
 
-## 已确认的关键边界
+## 已确认的 DYDATA-19 关键边界
 
-- 批量费率导入支持 `.xlsx` 和 UTF-8 `.csv`，单文件不超过 10 MiB、数据行不超过 5000；任一行非法时正式规则零写入，并返回行号、字段和原因。
-- 首批费率自 `2026-08-01` 生效，后续可选择到自然日；同一 SKU + 生效日冲突拒绝写入，费率通过新增不可变版本调整。
-- 已锁账结果不被后续费率改写；退款、部分退款和取消核销通过调整记录进入事件发生月份，保留原始发生月份和调整入账月份。
-- 原始订单/券表保留平台字符串业务 ID，同时分阶段增加自增内部主键并迁移内部引用；Foundation 不生成或执行真实 DDL。
-- 开票确认页和已锁账账单保持只读，本轮不新增在线开票、锁账、解锁或修改接口。
-- 订单双费用查询使用 `/api/v1/order-fee-details`；旧 `/api/v1/order-details` 保留通用订单查询语义。
+- 开票与厂端审核在系统外完成；系统不创建开票申请单、不执行开票、不创建审核任务。
+- 门店账号按费用方向确认账单、提交异议和登记推广费发票；财务人员使用管理员角色导入结果，管理员与最高管理员在本模块权限一致。
+- 推广费状态固定为“待开票 / 提交成功，待厂端审核 / 审核通过，已结算 / 审核不通过，请重新上传”；管理服务费不套用此审核状态链。
+- 账单、发票和四类导入均采用不可变版本；更正覆盖当前指针，不删除历史。四类导入任一错误行时正式业务表整批零写入。
+- 四类导入固定为基础信息、推广服务费厂家结果、管理服务费厂家结果和 SAP 确认；管理服务费厂家结果在同一行登记发票与全额厂家扣款，不再拆成两个模板。
+- 推广费发票号码只在当前有效版本中唯一；状态导入或更正可沿用原号码生成新版本，历史版本通过 `supersedes_invoice_id` 永久保留。
+- 门店只按 `store_id` 精确匹配；禁止 SAP 编码、名称、金额或月份模糊匹配。推广费一张发票可覆盖同一门店多个完整账期，但每个账期仅一条当前有效分配且不得拆分；管理服务费仍是一门店一账期一张当前有效发票/厂家扣款事实。
+- 单月与正式累计同时可查；正式累计从 `2026-08` 开始，确认金额只显示单月。历史审计可归档低成本存储，但必须可查询。
 
-## 未关闭的外部依赖
+## 外部依赖与非阻断项
 
-| 依赖 | 当前边界 | 阻断范围 |
-|------|----------|----------|
-| 抖音商品在线 API 脱敏样例和正式文档 | 不猜测 URL、鉴权、游标和真实枚举 | 阻断外部适配器生产验收，不阻断内部 API/Schema 与 PRD |
-| 目标商品归属账号稳定 ID、直播/短视频真实枚举 | Schema 保存稳定 ID 和原始/标准化值，未知渠道默认不计费 | 阻断正式生产配置与数据正确性验收 |
-| 发票抬头、税号、类目、税率、接收方式和正式支持入口 | 页面继续标记待财务确认/待上线通知，不设计发票写接口 | 阻断真实开票功能，不阻断只读准备指引 |
+| 项目 | 当前处理 | 影响 |
+|---|---|---|
+| 企业微信发送 | 本期未开发，不设计接口 | 不阻断发票登记与状态导入 |
+| 外部真实开票/厂端审核 | 系统外业务，系统仅登记和导入结果 | 不纳入系统验收 |
+| DYDATA-22 身份治理 FCR | 与 DYDATA-19 无关，保持待评审且未消费 | 不影响本次财务底座设计 |
+| DYDATA-32 页面权限登记 | 页面设计缺口保持 out_of_scope | 正式开放新生产路由前需独立完成 |
 
 ## 下游可消费信息
 
 | 下游 Skill | 应读取 | 用途 |
-|-----------|--------|------|
-| prd-writer | 本清单 + glossary + schema + api 及全部拆分子文件 | 统一术语、补齐字段来源、接口契约、验收边界和外部依赖 |
+|---|---|---|
+| planner / prd-writer | 本清单、glossary、schema、api、冻结规格和全部拆分子文件 | 生成实施计划、验收映射、迁移顺序和接口任务 |
 
 ## 下游进入条件
 
-- 下游必须以本清单声明的相对路径为准，不从对话记录重新拼接 Foundation 文件。
-- API 和 Schema 文档描述目标契约与目标结构，不代表运行代码、数据库迁移或生产外部适配已经实现。
-- 外部依赖未关闭的能力必须在 PRD 中保持依赖状态，不得把 Mock、历史字段或推测枚举写成生产验收事实。
+- 任务拆分必须以本清单声明的相对路径为准，不从历史评论重新拼接需求。
+- API 和 Schema 是目标契约，不表示运行代码、迁移或生产适配已经实现。
+- 开发顺序必须先完成迁移与领域服务，再接 API 和页面；所有写操作必须包含权限、幂等、版本冲突和审计测试。

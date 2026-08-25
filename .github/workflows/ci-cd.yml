@@ -26,6 +26,20 @@ jobs:
     name: Verify
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dydata_release
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d dydata_release"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -49,6 +63,9 @@ jobs:
           cache: npm
           cache-dependency-path: apps/web/package-lock.json
 
+      - name: Select current formal delivery plan
+        run: node scripts/prepare_governance_plan.mjs .
+
       - name: Run project governance gates
         run: |
           npm --prefix .agent/project-manager-suite run test:ai-pm
@@ -56,6 +73,11 @@ jobs:
           node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite
           node .agent/project-manager-suite/tools/validate-global-files.mjs .
           node .agent/project-manager-suite/tools/route-check.mjs .
+
+      - name: Run real PostgreSQL release gate
+        env:
+          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
+        run: python scripts/verify_postgres_release_gate.py
 
       - name: Install frontend dependencies
         working-directory: apps/web

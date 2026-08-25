@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from logging.config import fileConfig
 
 from alembic import context
@@ -15,10 +16,28 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 MIGRATION_ADVISORY_LOCK_KEY = 294903237518183233
+MIGRATION_LOCK_TIMEOUT_SECONDS = 10 * 60
+MIGRATION_LOCK_RETRY_SECONDS = 0.25
 
 
 def database_url() -> str:
     return os.getenv("DY_DATABASE_URL") or os.getenv("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
+
+
+def acquire_postgresql_migration_lock(driver_connection) -> None:
+    deadline = time.monotonic() + MIGRATION_LOCK_TIMEOUT_SECONDS
+    while True:
+        with driver_connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT pg_try_advisory_lock(%s)",
+                (MIGRATION_ADVISORY_LOCK_KEY,),
+            )
+            if cursor.fetchone()[0]:
+                return
+
+        if time.monotonic() >= deadline:
+            raise TimeoutError("timed out waiting for PostgreSQL migration advisory lock")
+        time.sleep(MIGRATION_LOCK_RETRY_SECONDS)
 
 
 def run_migrations_offline() -> None:
@@ -45,20 +64,28 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         migration_lock_acquired = False
+        migration_driver_connection = None
         if connection.dialect.name == "postgresql":
             connection.exec_driver_sql("SET statement_timeout = '10min'")
             connection.commit()
+            # Acquire the session lock on the same DBAPI connection that
+            # Alembic will use for the migration. A separate raw connection
+            # can release the lock's coverage when Alembic switches the
+            # migration connection into an autocommit block for
+            # CREATE INDEX CONCURRENTLY. Raw DBAPI autocommit keeps a waiting
+            # process outside SQLAlchemy's virtual transaction while keeping
+            # the lock attached to the migration session.
+            migration_driver_connection = connection.connection.driver_connection
             try:
-                connection.execute(
-                    text("SELECT pg_advisory_lock(:lock_key)"),
-                    {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
-                )
+                migration_driver_connection.autocommit = True
+                acquire_postgresql_migration_lock(migration_driver_connection)
                 migration_lock_acquired = True
+            except BaseException:
+                raise
             finally:
-                if connection.in_transaction():
-                    connection.rollback()
-                connection.exec_driver_sql("RESET statement_timeout")
-                connection.commit()
+                if not migration_lock_acquired:
+                    migration_driver_connection.autocommit = False
+            migration_driver_connection.autocommit = False
 
         try:
             context.configure(connection=connection, target_metadata=target_metadata)
@@ -66,13 +93,17 @@ def run_migrations_online() -> None:
                 context.run_migrations()
         finally:
             if migration_lock_acquired:
-                if connection.in_transaction():
-                    connection.rollback()
-                connection.execute(
-                    text("SELECT pg_advisory_unlock(:lock_key)"),
-                    {"lock_key": MIGRATION_ADVISORY_LOCK_KEY},
-                )
-                connection.commit()
+                try:
+                    if connection.in_transaction():
+                        connection.rollback()
+                    migration_driver_connection.autocommit = True
+                    with migration_driver_connection.cursor() as cursor:
+                        cursor.execute(
+                            "SELECT pg_advisory_unlock(%s)",
+                            (MIGRATION_ADVISORY_LOCK_KEY,),
+                        )
+                finally:
+                    migration_driver_connection.autocommit = False
 
 
 if context.is_offline_mode():

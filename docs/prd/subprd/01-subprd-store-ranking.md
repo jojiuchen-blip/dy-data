@@ -50,7 +50,7 @@ Web 页面从上到下分为 5 个区域，主体纵向滚动，排名表在窄�
 **数据来源**：`GET /api/v1/meta/filters` 返回的 `periodTypes`、`saleMonths`、`productScopes`、`productScopeTypeMap`、`productTypes`、`formalPeriodStartMonth` 和 `timezone`；用户提交筛选后，由 `GET /api/v1/dashboard/store-ranking` 返回服务端接受并规范化的 `periodType`、`periodKey`、`productScope` 和 `productType`。
 > 接口详情见 [公共 API 契约 §6](../foundation/foundation-api-dy-data/common-contract.md#6-get-apiv1metafilters--结算筛选元数据)与[双费用结算与报表 API §1](../foundation/foundation-api-dy-data/settlement-reporting.md#1-get-apiv1dashboardstore-ranking--全国门店榜单)。
 
-**交互语义引用**：`settlement-ranking.filter-and-rank.1`、`settlement-ranking.product-filter.2`
+**交互语义引用**：`ranking.filters.scope.1`、`ranking.table.store-detail.1`
 
 **布局**：
 
@@ -146,7 +146,7 @@ Web 页面从上到下分为 5 个区域，主体纵向滚动，排名表在窄�
 **数据来源**：`GET /api/v1/dashboard/store-ranking` 返回的 `totals`，包含 `salesOrderCount`、`salesAmountCent`、`verifiedOrderCount`、`verifiedAmountCent`、`promotionNetFeeCent`、`managementNetFeeCent` 和 `netSettlementReferenceCent`。
 > 接口详情见 [双费用结算与报表 API §1](../foundation/foundation-api-dy-data/settlement-reporting.md#1-get-apiv1dashboardstore-ranking--全国门店榜单)。
 
-**交互语义引用**：`settlement-ranking.filter-and-rank.1`、`settlement-ranking.product-filter.2`
+**交互语义引用**：`ranking.filters.scope.1`
 
 **布局**：
 
@@ -230,7 +230,7 @@ Web 页面从上到下分为 5 个区域，主体纵向滚动，排名表在窄�
 **数据来源**：`GET /api/v1/dashboard/store-ranking` 返回的 `scopeMode`、`list`、`total`、`page` 和 `pageSize`；`list[]` 使用 `rank`、`storeId`、`storeName` 及与 `totals` 同名的七项门店指标。
 > 接口详情见 [双费用结算与报表 API §1](../foundation/foundation-api-dy-data/settlement-reporting.md#1-get-apiv1dashboardstore-ranking--全国门店榜单)。
 
-**交互语义引用**：`settlement-ranking.filter-and-rank.1`、`settlement-ranking.product-filter.2`
+**交互语义引用**：`ranking.filters.scope.1`、`ranking.table.store-detail.1`
 
 **布局**：
 

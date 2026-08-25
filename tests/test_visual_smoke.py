@@ -611,16 +611,22 @@ def live_admin_fastapi_base_url() -> Generator[str]:
     admin_routes.run_product_sync_job = deterministic_product_sync_job
     app = create_app()
 
-    def current_user(_request: Request):
+    def current_user(request: Request):
+        role = request.cookies.get("dy_e2e_role", "admin")
+        is_store = role == "store"
         return AuthContext(
-            user_id="live-admin",
-            username="live-admin",
-            display_name="Live Admin",
-            role="admin",
-            store_ids=(),
-            auth_type="env_admin",
-            store_scope_mode="all",
-            page_keys=tuple(ALL_PAGE_KEYS),
+            user_id=f"live-{role}",
+            username=f"live-{role}",
+            display_name=f"Live {role.title()}",
+            role=role,
+            store_ids=("store-1",) if is_store else (),
+            auth_type="user" if is_store else "env_admin",
+            store_scope_mode="specified" if is_store else "all",
+            page_keys=(
+                tuple(STORE_DEFAULT_PAGE_KEYS)
+                if is_store
+                else tuple(ALL_PAGE_KEYS)
+            ),
         )
 
     def session_dependency():
@@ -1049,6 +1055,207 @@ def install_api_routes(page: Page) -> None:
                 body=api_payload({"rows": [], "pagination": empty_pagination}),
             ),
         )
+    billing_metrics = {
+        "statement_total_cent": 128000,
+        "confirmed_amount_cent": 118000,
+        "pending_invoice_amount_cent": 38000,
+        "issued_amount_cent": 80000,
+        "settled_or_deducted_amount_cent": 60000,
+    }
+    statement = {
+        "statement_id": "STMT-VISUAL-001",
+        "store_id": "store_001",
+        "store_name": "上海浦东体验中心",
+        "month": "2026-08",
+        "version_no": 2,
+        "is_current": True,
+        "supersedes_statement_id": "STMT-VISUAL-000",
+        "status": "CONFIRMED",
+        "promotion_amount_cent": 38000,
+        "management_amount_cent": 9000,
+        "promotion_confirmation": {
+            "confirmation_id": "CONF-VISUAL-001",
+            "status": "CONFIRMED",
+            "confirmed_amount_cent": 38000,
+            "confirmed_at": "2026-08-06T10:00:00+08:00",
+        },
+        "management_confirmation": None,
+        "promotion_invoice_status": "PENDING_INVOICE",
+        "management_invoice_status": "PENDING_INVOICE",
+    }
+    invoice = {
+        "invoice_id": "INV-VISUAL-001",
+        "store_id": "store_001",
+        "statement_id": "STMT-VISUAL-000",
+        "statement_month": "2026-08",
+        "fee_direction": "PROMOTION",
+        "version_no": 1,
+        "is_current": True,
+        "supersedes_invoice_id": None,
+        "invoice_number": "12345678901234567890",
+        "invoice_date": "2026-08-08",
+        "invoice_amount_cent": 80000,
+        "allocated_amount_cent": 80000,
+        "status": "SUBMITTED_PENDING_FACTORY_REVIEW",
+        "registered_at": "2026-08-08T10:00:00+08:00",
+        "settled_at": None,
+    }
+    billing_metrics = {
+        "statementTotalCent": 128000,
+        "confirmedAmountCent": 118000,
+        "pendingInvoiceAmountCent": 38000,
+        "issuedAmountCent": 80000,
+        "settledOrDeductedAmountCent": 60000,
+    }
+    statement = {
+        "statementId": "STMT-VISUAL-001",
+        "storeId": "store_001",
+        "storeName": "上海浦东体验中心",
+        "month": "2026-08",
+        "versionNo": 2,
+        "isCurrent": True,
+        "supersedesStatementId": "STMT-VISUAL-000",
+        "status": "CONFIRMED",
+        "promotionAmountCent": 38000,
+        "managementAmountCent": 9000,
+        "promotionConfirmation": {
+            "confirmationId": "CONF-VISUAL-001",
+            "status": "CONFIRMED",
+            "confirmedAmountCent": 38000,
+            "confirmedAt": "2026-08-06T10:00:00+08:00",
+        },
+        "managementConfirmation": None,
+        "promotionInvoiceStatus": "PENDING_INVOICE",
+        "promotionInvoiceableAmountCent": 38000,
+        "promotionCarryforwardBalanceCent": 0,
+        "promotionInvoiceGroupId": "promotion-group-visual-001",
+        "promotionRequiredStatementIds": ["STMT-VISUAL-001"],
+        "promotionPositiveAmountCent": 38000,
+        "promotionNegativeAmountCent": 0,
+        "managementInvoiceStatus": "PENDING_INVOICE",
+    }
+    invoice = {
+        "invoiceId": "INV-VISUAL-001",
+        "storeId": "store_001",
+        "statementId": "STMT-VISUAL-000",
+        "statementMonth": "2026-08",
+        "feeDirection": "PROMOTION",
+        "versionNo": 1,
+        "isCurrent": True,
+        "supersedesInvoiceId": None,
+        "invoiceNumber": "12345678901234567890",
+        "invoiceDate": "2026-08-08",
+        "invoiceAmountCent": 80000,
+        "buyerName": "比亚迪汽车销售有限公司",
+        "taxRatePercent": 6,
+        "allocatedAmountCent": 80000,
+        "settlementBatchMonth": "2026-07",
+        "status": "SUBMITTED_PENDING_FACTORY_REVIEW",
+        "registeredAt": "2026-08-08T10:00:00+08:00",
+        "settledAt": None,
+    }
+    page.route(
+        "**/api/v1/store-settlements?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [statement], "total": 1, "page": 1, "page_size": 50,
+            "metric_scope": "MONTHLY", "metrics": billing_metrics,
+            "pageSize": 50, "metricScope": "MONTH",
+            "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9000}},
+        })),
+    )
+    page.route(
+        "**/api/v1/promotion-invoices?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [invoice], "total": 1, "page": 1, "page_size": 50,
+            "pageSize": 50,
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/finance/summary?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "month": "2026-08", "store_id": None, "fee_direction": "PROMOTION",
+            "metric_scope": "MONTHLY", "metrics": billing_metrics,
+            "storeId": None, "feeDirection": "PROMOTION", "metricScope": "MONTH",
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/finance/invoices?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [invoice], "total": 1, "page": 1, "page_size": 50,
+            "pageSize": 50,
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/finance/order-details?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [{
+                "statement_entry_id": "ENTRY-VISUAL-001", "statement_id": "STMT-VISUAL-001",
+                "store_id": "store_001", "statement_month": "2026-08", "fee_direction": "PROMOTION",
+                "order_id": "ORDER-VISUAL-001", "coupon_id": "COUPON-VISUAL-001",
+                "original_business_month": "2026-07", "statement_posting_month": "2026-08",
+                "base_amount_cent": 10000, "fee_amount_cent": 800,
+                "statementEntryId": "ENTRY-VISUAL-001", "statementId": "STMT-VISUAL-001",
+                "storeId": "store_001", "statementMonth": "2026-08", "feeDirection": "PROMOTION",
+                "orderId": "ORDER-VISUAL-001", "couponId": "COUPON-VISUAL-001",
+                "originalBusinessMonth": "2026-07", "statementPostingMonth": "2026-08",
+                "baseAmountCent": 10000, "feeAmountCent": 800,
+            }], "total": 1, "page": 1, "page_size": 500,
+            "pageSize": 500,
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/finance/stores?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [{
+                "store_id": "store_001", "store_name": "上海浦东体验中心", "sap_code": "SAP-001",
+                "updated_at": "2026-08-08T10:00:00+08:00", "summary": billing_metrics,
+                "storeId": "store_001", "storeName": "上海浦东体验中心", "sapCode": "SAP-001",
+                "updatedAt": "2026-08-08T10:00:00+08:00", **billing_metrics,
+            }], "total": 1, "page": 1, "page_size": 50,
+            "pageSize": 50,
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/disputes?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [{
+                "dispute_id": "DSP-VISUAL-001", "statement_id": "STMT-VISUAL-001",
+                "store_id": "store_001", "statement_month": "2026-08", "fee_direction": "PROMOTION",
+                "dispute_type": "AMOUNT_ERROR", "status": "PENDING", "disputed_amount_cent": 800,
+                "description": "订单金额与门店凭证不一致", "contact_name": "张先生",
+                "contact_phone_masked": "138****0000", "evidence": ["evidence-001"], "orders": [],
+                "submitted_at": "2026-08-08T10:00:00+08:00", "resolution_note": None,
+                "result_statement_id": None,
+                "disputeId": "DSP-VISUAL-001", "statementId": "STMT-VISUAL-001",
+                "storeId": "store_001", "statementMonth": "2026-08", "feeDirection": "PROMOTION",
+                "disputeType": "AMOUNT_ERROR", "disputedAmountCent": 800,
+                "contactName": "张先生", "contactPhoneMasked": "138****0000",
+                "submittedAt": "2026-08-08T10:00:00+08:00", "resolutionNote": None,
+                "resultStatementId": None,
+            }], "total": 1, "page": 1, "page_size": 50,
+            "pageSize": 50,
+        })),
+    )
+    page.route(
+        "**/api/v1/admin/finance-imports?*",
+        lambda route: route.fulfill(status=200, content_type="application/json", body=api_payload({
+            "list": [{
+                "batch_id": "FIN-IMPORT-VISUAL-001", "import_type": "PROMOTION_FACTORY_RESULT",
+                "statement_month": "2026-08", "file_name": "promotion-review.csv", "scenario": "FIRST_IMPORT_READY",
+                "read_version": 0, "current_version": 1, "content_changed": True,
+                "total_rows": 120, "success_rows": 118, "error_rows": 2,
+                "submitted_by": "visual-admin", "submitted_at": "2026-08-08T10:00:00+08:00",
+                "committed_by": None, "committed_at": None,
+                "batchId": "FIN-IMPORT-VISUAL-001", "importType": "PROMOTION_FACTORY_RESULT",
+                "statementMonth": "2026-08", "fileName": "promotion-review.csv",
+                "readVersion": 0, "currentVersion": 1, "contentChanged": True,
+                "totalRows": 120, "successRows": 118, "errorRows": 2,
+                "submittedBy": "visual-admin", "submittedAt": "2026-08-08T10:00:00+08:00",
+                "committedBy": None, "committedAt": None,
+            }], "total": 1, "page": 1, "page_size": 50,
+            "pageSize": 50,
+        })),
+    )
     page.route(
         "**/api/v1/admin/clue-allocation/store-scores*",
         lambda route: route.fulfill(
@@ -1159,6 +1366,14 @@ def install_settlement_user_route(page: Page, role: str) -> None:
 @pytest.mark.parametrize(
     ("name", "url_path", "expected_text", "ready_target"),
     [
+        ("store-invoice", "/settlement/invoice?storeId=store_001&month=2026-08", "开票确认", "heading"),
+        ("finance-promotion", "/finance/promotion?month=2026-08", "推广费财务看板", "heading"),
+        ("finance-management", "/finance/management?month=2026-08", "管理服务费财务看板", "heading"),
+        ("finance-orders-promotion", "/finance/orders/promotion?month=2026-08", "推广服务费订单明细", "heading"),
+        ("finance-orders-management", "/finance/orders/management?month=2026-08", "管理服务费订单明细", "heading"),
+        ("finance-stores", "/finance/stores?month=2026-08", "门店财务汇总", "heading"),
+        ("finance-disputes", "/finance/disputes?month=2026-08", "账单异议处理", "heading"),
+        ("finance-imports", "/finance/imports", "财务结果导入", "heading"),
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
@@ -1262,6 +1477,18 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
         assert page_errors == []
         assert http_errors == []
 
+        if name == "store-invoice" or name.startswith("finance-"):
+            body_text = page.locator("body").inner_text()
+            for internal_value in [
+                "SUBMITTED_PENDING_FACTORY_REVIEW",
+                "PROMOTION_FACTORY_RESULT",
+                "MANAGEMENT_FACTORY_RESULT",
+                "FIRST_IMPORT_READY",
+                "PENDING_ADMIN_APPROVAL",
+                "AMOUNT_ERROR",
+            ]:
+                assert internal_value not in body_text
+
         if width == 390:
             mobile_targets = page.locator(
                 ".mobile-bottom-nav a, .mobile-bottom-nav button",
@@ -1301,7 +1528,7 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
         nav_box = nav.bounding_box()
         assert nav_box is not None
         links = nav.locator("a")
-        assert links.count() == 4
+        assert links.count() == 5
         for index in range(links.count()):
             link_box = links.nth(index).bounding_box()
             assert link_box is not None
@@ -3243,5 +3470,403 @@ def test_desktop_detail_pages_keep_pagination_visible_and_scroll_table_region(
         assert metrics["tableHeight"] >= 180
         assert metrics["paginationBottom"] <= metrics["viewportHeight"]
         assert metrics["sectionBottom"] <= metrics["viewportHeight"]
+    finally:
+        context.close()
+
+
+def test_finance_pages_use_live_fastapi_for_admin_empty_and_store_forbidden(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
+) -> None:
+    admin_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    admin_page = admin_context.new_page()
+    finance_responses: list[int] = []
+    admin_page.on(
+        "response",
+        lambda response: finance_responses.append(response.status)
+        if "/api/v1/admin/finance/" in response.url
+        else None,
+    )
+    try:
+        admin_page.goto(
+            f"{vite_live_admin_api_base_url}/finance/promotion?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        admin_page.get_by_role("heading", name="推广费财务看板", exact=True).wait_for(timeout=10000)
+        admin_page.get_by_text("¥0.00", exact=True).first.wait_for(timeout=10000)
+        assert finance_responses and all(status == 200 for status in finance_responses)
+        assert admin_page.locator(".resource-notice--error").count() == 0
+    finally:
+        admin_context.close()
+
+    store_context = browser.new_context(viewport={"width": 1440, "height": 900})
+    try:
+        store_context.add_cookies([
+            {
+                "name": "dy_e2e_role",
+                "value": "store",
+                "url": live_admin_fastapi_base_url,
+            }
+        ])
+        forbidden = store_context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/admin/finance/summary",
+            params={
+                "month": "2026-08",
+                "feeDirection": "PROMOTION",
+                "metricScope": "MONTH",
+            },
+        )
+        assert forbidden.status == 403
+        assert forbidden.json()["detail"]["code"] == "DATA_SCOPE_FORBIDDEN"
+    finally:
+        store_context.close()
+
+
+def test_store_invoice_preserves_422_input_then_reads_back_success(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    posted_payloads: list[dict[str, object]] = []
+    attempts = 0
+
+    def register_invoice(route) -> None:
+        nonlocal attempts
+        attempts += 1
+        posted_payloads.append(route.request.post_data_json)
+        if attempts == 1:
+            route.fulfill(
+                status=422,
+                content_type="application/json",
+                body=json.dumps({
+                    "detail": {
+                        "code": "VALIDATION_FAILED",
+                        "message": "发票信息校验失败，请核对后重试",
+                        "errors": [{"field": "invoiceNumber", "reason": "发票号码已存在"}],
+                        "requestId": "req-invoice-422",
+                    }
+                }, ensure_ascii=False),
+            )
+            return
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "invoiceId": "INV-REGISTERED-001",
+                "storeId": "store_001",
+                "versionNo": 1,
+                "isCurrent": True,
+                "supersedesInvoiceId": None,
+                "invoiceNumber": "12345678901234567890",
+                "invoiceDate": "2026-08-08",
+                "invoiceAmountCent": 38000,
+                "buyerName": "比亚迪汽车销售有限公司",
+                "taxRatePercent": 6,
+                "status": "SUBMITTED_PENDING_FACTORY_REVIEW",
+                "registeredAt": "2026-08-08T10:00:00+08:00",
+                "statementId": "STMT-VISUAL-001",
+                "statementMonth": "2026-08",
+                "settlementBatchMonth": "2026-07",
+                "allocatedAmountCent": 38000,
+            }),
+        )
+
+    try:
+        install_api_routes(page)
+        page.route("**/api/v1/promotion-invoices", register_invoice)
+        page.goto(
+            f"{vite_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("button", name="选择抵扣组").click()
+        number = page.get_by_label("20 位数电专票号码")
+        invoice_date = page.get_by_label("开票日期")
+        number.fill("12345678901234567890")
+        invoice_date.fill("2026-08-08")
+        page.get_by_role("button", name="登记并提交").click()
+        page.get_by_text("提交内容未通过校验，请检查后重试。", exact=True).wait_for(timeout=10000)
+        assert number.input_value() == "12345678901234567890"
+        assert invoice_date.input_value() == "2026-08-08"
+
+        page.get_by_role("button", name="登记并提交").click()
+        page.get_by_text("发票信息已登记，状态已更新。", exact=True).wait_for(timeout=10000)
+        assert page.get_by_label("20 位数电专票号码").count() == 0
+        assert posted_payloads[-1]["buyerName"] == "比亚迪汽车销售有限公司"
+        assert posted_payloads[-1]["taxRatePercent"] == 6
+        assert posted_payloads[-1]["invoiceAmountCent"] == 38000
+        assert posted_payloads[-1]["allocations"][0]["readVersion"] == 2
+    finally:
+        context.close()
+
+
+def test_store_invoice_recovers_terminated_history_and_refreshes_chain_after_replacement(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    page.set_default_timeout(60000)
+    registered_payloads: list[dict[str, object]] = []
+    store_user = {
+        "username": "store_001-user",
+        "user_id": "store_001-user",
+        "display_name": "Store User",
+        "role": "store",
+        "is_highest_admin": False,
+        "status": "active",
+        "is_initialized": True,
+        "store_ids": ["store_001"],
+        "store_scope_mode": "assigned",
+        "page_keys": ["A01", "B01", "B02", "D01", "D02", "D03"],
+    }
+    statement = {
+        "statementId": "STMT-VISUAL-001",
+        "storeId": "store_001",
+        "storeName": "上海浦东体验中心",
+        "month": "2026-08",
+        "versionNo": 2,
+        "isCurrent": True,
+        "supersedesStatementId": "STMT-VISUAL-000",
+        "status": "CONFIRMED",
+        "promotionAmountCent": 38000,
+        "managementAmountCent": 9000,
+        "promotionConfirmation": {
+            "confirmationId": "CONF-VISUAL-001",
+            "status": "CONFIRMED",
+            "confirmedAmountCent": 38000,
+            "confirmedAt": "2026-08-06T10:00:00+08:00",
+        },
+        "managementConfirmation": None,
+        "promotionInvoiceStatus": "REJECTED_REUPLOAD",
+        "promotionInvoiceableAmountCent": 38000,
+        "promotionCarryforwardBalanceCent": 0,
+        "promotionInvoiceGroupId": "promotion-group-visual-001",
+        "promotionRequiredStatementIds": ["STMT-VISUAL-001"],
+        "promotionPositiveAmountCent": 38000,
+        "promotionNegativeAmountCent": 0,
+        "managementInvoiceStatus": "PENDING_INVOICE",
+    }
+    old_header = {
+        "invoiceId": "INV-TERMINATED-001",
+        "physicalInvoiceId": "PHYSICAL-TERMINATED-001",
+        "storeId": "store_001",
+        "versionNo": 1,
+        "versionKind": "REGISTRATION",
+        "isCurrent": False,
+        "supersedesInvoiceId": None,
+        "replacesInvoiceId": None,
+        "invoiceNumber": "12345678901234567890",
+        "invoiceDate": "2026-08-08",
+        "invoiceAmountCent": 38000,
+        "buyerName": "比亚迪汽车销售有限公司",
+        "taxRatePercent": 6,
+        "status": "REJECTED_REUPLOAD",
+        "registeredAt": "2026-08-08T10:00:00+08:00",
+    }
+    lifecycle_event = {
+        "lifecycleEventId": "LIFECYCLE-001",
+        "physicalInvoiceId": "PHYSICAL-TERMINATED-001",
+        "invoiceId": "INV-TERMINATED-001",
+        "invoiceVersion": 1,
+        "eventType": "VOIDED",
+        "reason": "系统外已作废",
+        "readVersion": 1,
+        "isCurrent": True,
+        "operatorId": "store_001-user",
+        "occurredAt": "2026-08-20T10:00:00+08:00",
+    }
+
+    def register_replacement(route) -> None:
+        registered_payloads.append(route.request.post_data_json)
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                **old_header,
+                "invoiceId": "INV-REPLACEMENT-001",
+                "physicalInvoiceId": "PHYSICAL-REPLACEMENT-001",
+                "isCurrent": True,
+                "replacesInvoiceId": "INV-TERMINATED-001",
+                "invoiceNumber": "12345678901234567891",
+                "invoiceDate": "2026-08-21",
+                "status": "SUBMITTED_PENDING_FACTORY_REVIEW",
+                "allocations": [{
+                    "statementId": "STMT-VISUAL-001",
+                    "statementMonth": "2026-08",
+                    "settlementBatchMonth": "2026-08",
+                    "allocatedAmountCent": 38000,
+                }],
+            }),
+        )
+
+    try:
+        install_api_routes(page)
+        page.unroute("**/api/v1/auth/me")
+        page.unroute("**/api/v1/store-settlements?*")
+        page.unroute("**/api/v1/promotion-invoices?*")
+        page.route(
+            "**/api/v1/auth/me",
+            lambda route: route.fulfill(
+                status=200, content_type="application/json", body=api_payload(store_user),
+            ),
+        )
+        page.route(
+            "**/api/v1/store-settlements?*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [statement], "total": 1, "page": 1, "pageSize": 50,
+                    "metricScope": "MONTH",
+                    "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9000}},
+                }),
+            ),
+        )
+        page.route(
+            "**/api/v1/promotion-invoices/replacement-candidates?*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [{
+                        "invoice": old_header,
+                        "lifecycleEvent": lifecycle_event,
+                        "releasedStatementMonths": ["2026-08"],
+                    }],
+                    "total": 1,
+                }),
+            ),
+        )
+        page.route(
+            "**/api/v1/promotion-invoices/INV-TERMINATED-001",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    **old_header,
+                    "versions": [old_header],
+                    "allocations": [],
+                    "statusEvents": [],
+                    "lifecycleEvents": [lifecycle_event],
+                    "replacements": [{
+                        **old_header,
+                        "invoiceId": "INV-REPLACEMENT-001",
+                        "physicalInvoiceId": "PHYSICAL-REPLACEMENT-001",
+                        "invoiceNumber": "12345678901234567891",
+                        "replacesInvoiceId": "INV-TERMINATED-001",
+                    }],
+                    "replacementChain": [old_header, {
+                        **old_header,
+                        "invoiceId": "INV-REPLACEMENT-001",
+                        "physicalInvoiceId": "PHYSICAL-REPLACEMENT-001",
+                        "invoiceNumber": "12345678901234567891",
+                        "replacesInvoiceId": "INV-TERMINATED-001",
+                    }],
+                }),
+            ),
+        )
+        page.route("**/api/v1/promotion-invoices", register_replacement)
+        page.goto(
+            f"{vite_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("button", name="恢复替换").click()
+        page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
+        page.reload(wait_until="domcontentloaded")
+        page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
+        page.get_by_label("20 位数电专票号码").fill("12345678901234567891")
+        page.get_by_label("开票日期").fill("2026-08-21")
+        page.get_by_role("button", name="登记并提交").click()
+        page.get_by_text("替换链：12345678901234567890 → 12345678901234567891", exact=True).wait_for()
+        assert registered_payloads[-1]["replacesInvoiceId"] == "INV-TERMINATED-001"
+    finally:
+        context.close()
+
+
+def test_finance_import_clears_stale_preview_after_409(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    commit_attempts = 0
+
+    def upload_preview(route) -> None:
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "batchId": "FIN-PREVIEW-001",
+                "importType": "PROMOTION_FACTORY_RESULT",
+                "statementMonth": "2026-08",
+                "fileName": "promotion-review.csv",
+                "scenario": "FIRST_IMPORT_READY",
+                "readVersion": 0,
+                "currentVersion": 0,
+                "contentChanged": True,
+                "totalRows": 1,
+                "successRows": 1,
+                "errorRows": 0,
+                "submittedBy": "visual-admin",
+                "submittedAt": "2026-08-08T10:00:00+08:00",
+                "committedBy": None,
+                "committedAt": None,
+            }),
+        )
+
+    def commit_preview(route) -> None:
+        nonlocal commit_attempts
+        commit_attempts += 1
+        if commit_attempts == 1:
+            route.fulfill(
+                status=409,
+                content_type="application/json",
+                body=json.dumps({
+                    "detail": {
+                        "code": "VERSION_CONFLICT",
+                        "message": "预览版本已过期，请刷新后重新预览",
+                        "errors": [],
+                        "requestId": "req-import-409",
+                    }
+                }, ensure_ascii=False),
+            )
+            return
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "batchId": "FIN-PREVIEW-001",
+                "status": "COMMITTED",
+                "readVersion": 0,
+                "currentVersion": 1,
+                "totalRows": 1,
+                "successRows": 1,
+                "errorRows": 0,
+                "committedBy": "visual-admin",
+                "committedAt": "2026-08-08T10:01:00+08:00",
+            }),
+        )
+
+    try:
+        install_api_routes(page)
+        page.route("**/api/v1/admin/finance-imports", upload_preview)
+        page.route("**/api/v1/admin/finance-imports/FIN-PREVIEW-001/commits", commit_preview)
+        page.goto(
+            f"{vite_base_url}/finance/promotion?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_label("文件").set_input_files({
+            "name": "promotion-review.csv",
+            "mimeType": "text/csv",
+            "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED,,2026-08-08,38000\n",
+        })
+        page.get_by_role("button", name="上传并预览").click()
+        page.get_by_text("整批校验通过，请核对版本和变更原因后提交。", exact=True).wait_for(timeout=10000)
+        page.get_by_role("button", name="确认提交").click()
+        page.get_by_text("数据已发生变化，请刷新后重新操作。", exact=True).wait_for(timeout=10000)
+        assert page.get_by_text("首次导入，待确认", exact=True).count() == 0
+        assert commit_attempts == 1
     finally:
         context.close()

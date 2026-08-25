@@ -200,6 +200,7 @@ def test_all_current_business_api_families_are_registered_and_unknown_defaults_t
     assert required_page_key_for_api_path("/api/v1/dashboard/store-ranking") == "B01"
     assert required_page_key_for_api_path("/api/v1/commission-rules/summary") is None
     assert required_page_key_for_api_path("/api/v1/stores/1/monthly-settlement") == "B02"
+    assert required_page_key_for_api_path("/api/v1/stores/1/sap-suggestions") == "B02"
     assert required_page_key_for_api_path("/api/v1/order-details/export") == "B03"
     assert required_page_key_for_api_path("/api/v1/dashboard/sales") == "C01"
     assert required_page_key_for_api_path("/api/v1/admin/accounts") == "D02"

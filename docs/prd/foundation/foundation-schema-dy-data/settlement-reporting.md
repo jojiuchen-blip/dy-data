@@ -1,13 +1,13 @@
-# 双费用结果、调整、锁账与报表 Schema
+﻿# 双费用结果、调整、锁账与报表 Schema
 
 > 所属索引: [foundation-schema-dy-data.md](../foundation-schema-dy-data.md)
 > 覆盖表: `douyin_refund_event`、`settlement_fee_result`、`settlement_fee_result_current`、`settlement_fee_adjustment`、`settlement_statement`、`settlement_statement_line`、`settlement_statement_entry`、`agg_store_monthly_settlement`、`agg_store_ranking`
 
-## 0 `douyin_refund_event` — 退款事件
+### 0 `douyin_refund_event` — 退款事件
 
 在既有退款事件字段基础上新增 `successful_observed_at datetime NULL`：首次观察到 `refund_status=2`（成功）时写入，之后重复同步只允许更新来源元数据，不得修改该时间。存量成功事件按 `gmt_create`、`gmt_modified`、`occurred_at` 的顺序回填。结算结果以该不可变时间判断事件是否已进入计算快照，避免重复同步把同一退款再次计为调整。
 
-## 1 `settlement_fee_result` — 单券费用结果
+### 1 `settlement_fee_result` — 单券费用结果
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -53,7 +53,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出同口径费用依据。
 - 无公开写接口；仅结算计算 worker 新增不可变结果版本。
 
-## 2 `settlement_fee_result_current` — 当前结果指针
+### 2 `settlement_fee_result_current` — 当前结果指针
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -76,7 +76,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出当前结果口径。
 - 无公开写接口；仅未锁账重算事务原子切换指针。
 
-## 3 `settlement_fee_adjustment` — 费用调整记录
+### 3 `settlement_fee_adjustment` — 费用调整记录
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -114,7 +114,7 @@
 - `GET /api/v1/order-fee-details/export` — 导出调整入账月份、类型、金额和净额。
 - 无公开修改/删除接口；退款、取消核销和受控纠错流程只能新增调整。
 
-## 4 `settlement_statement` — 门店月度账单与锁账
+### 4 `settlement_statement` — 门店月度账单不可变版本与锁账
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -122,6 +122,9 @@
 | statement_id | varchar(128) | NO | UK | — | 账单业务 ID |
 | store_id | varchar(128) | NO | UK* | — | 门店 ID |
 | statement_month | char(7) | NO | UK* | — | 账单月份 |
+| version_no | int unsigned | NO | UK* | `1` | 同门店、同账期递增版本号；接口 `readVersion` 使用此值 |
+| is_current | boolean | NO | IDX | `true` | 是否为该门店、账期的当前有效版本 |
+| supersedes_statement_id | varchar(128) | YES | IDX | NULL | 新版本指向直接被替代的上一账单版本；首版为空 |
 | statement_status | tinyint unsigned | NO | IDX | `1` | 1=生成中，2=待确认，3=已确认，4=已锁账 |
 | promotion_original_fee_cent | bigint | NO | | `0` | 推广费原始金额 |
 | promotion_adjustment_fee_cent | bigint | NO | | `0` | 推广费调整金额 |
@@ -140,19 +143,24 @@
 **索引**：
 - `pk_settlement_statement` (id)
 - `uk_settlement_statement_id` (statement_id)
-- `uk_settlement_statement_store_month` (store_id, statement_month)
+- `uk_settlement_statement_store_month_version` (store_id, statement_month, version_no)
+- `idx_settlement_statement_current_slot` (store_id, statement_month) WHERE is_current，部分唯一索引
 - `uk_settlement_statement_lock_version` (lock_version)
 - `idx_settlement_statement_status_month` (statement_status, statement_month)
+- `idx_settlement_statement_supersedes` (supersedes_statement_id)
 
-**约束**：状态进入“已锁账”前，必须已经写入并核对账单汇总行与账单来源项；锁账后账单头、汇总行和来源项均不可修改或删除。跨月退款只进入事件发生月份的后续账单，并通过来源项关联调整记录及原费用结果。
+**约束**：同一 `store_id + statement_month` 可永久保留多个版本，但只能有一个 `is_current=true`。新版本必须在一个事务中写入完整账单头、汇总行和来源项，核对三层金额后把上一版本切为非当前；任何失败均不得改变当前指针。状态进入“已锁账”前必须已经写入并核对账单汇总行与账单来源项；锁账后各版本均不可修改或删除。跨月退款只进入事件发生月份的后续账单；异议成立的账单更正则生成同账期新版本，并通过 `supersedes_statement_id` 保留直接版本链。
 
 **使用接口**：
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回月度账单状态、确认和锁账信息。
+- `GET /api/v1/store-settlements`、`GET /api/v1/store-settlements/{statementId}` — 返回当前/历史版本、`versionNo/isCurrent` 和版本链。
+- `POST /api/v1/store-settlements/{statementId}/confirmations` — 只允许确认当前版本，并按 `version_no` 校验读取版本。
+- `POST /api/v1/admin/disputes/{disputeId}/transitions` — 异议成立并调整时新增账单版本并原子切换当前标识。
 - `GET /api/v1/order-fee-details` — 在锁账查询中返回账单归属和状态。
 - `GET /api/v1/order-fee-details/export` — 导出账单/锁账状态。
-- 本轮无确认、锁账、解锁、修改或删除 Web 接口；仅内部账单事务写入。
+- 不提供已锁账账单的原地修改、解锁或删除接口；确认单独写入方向确认表，账单更正只新增版本。
 
-## 5 `settlement_statement_line` — 账单汇总行
+### 5 `settlement_statement_line` — 账单汇总行
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -183,11 +191,12 @@
 
 **使用接口**：
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回按费用方向和产品维度冻结的汇总行。
+- `GET /api/v1/store-settlements/{statementId}` — 返回指定不可变版本的账单汇总行。
 - `GET /api/v1/order-fee-details` — 通过 `statementLineId` 下钻冻结来源。
 - `GET /api/v1/order-fee-details/export` — 导出同一账单行的来源明细。
 - 无公开写接口；锁账事务生成后不可修改。
 
-## 6 `settlement_statement_entry` — 账单来源项
+### 6 `settlement_statement_entry` — 账单来源项
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -214,7 +223,7 @@
 **索引**：
 - `pk_settlement_statement_entry` (id)
 - `uk_settlement_statement_entry_id` (statement_entry_id)
-- `uk_settlement_statement_entry_source` (source_type, source_record_id)
+- `uk_settlement_statement_entry_source` (statement_id, source_type, source_record_id)
 - `idx_settlement_statement_entry_line` (statement_line_id)
 - `idx_settlement_statement_entry_statement_order` (statement_id, order_id)
 - `idx_settlement_statement_entry_coupon` (coupon_id)
@@ -224,14 +233,15 @@
 - `source_type=1`：`source_record_id = settlement_fee_result.fee_result_id`，金额取 `fee_base_cent / fee_amount_cent`，计入其原始发生月份。
 - `source_type=2`：`source_record_id = settlement_fee_adjustment.adjustment_id`，`original_fee_result_id` 指向被调整结果，金额取 `adjustment_base_cent / adjustment_fee_cent`，计入调整发生月份。
 
-**约束**：来源记录必须不可变且只能进入一个账单；`statement_posting_month` 必须等于所属账单月份，费用方向和产品维度必须与所属汇总行一致。推广服务费按销售门店归账，管理服务费按核销门店归账。锁账后不得增删或替换来源项。
+**约束**：来源记录必须不可变，并且在同一个账单版本内只能出现一次；生成 Vn+1 时允许把 Vn 的原始来源重新快照到新版本，从而保证每个历史版本都可独立回读。`statement_posting_month` 必须等于所属账单月份，费用方向和产品维度必须与所属汇总行一致。推广服务费按销售门店归账，管理服务费按核销门店归账。任一账单版本锁定后不得增删或替换来源项。
 
 **使用接口**：
 - `GET /api/v1/order-fee-details` — 有 `statementId` 时只读取已冻结来源项。
+- `GET /api/v1/store-settlements/{statementId}` — 返回指定不可变版本的来源明细摘要。
 - `GET /api/v1/order-fee-details/export` — 导出锁账来源快照。
 - 无公开写接口；仅锁账事务写入并在三层金额一致后冻结。
 
-## 7 `agg_store_monthly_settlement` — 单店月度双费用投影（现有·需改动）
+### 7 `agg_store_monthly_settlement` — 单店月度双费用投影（现有·需改动）
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|
@@ -267,7 +277,7 @@
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回单店月度双费用投影与未锁账预览。
 - 无公开写接口；仅投影任务重建。
 
-## 8 `agg_store_ranking` — 门店排名投影（现有·需改动）
+### 8 `agg_store_ranking` — 门店排名投影（现有·需改动）
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
 |------|------|------|-----|--------|------|

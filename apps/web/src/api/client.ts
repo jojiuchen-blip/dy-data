@@ -71,6 +71,30 @@ import type {
   FeedbackStatus,
   FilterMetaData,
   FeeDirection,
+  BillingMetricScope,
+  FinanceDisputeListData,
+  FinanceDisputeRow,
+  FinanceImportBatchDetailData,
+  FinanceImportBatchListData,
+  FinanceImportBatchRow,
+  FinanceInvoiceListData,
+  FinanceInvoiceRow,
+  FinanceOrderDetailListData,
+  FinanceOrderDetailsQuery,
+  FinanceStoreListData,
+  FinanceSummaryData,
+  SapSuggestionListData,
+  SapSuggestionRow,
+  PromotionInvoiceListData,
+  PromotionInvoiceDetail,
+  PromotionInvoiceLifecycleEventType,
+  PromotionInvoiceLifecycleResult,
+  PromotionInvoiceReplacementCandidateListData,
+  PromotionInvoiceRegistrationPayload,
+  PromotionInvoiceRegistrationResult,
+  PromotionInvoiceRow,
+  StoreBillingStatement,
+  StoreBillingStatementListData,
   MonthlySettlementData,
   OrderFeeDetailsData,
   PeriodType,
@@ -393,6 +417,41 @@ async function requestDownload(
   link.click();
   link.remove();
   URL.revokeObjectURL(objectUrl);
+}
+
+export interface DownloadResult {
+  fileName: string;
+  result: "SUCCESS" | "EMPTY";
+}
+
+async function requestDownloadResult(
+  path: string,
+  params?: QueryParams,
+): Promise<DownloadResult> {
+  blockDemoNetwork();
+  const response = await fetch(apiUrl(path, params), {
+    credentials: "include",
+    headers: { Accept: "text/csv" },
+  });
+  if (!response.ok) {
+    throw await apiRequestError(response);
+  }
+  const blob = await response.blob();
+  const fileName =
+    filenameFromContentDisposition(response.headers.get("Content-Disposition")) ??
+    "finance-order-details.csv";
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(objectUrl);
+  return {
+    fileName,
+    result: response.headers.get("X-Export-Result") === "EMPTY" ? "EMPTY" : "SUCCESS",
+  };
 }
 
 async function sendJson<T>(
@@ -1054,11 +1113,15 @@ export function fetchFilterMeta(): Promise<ApiLoadResult<FilterMetaData>> {
   );
 }
 
-async function sendForm<T>(path: string, body: FormData): Promise<ApiResponse<T>> {
+async function sendForm<T>(
+  path: string,
+  body: FormData,
+  headers?: Record<string, string>,
+): Promise<ApiResponse<T>> {
   const response = await fetch(apiUrl(path), {
     body,
     credentials: "include",
-    headers: { Accept: "application/json" },
+    headers: { Accept: "application/json", ...headers },
     method: "POST",
   });
   if (!response.ok) {
@@ -2504,3 +2567,294 @@ export async function saveProductTypeVisibility(
 }
 
 export { defaultMonth, defaultStore, DEFAULT_DETAIL_PAGE_SIZE };
+
+export interface StoreBillingQuery extends QueryParams {
+  storeId: string;
+  month: string;
+  metricScope: BillingMetricScope;
+  feeDirection?: FeeDirection;
+  page?: number;
+  pageSize?: number;
+}
+
+export function fetchStoreBillingStatements(
+  query: StoreBillingQuery,
+): Promise<ApiLoadResult<StoreBillingStatementListData>> {
+  return requestJson<StoreBillingStatementListData>("/store-settlements", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function fetchStoreBillingStatement(
+  statementId: string,
+): Promise<ApiLoadResult<StoreBillingStatement>> {
+  return requestJson<StoreBillingStatement>(
+    `/store-settlements/${encodeURIComponent(statementId)}`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchPromotionInvoices(query: {
+  storeId: string;
+  month: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ApiLoadResult<PromotionInvoiceListData>> {
+  return requestJson<PromotionInvoiceListData>("/promotion-invoices", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function registerPromotionInvoice(
+  payload: PromotionInvoiceRegistrationPayload,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<PromotionInvoiceRegistrationResult>> {
+  return sendJson<PromotionInvoiceRegistrationResult>("/promotion-invoices", {
+    body: payload,
+    headers: { "Idempotency-Key": idempotencyKey },
+  }).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchPromotionInvoiceDetail(
+  invoiceId: string,
+): Promise<ApiLoadResult<PromotionInvoiceDetail>> {
+  return requestJson<PromotionInvoiceDetail>(`/promotion-invoices/${invoiceId}`).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function createPromotionInvoiceLifecycleEvent(
+  invoiceId: string,
+  payload: {
+    eventType: PromotionInvoiceLifecycleEventType;
+    reason: string;
+    readVersion: number;
+  },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<PromotionInvoiceLifecycleResult>> {
+  return sendJson<PromotionInvoiceLifecycleResult>(
+    `/promotion-invoices/${invoiceId}/lifecycle-events`,
+    {
+      body: payload,
+      headers: { "Idempotency-Key": idempotencyKey },
+    },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchPromotionInvoiceReplacementCandidates(
+  storeId: string,
+): Promise<ApiLoadResult<PromotionInvoiceReplacementCandidateListData>> {
+  return requestJson<PromotionInvoiceReplacementCandidateListData>(
+    "/promotion-invoices/replacement-candidates",
+    { storeId },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export interface FinanceQuery extends QueryParams {
+  month: string;
+  feeDirection: FeeDirection;
+  metricScope?: BillingMetricScope;
+  storeId?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function fetchFinanceSummary(
+  query: Required<Pick<FinanceQuery, "month" | "feeDirection">> &
+    Pick<FinanceQuery, "metricScope" | "storeId">,
+): Promise<ApiLoadResult<FinanceSummaryData>> {
+  return requestJson<FinanceSummaryData>("/admin/finance/summary", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function fetchFinanceInvoices(
+  query: FinanceQuery & { invoiceStatus?: string; includeHistory?: boolean },
+): Promise<ApiLoadResult<FinanceInvoiceListData>> {
+  return requestJson<FinanceInvoiceListData>("/admin/finance/invoices", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function correctManagementInvoice(
+  storeId: string,
+  statementMonth: string,
+  payload: {
+    invoiceNumber: string;
+    invoiceDate: string;
+    invoiceAmountCent: number;
+    deductionDate: string;
+    deductionAmountCent: number;
+    changeReason: string;
+    readVersion: number;
+  },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceInvoiceRow>> {
+  return sendJson<FinanceInvoiceRow>(
+    `/admin/finance/management-invoices/${encodeURIComponent(storeId)}/${encodeURIComponent(statementMonth)}/corrections`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceOrderDetails(
+  query: FinanceOrderDetailsQuery,
+): Promise<ApiLoadResult<FinanceOrderDetailListData>> {
+  return requestJson<FinanceOrderDetailListData>(
+    "/admin/finance/order-details",
+    query as QueryParams,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function downloadFinanceOrderDetails(
+  query: Omit<FinanceOrderDetailsQuery, "page" | "pageSize">,
+): Promise<DownloadResult> {
+  return requestDownloadResult(
+    "/admin/finance/order-details/export",
+    query as QueryParams,
+  );
+}
+
+export function fetchFinanceStores(
+  query: FinanceQuery & { q?: string },
+): Promise<ApiLoadResult<FinanceStoreListData>> {
+  return requestJson<FinanceStoreListData>("/admin/finance/stores", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function fetchStoreSapSuggestions(
+  storeId: string,
+): Promise<ApiLoadResult<SapSuggestionListData>> {
+  return requestJson<SapSuggestionListData>(
+    `/stores/${encodeURIComponent(storeId)}/sap-suggestions`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function submitSapSuggestion(
+  storeId: string,
+  payload: { suggestedSapCode: string; suggestionNote: string; readVersion: number },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<SapSuggestionRow>> {
+  return sendJson<SapSuggestionRow>(
+    `/stores/${encodeURIComponent(storeId)}/sap-suggestions`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function decideSapSuggestion(
+  suggestionId: string,
+  payload: {
+    action: "CONFIRM" | "CORRECT" | "REJECT";
+    confirmedSapCode?: string;
+    handlingReason: string;
+    suggestionVersion: number;
+    expectedConfirmedVersion: number;
+  },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<SapSuggestionRow>> {
+  return sendJson<SapSuggestionRow>(
+    `/admin/finance/sap-suggestions/${encodeURIComponent(suggestionId)}/decisions`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceDisputes(
+  query: QueryParams = {},
+): Promise<ApiLoadResult<FinanceDisputeListData>> {
+  return requestJson<FinanceDisputeListData>("/admin/disputes", query).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function transitionFinanceDispute(
+  disputeId: string,
+  payload: {
+    targetStatus: string;
+    resolutionNote: string;
+    readVersion: number;
+    adjustmentAmountCent?: number;
+  },
+): Promise<ApiLoadResult<FinanceDisputeRow>> {
+  return sendJson<FinanceDisputeRow>(
+    `/admin/disputes/${encodeURIComponent(disputeId)}/transitions`,
+    {
+      body: payload,
+      headers: { "Idempotency-Key": crypto.randomUUID() },
+    },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceImports(
+  query: QueryParams = {},
+): Promise<ApiLoadResult<FinanceImportBatchListData>> {
+  return requestJson<FinanceImportBatchListData>(
+    "/admin/finance-imports",
+    query,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceImportDetail(
+  batchId: string,
+  query: QueryParams = {},
+): Promise<ApiLoadResult<FinanceImportBatchDetailData>> {
+  return requestJson<FinanceImportBatchDetailData>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}`,
+    query,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export async function uploadFinanceImport(args: {
+  importType: string;
+  statementMonth: string;
+  file: File;
+}): Promise<ApiLoadResult<FinanceImportBatchRow>> {
+  const body = new FormData();
+  body.append("importType", args.importType);
+  body.append("statementMonth", args.statementMonth);
+  body.append("file", args.file);
+  const response = await sendForm<FinanceImportBatchRow>(
+    "/admin/finance-imports",
+    body,
+    { "Idempotency-Key": crypto.randomUUID() },
+  );
+  return { ...response, usingMock: false };
+}
+
+export function commitFinanceImport(
+  batchId: string,
+  payload: { readVersion: number; changeReason?: string },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceImportBatchRow>> {
+  return sendJson<FinanceImportBatchRow>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/commits`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function correctFinanceImport(
+  batchId: string,
+  payload: { readVersion: number; changeReason: string },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceImportBatchRow>> {
+  return sendJson<FinanceImportBatchRow>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/corrections`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function reverseFinanceImport(
+  batchId: string,
+  payload: { readVersion: number; changeReason: string },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceImportBatchRow>> {
+  return sendJson<FinanceImportBatchRow>(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/reversals`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function downloadFinanceImportErrors(batchId: string): Promise<void> {
+  return requestDownload(
+    `/admin/finance-imports/${encodeURIComponent(batchId)}/error-file`,
+  );
+}
