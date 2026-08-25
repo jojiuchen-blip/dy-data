@@ -3785,7 +3785,7 @@ def test_store_invoice_recovers_terminated_history_and_refreshes_chain_after_rep
         context.close()
 
 
-def test_finance_import_keeps_preview_after_409_then_reloads_after_success(
+def test_finance_import_clears_stale_preview_after_409(
     browser: Browser,
     vite_base_url: str,
 ) -> None:
@@ -3865,11 +3865,8 @@ def test_finance_import_keeps_preview_after_409_then_reloads_after_success(
         page.get_by_role("button", name="上传并预览").click()
         page.get_by_text("整批校验通过，请核对版本和变更原因后提交。", exact=True).wait_for(timeout=10000)
         page.get_by_role("button", name="确认提交").click()
-        page.get_by_text("预览版本已过期，请刷新后重新预览", exact=True).wait_for(timeout=10000)
-        assert page.get_by_text("首次导入，待确认", exact=True).count() == 1
-
-        page.get_by_role("button", name="确认提交").click()
-        page.get_by_text("导入结果已生效；导入时间作为审核通过或结算完成时间。", exact=True).wait_for(timeout=10000)
-        assert commit_attempts == 2
+        page.get_by_text("数据已发生变化，请刷新后重新操作。", exact=True).wait_for(timeout=10000)
+        assert page.get_by_text("首次导入，待确认", exact=True).count() == 0
+        assert commit_attempts == 1
     finally:
         context.close()
