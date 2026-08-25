@@ -17,7 +17,7 @@ The workflow is `.github/workflows/ci-cd.yml`.
 - Pushes to `main`: run the same verification, then deploy Railway `api`, `worker`, and `web` only when `RAILWAY_DEPLOY_ENABLED=true`.
 - Railway `Postgres` is managed as a Railway database service and is not deployed by GitHub.
 - The verification job also upgrades a populated PostgreSQL fixture from `20260824_0042` to the current head and checks both backfilled and unresolved snapshot outcomes.
-- The verification job exercises two concurrent finance-import commits against that PostgreSQL service and requires serialized versions `1` and `2` plus two operation audits.
+- The verification job exercises two concurrent finance-import commits against that PostgreSQL service and requires one version-1 commit plus one structured `409 VERSION_CONFLICT` result.
 - When Railway deployment is enabled, a separate target gate backs up the configured Railway database, validates Alembic lineage, runs the migration explicitly, and blocks unresolved snapshot exceptions before deployment.
 - The API image does not run migrations at process startup; the Compose `migrate` service and the Railway target gate own the migration boundary.
 - Playwright dependency installation uses the public Ubuntu archive fallback and

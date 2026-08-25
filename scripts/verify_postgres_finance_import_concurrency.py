@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from uuid import uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import sessionmaker
 
@@ -67,7 +68,7 @@ def _request(request_id: str) -> SimpleNamespace:
     )
 
 
-def _commit_one(session_factory, batch_id: str, key: str) -> int:
+def _commit_one(session_factory, batch_id: str, key: str) -> tuple[str, int]:
     current_user = AuthContext(
         user_id="release-gate-admin",
         username="release-gate-admin",
@@ -78,15 +79,21 @@ def _commit_one(session_factory, batch_id: str, key: str) -> int:
         store_scope_mode="all",
     )
     with session_factory() as session:
-        response = dashboard_routes.commit_finance_import(
-            batch_id=batch_id,
-            payload={"readVersion": 0, "changeReason": "release concurrency gate"},
-            request=_request(f"release-gate-{key}"),
-            idempotency_key=key,
-            current_user=current_user,
-            store=DashboardDataStore(session),
-        )
-        return int(response["data"]["currentVersion"])
+        try:
+            response = dashboard_routes.commit_finance_import(
+                batch_id=batch_id,
+                payload={"readVersion": 0, "changeReason": "release concurrency gate"},
+                request=_request(f"release-gate-{key}"),
+                idempotency_key=key,
+                current_user=current_user,
+                store=DashboardDataStore(session),
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            if exc.status_code != 409 or detail.get("code") != "VERSION_CONFLICT":
+                raise
+            return "conflict", int(detail["data"]["currentVersion"])
+        return "committed", int(response["data"]["currentVersion"])
 
 
 def main() -> None:
@@ -108,7 +115,7 @@ def main() -> None:
                 )
                 for index, batch_id in enumerate(batch_ids)
             ]
-            versions = sorted(future.result(timeout=60) for future in futures)
+            outcomes = [future.result(timeout=60) for future in futures]
 
         with session_factory() as session:
             rows = list(
@@ -126,17 +133,24 @@ def main() -> None:
                     FinanceOperationAudit.operation_type == "FINANCE_IMPORT_COMMIT",
                 )
             )
-            if versions != [1, 2]:
+            if sorted(outcomes) != [("committed", 1), ("conflict", 1)]:
                 raise AssertionError(
-                    f"expected serialized import versions [1, 2], got {versions}"
+                    "expected one version-1 commit and one VERSION_CONFLICT, "
+                    f"got {outcomes}"
                 )
-            if sorted(row.current_version for row in rows) != [1, 2]:
-                raise AssertionError("committed batches do not retain serialized versions")
-            if audit_count != 2:
-                raise AssertionError(f"expected two commit audits, got {audit_count}")
+            if sorted((row.batch_status, row.current_version) for row in rows) != [
+                (5, 1),
+                (7, 1),
+            ]:
+                raise AssertionError("concurrent batches do not retain commit/conflict states")
+            if audit_count != 1:
+                raise AssertionError(f"expected one successful commit audit, got {audit_count}")
     finally:
         engine.dispose()
-    print("PostgreSQL finance import concurrency gate passed: versions=1,2")
+    print(
+        "PostgreSQL finance import concurrency gate passed: "
+        "one version-1 commit and one VERSION_CONFLICT"
+    )
 
 
 if __name__ == "__main__":

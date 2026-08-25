@@ -104,6 +104,6 @@
 - **Railway 发布门禁**：启用 Railway 发布时，token、API/Worker/Browser/Web 服务 ID 和 Web smoke URL 均为必填；缺失配置直接失败，不再产生“验证通过但未完整部署”的绿色结果。
 - **定向验证**：迁移回滚保护 4 项与部署契约 1 项通过；部署/Agent 契约回归 `19 passed`。全量 CI 待修复提交完成后重新执行。
 - **真实 PostgreSQL 历史数据门禁**：新增有数据的 `20260824_0042 → 20260824_0043` fixture，验证可确定回填门店快照、无法匹配记录进入 `UNRESOLVED` 和异常表。
-- **真实 PostgreSQL 并发门禁**：新增两个同账期财务导入批次并发提交的 API 路径验证，要求版本严格分配为 `1、2`，并保留两条操作审计。
+- **真实 PostgreSQL 并发门禁**：新增两个同账期财务导入批次并发提交的 API 路径验证，要求一笔成功提交为版本 `1`、另一笔返回结构化 `409 VERSION_CONFLICT`，并保留成功操作审计。
 - **目标库发布保护**：Railway 发布前新增目标库备份、现有 Alembic lineage 校验、显式迁移和未解决快照异常检查；备份作为 Actions artifact 留存。
 - **迁移边界**：API Docker 镜像不再在进程启动时隐式执行迁移，迁移由 Compose `migrate` 服务和目标库发布门禁显式负责。
