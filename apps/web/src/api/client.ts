@@ -94,6 +94,8 @@ import type {
   PromotionInvoiceRegistrationPayload,
   PromotionInvoiceRegistrationResult,
   PromotionInvoiceRow,
+  StoreBillingConfirmationPayload,
+  StoreBillingConfirmationResult,
   StoreBillingStatement,
   StoreBillingStatementListData,
   MonthlySettlementData,
@@ -2570,6 +2572,17 @@ export function fetchStoreBillingStatement(
 ): Promise<ApiLoadResult<StoreBillingStatement>> {
   return requestJson<StoreBillingStatement>(
     `/store-settlements/${encodeURIComponent(statementId)}`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function confirmStoreBillingStatement(
+  statementId: string,
+  payload: StoreBillingConfirmationPayload,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<StoreBillingConfirmationResult>> {
+  return sendJson<StoreBillingConfirmationResult>(
+    `/store-settlements/${encodeURIComponent(statementId)}/confirmations`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
   ).then((response) => ({ ...response, usingMock: false }));
 }
 
