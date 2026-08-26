@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import { fetchAdminSession, logoutAdmin } from "./api/client";
-import { CLUE_DEMO_MODE } from "./demo/clueDemoMode";
+import { CLUE_DEMO_MODE, isClueDemoPathname } from "./demo/clueDemoMode";
 import type { AdminUser } from "./types/dashboard";
 import type { AllocationSubview } from "./pages/AdminClueAllocationPage";
 import { AuthPage, type AuthMode } from "./pages/AuthPage";
@@ -116,6 +116,7 @@ function readLocation() {
 
 interface AuthGateProps {
   children: (props: { user: AdminUser; onLogout: () => void }) => ReactNode;
+  isDemoMode: boolean;
   pathname: string;
 }
 
@@ -193,13 +194,13 @@ export function hasPageAccess(user: AdminUser, pathname: string): boolean {
     : pathname === "/" || pathname === "/login";
 }
 
-function AuthGate({ children, pathname }: AuthGateProps) {
+function AuthGate({ children, isDemoMode, pathname }: AuthGateProps) {
   const [checking, setChecking] = useState(true);
   const [user, setUser] = useState<AdminUser | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetchAdminSession()
+    fetchAdminSession({ allowDemoIdentity: isDemoMode })
       .then((result) => {
         if (!cancelled) {
           setUser(result.data);
@@ -218,7 +219,7 @@ function AuthGate({ children, pathname }: AuthGateProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isDemoMode]);
 
   const handleLogout = () => {
     logoutAdmin().catch(() => undefined);
@@ -343,10 +344,11 @@ export function App() {
     () => new URLSearchParams(location.search),
     [location.search],
   );
+  const isDemoMode = CLUE_DEMO_MODE && isClueDemoPathname(location.pathname);
 
   return (
     <Suspense fallback={<PageLoadingFallback />}>
-      <AuthGate pathname={location.pathname}>
+      <AuthGate isDemoMode={isDemoMode} pathname={location.pathname}>
         {({ user, onLogout }) => {
         if (location.pathname === "/auth/cli/authorize") {
           return <CliAuthorizePage currentUser={user} search={location.search} />;
@@ -383,8 +385,8 @@ export function App() {
             <Shell
               currentPath={location.pathname}
               currentUser={user}
-              isDemoMode={CLUE_DEMO_MODE}
-              onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
+              isDemoMode={isDemoMode}
+              onLogout={isDemoMode ? undefined : onLogout}
             >
               {hasPageAccess(user, location.pathname) ? (
                 adminPage
@@ -442,8 +444,8 @@ export function App() {
           <Shell
             currentPath={location.pathname}
             currentUser={user}
-            isDemoMode={CLUE_DEMO_MODE}
-            onLogout={CLUE_DEMO_MODE ? undefined : onLogout}
+            isDemoMode={isDemoMode}
+            onLogout={isDemoMode ? undefined : onLogout}
           >
             {hasPageAccess(user, location.pathname) ? page : <PageForbiddenPage />}
           </Shell>

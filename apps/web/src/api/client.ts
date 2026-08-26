@@ -155,8 +155,7 @@ import {
 } from "../utils/settlement";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
-const USE_MOCKS =
-  CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS === "true";
+const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
 const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
@@ -247,15 +246,6 @@ function demoLoad<T>(factory: () => ApiResponse<T>): Promise<ApiLoadResult<T>> {
   }
 }
 
-function blockDemoNetwork(): void {
-  if (CLUE_DEMO_MODE) {
-    throw new ApiRequestError(
-      503,
-      "演示模式未提供该接口，已阻止真实网络请求。",
-    );
-  }
-}
-
 async function apiRequestError(response: Response): Promise<ApiRequestError> {
   let payload: unknown;
   try {
@@ -316,7 +306,6 @@ async function requestJson<T>(
   params?: QueryParams,
   options: RequestJsonOptions = {},
 ): Promise<ApiResponse<T>> {
-  blockDemoNetwork();
   const url = apiUrl(path, params);
   const requestKey = `${options.cacheKey ?? "default"}:${url}`;
   const maxAgeMs = Math.max(0, options.maxAgeMs ?? 0);
@@ -396,7 +385,6 @@ async function requestDownload(
   path: string,
   params?: QueryParams,
 ): Promise<void> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "text/csv" },
@@ -428,7 +416,6 @@ async function requestDownloadResult(
   path: string,
   params?: QueryParams,
 ): Promise<DownloadResult> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "text/csv" },
@@ -468,7 +455,6 @@ async function sendJson<T>(
     params?: QueryParams;
   } = {},
 ): Promise<ApiResponse<T>> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "include",
@@ -497,7 +483,6 @@ async function sendBareJson<T>(
     method?: "POST" | "PUT";
   } = {},
 ): Promise<T> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path), {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "include",
@@ -1670,12 +1655,6 @@ export async function loginAdmin(
   usernameOrPassword: string,
   password?: string,
 ): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
-    return demoLoad(() => ({
-      data: CLUE_DEMO_ADMIN_USER,
-      meta: { generated_at: generatedAt(), source: "demo" },
-    }));
-  }
   clearRequestJsonCache();
   const username = password === undefined ? "admin" : usernameOrPassword;
   const resolvedPassword = password === undefined ? usernameOrPassword : password;
@@ -1689,8 +1668,10 @@ export async function loginAdmin(
   return result;
 }
 
-export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
+export async function fetchAdminSession(
+  options: { allowDemoIdentity?: boolean } = {},
+): Promise<ApiLoadResult<AdminUser>> {
+  if (CLUE_DEMO_MODE && options.allowDemoIdentity) {
     return demoLoad(() => ({
       data: CLUE_DEMO_ADMIN_USER,
       meta: { generated_at: generatedAt(), source: "demo" },
@@ -1700,12 +1681,6 @@ export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
 }
 
 export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
-    return demoLoad(() => ({
-      data: CLUE_DEMO_ADMIN_USER,
-      meta: { generated_at: generatedAt(), source: "demo" },
-    }));
-  }
   clearRequestJsonCache();
   try {
     return {

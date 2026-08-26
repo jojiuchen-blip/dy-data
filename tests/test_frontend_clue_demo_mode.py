@@ -26,7 +26,10 @@ def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     assert 'store_scope_mode: "all"' in source
     assert "page_keys: [" in source
     assert '"A01"' in source
-    assert '"D10"' in source
+    assert '"A02"' in source
+    assert '"B01"' not in source
+    assert '"C01"' not in source
+    assert '"D01"' not in source
     assert 'display_name: "演示最高管理员"' in source
     assert package["scripts"]["dev:demo"] == "vite --host 127.0.0.1 --mode demo"
     assert "VITE_DEMO_MODE=true" in demo_env
@@ -120,17 +123,32 @@ def test_demo_repository_covers_all_allocation_admin_calls() -> None:
         assert marker in source
 
 
-def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
+def test_demo_mode_is_scoped_to_clue_paths_and_keeps_other_routes_live() -> None:
+    demo_mode = _read("demo/clueDemoMode.ts")
     client = _read("api/client.ts")
     app = _read("App.tsx")
 
+    assert "isClueDemoPathname" in demo_mode
+    for allowed_path in ['pathname === "/clues"', 'pathname === "/clues/details"']:
+        assert allowed_path in demo_mode
+    for rejected_path in ["/finance/promotion", "/settlement", "/admin", "/auth/"]:
+        assert rejected_path not in demo_mode
+
+    assert 'const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";' in client
+    assert "blockDemoNetwork" not in client
+    assert "CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS" not in client
+    assert "allowDemoIdentity" in client
+    assert "CLUE_DEMO_MODE && options.allowDemoIdentity" in client
+
+    assert "isClueDemoPathname(location.pathname)" in app
+    assert "fetchAdminSession({ allowDemoIdentity: isDemoMode })" in app
+    assert "isDemoMode={isDemoMode}" in app
+    assert "onLogout={isDemoMode ? undefined : onLogout}" in app
+
     for value in [
         "CLUE_DEMO_MODE",
-        "CLUE_DEMO_ADMIN_USER",
         "clueDemoRepository",
         "demoLoad",
-        "blockDemoNetwork",
-        'fallbackReason: "当前展示合成演示数据。"',
         "clueDemoRepository.getAssignmentRounds",
         "clueDemoRepository.saveFollowUp",
         "clueDemoRepository.getHeadquartersPool",
@@ -140,8 +158,6 @@ def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
     ]:
         assert value in client
 
-    assert "isDemoMode={CLUE_DEMO_MODE}" in app
-    assert "CLUE_DEMO_MODE ? undefined : onLogout" in app
 
 
 def test_shell_discloses_demo_data_on_desktop_and_mobile() -> None:
