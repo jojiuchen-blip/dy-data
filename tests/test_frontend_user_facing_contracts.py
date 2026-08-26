@@ -657,3 +657,41 @@ def test_dydata_19_g3_order_detail_page_exposes_complete_server_filters_paginati
     assert "originalTargetRecordId" in imports_page
     for field in ["reversedByBatchId", "reverseNotAllowedReason", "reversalChain"]:
         assert field in imports_page
+
+
+def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
+    shell = read_source("components/Shell.tsx")
+    order_details = read_source("pages/FinanceOrderDetailsPage.tsx")
+    fee_page = read_source("pages/FinanceFeePage.tsx")
+    stores_page = read_source("pages/FinanceStoresPage.tsx")
+    disputes_page = read_source("pages/FinanceDisputesPage.tsx")
+    imports_page = read_source("pages/FinanceImportsPage.tsx")
+
+    for item in [
+        '{ href: "/finance/promotion", label: "推广服务费"',
+        '{ href: "/finance/management", label: "管理服务费"',
+        '{ href: "/finance/orders/promotion", label: "订单明细"',
+        '{ href: "/finance/stores", label: "门店基础信息"',
+        '{ href: "/finance/disputes", label: "账单异议"',
+        '{ href: "/finance/imports", label: "导入记录"',
+    ]:
+        assert item in shell
+    assert '"/finance/orders/management": "/finance/orders/promotion"' in shell
+    assert 'href: "/finance/orders/management", label:' not in shell
+
+    assert 'import { TertiaryNav } from "../components/TertiaryNav";' in order_details
+    assert '<TertiaryNav' in order_details
+    assert 'label="订单明细费用方向"' in order_details
+    for item in [
+        '{ href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" }',
+        '{ href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" }',
+    ]:
+        assert item in order_details
+    assert '<TertiaryNav' in order_details.split('<section className="page-heading', 1)[0]
+    assert 'feeDirection === "PROMOTION" ? "推广服务费订单明细" : "管理服务费订单明细"' in order_details
+
+    assert 'const title = feeDirection === "PROMOTION" ? "推广服务费" : "管理服务费";' in fee_page
+    assert '<h1>门店基础信息</h1>' in stores_page
+    assert '<h1>SAP 编码建议</h1>' in stores_page
+    assert '<h1>账单异议</h1>' in disputes_page
+    assert '<h1>导入记录</h1>' in imports_page

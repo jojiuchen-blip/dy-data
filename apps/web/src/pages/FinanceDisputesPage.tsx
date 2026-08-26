@@ -83,7 +83,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>账单异议处理</h1><p>门店提交异议和证明资料，内部管理员在本页处理；异议不阻断推广费或管理服务费后续流程。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>账单异议</h1><p>门店提交异议和证明资料，内部管理员在本页处理；异议不阻断推广费或管理服务费后续流程。</p></div></section>
       <section className="finance-filter-bar" aria-label="异议筛选条件">
         <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label><span>门店 ID</span><FieldInput value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>

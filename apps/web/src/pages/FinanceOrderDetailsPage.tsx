@@ -4,6 +4,7 @@ import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
+import { TertiaryNav } from "../components/TertiaryNav";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FeeDirection,
@@ -220,6 +221,13 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
 
   return (
     <div className="page-stack finance-page">
+      <TertiaryNav
+        label="订单明细费用方向"
+        items={[
+          { href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" },
+          { href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
+        ]}
+      />
       <section className="page-heading finance-heading">
         <div>
           <p className="eyebrow">财务管理员</p>

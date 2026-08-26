@@ -108,7 +108,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>财务结果导入</h1><p>本页只读查询批次、错误、差异、版本覆盖关系和操作审计；导入操作从推广费或管理服务费页面发起。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>导入记录</h1><p>本页只读查询批次、错误、差异、版本覆盖关系和操作审计；导入操作从推广费或管理服务费页面发起。</p></div></section>
       <section className="finance-filter-bar" aria-label="导入记录筛选条件">
         <label>
           <span>导入类型</span>

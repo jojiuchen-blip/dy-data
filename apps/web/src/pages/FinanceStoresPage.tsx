@@ -194,7 +194,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店财务汇总</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店基础信息</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
       <section className="finance-filter-bar" aria-label="门店财务筛选条件">
         <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label><span>费用方向</span><SearchableStoreSelect emptyMessage="未找到费用方向" onChange={(value) => setFeeDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} placeholder="选择费用方向" value={feeDirection} /></label>

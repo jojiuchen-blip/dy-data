@@ -55,7 +55,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   }>(null);
   const [correctionState, setCorrectionState] = useState<"idle" | "loading" | "success" | "error" | "conflict">("idle");
   const [correctionMessage, setCorrectionMessage] = useState("");
-  const title = feeDirection === "PROMOTION" ? "推广费财务看板" : "管理服务费财务看板";
+  const title = feeDirection === "PROMOTION" ? "推广服务费" : "管理服务费";
 
   const summaryResource = useApiResource(
     () => fetchFinanceSummary({ month, feeDirection, metricScope, storeId: storeId || undefined }),
