@@ -13,6 +13,12 @@ def _read(relative_path: str) -> str:
     return (SRC / relative_path).read_text(encoding="utf-8")
 
 
+def _exported_function(source: str, name: str) -> str:
+    start = source.index(f"export async function {name}")
+    end = source.find("\nexport ", start + 1)
+    return source[start:] if end == -1 else source[start:end]
+
+
 def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     source = _read("demo/clueDemoMode.ts")
     package = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
@@ -139,6 +145,12 @@ def test_demo_mode_is_scoped_to_clue_paths_and_keeps_other_routes_live() -> None
     assert "CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS" not in client
     assert "allowDemoIdentity" in client
     assert "CLUE_DEMO_MODE && options.allowDemoIdentity" in client
+    assert "function isClueDemoRuntime(): boolean" in client
+    assert (
+        "CLUE_DEMO_MODE && isClueDemoPathname(window.location.pathname)"
+        in client
+    )
+    assert "if (CLUE_DEMO_MODE)" not in client
 
     assert "isClueDemoPathname(location.pathname)" in app
     assert "fetchAdminSession({ allowDemoIdentity: isDemoMode })" in app
@@ -157,6 +169,45 @@ def test_demo_mode_is_scoped_to_clue_paths_and_keeps_other_routes_live() -> None
         "clueDemoRepository.getRules",
     ]:
         assert value in client
+
+
+def test_admin_clue_allocation_demo_branches_are_pathname_scoped() -> None:
+    client = _read("api/client.ts")
+    admin_functions = [
+        "fetchClueAllocationEligibleLeads",
+        "fetchClueHeadquartersPool",
+        "fetchClueAllocationCycles",
+        "fetchClueAllocationAuditLogs",
+        "previewClueAllocationCycle",
+        "runClueAllocationTrial",
+        "rebuildClueAllocationTrial",
+        "fetchClueAllocationRules",
+        "fetchClueAllocationRuleDetail",
+        "fetchClueAllocationDecisions",
+        "fetchClueAllocationStoreScores",
+        "createClueAllocationRule",
+        "createClueAllocationRuleVersion",
+        "publishClueAllocationRuleVersion",
+        "retireClueAllocationRuleVersion",
+    ]
+
+    for function_name in admin_functions:
+        function_source = _exported_function(client, function_name)
+        assert "if (isClueDemoRuntime())" in function_source
+        assert "/admin/clue-allocation/" in function_source
+
+
+def test_auth_gate_clears_stale_identity_before_session_refetch() -> None:
+    app = _read("App.tsx")
+    auth_gate = app[app.index("function AuthGate"):]
+    effect = auth_gate[: auth_gate.index("}, [isDemoMode]);")]
+
+    checking_index = effect.index("setChecking(true);")
+    clear_user_index = effect.index("setUser(null);")
+    fetch_index = effect.index("fetchAdminSession({ allowDemoIdentity: isDemoMode })")
+
+    assert checking_index < clear_user_index < fetch_index
+    assert 'key={isDemoMode ? "clue-demo" : "live"}' in app
 
 
 

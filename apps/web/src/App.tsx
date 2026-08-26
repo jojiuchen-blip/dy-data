@@ -200,6 +200,8 @@ function AuthGate({ children, isDemoMode, pathname }: AuthGateProps) {
 
   useEffect(() => {
     let cancelled = false;
+    setChecking(true);
+    setUser(null);
     fetchAdminSession({ allowDemoIdentity: isDemoMode })
       .then((result) => {
         if (!cancelled) {
@@ -348,7 +350,11 @@ export function App() {
 
   return (
     <Suspense fallback={<PageLoadingFallback />}>
-      <AuthGate isDemoMode={isDemoMode} pathname={location.pathname}>
+      <AuthGate
+        isDemoMode={isDemoMode}
+        key={isDemoMode ? "clue-demo" : "live"}
+        pathname={location.pathname}
+      >
         {({ user, onLogout }) => {
         if (location.pathname === "/auth/cli/authorize") {
           return <CliAuthorizePage currentUser={user} search={location.search} />;
