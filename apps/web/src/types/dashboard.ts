@@ -1539,6 +1539,8 @@ export interface StoreBillingStatement {
   status: string;
   promotionAmountCent: number;
   managementAmountCent: number;
+  promotionConfirmableAmountCent: number;
+  managementConfirmableAmountCent: number;
   promotionConfirmation: BillingConfirmationSummary | null;
   managementConfirmation: BillingConfirmationSummary | null;
   promotionInvoiceStatus: PromotionInvoiceStatus;

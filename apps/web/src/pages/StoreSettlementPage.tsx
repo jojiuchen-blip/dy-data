@@ -138,8 +138,8 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     const direction = confirmationDirection;
     if (!direction || !statement?.isCurrent) return;
     const amount = direction === "PROMOTION"
-      ? statement.promotionAmountCent
-      : Math.max(statement.managementAmountCent, 0);
+      ? statement.promotionConfirmableAmountCent
+      : statement.managementConfirmableAmountCent;
 
     setPendingDirection(direction);
     setConfirmationMessage("");
@@ -219,8 +219,8 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
                     ? statement.promotionConfirmation
                     : statement.managementConfirmation;
                   const amount = direction === "PROMOTION"
-                    ? statement.promotionAmountCent
-                    : Math.max(statement.managementAmountCent, 0);
+                    ? statement.promotionConfirmableAmountCent
+                    : statement.managementConfirmableAmountCent;
                   return (
                     <div className="section-title" key={direction}>
                       <div>

@@ -14,6 +14,8 @@ def test_store_settlement_confirmation_uses_the_versioned_idempotent_contract() 
 
     assert "export interface StoreBillingConfirmationPayload" in types
     assert "export interface StoreBillingConfirmationResult" in types
+    assert "promotionConfirmableAmountCent: number" in types
+    assert "managementConfirmableAmountCent: number" in types
     assert "export function confirmStoreBillingStatement" in client
 
     confirmation_client = client.split("export function confirmStoreBillingStatement", 1)[1]
@@ -34,7 +36,10 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
     assert "feeDirection: direction" in page
     assert "confirmedAmountCent: amount" in page
     assert "readVersion: statement.versionNo" in page
-    assert "Math.max(statement.managementAmountCent, 0)" in page
+    assert "statement.promotionConfirmableAmountCent" in page
+    assert "statement.managementConfirmableAmountCent" in page
+    assert "statement.promotionAmountCent" not in page
+    assert "statement.managementAmountCent" not in page
     assert "crypto.randomUUID()" in page
     assert "await billingResource.reload()" in page
     assert "pendingDirection === direction" in page
