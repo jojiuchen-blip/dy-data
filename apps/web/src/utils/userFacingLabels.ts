@@ -263,6 +263,66 @@ const financeDisputeTypeLabels: LabelMap = {
   OTHER: "其他",
 };
 
+const financeOrderStatusLabels: LabelMap = {
+  PENDING: "待处理",
+  PAID: "已支付",
+  VERIFIED: "已核销",
+  COMPLETED: "已完成",
+  REFUNDED: "已退款",
+  CANCELLED: "已取消",
+  CANCELED: "已取消",
+  CLOSED: "已关闭",
+  active: "履约中",
+  fulfilling: "履约中",
+  paid: "履约中",
+  converted: "已核销",
+  fulfilled: "已核销",
+  verified: "已核销",
+  refunded: "已退款",
+  refund: "已退款",
+  cancelled: "已关闭",
+  canceled: "已关闭",
+  closed: "已关闭",
+};
+
+const financeOrderRowTypeLabels: LabelMap = {
+  ORIGINAL: "原费用",
+  ADJUSTMENT: "退款/取消调整",
+};
+
+const financeAdjustmentTypeLabels: LabelMap = {
+  REFUND: "退款调整",
+  VERIFY_CANCEL: "核销取消调整",
+  DISPUTE: "异议调整",
+  OTHER: "其他调整",
+};
+
+const financeSaleChannelLabels: LabelMap = {
+  LIVE: "直播",
+  live: "直播",
+  SHORT_VIDEO: "短视频",
+  short_video: "短视频",
+  AFFILIATE: "分销",
+  affiliate: "分销",
+};
+
+const financeSettlementStatusLabels: LabelMap = {
+  SETTLED: "已结算",
+  UNSETTLED: "未结算",
+};
+
+const sapSuggestionStatusLabels: LabelMap = {
+  PENDING: "待处理",
+  CONFIRMED: "已确认",
+  CORRECTED: "修正后确认",
+  REJECTED: "已驳回",
+};
+
+const financeImportReversalEffectLabels: LabelMap = {
+  VALUE: "覆盖为上一有效值",
+  TOMBSTONE: "撤销并失效",
+};
+
 export function displayOrderStatus(value: string | null | undefined): string {
   return displayEnumLabel(value, orderStatusLabels, "未知订单状态", "order status");
 }
@@ -457,4 +517,32 @@ export function displayFinanceDisputeType(
     "未知异议类型",
     "finance dispute type",
   );
+}
+
+export function displayFinanceOrderStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeOrderStatusLabels, "未知订单状态", "finance order status");
+}
+
+export function displayFinanceOrderRowType(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeOrderRowTypeLabels, "未知费用行类型", "finance order row type");
+}
+
+export function displayFinanceAdjustmentType(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeAdjustmentTypeLabels, "未知调整类型", "finance adjustment type");
+}
+
+export function displayFinanceSaleChannel(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeSaleChannelLabels, "未知销售渠道", "finance sale channel");
+}
+
+export function displayFinanceSettlementStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeSettlementStatusLabels, "未知结算状态", "finance settlement status");
+}
+
+export function displaySapSuggestionStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, sapSuggestionStatusLabels, "未知建议状态", "SAP suggestion status");
+}
+
+export function displayFinanceImportReversalEffect(value: string | null | undefined): string {
+  return displayEnumLabel(value, financeImportReversalEffectLabels, "未知撤销效果", "finance import reversal effect");
 }

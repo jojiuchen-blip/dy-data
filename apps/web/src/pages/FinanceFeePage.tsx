@@ -168,7 +168,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <DataTable columns={columns} rows={rows} state={invoiceResource.loading ? "loading" : invoiceResource.error ? "error" : "ready"} />
       </section>
       {feeDirection === "MANAGEMENT" && correction ? <section className="content-section finance-correction-panel">
-        <div className="section-title"><div><h2>更正管理服务费记录</h2><p>{correction.row.storeId} · {correction.row.statementMonth} · 当前 V{correction.row.versionNo}；金额只读且必须保持结转后全额。</p></div><Button variant="text" onClick={() => setCorrection(null)}>关闭</Button></div>
+        <div className="section-title"><div><h2>更正管理服务费记录</h2><p>{correction.row.storeId} · {correction.row.statementMonth} · 当前 V{correction.row.versionNo}；金额可编辑，提交时将按版本校验并保留历史记录。</p></div><Button variant="text" onClick={() => setCorrection(null)}>关闭</Button></div>
         <div className="finance-filter-bar">
           <label><span>发票号码</span><FieldInput value={correction.invoiceNumber} onChange={(event) => setCorrection({ ...correction, invoiceNumber: event.target.value })} /></label>
           <label><span>发票日期</span><FieldInput type="date" value={correction.invoiceDate} onChange={(event) => setCorrection({ ...correction, invoiceDate: event.target.value })} /></label>

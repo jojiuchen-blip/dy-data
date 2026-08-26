@@ -11,6 +11,7 @@ import { DataTable, type Column } from "../components/DataTable";
 import { FieldInput } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FinanceImportBatchRow,
@@ -22,6 +23,7 @@ import { userFacingError } from "../utils/userFacingError";
 import {
   displayFinanceImportScenario,
   displayFinanceImportType,
+  displayFinanceImportReversalEffect,
 } from "../utils/userFacingLabels";
 
 const importTypes = [
@@ -36,17 +38,23 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
   const [importType, setImportType] = useState(searchParams.get("importType") ?? "");
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [selectedBatchId, setSelectedBatchId] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
+  const [errorPage, setErrorPage] = useState(1);
+  const [errorPageSize, setErrorPageSize] = useState(50);
+  const [reversalPage, setReversalPage] = useState(1);
+  const [reversalPageSize, setReversalPageSize] = useState(50);
   const [changeReason, setChangeReason] = useState("");
   const [reversalKey, setReversalKey] = useState(() => crypto.randomUUID());
   const [reversalState, setReversalState] = useState<"idle" | "loading" | "success" | "error" | "conflict">("idle");
   const [reversalMessage, setReversalMessage] = useState("");
   const listResource = useApiResource(
-    () => fetchFinanceImports({ importType: importType || undefined, statementMonth: month || undefined, pageSize: 50 }),
-    [importType, month],
+    () => fetchFinanceImports({ importType: importType || undefined, statementMonth: month || undefined, page, pageSize }),
+    [importType, month, page, pageSize],
   );
   const detailResource = useApiResource(
-    () => fetchFinanceImportDetail(selectedBatchId, { errorPageSize: 50 }),
-    [selectedBatchId],
+    () => fetchFinanceImportDetail(selectedBatchId, { errorPage, errorPageSize, reversalPage, reversalPageSize }),
+    [selectedBatchId, errorPage, errorPageSize, reversalPage, reversalPageSize],
     { enabled: Boolean(selectedBatchId) },
   );
 
@@ -61,6 +69,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     { key: "operator", title: "操作人", render: (row) => row.committedBy ?? row.submittedBy },
     { key: "action", title: "操作", render: (row) => <Button onClick={() => {
       setSelectedBatchId(row.batchId);
+      setErrorPage(1);
+      setReversalPage(1);
       setChangeReason("");
       setReversalKey(crypto.randomUUID());
       setReversalState("idle");
@@ -80,7 +90,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     { key: "original", title: "原目标", minWidth: 180, render: (row) => row.originalTargetRecordId ?? "-" },
     { key: "previous", title: "上一目标", minWidth: 180, render: (row) => row.previousTargetRecordId ?? "-" },
     { key: "reversal", title: "反向目标", minWidth: 180, render: (row) => row.reversalTargetRecordId ?? "-" },
-    { key: "effect", title: "覆盖效果", render: (row) => row.effectType ?? "未撤销" },
+    { key: "effect", title: "覆盖效果", render: (row) => displayFinanceImportReversalEffect(row.effectType) },
     { key: "current", title: "当前有效", render: (row) => row.isCurrent ? "是" : "否" },
   ];
   const detail = detailResource.data?.data;
@@ -108,7 +118,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>导入记录</h1><p>本页只读查询批次、错误、差异、版本覆盖关系和操作审计；导入操作从推广费或管理服务费页面发起。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>导入记录</h1><p>本页用于查询批次、错误、差异、版本覆盖关系和操作审计；具备授权的管理员可对符合条件的批次发起撤销。导入操作从推广费或管理服务费页面发起。</p></div></section>
       <section className="finance-filter-bar" aria-label="导入记录筛选条件">
         <label>
           <span>导入类型</span>
@@ -116,7 +126,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             allowEmpty
             emptyLabel="全部类型"
             emptyMessage="未找到导入类型"
-            onChange={setImportType}
+            onChange={(value) => { setImportType(value); setPage(1); }}
             options={importTypes
               .filter(([value]) => Boolean(value))
               .map(([value, label]) => ({ value, label }))}
@@ -124,10 +134,21 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             value={importType}
           />
         </label>
-        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
+        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); }} /></label>
       </section>
       <ResourceNotice loading={listResource.loading} error={listResource.error} />
       <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listResource.loading ? "loading" : listResource.error ? "error" : "ready"} /></section>
+      <TablePagination
+        loading={listResource.loading}
+        onPageChange={setPage}
+        onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); }}
+        page={listResource.data?.data.page ?? page}
+        pageSize={listResource.data?.data.pageSize ?? pageSize}
+        pageSizeOptions={[20, 50, 100]}
+        rowsOnPage={listResource.data?.data.list.length ?? 0}
+        total={listResource.data?.data.total ?? 0}
+        totalPages={Math.max(1, Math.ceil((listResource.data?.data.total ?? 0) / (listResource.data?.data.pageSize ?? pageSize)))}
+      />
       {selectedBatchId ? (
         <section className="content-section finance-import-detail">
           <div className="section-title"><div><h2>批次详情</h2><p>{detail?.fileName ?? selectedBatchId}</p></div><Button onClick={() => setSelectedBatchId("")} variant="text">关闭</Button></div>
@@ -141,6 +162,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             <div className="section-title"><div><h3>逐业务键撤销覆盖链</h3><p>展示原目标、上一目标、反向目标、覆盖效果和当前有效性。</p></div></div>
             <DataTable columns={reversalColumns} rows={detail.reversalRows.list} emptyText="本批次没有可展示的业务键" />
             <DataTable columns={errorColumns} rows={detail.errors.list} emptyText="本批次没有校验错误" />
+            {detail.reversalRows.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setReversalPage} onPageSizeChange={(nextPageSize) => { setReversalPageSize(nextPageSize); setReversalPage(1); }} page={detail.reversalRows.page} pageSize={detail.reversalRows.pageSize} pageSizeOptions={[20, 50, 100]} rowsOnPage={detail.reversalRows.list.length} total={detail.reversalRows.total} totalPages={Math.max(1, Math.ceil(detail.reversalRows.total / detail.reversalRows.pageSize))} /> : null}
+            {detail.errors.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setErrorPage} onPageSizeChange={(nextPageSize) => { setErrorPageSize(nextPageSize); setErrorPage(1); }} page={detail.errors.page} pageSize={detail.errors.pageSize} pageSizeOptions={[20, 50, 100]} rowsOnPage={detail.errors.list.length} total={detail.errors.total} totalPages={Math.max(1, Math.ceil(detail.errors.total / detail.errors.pageSize))} /> : null}
             {detail.errorRows > 0 ? <Button onClick={() => downloadFinanceImportErrors(detail.batchId)} variant="secondary">下载全部错误</Button> : null}
             {detail.canReverse ? <div className="finance-reversal-panel">
               <label><span>撤销原因</span><FieldInput value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明为何需要生成更正覆盖版本" /></label>

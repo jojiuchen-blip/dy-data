@@ -19,6 +19,11 @@ import {
   displayFinanceDisputeType,
 } from "../utils/userFacingLabels";
 
+function isValidAdjustmentYuan(value: string): boolean {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount !== 0;
+}
+
 export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchParams }) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
   const [storeId, setStoreId] = useState(searchParams.get("storeId") ?? "");
@@ -30,6 +35,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
   const [adjustmentYuan, setAdjustmentYuan] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const adjustmentIsValid = targetStatus !== "ACCEPTED_WITH_ADJUSTMENT" || isValidAdjustmentYuan(adjustmentYuan);
   const resource = useApiResource(
     () => fetchFinanceDisputes({ month: month || undefined, storeId: storeId || undefined, feeDirection: feeDirection || undefined, status: status || undefined, pageSize: 50 }),
     [month, storeId, feeDirection, status],
@@ -48,6 +54,10 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   const handleTransition = async () => {
     if (!selected || !resolutionNote.trim()) return;
+    if (targetStatus === "ACCEPTED_WITH_ADJUSTMENT" && !isValidAdjustmentYuan(adjustmentYuan)) {
+      setActionMessage("请输入有限且非零的调整金额。");
+      return;
+    }
     setSaving(true);
     setActionMessage("");
     try {
@@ -144,7 +154,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
             </label>
             {targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? <label><span>调整金额（元，非零）</span><FieldInput required type="number" step="0.01" value={adjustmentYuan} onChange={(event) => setAdjustmentYuan(event.target.value)} /></label> : null}
             <label className="finance-form-grid__wide"><span>处理说明</span><FieldTextarea required rows={3} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} /></label>
-            <div className="finance-form-actions"><Button disabled={!resolutionNote.trim()} loading={saving} onClick={handleTransition} variant="primary">确认处理</Button>{actionMessage ? <span role="status">{actionMessage}</span> : null}</div>
+            <div className="finance-form-actions"><Button disabled={saving || !resolutionNote.trim() || !adjustmentIsValid} loading={saving} onClick={handleTransition} variant="primary">确认处理</Button>{actionMessage ? <span role="status">{actionMessage}</span> : null}</div>
           </div>
         </section>
       ) : actionMessage ? <ResourcePanel>{actionMessage}</ResourcePanel> : null}

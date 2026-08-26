@@ -580,7 +580,7 @@ def test_dydata_19_g3_order_detail_page_exposes_complete_server_filters_paginati
     types = read_source("types/dashboard.ts")
     imports_page = read_source("pages/FinanceImportsPage.tsx")
 
-    for control in [
+    for index, control in enumerate([
         "sapCode",
         "invoiceNumber",
         "orderId",
@@ -597,8 +597,9 @@ def test_dydata_19_g3_order_detail_page_exposes_complete_server_filters_paginati
         "上一页",
         "下一页",
         "重置筛选",
-    ]:
-        assert control in page
+    ]):
+        assert control in page or (index in {13, 14} and "TablePagination" in page)
+    assert "onPageSizeChange" in page
     assert "fetchFinanceOrderDetails" in page
     assert "downloadFinanceOrderDetails" in page
     assert "finance-order-detail-grid" in page

@@ -10,6 +10,7 @@ import type { FeeDirection, FinanceImportBatchRow } from "../types/dashboard";
 import { displayFinanceImportScenario } from "../utils/userFacingLabels";
 import { userFacingError } from "../utils/userFacingError";
 import { Button } from "./Button";
+import { TextField } from "./FormControls";
 import { ResourcePanel } from "./ResourceState";
 import { SearchableStoreSelect } from "./SearchableStoreSelect";
 
@@ -135,8 +136,8 @@ export function FinanceImportActionPanel({
             value={importType}
           />
         </label>
-        <label><span>业务账期</span><input disabled value={month} /></label>
-        <label><span>文件</span><input accept=".csv,.xlsx" required type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} /></label>
+        <TextField disabled label="业务账期" value={month} />
+        <TextField accept=".csv,.xlsx" label="文件" required type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
         <div className="finance-form-actions"><Button disabled={!file} loading={uploading} type="submit" variant="primary">上传并预览</Button>{message ? <span role="status">{message}</span> : null}</div>
       </form>
       {preview ? (
@@ -153,7 +154,7 @@ export function FinanceImportActionPanel({
             <ResourcePanel>校验结果不会自动写入，提交前仍可放弃。</ResourcePanel>
           )}
           <div className="finance-form-actions">
-            <label className="finance-change-reason"><span>变更原因</span><input value={changeReason} onChange={(event) => setChangeReason(event.target.value)} /></label>
+            <TextField fieldClassName="finance-change-reason" label="变更原因" value={changeReason} onChange={(event) => setChangeReason(event.target.value)} />
             <Button disabled={!canCommit} loading={committing} onClick={handleCommit} variant="primary">确认提交</Button>
           </div>
         </div>
