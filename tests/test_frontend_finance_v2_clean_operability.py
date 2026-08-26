@@ -54,6 +54,21 @@ def test_finance_order_details_uses_shared_pagination_and_resets_after_size_chan
     assert "下一页" not in page
 
 
+def test_finance_refreshing_state_hides_stale_rows_and_blocks_pagination() -> None:
+    imports = source("apps/web/src/pages/FinanceImportsPage.tsx")
+    order_details = source("apps/web/src/pages/FinanceOrderDetailsPage.tsx")
+    data_table = source("apps/web/src/components/DataTable.tsx")
+
+    assert "const listBusy = listResource.loading || listResource.refreshing;" in imports
+    assert 'state={listBusy ? "loading" : listResource.error ? "error" : "ready"}' in imports
+    assert "loading={listBusy}" in imports
+    assert "const resourceBusy = resource.loading || resource.refreshing;" in order_details
+    assert 'state={resourceBusy ? "loading" : resource.error ? "error" : "ready"}' in order_details
+    assert "loading={resourceBusy}" in order_details
+    assert 'const shouldRenderStatus = rows.length === 0 || state !== "ready";' in data_table
+    assert data_table.count("shouldRenderStatus ? (") >= 2
+
+
 def test_finance_enum_tokens_are_presented_by_shared_labels() -> None:
     order_details = source("apps/web/src/pages/FinanceOrderDetailsPage.tsx")
     stores = source("apps/web/src/pages/FinanceStoresPage.tsx")
@@ -101,7 +116,7 @@ def test_dispute_adjustment_uses_one_exact_cent_value_for_ui_handler_and_payload
 def test_parse_yuan_to_cent_executes_exact_decimal_contract() -> None:
     script = """
       import { parseYuanToCent } from './apps/web/src/utils/money.ts';
-      const values = ['1', '1.2', '1.05', '-1.05', '0.01', '-0.01', '', ' ', '0', '0.00', '-0.00', '0.001', '1.005', '1e2', '+1', '.5', '-.5', '1.', 'Infinity'];
+      const values = ['1', '1.2', '1.05', '-1.05', '0.01', '-0.01', '90071992547409.91', '90071992547409.92', '-90071992547409.91', '-90071992547409.92', '', ' ', '0', '0.00', '-0.00', '0.001', '1.005', '1e2', '+1', '.5', '-.5', '1.', 'Infinity'];
       console.log(JSON.stringify(values.map((value) => [value, parseYuanToCent(value)])));
     """
     result = subprocess.run(
@@ -122,6 +137,10 @@ def test_parse_yuan_to_cent_executes_exact_decimal_contract() -> None:
         "-1.05": -105,
         "0.01": 1,
         "-0.01": -1,
+        "90071992547409.91": 9007199254740991,
+        "90071992547409.92": None,
+        "-90071992547409.91": -9007199254740991,
+        "-90071992547409.92": None,
         "": None,
         " ": None,
         "0": None,

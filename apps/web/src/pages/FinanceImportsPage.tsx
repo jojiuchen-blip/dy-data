@@ -57,6 +57,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     [selectedBatchId, errorPage, errorPageSize, reversalPage, reversalPageSize],
     { enabled: Boolean(selectedBatchId) },
   );
+  const listBusy = listResource.loading || listResource.refreshing;
 
   const clearSelectedBatch = () => {
     setSelectedBatchId("");
@@ -148,9 +149,9 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
         <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); clearSelectedBatch(); }} /></label>
       </section>
       <ResourceNotice loading={listResource.loading} error={listResource.error} />
-      <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listResource.loading ? "loading" : listResource.error ? "error" : "ready"} /></section>
+      <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listBusy ? "loading" : listResource.error ? "error" : "ready"} /></section>
       <TablePagination
-        loading={listResource.loading}
+        loading={listBusy}
         onPageChange={(nextPage) => { setPage(nextPage); clearSelectedBatch(); }}
         onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); clearSelectedBatch(); }}
         page={listResource.data?.data.page ?? page}

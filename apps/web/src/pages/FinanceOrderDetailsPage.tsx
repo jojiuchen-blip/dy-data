@@ -169,6 +169,7 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
     () => fetchFinanceOrderDetails(query),
     [queryKey],
   );
+  const resourceBusy = resource.loading || resource.refreshing;
   const rows = resource.data?.data.list ?? [];
   const total = resource.data?.data.total ?? 0;
   const page = resource.data?.data.page ?? query.page ?? 1;
@@ -296,8 +297,8 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
         <div className="section-title">
           <div><h2>订单费用明细</h2><p>共 {total} 条，第 {page} / {pageCount} 页。</p></div>
         </div>
-        <DataTable columns={columns} rows={rows} state={resource.loading ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" />
-        <TablePagination loading={resource.loading} onPageChange={changePage} onPageSizeChange={changePageSize} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} />
+        <DataTable columns={columns} rows={rows} state={resourceBusy ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" />
+        <TablePagination loading={resourceBusy} onPageChange={changePage} onPageSizeChange={changePageSize} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} />
       </section>
 
       <details className="content-section">
