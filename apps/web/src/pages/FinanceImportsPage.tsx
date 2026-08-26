@@ -58,6 +58,15 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     { enabled: Boolean(selectedBatchId) },
   );
 
+  const clearSelectedBatch = () => {
+    setSelectedBatchId("");
+    setErrorPage(1);
+    setReversalPage(1);
+    setChangeReason("");
+    setReversalState("idle");
+    setReversalMessage("");
+  };
+
   const columns: Column<FinanceImportBatchRow>[] = [
     { key: "file", title: "文件", minWidth: 210, sticky: true, render: (row) => row.fileName },
     { key: "type", title: "导入类型", minWidth: 180, render: (row) => displayFinanceImportType(row.importType) },
@@ -93,7 +102,9 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     { key: "effect", title: "覆盖效果", render: (row) => displayFinanceImportReversalEffect(row.effectType) },
     { key: "current", title: "当前有效", render: (row) => row.isCurrent ? "是" : "否" },
   ];
-  const detail = detailResource.data?.data;
+  const detail = detailResource.data?.data?.batchId === selectedBatchId
+    ? detailResource.data.data
+    : undefined;
   const submitReversal = async () => {
     if (!detail || !changeReason.trim()) return;
     setReversalState("loading");
@@ -126,7 +137,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             allowEmpty
             emptyLabel="全部类型"
             emptyMessage="未找到导入类型"
-            onChange={(value) => { setImportType(value); setPage(1); }}
+            onChange={(value) => { setImportType(value); setPage(1); clearSelectedBatch(); }}
             options={importTypes
               .filter(([value]) => Boolean(value))
               .map(([value, label]) => ({ value, label }))}
@@ -134,24 +145,24 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             value={importType}
           />
         </label>
-        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); }} /></label>
+        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); clearSelectedBatch(); }} /></label>
       </section>
       <ResourceNotice loading={listResource.loading} error={listResource.error} />
       <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listResource.loading ? "loading" : listResource.error ? "error" : "ready"} /></section>
       <TablePagination
         loading={listResource.loading}
-        onPageChange={setPage}
-        onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); }}
+        onPageChange={(nextPage) => { setPage(nextPage); clearSelectedBatch(); }}
+        onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); clearSelectedBatch(); }}
         page={listResource.data?.data.page ?? page}
         pageSize={listResource.data?.data.pageSize ?? pageSize}
-        pageSizeOptions={[20, 50, 100]}
+        pageSizeOptions={[20, 50]}
         rowsOnPage={listResource.data?.data.list.length ?? 0}
         total={listResource.data?.data.total ?? 0}
         totalPages={Math.max(1, Math.ceil((listResource.data?.data.total ?? 0) / (listResource.data?.data.pageSize ?? pageSize)))}
       />
       {selectedBatchId ? (
         <section className="content-section finance-import-detail">
-          <div className="section-title"><div><h2>批次详情</h2><p>{detail?.fileName ?? selectedBatchId}</p></div><Button onClick={() => setSelectedBatchId("")} variant="text">关闭</Button></div>
+          <div className="section-title"><div><h2>批次详情</h2><p>{detail?.fileName ?? selectedBatchId}</p></div><Button onClick={clearSelectedBatch} variant="text">关闭</Button></div>
           <ResourceNotice loading={detailResource.loading} error={detailResource.error} />
           {detail ? <>
             <div className="finance-import-summary"><span>场景<strong>{displayFinanceImportScenario(detail.scenario)}</strong></span><span>成功<strong>{detail.successRows}</strong></span><span>错误<strong>{detail.errorRows}</strong></span><span>版本<strong>V{detail.readVersion} / V{detail.currentVersion}</strong></span></div>
@@ -162,8 +173,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             <div className="section-title"><div><h3>逐业务键撤销覆盖链</h3><p>展示原目标、上一目标、反向目标、覆盖效果和当前有效性。</p></div></div>
             <DataTable columns={reversalColumns} rows={detail.reversalRows.list} emptyText="本批次没有可展示的业务键" />
             <DataTable columns={errorColumns} rows={detail.errors.list} emptyText="本批次没有校验错误" />
-            {detail.reversalRows.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setReversalPage} onPageSizeChange={(nextPageSize) => { setReversalPageSize(nextPageSize); setReversalPage(1); }} page={detail.reversalRows.page} pageSize={detail.reversalRows.pageSize} pageSizeOptions={[20, 50, 100]} rowsOnPage={detail.reversalRows.list.length} total={detail.reversalRows.total} totalPages={Math.max(1, Math.ceil(detail.reversalRows.total / detail.reversalRows.pageSize))} /> : null}
-            {detail.errors.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setErrorPage} onPageSizeChange={(nextPageSize) => { setErrorPageSize(nextPageSize); setErrorPage(1); }} page={detail.errors.page} pageSize={detail.errors.pageSize} pageSizeOptions={[20, 50, 100]} rowsOnPage={detail.errors.list.length} total={detail.errors.total} totalPages={Math.max(1, Math.ceil(detail.errors.total / detail.errors.pageSize))} /> : null}
+            {detail.reversalRows.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setReversalPage} onPageSizeChange={(nextPageSize) => { setReversalPageSize(nextPageSize); setReversalPage(1); }} page={detail.reversalRows.page} pageSize={detail.reversalRows.pageSize} pageSizeOptions={[20, 50]} rowsOnPage={detail.reversalRows.list.length} total={detail.reversalRows.total} totalPages={Math.max(1, Math.ceil(detail.reversalRows.total / detail.reversalRows.pageSize))} /> : null}
+            {detail.errors.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setErrorPage} onPageSizeChange={(nextPageSize) => { setErrorPageSize(nextPageSize); setErrorPage(1); }} page={detail.errors.page} pageSize={detail.errors.pageSize} pageSizeOptions={[20, 50]} rowsOnPage={detail.errors.list.length} total={detail.errors.total} totalPages={Math.max(1, Math.ceil(detail.errors.total / detail.errors.pageSize))} /> : null}
             {detail.errorRows > 0 ? <Button onClick={() => downloadFinanceImportErrors(detail.batchId)} variant="secondary">下载全部错误</Button> : null}
             {detail.canReverse ? <div className="finance-reversal-panel">
               <label><span>撤销原因</span><FieldInput value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明为何需要生成更正覆盖版本" /></label>

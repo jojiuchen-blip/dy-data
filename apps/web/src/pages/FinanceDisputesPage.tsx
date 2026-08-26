@@ -12,17 +12,13 @@ import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type { FeeDirection, FinanceDisputeRow } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { parseYuanToCent } from "../utils/money";
 import { userFacingError } from "../utils/userFacingError";
 import {
   displayFeeDirection,
   displayFinanceDisputeStatus,
   displayFinanceDisputeType,
 } from "../utils/userFacingLabels";
-
-function isValidAdjustmentYuan(value: string): boolean {
-  const amount = Number(value);
-  return Number.isFinite(amount) && amount !== 0;
-}
 
 export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchParams }) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
@@ -35,7 +31,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
   const [adjustmentYuan, setAdjustmentYuan] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const adjustmentIsValid = targetStatus !== "ACCEPTED_WITH_ADJUSTMENT" || isValidAdjustmentYuan(adjustmentYuan);
+  const adjustmentAmountCent = parseYuanToCent(adjustmentYuan);
+  const adjustmentIsValid = targetStatus !== "ACCEPTED_WITH_ADJUSTMENT" || adjustmentAmountCent !== null;
   const resource = useApiResource(
     () => fetchFinanceDisputes({ month: month || undefined, storeId: storeId || undefined, feeDirection: feeDirection || undefined, status: status || undefined, pageSize: 50 }),
     [month, storeId, feeDirection, status],
@@ -54,9 +51,13 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   const handleTransition = async () => {
     if (!selected || !resolutionNote.trim()) return;
-    if (targetStatus === "ACCEPTED_WITH_ADJUSTMENT" && !isValidAdjustmentYuan(adjustmentYuan)) {
-      setActionMessage("请输入有限且非零的调整金额。");
-      return;
+    let validatedAdjustmentAmountCent: number | undefined;
+    if (targetStatus === "ACCEPTED_WITH_ADJUSTMENT") {
+      if (adjustmentAmountCent === null) {
+        setActionMessage("请输入有效且非零的调整金额，最多保留两位小数。");
+        return;
+      }
+      validatedAdjustmentAmountCent = adjustmentAmountCent;
     }
     setSaving(true);
     setActionMessage("");
@@ -77,7 +78,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
         targetStatus,
         resolutionNote: resolutionNote.trim(),
         readVersion: current.versionNo,
-        adjustmentAmountCent: targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? Math.round(Number(adjustmentYuan) * 100) : undefined,
+        adjustmentAmountCent: validatedAdjustmentAmountCent,
       });
       setActionMessage("异议状态已更新。");
       setSelected(null);
