@@ -2,7 +2,16 @@
 
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代 S3 正式交付计划。
 
-## 0. 当前增量交付：DYDATA-80 / DYDATA-81
+## 0. 当前增量交付：DYDATA-46
+
+- 用户已于 2026-08-27 明确确认：将现有腾讯云入口 `https://dy-business-engine.com` 直接升格为正式生产，不再等待企业内网部署。
+- 当前隔离分支：`codex/dydata-46-production-promotion`；原工作区既有未提交内容保持不变。
+- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)；[任务看板](delivery-plans/task-kanban-dydata-46-production-promotion.md)；当前子计划为 [T1.1 生产环境与凭证隔离](delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T1.1-environment-isolation.md)。
+- T1.1 已完成：CLI、API、MCP、OAuth 和审计已从硬编码 `test` 切换为受控 `production`，旧 test 凭证在 production 失效且客户端使用独立 keyring；当前执行 T1.2 官方入口与兼容策略切换。
+- 后续顺序为 T1.2 官方入口与兼容策略切换、T2.1 PR/CI/腾讯云生产部署与线上 UAT；任一硬门禁失败即停止或回滚上一 production 版本，禁止 fallback 到 test 数据。
+- DYDATA-55 保留为独立企业内网安全基线，不再阻塞本次腾讯云 production 升格；Linear 是范围、验收和状态权威。
+
+## 0.1 历史增量交付：DYDATA-80 / DYDATA-81
 
 - 用户已于 2026-08-26 明确确认 DYDATA-80 v2-clean 页面结构与业务交互基线，并授权继续到生产部署；生产发布由独立子 Issue DYDATA-81 承接。
 - 当前隔离分支：`codex/dydata-80-demo-cleanup`；原工作区既有未提交内容保持不变。
@@ -11,33 +20,34 @@
 - 页面视觉不得复制原型私有样式；视觉权威为 `docs/design-system/tokens.json`、`docs/design-system/README.md`，运行时以 `apps/web/src/design-tokens.css` 和共享组件为准。
 - Linear 是范围与验收权威；本驾驶舱只记录当前执行顺序。下文历史增量仅作历史证据，不覆盖本轮计划。
 
-## 0.1 历史增量交付：DYDATA-45
+## 0.2 历史增量交付：DYDATA-45
 
-- 隔离 worktree `feat/dydata-45-agent-connect` 已完成腾讯云测试环境 Agent 一句话接入层；Linear `DYDATA-45` 已进入 In Review。这里的 `production` 专指未来尚未部署的企业内网服务器版本。
+- 隔离 worktree `feat/dydata-45-agent-connect` 已完成腾讯云测试环境 Agent 一句话接入层；Linear `DYDATA-45` 已于 2026-08-27 在既有黑盒 UAT 证据和用户生产升格确认后进入 Done。该任务中的“未来企业内网 production”属于当时历史定义，当前生产决策已由 DYDATA-46 覆盖。
 - 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2、T3.1 均已完成，等待人类 Owner 最终审核。
 - 运行时代码 `cab6aec` 已合入远端 `main` 并由 GitHub Actions run `29934737788` 成功部署腾讯云；最终安全复审为 `ALLOW`，Critical/Important/Minor 均为 0。全量 916 项通过、2 项 opt-in PostgreSQL 用例另在真实 PostgreSQL 连续 5 轮通过；Web production build、API/Web 镜像、空库迁移、Compose、两套 Nginx、锁定依赖审计、增量 Bandit 与公开 smoke 均通过。
 - 独立 Agent 黑盒重试 verdict 为 `PASS`：CLI 0.3.0 与官方 Node MCP SDK 均完成用户浏览器授权；测试账号仅返回 3 家授权门店，默认/显式日期统计口径成立，未授权门店整单拒绝，两通道的门店数、行数和完整脱敏聚合一致。非阻断观察为顶层 `--help` / `--version` 不受支持，机器入口 `commands --json` / `version --json` 正常。
 - 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。
-- 本增量不改变下文 DYDATA-41 线索中心 Foundation 的业务基线与依赖顺序；后续仅在 `DYDATA-46` 生产 Release Gate 中切换企业内网入口、OAuth、keyring、部署、文档和 smoke，禁止复用测试凭据。
+- 本增量不改变下文 DYDATA-41 线索中心 Foundation 的业务基线与依赖顺序；当前由 `DYDATA-46` 将腾讯云入口、OAuth、keyring、部署、文档和 smoke 切换为 production，禁止复用测试凭据。
 
 ## 1. 当前阶段
 
-- 套包阶段：`S4 DYDATA-19 T5.7 系统验收、UAT 与生产交付进行中`。
-- 当前 Linear issue：`DYDATA-19`、`DYDATA-80`、`DYDATA-81` 均为 `In Progress`；当前分支由本任务单一窗口负责，DYDATA-81 由当前用户指令授权进入生产发布。
-- 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
-- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dy-data.md`、`task-kanban-dy-data.md` 与 T5.7 子开发计划。
-- 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
-- 当前 Task：T5.1～T5.6 已完成；T5.7 增加 DYDATA-80/81 的 v2-clean 主应用映射、产品一致性证据、系统验收、UAT 材料与发布/回滚。Owner 已授权在全部硬门禁通过后无需二次确认，直接执行生产部署；任一硬门禁失败仍必须停止发布并记录证据。
+- 套包阶段：`S4 DYDATA-46 T1.2 官方入口与兼容策略切换进行中`。
+- 当前 Linear issue：`DYDATA-46`；状态为 `In Progress`，当前分支由本任务单一窗口负责，用户已授权在全部硬门禁通过后直接执行腾讯云生产部署。
+- 当前正式计划：[main-delivery-plan-dydata-46-production-promotion.md](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)。
+- 当前正式计划文件组：主计划、[任务看板](delivery-plans/task-kanban-dydata-46-production-promotion.md) 与三个 DYDATA-46 子开发计划。
+- 当前子开发计划：[sub-delivery-plan-dydata-46-production-promotion-T1.2-official-entry-cutover.md](delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T1.2-official-entry-cutover.md)。
+- 当前 Task：T1.1 已完成；T1.2 进行中；T2.1 待开始。任一凭证隔离、测试、CI、部署或线上 smoke 门禁失败必须停止发布或回滚并记录证据。
 
 ## 2. 当前目标
 
-- 在复用现有双费用结算事实与查询能力的基础上，完成账单分方向确认、异议、系统外发票登记、管理员财务查询、四类原子导入、操作审计和生产页面闭环。
+- 将现有腾讯云入口受控升格为正式 production，确保 CLI / MCP / OAuth / Agent discovery、凭证隔离、审计、部署和回滚形成完整生产闭环。
 
 ## 3. 进行中任务
 
-- T5.7：执行 DYDATA-19 全量系统回归，形成三层验收证据、UAT 清单、发布评审和回滚方案；测试、安全、迁移、CI、备份和 smoke 硬门禁全部通过后直接进入生产迁移与部署，无需再次取得 Owner 确认；任一门禁失败则停止发布并留存证据。
-- T5.7 发布阻塞修复：以 Linear 当前正文覆盖较窄的 T5.2～T5.6 子计划。G1a、G0、G1b、G1c、G2 与 G3 均已通过 TDD、完整相关回归和独立审查；当前进入最新主线干净集成和发布前全量门禁。
-- T5.7 v2-clean 切片：以 `docs/uat/dydata-80-ui-baseline-v2-clean.md` 验收页面结构与业务交互，以主系统 V0.2 设计系统验收视觉；正式页面不得出现 Mock、会议演示、F01-F10、本地角色切换或未接真实 API 的假动作。
+- T1.1 已完成：311 项 CLI/API/OAuth/MCP/审计组合回归通过；production 为默认环境，test/production keyring 隔离，旧 test token 在 production 被拒绝，无需数据库迁移。
+- T1.2：把 README、Agent guide、Skill、manifest、CLI 版本/升级策略和部署契约全部切换到 production，正式用户入口不再暴露 test。
+- 当前生产域、Web、API、MCP 和 OAuth 同域基地址固定为 `https://dy-business-engine.com`；不允许任意 URL 覆盖或生产故障时返回测试数据。
+- T1.1 通过后顺序推进 T1.2 官方入口切换与 T2.1 PR/CI/生产部署/UAT。
 
 ## 4. 下一步任务
 

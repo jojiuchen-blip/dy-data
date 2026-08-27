@@ -9,7 +9,7 @@ from typing import Any, TextIO
 
 from .constants import CLI_SCHEMA_VERSION, ERROR_EXIT_CODES
 from .errors import error_retryable, safe_request_id
-from .environments import TEST_ENVIRONMENT
+from .environments import DEFAULT_ENVIRONMENT
 
 
 def emit_json(payload: Mapping[str, Any], *, stream: TextIO | None = None) -> None:
@@ -26,7 +26,7 @@ def error_envelope(
     *,
     retryable: bool | None = None,
     request_id: str | None = None,
-    environment: str = TEST_ENVIRONMENT.name,
+    environment: str = DEFAULT_ENVIRONMENT.name,
 ) -> dict[str, Any]:
     return {
         "ok": False,
@@ -50,7 +50,7 @@ def emit_error(
     *,
     retryable: bool | None = None,
     request_id: str | None = None,
-    environment: str = TEST_ENVIRONMENT.name,
+    environment: str = DEFAULT_ENVIRONMENT.name,
     stream: TextIO | None = None,
 ) -> int:
     emit_json(

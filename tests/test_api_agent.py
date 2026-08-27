@@ -12,7 +12,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 from dy_api.main import create_app  # noqa: E402
 
 
-def test_agent_manifest_is_a_stable_test_environment_entrypoint() -> None:
+def test_agent_manifest_is_a_stable_production_environment_entrypoint() -> None:
     client = TestClient(create_app())
 
     response = client.get("/.well-known/dydata-agent.json")
@@ -23,7 +23,7 @@ def test_agent_manifest_is_a_stable_test_environment_entrypoint() -> None:
     assert manifest == {
         "name": "dydata-agent",
         "manifest_version": "1.0",
-        "environment": "test",
+        "environment": "production",
         "read_only": True,
         "service": {
             "base_url": "https://dy-business-engine.com",
@@ -32,7 +32,7 @@ def test_agent_manifest_is_a_stable_test_environment_entrypoint() -> None:
             "skill_url": "https://dy-business-engine.com/agent/SKILL.md",
         },
         "cli": {
-            "version": "0.3.0",
+            "version": "0.4.0",
             "schema_version": "1.1",
             "install_spec": "git+https://github.com/jojiuchen-blip/dy-data.git@main#subdirectory=apps/cli",
             "discovery_command": "dydata commands --json",
@@ -50,7 +50,7 @@ def test_agent_manifest_is_a_stable_test_environment_entrypoint() -> None:
             "scope": "mcp:read",
         },
     }
-    assert "production" not in response.text.lower()
+    assert "\"environment\":\"test\"" not in response.text.lower()
 
 
 def test_agent_capabilities_are_derived_from_the_read_only_registry() -> None:
@@ -60,7 +60,7 @@ def test_agent_capabilities_are_derived_from_the_read_only_registry() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert body["read_only"] is True
     assert body["schema_version"] == "1.0"
     assert body["capabilities"] == [
@@ -95,8 +95,8 @@ def test_agent_markdown_and_skill_point_back_to_machine_contracts() -> None:
         assert "https://dy-business-engine.com/.well-known/dydata-agent.json" in text
         assert "https://dy-business-engine.com/api/v1/agent/capabilities" in text
         assert "https://dy-business-engine.com/mcp" in text
-        assert "腾讯云测试环境" in text
-        assert "企业内网生产服务器尚未部署" in text
+        assert "正式生产环境" in text
+        assert "测试凭据不会复用" in text
         assert "dydata agent doctor --json" in text
         assert "不得索取、读取、转发或保存用户的账号、密码、Cookie 或 Token" in text
         assert "stores_list" in text

@@ -41,8 +41,9 @@ from dy_api.routes._data import DashboardDataStore
 
 from dy_api.mcp_oauth import (
     MCP_ACCESS_SCOPE,
+    MCP_ENVIRONMENT,
+    MCP_ISSUER_URL,
     MCP_RESOURCE_URL,
-    TEST_ISSUER_URL,
     DatabaseMcpOAuthProvider,
     McpAccessAuthorizationError,
 )
@@ -60,11 +61,11 @@ def _truthy(value: str | None) -> bool:
 def authorization_server_metadata() -> dict[str, Any]:
     """Advertise the public-client-only OAuth surface used by MCP Agents."""
     return {
-        "issuer": TEST_ISSUER_URL,
-        "authorization_endpoint": f"{TEST_ISSUER_URL}/authorize",
-        "token_endpoint": f"{TEST_ISSUER_URL}/token",
-        "registration_endpoint": f"{TEST_ISSUER_URL}/register",
-        "revocation_endpoint": f"{TEST_ISSUER_URL}/revoke",
+        "issuer": MCP_ISSUER_URL,
+        "authorization_endpoint": f"{MCP_ISSUER_URL}/authorize",
+        "token_endpoint": f"{MCP_ISSUER_URL}/token",
+        "registration_endpoint": f"{MCP_ISSUER_URL}/register",
+        "revocation_endpoint": f"{MCP_ISSUER_URL}/revoke",
         "scopes_supported": [MCP_ACCESS_SCOPE],
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -78,7 +79,7 @@ def protected_resource_metadata() -> dict[str, Any]:
     """Return RFC 9728 metadata for the single fixed MCP audience."""
     return {
         "resource": MCP_RESOURCE_URL,
-        "authorization_servers": [TEST_ISSUER_URL],
+        "authorization_servers": [MCP_ISSUER_URL],
         "scopes_supported": [MCP_ACCESS_SCOPE],
         "bearer_methods_supported": ["header"],
     }
@@ -131,9 +132,9 @@ def create_mcp_server(
     data_store_factory: Callable[[Any], Any] | None = None,
     audit_sink: CliAuditSink | None = None,
 ) -> FastMCP:
-    """Create the stateless Streamable HTTP server for the test environment."""
+    """Create the stateless Streamable HTTP server for the active environment."""
     allowed_hosts = ["dy-business-engine.com", "dy-business-engine.com:*"]
-    allowed_origins = [TEST_ISSUER_URL]
+    allowed_origins = [MCP_ISSUER_URL]
     if _truthy(os.getenv("DY_API_TEST_MODE")):
         allowed_hosts.extend(["testserver", "testserver:*"])
         allowed_origins.append("https://testserver")
@@ -143,10 +144,10 @@ def create_mcp_server(
             "Read-only access to the current user's authorized stores and clue "
             "follow-up statistics."
         ),
-        website_url=TEST_ISSUER_URL,
+        website_url=MCP_ISSUER_URL,
         auth_server_provider=provider,
         auth=AuthSettings(
-            issuer_url=TEST_ISSUER_URL,
+            issuer_url=MCP_ISSUER_URL,
             resource_server_url=MCP_RESOURCE_URL,
             required_scopes=[MCP_ACCESS_SCOPE],
             client_registration_options=ClientRegistrationOptions(
@@ -217,7 +218,7 @@ def _mcp_audit_event(
         "event": "mcp_request",
         "operation": operation,
         "request_id": request_id,
-        "environment": "test",
+        "environment": MCP_ENVIRONMENT,
         "channel": "mcp",
         "user_id": auth.user_id,
         "auth_type": auth.auth_type,

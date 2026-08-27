@@ -8,7 +8,7 @@ from dydata_cli.client import DyDataClient
 from dydata_cli.environments import EnvironmentConfigError, resolve_environment
 
 
-def test_default_environment_is_the_fixed_test_service(
+def test_default_environment_is_the_fixed_production_service(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.delenv("DYDATA_ENV", raising=False)
@@ -17,12 +17,12 @@ def test_default_environment_is_the_fixed_test_service(
     environment = resolve_environment()
     client = DyDataClient(environment=environment)
 
-    assert environment.name == "test"
+    assert environment.name == "production"
     assert environment.web_url == "https://dy-business-engine.com"
     assert environment.api_url == "https://dy-business-engine.com/api/v1"
     assert environment.mcp_url == "https://dy-business-engine.com/mcp"
     assert environment.credential_account == (
-        "env:test:"
+        "env:production:"
         + hashlib.sha256(b"https://dy-business-engine.com").hexdigest()[:16]
     )
     assert str(client._http.base_url) == "https://dy-business-engine.com/api/v1/"
@@ -36,7 +36,15 @@ def test_explicit_test_environment_wins_over_process_setting(
     assert resolve_environment("test").name == "test"
 
 
-@pytest.mark.parametrize("name", ["production", "prod", "dev", "custom", " "])
+@pytest.mark.parametrize("name", ["prod", "dev", "custom", " "])
 def test_unknown_environment_fails_closed(name: str) -> None:
     with pytest.raises(EnvironmentConfigError):
         resolve_environment(name)
+
+
+def test_production_and_test_use_distinct_credential_accounts() -> None:
+    production = resolve_environment("production")
+    test = resolve_environment("test")
+
+    assert production.web_url == test.web_url == "https://dy-business-engine.com"
+    assert production.credential_account != test.credential_account

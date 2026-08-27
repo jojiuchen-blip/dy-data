@@ -20,7 +20,7 @@ class FakeCredentialStore:
         return self.state
 
 
-def _manifest(*, environment: str = "test") -> dict[str, object]:
+def _manifest(*, environment: str = "production") -> dict[str, object]:
     return {
         "name": "dydata-agent",
         "manifest_version": "1.0",
@@ -33,7 +33,7 @@ def _manifest(*, environment: str = "test") -> dict[str, object]:
             "skill_url": "https://dy-business-engine.com/agent/SKILL.md",
         },
         "cli": {
-            "version": "0.3.0",
+            "version": "0.4.0",
             "schema_version": "1.1",
             "install_spec": "git+https://github.com/jojiuchen-blip/dy-data.git@main#subdirectory=apps/cli",
             "discovery_command": "dydata commands --json",
@@ -96,7 +96,7 @@ def test_doctor_treats_missing_credentials_as_a_safe_diagnostic_state() -> None:
     assert exit_code == 0
     assert body["ok"] is True
     assert body["command"] == "agent.doctor"
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert body["schema_version"] == "1.1"
     assert body["meta"] == {"channel": "cli"}
     assert body["data"]["credential"] == {
@@ -120,15 +120,15 @@ def test_doctor_treats_missing_credentials_as_a_safe_diagnostic_state() -> None:
 def test_doctor_rejects_a_manifest_for_another_environment() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/.well-known/dydata-agent.json"
-        return httpx.Response(200, json=_manifest(environment="production"))
+        return httpx.Response(200, json=_manifest(environment="test"))
 
     exit_code, body, requested_paths = _run_doctor(handler)
 
     assert exit_code == 6
     assert body["error"]["code"] == "SCHEMA_MISMATCH"
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert requested_paths == ["/.well-known/dydata-agent.json"]
-    assert "production" not in json.dumps(body).lower()
+    assert "test" not in json.dumps(body).lower()
 
 
 def test_doctor_reports_public_endpoint_unavailability_without_secrets() -> None:
@@ -162,7 +162,7 @@ def test_doctor_returns_current_identity_and_store_scope_when_authorized() -> No
                 json={
                     "ok": True,
                     "command": "auth.status",
-                    "environment": "test",
+                    "environment": "production",
                     "schema_version": "1.1",
                     "data": {
                         "authenticated": True,
@@ -187,7 +187,7 @@ def test_doctor_returns_current_identity_and_store_scope_when_authorized() -> No
                 json={
                     "ok": True,
                     "command": "stores.list",
-                    "environment": "test",
+                    "environment": "production",
                     "schema_version": "1.1",
                     "scope": {
                         "user_id": "user-1",

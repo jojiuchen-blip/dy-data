@@ -98,7 +98,7 @@ def test_credential_store_uses_one_environment_scoped_keyring_json_value() -> No
     store.save(credential_state())
 
     assert set(keyring.values) == {("dydata-cli", store.account)}
-    assert store.account.startswith("env:test:")
+    assert store.account.startswith("env:production:")
     assert store.account != "default"
     payload = json.loads(keyring.values[("dydata-cli", store.account)])
     assert payload == {

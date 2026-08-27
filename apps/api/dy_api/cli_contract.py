@@ -14,11 +14,11 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from apps.cli.src.dydata_cli.constants import CLI_SCHEMA_VERSION
-from apps.cli.src.dydata_cli.environments import TEST_ENVIRONMENT
+from dy_api.agent_environment import current_agent_environment
 from apps.cli.src.dydata_cli.registry import api_command_mappings
 
 CLI_METRIC_VERSION = "clue-follow-up-v1"
-CLI_ENVIRONMENT = TEST_ENVIRONMENT.name
+CLI_ENVIRONMENT = current_agent_environment().name
 CLI_RETRYABLE_ERRORS = {"API_UNAVAILABLE", "RATE_LIMITED"}
 CLI_COMMANDS_BY_PATH, CLI_OPERATIONS_BY_PATH = api_command_mappings()
 _SAFE_REQUEST_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$")

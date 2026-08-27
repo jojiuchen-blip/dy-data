@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <code>React 19</code>&nbsp;·&nbsp;<code>FastAPI</code>&nbsp;·&nbsp;<code>PostgreSQL</code>&nbsp;·&nbsp;<code>Worker</code>&nbsp;·&nbsp;<code>CLI 0.2.0</code>
+  <code>React 19</code>&nbsp;·&nbsp;<code>FastAPI</code>&nbsp;·&nbsp;<code>PostgreSQL</code>&nbsp;·&nbsp;<code>Worker</code>&nbsp;·&nbsp;<code>CLI 0.4.0</code>
 </p>
 
 <p align="center">
@@ -77,13 +77,13 @@ python -m pip install -e apps/cli
 dydata commands --json
 ```
 
-测试环境的一句话接入入口是 `https://dy-business-engine.com/.well-known/dydata-agent.json`。兼容远程 MCP 的 Agent 优先添加 `https://dy-business-engine.com/mcp` 并由用户在官方页面授权；需要 CLI fallback 时，安装后先运行：
+正式生产环境的一句话接入入口是 `https://dy-business-engine.com/.well-known/dydata-agent.json`。兼容远程 MCP 的 Agent 优先添加 `https://dy-business-engine.com/mcp` 并由用户在官方页面授权；需要 CLI fallback 时，安装或升级到 `dydata-cli 0.4.0` 后先运行：
 
 ```powershell
 dydata agent doctor --json
 ```
 
-当前 CLI 只接受命名环境 `test`，这里的测试环境明确指已部署在腾讯云、对外地址为 `https://dy-business-engine.com` 的版本，凭据按环境和服务端身份隔离。`production` 明确指未来尚未部署的企业内网服务器版本；本次不提供可用生产入口，也不把任何内网地址当成已上线地址。企业内网生产版上线时，由 DYDATA-46 一次性切换入口、OAuth issuer/resource、部署配置、凭据槽位、文档和 smoke 验证。
+当前正式默认环境为 `production`，固定对外地址为 `https://dy-business-engine.com`，等价于 `DYDATA_ENV=production`。旧版 test 凭据不会读取、迁移或复用；升级后必须重新执行生产授权。`DYDATA_API_URL` 不是正式覆盖入口，未知环境和任意远端 URL 会快速失败。显式 `test` 仅保留给受控内部验证，不出现在正式发现路径。
 
 需要业务数据时，由用户在安全交互终端完成登录：
 
@@ -97,7 +97,7 @@ dydata auth login
 dydata auth login --browser
 ```
 
-CLI 不会静默覆盖已有本地凭据。切换账号前先执行 `dydata auth logout`。The current named environment is the fixed test service; HTTPS is required for remote API URLs. Programmatic test injection accepts cleartext transport only as explicit loopback HTTP with a port.
+CLI 不会静默覆盖已有本地凭据。切换账号前先执行 `dydata auth logout`。The current named environment is the fixed production service; HTTPS is required for remote API URLs. Programmatic test injection accepts cleartext transport only as explicit loopback HTTP with a port.
 
 继续阅读：[Agent 调用指南](./docs/cli-agent-guide.md) · [Agent CLI 使用验收](./docs/cli-agent-acceptance.md) · [自动生成的命令参考](./docs/cli-command-reference.md)
 

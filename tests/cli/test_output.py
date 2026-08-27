@@ -31,7 +31,7 @@ def test_emit_error_uses_a_stable_json_envelope() -> None:
     assert exit_code == 2
     assert json.loads(stream.getvalue()) == {
         "command": "clues.follow-up-stats",
-        "environment": "test",
+        "environment": "production",
         "error": {
             "code": "INVALID_ARGUMENT",
             "message": "Date range is invalid",
