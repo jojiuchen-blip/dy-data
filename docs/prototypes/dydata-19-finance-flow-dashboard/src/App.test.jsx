@@ -4,49 +4,23 @@ import { describe, expect, it } from "vitest";
 import { App } from "./App.jsx";
 import { managementInvoices, promotionInvoices } from "./data/financeData.js";
 
-describe("需求讨论原型边界", () => {
-  it.each([
-    ["store", "store-bills"],
-    ["finance", "finance-promotion"],
-  ])("%s 端首屏持续展示非生产边界", (initialRole, initialPage) => {
-    render(<App initialRole={initialRole} initialPage={initialPage} />);
-
-    const boundary = screen.getByRole("note", { name: "原型边界" });
-    expect(boundary).toHaveTextContent("需求讨论原型");
-    expect(boundary).toHaveTextContent("非生产能力");
-    expect(boundary).toHaveTextContent("非权威契约");
-    expect(boundary).toHaveTextContent("不会提交、审核、打款或修改业务状态");
-  });
-
-  it("状态变更控件明确标记为演示动作，且状态仅存在于当前挂载周期", async () => {
-    const user = userEvent.setup();
-    const { unmount } = render(<App />);
-
-    await user.click(screen.getByRole("button", { name: "演示动作：确认推广服务费金额" }));
-    expect(screen.getByRole("button", { name: "进入推广费开票" })).toBeInTheDocument();
-
-    unmount();
+describe("v2-clean acceptance surface", () => {
+  it("removes prototype-only controls and labels from the rendered dashboard", () => {
     render(<App />);
-    expect(screen.getByRole("button", { name: "演示动作：确认推广服务费金额" })).toBeInTheDocument();
+
+    expect(screen.queryByText(/DYDATA-19.*Mock/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("note", { name: /原型边界|prototype boundary/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /F01.*F10|验收场景/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/会议演示|演示数据|不写入真实账单/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /门店端|财务端/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /演示动作/ })).not.toBeInTheDocument();
   });
 
-  it("发票提交与财务导入均明确标记为演示动作", async () => {
-    const user = userEvent.setup();
-    const { unmount } = render(<App initialPage="store-invoices" />);
-
-    expect(screen.getByRole("button", { name: "演示动作：校验并提交发票" })).toBeInTheDocument();
-
-    unmount();
+  it("keeps role context available without exposing a role-switching demo control", () => {
     render(<App initialRole="finance" initialPage="finance-promotion" />);
-    await user.click(screen.getByRole("button", { name: "演示动作：导入推广费厂家信息" }));
-    expect(screen.getByRole("button", { name: "演示动作：模拟校验并导入" })).toBeInTheDocument();
-  });
 
-  it("导入记录不再宣称已确定原文件留存政策", () => {
-    render(<App initialRole="finance" initialPage="finance-imports" />);
-
-    expect(screen.getByText("留存政策待 DYDATA-19 财务与审计决策", { exact: false })).toBeInTheDocument();
-    expect(screen.queryByText("不保存原始上传文件", { exact: false })).not.toBeInTheDocument();
+    expect(screen.getByText(/财务.*管理员角色/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /门店端|财务端/ })).not.toBeInTheDocument();
   });
 });
 
@@ -57,13 +31,13 @@ describe("门店端财务流程", () => {
 
     expect(screen.getAllByText("推广服务费").length).toBeGreaterThan(0);
     expect(screen.getAllByText("管理服务费").length).toBeGreaterThan(0);
-    expect(screen.getByRole("button", { name: "演示动作：确认推广服务费金额" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "演示动作：确认管理服务费金额" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认推广服务费金额" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "确认管理服务费金额" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "演示动作：确认推广服务费金额" }));
+    await user.click(screen.getByRole("button", { name: "确认推广服务费金额" }));
     expect(screen.getByRole("button", { name: "进入推广费开票" })).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "演示动作：确认管理服务费金额" }));
+    await user.click(screen.getByRole("button", { name: "确认管理服务费金额" }));
     expect(screen.getAllByText("已确认").length).toBeGreaterThanOrEqual(2);
   });
 
@@ -80,21 +54,21 @@ describe("门店端财务流程", () => {
     const user = userEvent.setup();
     render(<App />);
 
-    expect(screen.getByRole("button", { name: "演示动作：发起账单异议" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "发起账单异议" })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "收起账单详情" }));
-    expect(screen.queryByRole("button", { name: "演示动作：发起账单异议" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "发起账单异议" })).not.toBeInTheDocument();
   });
 
   it("发起账单异议前二次确认，确认后才进入异议详情", async () => {
     const user = userEvent.setup();
     render(<App />);
 
-    await user.click(screen.getByRole("button", { name: "演示动作：发起账单异议" }));
+    await user.click(screen.getByRole("button", { name: "发起账单异议" }));
     expect(screen.getByRole("dialog", { name: "确认发起账单异议" })).toBeInTheDocument();
     expect(screen.getByText("发起异议前请准备充分资料，是否发起？")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "发起推广服务费账单异议" })).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "演示动作：确认发起" }));
+    await user.click(screen.getByRole("button", { name: "确认发起" }));
     expect(screen.getByRole("heading", { name: "发起推广服务费账单异议" })).toBeInTheDocument();
   });
 
@@ -120,7 +94,7 @@ describe("门店端财务流程", () => {
   it("账单异议入口使用小尺寸弱化样式", () => {
     render(<App />);
 
-    expect(screen.getByRole("button", { name: "演示动作：发起账单异议" })).toHaveClass(
+    expect(screen.getByRole("button", { name: "发起账单异议" })).toHaveClass(
       "text-button--compact",
       "text-button--quiet",
     );
@@ -150,8 +124,8 @@ describe("门店端财务流程", () => {
   it("开票后填写发票信息区域显示厂端打款强提醒", () => {
     render(<App initialPage="store-invoices" />);
 
-    expect(screen.getAllByText("历史讨论场景：开票后需回原系统提交")).toHaveLength(2);
-    expect(screen.getAllByText("本原型不会上传发票、触发审核或打款。")).toHaveLength(2);
+    expect(screen.getAllByText("开票完成后登记发票信息")).toHaveLength(2);
+    expect(screen.getAllByText("系统记录登记结果，不执行开票、审核或打款。")).toHaveLength(2);
     expect(screen.getByRole("heading", { name: "门店前往开票系统开具数电专票，再将发票信息上传系统，否则将无法收款。" })).toBeInTheDocument();
     expect(screen.getAllByText("当月10号前开票提交，当月结算；10号后开票提交将在下月结算。")).toHaveLength(1);
     expect(screen.queryByText("下方提供收票方与开票信息，可一键复制；开票完成后必须返回系统提交发票信息。")).not.toBeInTheDocument();
@@ -166,7 +140,7 @@ describe("门店端财务流程", () => {
     await user.type(screen.getByLabelText("购买方"), "其他公司");
     await user.clear(screen.getByLabelText("税率"));
     await user.type(screen.getByLabelText("税率"), "3");
-    await user.click(screen.getByRole("button", { name: "演示动作：校验并提交发票" }));
+    await user.click(screen.getByRole("button", { name: "校验并提交发票" }));
 
     expect(
       screen.getByText("发票对象开具错误，请检查开具至【比亚迪汽车销售有限公司】发票"),
@@ -201,7 +175,7 @@ describe("门店端财务流程", () => {
     await user.type(screen.getByLabelText("税额"), "5");
     await user.clear(screen.getByLabelText("价税合计"));
     await user.type(screen.getByLabelText("价税合计"), "128640.50");
-    await user.click(screen.getByRole("button", { name: "演示动作：校验并提交发票" }));
+    await user.click(screen.getByRole("button", { name: "校验并提交发票" }));
 
     expect(screen.getByText("不含税金额 + 税额必须等于价税合计")).toBeInTheDocument();
     expect(screen.getByText("不含税金额 × 6% 与税额差异必须小于0.01元")).toBeInTheDocument();
@@ -214,7 +188,7 @@ describe("门店端财务流程", () => {
     await user.type(screen.getByLabelText("购买方"), "比亚迪汽车销售有限公司");
     await user.type(screen.getByLabelText("税率"), "6");
     await user.type(screen.getByLabelText("数电专票号码"), promotionInvoices[0].invoiceNumber);
-    await user.click(screen.getByRole("button", { name: "演示动作：校验并提交发票" }));
+    await user.click(screen.getByRole("button", { name: "校验并提交发票" }));
 
     expect(screen.getByText("该发票号码已提交，请检查后更换发票号码")).toBeInTheDocument();
   });
@@ -242,11 +216,7 @@ describe("门店端财务流程", () => {
   });
 
   it("审核不通过的红冲重开动作只在门店端提醒", async () => {
-    const user = userEvent.setup();
-    render(<App initialPage="store-invoices" />);
-
-    await user.selectOptions(screen.getByLabelText("选择场景"), "F07");
-    await user.click(screen.getByRole("button", { name: "跳转到场景页面" }));
+    render(<App initialPage="store-invoices" initialScenario="F07" />);
     expect(screen.getByText("发票审核不通过，请查看原因，红冲后重新开票上传")).toBeInTheDocument();
   });
 
@@ -285,13 +255,10 @@ describe("门店端财务流程", () => {
   });
 
   it("时间线按当前场景点亮对应节点且采用确认后的文案", async () => {
-    const user = userEvent.setup();
-    render(<App />);
+    render(<App initialScenario="F06" />);
 
     expect(screen.getByText("门店无确认，系统自动确认")).toBeInTheDocument();
     expect(screen.queryByText(/节假日不顺延/)).not.toBeInTheDocument();
-    await user.selectOptions(screen.getByLabelText("选择场景"), "F06");
-    await user.click(screen.getByRole("button", { name: "跳转到场景页面" }));
     const timelineInvoiceStep = screen.getAllByText("发票提交").find((node) => node.closest("li"));
     expect(timelineInvoiceStep.closest("li")).toHaveAttribute("aria-current", "step");
   });
@@ -327,7 +294,7 @@ describe("财务端财务流程", () => {
     await user.click(screen.getByRole("button", { name: "门店基础信息" }));
     expect(screen.getByRole("heading", { name: "门店基础信息" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载基础信息导入模板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "演示动作：导入门店基础信息" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入门店基础信息" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "导出门店基础信息" })).toBeInTheDocument();
     const tabs = screen.getByRole("tablist", { name: "门店基础信息页面" });
     expect(within(tabs).getByRole("tab", { name: "基础信息" })).toBeInTheDocument();
@@ -429,12 +396,12 @@ describe("财务端财务流程", () => {
     const { unmount } = render(<App initialRole="finance" initialPage="finance-promotion" />);
 
     expect(screen.getByRole("button", { name: "下载推广费厂家导入模板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "演示动作：导入推广费厂家信息" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入推广费厂家信息" })).toBeInTheDocument();
 
     unmount();
     render(<App initialRole="finance" initialPage="finance-management" />);
     expect(screen.getByRole("button", { name: "下载管理服务费厂家导入模板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "演示动作：导入管理服务费厂家信息" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "导入管理服务费厂家信息" })).toBeInTheDocument();
   });
 
   it("SAP 异议主列表只展示处理后的有效 SAP", async () => {
@@ -469,13 +436,13 @@ describe("财务端财务流程", () => {
     await user.click(screen.getByRole("tab", { name: "SAP异议处理" }));
     expect(screen.getByRole("button", { name: "导出 SAP 编码差异清单" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "下载 SAP 编码确认模板" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "演示动作：导入最终确认 SAP 编码" })).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "演示动作：导入最终确认 SAP 编码" }));
+    expect(screen.getByRole("button", { name: "导入最终确认 SAP 编码" })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "导入最终确认 SAP 编码" }));
     for (const header of ["门店ID（所属账户关联poi-id）", "服务店名称", "财务初始导入SAP编码（若纯数字格式需为10位，不足前面需加0补、非纯数字无需修改）", "服务店编码", "厂家确认结果", "确认时间"]) {
       expect(screen.getByRole("columnheader", { name: header })).toBeInTheDocument();
     }
     expect(screen.getByText("0010052209")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "演示动作：确认导入并更新有效SAP编码" }));
+    await user.click(screen.getByRole("button", { name: "确认导入并更新有效SAP编码" }));
     expect(screen.getByText("广州番禺方程豹中心").closest("tr")).toHaveTextContent("已确认");
   });
 
@@ -519,7 +486,7 @@ describe("DYDATA-19 页面设计回环", () => {
 
     expect(screen.getByRole("button", { name: "单月" })).toHaveAttribute("aria-pressed", "true");
     await user.click(screen.getByRole("button", { name: "累计" }));
-    expect(screen.getByText("累计自 2026 年 8 月起，不含 2026 年 7 月演示数据")).toBeInTheDocument();
+    expect(screen.getByText("累计自 2026 年 8 月起，不含 2026 年 7 月数据")).toBeInTheDocument();
     expect(screen.getByText("已确认金额（仅单月）")).toBeInTheDocument();
   });
 
@@ -535,7 +502,7 @@ describe("DYDATA-19 页面设计回环", () => {
   it("导入原型覆盖无变化、差异覆盖、整批失败和版本冲突", async () => {
     const user = userEvent.setup();
     render(<App initialRole="finance" initialPage="finance-management" />);
-    await user.click(screen.getByRole("button", { name: "演示动作：导入管理服务费厂家信息" }));
+    await user.click(screen.getByRole("button", { name: "导入管理服务费厂家信息" }));
 
     for (const status of ["首次成功", "无变化", "差异待确认", "整批失败", "版本冲突"]) {
       expect(screen.getByRole("option", { name: status })).toBeInTheDocument();

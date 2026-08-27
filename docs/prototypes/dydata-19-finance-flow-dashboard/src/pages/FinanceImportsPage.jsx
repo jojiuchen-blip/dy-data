@@ -15,7 +15,7 @@ export function FinanceImportsPage() {
 
       <div className="validation-banner" role="note">
         <strong>留存政策待 DYDATA-19 财务与审计决策。</strong>
-        <span>下表只演示可能的日志字段；本原型不会上传、保存或覆盖任何业务数据。</span>
+        <span>下表记录导入批次、校验结果、覆盖关系和操作审计。</span>
       </div>
 
       <section className="records-section" aria-labelledby="import-records-title">
