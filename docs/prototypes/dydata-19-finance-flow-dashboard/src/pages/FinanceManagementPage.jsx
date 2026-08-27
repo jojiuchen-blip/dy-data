@@ -41,7 +41,7 @@ export function FinanceManagementPage({ onNavigate }) {
         </div>
         <div className="page-heading__actions page-heading__actions--wrap">
           <button type="button" className="button button--secondary" onClick={() => setImportPanel("template")}>下载管理服务费厂家导入模板</button>
-          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>演示动作：导入管理服务费厂家信息</button>
+          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>导入管理服务费厂家信息</button>
         </div>
       </header>
       {importPanel ? <ImportTemplatePanel
@@ -51,7 +51,7 @@ export function FinanceManagementPage({ onNavigate }) {
         rules={["全部字段必填。", "一个门店的一个账期对应一张管理服务费发票。", "以门店ID（所属账户关联poi-id）＋账期作为唯一匹配键。"]}
         mode={importPanel}
         onClose={() => setImportPanel(null)}
-        onConfirm={() => { setImportPanel(null); setImportNotice("模拟导入成功：管理服务费厂家信息已更新"); }}
+        onConfirm={() => { setImportPanel(null); setImportNotice("管理服务费厂家信息已更新"); }}
       /> : null}
       {importNotice ? <div className="inline-notice" role="status">{importNotice}</div> : null}
       <MetricScopeToggle value={metricScope} onChange={setMetricScope} />

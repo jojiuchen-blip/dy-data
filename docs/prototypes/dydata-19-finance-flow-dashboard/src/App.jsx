@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./components/AppShell.jsx";
 import { FinanceTimeline } from "./components/FinanceTimeline.jsx";
-import { ScenarioSwitcher } from "./components/ScenarioSwitcher.jsx";
 import { scenarioFixtures } from "./data/financeData.js";
 import { StoreBillsPage } from "./pages/StoreBillsPage.jsx";
 import { StoreHistoryPage } from "./pages/StoreHistoryPage.jsx";
@@ -68,7 +67,7 @@ export function App({ initialRole, initialPage, initialScenario }) {
   const resolvedPage = initialPage ?? (initialRole ? (initialRole === "store" ? "store-bills" : "finance-promotion") : initialRoute.page);
   const [role, setRole] = useState(resolvedRole);
   const [page, setPage] = useState(resolvedPage);
-  const [scenarioId, setScenarioId] = useState(initialScenario ?? (resolvedRole === "store" ? "F01" : "F05"));
+  const scenarioId = initialScenario ?? (resolvedRole === "store" ? "F01" : "F05");
   const [theme, setTheme] = useState("light");
   const [financeOrderDirection, setFinanceOrderDirection] = useState(initialPage || initialRole ? "推广服务费" : (initialRoute.direction ?? "推广服务费"));
 
@@ -93,19 +92,6 @@ export function App({ initialRole, initialPage, initialScenario }) {
 
   const pageTitle = useMemo(() => pages[page]?.label ?? Object.values(pages)[0].label, [page, pages]);
 
-  function applyScenario(nextScenario) {
-    setRole(nextScenario.role);
-    navigate(nextScenario.page);
-  }
-
-  function changeRole(nextRole) {
-    setRole(nextRole);
-    setScenarioId(nextRole === "store" ? "F01" : "F05");
-    const nextPage = nextRole === "store" ? "store-bills" : "finance-promotion";
-    setPage(nextPage);
-    window.history.pushState({}, "", routeForPage(nextPage));
-  }
-
   function navigate(nextPage, options = {}) {
     const nextDirection = nextPage === "finance-orders" ? (options.direction ?? financeOrderDirection) : financeOrderDirection;
     if (nextPage === "finance-orders") setFinanceOrderDirection(nextDirection);
@@ -119,7 +105,6 @@ export function App({ initialRole, initialPage, initialScenario }) {
       pages={pages}
       page={page}
       theme={theme}
-      onRoleChange={changeRole}
       onPageChange={navigate}
       onThemeChange={setTheme}
     >
@@ -127,19 +112,8 @@ export function App({ initialRole, initialPage, initialScenario }) {
         <span>{role === "store" ? "门店结算" : "财务管理"}</span>
         <i aria-hidden="true">/</i>
         <strong>{pageTitle}</strong>
-        <span className="workspace-topline__version">DYDATA-19 · Mock</span>
       </div>
-      <aside className="prototype-boundary" role="note" aria-label="原型边界">
-        <strong>需求讨论原型</strong>
-        <span>非生产能力 · 非权威契约 · 不会提交、审核、打款或修改业务状态</span>
-      </aside>
       <FinanceTimeline scenario={scenario} />
-      <ScenarioSwitcher
-        value={scenarioId}
-        role={role}
-        onChange={setScenarioId}
-        onApply={applyScenario}
-      />
       <ActivePage
         scenario={scenario}
         onNavigate={navigate}

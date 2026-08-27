@@ -9,6 +9,13 @@ export function isClueDemoMode(
 export const CLUE_DEMO_MODE =
   import.meta.env.DEV && import.meta.env.VITE_DEMO_MODE === "true";
 
+export function isClueDemoPathname(pathname: string): boolean {
+  return pathname === "/clues"
+    || pathname === "/clues/details"
+    || pathname === "/admin/clue-allocation"
+    || pathname.startsWith("/admin/clue-allocation/");
+}
+
 export const CLUE_DEMO_ADMIN_USER: AdminUser = {
   username: "demo_admin",
   user_id: "DEMO-USER-ADMIN",
@@ -21,20 +28,10 @@ export const CLUE_DEMO_ADMIN_USER: AdminUser = {
   page_keys: [
     "A01",
     "A02",
-    "B01",
-    "B02",
-    "B03",
-    "C01",
-    "D01",
-    "D02",
-    "D03",
-    "D04",
     "D05",
     "D06",
     "D07",
     "D08",
-    "D09",
-    "D10",
   ],
   is_highest_admin: true,
 };

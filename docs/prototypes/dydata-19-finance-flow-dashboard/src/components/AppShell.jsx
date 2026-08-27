@@ -6,15 +6,9 @@ export function AppShell({
   page,
   theme,
   children,
-  onRoleChange,
   onPageChange,
   onThemeChange,
 }) {
-  function changeRole(nextRole) {
-    onRoleChange(nextRole);
-    onPageChange(nextRole === "store" ? "store-bills" : "finance-promotion");
-  }
-
   return (
     <div className="app-shell">
       <a className="skip-link" href="#main-content">
@@ -31,23 +25,8 @@ export function AppShell({
             <small>月度财务协同</small>
           </div>
         </div>
-        <div className="role-switcher" aria-label="演示角色">
-          <button
-            type="button"
-            className={role === "store" ? "is-active" : ""}
-            aria-pressed={role === "store"}
-            onClick={() => changeRole("store")}
-          >
-            门店端
-          </button>
-          <button
-            type="button"
-            className={role === "finance" ? "is-active" : ""}
-            aria-pressed={role === "finance"}
-            onClick={() => changeRole("finance")}
-          >
-            财务端
-          </button>
+        <div className="role-context" aria-label="当前角色">
+          <span>{role === "store" ? "门店端" : "财务端"}</span>
         </div>
         <div className="app-header__actions">
           <span className="account-context">
@@ -84,10 +63,6 @@ export function AppShell({
             </button>
           ))}
         </nav>
-        <div className="primary-rail__footnote">
-          <SolarIcon name="info" />
-          <span>演示数据仅用于流程确认，不写入真实账单。</span>
-        </div>
       </aside>
 
       <main id="main-content" className="app-main">

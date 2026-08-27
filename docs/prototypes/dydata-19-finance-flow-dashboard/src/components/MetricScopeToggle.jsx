@@ -16,7 +16,7 @@ export function MetricScopeToggle({ value, onChange }) {
           </button>
         ))}
       </div>
-      <span>{value === "cumulative" ? "累计自 2026 年 8 月起，不含 2026 年 7 月演示数据" : "按当前选择账期统计"}</span>
+      <span>{value === "cumulative" ? "累计自 2026 年 8 月起，不含 2026 年 7 月数据" : "按当前选择账期统计"}</span>
     </div>
   );
 }

@@ -13,6 +13,12 @@ def _read(relative_path: str) -> str:
     return (SRC / relative_path).read_text(encoding="utf-8")
 
 
+def _exported_function(source: str, name: str) -> str:
+    start = source.index(f"export async function {name}")
+    end = source.find("\nexport ", start + 1)
+    return source[start:] if end == -1 else source[start:end]
+
+
 def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     source = _read("demo/clueDemoMode.ts")
     package = json.loads((WEB / "package.json").read_text(encoding="utf-8"))
@@ -26,7 +32,10 @@ def test_demo_mode_requires_dev_and_explicit_flag() -> None:
     assert 'store_scope_mode: "all"' in source
     assert "page_keys: [" in source
     assert '"A01"' in source
-    assert '"D10"' in source
+    assert '"A02"' in source
+    assert '"B01"' not in source
+    assert '"C01"' not in source
+    assert '"D01"' not in source
     assert 'display_name: "演示最高管理员"' in source
     assert package["scripts"]["dev:demo"] == "vite --host 127.0.0.1 --mode demo"
     assert "VITE_DEMO_MODE=true" in demo_env
@@ -120,17 +129,46 @@ def test_demo_repository_covers_all_allocation_admin_calls() -> None:
         assert marker in source
 
 
-def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
+def test_demo_mode_is_scoped_to_clue_paths_and_keeps_other_routes_live() -> None:
+    demo_mode = _read("demo/clueDemoMode.ts")
     client = _read("api/client.ts")
     app = _read("App.tsx")
 
+    assert "isClueDemoPathname" in demo_mode
+    for allowed_path in [
+        'pathname === "/clues"',
+        'pathname === "/clues/details"',
+        'pathname === "/admin/clue-allocation"',
+        'pathname.startsWith("/admin/clue-allocation/")',
+    ]:
+        assert allowed_path in demo_mode
+    for rejected_path in ["/finance/promotion", "/settlement", "/admin/accounts", "/auth/"]:
+        assert rejected_path not in demo_mode
+
+    for page_key in ['"D05"', '"D06"', '"D07"', '"D08"']:
+        assert page_key in demo_mode
+
+    assert 'const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";' in client
+    assert "blockDemoNetwork" not in client
+    assert "CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS" not in client
+    assert "allowDemoIdentity" in client
+    assert "CLUE_DEMO_MODE && options.allowDemoIdentity" in client
+    assert "function isClueDemoRuntime(): boolean" in client
+    assert (
+        "CLUE_DEMO_MODE && isClueDemoPathname(window.location.pathname)"
+        in client
+    )
+    assert "if (CLUE_DEMO_MODE)" not in client
+
+    assert "isClueDemoPathname(location.pathname)" in app
+    assert "fetchAdminSession({ allowDemoIdentity: isDemoMode })" in app
+    assert "isDemoMode={isDemoMode}" in app
+    assert "onLogout={isDemoMode ? undefined : onLogout}" in app
+
     for value in [
         "CLUE_DEMO_MODE",
-        "CLUE_DEMO_ADMIN_USER",
         "clueDemoRepository",
         "demoLoad",
-        "blockDemoNetwork",
-        'fallbackReason: "当前展示合成演示数据。"',
         "clueDemoRepository.getAssignmentRounds",
         "clueDemoRepository.saveFollowUp",
         "clueDemoRepository.getHeadquartersPool",
@@ -140,8 +178,45 @@ def test_client_routes_clue_and_admin_calls_without_demo_network() -> None:
     ]:
         assert value in client
 
-    assert "isDemoMode={CLUE_DEMO_MODE}" in app
-    assert "CLUE_DEMO_MODE ? undefined : onLogout" in app
+
+def test_admin_clue_allocation_demo_branches_are_pathname_scoped() -> None:
+    client = _read("api/client.ts")
+    admin_functions = [
+        "fetchClueAllocationEligibleLeads",
+        "fetchClueHeadquartersPool",
+        "fetchClueAllocationCycles",
+        "fetchClueAllocationAuditLogs",
+        "previewClueAllocationCycle",
+        "runClueAllocationTrial",
+        "rebuildClueAllocationTrial",
+        "fetchClueAllocationRules",
+        "fetchClueAllocationRuleDetail",
+        "fetchClueAllocationDecisions",
+        "fetchClueAllocationStoreScores",
+        "createClueAllocationRule",
+        "createClueAllocationRuleVersion",
+        "publishClueAllocationRuleVersion",
+        "retireClueAllocationRuleVersion",
+    ]
+
+    for function_name in admin_functions:
+        function_source = _exported_function(client, function_name)
+        assert "if (isClueDemoRuntime())" in function_source
+        assert "/admin/clue-allocation/" in function_source
+
+
+def test_auth_gate_clears_stale_identity_before_session_refetch() -> None:
+    app = _read("App.tsx")
+    auth_gate = app[app.index("function AuthGate"):]
+    effect = auth_gate[: auth_gate.index("}, [isDemoMode]);")]
+
+    checking_index = effect.index("setChecking(true);")
+    clear_user_index = effect.index("setUser(null);")
+    fetch_index = effect.index("fetchAdminSession({ allowDemoIdentity: isDemoMode })")
+
+    assert checking_index < clear_user_index < fetch_index
+    assert 'key={isDemoMode ? "clue-demo" : "live"}' in app
+
 
 
 def test_shell_discloses_demo_data_on_desktop_and_mobile() -> None:

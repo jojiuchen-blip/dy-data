@@ -573,25 +573,7 @@ def confirm_store_settlement(
     if not statement.is_current or statement.version_no != parsed["read_version"]:
         _raise_statement_version_conflict(request, statement)
     direction = parsed["fee_direction"]
-    expected_amount = (
-        statement.promotion_net_fee_cent
-        if direction == "PROMOTION"
-        else statement.management_net_fee_cent
-    )
-    frozen_amount = int(
-        session.scalar(
-            select(func.coalesce(func.sum(SettlementDispute.disputed_amount_cent), 0)).where(
-                SettlementDispute.statement_id == statement.statement_id,
-                SettlementDispute.fee_direction
-                == CONFIRMATION_DIRECTION_TO_DB[direction],
-                SettlementDispute.status.in_((1, 2, 3)),
-            )
-        )
-        or 0
-    )
-    expected_amount -= frozen_amount
-    if direction == "MANAGEMENT":
-        expected_amount = max(expected_amount, 0)
+    expected_amount = _statement_confirmable_amounts(session, statement)[direction]
     if parsed["confirmed_amount_cent"] != expected_amount:
         _raise_reporting_error(
             request,
@@ -7069,6 +7051,33 @@ def _finance_confirmation_total(session, *, statement_conditions: list, directio
     )
 
 
+def _statement_confirmable_amounts(
+    session,
+    statement: SettlementStatement,
+) -> dict[str, int]:
+    frozen_amounts = {
+        int(direction): int(amount)
+        for direction, amount in session.execute(
+            select(
+                SettlementDispute.fee_direction,
+                func.coalesce(func.sum(SettlementDispute.disputed_amount_cent), 0),
+            )
+            .where(
+                SettlementDispute.statement_id == statement.statement_id,
+                SettlementDispute.status.in_((1, 2, 3)),
+            )
+            .group_by(SettlementDispute.fee_direction)
+        )
+    }
+    return {
+        "PROMOTION": statement.promotion_net_fee_cent - frozen_amounts.get(1, 0),
+        "MANAGEMENT": max(
+            statement.management_net_fee_cent - frozen_amounts.get(2, 0),
+            0,
+        ),
+    }
+
+
 def _statement_header_item(
     session,
     statement: SettlementStatement,
@@ -7114,6 +7123,7 @@ def _statement_header_item(
             store_id=statement.store_id,
         )
     projected_group = promotion_projection.get(statement.statement_id)
+    confirmable_amounts = _statement_confirmable_amounts(session, statement)
     return {
         "statement_id": statement.statement_id,
         "store_id": statement.store_id,
@@ -7125,6 +7135,8 @@ def _statement_header_item(
         "status": STATEMENT_STATUS_NAMES[statement.statement_status],
         "promotion_amount_cent": statement.promotion_net_fee_cent,
         "management_amount_cent": statement.management_net_fee_cent,
+        "promotion_confirmable_amount_cent": confirmable_amounts["PROMOTION"],
+        "management_confirmable_amount_cent": confirmable_amounts["MANAGEMENT"],
         "promotion_confirmation": _confirmation_summary(confirmations.get(1)),
         "management_confirmation": _confirmation_summary(confirmations.get(2)),
         "promotion_invoice_status": (

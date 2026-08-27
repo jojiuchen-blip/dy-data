@@ -12,6 +12,7 @@ import {
 import {
   CLUE_DEMO_ADMIN_USER,
   CLUE_DEMO_MODE,
+  isClueDemoPathname,
 } from "../demo/clueDemoMode";
 import {
   ClueDemoRepositoryError,
@@ -93,6 +94,8 @@ import type {
   PromotionInvoiceRegistrationPayload,
   PromotionInvoiceRegistrationResult,
   PromotionInvoiceRow,
+  StoreBillingConfirmationPayload,
+  StoreBillingConfirmationResult,
   StoreBillingStatement,
   StoreBillingStatementListData,
   MonthlySettlementData,
@@ -155,11 +158,14 @@ import {
 } from "../utils/settlement";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
-const USE_MOCKS =
-  CLUE_DEMO_MODE || import.meta.env.VITE_USE_MOCKS === "true";
+const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
 const DEFAULT_DETAIL_PAGE_SIZE = 50;
 const ALL_MONTHS = "all";
 const mockFollowUpRecordsByOrder: Record<string, ClueFollowUpRecord[]> = {};
+
+function isClueDemoRuntime(): boolean {
+  return CLUE_DEMO_MODE && isClueDemoPathname(window.location.pathname);
+}
 
 type QueryParamValue =
   | string
@@ -247,15 +253,6 @@ function demoLoad<T>(factory: () => ApiResponse<T>): Promise<ApiLoadResult<T>> {
   }
 }
 
-function blockDemoNetwork(): void {
-  if (CLUE_DEMO_MODE) {
-    throw new ApiRequestError(
-      503,
-      "演示模式未提供该接口，已阻止真实网络请求。",
-    );
-  }
-}
-
 async function apiRequestError(response: Response): Promise<ApiRequestError> {
   let payload: unknown;
   try {
@@ -316,7 +313,6 @@ async function requestJson<T>(
   params?: QueryParams,
   options: RequestJsonOptions = {},
 ): Promise<ApiResponse<T>> {
-  blockDemoNetwork();
   const url = apiUrl(path, params);
   const requestKey = `${options.cacheKey ?? "default"}:${url}`;
   const maxAgeMs = Math.max(0, options.maxAgeMs ?? 0);
@@ -396,7 +392,6 @@ async function requestDownload(
   path: string,
   params?: QueryParams,
 ): Promise<void> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "text/csv" },
@@ -428,7 +423,6 @@ async function requestDownloadResult(
   path: string,
   params?: QueryParams,
 ): Promise<DownloadResult> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     credentials: "include",
     headers: { Accept: "text/csv" },
@@ -468,7 +462,6 @@ async function sendJson<T>(
     params?: QueryParams;
   } = {},
 ): Promise<ApiResponse<T>> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path, params), {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "include",
@@ -497,7 +490,6 @@ async function sendBareJson<T>(
     method?: "POST" | "PUT";
   } = {},
 ): Promise<T> {
-  blockDemoNetwork();
   const response = await fetch(apiUrl(path), {
     body: body === undefined ? undefined : JSON.stringify(body),
     credentials: "include",
@@ -1453,7 +1445,7 @@ export function fetchSalesDashboard(
 export function fetchClueFilters(
   includeAssignedStores = true,
 ): Promise<ApiLoadResult<ClueFilterMetadata>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => {
       const response = clueDemoRepository.getFilters();
       return includeAssignedStores
@@ -1505,7 +1497,7 @@ export function fetchClueStoreOptions(
       )
       .slice(0, query.limit ?? 50);
   };
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => {
       const filters = clueDemoRepository.getFilters();
       return {
@@ -1544,7 +1536,7 @@ export function fetchClueStoreOptions(
 export function fetchClueOverview(
   filters: ClueOverviewFilters,
 ): Promise<ApiLoadResult<ClueOverviewMetrics>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getOverview(filters));
   }
   return withMockFallback(
@@ -1561,7 +1553,7 @@ export function exportOrderDetails(filters: DetailFilters): Promise<void> {
 export function fetchClueAssignmentRounds(
   query: ClueRoundQuery,
 ): Promise<ApiLoadResult<ClueAssignmentRoundData>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getAssignmentRounds(query));
   }
   return withMockFallback(
@@ -1579,7 +1571,7 @@ export function fetchClueAssignmentRounds(
 export function fetchClueOrderDetail(
   orderId: string,
 ): Promise<ApiLoadResult<ClueOrderDetail>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getOrderDetail(orderId));
   }
   return withMockFallback(
@@ -1594,7 +1586,7 @@ export function fetchClueOrderDetail(
 export function exportClueAssignmentRounds(
   filters: ClueOverviewFilters,
 ): Promise<void> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     const file = clueDemoRepository.exportAssignmentRounds(filters);
     const blob = new Blob([file.content], { type: file.mimeType });
     const objectUrl = URL.createObjectURL(blob);
@@ -1613,7 +1605,7 @@ export function exportClueAssignmentRounds(
 export function fetchClueOrderPhone(
   orderId: string,
 ): Promise<ApiLoadResult<CluePhoneReveal>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getOrderPhone(orderId));
   }
   return withMockFallback(
@@ -1630,7 +1622,7 @@ export function saveClueFollowUp(
   orderId: string,
   payload: ClueFollowUpPayload,
 ): Promise<ApiLoadResult<ClueFollowUpRecord>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.saveFollowUp(orderId, payload));
   }
   return withMockFallback(
@@ -1650,7 +1642,7 @@ export function saveClueFollowUp(
 export function deleteClueFollowUpRecord(
   followUpRecordId: string,
 ): Promise<ApiLoadResult<ClueFollowUpRecord>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() =>
       clueDemoRepository.deleteFollowUpRecord(followUpRecordId),
     );
@@ -1670,12 +1662,6 @@ export async function loginAdmin(
   usernameOrPassword: string,
   password?: string,
 ): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
-    return demoLoad(() => ({
-      data: CLUE_DEMO_ADMIN_USER,
-      meta: { generated_at: generatedAt(), source: "demo" },
-    }));
-  }
   clearRequestJsonCache();
   const username = password === undefined ? "admin" : usernameOrPassword;
   const resolvedPassword = password === undefined ? usernameOrPassword : password;
@@ -1689,8 +1675,10 @@ export async function loginAdmin(
   return result;
 }
 
-export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
+export async function fetchAdminSession(
+  options: { allowDemoIdentity?: boolean } = {},
+): Promise<ApiLoadResult<AdminUser>> {
+  if (CLUE_DEMO_MODE && options.allowDemoIdentity) {
     return demoLoad(() => ({
       data: CLUE_DEMO_ADMIN_USER,
       meta: { generated_at: generatedAt(), source: "demo" },
@@ -1700,12 +1688,6 @@ export async function fetchAdminSession(): Promise<ApiLoadResult<AdminUser>> {
 }
 
 export async function logoutAdmin(): Promise<ApiLoadResult<AdminUser>> {
-  if (CLUE_DEMO_MODE) {
-    return demoLoad(() => ({
-      data: CLUE_DEMO_ADMIN_USER,
-      meta: { generated_at: generatedAt(), source: "demo" },
-    }));
-  }
   clearRequestJsonCache();
   try {
     return {
@@ -2316,7 +2298,7 @@ export async function rebuildClueCenterMaterialization(): Promise<
 export async function fetchClueAllocationEligibleLeads(): Promise<
   ApiLoadResult<ClueAllocationEligibleLeadData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getEligibleLeads());
   }
   return {
@@ -2343,7 +2325,7 @@ export async function fetchClueHeadquartersPool(
 ): Promise<
   ApiLoadResult<ClueHeadquartersPoolData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getHeadquartersPool(filters));
   }
   return {
@@ -2358,7 +2340,7 @@ export async function fetchClueHeadquartersPool(
 export async function fetchClueAllocationCycles(): Promise<
   ApiLoadResult<ClueAllocationCycleData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getCycles());
   }
   return {
@@ -2372,7 +2354,7 @@ export async function fetchClueAllocationCycles(): Promise<
 export async function fetchClueAllocationAuditLogs(): Promise<
   ApiLoadResult<ClueAllocationAuditLogData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getAuditLogs());
   }
   return {
@@ -2386,7 +2368,7 @@ export async function fetchClueAllocationAuditLogs(): Promise<
 export async function previewClueAllocationCycle(
   payload: ClueAllocationCyclePreviewRequest,
 ): Promise<ApiLoadResult<ClueAllocationCyclePreview>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.previewCycle(payload));
   }
   return {
@@ -2401,7 +2383,7 @@ export async function previewClueAllocationCycle(
 export async function runClueAllocationTrial(
   payload: ClueAllocationCycleRequest,
 ): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.runTrial(payload));
   }
   return {
@@ -2416,7 +2398,7 @@ export async function runClueAllocationTrial(
 export async function rebuildClueAllocationTrial(
   payload: ClueAllocationCycleRebuildRequest,
 ): Promise<ApiLoadResult<ClueAllocationCycleExecution>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.rebuildTrial(payload));
   }
   return {
@@ -2431,7 +2413,7 @@ export async function rebuildClueAllocationTrial(
 export async function fetchClueAllocationRules(): Promise<
   ApiLoadResult<ClueAllocationRuleListData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getRules());
   }
   return {
@@ -2443,7 +2425,7 @@ export async function fetchClueAllocationRules(): Promise<
 export async function fetchClueAllocationRuleDetail(
   ruleId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleDetailData>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getRuleDetail(ruleId));
   }
   return {
@@ -2457,7 +2439,7 @@ export async function fetchClueAllocationRuleDetail(
 export async function fetchClueAllocationDecisions(): Promise<
   ApiLoadResult<ClueAllocationDecisionData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getDecisions());
   }
   return {
@@ -2469,7 +2451,7 @@ export async function fetchClueAllocationDecisions(): Promise<
 export async function fetchClueAllocationStoreScores(): Promise<
   ApiLoadResult<StoreScoreSnapshotData>
 > {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.getStoreScores());
   }
   return {
@@ -2481,7 +2463,7 @@ export async function fetchClueAllocationStoreScores(): Promise<
 export async function createClueAllocationRule(
   payload: ClueAllocationRuleCreate,
 ): Promise<ApiLoadResult<ClueAllocationRule>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() => clueDemoRepository.createRule(payload));
   }
   return {
@@ -2497,7 +2479,7 @@ export async function createClueAllocationRuleVersion(
   ruleId: string,
   payload: ClueAllocationRuleVersionWrite,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() =>
       clueDemoRepository.createRuleVersion(ruleId, payload),
     );
@@ -2514,7 +2496,7 @@ export async function createClueAllocationRuleVersion(
 export async function publishClueAllocationRuleVersion(
   ruleVersionId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() =>
       clueDemoRepository.publishRuleVersion(ruleVersionId),
     );
@@ -2531,7 +2513,7 @@ export async function publishClueAllocationRuleVersion(
 export async function retireClueAllocationRuleVersion(
   ruleVersionId: string,
 ): Promise<ApiLoadResult<ClueAllocationRuleVersion>> {
-  if (CLUE_DEMO_MODE) {
+  if (isClueDemoRuntime()) {
     return demoLoad(() =>
       clueDemoRepository.retireRuleVersion(ruleVersionId),
     );
@@ -2590,6 +2572,17 @@ export function fetchStoreBillingStatement(
 ): Promise<ApiLoadResult<StoreBillingStatement>> {
   return requestJson<StoreBillingStatement>(
     `/store-settlements/${encodeURIComponent(statementId)}`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function confirmStoreBillingStatement(
+  statementId: string,
+  payload: StoreBillingConfirmationPayload,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<StoreBillingConfirmationResult>> {
+  return sendJson<StoreBillingConfirmationResult>(
+    `/store-settlements/${encodeURIComponent(statementId)}/confirmations`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
   ).then((response) => ({ ...response, usingMock: false }));
 }
 

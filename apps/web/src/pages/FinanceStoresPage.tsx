@@ -21,6 +21,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import { displaySapSuggestionStatus } from "../utils/userFacingLabels";
 
 type SapDecisionAction = "CONFIRM" | "CORRECT" | "REJECT";
 type ActionState = "idle" | "loading" | "success" | "error" | "conflict";
@@ -28,16 +29,6 @@ type ActionState = "idle" | "loading" | "success" | "error" | "conflict";
 function defaultStatementMonth(): string {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-function suggestionStatusLabel(status: FinanceStoreRow["suggestionStatus"]): string {
-  if (status === null) return "暂无建议";
-  return {
-    PENDING: "待处理",
-    CONFIRMED: "已确认",
-    CORRECTED: "修正后确认",
-    REJECTED: "已驳回",
-  }[status];
 }
 
 function actionErrorMessage(error: unknown): { state: ActionState; message: string } {
@@ -154,7 +145,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
   const columns: Column<FinanceStoreRow>[] = [
     { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName}</strong><br /><small>{row.storeId}</small></span> },
     { key: "sap", title: "SAP 编码", render: (row) => row.sapCode ?? "-" },
-    { key: "suggestion", title: "SAP 建议", minWidth: 190, render: (row) => <span>{row.suggestedSapCode ?? "-"}<br /><small>{suggestionStatusLabel(row.suggestionStatus)} · V{row.suggestionVersion}</small></span> },
+    { key: "suggestion", title: "SAP 建议", minWidth: 190, render: (row) => <span>{row.suggestedSapCode ?? "-"}<br /><small>{displaySapSuggestionStatus(row.suggestionStatus)} · V{row.suggestionVersion}</small></span> },
     { key: "total", title: "账单总额", align: "right", render: (row) => formatCurrency(row.statementTotalCent) },
     { key: "confirmed", title: "已确认金额", align: "right", render: (row) => formatCurrency(row.confirmedAmountCent) },
     { key: "pending", title: "待开票金额", align: "right", render: (row) => formatCurrency(row.pendingInvoiceAmountCent) },
@@ -183,7 +174,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
         </section>
         <section className="content-section"><div className="section-title"><div><h2>建议历史</h2><p>历史版本永久保留。</p></div></div><DataTable columns={[
           { key: "sap", title: "建议 SAP", render: (row) => row.suggestedSapCode },
-          { key: "status", title: "状态", render: (row) => row.status },
+          { key: "status", title: "状态", render: (row) => displaySapSuggestionStatus(row.status) },
           { key: "version", title: "建议版本", render: (row) => `V${row.versionNo}` },
           { key: "submitted", title: "提交时间", render: (row) => formatDateTime(row.submittedAt) },
           { key: "reason", title: "处理原因", render: (row) => row.handlingReason ?? "-" },
@@ -194,7 +185,7 @@ export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPa
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店财务汇总</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店基础信息</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
       <section className="finance-filter-bar" aria-label="门店财务筛选条件">
         <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label><span>费用方向</span><SearchableStoreSelect emptyMessage="未找到费用方向" onChange={(value) => setFeeDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} placeholder="选择费用方向" value={feeDirection} /></label>

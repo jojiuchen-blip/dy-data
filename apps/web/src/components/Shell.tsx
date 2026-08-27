@@ -101,13 +101,12 @@ const clueNavItems: NavItem[] = [
 ];
 
 const financeNavItems: NavItem[] = [
-  { href: "/finance/promotion", label: "推广费看板", pageKey: "D01" },
-  { href: "/finance/management", label: "管理服务费看板", pageKey: "D01" },
-  { href: "/finance/orders/promotion", label: "推广费订单", pageKey: "D01" },
-  { href: "/finance/orders/management", label: "管理费订单", pageKey: "D01" },
-  { href: "/finance/stores", label: "门店财务汇总", pageKey: "D01" },
-  { href: "/finance/disputes", label: "异议处理", pageKey: "D01" },
-  { href: "/finance/imports", label: "财务结果导入", pageKey: "D01" },
+  { href: "/finance/promotion", label: "推广服务费", pageKey: "D01" },
+  { href: "/finance/management", label: "管理服务费", pageKey: "D01" },
+  { href: "/finance/orders/promotion", label: "订单明细", pageKey: "D01" },
+  { href: "/finance/stores", label: "门店基础信息", pageKey: "D01" },
+  { href: "/finance/disputes", label: "账单异议", pageKey: "D01" },
+  { href: "/finance/imports", label: "导入记录", pageKey: "D01" },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -126,6 +125,7 @@ const adminNavItems: NavItem[] = [
 const secondaryNavPathAliases: Record<string, string> = {
   "/rule-admin": "/admin/rules",
   "/sync-admin": "/admin/sync",
+  "/finance/orders/management": "/finance/orders/promotion",
 };
 
 const sectionLabels: Record<NavSection, string> = {

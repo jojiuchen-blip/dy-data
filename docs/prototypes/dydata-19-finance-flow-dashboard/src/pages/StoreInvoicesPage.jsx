@@ -108,8 +108,8 @@ export function StoreInvoicesPage({ scenario }) {
             </div>
           </div>
           <div className="validation-banner validation-banner--danger invoice-required-notice invoice-required-notice--brief">
-            <strong>历史讨论场景：开票后需回原系统提交</strong>
-            <span>本原型不会上传发票、触发审核或打款。</span>
+            <strong>开票完成后登记发票信息</strong>
+            <span>系统记录登记结果，不执行开票、审核或打款。</span>
           </div>
           <dl className="copy-list">
             {invoiceRecipient.map(({ label, value }) => (
@@ -142,8 +142,8 @@ export function StoreInvoicesPage({ scenario }) {
             <StatusTag tone="warning">待开票</StatusTag>
           </div>
           <div className="validation-banner validation-banner--danger invoice-required-notice" role="alert">
-            <strong>历史讨论场景：开票后需回原系统提交</strong>
-            <span>本原型不会上传发票、触发审核或打款。</span>
+            <strong>开票完成后登记发票信息</strong>
+            <span>系统记录登记结果，不执行开票、审核或打款。</span>
           </div>
           <div className="form-grid">
             <label className="form-grid__wide">
@@ -203,7 +203,7 @@ export function StoreInvoicesPage({ scenario }) {
             )}
           </div>
           <button type="submit" className="button button--primary button--full">
-            演示动作：校验并提交发票
+            校验并提交发票
           </button>
         </form>
       </div>

@@ -1516,6 +1516,18 @@ export interface BillingConfirmationSummary {
   confirmedAt: string | null;
 }
 
+export interface StoreBillingConfirmationPayload {
+  feeDirection: FeeDirection;
+  confirmedAmountCent: number;
+  readVersion: number;
+}
+
+export interface StoreBillingConfirmationResult extends BillingConfirmationSummary {
+  statementId: string;
+  versionNo: number;
+  isCurrent: boolean;
+}
+
 export interface StoreBillingStatement {
   statementId: string;
   storeId: string;
@@ -1527,6 +1539,8 @@ export interface StoreBillingStatement {
   status: string;
   promotionAmountCent: number;
   managementAmountCent: number;
+  promotionConfirmableAmountCent: number;
+  managementConfirmableAmountCent: number;
   promotionConfirmation: BillingConfirmationSummary | null;
   managementConfirmation: BillingConfirmationSummary | null;
   promotionInvoiceStatus: PromotionInvoiceStatus;

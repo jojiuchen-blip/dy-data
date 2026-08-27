@@ -4,6 +4,8 @@ import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { ResourceNotice } from "../components/ResourceState";
+import { TertiaryNav } from "../components/TertiaryNav";
+import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   FeeDirection,
@@ -12,6 +14,15 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import {
+  displayFeeDirection,
+  displayFinanceAdjustmentType,
+  displayFinanceInvoiceStatus,
+  displayFinanceOrderRowType,
+  displayFinanceOrderStatus,
+  displayFinanceSaleChannel,
+  displayFinanceSettlementStatus,
+} from "../utils/userFacingLabels";
 
 interface FinanceOrderDetailsPageProps {
   feeDirection: FeeDirection;
@@ -102,15 +113,15 @@ function FinanceOrderDetail({ row }: { row: FinanceOrderDetailRow }) {
     ["门店名称", row.storeName],
     ["SAP", row.sapCode],
     ["账期", row.statementMonth],
-    ["费用方向", row.feeDirection],
+    ["费用方向", displayFeeDirection(row.feeDirection)],
     ["订单 ID", row.orderId],
     ["券 ID", row.couponId],
-    ["订单状态", row.orderStatus],
-    ["券状态", row.couponStatus],
+    ["订单状态", displayFinanceOrderStatus(row.orderStatus)],
+    ["券状态", displayFinanceOrderStatus(row.couponStatus)],
     ["商品名称", row.productName],
     ["SKU ID", row.skuId],
     ["SKU 名称", row.skuName],
-    ["销售渠道", row.saleChannel],
+    ["销售渠道", displayFinanceSaleChannel(row.saleChannel)],
     ["销售门店 ID", row.saleStoreId],
     ["销售门店", row.saleStoreName],
     ["核销门店 ID", row.verifyStoreId],
@@ -122,15 +133,15 @@ function FinanceOrderDetail({ row }: { row: FinanceOrderDetailRow }) {
     ["实际费率", row.actualFeeRate],
     ["冻结费用金额", money(row.frozenFeeAmountCent)],
     ["退款/调整时间", formatDateTime(row.refundTime)],
-    ["调整类型", row.adjustmentType],
-    ["行类型", row.rowType],
+    ["调整类型", displayFinanceAdjustmentType(row.adjustmentType)],
+    ["行类型", displayFinanceOrderRowType(row.rowType)],
     ["发票号码", row.invoiceNumber],
     ["提交时间", formatDateTime(row.submittedAt)],
-    ["发票状态", row.invoiceStatus],
+    ["发票状态", displayFinanceInvoiceStatus(row.invoiceStatus)],
     ["结算时间", formatDateTime(row.settledAt)],
     ["不通过原因", row.rejectionReason],
     ["导入时间", formatDateTime(row.importedAt)],
-    ["结算状态", row.settlementStatus],
+    ["结算状态", displayFinanceSettlementStatus(row.settlementStatus)],
     ["厂家扣款日期", row.factoryDeductionDate],
     ["厂家扣款金额", money(row.factoryDeductionAmountCent)],
   ];
@@ -158,6 +169,7 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
     () => fetchFinanceOrderDetails(query),
     [queryKey],
   );
+  const resourceBusy = resource.loading || resource.refreshing;
   const rows = resource.data?.data.list ?? [];
   const total = resource.data?.data.total ?? 0;
   const page = resource.data?.data.page ?? query.page ?? 1;
@@ -168,14 +180,14 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
     { key: "order", title: "订单 / 券", minWidth: 190, sticky: true, render: (row) => <span><strong>{row.orderId}</strong><br /><small>{row.couponId ?? "-"}</small></span> },
     { key: "store", title: "服务店 / SAP", minWidth: 190, render: (row) => <span>{row.storeName ?? row.storeId}<br /><small>{row.sapCode ?? "-"}</small></span> },
     { key: "product", title: "商品 / SKU", minWidth: 180, render: (row) => <span>{row.productName ?? "-"}<br /><small>{row.skuName ?? row.skuId ?? "-"}</small></span> },
-    { key: "channel", title: "销售渠道", render: (row) => row.saleChannel ?? "-" },
+    { key: "channel", title: "销售渠道", render: (row) => displayFinanceSaleChannel(row.saleChannel) },
     { key: "verify", title: "核销时间", minWidth: 170, render: (row) => formatDateTime(row.verifyTime) },
     { key: "received", title: "实收金额", align: "right", render: (row) => row.receivedAmountCent == null ? "-" : formatCurrency(row.receivedAmountCent) },
     { key: "base", title: "冻结计费基数", align: "right", render: (row) => formatCurrency(row.frozenFeeBaseCent) },
     { key: "rate", title: "实际费率", align: "right", render: (row) => row.actualFeeRate ?? "-" },
     { key: "fee", title: feeDirection === "PROMOTION" ? "推广服务费" : "管理服务费", align: "right", render: (row) => formatCurrency(row.frozenFeeAmountCent) },
-    { key: "rowType", title: "行类型", render: (row) => row.rowType === "ADJUSTMENT" ? "退款/取消调整" : "原费用" },
-    { key: "invoice", title: "发票 / 结算", minWidth: 180, render: (row) => <span>{row.invoiceNumber ?? "-"}<br /><small>{feeDirection === "PROMOTION" ? row.invoiceStatus ?? "待开票" : row.settlementStatus ?? "未结算"}</small></span> },
+    { key: "rowType", title: "行类型", render: (row) => displayFinanceOrderRowType(row.rowType) },
+    { key: "invoice", title: "发票 / 结算", minWidth: 180, render: (row) => <span>{row.invoiceNumber ?? "-"}<br /><small>{feeDirection === "PROMOTION" ? displayFinanceInvoiceStatus(row.invoiceStatus) : displayFinanceSettlementStatus(row.settlementStatus)}</small></span> },
     { key: "details", title: "详情", minWidth: 150, render: (row) => <FinanceOrderDetail row={row} /> },
   ];
 
@@ -200,6 +212,11 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
     setQuery((current) => ({ ...current, page: nextPage }));
   };
 
+  const changePageSize = (nextPageSize: number) => {
+    setDraft((current) => ({ ...current, pageSize: nextPageSize }));
+    setQuery((current) => ({ ...current, page: 1, pageSize: nextPageSize }));
+  };
+
   const handleExport = async () => {
     setExportState("loading");
     setExportMessage("导出中，请稍候。");
@@ -220,6 +237,13 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
 
   return (
     <div className="page-stack finance-page">
+      <TertiaryNav
+        label="订单明细费用方向"
+        items={[
+          { href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" },
+          { href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
+        ]}
+      />
       <section className="page-heading finance-heading">
         <div>
           <p className="eyebrow">财务管理员</p>
@@ -260,7 +284,6 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
         <label><span>提交时间止</span><FieldInput type="datetime-local" value={draft.submittedTo} onChange={(event) => setField("submittedTo", event.target.value)} /></label>
         <label><span>核销时间起</span><FieldInput type="datetime-local" value={draft.verifyFrom} onChange={(event) => setField("verifyFrom", event.target.value)} /></label>
         <label><span>核销时间止</span><FieldInput type="datetime-local" value={draft.verifyTo} onChange={(event) => setField("verifyTo", event.target.value)} /></label>
-        <SelectField label="每页条数" onChange={(value) => setField("pageSize", Number(value))} options={[20, 50, 100, 200, 500].map((value) => ({ label: String(value), value: String(value) }))} value={String(draft.pageSize)} />
         <div className="finance-form-actions">
           <Button type="submit" variant="primary">应用筛选</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
@@ -273,12 +296,9 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       <section className="content-section">
         <div className="section-title">
           <div><h2>订单费用明细</h2><p>共 {total} 条，第 {page} / {pageCount} 页。</p></div>
-          <div className="finance-form-actions">
-            <Button disabled={page <= 1} onClick={() => changePage(page - 1)} variant="text">上一页</Button>
-            <Button disabled={page >= pageCount} onClick={() => changePage(page + 1)} variant="text">下一页</Button>
-          </div>
         </div>
-        <DataTable columns={columns} rows={rows} state={resource.loading ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" />
+        <DataTable columns={columns} rows={rows} state={resourceBusy ? "loading" : resource.error ? "error" : "ready"} stickyHeader="container" />
+        <TablePagination loading={resourceBusy} onPageChange={changePage} onPageSizeChange={changePageSize} page={page} pageSize={pageSize} pageSizeOptions={[20, 50, 100, 200, 500]} rowsOnPage={rows.length} total={total} totalPages={pageCount} />
       </section>
 
       <details className="content-section">

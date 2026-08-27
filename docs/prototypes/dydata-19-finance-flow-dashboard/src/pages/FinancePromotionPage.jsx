@@ -51,7 +51,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
         </div>
         <div className="page-heading__actions page-heading__actions--wrap">
           <button type="button" className="button button--secondary" onClick={() => setImportPanel("template")}>下载推广费厂家导入模板</button>
-          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>演示动作：导入推广费厂家信息</button>
+          <button type="button" className="button button--primary" onClick={() => setImportPanel("import")}>导入推广费厂家信息</button>
         </div>
       </header>
       {importPanel ? <ImportTemplatePanel
@@ -61,7 +61,7 @@ export function FinancePromotionPage({ scenario, onNavigate }) {
         rules={["发票号码、发票审核结果必填，并以发票号码匹配门店已提交记录。", "审核通过时结算日期、结算金额必填。", "审核不通过时原因必填，结算日期和结算金额允许为空。"]}
         mode={importPanel}
         onClose={() => setImportPanel(null)}
-        onConfirm={() => { setImportPanel(null); setImportNotice("模拟导入成功：推广费厂家结果已更新"); }}
+        onConfirm={() => { setImportPanel(null); setImportNotice("推广费厂家结果已更新"); }}
       /> : null}
       {importNotice ? <div className="inline-notice" role="status">{importNotice}</div> : null}
       <div className="system-boundary-note" role="note">

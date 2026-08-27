@@ -12,6 +12,7 @@ import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type { FeeDirection, FinanceDisputeRow } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
+import { parseYuanToCent } from "../utils/money";
 import { userFacingError } from "../utils/userFacingError";
 import {
   displayFeeDirection,
@@ -30,6 +31,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
   const [adjustmentYuan, setAdjustmentYuan] = useState("");
   const [actionMessage, setActionMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const adjustmentAmountCent = parseYuanToCent(adjustmentYuan);
+  const adjustmentIsValid = targetStatus !== "ACCEPTED_WITH_ADJUSTMENT" || adjustmentAmountCent !== null;
   const resource = useApiResource(
     () => fetchFinanceDisputes({ month: month || undefined, storeId: storeId || undefined, feeDirection: feeDirection || undefined, status: status || undefined, pageSize: 50 }),
     [month, storeId, feeDirection, status],
@@ -48,6 +51,14 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   const handleTransition = async () => {
     if (!selected || !resolutionNote.trim()) return;
+    let validatedAdjustmentAmountCent: number | undefined;
+    if (targetStatus === "ACCEPTED_WITH_ADJUSTMENT") {
+      if (adjustmentAmountCent === null) {
+        setActionMessage("请输入有效且非零的调整金额，最多保留两位小数。");
+        return;
+      }
+      validatedAdjustmentAmountCent = adjustmentAmountCent;
+    }
     setSaving(true);
     setActionMessage("");
     try {
@@ -67,7 +78,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
         targetStatus,
         resolutionNote: resolutionNote.trim(),
         readVersion: current.versionNo,
-        adjustmentAmountCent: targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? Math.round(Number(adjustmentYuan) * 100) : undefined,
+        adjustmentAmountCent: validatedAdjustmentAmountCent,
       });
       setActionMessage("异议状态已更新。");
       setSelected(null);
@@ -83,7 +94,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>账单异议处理</h1><p>门店提交异议和证明资料，内部管理员在本页处理；异议不阻断推广费或管理服务费后续流程。</p></div></section>
+      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>账单异议</h1><p>门店提交异议和证明资料，内部管理员在本页处理；异议不阻断推广费或管理服务费后续流程。</p></div></section>
       <section className="finance-filter-bar" aria-label="异议筛选条件">
         <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
         <label><span>门店 ID</span><FieldInput value={storeId} onChange={(event) => setStoreId(event.target.value)} /></label>
@@ -144,7 +155,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
             </label>
             {targetStatus === "ACCEPTED_WITH_ADJUSTMENT" ? <label><span>调整金额（元，非零）</span><FieldInput required type="number" step="0.01" value={adjustmentYuan} onChange={(event) => setAdjustmentYuan(event.target.value)} /></label> : null}
             <label className="finance-form-grid__wide"><span>处理说明</span><FieldTextarea required rows={3} value={resolutionNote} onChange={(event) => setResolutionNote(event.target.value)} /></label>
-            <div className="finance-form-actions"><Button disabled={!resolutionNote.trim()} loading={saving} onClick={handleTransition} variant="primary">确认处理</Button>{actionMessage ? <span role="status">{actionMessage}</span> : null}</div>
+            <div className="finance-form-actions"><Button disabled={saving || !resolutionNote.trim() || !adjustmentIsValid} loading={saving} onClick={handleTransition} variant="primary">确认处理</Button>{actionMessage ? <span role="status">{actionMessage}</span> : null}</div>
           </div>
         </section>
       ) : actionMessage ? <ResourcePanel>{actionMessage}</ResourcePanel> : null}

@@ -301,6 +301,8 @@ def test_store_settlement_reads_current_list_and_version_history(
     assert row["supersedesStatementId"] == "statement-1-v1"
     assert row["promotionAmountCent"] == 1100
     assert row["managementAmountCent"] == 2200
+    assert row["promotionConfirmableAmountCent"] == 1100
+    assert row["managementConfirmableAmountCent"] == 2200
     assert listed.json()["data"]["metrics"]["month"] == {
         "promotionAmountCent": 1100,
         "managementAmountCent": 2200,
@@ -2183,11 +2185,20 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
     assert replay.status_code == 200
     assert replay.json()["data"]["disputeId"] == submitted.json()["data"]["disputeId"]
 
+    statements = client.get(
+        "/api/v1/store-settlements",
+        params={"storeId": "store-1", "month": "2026-08", "metricScope": "MONTH"},
+    )
+    assert statements.status_code == 200
+    statement = statements.json()["data"]["list"][0]
+    assert statement["promotionConfirmableAmountCent"] == 1000
+    assert statement["managementConfirmableAmountCent"] == 2200
+
     promotion_confirmation = client.post(
         "/api/v1/store-settlements/statement-1-v2/confirmations",
         json={
             "feeDirection": "PROMOTION",
-            "confirmedAmountCent": 1000,
+            "confirmedAmountCent": statement["promotionConfirmableAmountCent"],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "store-dispute-promotion-confirm-0001"},
