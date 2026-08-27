@@ -135,10 +135,18 @@ def test_demo_mode_is_scoped_to_clue_paths_and_keeps_other_routes_live() -> None
     app = _read("App.tsx")
 
     assert "isClueDemoPathname" in demo_mode
-    for allowed_path in ['pathname === "/clues"', 'pathname === "/clues/details"']:
+    for allowed_path in [
+        'pathname === "/clues"',
+        'pathname === "/clues/details"',
+        'pathname === "/admin/clue-allocation"',
+        'pathname.startsWith("/admin/clue-allocation/")',
+    ]:
         assert allowed_path in demo_mode
-    for rejected_path in ["/finance/promotion", "/settlement", "/admin", "/auth/"]:
+    for rejected_path in ["/finance/promotion", "/settlement", "/admin/accounts", "/auth/"]:
         assert rejected_path not in demo_mode
+
+    for page_key in ['"D05"', '"D06"', '"D07"', '"D08"']:
+        assert page_key in demo_mode
 
     assert 'const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";' in client
     assert "blockDemoNetwork" not in client

@@ -19,7 +19,7 @@ from threading import Thread
 
 import pytest
 from fastapi import Request
-from playwright.sync_api import Browser, Page, sync_playwright
+from playwright.sync_api import Browser, Page, expect, sync_playwright
 from openpyxl import Workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -433,6 +433,40 @@ def vite_real_api_base_url() -> Generator[str]:
         if process.stdout is not None:
             output = process.stdout.read()
         raise RuntimeError(f"Vite dev server did not start.\n{output}") from None
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=10)
+
+
+@pytest.fixture(scope="session")
+def vite_clue_demo_base_url() -> Generator[str]:
+    node = shutil.which("node")
+    vite_script = WEB_DIR / "node_modules" / "vite" / "bin" / "vite.js"
+    if node is None or not vite_script.exists():
+        pytest.skip("Node.js and Vite are required for clue demo browser tests")
+
+    port = find_free_port()
+    env = os.environ.copy()
+    env["VITE_USE_MOCKS"] = "false"
+    env["VITE_DEMO_MODE"] = "true"
+    process = subprocess.Popen(
+        [node, str(vite_script), "--host", HOST, "--port", str(port)],
+        cwd=WEB_DIR,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+    )
+    base_url = f"http://{HOST}:{port}"
+    try:
+        wait_for_url(base_url)
+        yield base_url
     finally:
         process.terminate()
         try:
@@ -1283,6 +1317,73 @@ def settlement_filter_meta() -> dict[str, object]:
     }
 
 
+def settlement_monthly_data(
+    store_id: str,
+    store_name: str,
+    month: str = "2026-08",
+) -> dict[str, object]:
+    return {
+        "store": {"storeId": store_id, "storeName": store_name},
+        "month": month,
+        "productScope": "all",
+        "productType": "all",
+        "isFormalPeriod": True,
+        "statement": {
+            "statementId": f"STMT-{store_id}",
+            "statementStatus": "PENDING_CONFIRMATION",
+        },
+        "metrics": {
+            "salesOrderCount": 1,
+            "salesAmountCent": 12800,
+            "verifiedOrderCount": 1,
+            "verifiedAmountCent": 12800,
+            "promotionBaseCent": 12800,
+            "promotionOriginalFeeCent": 1024,
+            "promotionAdjustmentFeeCent": 0,
+            "promotionNetFeeCent": 1024,
+            "managementBaseCent": 12800,
+            "managementOriginalFeeCent": 512,
+            "managementAdjustmentFeeCent": 0,
+            "managementNetFeeCent": 512,
+            "netSettlementReferenceCent": 512,
+        },
+        "lines": [],
+    }
+
+
+def billing_statement_data(
+    store_id: str,
+    store_name: str,
+    *,
+    version: int = 2,
+    management_amount_cent: int = 9000,
+) -> dict[str, object]:
+    return {
+        "statementId": f"STMT-{store_id}-V{version}",
+        "storeId": store_id,
+        "storeName": store_name,
+        "month": "2026-08",
+        "versionNo": version,
+        "isCurrent": True,
+        "supersedesStatementId": None,
+        "status": "PENDING_CONFIRMATION",
+        "promotionAmountCent": 38000,
+        "managementAmountCent": management_amount_cent,
+        "promotionConfirmableAmountCent": 38000,
+        "managementConfirmableAmountCent": management_amount_cent,
+        "promotionConfirmation": None,
+        "managementConfirmation": None,
+        "promotionInvoiceStatus": "PENDING_INVOICE",
+        "promotionInvoiceableAmountCent": 38000,
+        "promotionCarryforwardBalanceCent": 0,
+        "promotionInvoiceGroupId": None,
+        "promotionRequiredStatementIds": [],
+        "promotionPositiveAmountCent": 38000,
+        "promotionNegativeAmountCent": 0,
+        "managementInvoiceStatus": "PENDING_INVOICE",
+    }
+
+
 def order_fee_details_data(*, empty: bool = False) -> dict[str, object]:
     rows: list[dict[str, object]] = []
     if not empty:
@@ -1367,13 +1468,13 @@ def install_settlement_user_route(page: Page, role: str) -> None:
     ("name", "url_path", "expected_text", "ready_target"),
     [
         ("store-invoice", "/settlement/invoice?storeId=store_001&month=2026-08", "开票确认", "heading"),
-        ("finance-promotion", "/finance/promotion?month=2026-08", "推广费财务看板", "heading"),
-        ("finance-management", "/finance/management?month=2026-08", "管理服务费财务看板", "heading"),
+        ("finance-promotion", "/finance/promotion?month=2026-08", "推广服务费", "heading"),
+        ("finance-management", "/finance/management?month=2026-08", "管理服务费", "heading"),
         ("finance-orders-promotion", "/finance/orders/promotion?month=2026-08", "推广服务费订单明细", "heading"),
         ("finance-orders-management", "/finance/orders/management?month=2026-08", "管理服务费订单明细", "heading"),
-        ("finance-stores", "/finance/stores?month=2026-08", "门店财务汇总", "heading"),
-        ("finance-disputes", "/finance/disputes?month=2026-08", "账单异议处理", "heading"),
-        ("finance-imports", "/finance/imports", "财务结果导入", "heading"),
+        ("finance-stores", "/finance/stores?month=2026-08", "门店基础信息", "heading"),
+        ("finance-disputes", "/finance/disputes?month=2026-08", "账单异议", "heading"),
+        ("finance-imports", "/finance/imports", "导入记录", "heading"),
         (
             "design-system",
             DESIGN_SYSTEM_HTML.as_uri(),
@@ -1757,12 +1858,213 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
         page.goto(f"{vite_base_url}/settlement", wait_until="domcontentloaded")
         page.get_by_role("heading", name="单店分账", exact=True).wait_for(timeout=10000)
 
-        assert page.get_by_role("combobox", name="门店").input_value() == "上海浦东体验中心"
+        expect(page.get_by_role("combobox", name="门店")).to_have_value(
+            "上海浦东体验中心",
+            timeout=10000,
+        )
         page.get_by_role("region", name="账单状态").get_by_text(
             "上海浦东体验中心",
             exact=True,
         ).wait_for(timeout=10000)
     finally:
+        context.close()
+
+
+@pytest.mark.parametrize("filter_kind", ["store", "month"])
+def test_settlement_does_not_offer_stale_statement_while_filter_refresh_is_pending(
+    browser: Browser,
+    vite_real_api_base_url: str,
+    filter_kind: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    pending_billing_routes: list[object] = []
+    try:
+        install_settlement_user_route(page, "admin")
+        meta = settlement_filter_meta()
+        meta["stores"] = [
+            {"storeId": "store_001", "storeName": "上海浦东体验中心"},
+            {"storeId": "store_002", "storeName": "上海虹桥服务中心"},
+        ]
+        meta["statementMonths"] = ["2026-08", "2026-09"]
+        page.route(
+            "**/api/v1/meta/filters",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(meta),
+            ),
+        )
+
+        def fulfill_monthly(route) -> None:
+            store_id = "store_002" if "/stores/store_002/" in route.request.url else "store_001"
+            store_name = "上海虹桥服务中心" if store_id == "store_002" else "上海浦东体验中心"
+            month = "2026-09" if "month=2026-09" in route.request.url else "2026-08"
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(settlement_monthly_data(store_id, store_name, month)),
+            )
+
+        def fulfill_billing(route) -> None:
+            if "storeId=store_002" in route.request.url or "month=2026-09" in route.request.url:
+                pending_billing_routes.append(route)
+                return
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [billing_statement_data("store_001", "上海浦东体验中心")],
+                    "total": 1,
+                    "page": 1,
+                    "pageSize": 1,
+                    "metricScope": "MONTH",
+                    "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9000}},
+                }),
+            )
+
+        page.route("**/api/v1/stores/*/monthly-settlement?*", fulfill_monthly)
+        page.route("**/api/v1/store-settlements?*", fulfill_billing)
+        page.goto(
+            f"{vite_real_api_base_url}/settlement?storeId=store_001&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("button", name="确认管理服务费", exact=True).wait_for(timeout=10000)
+
+        if filter_kind == "store":
+            store_filter = page.get_by_role("combobox", name="门店")
+            store_filter.click()
+            page.get_by_role("option", name="上海虹桥服务中心", exact=True).click()
+        else:
+            page.get_by_label("账期", exact=True).click()
+            page.get_by_role("option", name="2026-09", exact=True).click()
+
+        page.wait_for_timeout(100)
+        assert len(pending_billing_routes) == 1
+
+        assert page.get_by_role("button", name="确认管理服务费", exact=True).count() == 0
+    finally:
+        for pending_route in pending_billing_routes:
+            pending_route.abort()
+        context.close()
+
+
+def test_settlement_version_conflict_closes_dialog_and_refreshes_statement(
+    browser: Browser,
+    vite_real_api_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    billing_requests = 0
+    conflict_seen = False
+    pending_billing_routes: list[object] = []
+    try:
+        install_settlement_user_route(page, "admin")
+        page.route(
+            "**/api/v1/meta/filters",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(settlement_filter_meta()),
+            ),
+        )
+        page.route(
+            "**/api/v1/stores/store_001/monthly-settlement?*",
+            lambda route: route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload(settlement_monthly_data("store_001", "上海浦东体验中心")),
+            ),
+        )
+
+        def fulfill_billing(route) -> None:
+            nonlocal billing_requests
+            billing_requests += 1
+            if conflict_seen:
+                pending_billing_routes.append(route)
+                return
+            version = 3 if conflict_seen else 2
+            amount = 9000 if version == 2 else 9500
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [billing_statement_data(
+                        "store_001",
+                        "上海浦东体验中心",
+                        version=version,
+                        management_amount_cent=amount,
+                    )],
+                    "total": 1,
+                    "page": 1,
+                    "pageSize": 1,
+                    "metricScope": "MONTH",
+                    "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": amount}},
+                }),
+            )
+
+        page.route("**/api/v1/store-settlements?*", fulfill_billing)
+
+        def reject_confirmation(route) -> None:
+            nonlocal conflict_seen
+            conflict_seen = True
+            route.fulfill(
+                status=409,
+                content_type="application/json",
+                body=json.dumps({
+                    "detail": {
+                        "code": "VERSION_CONFLICT",
+                        "message": "账单版本已变化",
+                        "requestId": "req-confirm-409",
+                    }
+                }, ensure_ascii=False),
+            )
+
+        page.route(
+            "**/api/v1/store-settlements/*/confirmations",
+            reject_confirmation,
+        )
+        page.goto(
+            f"{vite_real_api_base_url}/settlement?storeId=store_001&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("button", name="确认管理服务费", exact=True).click()
+        requests_before_confirmation = billing_requests
+        dialog = page.get_by_role("dialog", name="确认管理服务费")
+        with page.expect_response(
+            lambda response: response.url.endswith("/confirmations"),
+            timeout=10000,
+        ) as conflict_response:
+            dialog.get_by_role("button", name="确认提交", exact=True).click()
+
+        assert conflict_response.value.status == 409
+        expect(dialog).to_be_hidden(timeout=10000)
+        page.wait_for_timeout(100)
+        assert len(pending_billing_routes) == 1
+        assert page.get_by_role("button", name="确认管理服务费", exact=True).count() == 0
+
+        pending_billing_routes.pop().fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "list": [billing_statement_data(
+                    "store_001",
+                    "上海浦东体验中心",
+                    version=3,
+                    management_amount_cent=9500,
+                )],
+                "total": 1,
+                "page": 1,
+                "pageSize": 1,
+                "metricScope": "MONTH",
+                "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9500}},
+            }),
+        )
+        expect(page.get_by_text("当前金额 ¥95.00", exact=False)).to_be_visible(timeout=10000)
+        assert billing_requests > requests_before_confirmation
+    finally:
+        for pending_route in pending_billing_routes:
+            pending_route.abort()
         context.close()
 
 
@@ -1918,12 +2220,15 @@ def test_order_details_direct_url_loads_authorized_default_scope(
         assert page.get_by_text("当前账号授权范围", exact=False).first.is_visible()
         assert page.get_by_role("button", name="返回单店分账", exact=True).count() == 0
         assert page.get_by_role("button", name="管理服务费", exact=True).is_enabled()
-        assert len(order_detail_requests) == 1
-        assert "feeDirection=PROMOTION" in order_detail_requests[0]
-        assert "storeId=" not in order_detail_requests[0]
-        assert "month=" not in order_detail_requests[0]
-        assert "feeRates=" not in order_detail_requests[0]
-        assert "ruleVersions=" not in order_detail_requests[0]
+        assert order_detail_requests
+        assert len(order_detail_requests) <= 2
+        assert len(set(order_detail_requests)) == 1
+        for request_url in order_detail_requests:
+            assert "feeDirection=PROMOTION" in request_url
+            assert "storeId=" not in request_url
+            assert "month=" not in request_url
+            assert "feeRates=" not in request_url
+            assert "ruleVersions=" not in request_url
     finally:
         context.close()
 
@@ -2452,10 +2757,12 @@ def test_clue_allocation_tertiary_navigation_uses_stable_routes_and_v02_state(
         page.get_by_role("heading", name="线索分配", exact=True).wait_for(timeout=10000)
 
         navigation = page.get_by_role("navigation", name="线索分配功能")
-        links = navigation.get_by_role("link")
-        current = navigation.get_by_role("link", name=current_label, exact=True)
+        links = navigation.locator("a.tertiary-nav__item")
+        links.first.wait_for(state="visible", timeout=10000)
+        current = navigation.locator('a.tertiary-nav__item[aria-current="page"]')
         assert links.count() == 4
         assert navigation.locator("svg").count() == 0
+        assert current.inner_text() == current_label
         assert current.get_attribute("aria-current") == "page"
 
         metrics = current.evaluate(
@@ -2470,6 +2777,69 @@ def test_clue_allocation_tertiary_navigation_uses_stable_routes_and_v02_state(
         )
         assert metrics["borderBottomColor"] == "rgb(254, 82, 5)"
         assert metrics["height"] >= 38
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    "url_path,current_label",
+    [
+        ("/admin/clue-allocation/rules", "分配规则"),
+        ("/admin/clue-allocation/trial", "分配试运行"),
+        ("/admin/clue-allocation/records", "分配记录"),
+        ("/admin/clue-allocation/headquarters", "总部线索池"),
+    ],
+)
+def test_clue_demo_admin_allocation_uses_demo_identity_without_api_requests(
+    browser: Browser,
+    vite_clue_demo_base_url: str,
+    url_path: str,
+    current_label: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    api_requests: list[str] = []
+    page.on(
+        "request",
+        lambda request: api_requests.append(request.url)
+        if "/api/v1/" in request.url
+        else None,
+    )
+    page.route("**/api/v1/**", lambda route: route.abort())
+    try:
+        page.goto(
+            f"{vite_clue_demo_base_url}{url_path}",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="线索分配", exact=True).wait_for(timeout=10000)
+        page.get_by_role("navigation", name="线索分配功能").get_by_role(
+            "link",
+            name=current_label,
+            exact=True,
+        ).wait_for(timeout=10000)
+        assert api_requests == []
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    "url_path",
+    ["/finance/promotion", "/settlement", "/admin/accounts"],
+)
+def test_clue_demo_keeps_non_clue_routes_on_live_identity_and_api(
+    browser: Browser,
+    vite_clue_demo_base_url: str,
+    url_path: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    page.route("**/api/v1/auth/me", lambda route: route.abort())
+    try:
+        with page.expect_request("**/api/v1/auth/me", timeout=10000):
+            page.goto(
+                f"{vite_clue_demo_base_url}{url_path}",
+                wait_until="domcontentloaded",
+            )
     finally:
         context.close()
 
@@ -3493,7 +3863,7 @@ def test_finance_pages_use_live_fastapi_for_admin_empty_and_store_forbidden(
             f"{vite_live_admin_api_base_url}/finance/promotion?month=2026-08",
             wait_until="domcontentloaded",
         )
-        admin_page.get_by_role("heading", name="推广费财务看板", exact=True).wait_for(timeout=10000)
+        admin_page.get_by_role("heading", name="推广服务费", exact=True).wait_for(timeout=10000)
         admin_page.get_by_text("¥0.00", exact=True).first.wait_for(timeout=10000)
         assert finance_responses and all(status == 200 for status in finance_responses)
         assert admin_page.locator(".resource-notice--error").count() == 0
@@ -3857,12 +4227,16 @@ def test_finance_import_clears_stale_preview_after_409(
             f"{vite_base_url}/finance/promotion?month=2026-08",
             wait_until="domcontentloaded",
         )
-        page.get_by_label("文件").set_input_files({
+        file_input = page.get_by_label("文件")
+        file_input.wait_for(state="visible", timeout=10000)
+        file_input.set_input_files({
             "name": "promotion-review.csv",
             "mimeType": "text/csv",
             "buffer": b"invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n12345678901234567890,APPROVED,,2026-08-08,38000\n",
         })
-        page.get_by_role("button", name="上传并预览").click()
+        upload_button = page.get_by_role("button", name="上传并预览")
+        expect(upload_button).to_be_enabled(timeout=10000)
+        upload_button.click()
         page.get_by_text("整批校验通过，请核对版本和变更原因后提交。", exact=True).wait_for(timeout=10000)
         page.get_by_role("button", name="确认提交").click()
         page.get_by_text("数据已发生变化，请刷新后重新操作。", exact=True).wait_for(timeout=10000)

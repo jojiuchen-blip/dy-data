@@ -49,7 +49,7 @@
 - T5.7 G2 已完成：0041/0042 单头迁移、管理费单店更正、SAP 建议/确认双版本、四类导入逐业务键撤销、管理费负数结转投影与不可变应用已通过最终相关回归 104 项、Web build、`git diff --check` 和三轮独立复审；真实 PostgreSQL 双事务压力测试保留为发布前门禁。
 - T5.7 G3 已完成：0043 固化账单头与订单明细快照，历史缺失值进入异常清单，查询不再回退可变主数据，部署前强制异常归零；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 均通过，独立复审 Critical/Important/Minor 均为 0、`Ready: yes`。
 - 发布前主线预检：当前隔离分支直接基于 `origin/main@ef547ab4` 建立，已避免旧分支硬合并与历史迁移链冲突。ahead/behind 是随本轮证据提交变化的运行时状态，不在计划中写死；发布前必须重新 `fetch` 并以 `git rev-list --left-right --count origin/main...HEAD` 的新鲜结果为准。后续仍须通过 PR/CI、目标 PostgreSQL 迁移与回滚门禁、部署后 smoke，才可进入生产发布。
-- 完成 T5.7 全量回归、迁移回滚契约（空库可逆；已有不可变事实时拒绝有损降级，生产使用备份恢复或前向修复）、系统场景、UAT 准备和发布/回滚清单；已知 16 个视觉权限夹具失败保持独立后续项。
+- T5.7 本地全量回归已完成：视觉 229 passed；其余 1182 passed、2 skipped；合计 1411 passed、2 skipped、0 failed。此前视觉失败已确认由 v2-clean 标题基线漂移与 SPA/StrictMode 时序断言导致，并在测试层修正；结算页面另关闭上下文切换期间旧账单误确认与 409 冲突后旧版本残留两个 Important 缺口，线索演示模式恢复 D05-D08 管理分配验收路径且未扩展演示边界。最终独立复审 Critical/Important/Minor 均为 0，Ready: yes。迁移回滚契约仍为：空库可逆；已有不可变事实时拒绝有损降级，生产使用备份恢复或前向修复。PR/CI、目标 PostgreSQL 门禁、目标环境部署与 smoke 尚未完成。
 
 ## 5. 完成标准摘要
 

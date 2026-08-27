@@ -29,7 +29,13 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
 
     assert "fetchStoreBillingStatements" in page
     assert 'metricScope: "MONTH"' in page
-    assert "const statement = billingResource.data?.data.list[0]" in page
+    assert "const statementCandidate = billingResource.data?.data.list[0]" in page
+    assert "statementCandidate.storeId === activeStoreId" in page
+    assert "statementCandidate.month === activeMonth" in page
+    assert "!billingResource.loading" in page
+    assert "!billingResource.refreshing" in page
+    assert "!billingError" in page
+    assert "statementCandidateKey !== invalidatedStatementKey" in page
     assert "promotionConfirmation" in page
     assert "managementConfirmation" in page
     assert "confirmStoreBillingStatement" in page
@@ -42,6 +48,9 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
     assert "statement.managementAmountCent" not in page
     assert "crypto.randomUUID()" in page
     assert "await billingResource.reload()" in page
+    assert "error instanceof ApiRequestError && error.status === 409" in page
+    assert "setInvalidatedStatementKey" in page
+    assert "setConfirmationDirection(null)" in page
     assert "pendingDirection === direction" in page
     assert 'useState<"idle" | "success" | "error">("idle")' in page
     assert 'role={confirmationState === "error" ? "alert" : "status"}' in page

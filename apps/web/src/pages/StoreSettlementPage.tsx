@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import {
+  ApiRequestError,
   confirmStoreBillingStatement,
   fetchStoreBillingStatements,
   fetchSettlementFilterMeta,
@@ -97,6 +98,7 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const [pendingDirection, setPendingDirection] = useState<FeeDirection | null>(null);
   const [confirmationMessage, setConfirmationMessage] = useState("");
   const [confirmationState, setConfirmationState] = useState<"idle" | "success" | "error">("idle");
+  const [invalidatedStatementKey, setInvalidatedStatementKey] = useState<string | null>(null);
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.statementMonths[0] || "";
@@ -128,11 +130,23 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     { enabled: Boolean(meta && activeStoreId && activeMonth) },
   );
   const view = settlementResource.data?.data;
-  const statement = billingResource.data?.data.list[0];
   const metrics = view?.metrics;
   const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
   const settlementError = settlementResource.rawError ? apiErrorText(settlementResource.rawError, "门店分账暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店分账的权限。", 404: "未找到该门店或账期。", 422: "门店分账筛选条件不合法，请重新选择。" }) : settlementResource.error;
   const billingError = billingResource.rawError ? apiErrorText(billingResource.rawError, "当前账单暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店账单的权限。", 404: "未找到该门店或账期。", 422: "账单筛选条件不合法，请重新选择。" }) : billingResource.error;
+  const statementCandidate = billingResource.data?.data.list[0];
+  const statementCandidateKey = statementCandidate
+    ? `${statementCandidate.statementId}:${statementCandidate.versionNo}`
+    : null;
+  const statement = statementCandidate
+    && statementCandidate.storeId === activeStoreId
+    && statementCandidate.month === activeMonth
+    && statementCandidateKey !== invalidatedStatementKey
+    && !billingResource.loading
+    && !billingResource.refreshing
+    && !billingError
+    ? statementCandidate
+    : undefined;
 
   const submitConfirmation = async () => {
     const direction = confirmationDirection;
@@ -159,6 +173,12 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       setConfirmationDirection(null);
       await billingResource.reload();
     } catch (error) {
+      const conflict = error instanceof ApiRequestError && error.status === 409;
+      if (conflict) {
+        setInvalidatedStatementKey(`${statement.statementId}:${statement.versionNo}`);
+        setConfirmationDirection(null);
+        billingResource.reload();
+      }
       setConfirmationMessage(userFacingError(error, "确认失败，请刷新当前账单后重试。"));
       setConfirmationState("error");
     } finally {
