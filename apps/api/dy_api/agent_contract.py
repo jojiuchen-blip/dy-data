@@ -1,11 +1,11 @@
-"""Public, generated Agent discovery contracts for the test environment."""
+"""Public, generated Agent discovery contracts for the active environment."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from apps.cli.src.dydata_cli.constants import CLI_SCHEMA_VERSION, CLI_VERSION
-from apps.cli.src.dydata_cli.environments import TEST_ENVIRONMENT
+from dy_api.agent_environment import current_agent_environment
 from apps.cli.src.dydata_cli.registry import command_catalog, mcp_capability_catalog
 
 
@@ -14,15 +14,16 @@ AGENT_CAPABILITY_SCHEMA_VERSION = "1.0"
 CLI_INSTALL_SPEC = (
     "git+https://github.com/jojiuchen-blip/dy-data.git@main#subdirectory=apps/cli"
 )
+AGENT_ENVIRONMENT = current_agent_environment()
 
 
 def agent_manifest() -> dict[str, Any]:
     """Build the stable machine entrypoint from fixed environment constants."""
-    base_url = TEST_ENVIRONMENT.web_url
+    base_url = AGENT_ENVIRONMENT.web_url
     return {
         "name": "dydata-agent",
         "manifest_version": AGENT_MANIFEST_VERSION,
-        "environment": TEST_ENVIRONMENT.name,
+        "environment": AGENT_ENVIRONMENT.name,
         "read_only": True,
         "service": {
             "base_url": base_url,
@@ -38,7 +39,7 @@ def agent_manifest() -> dict[str, Any]:
             "doctor_command": "dydata agent doctor --json",
         },
         "mcp": {
-            "url": TEST_ENVIRONMENT.mcp_url,
+            "url": AGENT_ENVIRONMENT.mcp_url,
             "transport": "streamable-http",
             "oauth_issuer": base_url,
             "protected_resource_metadata": (
@@ -70,7 +71,7 @@ def agent_capabilities() -> dict[str, Any]:
     ]
     return {
         "schema_version": AGENT_CAPABILITY_SCHEMA_VERSION,
-        "environment": TEST_ENVIRONMENT.name,
+        "environment": AGENT_ENVIRONMENT.name,
         "read_only": True,
         "capabilities": capabilities,
     }
@@ -78,29 +79,31 @@ def agent_capabilities() -> dict[str, Any]:
 
 def render_agent_guide() -> str:
     """Render the shortest platform-neutral Agent decision flow."""
-    manifest_url = f"{TEST_ENVIRONMENT.web_url}/.well-known/dydata-agent.json"
-    capabilities_url = f"{TEST_ENVIRONMENT.web_url}/api/v1/agent/capabilities"
+    manifest_url = f"{AGENT_ENVIRONMENT.web_url}/.well-known/dydata-agent.json"
+    capabilities_url = f"{AGENT_ENVIRONMENT.web_url}/api/v1/agent/capabilities"
     tools = ", ".join(
         f"`{item['tool']}`" for item in mcp_capability_catalog()
     )
     return f"""# dydata Agent 接入
 
-环境：`test`，即当前已部署的腾讯云测试环境。本服务只提供只读查询。企业内网生产服务器尚未部署，在 DYDATA-46 完成切换前不得尝试或声称存在可用的 `production` 入口。
+环境：`production`，这是正式生产环境，地址为 `{AGENT_ENVIRONMENT.web_url}`。本服务只提供只读查询，不会回退到 test 数据。
 
 1. 先读取机器清单：{manifest_url}
-2. 支持远程 MCP 时，添加 `{TEST_ENVIRONMENT.mcp_url}`，由用户在 dydata 官方页面完成 OAuth 授权。
-3. 需要 CLI fallback 时，按清单的 `cli.install_spec` 安装，再执行 `dydata agent doctor --json`。
+2. 支持远程 MCP 时，添加 `{AGENT_ENVIRONMENT.mcp_url}`，由用户在 dydata 官方页面完成 OAuth 授权。
+3. 需要 CLI fallback 时，按清单的 `cli.install_spec` 安装或升级到当前版本，再执行 `dydata agent doctor --json`。
 4. CLI 尚未授权时，只能在用户明确要求后启动 `dydata auth login` 或 `dydata auth login --browser`，并立即把终端或浏览器交还用户。
 5. 每次调用前读取能力清单：{capabilities_url}；当前 MCP 工具仅为 {tools}。
 
-安全边界：不得索取、读取、转发或保存用户的账号、密码、Cookie 或 Token。不得猜测未声明命令、扩大门店范围或调用写操作。
+凭据隔离：测试凭据不会复用；production 首次使用必须由用户重新授权。
+
+安全边界：不得索取、读取、转发或保存用户的账号、密码、Cookie 或 Token。不得猜测未声明命令、扩大门店范围、调用写操作或切回 test 环境。
 """
 
 
 def render_agent_skill() -> str:
     """Render a generic Markdown Skill that references machine contracts."""
-    manifest_url = f"{TEST_ENVIRONMENT.web_url}/.well-known/dydata-agent.json"
-    capabilities_url = f"{TEST_ENVIRONMENT.web_url}/api/v1/agent/capabilities"
+    manifest_url = f"{AGENT_ENVIRONMENT.web_url}/.well-known/dydata-agent.json"
+    capabilities_url = f"{AGENT_ENVIRONMENT.web_url}/api/v1/agent/capabilities"
     tools = "\n".join(
         f"- `{item['tool']}` -> `{item['command']}`"
         for item in mcp_capability_catalog()
@@ -116,10 +119,10 @@ description: 查询当前账号授权门店及门店线索跟进统计。
 
 - Manifest: {manifest_url}
 - Capabilities: {capabilities_url}
-- MCP: {TEST_ENVIRONMENT.mcp_url}
+- MCP: {AGENT_ENVIRONMENT.mcp_url}
 - CLI diagnostic: `dydata agent doctor --json`
 
-当前端点属于腾讯云测试环境。企业内网生产服务器尚未部署；在 DYDATA-46 完成整体切换前，不得把当前地址当作 `production`，也不得猜测生产入口。
+当前端点属于正式生产环境 `production`。测试凭据不会复用；首次使用必须由用户重新授权。不得猜测、拼接或切换到未在 manifest 中声明的入口。
 
 ## Allowed tools
 

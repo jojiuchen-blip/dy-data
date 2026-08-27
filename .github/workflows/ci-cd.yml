@@ -87,7 +87,7 @@ jobs:
       - name: Run PostgreSQL finance import concurrency gate
         env:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-          DY_AGENT_ENVIRONMENT: test
+          DY_AGENT_ENVIRONMENT: production
         run: python scripts/verify_postgres_finance_import_concurrency.py
 
       - name: Install frontend dependencies
@@ -467,7 +467,7 @@ jobs:
         run: |
           curl --fail --silent --show-error "$RAILWAY_WEB_URL/" >/dev/null
           agent_manifest="$(curl --fail --silent --show-error "$RAILWAY_WEB_URL/.well-known/dydata-agent.json")"
-          printf '%s' "$agent_manifest" | grep -Fq '"environment":"test"'
+          printf '%s' "$agent_manifest" | grep -Fq '"environment":"production"'
           printf '%s' "$agent_manifest" | grep -Fq "\"url\":\"${RAILWAY_WEB_URL%/}/mcp\""
           curl --fail --silent --show-error \
             "$RAILWAY_WEB_URL/.well-known/oauth-authorization-server" >/dev/null

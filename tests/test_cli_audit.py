@@ -113,7 +113,7 @@ def test_cli_audit_uses_same_valid_request_id_and_only_logs_summary(
         "event": "cli_request",
         "operation": "follow_up_stats",
         "request_id": "req_client-123",
-        "environment": "test",
+        "environment": "production",
         "channel": "cli",
         "user_id": "user-1",
         "auth_type": "user",
@@ -217,7 +217,7 @@ def test_list_stores_database_error_is_retryable_503_with_shared_audit_request_i
     }
     assert body["ok"] is False
     assert body["command"] == command
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert body["schema_version"] == "1.1"
     assert body["error"] == {
         "code": "API_UNAVAILABLE",

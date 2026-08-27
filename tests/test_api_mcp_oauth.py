@@ -35,7 +35,7 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.mcp_oauth import (  # noqa: E402
     MCP_ACCESS_SCOPE,
     MCP_RESOURCE_URL,
-    TEST_ISSUER_URL,
+    MCP_ISSUER_URL,
     DatabaseMcpOAuthProvider,
     McpAccessAuthorizationError,
 )
@@ -82,7 +82,7 @@ def mcp_stack(monkeypatch: pytest.MonkeyPatch):
     provider = DatabaseMcpOAuthProvider(session_factory=factory)
     app = create_app(mcp_provider=provider)
     app.state.cli_audit_sink = DatabaseCliAuditSink(session_factory=factory)
-    with TestClient(app, base_url=TEST_ISSUER_URL) as client:
+    with TestClient(app, base_url=MCP_ISSUER_URL) as client:
         yield client, provider, factory
 
 
@@ -148,7 +148,7 @@ def _authorize(
     assert response.status_code == 302, response.text
     approval_url = urlsplit(response.headers["location"])
     assert f"{approval_url.scheme}://{approval_url.netloc}{approval_url.path}" == (
-        f"{TEST_ISSUER_URL}/auth/mcp/authorize"
+        f"{MCP_ISSUER_URL}/auth/mcp/authorize"
     )
     request_id = parse_qs(approval_url.query)["request_id"][0]
 
@@ -205,11 +205,11 @@ def test_mcp_oauth_metadata_and_protected_resource_are_exact(mcp_stack) -> None:
     authorization = client.get("/.well-known/oauth-authorization-server")
     assert authorization.status_code == 200
     assert authorization.json() == {
-        "issuer": TEST_ISSUER_URL,
-        "authorization_endpoint": f"{TEST_ISSUER_URL}/authorize",
-        "token_endpoint": f"{TEST_ISSUER_URL}/token",
-        "registration_endpoint": f"{TEST_ISSUER_URL}/register",
-        "revocation_endpoint": f"{TEST_ISSUER_URL}/revoke",
+        "issuer": MCP_ISSUER_URL,
+        "authorization_endpoint": f"{MCP_ISSUER_URL}/authorize",
+        "token_endpoint": f"{MCP_ISSUER_URL}/token",
+        "registration_endpoint": f"{MCP_ISSUER_URL}/register",
+        "revocation_endpoint": f"{MCP_ISSUER_URL}/revoke",
         "scopes_supported": [MCP_ACCESS_SCOPE],
         "response_types_supported": ["code"],
         "grant_types_supported": ["authorization_code", "refresh_token"],
@@ -222,7 +222,7 @@ def test_mcp_oauth_metadata_and_protected_resource_are_exact(mcp_stack) -> None:
     assert resource.status_code == 200
     assert resource.json() == {
         "resource": MCP_RESOURCE_URL,
-        "authorization_servers": [TEST_ISSUER_URL],
+        "authorization_servers": [MCP_ISSUER_URL],
         "scopes_supported": [MCP_ACCESS_SCOPE],
         "bearer_methods_supported": ["header"],
     }
@@ -233,7 +233,7 @@ def test_mcp_oauth_metadata_and_protected_resource_are_exact(mcp_stack) -> None:
     )
     assert protected.status_code == 401
     assert (
-        f'resource_metadata="{TEST_ISSUER_URL}/.well-known/oauth-protected-resource/mcp"'
+        f'resource_metadata="{MCP_ISSUER_URL}/.well-known/oauth-protected-resource/mcp"'
         in protected.headers["www-authenticate"]
     )
 

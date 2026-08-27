@@ -46,11 +46,12 @@ def test_agent_guide_covers_safe_agent_workflow() -> None:
         "退出码",
         "https://dy-business-engine.com/.well-known/dydata-agent.json",
         "`dydata agent doctor --json`",
-        "`DYDATA_ENV=test`",
+        "`DYDATA_ENV=production`",
         "`DYDATA_API_URL` 不再是正式覆盖入口",
     )
 
     assert all(concept in guide for concept in required_concepts)
+    assert "`DYDATA_ENV=test`" not in guide
 
     hardening_concepts = (
         "HTTPS is required for remote API URLs",

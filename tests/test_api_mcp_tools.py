@@ -33,7 +33,7 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.mcp_oauth import (  # noqa: E402
     MCP_ACCESS_SCOPE,
     MCP_RESOURCE_URL,
-    TEST_ISSUER_URL,
+    MCP_ISSUER_URL,
     DatabaseMcpOAuthProvider,
 )
 from dy_api.mcp_server import _validate_mcp_binding  # noqa: E402
@@ -166,7 +166,7 @@ def mcp_tools_stack(monkeypatch: pytest.MonkeyPatch):
     app.dependency_overrides[get_current_cli_user] = lambda: cli_auth
     app.dependency_overrides[get_data_store] = lambda: fake_store
 
-    with TestClient(app, base_url=TEST_ISSUER_URL) as client:
+    with TestClient(app, base_url=MCP_ISSUER_URL) as client:
         registration = client.post(
             "/register",
             json={
@@ -368,7 +368,7 @@ def test_mcp_and_cli_return_the_same_follow_up_scope_and_metrics(
             select(CliAuditEvent).order_by(CliAuditEvent.created_at)
         ).all()
     mcp_event = next(event for event in events if event.channel == "mcp")
-    assert mcp_event.environment == "test"
+    assert mcp_event.environment == "production"
     assert mcp_event.command == "clues.follow-up-stats"
     assert mcp_event.user_id == "mcp-user-1"
     assert mcp_event.effective_store_ids == ["store-a", "store-b"]
@@ -502,7 +502,7 @@ def test_mcp_rejects_disabled_account_and_environment_mismatch(
     client, factory, _, token = mcp_tools_stack
     with factory() as session:
         access = session.execute(select(McpAccessToken)).scalar_one()
-        access.environment = "production"
+        access.environment = "test"
         session.commit()
 
     environment_mismatch = _mcp_call(client, token, "tools/list", {})
@@ -510,7 +510,7 @@ def test_mcp_rejects_disabled_account_and_environment_mismatch(
 
     with factory() as session:
         access = session.execute(select(McpAccessToken)).scalar_one()
-        access.environment = "test"
+        access.environment = "production"
         user = session.get(User, "mcp-user-1")
         user.status = "disabled"
         session.commit()

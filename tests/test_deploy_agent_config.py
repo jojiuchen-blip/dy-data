@@ -19,16 +19,16 @@ PUBLIC_AGENT_ROOT_PATHS = (
 )
 
 
-def test_api_image_contains_shared_cli_registry_and_fixed_test_environment() -> None:
+def test_api_image_contains_shared_cli_registry_and_fixed_production_environment() -> None:
     dockerfile = (ROOT / "apps/api/Dockerfile").read_text(encoding="utf-8")
     compose = (ROOT / "deploy/compose.yaml").read_text(encoding="utf-8")
     env_example = (ROOT / "deploy/.env.example").read_text(encoding="utf-8")
 
     assert "COPY apps/cli ./apps/cli" in dockerfile
     assert "/app/apps/cli/src" in dockerfile
-    assert "ENV DY_AGENT_ENVIRONMENT=test" in dockerfile
-    assert "DY_AGENT_ENVIRONMENT: test" in compose
-    assert "DY_AGENT_ENVIRONMENT=test" in env_example
+    assert "ENV DY_AGENT_ENVIRONMENT=production" in dockerfile
+    assert "DY_AGENT_ENVIRONMENT: ${DY_AGENT_ENVIRONMENT:-production}" in compose
+    assert "DY_AGENT_ENVIRONMENT=production" in env_example
     assert "DY_WEB_BASE_URL=https://dy-business-engine.com" in env_example
 
 
@@ -79,12 +79,15 @@ def test_deploy_smoke_checks_discovery_oauth_and_protected_mcp() -> None:
         assert "/.well-known/dydata-agent.json" in source
         assert "/.well-known/oauth-authorization-server" in source
         assert "/.well-known/oauth-protected-resource/mcp" in source
-        assert '"environment":"test"' in source
+        assert '"environment":"production"' in source
         assert "mcp_status" in source
         assert (
             '"$mcp_status" = "401"' in source
             or '"$mcp_status" != "401"' in source
         )
+
+    assert 'ensure_env_value "DY_AGENT_ENVIRONMENT" "production"' in deploy_script
+    assert '"environment":"production","worker_started"' in deploy_script
 
 
 def test_explicit_agent_environment_rejects_unknown_or_mismatched_host(
@@ -94,7 +97,7 @@ def test_explicit_agent_environment_rejects_unknown_or_mismatched_host(
 
     monkeypatch.setenv("DY_AGENT_ENVIRONMENT", "production")
     monkeypatch.setenv("DY_WEB_BASE_URL", "https://production.example")
-    with pytest.raises(RuntimeError, match="test"):
+    with pytest.raises(RuntimeError, match="production"):
         create_app()
 
     monkeypatch.setenv("DY_AGENT_ENVIRONMENT", "test")
@@ -104,3 +107,20 @@ def test_explicit_agent_environment_rejects_unknown_or_mismatched_host(
 
     monkeypatch.setenv("DY_WEB_BASE_URL", "https://dy-business-engine.com/")
     assert create_app().state.mcp_oauth_provider is not None
+
+
+def test_official_agent_docs_only_advertise_production() -> None:
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    guide = (ROOT / "docs/cli-agent-guide.md").read_text(encoding="utf-8")
+    acceptance = (ROOT / "docs/cli-agent-acceptance.md").read_text(encoding="utf-8")
+
+    for source in (readme, guide, acceptance):
+        assert "DYDATA_ENV=production" in source
+        assert "DYDATA_ENV=test" not in source
+        assert "fixed test service" not in source
+        assert "https://dy-business-engine.com" in source
+        assert "0.4.0" in source
+
+    assert "CLI 0.2.0" not in readme
+    assert "测试账号" not in acceptance
+    assert "Schema 版本为 `1.1`" in acceptance

@@ -42,7 +42,7 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.mcp_oauth import (  # noqa: E402
     MCP_ACCESS_SCOPE,
     MCP_RESOURCE_URL,
-    TEST_ISSUER_URL,
+    MCP_ISSUER_URL,
     DatabaseMcpOAuthProvider,
 )
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -172,7 +172,7 @@ def consent_stack(monkeypatch: pytest.MonkeyPatch):
     provider = DatabaseMcpOAuthProvider(session_factory=factory)
     app = create_app(mcp_provider=provider, mcp_data_store_factory=lambda _session: FakeStore())
     app.dependency_overrides[get_session_dependency] = _session_dependency(factory)
-    client = TestClient(app, base_url=TEST_ISSUER_URL)
+    client = TestClient(app, base_url=MCP_ISSUER_URL)
     session_cookie = create_session_token(
         "mcp-store-user",
         user_id="mcp-user-1",
@@ -321,7 +321,7 @@ def test_mcp_consent_details_approve_and_single_use(consent_stack) -> None:
         "agent_name": "WorkBuddy Read-only Agent",
         "redirect_uri": "https://agent.example/callback",
         "scopes": [MCP_ACCESS_SCOPE],
-        "environment": "test",
+            "environment": "production",
         "resource": MCP_RESOURCE_URL,
         "expires_at": body["expires_at"],
         "account": {

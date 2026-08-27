@@ -1,6 +1,6 @@
 # dydata command reference
 
-CLI version: `0.3.0`. Schema version: `1.1`.
+CLI version: `0.4.0`. Schema version: `1.1`.
 
 | Command | Purpose | Agent callable |
 | --- | --- | --- |

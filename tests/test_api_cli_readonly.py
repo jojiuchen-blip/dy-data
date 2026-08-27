@@ -139,7 +139,7 @@ def _assert_error(response, *, status_code: int, command: str, code: str) -> Non
     }
     assert body["ok"] is False
     assert body["command"] == command
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert body["schema_version"] == "1.1"
     assert body["error"]["code"] == code
     assert body["error"]["retryable"] is False
@@ -158,7 +158,7 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
     assert auth_status.json() == {
         "ok": True,
         "command": "auth.status",
-        "environment": "test",
+            "environment": "production",
         "schema_version": "1.1",
         "data": {
             "authenticated": True,
@@ -179,7 +179,7 @@ def test_cli_auth_status_and_store_list_have_stable_read_only_envelopes() -> Non
     assert stores.json() == {
         "ok": True,
         "command": "stores.list",
-        "environment": "test",
+            "environment": "production",
         "schema_version": "1.1",
         "scope": {
             "user_id": "user-1",
@@ -233,7 +233,7 @@ def test_follow_up_summary_uses_authorized_subset_and_stable_metric_contract() -
     assert response.status_code == 200
     body = response.json()
     assert body["command"] == "clues.follow-up-stats"
-    assert body["environment"] == "test"
+    assert body["environment"] == "production"
     assert body["schema_version"] == "1.1"
     assert body["metric_version"] == "clue-follow-up-v1"
     assert body["scope"] == {

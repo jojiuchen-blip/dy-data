@@ -42,17 +42,18 @@ from apps.api.dy_api.models import (
     User,
     utcnow,
 )
-from apps.cli.src.dydata_cli.environments import TEST_ENVIRONMENT
 from dy_api.auth import AuthContext
+from dy_api.agent_environment import current_agent_environment
 
 
 MCP_ACCESS_SCOPE = "mcp:read"
 MCP_ACCESS_TTL_SECONDS = 30 * 60
 MCP_REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
 MCP_AUTHORIZATION_TTL_SECONDS = 10 * 60
-TEST_ISSUER_URL = TEST_ENVIRONMENT.web_url
-MCP_RESOURCE_URL = TEST_ENVIRONMENT.mcp_url
-MCP_ENVIRONMENT = TEST_ENVIRONMENT.name
+AGENT_ENVIRONMENT = current_agent_environment()
+MCP_ISSUER_URL = AGENT_ENVIRONMENT.web_url
+MCP_RESOURCE_URL = AGENT_ENVIRONMENT.mcp_url
+MCP_ENVIRONMENT = AGENT_ENVIRONMENT.name
 PKCE_CHALLENGE_PATTERN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 DCR_MAX_METADATA_BYTES = 16 * 1024
 LOOPBACK_REDIRECT_HOSTNAMES = {"127.0.0.1", "localhost", "::1"}
@@ -360,7 +361,7 @@ class DatabaseMcpOAuthProvider(
                 )
             )
         return _redirect_with_params(
-            f"{TEST_ISSUER_URL}/auth/mcp/authorize", request_id=request_id
+            f"{MCP_ISSUER_URL}/auth/mcp/authorize", request_id=request_id
         )
 
     def _snapshot_auth(

@@ -153,7 +153,7 @@ def test_main_serializes_every_argument_error_as_one_json_document(
     assert isinstance(payload["error"]["message"], str)
     assert payload["error"]["message"]
     assert payload["ok"] is False
-    assert payload["environment"] == "test"
+    assert payload["environment"] == "production"
     assert payload["schema_version"] == "1.1"
 
 

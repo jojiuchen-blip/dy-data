@@ -40,7 +40,7 @@ def auth_status_envelope() -> dict[str, Any]:
     return {
         "ok": True,
         "command": "auth.status",
-        "environment": "test",
+        "environment": "production",
         "schema_version": "1.1",
         "data": {
             "authenticated": True,
@@ -64,7 +64,7 @@ def stores_envelope() -> dict[str, Any]:
     return {
         "ok": True,
         "command": "stores.list",
-        "environment": "test",
+        "environment": "production",
         "schema_version": "1.1",
         "scope": {
             "user_id": "user-1",
@@ -98,7 +98,7 @@ def follow_up_envelope() -> dict[str, Any]:
     return {
         "ok": True,
         "command": "clues.follow-up-stats",
-        "environment": "test",
+        "environment": "production",
         "schema_version": "1.1",
         "metric_version": "clue-follow-up-v1",
         "scope": {

@@ -3,7 +3,7 @@ from __future__ import annotations
 from zoneinfo import ZoneInfo
 
 
-CLI_VERSION = "0.3.0"
+CLI_VERSION = "0.4.0"
 CLI_SCHEMA_VERSION = "1.1"
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 ERROR_CONTRACTS = {
@@ -53,7 +53,10 @@ ERROR_CONTRACTS = {
     "SCHEMA_MISMATCH": {
         "exit_code": 6,
         "retryable": False,
-        "message": "The dydata API schema is incompatible.",
+        "message": (
+            "The dydata API or CLI version is incompatible; upgrade dydata-cli "
+            "and authorize the production environment again."
+        ),
     },
     "INTERNAL_ERROR": {
         "exit_code": 6,

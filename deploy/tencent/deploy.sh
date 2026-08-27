@@ -22,6 +22,27 @@ log() {
   printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*"
 }
 
+ensure_env_value() {
+  local key="$1"
+  local value="$2"
+  if grep -q "^${key}=" "$ENV_FILE"; then
+    sudo sed -i "s|^${key}=.*$|${key}=${value}|" "$ENV_FILE"
+  else
+    printf '%s=%s\n' "$key" "$value" | sudo tee -a "$ENV_FILE" >/dev/null
+  fi
+}
+
+backup_environment_file() {
+  local backup_stamp
+  local backup_file
+  backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+  backup_file="$BACKUP_DIR/pre-production-cutover-$backup_stamp.env"
+  mkdir -p "$BACKUP_DIR"
+  sudo cp "$ENV_FILE" "$backup_file"
+  sudo chmod 600 "$backup_file"
+  log "environment backup complete path=$backup_file"
+}
+
 fetch_origin() {
   for attempt in 1 2 3 4 5; do
     if git -c http.version=HTTP/1.1 fetch --prune origin; then
@@ -151,6 +172,10 @@ else
   git reset --hard "$TARGET_SHA"
 fi
 
+log "pinning Agent runtime to production"
+backup_environment_file
+ensure_env_value "DY_AGENT_ENVIRONMENT" "production"
+
 log "validating compose configuration"
 log "using apt mirror $APT_MIRROR"
 validate_compose_config
@@ -218,7 +243,7 @@ for attempt in $(seq 1 30); do
       && [ "$protected_resource_status" = "200" ] \
       && [ "$agent_doc_status" = "200" ] \
       && [ "$mcp_status" = "401" ] \
-      && printf '%s' "$agent_manifest" | grep -Fq '"environment":"test"' \
+      && printf '%s' "$agent_manifest" | grep -Fq '"environment":"production"' \
       && printf '%s' "$agent_manifest" | grep -Fq "\"url\":\"$expected_mcp_url\""; then
       break
     fi
@@ -236,7 +261,7 @@ else
   deployed_sha="$(git rev-parse HEAD)"
 fi
 sudo tee "$LOG_DIR/last-deploy.json" >/dev/null <<JSON
-{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","worker_started":$([ "$START_WORKER" = "true" ] && echo true || echo false)}
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","environment":"production","worker_started":$([ "$START_WORKER" = "true" ] && echo true || echo false)}
 JSON
 
 log "deployment complete sha=$deployed_sha"

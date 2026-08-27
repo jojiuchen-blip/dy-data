@@ -10,7 +10,7 @@ from urllib.parse import parse_qs, urlsplit
 
 from .constants import CLI_SCHEMA_VERSION, CLI_VERSION
 from .errors import is_canonical_request_id
-from .environments import TEST_ENVIRONMENT
+from .environments import DEFAULT_ENVIRONMENT
 from .url_security import normalize_safe_url
 
 
@@ -54,7 +54,7 @@ def validate_agent_manifest(
     if (
         payload["name"] != "dydata-agent"
         or payload["manifest_version"] != "1.0"
-        or payload["environment"] != TEST_ENVIRONMENT.name
+        or payload["environment"] != DEFAULT_ENVIRONMENT.name
         or payload["read_only"] is not True
     ):
         raise ContractError("agent manifest identity is incompatible")
@@ -84,7 +84,7 @@ def validate_agent_manifest(
         authorization,
         {"user_handoff_required", "agent_must_not_handle_credentials", "scope"},
     )
-    base_url = TEST_ENVIRONMENT.web_url
+    base_url = DEFAULT_ENVIRONMENT.web_url
     if service != {
         "base_url": base_url,
         "capabilities_url": f"{base_url}/api/v1/agent/capabilities",
@@ -101,7 +101,7 @@ def validate_agent_manifest(
     ):
         raise ContractError("agent CLI contract is incompatible")
     if mcp != {
-        "url": TEST_ENVIRONMENT.mcp_url,
+        "url": DEFAULT_ENVIRONMENT.mcp_url,
         "transport": "streamable-http",
         "oauth_issuer": base_url,
         "protected_resource_metadata": (
@@ -130,16 +130,16 @@ def validate_mcp_resource_metadata(
     }.issubset(payload):
         raise ContractError("protected-resource metadata is incomplete")
     if (
-        payload["resource"] != TEST_ENVIRONMENT.mcp_url
-        or payload["authorization_servers"] != [TEST_ENVIRONMENT.web_url]
+        payload["resource"] != DEFAULT_ENVIRONMENT.mcp_url
+        or payload["authorization_servers"] != [DEFAULT_ENVIRONMENT.web_url]
         or "mcp:read" not in _require_identifier_list(payload["scopes_supported"])
         or "header"
         not in _require_identifier_list(payload["bearer_methods_supported"])
     ):
         raise ContractError("protected-resource metadata is incompatible")
     return {
-        "resource": TEST_ENVIRONMENT.mcp_url,
-        "authorization_servers": [TEST_ENVIRONMENT.web_url],
+        "resource": DEFAULT_ENVIRONMENT.mcp_url,
+        "authorization_servers": [DEFAULT_ENVIRONMENT.web_url],
         "scopes_supported": list(payload["scopes_supported"]),
         "bearer_methods_supported": list(payload["bearer_methods_supported"]),
     }
@@ -179,7 +179,7 @@ def validate_auth_status(
     return {
         "ok": True,
         "command": "auth.status",
-        "environment": TEST_ENVIRONMENT.name,
+        "environment": DEFAULT_ENVIRONMENT.name,
         "schema_version": CLI_SCHEMA_VERSION,
         "data": {
             "authenticated": True,
@@ -226,7 +226,7 @@ def validate_stores(
     return {
         "ok": True,
         "command": "stores.list",
-        "environment": TEST_ENVIRONMENT.name,
+        "environment": DEFAULT_ENVIRONMENT.name,
         "schema_version": CLI_SCHEMA_VERSION,
         "scope": {
             "user_id": _require_optional_identifier(scope["user_id"]),
@@ -320,7 +320,7 @@ def validate_follow_up_stats(
     return {
         "ok": True,
         "command": "clues.follow-up-stats",
-        "environment": TEST_ENVIRONMENT.name,
+        "environment": DEFAULT_ENVIRONMENT.name,
         "schema_version": CLI_SCHEMA_VERSION,
         "metric_version": "clue-follow-up-v1",
         "scope": {
@@ -358,7 +358,7 @@ def _require_envelope(
     if (
         payload["ok"] is not True
         or payload["command"] != command
-        or payload["environment"] != TEST_ENVIRONMENT.name
+        or payload["environment"] != DEFAULT_ENVIRONMENT.name
         or payload["schema_version"] != CLI_SCHEMA_VERSION
     ):
         raise ContractError("success envelope is incompatible")

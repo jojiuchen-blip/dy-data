@@ -35,12 +35,28 @@ TEST_ENVIRONMENT = EnvironmentConfig(
     mcp_url="https://dy-business-engine.com/mcp",
 )
 
-_ENVIRONMENTS = {TEST_ENVIRONMENT.name: TEST_ENVIRONMENT}
+PRODUCTION_ENVIRONMENT = EnvironmentConfig(
+    name="production",
+    web_url="https://dy-business-engine.com",
+    api_url="https://dy-business-engine.com/api/v1",
+    mcp_url="https://dy-business-engine.com/mcp",
+)
+
+DEFAULT_ENVIRONMENT = PRODUCTION_ENVIRONMENT
+
+_ENVIRONMENTS = {
+    PRODUCTION_ENVIRONMENT.name: PRODUCTION_ENVIRONMENT,
+    TEST_ENVIRONMENT.name: TEST_ENVIRONMENT,
+}
 
 
 def resolve_environment(name: str | None = None) -> EnvironmentConfig:
-    """Resolve a fixed environment name, defaulting to the test service."""
-    selected = os.getenv("DYDATA_ENV", "test") if name is None else name
+    """Resolve a fixed environment name, defaulting to production."""
+    selected = (
+        os.getenv("DYDATA_ENV", DEFAULT_ENVIRONMENT.name)
+        if name is None
+        else name
+    )
     normalized = selected.strip().lower()
     try:
         return _ENVIRONMENTS[normalized]

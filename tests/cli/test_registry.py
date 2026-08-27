@@ -189,7 +189,7 @@ def test_package_and_runtime_cli_versions_are_synchronized() -> None:
         (ROOT / "apps" / "cli" / "pyproject.toml").read_text(encoding="utf-8")
     )
 
-    assert CLI_VERSION == "0.3.0"
+    assert CLI_VERSION == "0.4.0"
     assert package["project"]["version"] == CLI_VERSION
 
 

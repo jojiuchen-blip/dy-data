@@ -399,7 +399,7 @@ class CliAuditEvent(Base):
     operation: Mapped[str] = mapped_column(String(64), index=True)
     request_id: Mapped[str] = mapped_column(Text, index=True)
     command: Mapped[str] = mapped_column(Text, index=True)
-    environment: Mapped[str] = mapped_column(String(32), default="test")
+    environment: Mapped[str] = mapped_column(String(32), default="production")
     channel: Mapped[str] = mapped_column(String(16), default="cli", index=True)
     user_id: Mapped[str | None] = mapped_column(Text, index=True)
     auth_type: Mapped[str | None] = mapped_column(String(32))

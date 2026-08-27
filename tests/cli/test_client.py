@@ -16,7 +16,7 @@ def envelope(command: str, data: dict[str, object]) -> dict[str, object]:
     return {
         "ok": True,
         "command": command,
-        "environment": "test",
+        "environment": "production",
         "schema_version": "1.1",
         "data": data,
         "meta": {
@@ -127,7 +127,7 @@ def test_protected_request_uses_normalized_base_url_and_audit_headers(
     request = captured[0]
     assert str(request.url) == "https://api.example.test/api/v1/cli/stores"
     assert request.headers["Authorization"] == "Bearer access-secret"
-    assert request.headers["X-DyData-CLI-Version"] == "0.3.0"
+    assert request.headers["X-DyData-CLI-Version"] == "0.4.0"
     assert request.headers["X-DyData-Command"] == "stores.list"
     assert request.headers["X-DyData-Schema-Version"] == "1.1"
     assert request.headers["X-Request-ID"].startswith("req_")

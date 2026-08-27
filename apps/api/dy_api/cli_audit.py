@@ -11,6 +11,7 @@ from fastapi import Request, status
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from dy_api.cli_contract import (
+    CLI_ENVIRONMENT,
     cli_command_for_path,
     cli_error,
     cli_error_response,
@@ -62,7 +63,7 @@ class DatabaseCliAuditSink:
                 operation=event["operation"],
                 request_id=event["request_id"],
                 command=event["command"],
-                environment=event.get("environment", "test"),
+                environment=event.get("environment", CLI_ENVIRONMENT),
                 channel=event.get("channel", "cli"),
                 user_id=event["user_id"],
                 auth_type=event["auth_type"],
@@ -130,7 +131,7 @@ def _audit_event(
         "operation": operation,
         "request_id": getattr(request.state, "cli_request_id", None)
         or request_id_for_header(request.headers.get("x-request-id")),
-        "environment": "test",
+        "environment": CLI_ENVIRONMENT,
         "channel": "cli",
         "user_id": getattr(request.state, "cli_user_id", None),
         "auth_type": getattr(request.state, "cli_auth_type", None),

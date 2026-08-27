@@ -33,7 +33,7 @@ export interface McpAuthorizationRequestDetails {
   agent_name: string;
   redirect_uri: string;
   scopes: string[];
-  environment: "test";
+  environment: "production";
   resource: string;
   expires_at: string;
   account: {
