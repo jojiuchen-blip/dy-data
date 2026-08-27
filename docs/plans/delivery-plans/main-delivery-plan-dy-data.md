@@ -3,12 +3,12 @@
 > **版本**：v2
 > **发布日期**：2026-08-20
 > **前序版本**：v1（2026-07-20）
-> **适用范围**：DYDATA-1/19/21/30/31/33/38；DYDATA-23 仅作为历史页面设计证据
+> **适用范围**：DYDATA-1/19/21/30/31/33/38/80/81；DYDATA-23 与 DYDATA-80 v1-original 仅作为历史页面设计证据
 > **参与角色**：AI 执行，人类 Owner 审核与业务验收
 > **开发模式**：solo-local；保留生产发布与数据正确性闸门
 > **执行约束**：TDD；FastAPI / SQLAlchemy / PostgreSQL / Alembic / React / TypeScript / Vite；金额使用整数分，费率使用精确小数；不执行真实资金划拨
 > **目标**：在复用既有双费用事实与查询能力的前提下，完成账单分方向确认、异议、系统外发票登记、管理员财务查询、四类原子导入和操作审计闭环
-> **当前需求基线**：Linear DYDATA-19；2026-08-20 已确认的 mainprd、9 份 subprd、Foundation 与页面设计回环
+> **当前需求基线**：Linear DYDATA-19、DYDATA-80、DYDATA-81；2026-08-20 已确认的 mainprd、9 份 subprd、Foundation，以及 2026-08-26 已确认的 v2-clean 页面结构与业务交互基线
 > **上游发现结论**：`collect-upstream-context.mjs` 于 2026-08-20 返回 `canProceed=true, slug=dy-data, mode=pipeline`；无必需产物缺失；大文件继续按章节读取
 
 ## 0. 本计划使用指南
@@ -24,6 +24,7 @@
 - 数据与接口：`docs/prd/foundation/foundation-delivery-dy-data.md` 声明的全部 Foundation 主文件和拆分子文件。
 - 页面任务按子计划精确读取对应 subprd；订单费用明细继续按 §3～§8 分节读取，避免一次性加载超大文件。
 - `docs/commission-dashboard-navigation-mock.html` 和 DYDATA-23 只提供已确认交互证据，不证明生产 API、数据库或页面已经实现。
+- `docs/uat/dydata-80-ui-baseline-v2-clean.md` 只冻结页面结构与业务交互；视觉权威仍是 `docs/design-system/tokens.json`、`docs/design-system/README.md`，运行时必须复用 `apps/web/src/design-tokens.css` 与共享组件，不复制原型私有 CSS。
 - Linear 是范围、状态和验收权威。DYDATA-23 已 Done，不重新创建实现任务；DYDATA-32 的最终权限矩阵是发布依赖，不在本计划扩建权限管理域。
 
 ### 0.2 读前门禁 / AI 自检清单
@@ -69,6 +70,7 @@
 | 系统仍无门店确认/异议/推广费发票登记与管理员财务接口 | P0 | 页面只能展示旧只读数据 | T5.2～T5.5 | 已完成（2026-08-21） |
 | `/invoice` 仍保留旧五节点流程，管理员财务页面尚未进入生产应用 | P0 | 与已冻结的系统外开票边界冲突 | T5.6 | 已完成（2026-08-21） |
 | 新财务闭环尚未关闭 Linear 正文差额、目标环境与用户验收 | P0 | 不满足发布条件 | T5.7 | 进行中（硬门禁通过后直接部署；失败即停止） |
+| DYDATA-80 v2-clean 尚未逐页映射到主应用并形成产品一致性证据 | P0 | 可能把演示控件、假动作或原型私有样式带入生产 | T5.7 | 进行中（DYDATA-81 承接发布） |
 
 ## 2. 分工与边界
 
@@ -134,7 +136,7 @@
 
 **Entry Criteria**：PRD/Schema/API/page loop 已冻结；T5.1～T5.7 计划经人类 Owner 审阅通过；DYDATA-19 继续由当前分支单一窗口负责。
 
-**Exit Criteria**：8 张目标表、20 个接口和 8 条生产路由完成；系统外开票、四态状态、分方向异议、四类原子导入、版本审计与单月/累计指标通过系统测试和用户验收。
+**Exit Criteria**：8 张目标表、20 个接口和 8 条生产路由完成；系统外开票、四态状态、分方向异议、四类原子导入、版本审计与单月/累计指标通过系统测试和用户验收；DYDATA-80 v2-clean 页面结构与业务交互完成逐页追踪，视觉继承 V0.2，DYDATA-81 完成 PR/CI、生产部署、smoke 与回滚核查。
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
@@ -144,7 +146,7 @@
 | T5.4 | [账单异议生命周期](sub-delivery-plan-dy-data-T5.4-disputes.md) | 已完成（2026-08-21） |
 | T5.5 | [四类财务导入与更正](sub-delivery-plan-dy-data-T5.5-finance-imports.md) | 已完成（2026-08-21；Linear 最终四模板已收敛） |
 | T5.6 | [生产页面与跨页流程](sub-delivery-plan-dy-data-T5.6-finance-pages.md) | 已完成（2026-08-21） |
-| T5.7 | [系统测试与用户验收](sub-delivery-plan-dy-data-T5.7-system-uat.md) | 进行中（G3 已通过；最新主线集成与发布门禁执行中） |
+| T5.7 | [系统测试、v2-clean 一致性与生产验收](sub-delivery-plan-dy-data-T5.7-system-uat.md) | 进行中（G3 已通过；DYDATA-80/81 主应用一致性与发布门禁执行中） |
 
 ## 4. 任务看板
 
@@ -208,4 +210,4 @@
 | SubPRD 8；Foundation API #26-#28/#35-#36 | DYDATA-19-DISPUTE | T5.4 | [T5.4](sub-delivery-plan-dy-data-T5.4-disputes.md) |
 | SubPRD 9；Foundation API #37-#42 | DYDATA-19-IMPORT | T5.5 | [T5.5](sub-delivery-plan-dy-data-T5.5-finance-imports.md) |
 | SubPRD 2、4～9；页面交付清单 | DYDATA-19-WEB | T5.6 | [T5.6](sub-delivery-plan-dy-data-T5.6-finance-pages.md) |
-| MainPRD §4～§6；DYDATA-19 验收 | DYDATA-19-UAT | T5.7 | [T5.7](sub-delivery-plan-dy-data-T5.7-system-uat.md) |
+| MainPRD §4～§6；DYDATA-19/80/81 验收；v2-clean 页面结构与业务交互基线；V0.2 视觉权威 | DYDATA-19-UAT / DYDATA-80-PARITY / DYDATA-81-RELEASE | T5.7 | [T5.7](sub-delivery-plan-dy-data-T5.7-system-uat.md) |

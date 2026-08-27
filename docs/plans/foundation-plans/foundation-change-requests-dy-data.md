@@ -2,6 +2,26 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
+## S4-FCR-005：账单响应缺少服务端可确认金额
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-005` |
+| 来源 Task | `T5.7 系统 UAT 与发布验收` |
+| 分类 | `GAP` |
+| 改动项 | 在门店账单列表与详情响应中补充 `promotionConfirmableAmountCent`、`managementConfirmableAmountCent`，并明确其为确认写接口校验的服务端权威金额。 |
+| 原因 | 账单确认接口会扣除活动中异议的冻结金额，并对管理费结果执行不小于零的约束；现有 Foundation 仅返回原始方向净额，前端无法在不复制业务规则的情况下提交必然通过服务端校验的金额。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py` 的 `_statement_confirmable_amounts` 与 `_statement_header_item`；`apps/web/src/types/dashboard.ts` 的 `StoreBillingStatement`；`apps/web/src/pages/StoreSettlementPage.tsx`；`tests/test_api_store_billing.py`；`tests/test_frontend_store_settlement_confirmation.py` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §2.1～§2.3` |
+| 严重度 | `高（存在活动异议时，缺少该字段会使前端按原始净额确认并收到 422）` |
+| 状态 | `待评审` |
+
+### 建议契约
+
+- 两个字段均由服务端按当前账单版本实时返回；前端只展示并原样提交，不自行复制异议状态或金额计算规则。
+- 可确认金额等于对应方向净额减去活动中异议冻结金额；管理费结果最低为零。
+- 确认写接口与账单读接口必须复用同一计算口径；活动异议、成功确认及无异议场景均需保留 API 回归测试。
+
 ## S4-FCR-004：财务导入四模板仍保留旧拆分口径
 
 | 字段 | 内容 |
