@@ -15,6 +15,7 @@
 - `docs/prd/foundation/foundation-delivery-dy-data.md`
 - Linear DYDATA-19、DYDATA-80、DYDATA-81 验收标准
 - `docs/uat/dydata-80-ui-baseline-v2-clean.md`
+- `docs/superpowers/specs/2026-08-28-dydata-81-finance-primary-navigation-design.md`
 - `docs/design-system/tokens.json`、`docs/design-system/README.md`
 
 **核心逻辑**：
@@ -25,6 +26,7 @@
 - DYDATA-80 基线只约束页面结构与业务交互；视觉统一继承 V0.2，运行时复用 `apps/web/src/design-tokens.css` 与共享组件，不从原型复制页面级颜色、间距、圆角、阴影或控件。
 - 正式页面不得显示 Mock、会议演示、F01-F10、演示数据、本地角色切换或未接真实 API 的假动作；开发模式 fixture 必须显式隔离且生产构建不可启用。
 - DYDATA-81 在 PR/CI 与全部硬门禁通过后执行腾讯云生产部署，并完成页面、静态资源、健康接口、权限、回滚入口的线上 smoke。
+- G4 按 DYDATA-81 最终裁决把六个既有财务页面从“后台”拆为独立一级“财务”，桌面与移动端均位于“后台”之前；移除门店结算“SAP 建议”和 B02 访问 `/finance/stores` 的前端特例，不改变 API、业务与数据模型。
 
 **核心文件**：
 - `tests/`
@@ -33,6 +35,10 @@
 - `alembic/`
 - `docs/devlog/`
 - `pwScreenShot/`
+- `apps/web/src/components/Shell.tsx`
+- `apps/web/src/App.tsx`
+- `tests/test_frontend_user_facing_contracts.py`
+- `tests/test_visual_smoke.py`
 
 **完成标准**：
 - 最低验收矩阵覆盖系统外开票边界、推广费四态、管理费当期导入上期、两个方向互不阻断、成立异议新账单版本、四类导入五结果和版本冲突。
@@ -41,11 +47,14 @@
 - Linear 回填测试、commit/PR/CI/部署或未部署原因、UAT 结论和剩余风险；责任人接受后才可 Done。
 - v1-original 与 v2-clean 的 commit/hash、页面清单和证据可追溯；六类财务页面完成结构、交互、角色、路由、状态与 V0.2 组件/令牌追踪。
 - 390px、768px、1440px 浏览器证据确认无全局横向溢出，正式界面没有演示专用文案和控件。
+- 管理员的“财务”一级入口紧邻且位于“后台”之前，六个财务二级入口沿用既有路由；财务与后台激活态互斥。
+- 门店账号看不到“财务”和“SAP 建议”，直接访问 `/finance/stores` 进入现有无权限页；`/finance` 仍只兼容跳转 `/finance/promotion`。
 
 **Verification Method**：
 - 执行 `git diff --check`、`python -m pytest`、`npm --prefix apps/web run build`、治理门禁、计划一致性和目标环境 smoke。
 - 按 UAT 脚本分别以门店账号和管理员角色完成端到端操作并核对审计记录。
 - 扫描生产构建与财务路由可见文本，验证演示模式未启用；逐页对照 v2-clean 结构/交互基线与 V0.2 运行时组件。
+- 对 G4 先运行前端契约与浏览器失败测试，再实现最小导航/权限调整；在 390/768/1440 视口分别核对管理员财务页、后台页和门店直达拒绝场景。
 
 **Evidence**：
 - `docs/uat/dydata-19-uat-checklist.md`、`docs/uat/dydata-80-ui-baseline-v2-clean.md`、产品一致性追踪矩阵、`docs/devlog/` 最终系统测试记录、`pwScreenShot/` 最终截图、Linear DYDATA-19/80/81 验证评论及 PR/CI/部署链接。
@@ -66,4 +75,4 @@
 
 **状态**：进行中（2026-08-26；Owner 已确认 v2-clean 页面结构与业务交互基线，并授权在全部硬门禁通过后无需二次确认，直接执行生产部署；任一硬门禁失败仍停止发布）
 
-**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G3 已关闭账单 Vn+1 明细快照继承、历史明细快照回填/异常清单和部署前异常归零门禁；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 通过，定向复审为 Critical 0、Important 0、Minor 0、`Ready: yes`。当前进入最新主线干净集成、财务迁移链重建和发布前全量门禁；目标 PostgreSQL 真实升级与两会话并发仍为发布阻断条件。
+**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G3 已关闭账单 Vn+1 明细快照继承、历史明细快照回填/异常清单和部署前异常归零门禁；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 通过，定向复审为 Critical 0、Important 0、Minor 0、`Ready: yes`。2026-08-28 G4 已在 `codex/dydata-81-finance-nav` 完成本地实现和产品一致性核对：前端契约 15 passed、聚焦视觉回归 6 passed、完整回归 `1418 passed, 2 skipped, 263 warnings`，Web build 通过，390/768/1440 及 949×466 参考视口验证通过；PR、CI、目标 PostgreSQL 真实升级、两会话并发、生产部署与线上 smoke 仍为最终发布门禁。

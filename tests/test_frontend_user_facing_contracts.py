@@ -553,10 +553,9 @@ def test_dydata_19_g2_frontend_exposes_correction_sap_and_reversal_actions() -> 
     stores_page = read_source("pages/FinanceStoresPage.tsx")
     imports_page = read_source("pages/FinanceImportsPage.tsx")
 
-    assert 'pathname === "/finance/stores" && user.role === "store"' in app
-    assert 'user.page_keys.includes("B02")' in app
-    assert '{ href: "/finance/stores", label: "SAP 建议", pageKey: "B02" }' in shell
-    assert 'currentPath === "/finance/stores" && currentUser?.role === "store"' in shell
+    assert 'pathname === "/finance/stores" && user.role === "store"' not in app
+    assert '{ href: "/finance/stores", label: "SAP 建议", pageKey: "B02" }' not in shell
+    assert 'currentPath === "/finance/stores" && currentUser?.role === "store"' not in shell
     assert "correctManagementInvoice" in client + management_page
     assert "更正管理服务费记录" in management_page
     assert "readVersion" in management_page
@@ -696,3 +695,28 @@ def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
     assert '<h1>SAP 编码建议</h1>' in stores_page
     assert '<h1>账单异议</h1>' in disputes_page
     assert '<h1>导入记录</h1>' in imports_page
+
+
+def test_dydata_81_finance_is_an_independent_primary_module_before_admin() -> None:
+    app = read_source("App.tsx")
+    shell = read_source("components/Shell.tsx")
+
+    assert 'type NavSection = "settlement" | "verification" | "clues" | "finance" | "admin";' in shell
+    assert 'const financePaths = new Set([' in shell
+    assert 'section: "finance"' in shell
+    assert 'href: "/finance/promotion"' in shell
+    assert 'pageKeys: ["D01"]' in shell
+    assert 'icon: "details"' in shell
+    assert 'label: "财务"' in shell
+    assert shell.index('label: "财务"') < shell.index('label: "后台"')
+    assert 'finance: "财务中心"' in shell
+    assert 'if (section === "finance")' in shell
+    assert 'return financeNavItems;' in shell
+    assert 'if (currentPath.startsWith("/finance"))' not in shell
+
+    admin_paths = shell.split("const adminPaths = new Set([", 1)[1].split("]);", 1)[0]
+    assert '"/finance/' not in admin_paths
+    assert 'pathname === "/finance/stores" && user.role === "store"' not in app
+    assert 'user.page_keys.includes("B02")' not in app.split(
+        "export function hasPageAccess", 1
+    )[1].split("function AuthGate", 1)[0]

@@ -183,9 +183,6 @@ function firstAccessiblePath(user: AdminUser): string {
 }
 
 export function hasPageAccess(user: AdminUser, pathname: string): boolean {
-  if (pathname === "/finance/stores" && user.role === "store") {
-    return user.page_keys.includes("B02");
-  }
   const match = pageKeyByPath.find(
     ([path]) => pathname === path,
   );

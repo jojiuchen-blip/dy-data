@@ -1,7 +1,7 @@
 # DYDATA-81 财务一级导航调整设计
 
 > 日期：2026-08-28  
-> 状态：待书面复核  
+> 状态：已确认（用户于 2026-08-28 明确“通过，继续开发”）
 > 关联需求：Linear `DYDATA-81`  
 > 设计层级：模块层  
 > 视觉依据：用户在本轮对话提供的现有结算中心截图，仅用于确认一级导航位置和现有界面密度；运行时视觉仍以 `docs/design-system/README.md`、`docs/design-system/tokens.json` 和现有共享组件为准。
@@ -173,4 +173,3 @@ npm --prefix apps/web run build
 - 门店账号看不到“SAP 建议”和“财务”入口，直接访问 `/finance/stores` 被现有准入逻辑拒绝。
 - `/finance` 仍兼容到 `/finance/promotion`，且仓库内不存在新财务首页。
 - 目标测试、完整测试、Web 构建、视觉对照和 `git diff --check` 均通过，验证证据已回填 Linear。
-
