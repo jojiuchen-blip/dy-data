@@ -743,6 +743,48 @@ a {
   padding-top: 12px;
 }
 
+@media (min-width: 921px) and (max-height: 680px) {
+  .app-rail {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    gap: 8px;
+    overflow: hidden;
+    padding: 8px;
+  }
+
+  .rail-brand {
+    gap: 2px;
+    padding: 2px 4px 4px;
+  }
+
+  .rail-brand__mark {
+    width: 32px;
+    height: 32px;
+    padding: 6px;
+  }
+
+  .rail-nav {
+    gap: 4px;
+  }
+
+  .rail-nav__item {
+    min-height: 56px;
+    gap: 2px;
+    padding: 4px 6px;
+  }
+
+  .rail-nav__item small,
+  .rail-feedback-button small,
+  .rail-brand-attribution {
+    display: none;
+  }
+
+  .rail-feedback-button {
+    min-height: 48px;
+    gap: 2px;
+    padding: 4px 6px;
+  }
+}
+
 .mobile-bottom-nav {
   display: none;
 }

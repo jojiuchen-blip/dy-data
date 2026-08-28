@@ -1629,7 +1629,13 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
         nav_box = nav.bounding_box()
         assert nav_box is not None
         links = nav.locator("a")
-        assert links.count() == 5
+        assert links.count() == 4
+        assert links.all_inner_texts() == [
+            "全国门店榜单",
+            "单店分账",
+            "订单费用明细",
+            "开票确认",
+        ]
         for index in range(links.count()):
             link_box = links.nth(index).bounding_box()
             assert link_box is not None
@@ -2867,6 +2873,91 @@ def test_clue_secondary_navigation_marks_only_the_most_specific_route_current(
             )
             is None
         )
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", [*VIEWPORTS, (949, 466)])
+def test_finance_primary_navigation_precedes_admin_and_has_exclusive_current_state(
+    browser: Browser,
+    vite_base_url: str,
+    tmp_path: Path,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+
+    try:
+        page.set_default_navigation_timeout(60000)
+        install_api_routes(page)
+        page.goto(f"{vite_base_url}/finance/promotion", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="推广服务费", exact=True).wait_for(timeout=30000)
+
+        navigation_name = "一级导航" if width <= 920 else None
+        navigation = (
+            page.get_by_role("navigation", name=navigation_name)
+            if navigation_name
+            else page.locator(".rail-nav")
+        )
+        labels = [
+            text.splitlines()[0]
+            for text in navigation.locator("a").all_inner_texts()
+        ]
+        assert labels.index("财务") + 1 == labels.index("后台")
+        for label in ("财务", "后台"):
+            link_box = navigation.locator("a").nth(labels.index(label)).bounding_box()
+            assert link_box is not None
+            assert link_box["y"] >= 0
+            assert link_box["y"] + link_box["height"] <= height
+        current_labels = [
+            text.splitlines()[0]
+            for text in navigation.locator('a[aria-current="page"]').all_inner_texts()
+        ]
+        assert current_labels == ["财务"]
+        page.screenshot(
+            path=tmp_path / f"dydata-81-finance-navigation-{width}x{height}.png",
+            full_page=False,
+        )
+
+        page.goto(f"{vite_base_url}/admin", wait_until="domcontentloaded")
+        page.get_by_role("heading", name="抖音经营中枢后台", exact=True).wait_for(timeout=30000)
+        current_labels = [
+            text.splitlines()[0]
+            for text in navigation.locator('a[aria-current="page"]').all_inner_texts()
+        ]
+        assert current_labels == ["后台"]
+    finally:
+        context.close()
+
+
+def test_store_navigation_hides_finance_and_sap_and_direct_finance_store_is_forbidden(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    try:
+        install_settlement_user_route(page, "store")
+        page.goto(f"{vite_base_url}/settlement", wait_until="domcontentloaded")
+        primary_navigation = page.locator(".rail-nav")
+        primary_navigation.wait_for(timeout=10000)
+        assert primary_navigation.get_by_role("link", name="财务", exact=True).count() == 0
+
+        settlement_navigation = page.get_by_role(
+            "navigation",
+            name="订单分佣结算中心导航",
+        )
+        assert settlement_navigation.get_by_role("link", name="SAP 建议", exact=True).count() == 0
+
+        page.goto(f"{vite_base_url}/finance/stores", wait_until="domcontentloaded")
+        page.get_by_role(
+            "heading",
+            name="当前账号没有此页面权限",
+            exact=True,
+        ).wait_for(timeout=10000)
+        assert primary_navigation.get_by_role("link", name="财务", exact=True).count() == 0
     finally:
         context.close()
 

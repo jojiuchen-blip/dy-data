@@ -11,12 +11,12 @@
 - 后续顺序为 T1.2 官方入口与兼容策略切换、T2.1 PR/CI/腾讯云生产部署与线上 UAT；任一硬门禁失败即停止或回滚上一 production 版本，禁止 fallback 到 test 数据。
 - DYDATA-55 保留为独立企业内网安全基线，不再阻塞本次腾讯云 production 升格；Linear 是范围、验收和状态权威。
 
-## 0.1 历史增量交付：DYDATA-80 / DYDATA-81
+## 0.1 当前并行增量交付：DYDATA-80 / DYDATA-81
 
 - 用户已于 2026-08-26 明确确认 DYDATA-80 v2-clean 页面结构与业务交互基线，并授权继续到生产部署；生产发布由独立子 Issue DYDATA-81 承接。
-- 当前隔离分支：`codex/dydata-80-demo-cleanup`；原工作区既有未提交内容保持不变。
+- 当前导航调整隔离分支：`codex/dydata-81-finance-nav`；忽略并不复用旧冲突工作树，原工作区既有内容保持不变。
 - 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
-- 当前执行 T5.7：先冻结 v2-clean 原型证据，再把页面结构与业务交互映射到 `apps/web`，完成产品一致性、全量技术门禁、PR/CI、腾讯云生产部署、线上 smoke 与回滚核查。
+- 当前执行 T5.7 G4：独立一级“财务”、六个既有财务页面归属、门店“SAP 建议”和 B02 直达特例收口已完成本地实现与验证；下一步继续 PR/CI、腾讯云生产部署、线上 smoke 与回滚核查。
 - 页面视觉不得复制原型私有样式；视觉权威为 `docs/design-system/tokens.json`、`docs/design-system/README.md`，运行时以 `apps/web/src/design-tokens.css` 和共享组件为准。
 - Linear 是范围与验收权威；本驾驶舱只记录当前执行顺序。下文历史增量仅作历史证据，不覆盖本轮计划。
 
