@@ -579,6 +579,11 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             SettlementFeeAdjustment.adjustment_fee_cent.label("fee_amount_cent"),
         )
         .join(
+            SettlementFeeResultCurrent,
+            SettlementFeeResultCurrent.fee_result_id
+            == SettlementFeeAdjustment.original_fee_result_id,
+        )
+        .join(
             SettlementFeeResult,
             SettlementFeeResult.fee_result_id
             == SettlementFeeAdjustment.original_fee_result_id,

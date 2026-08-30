@@ -1303,6 +1303,7 @@ class StoreScoreSnapshotRunData(BaseModel):
     snapshot_count: int = 0
     triggered_by: str | None = None
     computed_at: datetime
+    rule_version_id: str | None = None
 
 
 class StoreScoreSnapshotRow(BaseModel):
@@ -1318,6 +1319,7 @@ class StoreScoreSnapshotRow(BaseModel):
     follow_24h_value_source: str
     store_weight: float = 1
     composite_score: float = 0
+    rule_version_id: str | None = None
 
 
 class StoreScoreSnapshotData(BaseModel):

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from collections import Counter
 from hashlib import sha256
@@ -38,6 +38,7 @@ from apps.api.dy_api.models import (
     JobRun,
     SkuProductSyncHistory,
     StoreScoreSnapshot,
+    StoreScoreSnapshotGeneration,
     StoreScoreSnapshotRun,
     User,
     UserFeedbackSubmission,
@@ -88,6 +89,13 @@ from apps.worker.clue_rule_versions import (
     update_rule_version,
 )
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
+from apps.worker.projection_lineage import (
+    MAX_LINEAGE_DEPTH,
+    LineageError,
+    active_generation_id,
+    canonical_score_partition_key,
+    resolve_projection_partitions,
+)
 from apps.worker.repositories import finish_job_run, queue_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
@@ -181,6 +189,34 @@ from dy_api.schemas import (
     JobRun as JobRunData,
     dump_model,
 )
+
+
+# Score history is resolved in bounded pages independently from API pagination.
+SCORE_RUN_PAGE_SIZE = 100
+SCORE_FACT_BATCH_SIZE = 400
+SCORE_SIDECAR_BATCH_SIZE = 400
+
+
+class _ScoreSidecarClaim(str):
+    """Rule identity with authoritative generation-sidecar metadata."""
+
+    snapshot_date: date
+    partition_key: str
+    generation_id: str
+
+    def __new__(
+        cls,
+        rule_version_id: str,
+        *,
+        snapshot_date: date,
+        partition_key: str,
+        generation_id: str,
+    ):
+        value = str.__new__(cls, rule_version_id)
+        value.snapshot_date = snapshot_date
+        value.partition_key = partition_key
+        value.generation_id = generation_id
+        return value
 
 
 router = APIRouter()
@@ -1740,74 +1776,721 @@ def rebuild_clue_allocation_trial(
     }
 
 
+def _score_rule_value(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+def _score_snapshot_date(value: object) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        try:
+            return date.fromisoformat(value.strip())
+        except ValueError:
+            return None
+    return None
+
+def _score_sidecar_rule_map(
+    session,
+    *,
+    snapshot_run_ids: list[str],
+    pinned_generation_id: str | None,
+    identities: list[tuple[str, str]] | None = None,
+) -> dict[tuple[str, str], str]:
+    """Return sidecar rule ids visible through the shared score resolver.
+
+    Sidecars are only candidates here.  Their partition identities are resolved
+    through the same manifest/lineage reader used by all aggregate artifacts;
+    rows from unrelated generations are ignored, while a tombstoned identity
+    remains a claim so stale config cannot resurrect its base fact.
+    """
+
+    if not snapshot_run_ids:
+        return {}
+    if len(snapshot_run_ids) > SCORE_RUN_PAGE_SIZE:
+        raise LineageError("score sidecar run batch exceeds the candidate page bound")
+    normalized_run_ids: list[str] = []
+    for value in snapshot_run_ids:
+        normalized = _score_rule_value(value)
+        if normalized is None:
+            raise LineageError("score sidecar contains an empty run id")
+        normalized_run_ids.append(normalized)
+    normalized_identities: list[tuple[str, str]] = []
+    if identities is None:
+        raise LineageError("score sidecar query requires bounded identities")
+    if not identities:
+        return {}
+    if len(identities) > SCORE_FACT_BATCH_SIZE:
+        raise LineageError("score sidecar identity batch exceeds the fact bound")
+    for run_value, store_value in identities:
+        run_id = _score_rule_value(run_value)
+        store_id = _score_rule_value(store_value)
+        if run_id is None or store_id is None:
+            raise LineageError("score sidecar contains an empty identity")
+        if run_id not in normalized_run_ids:
+            raise LineageError("score sidecar identity is outside the run batch")
+        normalized_identities.append((run_id, store_id))
+    run_params = {
+        f"score_run_{index}": value
+        for index, value in enumerate(normalized_run_ids)
+    }
+    run_placeholders = ", ".join(f":{key}" for key in run_params)
+    store_clause = ""
+    store_params: dict[str, str] = {}
+    pair_values: list[str] = []
+    for index, (run_id, store_id) in enumerate(normalized_identities):
+        run_key = f"score_identity_run_{index}"
+        store_key = f"score_identity_store_{index}"
+        store_params[run_key] = run_id
+        store_params[store_key] = store_id
+        pair_values.append(f"(:{run_key}, :{store_key})")
+    store_clause = " AND (snapshot_run_id, store_id) IN (" + ", ".join(pair_values) + ")"
+    output: dict[tuple[str, str], _ScoreSidecarClaim] = {}
+    seen_metadata: dict[tuple[str, str], tuple[date, str, str]] = {}
+    last_run_id: str | None = None
+    last_store_id: str | None = None
+    last_generation_id: str | None = None
+    last_snapshot_date = None
+    last_rule_id: str | None = None
+    last_partition_key: str | None = None
+    while True:
+        keyset_clause = ""
+        keyset_params: dict[str, str] = {}
+        if last_run_id is not None:
+            keyset_clause = " AND ("
+            keyset_clause += (
+                "(snapshot_run_id, store_id, generation_id, snapshot_date, "
+                "rule_version_id, partition_key) > "
+                "(:score_last_run, :score_last_store, :score_last_generation, "
+                ":score_last_date, :score_last_rule, :score_last_partition)"
+            )
+            keyset_clause += ")"
+            keyset_params = {
+                "score_last_run": last_run_id,
+                "score_last_store": last_store_id or "",
+                "score_last_generation": last_generation_id or "",
+                "score_last_date": last_snapshot_date,
+                "score_last_rule": last_rule_id or "",
+                "score_last_partition": last_partition_key or "",
+            }
+        try:
+            result = session.execute(
+                text(
+                    f"""
+                    SELECT generation_id, snapshot_run_id, store_id,
+                           rule_version_id, snapshot_date, partition_key
+                    FROM store_score_snapshot_generation
+                    WHERE snapshot_run_id IN ({run_placeholders})
+                      {store_clause}
+                      {keyset_clause}
+                    ORDER BY snapshot_run_id, store_id, generation_id,
+                             snapshot_date, rule_version_id, partition_key
+                    LIMIT :score_sidecar_limit
+                    """
+                ),
+                {
+                    **run_params,
+                    **store_params,
+                    **keyset_params,
+                    "score_sidecar_limit": SCORE_SIDECAR_BATCH_SIZE,
+                },
+            )
+            rows = [dict(row) for row in result.mappings().all()]
+        except Exception as exc:
+            raise LineageError("failed to read score sidecars") from exc
+        if not rows:
+            break
+        batch = rows
+        keys: list[str] = []
+        key_by_index: dict[int, str] = {}
+        for index, row in enumerate(batch):
+            generation_id = _score_rule_value(row.get("generation_id"))
+            run_id = _score_rule_value(row.get("snapshot_run_id"))
+            store_id = _score_rule_value(row.get("store_id"))
+            rule_id = _score_rule_value(row.get("rule_version_id"))
+            snapshot_date = _score_snapshot_date(row.get("snapshot_date"))
+            stored_partition_key = _score_rule_value(row.get("partition_key"))
+            if (
+                generation_id is None
+                or run_id is None
+                or store_id is None
+                or rule_id is None
+                or snapshot_date is None
+                or stored_partition_key is None
+            ):
+                raise LineageError("score sidecar contains invalid identity or rule id")
+            key = canonical_score_partition_key(snapshot_date, rule_id, store_id)
+            if stored_partition_key != key:
+                raise LineageError("score sidecar partition key is not canonical")
+            identity = (run_id, store_id)
+            metadata = (snapshot_date, rule_id, stored_partition_key)
+            previous_metadata = seen_metadata.get(identity)
+            if previous_metadata is not None and previous_metadata != metadata:
+                raise LineageError("score sidecar identity metadata conflicts")
+            seen_metadata[identity] = metadata
+            keys.append(key)
+            key_by_index[index] = key
+        resolutions = resolve_projection_partitions(
+            session,
+            artifact="score",
+            partition_keys=keys,
+            pinned_generation_id=pinned_generation_id,
+        )
+        for index, row in enumerate(batch):
+            generation_id = _score_rule_value(row.get("generation_id"))
+            run_id = _score_rule_value(row.get("snapshot_run_id"))
+            store_id = _score_rule_value(row.get("store_id"))
+            rule_id = _score_rule_value(row.get("rule_version_id"))
+            snapshot_date = _score_snapshot_date(row.get("snapshot_date"))
+            stored_partition_key = _score_rule_value(row.get("partition_key"))
+            if (
+                generation_id is None
+                or run_id is None
+                or store_id is None
+                or rule_id is None
+                or snapshot_date is None
+                or stored_partition_key is None
+            ):
+                raise LineageError("score sidecar contains invalid identity or rule id")
+            identity = (run_id, store_id)
+            resolution = resolutions.get(key_by_index[index])
+            row_generation_id = generation_id
+            if resolution is None:
+                continue
+            visible_generation_ids = (
+                resolution.lineage_generation_ids | resolution.source_generation_ids
+            )
+            if row_generation_id not in visible_generation_ids:
+                continue
+            if resolution.source_kind == "overlay":
+                if resolution.actual_data_generation_id != row_generation_id:
+                    continue
+            elif resolution.source_kind == "tombstone":
+                if resolution.nearest_manifest_owner_generation == row_generation_id:
+                    raise LineageError("tombstone owner generation has score sidecar data")
+            else:
+                # A sidecar row owned by a generation in the pinned lineage
+                # must have an authoritative overlay or tombstone manifest.
+                # Treating a missing/legacy-root manifest as absent would let
+                # the fact silently fall back to the run's legacy config.
+                raise LineageError(
+                    "in-lineage score sidecar has no authoritative manifest"
+                )
+            # An overlay sidecar exposes a visible rule; a tombstone sidecar
+            # claims the same authoritative identity so facts cannot fall back
+            # to stale run config and resurrect the hidden base row.
+            previous = output.get(identity)
+            claim = _ScoreSidecarClaim(
+                rule_id,
+                snapshot_date=snapshot_date,
+                partition_key=stored_partition_key,
+                generation_id=row_generation_id,
+            )
+            if previous is not None and (
+                previous != claim
+                or previous.snapshot_date != claim.snapshot_date
+                or previous.partition_key != claim.partition_key
+            ):
+                raise LineageError("selected score run has conflicting rule versions")
+            output[identity] = claim
+        last = batch[-1]
+        last_run_id = _score_rule_value(last.get("snapshot_run_id"))
+        last_store_id = _score_rule_value(last.get("store_id"))
+        last_generation_id = _score_rule_value(last.get("generation_id"))
+        last_snapshot_date = _score_snapshot_date(last.get("snapshot_date"))
+        last_rule_id = _score_rule_value(last.get("rule_version_id"))
+        last_partition_key = _score_rule_value(last.get("partition_key"))
+        if (
+            last_run_id is None
+            or last_store_id is None
+            or last_generation_id is None
+            or last_snapshot_date is None
+            or last_rule_id is None
+            or last_partition_key is None
+        ):
+            raise LineageError("score sidecar contains an invalid ordering identity")
+        if len(batch) < SCORE_SIDECAR_BATCH_SIZE:
+            break
+    return output
+
+def _score_run_config_rule_predicate(session, rule_version_id: str):
+    """Build a cross-dialect JSON rule predicate for legacy run metadata."""
+
+    dialect = ""
+    try:
+        dialect = session.get_bind().dialect.name
+    except Exception:
+        pass
+    if dialect == "sqlite":
+        return func.json_extract(
+            StoreScoreSnapshotRun.config_json, "$.rule_version_id"
+        ) == rule_version_id
+    return StoreScoreSnapshotRun.config_json["rule_version_id"].as_string() == rule_version_id
+
+def _score_fact_batches(
+    session,
+    *,
+    snapshot_run_ids: list[str],
+    scope_store_ids: tuple[str, ...] | None = None,
+):
+    """Yield bounded, deterministic score-fact batches for a run page."""
+
+    if not snapshot_run_ids:
+        return
+    if len(snapshot_run_ids) > SCORE_RUN_PAGE_SIZE:
+        raise LineageError("score fact run batch exceeds the candidate page bound")
+    normalized_ids = [_score_rule_value(value) for value in snapshot_run_ids]
+    if any(value is None for value in normalized_ids):
+        raise LineageError("score fact query contains an empty run id")
+    run_ids = [value for value in normalized_ids if value is not None]
+    last_run_id: str | None = None
+    last_score = None
+    last_store_id: str | None = None
+    while True:
+        statement = select(StoreScoreSnapshot).where(
+            StoreScoreSnapshot.snapshot_run_id.in_(run_ids)
+        )
+        if scope_store_ids is not None:
+            statement = statement.where(
+                StoreScoreSnapshot.store_id.in_(scope_store_ids)
+                if scope_store_ids
+                else false()
+            )
+        if last_run_id is not None:
+            statement = statement.where(
+                or_(
+                    StoreScoreSnapshot.snapshot_run_id > last_run_id,
+                    (
+                        (StoreScoreSnapshot.snapshot_run_id == last_run_id)
+                        & (StoreScoreSnapshot.composite_score < last_score)
+                    ),
+                    (
+                        (StoreScoreSnapshot.snapshot_run_id == last_run_id)
+                        & (StoreScoreSnapshot.composite_score == last_score)
+                        & (StoreScoreSnapshot.store_id > last_store_id)
+                    ),
+                )
+            )
+        statement = statement.order_by(
+            StoreScoreSnapshot.snapshot_run_id,
+            StoreScoreSnapshot.composite_score.desc(),
+            StoreScoreSnapshot.store_id,
+        ).limit(SCORE_FACT_BATCH_SIZE)
+        try:
+            rows = list(session.scalars(statement).all())
+        except LineageError:
+            raise
+        except Exception as exc:
+            raise LineageError("failed to read score facts") from exc
+        if not rows:
+            return
+        yield rows
+        last = rows[-1]
+        last_run_id = str(last.snapshot_run_id)
+        last_score = last.composite_score
+        last_store_id = str(last.store_id)
+        if len(rows) < SCORE_FACT_BATCH_SIZE:
+            return
+
+def _score_resolve_fact_batch(
+    session,
+    rows: list[StoreScoreSnapshot],
+    runs_by_id: dict[str, StoreScoreSnapshotRun],
+    *,
+    pinned_generation_id: str | None,
+) -> tuple[list[tuple[StoreScoreSnapshot, bool, str | None]], dict[tuple[str, str], str]]:
+    """Resolve one bounded fact batch and return visibility/effective rules."""
+
+    if not rows:
+        return [], {}
+    run_ids = sorted({str(row.snapshot_run_id) for row in rows})
+    sidecar_rules: dict[tuple[str, str], str] = {}
+    if pinned_generation_id is not None:
+        sidecar_rules = _score_sidecar_rule_map(
+            session,
+            snapshot_run_ids=run_ids,
+            pinned_generation_id=pinned_generation_id,
+            identities=[(str(row.snapshot_run_id), str(row.store_id)) for row in rows],
+        )
+    keys: list[str] = []
+    key_by_index: dict[int, str] = {}
+    for index, row in enumerate(rows):
+        run = runs_by_id.get(str(row.snapshot_run_id))
+        if run is None:
+            raise LineageError("score fact references an unknown snapshot run")
+        fact_date = _score_snapshot_date(row.snapshot_date)
+        run_date = _score_snapshot_date(run.snapshot_date)
+        if fact_date is None or run_date is None or fact_date != run_date:
+            raise LineageError("score fact snapshot date does not match its run")
+        config = run.config_json if isinstance(run.config_json, dict) else {}
+        config_rule = _score_rule_value(config.get("rule_version_id"))
+        identity = (str(row.snapshot_run_id), str(row.store_id))
+        sidecar_claim = sidecar_rules.get(identity)
+        if sidecar_claim is not None:
+            if (
+                sidecar_claim.snapshot_date != fact_date
+                or sidecar_claim.snapshot_date != run_date
+            ):
+                raise LineageError("score sidecar snapshot date does not match its fact/run")
+            rule_id = str(sidecar_claim)
+        else:
+            rule_id = config_rule
+        key = canonical_score_partition_key(fact_date, rule_id, str(row.store_id))
+        keys.append(key)
+        key_by_index[index] = key
+    resolutions = resolve_projection_partitions(
+        session,
+        artifact="score",
+        partition_keys=keys,
+        pinned_generation_id=pinned_generation_id,
+    )
+    resolved: list[tuple[StoreScoreSnapshot, bool, str | None]] = []
+    for index, row in enumerate(rows):
+        identity = (str(row.snapshot_run_id), str(row.store_id))
+        run = runs_by_id[str(row.snapshot_run_id)]
+        config = run.config_json if isinstance(run.config_json, dict) else {}
+        config_rule = _score_rule_value(config.get("rule_version_id"))
+        rule_id = sidecar_rules.get(identity, config_rule)
+        if isinstance(rule_id, _ScoreSidecarClaim):
+            rule_id = str(rule_id)
+        resolution = resolutions.get(key_by_index[index])
+        if resolution is None:
+            raise LineageError("score fact partition resolution is missing")
+        visible = resolution.source_kind != "tombstone"
+        if visible and resolution.source_kind == "overlay" and identity not in sidecar_rules:
+            # An overlay is visible only when this selected run has the exact
+            # sidecar identity that points at the overlay generation.
+            raise LineageError("selected score run is missing an overlay sidecar row")
+        resolved.append((row, visible, rule_id))
+    return resolved, sidecar_rules
+
+def _score_candidate_page_states(
+    session,
+    runs: list[StoreScoreSnapshotRun],
+    *,
+    pinned_generation_id: str | None,
+    scope_store_ids: tuple[str, ...] | None = None,
+) -> dict[str, dict[str, object]]:
+    """Resolve one candidate page set-wise, retaining only bounded state."""
+
+    runs_by_id = {str(run.snapshot_run_id): run for run in runs}
+    states: dict[str, dict[str, object]] = {}
+    for run in runs:
+        config = run.config_json if isinstance(run.config_json, dict) else {}
+        states[str(run.snapshot_run_id)] = {
+            "raw_count": 0,
+            "visible_count": 0,
+            "effective_rules": set(),
+            "fallback_rule": _score_rule_value(config.get("rule_version_id")),
+        }
+    for rows in _score_fact_batches(
+        session,
+        snapshot_run_ids=list(runs_by_id),
+        scope_store_ids=scope_store_ids,
+    ):
+        resolved_rows, _sidecar_rules = _score_resolve_fact_batch(
+            session,
+            rows,
+            runs_by_id,
+            pinned_generation_id=pinned_generation_id,
+        )
+        for row, visible, rule_id in resolved_rows:
+            state = states[str(row.snapshot_run_id)]
+            state["raw_count"] = int(state["raw_count"]) + 1
+            if visible:
+                state["visible_count"] = int(state["visible_count"]) + 1
+                state["effective_rules"].add(rule_id)
+    return states
+
+def _score_visible_rows(
+    session,
+    run: StoreScoreSnapshotRun,
+    *,
+    pinned_generation_id: str | None,
+    page: int,
+    page_size: int,
+    scope_store_ids: tuple[str, ...] | None = None,
+) -> tuple[list[StoreScoreSnapshot], int, int, dict[str, str | None], set[str | None]]:
+    """Stream one selected run and retain only the response window."""
+
+    run_id = str(run.snapshot_run_id)
+    visible: list[StoreScoreSnapshot] = []
+    row_rule_ids: dict[str, str | None] = {}
+    effective_rules: set[str | None] = set()
+    raw_count = 0
+    visible_count = 0
+    offset = (page - 1) * page_size
+    runs_by_id = {run_id: run}
+    for rows in _score_fact_batches(
+        session,
+        snapshot_run_ids=[run_id],
+        scope_store_ids=scope_store_ids,
+    ):
+        resolved_rows, _sidecar_rules = _score_resolve_fact_batch(
+            session,
+            rows,
+            runs_by_id,
+            pinned_generation_id=pinned_generation_id,
+        )
+        raw_count += len(rows)
+        for row, is_visible, rule_id in resolved_rows:
+            if not is_visible:
+                continue
+            effective_rules.add(rule_id)
+            if offset <= visible_count < offset + page_size:
+                visible.append(row)
+                row_rule_ids[str(row.snapshot_id)] = rule_id
+            visible_count += 1
+    return visible, raw_count, visible_count, row_rule_ids, effective_rules
+
+def _score_run_pages(session, statement, *, page_size: int = 100):
+    """Yield deterministic keyset pages without loading run history at once."""
+
+    if page_size < 1 or page_size > SCORE_RUN_PAGE_SIZE:
+        raise LineageError("score run page size exceeds the candidate bound")
+    base_statement = statement.order_by(None)
+    last_computed_at = None
+    last_snapshot_run_id = None
+    while True:
+        page_statement = base_statement
+        if last_computed_at is not None:
+            page_statement = page_statement.where(
+                or_(
+                    StoreScoreSnapshotRun.computed_at < last_computed_at,
+                    (
+                        StoreScoreSnapshotRun.computed_at == last_computed_at
+                    )
+                    & (StoreScoreSnapshotRun.snapshot_run_id < last_snapshot_run_id),
+                )
+            )
+        page_statement = page_statement.order_by(
+            StoreScoreSnapshotRun.computed_at.desc(),
+            StoreScoreSnapshotRun.snapshot_run_id.desc(),
+        ).limit(page_size)
+        try:
+            page = list(session.scalars(page_statement).all())
+        except LineageError:
+            raise
+        except Exception as exc:
+            raise LineageError("failed to read score run candidates") from exc
+        if not page:
+            return
+        yield page
+        last = page[-1]
+        last_computed_at = last.computed_at
+        last_snapshot_run_id = last.snapshot_run_id
+        if len(page) < page_size:
+            return
+
+
 @router.get("/clue-allocation/store-scores")
 def list_store_score_snapshots(
     snapshot_run_id: str | None = None,
     snapshot_date: date | None = None,
     run_mode: str | None = None,
+    rule_version_id: str | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
     current_user: AuthContext = Depends(_require_clue_admin_context),
+    _username: str | None = Depends(lambda: None),
     store=Depends(get_data_store),
 ):
     store = _require_available_store(store)
-    scope_store_ids = _clue_scope_store_ids(current_user)
-    run_statement = select(StoreScoreSnapshotRun)
-    if scope_store_ids is not None:
-        run_statement = run_statement.where(
-            exists(
-                select(1).where(
-                    StoreScoreSnapshot.snapshot_run_id
-                    == StoreScoreSnapshotRun.snapshot_run_id,
-                    (
-                        StoreScoreSnapshot.store_id.in_(scope_store_ids)
-                        if scope_store_ids
-                        else false()
-                    ),
-                )
-            )
-        )
-    if snapshot_run_id:
-        run_statement = run_statement.where(StoreScoreSnapshotRun.snapshot_run_id == snapshot_run_id)
-    elif snapshot_date:
-        run_statement = run_statement.where(StoreScoreSnapshotRun.snapshot_date == snapshot_date)
-    if run_mode:
-        run_statement = run_statement.where(StoreScoreSnapshotRun.run_mode == run_mode)
-    run = store.session.scalar(
-        run_statement.order_by(StoreScoreSnapshotRun.computed_at.desc(), StoreScoreSnapshotRun.snapshot_run_id.desc()).limit(1)
+    scope_store_ids = (
+        _clue_scope_store_ids(current_user)
+        if isinstance(current_user, AuthContext)
+        else None
     )
-    if run is None:
-        data = StoreScoreSnapshotData(run=None, rows=[], pagination=_pagination(page, page_size, 0))
-    else:
-        snapshot_statement = select(StoreScoreSnapshot).where(StoreScoreSnapshot.snapshot_run_id == run.snapshot_run_id)
+    requested_rule_version_id = _score_rule_value(rule_version_id)
+    try:
+        try:
+            pinned_generation_id = store._pinned_aggregate_generation()
+        except AttributeError:
+            pinned_generation_id = active_generation_id(store.session)
+        if pinned_generation_id is not None:
+            pinned_generation_id = _score_rule_value(pinned_generation_id)
+            if pinned_generation_id is None:
+                raise LineageError("pinned score generation id is empty")
+
+        run_statement = select(StoreScoreSnapshotRun)
         if scope_store_ids is not None:
-            snapshot_statement = snapshot_statement.where(
-                StoreScoreSnapshot.store_id.in_(scope_store_ids)
-                if scope_store_ids
-                else false()
-            )
-        total = int(store.session.scalar(select(func.count()).select_from(snapshot_statement.subquery())) or 0)
-        snapshots = store.session.scalars(
-            snapshot_statement.order_by(StoreScoreSnapshot.composite_score.desc(), StoreScoreSnapshot.store_id)
-            .offset((page - 1) * page_size)
-            .limit(page_size)
-        ).all()
-        data = StoreScoreSnapshotData(
-            run=StoreScoreSnapshotRunData(
-                **_store_score_run_payload(
-                    run,
-                    visible_snapshot_count=(
-                        total if scope_store_ids is not None else None
-                    ),
+            run_statement = run_statement.where(
+                exists(
+                    select(1).where(
+                        StoreScoreSnapshot.snapshot_run_id
+                        == StoreScoreSnapshotRun.snapshot_run_id,
+                        (
+                            StoreScoreSnapshot.store_id.in_(scope_store_ids)
+                            if scope_store_ids
+                            else false()
+                        ),
+                    )
                 )
-            ),
-            rows=[StoreScoreSnapshotRow(**_store_score_snapshot_payload(row)) for row in snapshots],
-            pagination=_pagination(page, page_size, total),
+            )
+        if snapshot_run_id:
+            run_statement = run_statement.where(
+                StoreScoreSnapshotRun.snapshot_run_id == snapshot_run_id
+            )
+        elif snapshot_date:
+            run_statement = run_statement.where(
+                StoreScoreSnapshotRun.snapshot_date == snapshot_date
+            )
+        if run_mode:
+            run_statement = run_statement.where(
+                StoreScoreSnapshotRun.run_mode == run_mode
+            )
+
+        if not snapshot_run_id and requested_rule_version_id is not None:
+            config_predicate = _score_run_config_rule_predicate(
+                store.session, requested_rule_version_id
+            )
+            if pinned_generation_id is not None:
+                sidecar_exists = select(1).where(
+                    (
+                        StoreScoreSnapshotGeneration.snapshot_run_id
+                        == StoreScoreSnapshotRun.snapshot_run_id
+                    )
+                    & (
+                        StoreScoreSnapshotGeneration.rule_version_id
+                        == requested_rule_version_id
+                    )
+                ).exists()
+                run_statement = run_statement.where(
+                    or_(config_predicate, sidecar_exists)
+                )
+            else:
+                run_statement = run_statement.where(config_predicate)
+
+        candidate_page_size = 1 if snapshot_run_id else SCORE_RUN_PAGE_SIZE
+        candidate_pages = _score_run_pages(
+            store.session,
+            run_statement,
+            page_size=candidate_page_size,
         )
-    return {
-        "data": dump_model(data),
-        "meta": {"generated_at": generated_at(), "source": "postgres"},
-    }
+        run = None
+        run_rule_id: str | None = None
+        while run is None:
+            try:
+                candidate_page = next(candidate_pages)
+            except StopIteration:
+                break
+            candidate_state_kwargs = {
+                "pinned_generation_id": pinned_generation_id,
+            }
+            if scope_store_ids is not None:
+                candidate_state_kwargs["scope_store_ids"] = scope_store_ids
+            states = _score_candidate_page_states(
+                store.session,
+                candidate_page,
+                **candidate_state_kwargs,
+            )
+            for candidate in candidate_page:
+                state = states[str(candidate.snapshot_run_id)]
+                raw_count = int(state["raw_count"])
+                visible_count = int(state["visible_count"])
+                effective_rules = set(state["effective_rules"])
+                if raw_count > 0 and visible_count == 0:
+                    continue
+                if not effective_rules and raw_count == 0:
+                    fallback_rule = state["fallback_rule"]
+                    if fallback_rule is not None:
+                        effective_rules = {fallback_rule}
+                if len(effective_rules) > 1:
+                    raise LineageError(
+                        "selected score run has conflicting rule versions"
+                    )
+                if (
+                    requested_rule_version_id is not None
+                    and effective_rules != {requested_rule_version_id}
+                ):
+                    continue
+                run = candidate
+                run_rule_id = next(iter(effective_rules), None)
+                break
+
+        visible_snapshots: list[StoreScoreSnapshot] = []
+        row_rule_ids: dict[str, str | None] = {}
+        total = 0
+        if run is not None:
+            visible_row_kwargs = {
+                "pinned_generation_id": pinned_generation_id,
+                "page": page,
+                "page_size": page_size,
+            }
+            if scope_store_ids is not None:
+                visible_row_kwargs["scope_store_ids"] = scope_store_ids
+            (
+                visible_snapshots,
+                raw_count,
+                visible_total,
+                row_rule_ids,
+                effective_rules,
+            ) = _score_visible_rows(
+                store.session,
+                run,
+                **visible_row_kwargs,
+            )
+            if raw_count > 0 and visible_total == 0:
+                raise LineageError("selected score run has no visible rows")
+            if len(effective_rules) > 1:
+                raise LineageError(
+                    "selected score run has conflicting rule versions"
+                )
+            if effective_rules:
+                run_rule_id = next(iter(effective_rules))
+            if not effective_rules and raw_count == 0 and run_rule_id is not None:
+                effective_rules = {run_rule_id}
+            if (
+                requested_rule_version_id is not None
+                and effective_rules != {requested_rule_version_id}
+            ):
+                run = None
+            else:
+                total = visible_total
+
+        if run is None:
+            data = StoreScoreSnapshotData(
+                run=None,
+                rows=[],
+                pagination=_pagination(page, page_size, 0),
+            )
+        else:
+            data = StoreScoreSnapshotData(
+                run=StoreScoreSnapshotRunData(
+                    **_store_score_run_payload(
+                        run,
+                        rule_version_id=run_rule_id,
+                        visible_snapshot_count=(
+                            total if scope_store_ids is not None else None
+                        ),
+                        hide_triggered_by=scope_store_ids is not None,
+                    )
+                ),
+                rows=[
+                    StoreScoreSnapshotRow(
+                        **_store_score_snapshot_payload(
+                            row,
+                            rule_version_id=row_rule_ids.get(
+                                str(row.snapshot_id), run_rule_id
+                            ),
+                        )
+                    )
+                    for row in visible_snapshots
+                ],
+                pagination=_pagination(page, page_size, total),
+            )
+        return {
+            "data": dump_model(data),
+            "meta": {"generated_at": generated_at(), "source": "postgres"},
+        }
+    except LineageError:
+        raise
+    except Exception as exc:
+        raise LineageError("failed to read store score snapshots") from exc
 
 
 @router.post("/clue-allocation/store-scores/refresh")
@@ -3548,25 +4231,48 @@ def _is_phone_field(key: object) -> bool:
 def _store_score_run_payload(
     row: StoreScoreSnapshotRun,
     *,
+    rule_version_id: str | None = None,
     visible_snapshot_count: int | None = None,
+    hide_triggered_by: bool = False,
 ) -> dict:
-    is_scoped = visible_snapshot_count is not None
+    config = row.config_json if isinstance(getattr(row, "config_json", None), dict) else {}
+    if rule_version_id is None:
+        rule_version_id = config.get("rule_version_id")
+        if not isinstance(rule_version_id, str) or not rule_version_id.strip():
+            rule_version_id = None
     return {
         "snapshot_run_id": row.snapshot_run_id,
         "snapshot_date": row.snapshot_date,
         "run_mode": row.run_mode,
         "window_start": row.window_start,
         "window_end": row.window_end,
-        "candidate_store_count": visible_snapshot_count if is_scoped else row.candidate_store_count,
-        "snapshot_count": visible_snapshot_count if is_scoped else row.snapshot_count,
-        "triggered_by": None if is_scoped else row.triggered_by,
+        "candidate_store_count": (
+            visible_snapshot_count
+            if visible_snapshot_count is not None
+            else row.candidate_store_count
+        ),
+        "snapshot_count": (
+            visible_snapshot_count
+            if visible_snapshot_count is not None
+            else row.snapshot_count
+        ),
+        "triggered_by": None if hide_triggered_by else row.triggered_by,
         "computed_at": row.computed_at,
+        "rule_version_id": rule_version_id,
     }
 
 
-def _store_score_snapshot_payload(row: StoreScoreSnapshot) -> dict:
+def _store_score_snapshot_payload(
+    row: StoreScoreSnapshot, *, rule_version_id: str | None = None
+) -> dict:
+    config = row.config_json if isinstance(getattr(row, "config_json", None), dict) else {}
+    if rule_version_id is None:
+        rule_version_id = config.get("rule_version_id")
+        if not isinstance(rule_version_id, str) or not rule_version_id.strip():
+            rule_version_id = None
     return {
         "store_id": row.store_id,
+        "rule_version_id": rule_version_id,
         "city_code": row.city_code,
         "conversion_numerator": row.conversion_numerator,
         "conversion_denominator": row.conversion_denominator,

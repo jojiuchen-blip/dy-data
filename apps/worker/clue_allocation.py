@@ -1,7 +1,9 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -12,7 +14,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, insert, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -37,7 +40,11 @@ from apps.api.dy_api.models import (
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     SettlementOrderDetail,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
+    SettlementProjectionPartitionManifest,
     StoreScoreSnapshot,
+    StoreScoreSnapshotGeneration,
     StoreScoreSnapshotRun,
     utcnow,
 )
@@ -55,6 +62,7 @@ from apps.worker.repositories import (
     retry_clue_materialization_batch,
     upsert_data_quality_issue,
 )
+from apps.worker.projection_lineage import canonical_score_partition_key
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -76,6 +84,9 @@ ANCHOR_UNAVAILABLE_REASONS = (
     "anchor_city_missing",
     "anchor_city_code_missing",
 )
+SCORE_SPARSE_PROTOCOL = "t344-score-sparse-v1"
+MAX_SCORE_SPARSE_STORES = 8192
+MAX_SCORE_SPARSE_RULES = 64
 
 
 @dataclass(frozen=True)
@@ -123,6 +134,20 @@ class StoreScoreConfig:
     conversion_weight: Decimal
     follow_weight: Decimal
     store_weight: Decimal
+
+
+@dataclass(frozen=True)
+class ScoreManifest:
+    generation_id: str
+    base_generation_id: str
+    snapshot_date: date
+    rule_version_ids: tuple[str, ...]
+    snapshot_run_ids: tuple[str, ...]
+    partition_keys: tuple[str, ...]
+    manifest_count: int
+    row_count: int
+    manifest_checksum: str
+    resumed: bool
 
 
 def materialize_clue_master_leads(
@@ -1666,6 +1691,878 @@ def haversine_km(latitude_a: float, longitude_a: float, latitude_b: float, longi
         longitude_delta / 2
     ) ** 2
     return earth_radius_km * 2 * asin(sqrt(haversine))
+
+
+def _score_sparse_json(value: object) -> bytes:
+    def normalize(item: object) -> object:
+        if isinstance(item, datetime):
+            aware = _aware(item)
+            assert aware is not None
+            return aware.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+        if isinstance(item, date):
+            return item.isoformat()
+        if isinstance(item, Decimal):
+            rendered = format(item, "f")
+            return "0" if not rendered or item == 0 else rendered
+        if isinstance(item, Mapping):
+            return {str(key): normalize(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [normalize(child) for child in item]
+        return item
+
+    try:
+        return json.dumps(
+            normalize(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("score sparse metadata is not canonical JSON") from exc
+
+
+def _score_sparse_identity(value: object, *, label: str) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise ValueError(f"{label} must be a non-empty canonical string")
+    return value
+
+
+def _score_sparse_date(value: date | str) -> date:
+    if isinstance(value, datetime):
+        raise ValueError("snapshot_date must be a date")
+    if isinstance(value, date):
+        return value
+    if not isinstance(value, str) or value.strip() != value:
+        raise ValueError("snapshot_date must use canonical ISO format")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError("snapshot_date must use canonical ISO format") from exc
+    if parsed.isoformat() != value:
+        raise ValueError("snapshot_date must use canonical ISO format")
+    return parsed
+
+
+def _score_sparse_rule_versions(
+    session: Session, published_rule_ids: Iterable[str]
+) -> tuple[ClueAllocationRuleVersion, ...]:
+    requested = {
+        _score_sparse_identity(value, label="published rule id")
+        for value in published_rule_ids
+    }
+    if not requested:
+        raise ValueError("published_rule_ids must not be empty")
+    if len(requested) > MAX_SCORE_SPARSE_RULES:
+        raise ValueError("published rule closure exceeds sparse limit")
+    if "legacy-unversioned" in requested:
+        raise ValueError("legacy-unversioned is reserved for legacy score fallback")
+    rows = list(
+        session.scalars(
+            select(ClueAllocationRuleVersion)
+            .where(
+                ClueAllocationRuleVersion.status == "published",
+                or_(
+                    ClueAllocationRuleVersion.rule_version_id.in_(requested),
+                    ClueAllocationRuleVersion.rule_id.in_(requested),
+                ),
+            )
+            .order_by(ClueAllocationRuleVersion.rule_version_id)
+            .limit(MAX_SCORE_SPARSE_RULES + 1)
+        )
+    )
+    by_version = {row.rule_version_id: row for row in rows}
+    by_rule: dict[str, list[ClueAllocationRuleVersion]] = defaultdict(list)
+    for row in rows:
+        by_rule[row.rule_id].append(row)
+    resolved: dict[str, ClueAllocationRuleVersion] = {}
+    for identity in sorted(requested):
+        if identity in by_version:
+            row = by_version[identity]
+        else:
+            candidates = by_rule.get(identity, [])
+            if len(candidates) != 1:
+                raise ValueError(f"published rule closure is incomplete: {identity}")
+            row = candidates[0]
+        resolved[row.rule_version_id] = row
+    if len(resolved) > MAX_SCORE_SPARSE_RULES:
+        raise ValueError("published rule closure exceeds sparse limit")
+    return tuple(resolved[key] for key in sorted(resolved))
+
+
+def _score_sparse_stores(
+    session: Session, affected_store_ids: Iterable[str]
+) -> tuple[tuple[str, ...], list[DimStore]]:
+    requested = tuple(
+        sorted(
+            {
+                _score_sparse_identity(value, label="affected store id")
+                for value in affected_store_ids
+            }
+        )
+    )
+    if not requested:
+        raise ValueError("affected_store_ids must not be empty")
+    if len(requested) > MAX_SCORE_SPARSE_STORES:
+        raise ValueError("affected store closure exceeds sparse limit")
+    stores: list[DimStore] = []
+    for index in range(0, len(requested), 400):
+        stores.extend(
+            session.scalars(
+                select(DimStore)
+                .where(DimStore.store_id.in_(requested[index : index + 400]))
+                .order_by(DimStore.store_id)
+            )
+        )
+    eligible = sorted(
+        (store for store in stores if _is_candidate_eligible(store)),
+        key=lambda store: store.store_id,
+    )
+    return requested, eligible
+
+
+def _score_sparse_contract(
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_store_ids: tuple[str, ...],
+    rule_version_ids: tuple[str, ...],
+    snapshot_date: date,
+    batch_size: int,
+    closure_policy_hash: str,
+) -> dict[str, object]:
+    return {
+        "protocol": SCORE_SPARSE_PROTOCOL,
+        "projection": "settlement",
+        "operation": "build_score_sparse_overlay",
+        "generation_id": generation_id,
+        "base_generation_id": base_generation_id,
+        "affected_store_ids": list(affected_store_ids),
+        "rule_version_ids": list(rule_version_ids),
+        "snapshot_date": snapshot_date.isoformat(),
+        "batch_size": batch_size,
+        "closure_policy_hash": closure_policy_hash,
+    }
+
+
+def _score_sparse_preflight(
+    session: Session,
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_store_ids: Iterable[str],
+    published_rule_ids: Iterable[str],
+    snapshot_date: date | str,
+    batch_size: int,
+    closure_policy_hash: str,
+) -> tuple[
+    SettlementProjectionGeneration,
+    tuple[str, ...],
+    list[DimStore],
+    tuple[ClueAllocationRuleVersion, ...],
+    date,
+    dict[str, object],
+    bool,
+]:
+    generation_id = _score_sparse_identity(generation_id, label="generation_id")
+    base_generation_id = _score_sparse_identity(
+        base_generation_id, label="base_generation_id"
+    )
+    if generation_id == base_generation_id:
+        raise ValueError("score sparse generation cannot reference itself")
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 400:
+        raise ValueError("batch_size must be an integer between 1 and 400")
+    if (
+        not isinstance(closure_policy_hash, str)
+        or re.fullmatch(r"[0-9a-f]{64}", closure_policy_hash) is None
+    ):
+        raise ValueError("closure_policy_hash must be 64 lowercase hexadecimal characters")
+    target_date = _score_sparse_date(snapshot_date)
+    active = session.get(SettlementProjectionActive, "settlement")
+    if active is None or active.generation_id != base_generation_id:
+        raise ValueError("active settlement pointer does not match score sparse base")
+    base = session.get(SettlementProjectionGeneration, base_generation_id)
+    if base is None or base.state != "published" or base.projection_name != "settlement":
+        raise ValueError("score sparse base generation is not published")
+    generation = session.get(SettlementProjectionGeneration, generation_id)
+    if (
+        generation is None
+        or generation.state != "staging"
+        or generation.projection_name != "settlement"
+        or generation.generation_kind != "lineage"
+        or generation.base_generation_id != base_generation_id
+    ):
+        raise ValueError("score sparse generation is not writable")
+    if int(generation.lineage_depth) != int(base.lineage_depth) + 1:
+        raise ValueError("score sparse generation lineage is inconsistent")
+    requested_stores, eligible_stores = _score_sparse_stores(
+        session, affected_store_ids
+    )
+    versions = _score_sparse_rule_versions(session, published_rule_ids)
+    rule_version_ids = tuple(row.rule_version_id for row in versions)
+    contract = _score_sparse_contract(
+        generation_id=generation_id,
+        base_generation_id=base_generation_id,
+        affected_store_ids=requested_stores,
+        rule_version_ids=rule_version_ids,
+        snapshot_date=target_date,
+        batch_size=batch_size,
+        closure_policy_hash=closure_policy_hash,
+    )
+    source_input = generation.source_input_json
+    if source_input is not None and not isinstance(source_input, Mapping):
+        raise ValueError("score sparse generation source input is malformed")
+    existing_contract = (source_input or {}).get("score")
+    if existing_contract is not None and existing_contract != contract:
+        raise ValueError("score sparse generation input conflicts with prior attempt")
+    resumed = bool(
+        session.scalar(
+            select(func.count())
+            .select_from(SettlementProjectionPartitionManifest)
+            .where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact == "score",
+            )
+        )
+    )
+    return (
+        generation,
+        requested_stores,
+        eligible_stores,
+        versions,
+        target_date,
+        contract,
+        resumed,
+    )
+
+
+def _score_sparse_run_payload(
+    *,
+    generation: SettlementProjectionGeneration,
+    base_generation_id: str,
+    rule_version_id: str,
+    snapshot_date: date,
+    window_start: datetime,
+    window_end: datetime,
+    affected_store_ids: tuple[str, ...],
+    closure_policy_hash: str,
+) -> dict[str, object]:
+    return {
+        "protocol": SCORE_SPARSE_PROTOCOL,
+        "mode": "projection_sparse",
+        "generation_id": generation.generation_id,
+        "parent_generation_id": base_generation_id,
+        "input_fingerprint": generation.input_fingerprint,
+        "snapshot_date": snapshot_date.isoformat(),
+        "rule_version_id": rule_version_id,
+        "window_start": window_start,
+        "window_end": window_end,
+        "affected_store_ids": list(affected_store_ids),
+        "closure_policy_hash": closure_policy_hash,
+    }
+
+
+def _score_sparse_materialize_run(
+    session: Session,
+    *,
+    generation: SettlementProjectionGeneration,
+    base_generation_id: str,
+    version: ClueAllocationRuleVersion,
+    snapshot_date: date,
+    affected_store_ids: tuple[str, ...],
+    eligible_stores: list[DimStore],
+    closure_policy_hash: str,
+    batch_size: int,
+) -> tuple[StoreScoreSnapshotRun, dict[str, StoreScoreSnapshot]]:
+    score_config = _resolve_store_score_config(
+        session, rule_version_id=version.rule_version_id
+    )
+    local_end = datetime.combine(snapshot_date, SCHEDULED_SCORE_REFRESH_TIME, SHANGHAI)
+    window_end = local_end.astimezone(timezone.utc)
+    window_start = window_end - timedelta(days=score_config.lookback_days)
+    payload = _score_sparse_run_payload(
+        generation=generation,
+        base_generation_id=base_generation_id,
+        rule_version_id=version.rule_version_id,
+        snapshot_date=snapshot_date,
+        window_start=window_start,
+        window_end=window_end,
+        affected_store_ids=affected_store_ids,
+        closure_policy_hash=closure_policy_hash,
+    )
+    digest = sha256(_score_sparse_json(payload)).hexdigest()
+    scheduled_key = f"projection-score:{digest}"
+    snapshot_run_id = f"score-projection-{digest}"
+    config_json = {
+        "projection_generation_id": generation.generation_id,
+        "projection_base_generation_id": base_generation_id,
+        "closure_policy_hash": closure_policy_hash,
+        "rule_version_id": version.rule_version_id,
+        "lookback_days": score_config.lookback_days,
+        "min_samples": score_config.min_samples,
+        "execution_mode": "formal",
+        "conversion_weight": str(score_config.conversion_weight),
+        "follow_24h_weight": str(score_config.follow_weight),
+        "store_weight": str(score_config.store_weight),
+        "scheduled_payload_sha256": digest,
+    }
+    values = {
+        "snapshot_run_id": snapshot_run_id,
+        "snapshot_date": snapshot_date,
+        "run_mode": "projection_sparse",
+        "scheduled_key": scheduled_key,
+        "window_start": window_start,
+        "window_end": window_end,
+        "candidate_store_count": len(eligible_stores),
+        "snapshot_count": len(eligible_stores),
+        "triggered_by": "settlement-finalize",
+        "config_json": config_json,
+        "computed_at": window_end,
+    }
+    dialect_name = getattr(getattr(session.bind, "dialect", None), "name", "")
+    if dialect_name == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert as dialect_insert
+
+        statement = dialect_insert(StoreScoreSnapshotRun).values(**values)
+        statement = statement.on_conflict_do_nothing(index_elements=["scheduled_key"])
+        session.execute(statement)
+    elif dialect_name == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert as dialect_insert
+
+        statement = dialect_insert(StoreScoreSnapshotRun).values(**values)
+        statement = statement.on_conflict_do_nothing(index_elements=["scheduled_key"])
+        session.execute(statement)
+    else:
+        existing = session.scalar(
+            select(StoreScoreSnapshotRun).where(
+                StoreScoreSnapshotRun.scheduled_key == scheduled_key
+            )
+        )
+        if existing is None:
+            session.add(StoreScoreSnapshotRun(**values))
+    session.flush()
+    run = session.scalar(
+        select(StoreScoreSnapshotRun)
+        .where(StoreScoreSnapshotRun.scheduled_key == scheduled_key)
+        .with_for_update()
+    )
+    if run is None:
+        raise ValueError("score sparse run could not be materialized")
+    if (
+        run.snapshot_run_id != snapshot_run_id
+        or run.snapshot_date != snapshot_date
+        or run.run_mode != "projection_sparse"
+        or run.candidate_store_count != len(eligible_stores)
+        or run.snapshot_count != len(eligible_stores)
+        or _aware(run.window_start) != window_start
+        or _aware(run.window_end) != window_end
+        or run.config_json != config_json
+    ):
+        raise ValueError("existing score sparse run conflicts with canonical input")
+
+    expected_store_ids = {store.store_id for store in eligible_stores}
+    existing_snapshots = {
+        row.store_id: row
+        for row in session.scalars(
+            select(StoreScoreSnapshot)
+            .where(StoreScoreSnapshot.snapshot_run_id == snapshot_run_id)
+            .order_by(StoreScoreSnapshot.store_id)
+        )
+    }
+    if set(existing_snapshots) == expected_store_ids:
+        for row in existing_snapshots.values():
+            if (
+                row.snapshot_date != snapshot_date
+                or row.run_mode != "projection_sparse"
+                or _aware(row.window_start) != window_start
+                or _aware(row.window_end) != window_end
+                or row.config_json != config_json
+            ):
+                raise ValueError("existing score snapshot conflicts with canonical run")
+        return run, existing_snapshots
+    foreign_sidecars = session.scalar(
+        select(func.count())
+        .select_from(StoreScoreSnapshotGeneration)
+        .where(
+            StoreScoreSnapshotGeneration.snapshot_run_id == snapshot_run_id,
+            StoreScoreSnapshotGeneration.generation_id != generation.generation_id,
+        )
+    )
+    if foreign_sidecars:
+        raise ValueError("partial score run is referenced by another generation")
+    session.execute(
+        delete(StoreScoreSnapshotGeneration).where(
+            StoreScoreSnapshotGeneration.snapshot_run_id == snapshot_run_id,
+            StoreScoreSnapshotGeneration.generation_id == generation.generation_id,
+        )
+    )
+    session.execute(
+        delete(StoreScoreSnapshot).where(
+            StoreScoreSnapshot.snapshot_run_id == snapshot_run_id
+        )
+    )
+
+    metrics_by_store = _formal_store_metrics(
+        session, eligible_stores, window_start, window_end
+    )
+    city_metrics = _aggregate_city_metrics(eligible_stores, metrics_by_store)
+    global_metrics = _sum_metrics(metrics_by_store.values())
+    pending: list[dict[str, object]] = []
+    for store in eligible_stores:
+        own_metrics = metrics_by_store.get(store.store_id, StoreMetrics())
+        city_metric = city_metrics.get(store.city_code or "", StoreMetrics())
+        conversion_rate, conversion_source = _resolved_rate(
+            own_metrics.conversion_numerator,
+            own_metrics.conversion_denominator,
+            city_metric.conversion_numerator,
+            city_metric.conversion_denominator,
+            global_metrics.conversion_numerator,
+            global_metrics.conversion_denominator,
+            score_config.min_samples,
+        )
+        follow_rate, follow_source = _resolved_rate(
+            own_metrics.follow_24h_numerator,
+            own_metrics.follow_24h_denominator,
+            city_metric.follow_24h_numerator,
+            city_metric.follow_24h_denominator,
+            global_metrics.follow_24h_numerator,
+            global_metrics.follow_24h_denominator,
+            score_config.min_samples,
+        )
+        score = (
+            conversion_rate * score_config.conversion_weight
+            + follow_rate * score_config.follow_weight
+        ) * score_config.store_weight
+        pending.append(
+            {
+                "snapshot_id": f"{snapshot_run_id}-{store.store_id}",
+                "snapshot_run_id": snapshot_run_id,
+                "snapshot_date": snapshot_date,
+                "run_mode": "projection_sparse",
+                "store_id": store.store_id,
+                "city_code": store.city_code,
+                "window_start": window_start,
+                "window_end": window_end,
+                "conversion_numerator": own_metrics.conversion_numerator,
+                "conversion_denominator": own_metrics.conversion_denominator,
+                "conversion_rate": conversion_rate,
+                "conversion_value_source": conversion_source,
+                "follow_24h_numerator": own_metrics.follow_24h_numerator,
+                "follow_24h_denominator": own_metrics.follow_24h_denominator,
+                "follow_24h_rate": follow_rate,
+                "follow_24h_value_source": follow_source,
+                "conversion_weight": score_config.conversion_weight,
+                "follow_24h_weight": score_config.follow_weight,
+                "store_weight": score_config.store_weight,
+                "composite_score": score,
+                "config_json": config_json,
+                "computed_at": window_end,
+            }
+        )
+        if len(pending) == batch_size:
+            session.execute(insert(StoreScoreSnapshot), pending)
+            pending.clear()
+    if pending:
+        session.execute(insert(StoreScoreSnapshot), pending)
+    session.flush()
+    snapshots = {
+        row.store_id: row
+        for row in session.scalars(
+            select(StoreScoreSnapshot)
+            .where(StoreScoreSnapshot.snapshot_run_id == snapshot_run_id)
+            .order_by(StoreScoreSnapshot.store_id)
+        )
+    }
+    if set(snapshots) != expected_store_ids:
+        raise ValueError("score sparse run is incomplete")
+    return run, snapshots
+
+
+def _score_sparse_snapshot_envelope(row: StoreScoreSnapshot) -> dict[str, object]:
+    return {
+        "snapshot_id": row.snapshot_id,
+        "snapshot_run_id": row.snapshot_run_id,
+        "snapshot_date": row.snapshot_date,
+        "run_mode": row.run_mode,
+        "store_id": row.store_id,
+        "city_code": row.city_code,
+        "window_start": row.window_start,
+        "window_end": row.window_end,
+        "conversion_numerator": row.conversion_numerator,
+        "conversion_denominator": row.conversion_denominator,
+        "conversion_rate": row.conversion_rate,
+        "conversion_value_source": row.conversion_value_source,
+        "follow_24h_numerator": row.follow_24h_numerator,
+        "follow_24h_denominator": row.follow_24h_denominator,
+        "follow_24h_rate": row.follow_24h_rate,
+        "follow_24h_value_source": row.follow_24h_value_source,
+        "conversion_weight": row.conversion_weight,
+        "follow_24h_weight": row.follow_24h_weight,
+        "store_weight": row.store_weight,
+        "composite_score": row.composite_score,
+        "config_json": row.config_json,
+        "computed_at": row.computed_at,
+    }
+
+
+def _score_sparse_empty_digest() -> str:
+    return sha256(_score_sparse_json({"rows": []})).hexdigest()
+
+
+def _score_sparse_row_digest(row: StoreScoreSnapshot) -> str:
+    return sha256(
+        bytes.fromhex(_score_sparse_empty_digest())
+        + _score_sparse_json(_score_sparse_snapshot_envelope(row))
+    ).hexdigest()
+
+
+def _score_sparse_last_key(
+    *,
+    snapshot_date: date,
+    rule_version_id: str,
+    store_id: str,
+    snapshot_run_id: str,
+    snapshot_id: str,
+) -> str:
+    return _score_sparse_json(
+        {
+            "artifact": "score",
+            "cursor": {
+                "snapshot_date": snapshot_date.isoformat(),
+                "rule_version_id": rule_version_id,
+                "store_id": store_id,
+                "snapshot_run_id": snapshot_run_id,
+                "snapshot_id": snapshot_id,
+            },
+        }
+    ).decode("utf-8")
+
+
+def _score_sparse_write_rule(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    version_id: str,
+    snapshot_date: date,
+    affected_store_ids: tuple[str, ...],
+    closure_policy_hash: str,
+    batch_size: int,
+    contract: Mapping[str, object],
+) -> tuple[str, tuple[str, ...]]:
+    with session_factory() as session:
+        generation = session.scalar(
+            select(SettlementProjectionGeneration)
+            .where(SettlementProjectionGeneration.generation_id == generation_id)
+            .with_for_update()
+        )
+        if (
+            generation is None
+            or generation.state != "staging"
+            or generation.base_generation_id != base_generation_id
+        ):
+            raise ValueError("score sparse generation is not writable")
+        active = session.get(SettlementProjectionActive, "settlement")
+        if active is None or active.generation_id != base_generation_id:
+            raise ValueError("active settlement pointer changed during score build")
+        source_input = dict(generation.source_input_json or {})
+        existing_contract = source_input.get("score")
+        if existing_contract is not None and existing_contract != dict(contract):
+            raise ValueError("score sparse generation input conflicts with prior attempt")
+        source_input["score"] = dict(contract)
+        generation.source_input_json = source_input
+
+        version = session.get(ClueAllocationRuleVersion, version_id)
+        if version is None or version.status != "published":
+            raise ValueError("published score rule version disappeared")
+        stores: list[DimStore] = []
+        for index in range(0, len(affected_store_ids), 400):
+            stores.extend(
+                session.scalars(
+                    select(DimStore)
+                    .where(
+                        DimStore.store_id.in_(
+                            affected_store_ids[index : index + 400]
+                        )
+                    )
+                    .order_by(DimStore.store_id)
+                )
+            )
+        eligible_stores = sorted(
+            (store for store in stores if _is_candidate_eligible(store)),
+            key=lambda store: store.store_id,
+        )
+        run, snapshots = _score_sparse_materialize_run(
+            session,
+            generation=generation,
+            base_generation_id=base_generation_id,
+            version=version,
+            snapshot_date=snapshot_date,
+            affected_store_ids=affected_store_ids,
+            eligible_stores=eligible_stores,
+            closure_policy_hash=closure_policy_hash,
+            batch_size=batch_size,
+        )
+        partition_keys = tuple(
+            canonical_score_partition_key(snapshot_date, version_id, store_id)
+            for store_id in affected_store_ids
+        )
+        session.execute(
+            delete(StoreScoreSnapshotGeneration).where(
+                StoreScoreSnapshotGeneration.generation_id == generation_id,
+                StoreScoreSnapshotGeneration.rule_version_id == version_id,
+                StoreScoreSnapshotGeneration.snapshot_date == snapshot_date,
+                StoreScoreSnapshotGeneration.store_id.in_(affected_store_ids),
+            )
+        )
+        session.execute(
+            delete(SettlementProjectionPartitionManifest).where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact == "score",
+                SettlementProjectionPartitionManifest.partition_key.in_(partition_keys),
+            )
+        )
+        sidecars: list[dict[str, object]] = []
+        manifests: list[dict[str, object]] = []
+        for store_id, partition_key in zip(affected_store_ids, partition_keys):
+            snapshot = snapshots.get(store_id)
+            if snapshot is None:
+                manifests.append(
+                    {
+                        "generation_id": generation_id,
+                        "artifact": "score",
+                        "partition_key": partition_key,
+                        "owner_state": "tombstone",
+                        "source_kind": "tombstone",
+                        "data_generation_id": None,
+                        "reference_head_generation_id": None,
+                        "base_generation_id": base_generation_id,
+                        "row_count": 0,
+                        "amount_total_cent": 0,
+                        "status_counts_json": {},
+                        "checksum": _score_sparse_empty_digest(),
+                        "last_key": None,
+                    }
+                )
+                continue
+            partition_checksum = _score_sparse_row_digest(snapshot)
+            sidecars.append(
+                {
+                    "generation_id": generation_id,
+                    "snapshot_run_id": run.snapshot_run_id,
+                    "store_id": store_id,
+                    "rule_version_id": version_id,
+                    "snapshot_date": snapshot_date,
+                    "partition_key": partition_key,
+                    "owner_state": "owned",
+                    "checksum": partition_checksum,
+                }
+            )
+            manifests.append(
+                {
+                    "generation_id": generation_id,
+                    "artifact": "score",
+                    "partition_key": partition_key,
+                    "owner_state": "owned",
+                    "source_kind": "overlay",
+                    "data_generation_id": generation_id,
+                    "reference_head_generation_id": None,
+                    "base_generation_id": base_generation_id,
+                    "row_count": 1,
+                    "amount_total_cent": 0,
+                    "status_counts_json": {},
+                    "checksum": partition_checksum,
+                    "last_key": _score_sparse_last_key(
+                        snapshot_date=snapshot_date,
+                        rule_version_id=version_id,
+                        store_id=store_id,
+                        snapshot_run_id=run.snapshot_run_id,
+                        snapshot_id=snapshot.snapshot_id,
+                    ),
+                }
+            )
+        for index in range(0, len(sidecars), batch_size):
+            session.execute(
+                insert(StoreScoreSnapshotGeneration),
+                sidecars[index : index + batch_size],
+            )
+        for index in range(0, len(manifests), batch_size):
+            session.execute(
+                insert(SettlementProjectionPartitionManifest),
+                manifests[index : index + batch_size],
+            )
+        session.commit()
+        return run.snapshot_run_id, partition_keys
+
+
+def _score_sparse_finalize(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    target_date: date,
+    rule_version_ids: tuple[str, ...],
+    snapshot_run_ids: tuple[str, ...],
+    contract: Mapping[str, object],
+    resumed: bool,
+) -> ScoreManifest:
+    from apps.worker.legacy_projection_bootstrap import _manifest_checksum
+
+    with session_factory() as session:
+        generation = session.scalar(
+            select(SettlementProjectionGeneration)
+            .where(SettlementProjectionGeneration.generation_id == generation_id)
+            .with_for_update()
+        )
+        if (
+            generation is None
+            or generation.state != "staging"
+            or generation.base_generation_id != base_generation_id
+        ):
+            raise ValueError("score sparse generation is not writable")
+        active = session.get(SettlementProjectionActive, "settlement")
+        if active is None or active.generation_id != base_generation_id:
+            raise ValueError("active settlement pointer changed before score finalize")
+        manifest_rows = [
+            dict(row)
+            for row in session.execute(
+                select(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                    SettlementProjectionPartitionManifest.owner_state,
+                    SettlementProjectionPartitionManifest.source_kind,
+                    SettlementProjectionPartitionManifest.data_generation_id,
+                    SettlementProjectionPartitionManifest.base_generation_id,
+                    SettlementProjectionPartitionManifest.row_count,
+                    SettlementProjectionPartitionManifest.amount_total_cent,
+                    SettlementProjectionPartitionManifest.status_counts_json,
+                    SettlementProjectionPartitionManifest.checksum,
+                )
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id == generation_id
+                )
+                .order_by(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                )
+            ).mappings()
+        ]
+        manifest_checksum = _manifest_checksum(manifest_rows)
+        manifest_count = len(manifest_rows)
+        row_count = sum(int(row["row_count"]) for row in manifest_rows)
+        write_rows = 1 + manifest_count + row_count
+        write_bytes = 16_384 + 4_096 * (manifest_count + row_count)
+        generation.estimated_write_rows = write_rows
+        generation.estimated_write_bytes = write_bytes
+        generation.estimated_wal_bytes = 2 * write_bytes
+        generation.estimated_disk_headroom_bytes = 0
+        checkpoint = dict(generation.checkpoint_json or {})
+        checkpoint.update(
+            {
+                "phase": "score_ready",
+                "score": dict(contract),
+                "score_manifest_count": sum(
+                    1 for row in manifest_rows if row["artifact"] == "score"
+                ),
+                "score_row_count": sum(
+                    int(row["row_count"])
+                    for row in manifest_rows
+                    if row["artifact"] == "score"
+                ),
+                "manifest_count": manifest_count,
+                "row_count": row_count,
+                "expected_active_pointer": base_generation_id,
+            }
+        )
+        generation.checkpoint_json = checkpoint
+        generation.manifest_checksum = manifest_checksum
+        source_input = dict(generation.source_input_json or {})
+        source_input["score"] = dict(contract)
+        generation.source_input_json = source_input
+        session.commit()
+
+        score_manifests = list(
+            session.scalars(
+                select(SettlementProjectionPartitionManifest)
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id == generation_id,
+                    SettlementProjectionPartitionManifest.artifact == "score",
+                )
+                .order_by(SettlementProjectionPartitionManifest.partition_key)
+            )
+        )
+        return ScoreManifest(
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            snapshot_date=target_date,
+            rule_version_ids=rule_version_ids,
+            snapshot_run_ids=snapshot_run_ids,
+            partition_keys=tuple(row.partition_key for row in score_manifests),
+            manifest_count=len(score_manifests),
+            row_count=sum(int(row.row_count) for row in score_manifests),
+            manifest_checksum=manifest_checksum,
+            resumed=resumed,
+        )
+
+
+def build_score_sparse_overlay(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_store_ids: Iterable[str],
+    published_rule_ids: Iterable[str],
+    snapshot_date: date | str,
+    batch_size: int,
+    closure_policy_hash: str,
+) -> ScoreManifest:
+    """Build generation-owned score partitions without mutating legacy rows."""
+
+    if not callable(session_factory):
+        raise TypeError("session_factory must be callable")
+    with session_factory() as session:
+        (
+            _generation,
+            stores,
+            _eligible,
+            versions,
+            target_date,
+            contract,
+            resumed,
+        ) = _score_sparse_preflight(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            affected_store_ids=affected_store_ids,
+            published_rule_ids=published_rule_ids,
+            snapshot_date=snapshot_date,
+            batch_size=batch_size,
+            closure_policy_hash=closure_policy_hash,
+        )
+    run_ids: list[str] = []
+    for version in versions:
+        run_id, _partition_keys = _score_sparse_write_rule(
+            session_factory,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            version_id=version.rule_version_id,
+            snapshot_date=target_date,
+            affected_store_ids=stores,
+            closure_policy_hash=closure_policy_hash,
+            batch_size=batch_size,
+            contract=contract,
+        )
+        run_ids.append(run_id)
+    return _score_sparse_finalize(
+        session_factory,
+        generation_id=generation_id,
+        base_generation_id=base_generation_id,
+        target_date=target_date,
+        rule_version_ids=tuple(row.rule_version_id for row in versions),
+        snapshot_run_ids=tuple(run_ids),
+        contract=contract,
+        resumed=resumed,
+    )
 
 
 def refresh_store_score_snapshots(
