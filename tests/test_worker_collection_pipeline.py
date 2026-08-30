@@ -98,6 +98,10 @@ class FakeDefaultCollectionClient:
     def iter_orders(self, start: datetime, end: datetime):
         return iter(())
 
+    def iter_refunds(self, start: datetime, end: datetime, *, page_size: int = 100):
+        _ = (start, end, page_size)
+        return iter(())
+
     def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None):
         return {"data": {"pois": [], "has_more": False}}
 

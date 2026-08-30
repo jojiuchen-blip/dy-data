@@ -83,6 +83,9 @@ class RawDouyinOrder(Base):
     intention_poi_id: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -121,6 +124,9 @@ class RawDouyinOrderCoupon(Base):
     latest_refund_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 @event.listens_for(RawDouyinOrderCoupon, "before_insert")
@@ -153,6 +159,9 @@ class RawDouyinVerifyRecord(Base):
     cancel_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 class RawAwemeBinding(Base):
@@ -197,8 +206,63 @@ class RawDouyinClue(Base):
     author_nickname: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_file: Mapped[str | None] = mapped_column(Text)
+    source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RawDouyinRefundRecord(Base):
+    """Raw evidence returned by the Douyin after-sale/refund API."""
+
+    __tablename__ = "raw_douyin_refund_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_record_key",
+            name="uk_raw_douyin_refund_record_source_record_key",
+        ),
+        Index(
+            "idx_raw_douyin_refund_record_order_observed",
+            "order_id",
+            "source_observed_at",
+        ),
+        Index("idx_raw_douyin_refund_record_refund_id", "refund_id"),
+        Index("idx_raw_douyin_refund_record_source_run", "source_run_id"),
+        CheckConstraint(
+            "normalized_refund_status BETWEEN 0 AND 4",
+            name="ck_raw_douyin_refund_record_normalized_status",
+        ),
+        CheckConstraint(
+            "refund_amount_cent >= 0",
+            name="ck_raw_douyin_refund_record_amount",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_record_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    account_id: Mapped[str | None] = mapped_column(String(64))
+    order_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    refund_id: Mapped[str | None] = mapped_column(String(128))
+    raw_refund_status: Mapped[str | None] = mapped_column(String(128))
+    normalized_refund_status: Mapped[int] = mapped_column(Integer, default=0)
+    refund_amount_cent: Mapped[int | None] = mapped_column(BigInteger)
+    refund_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refund_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_run_id: Mapped[str | None] = mapped_column(String(64))
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    gmt_create: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    gmt_modified: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class DimStore(Base):
@@ -537,6 +601,10 @@ class DimStorePoiMapping(Base):
     poi_name: Mapped[str | None] = mapped_column(Text)
     mapping_source: Mapped[str | None] = mapped_column(Text)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_run_id: Mapped[str | None] = mapped_column(Text)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 class DimSkuProductRule(Base):
@@ -1013,6 +1081,9 @@ class DouyinRefundEvent(Base):
     refund_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     source_run_id: Mapped[str | None] = mapped_column(String(128))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     successful_observed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True
@@ -1034,6 +1105,149 @@ def _freeze_refund_success_observed_at(
 ) -> None:
     if target.refund_status == 2 and target.successful_observed_at is None:
         target.successful_observed_at = utcnow()
+
+
+class JobImpact(Base):
+    """Durable, deduplicated change-capture record for incremental stages."""
+
+    __tablename__ = "job_impacts"
+    __table_args__ = (
+        UniqueConstraint("impact_key", name="uk_job_impacts_impact_key"),
+        Index("ix_job_impacts_entity_order", "entity_type", "entity_key", "id"),
+        Index("ix_job_impacts_created", "created_at", "id"),
+        Index("ix_job_impacts_source_run", "source_run_id"),
+        Index("ix_job_impacts_source_run_id_id", "source_run_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    impact_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    change_kind: Mapped[str] = mapped_column(String(32), default="upsert")
+    old_values_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    new_values_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    affected_closure_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    source_run_id: Mapped[str | None] = mapped_column(String(128))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueMaterializationWorkItem(Base):
+    """Stable keyset item materialized from one change-capture record."""
+
+    __tablename__ = "clue_materialization_work_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope", "impact_id", name="uk_clue_materialization_work_scope_impact"
+        ),
+        Index(
+            "ix_clue_materialization_work_scope_state",
+            "scope",
+            "state",
+            "work_item_id",
+        ),
+        Index("ix_clue_materialization_work_impact", "impact_id"),
+        Index(
+            "ix_clue_materialization_work_lease",
+            "state",
+            "lease_expires_at",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'processing', 'completed')",
+            name="ck_clue_materialization_work_state",
+        ),
+    )
+
+    work_item_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    impact_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("job_impacts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), default="pending")
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    raw_cursor: Mapped[str | None] = mapped_column(Text)
+    raw_page_complete: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    center_cursor: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueMaterializationTarget(Base):
+    """Durable cycle-level marker for bounded raw and center fanout."""
+
+    __tablename__ = "clue_materialization_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "cycle_id",
+            "target_type",
+            "target_key",
+            name="uk_clue_materialization_target_cycle_key",
+        ),
+        Index(
+            "ix_clue_materialization_target_cycle_type_key",
+            "scope",
+            "cycle_id",
+            "target_type",
+            "target_key",
+        ),
+        CheckConstraint(
+            "target_type IN ('raw', 'center')",
+            name="ck_clue_materialization_target_type",
+        ),
+    )
+
+    target_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    cycle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobImpactWatermark(Base):
+    """Frozen upper bound and cursor for one bounded incremental pass."""
+
+    __tablename__ = "job_impact_watermarks"
+    __table_args__ = (
+        Index("ix_job_impact_watermarks_upper_bound", "frozen_upper_bound_id"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(128), primary_key=True)
+    cycle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_upper_bound_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    last_work_item_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+ClueMaterializationCheckpoint = JobImpactWatermark
+ImpactWatermark = JobImpactWatermark
 
 
 class SettlementFeeResult(Base):

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Mapping
+import json
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, TypeVar
 from uuid import uuid4
 
-from sqlalchemy import and_, case, exists, func, literal_column, or_, select, text, update
+from sqlalchemy import and_, case, exists, func, insert, literal, literal_column, or_, select, text, update
 from sqlalchemy.orm import Session, aliased
 
 from apps.api.dy_api.models import (
@@ -19,12 +20,17 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     JobAttempt,
     JobEvent,
+    JobImpact,
+    JobImpactWatermark,
+    ClueMaterializationWorkItem,
+    ClueMaterializationTarget,
     JobRun,
     RawAwemeBinding,
     RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
     RawDouyinVerifyRecord,
+    DouyinRefundEvent,
     utcnow,
 )
 from apps.worker.daily_windows import (
@@ -33,223 +39,6 @@ from apps.worker.daily_windows import (
 )
 
 ModelT = TypeVar("ModelT")
-
-
-def _merge(
-    session: Session,
-    model: type[ModelT],
-    keys: Mapping[str, Any],
-    values: Mapping[str, Any],
-    *,
-    flush: bool = True,
-) -> ModelT:
-    payload = {**keys, **values}
-    row = session.merge(model(**payload))
-    if flush:
-        session.flush()
-    return row
-
-
-def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyinOrder:
-    row = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
-    if row is None:
-        row = RawDouyinOrder(order_id=order_id, **values)
-        session.add(row)
-    else:
-        for field_name, value in values.items():
-            setattr(row, field_name, value)
-    session.flush()
-    return row
-
-
-def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDouyinClue:
-    return _merge(session, RawDouyinClue, {"clue_row_key": clue_row_key}, values)
-
-
-def upsert_order_coupon(
-    session: Session,
-    coupon_id: str,
-    order_id: str,
-    **values: Any,
-) -> RawDouyinOrderCoupon:
-    order = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
-    if order is None:
-        raise ValueError(f"raw order does not exist: order_id={order_id}")
-
-    row = session.scalar(
-        select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == coupon_id)
-    )
-    payload = {"order_id": order_id, "raw_order_id": order.id, **values}
-    if row is None:
-        row = RawDouyinOrderCoupon(coupon_id=coupon_id, **payload)
-        session.add(row)
-    else:
-        for field_name, value in payload.items():
-            setattr(row, field_name, value)
-    session.flush()
-    return row
-
-
-def upsert_verify_record(session: Session, verify_id: str, **values: Any) -> RawDouyinVerifyRecord:
-    return _merge(session, RawDouyinVerifyRecord, {"verify_id": verify_id}, values)
-
-
-def upsert_aweme_binding(session: Session, binding_key: str, **values: Any) -> RawAwemeBinding:
-    return _merge(session, RawAwemeBinding, {"binding_key": binding_key}, values)
-
-
-def upsert_store(session: Session, store_id: str, store_name: str, **values: Any) -> DimStore:
-    return _merge(session, DimStore, {"store_id": store_id, "store_name": store_name}, values)
-
-
-def upsert_store_poi_mapping(
-    session: Session,
-    store_id: str,
-    poi_id: str,
-    **values: Any,
-) -> DimStorePoiMapping:
-    return _merge(session, DimStorePoiMapping, {"store_id": store_id, "poi_id": poi_id}, values)
-
-
-def upsert_sku_product_rule(
-    session: Session,
-    sku_id: str,
-    product_type: str,
-    **values: Any,
-) -> DimSkuProductRule:
-    row = session.scalar(
-        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
-    )
-    payload = {"product_type": product_type, **values}
-    if row is None:
-        row = DimSkuProductRule(sku_id=sku_id, **payload)
-        session.add(row)
-    else:
-        for field_name, value in payload.items():
-            setattr(row, field_name, value)
-    session.flush()
-    return row
-
-
-def upsert_aweme_account(session: Session, account_id: str, **values: Any) -> DimAwemeAccount:
-    return _merge(session, DimAwemeAccount, {"account_id": account_id}, values)
-
-
-def start_job_run(
-    session: Session,
-    job_id: str,
-    job_name: str,
-    *,
-    metadata_json: dict[str, Any] | None = None,
-    started_at: datetime | None = None,
-) -> JobRun:
-    return _merge(
-        session,
-        JobRun,
-        {"job_id": job_id},
-        {
-            "job_name": job_name,
-            "status": "running",
-            "started_at": started_at or utcnow(),
-            "finished_at": None,
-            "success_count": 0,
-            "failed_count": 0,
-            "error_message": None,
-            "metadata_json": metadata_json or {},
-        },
-    )
-
-
-def queue_job_run(
-    session: Session,
-    job_id: str,
-    job_name: str,
-    *,
-    metadata_json: dict[str, Any] | None = None,
-    started_at: datetime | None = None,
-) -> JobRun:
-    return _merge(
-        session,
-        JobRun,
-        {"job_id": job_id},
-        {
-            "job_name": job_name,
-            "status": "queued",
-            "started_at": started_at or utcnow(),
-            "finished_at": None,
-            "success_count": 0,
-            "failed_count": 0,
-            "error_message": None,
-            "metadata_json": metadata_json or {},
-        },
-    )
-
-
-def finish_job_run(
-    session: Session,
-    job_id: str,
-    *,
-    status: str,
-    success_count: int = 0,
-    failed_count: int = 0,
-    error_message: str | None = None,
-    finished_at: datetime | None = None,
-) -> JobRun:
-    job = session.get(JobRun, job_id)
-    if job is None:
-        raise ValueError(f"Unknown job_id: {job_id}")
-    job.status = status
-    job.success_count = success_count
-    job.failed_count = failed_count
-    job.error_message = error_message
-    job.finished_at = finished_at or utcnow()
-    session.flush()
-    return job
-
-
-def upsert_data_quality_issue(
-    session: Session,
-    issue_id: str,
-    *,
-    issue_type: str,
-    message: str,
-    order_id: str | None = None,
-    coupon_id: str | None = None,
-    severity: str = "warning",
-    raw_context_json: dict[str, Any] | None = None,
-    source_run_id: str | None = None,
-    flush: bool = True,
-) -> DataQualityIssue:
-    values = {
-        "issue_type": issue_type,
-        "order_id": order_id,
-        "coupon_id": coupon_id,
-        "severity": severity,
-        "message": message,
-        "raw_context_json": raw_context_json or {},
-        "source_run_id": source_run_id,
-    }
-    if not flush:
-        pending_issue = next(
-            (
-                row
-                for row in session.new
-                if isinstance(row, DataQualityIssue) and row.issue_id == issue_id
-            ),
-            None,
-        )
-        if pending_issue is not None:
-            for field, value in values.items():
-                setattr(pending_issue, field, value)
-            return pending_issue
-    return _merge(
-        session,
-        DataQualityIssue,
-        {"issue_id": issue_id},
-        values,
-        flush=flush,
-    )
-
 
 HEAVY_SYNC_CLAIM_LOCK_KEY = 661893198734880846
 DOUYIN_RATE_LIMIT_ERROR_CODE = "douyin_rate_limited"
@@ -450,6 +239,1314 @@ def parent_sync_gate_allows_claim(session: Session, job: JobRun) -> bool:
         )
     )
     return len(parent_rows) == 1 and parent_rows[0].status == "success"
+
+
+def _merge(
+    session: Session,
+    model: type[ModelT],
+    keys: Mapping[str, Any],
+    values: Mapping[str, Any],
+    *,
+    flush: bool = True,
+) -> ModelT:
+    payload = {**keys, **values}
+    row = session.merge(model(**payload))
+    if flush:
+        session.flush()
+    return row
+
+
+_AUDIT_FIELDS = {
+    "raw_payload",
+    "source_run_id",
+    "payload_fingerprint",
+    "source_observed_at",
+    "observation_key",
+    "fetched_at",
+    "source_window_start",
+    "source_window_end",
+    "source_file",
+    "imported_at",
+    "updated_at",
+    "created_at",
+    "gmt_create",
+    "gmt_modified",
+}
+
+_STALE_SAFE_AUDIT_FIELDS = {
+    "source_run_id",
+    "fetched_at",
+    "source_window_start",
+    "source_window_end",
+    "updated_at",
+}
+
+_CANONICAL_FIELDS: dict[type[Any], tuple[str, ...]] = {
+    RawDouyinOrder: (
+        "order_id",
+        "order_status_normalized",
+        "sku_id",
+        "product_name",
+        "pay_time",
+        "sale_time",
+        "create_order_time",
+        "paid_amount_cent",
+        "order_paid_amount_cent",
+        "owner_account_id",
+        "owner_douyin_uid",
+        "owner_account_name",
+        "sale_role",
+        "sale_channel_normalized",
+        "intention_poi_id",
+    ),
+    RawDouyinOrderCoupon: (
+        "coupon_id",
+        "order_id",
+        "order_item_id",
+        "coupon_status_normalized",
+        "coupon_paid_amount_cent",
+        "coupon_updated_at",
+        "coupon_refunded_cent",
+        "coupon_refunded_amount_cent",
+        "coupon_refund_time",
+        "latest_refund_at",
+    ),
+    RawDouyinClue: (
+        "clue_row_key",
+        "clue_id",
+        "create_time_detail",
+        "modify_time",
+        "product_id",
+        "product_name",
+        "order_id",
+        "follow_life_account_id",
+        "follow_life_account_name",
+        "follow_poi_id",
+        "intention_poi_id",
+        "auto_city_name",
+        "auto_province_name",
+    ),
+    RawDouyinVerifyRecord: (
+        "verify_id",
+        "coupon_id",
+        "verify_time",
+        "poi_id",
+        "verify_store_name_raw",
+        "sku_id",
+        "product_name",
+        "paid_amount_cent",
+        "cancel_time",
+    ),
+    DimStorePoiMapping: (
+        "store_id",
+        "poi_id",
+        "poi_name",
+        "is_primary",
+    ),
+    DouyinRefundEvent: (
+        "refund_event_id",
+        "order_id",
+        "coupon_id",
+        "refund_type",
+        "refund_status",
+        "refund_amount_cent",
+        "occurred_at",
+    ),
+}
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple, set)):
+        return [_json_safe(item) for item in value]
+    if hasattr(value, "to_eng_string"):
+        return str(value)
+    return value
+
+
+def payload_fingerprint(payload: Any) -> str:
+    """Stable SHA-256 fingerprint for raw source evidence (never a business key)."""
+
+    return hashlib.sha256(
+        json.dumps(_json_safe(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+
+
+def _clue_source_identity_key(
+    *,
+    clue_row_key: Any,
+    clue_id: Any,
+    order_id: Any,
+    telephone: Any,
+    enc_telephone: Any,
+) -> str:
+    """Mirror the materializer's stable clue identity for impact closure."""
+
+    clean_order = str(order_id).strip() if order_id not in (None, "") else None
+    clean_contact = None
+    for value in (telephone, enc_telephone):
+        if value not in (None, ""):
+            clean_contact = str(value).strip()
+            if clean_contact:
+                break
+    clean_clue = str(clue_id).strip() if clue_id not in (None, "") else None
+    clean_row = str(clue_row_key).strip() if clue_row_key not in (None, "") else ""
+    if clean_order and clean_contact:
+        source = f"order-contact|{clean_order}|{clean_contact}"
+    elif clean_clue:
+        source = f"clue|{clean_clue}"
+    else:
+        source = f"raw|{clean_row}"
+    return f"identity-{hashlib.sha256(source.encode('utf-8')).hexdigest()[:32]}"
+
+
+def _canonical_values(row: Any) -> dict[str, Any]:
+    fields = _CANONICAL_FIELDS.get(type(row), ())
+    values = {field: _json_safe(getattr(row, field, None)) for field in fields}
+    if isinstance(row, RawDouyinClue):
+        contact_payload = {
+            "name": getattr(row, "name", None),
+            "telephone": getattr(row, "telephone", None),
+            "enc_telephone": getattr(row, "enc_telephone", None),
+            "author_nickname": getattr(row, "author_nickname", None),
+        }
+        values["contact_identity_digest"] = hashlib.sha256(
+            json.dumps(
+                _json_safe(contact_payload),
+                ensure_ascii=False,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        values["order_status_normalized"] = _normalize_clue_status(
+            getattr(row, "order_status", None)
+        )
+    if isinstance(row, RawDouyinVerifyRecord):
+        values["verify_status_normalized"] = _normalize_verify_status(
+            getattr(row, "verify_status", None),
+            getattr(row, "cancel_time", None),
+        )
+    return values
+
+
+def _normalize_clue_status(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if "退款" in normalized or normalized in {
+        "refund",
+        "refunded",
+        "fully_refunded",
+        "50",
+    }:
+        return "refunded"
+    if "核销" in normalized or normalized in {
+        "verified",
+        "verify",
+        "success",
+        "fulfilled",
+        "used",
+    }:
+        return "verified"
+    if normalized in {"履约中", "201", "active", "processing", "pending"}:
+        return "active"
+    return "unknown"
+
+
+def _normalize_verify_status(value: Any, cancel_time: Any = None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if cancel_time is not None or normalized in {
+        "2",
+        "cancelled",
+        "canceled",
+        "revoked",
+        "reversed",
+        "refunded",
+    }:
+        return "cancelled"
+    if normalized in {"1", "valid", "verified", "success", "fulfilled", "used"}:
+        return "verified"
+    return "unknown"
+
+
+def _comparable_observation_time(value: Any) -> datetime | None:
+    if not isinstance(value, datetime):
+        return None
+    return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _legacy_observation_lower_bound(
+    row: Any,
+    *,
+    session: Session | None = None,
+) -> datetime | None:
+    """Return the newest trusted timestamp available on a legacy row.
+
+    The observation metadata columns were added after several raw tables had
+    already been populated.  A null source timestamp therefore cannot mean
+    "accept any candidate"; existing ingestion/business timestamps provide a
+    conservative lower bound instead.  Coupon fallback is limited to its
+    parent order lookup and never scans unrelated rows.
+    """
+
+    values: list[Any] = [
+        getattr(row, "updated_at", None),
+        getattr(row, "created_at", None),
+        getattr(row, "imported_at", None),
+    ]
+    if isinstance(row, RawDouyinOrder):
+        values.extend(
+            getattr(row, field_name, None)
+            for field_name in ("pay_time", "sale_time", "create_order_time")
+        )
+    elif isinstance(row, RawDouyinClue):
+        values.extend(
+            getattr(row, field_name, None)
+            for field_name in ("modify_time", "create_time_detail")
+        )
+    elif isinstance(row, RawDouyinOrderCoupon):
+        values.extend(
+            getattr(row, field_name, None)
+            for field_name in (
+                "coupon_updated_at",
+                "latest_refund_at",
+                "coupon_refund_time",
+            )
+        )
+        if session is not None:
+            parent_updated_at = session.scalar(
+                select(RawDouyinOrder.updated_at).where(
+                    RawDouyinOrder.order_id == row.order_id
+                )
+            )
+            values.append(parent_updated_at)
+    elif isinstance(row, RawDouyinVerifyRecord):
+        values.extend(
+            getattr(row, field_name, None)
+            for field_name in ("cancel_time", "verify_time")
+        )
+    elif isinstance(row, DouyinRefundEvent):
+        values.extend(
+            getattr(row, field_name, None)
+            for field_name in ("successful_observed_at", "occurred_at")
+        )
+    comparable = [
+        timestamp
+        for value in values
+        if (timestamp := _comparable_observation_time(value)) is not None
+    ]
+    return max(comparable) if comparable else None
+
+
+def _observation_is_newer(
+    row: Any,
+    values: Mapping[str, Any],
+    *,
+    session: Session | None = None,
+) -> bool:
+    """Compare observations, failing closed against legacy stale replays."""
+
+    current_at = _comparable_observation_time(getattr(row, "source_observed_at", None))
+    candidate_at = _comparable_observation_time(values.get("source_observed_at"))
+    current_key = getattr(row, "observation_key", None)
+    candidate_key = values.get("observation_key")
+    if current_at is None:
+        lower_bound = _legacy_observation_lower_bound(row, session=session)
+        if lower_bound is not None:
+            current_at = lower_bound
+        elif isinstance(row, DimStorePoiMapping):
+            # Mapping snapshots without source time are authoritative state;
+            # deterministic keys distinguish A→B→A from an exact retry.
+            if candidate_at is None:
+                if current_key is None:
+                    return candidate_key is not None
+                if candidate_key is None:
+                    return True
+                return str(candidate_key) != str(current_key)
+        elif candidate_at is None:
+            # No trusted legacy lower bound and no candidate time: do not
+            # mutate a historical row on an unorderable replay.
+            return False
+    if current_at is None:
+        # A timestamped candidate can bootstrap observation metadata exactly
+        # once when no legacy lower bound exists.
+        return candidate_at is not None
+    if candidate_at is None:
+        return False
+    if candidate_at < current_at:
+        return False
+    if candidate_at > current_at:
+        return True
+    if current_key is None:
+        return candidate_key is not None
+    if candidate_key is None:
+        return False
+    return str(candidate_key) > str(current_key)
+
+
+def _closure_for(
+    entity_type: str,
+    entity_key: str,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+) -> dict[str, list[str]]:
+    values = [before, after]
+
+    def collect(*names: str) -> list[str]:
+        found: set[str] = {str(entity_key)} if "entity" in names else set()
+        for mapping in values:
+            for name in names:
+                value = mapping.get(name)
+                if value not in (None, ""):
+                    found.add(str(value))
+        return sorted(found)
+
+    def collect_month(*names: str) -> list[str]:
+        found: set[str] = set()
+        for mapping in values:
+            for name in names:
+                value = mapping.get(name)
+                if not value:
+                    continue
+                raw = str(value)
+                if len(raw) >= 7 and raw[4] == "-":
+                    found.add(raw[:7])
+        return sorted(found)
+
+    closure: dict[str, list[str]] = {
+        "clue_ids": [],
+        "order_ids": [],
+        "coupon_ids": [],
+        "poi_ids": [],
+        "store_ids": [],
+        "sale_months": [],
+        "verify_months": [],
+        "refund_months": [],
+        "clue_months": [],
+        "affected_months": [],
+    }
+    if entity_type == "clue":
+        closure["clue_ids"] = collect("clue_id", "clue_row_key")
+        closure["order_ids"] = collect("order_id")
+        closure["poi_ids"] = collect("follow_poi_id", "intention_poi_id")
+        closure["store_ids"] = []
+        closure["clue_months"] = collect_month("create_time_detail")
+    elif entity_type == "order":
+        closure["order_ids"] = collect("order_id")
+        closure["poi_ids"] = collect("intention_poi_id")
+        # Account ownership is not a store identity.  A stable POI/store
+        # mapping is resolved by the materialization stage when evidence exists.
+        closure["store_ids"] = collect("store_id")
+        closure["sale_months"] = collect_month("sale_time", "pay_time", "create_order_time")
+    elif entity_type == "coupon":
+        closure["coupon_ids"] = collect("coupon_id")
+        closure["order_ids"] = collect("order_id")
+        closure["refund_months"] = collect_month(
+            "coupon_refund_time", "latest_refund_at"
+        )
+    elif entity_type == "verify":
+        closure["coupon_ids"] = collect("coupon_id")
+        closure["poi_ids"] = collect("poi_id")
+        closure["verify_months"] = collect_month("verify_time", "cancel_time")
+    elif entity_type == "refund":
+        closure["order_ids"] = collect("order_id")
+        closure["coupon_ids"] = collect("coupon_id")
+        closure["refund_months"] = collect_month("occurred_at")
+    elif entity_type == "store_poi_mapping":
+        closure["poi_ids"] = collect("poi_id")
+        closure["store_ids"] = collect("store_id")
+    closure["affected_months"] = sorted(
+        set(closure["sale_months"])
+        | set(closure["verify_months"])
+        | set(closure["refund_months"])
+        | set(closure["clue_months"])
+    )
+    return closure
+
+
+def _attach_bounded_store_closure(
+    session: Session,
+    closure: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Resolve at most the old/new POIs to current store IDs.
+
+    This is deliberately a bounded lookup over the two POI sides of one
+    impact; it must never scan the mapping dimension while ingesting a row.
+    """
+
+    # Clues can carry old/new follow and intention POIs (up to four); other
+    # entities currently contribute at most two. Keep the query bounded while
+    # retaining both sides of every supported closure.
+    poi_ids = [str(value) for value in closure.get("poi_ids", [])[:8]]
+    if poi_ids:
+        store_ids = list(
+            session.scalars(
+                select(DimStorePoiMapping.store_id).where(
+                    DimStorePoiMapping.poi_id.in_(poi_ids)
+                )
+            )
+        )
+        closure["store_ids"] = sorted(
+            set(closure.get("store_ids", [])) | {str(value) for value in store_ids}
+        )
+    return closure
+
+
+def _attach_bounded_coupon_closure(
+    session: Session,
+    closure: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Resolve at most the old/new coupons to their source orders.
+
+    A verify impact can change coupons while the verify row itself has no
+    order_id.  Resolve only the bounded coupon sides already present in the
+    impact; never scan the coupon table while capturing an impact.
+    """
+
+    coupon_ids = [str(value) for value in closure.get("coupon_ids", [])[:2]]
+    if not coupon_ids:
+        return closure
+    rows = list(
+        session.execute(
+            select(RawDouyinOrderCoupon.coupon_id, RawDouyinOrderCoupon.order_id)
+            .where(RawDouyinOrderCoupon.coupon_id.in_(coupon_ids))
+            .limit(2)
+        )
+    )
+    closure["order_ids"] = sorted(
+        set(closure.get("order_ids", []))
+        | {str(row.order_id) for row in rows if row.order_id}
+    )
+    return closure
+
+
+def _attach_bounded_order_closure(
+    session: Session,
+    closure: dict[str, list[str]],
+) -> dict[str, list[str]]:
+    """Resolve up to two order IDs to original sale facts and POIs."""
+
+    order_ids = [str(value) for value in closure.get("order_ids", [])[:2]]
+    if not order_ids:
+        return closure
+    rows = list(
+        session.execute(
+            select(
+                RawDouyinOrder.order_id,
+                RawDouyinOrder.sale_time,
+                RawDouyinOrder.pay_time,
+                RawDouyinOrder.create_order_time,
+                RawDouyinOrder.intention_poi_id,
+            )
+            .where(RawDouyinOrder.order_id.in_(order_ids))
+            .limit(2)
+        )
+    )
+    for row in rows:
+        sale_values = {
+            "sale_time": row.sale_time,
+            "pay_time": row.pay_time,
+            "create_order_time": row.create_order_time,
+        }
+        for value in sale_values.values():
+            if value is not None:
+                month = _json_safe(value)
+                if isinstance(month, str) and len(month) >= 7 and month[4] == "-":
+                    closure["sale_months"].append(month[:7])
+        if row.intention_poi_id:
+            closure["poi_ids"].append(str(row.intention_poi_id))
+    closure["sale_months"] = sorted(set(closure["sale_months"]))
+    closure["poi_ids"] = sorted(set(closure["poi_ids"]))
+    return closure
+
+
+def _capture_job_impact(
+    session: Session,
+    *,
+    entity_type: str,
+    entity_key: str,
+    before: Mapping[str, Any],
+    after: Mapping[str, Any],
+    source_run_id: str | None,
+    source_observed_at: datetime | None,
+    observation_key: str | None = None,
+    identity_keys: Iterable[str] | None = None,
+) -> JobImpact | None:
+    if dict(before) == dict(after):
+        return None
+    closure = _attach_bounded_order_closure(
+        session,
+        _attach_bounded_store_closure(
+            session,
+            _attach_bounded_coupon_closure(
+                session, _closure_for(entity_type, entity_key, before, after)
+            ),
+        ),
+    )
+    if identity_keys:
+        closure["source_identity_keys"] = sorted(
+            {str(value) for value in identity_keys if value not in (None, "")}
+        )
+    closure = _attach_bounded_store_closure(session, closure)
+    closure["affected_months"] = sorted(
+        set(closure.get("sale_months", []))
+        | set(closure.get("verify_months", []))
+        | set(closure.get("refund_months", []))
+        | set(closure.get("clue_months", []))
+    )
+    digest_payload = {
+        "entity_type": entity_type,
+        "entity_key": str(entity_key),
+        "before": _json_safe(before),
+        "after": _json_safe(after),
+        "closure": closure,
+        "observation_key": observation_key,
+        "source_observed_at": _json_safe(source_observed_at),
+    }
+    impact_key = hashlib.sha256(
+        json.dumps(digest_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    existing = session.scalar(select(JobImpact).where(JobImpact.impact_key == impact_key))
+    if existing is not None:
+        return existing
+    impact = JobImpact(
+        impact_key=impact_key,
+        entity_type=entity_type,
+        entity_key=str(entity_key),
+        change_kind="insert" if not before else "update",
+        old_values_json=dict(before),
+        new_values_json=dict(after),
+        affected_closure_json=closure,
+        source_run_id=source_run_id,
+        source_observed_at=source_observed_at,
+    )
+    session.add(impact)
+    session.flush()
+    session.add(
+        ClueMaterializationWorkItem(
+            scope="clue_materialization",
+            impact_id=impact.id,
+            entity_type=impact.entity_type,
+            entity_key=impact.entity_key,
+        )
+    )
+    session.flush()
+    return impact
+
+
+def _set_observed_values(row: Any, values: Mapping[str, Any], *, apply_business: bool) -> None:
+    canonical_fields = set(_CANONICAL_FIELDS.get(type(row), ()))
+    for field_name, value in values.items():
+        if not hasattr(row, field_name):
+            continue
+        if not apply_business and field_name not in _STALE_SAFE_AUDIT_FIELDS:
+            continue
+        setattr(row, field_name, value)
+
+
+def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyinOrder:
+    row = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
+    if row is None:
+        row = RawDouyinOrder(order_id=order_id, **values)
+        session.add(row)
+        before: dict[str, Any] = {}
+        apply_business = True
+    else:
+        before = _canonical_values(row)
+        apply_business = _observation_is_newer(row, values)
+        _set_observed_values(row, values, apply_business=apply_business)
+    session.flush()
+    if apply_business and row.source_observed_at is None and values.get("source_observed_at") is not None:
+        row.source_observed_at = values["source_observed_at"]
+    _capture_job_impact(
+        session,
+        entity_type="order",
+        entity_key=order_id,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+    )
+    return row
+
+
+def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDouyinClue:
+    row = session.scalar(select(RawDouyinClue).where(RawDouyinClue.clue_row_key == clue_row_key))
+    identity_keys: list[str] = []
+    if row is None:
+        row = RawDouyinClue(clue_row_key=clue_row_key, **values)
+        session.add(row)
+        before: dict[str, Any] = {}
+    else:
+        identity_keys.append(
+            _clue_source_identity_key(
+                clue_row_key=row.clue_row_key,
+                clue_id=row.clue_id,
+                order_id=row.order_id,
+                telephone=row.telephone,
+                enc_telephone=row.enc_telephone,
+            )
+        )
+        before = _canonical_values(row)
+        _set_observed_values(row, values, apply_business=_observation_is_newer(row, values))
+    session.flush()
+    identity_keys.append(
+        _clue_source_identity_key(
+            clue_row_key=row.clue_row_key,
+            clue_id=row.clue_id,
+            order_id=row.order_id,
+            telephone=row.telephone,
+            enc_telephone=row.enc_telephone,
+        )
+    )
+    _capture_job_impact(
+        session,
+        entity_type="clue",
+        entity_key=clue_row_key,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+        identity_keys=identity_keys,
+    )
+    return row
+
+
+def upsert_order_coupon(
+    session: Session,
+    coupon_id: str,
+    order_id: str,
+    **values: Any,
+) -> RawDouyinOrderCoupon:
+    order = session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == order_id))
+    if order is None:
+        raise ValueError(f"raw order does not exist: order_id={order_id}")
+
+    row = session.scalar(
+        select(RawDouyinOrderCoupon).where(RawDouyinOrderCoupon.coupon_id == coupon_id)
+    )
+    payload = {"order_id": order_id, "raw_order_id": order.id, **values}
+    if row is not None and (row.order_id != order_id or row.raw_order_id != order.id):
+        conflict_identity = "|".join(
+            (
+                str(coupon_id),
+                str(row.order_id),
+                str(order_id),
+                str(row.raw_order_id),
+                str(order.id),
+            )
+        )
+        issue_digest = hashlib.sha256(conflict_identity.encode("utf-8")).hexdigest()[:32]
+        incoming_fingerprint = values.get("payload_fingerprint") or payload_fingerprint(
+            values.get("raw_payload") or values
+        )
+        upsert_data_quality_issue(
+            session,
+            f"coupon-order-conflict-{issue_digest}",
+            issue_type="coupon_order_conflict",
+            order_id=order_id,
+            coupon_id=coupon_id,
+            severity="error",
+            message="Coupon stable ID is already bound to a different order",
+            raw_context_json={
+                "coupon_id": coupon_id,
+                "existing_order_id": row.order_id,
+                "incoming_order_id": order_id,
+                "existing_raw_order_id": row.raw_order_id,
+                "incoming_raw_order_id": order.id,
+                "payload_fingerprint": incoming_fingerprint,
+                "source_run_id": values.get("source_run_id"),
+            },
+            source_run_id=values.get("source_run_id"),
+        )
+        session.flush()
+        return row
+    if row is None:
+        row = RawDouyinOrderCoupon(coupon_id=coupon_id, **payload)
+        session.add(row)
+        before: dict[str, Any] = {}
+    else:
+        before = _canonical_values(row)
+        _set_observed_values(
+            row,
+            payload,
+            apply_business=_observation_is_newer(row, values, session=session),
+        )
+    session.flush()
+    _capture_job_impact(
+        session,
+        entity_type="coupon",
+        entity_key=coupon_id,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+    )
+    return row
+
+
+def upsert_verify_record(session: Session, verify_id: str, **values: Any) -> RawDouyinVerifyRecord:
+    row = session.scalar(select(RawDouyinVerifyRecord).where(RawDouyinVerifyRecord.verify_id == verify_id))
+    if row is None:
+        row = RawDouyinVerifyRecord(verify_id=verify_id, **values)
+        session.add(row)
+        before: dict[str, Any] = {}
+    else:
+        before = _canonical_values(row)
+        _set_observed_values(row, values, apply_business=_observation_is_newer(row, values))
+    session.flush()
+    _capture_job_impact(
+        session,
+        entity_type="verify",
+        entity_key=verify_id,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+    )
+    return row
+
+
+def upsert_refund_event(
+    session: Session,
+    refund_event_id: str,
+    **values: Any,
+) -> DouyinRefundEvent:
+    row = session.scalar(
+        select(DouyinRefundEvent).where(DouyinRefundEvent.refund_event_id == refund_event_id)
+    )
+    if row is None:
+        row = DouyinRefundEvent(refund_event_id=refund_event_id, **values)
+        session.add(row)
+        before: dict[str, Any] = {}
+        apply_business = True
+    else:
+        before = _canonical_values(row)
+        apply_business = _observation_is_newer(row, values)
+        _set_observed_values(row, values, apply_business=apply_business)
+    session.flush()
+    _capture_job_impact(
+        session,
+        entity_type="refund",
+        entity_key=refund_event_id,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+    )
+    return row
+
+
+def upsert_aweme_binding(session: Session, binding_key: str, **values: Any) -> RawAwemeBinding:
+    return _merge(session, RawAwemeBinding, {"binding_key": binding_key}, values)
+
+
+def upsert_store(session: Session, store_id: str, store_name: str, **values: Any) -> DimStore:
+    return _merge(session, DimStore, {"store_id": store_id, "store_name": store_name}, values)
+
+
+def upsert_store_poi_mapping(
+    session: Session,
+    store_id: str,
+    poi_id: str,
+    **values: Any,
+) -> DimStorePoiMapping:
+    row = session.scalar(
+        select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == poi_id)
+    )
+    payload = {"store_id": store_id, "poi_id": poi_id, **values}
+    model_payload = {
+        field_name: value
+        for field_name, value in payload.items()
+        if field_name in DimStorePoiMapping.__table__.columns
+    }
+    if row is None:
+        row = DimStorePoiMapping(**model_payload)
+        session.add(row)
+        before: dict[str, Any] = {}
+    else:
+        before = _canonical_values(row)
+        has_observation_identity = any(
+            values.get(field_name) not in (None, "")
+            for field_name in (
+                "source_run_id",
+                "payload_fingerprint",
+                "source_observed_at",
+                "observation_key",
+            )
+        )
+        apply_business = (
+            True
+            if not has_observation_identity
+            else _observation_is_newer(row, values)
+        )
+        _set_observed_values(row, payload, apply_business=apply_business)
+    session.flush()
+    _capture_job_impact(
+        session,
+        entity_type="store_poi_mapping",
+        entity_key=poi_id,
+        before=before,
+        after=_canonical_values(row),
+        source_run_id=values.get("source_run_id"),
+        source_observed_at=values.get("source_observed_at"),
+        observation_key=values.get("observation_key"),
+    )
+    return row
+
+
+def upsert_sku_product_rule(
+    session: Session,
+    sku_id: str,
+    product_type: str,
+    **values: Any,
+) -> DimSkuProductRule:
+    row = session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == sku_id)
+    )
+    payload = {"product_type": product_type, **values}
+    if row is None:
+        row = DimSkuProductRule(sku_id=sku_id, **payload)
+        session.add(row)
+    else:
+        for field_name, value in payload.items():
+            setattr(row, field_name, value)
+    session.flush()
+    return row
+
+
+def upsert_aweme_account(session: Session, account_id: str, **values: Any) -> DimAwemeAccount:
+    return _merge(session, DimAwemeAccount, {"account_id": account_id}, values)
+
+
+def begin_clue_materialization_cycle(
+    session: Session,
+    *,
+    scope: str = "clue_materialization",
+    cycle_id: str | None = None,
+) -> JobImpactWatermark:
+    """Freeze a database upper bound and reset the keyset cursor for one pass."""
+
+    upper_bound = int(session.scalar(select(func.max(JobImpact.id))) or 0)
+    checkpoint = session.get(JobImpactWatermark, scope)
+    if checkpoint is not None:
+        unfinished = session.scalar(
+            select(ClueMaterializationWorkItem.work_item_id)
+            .where(
+                ClueMaterializationWorkItem.scope == scope,
+                ClueMaterializationWorkItem.impact_id <= checkpoint.frozen_upper_bound_id,
+                ClueMaterializationWorkItem.state != "completed",
+            )
+            .order_by(ClueMaterializationWorkItem.work_item_id)
+            .limit(1)
+        )
+        if unfinished is not None:
+            # A running or interrupted cycle is resumed at its original bound;
+            # newly written impacts remain outside this pass.
+            return checkpoint
+    if checkpoint is None:
+        checkpoint = JobImpactWatermark(
+            scope=scope,
+            cycle_id=cycle_id or uuid4().hex,
+            frozen_upper_bound_id=upper_bound,
+            last_work_item_id=0,
+        )
+        session.add(checkpoint)
+    else:
+        checkpoint.cycle_id = cycle_id or uuid4().hex
+        checkpoint.frozen_upper_bound_id = upper_bound
+        checkpoint.last_work_item_id = 0
+    session.flush()
+
+    # Materialize only bounded rows in SQL.  The work item table is the durable
+    # keyset, so no Python-side impact collection is needed.
+    work = ClueMaterializationWorkItem
+    existing = select(literal(1)).where(
+        work.scope == scope,
+        work.impact_id == JobImpact.id,
+    )
+    source = (
+        select(
+            literal(scope),
+            JobImpact.id,
+            JobImpact.entity_type,
+            JobImpact.entity_key,
+        )
+        .where(JobImpact.id <= upper_bound, ~exists(existing))
+    )
+    session.execute(
+        insert(work).from_select(
+            ["scope", "impact_id", "entity_type", "entity_key"], source
+        )
+    )
+    session.flush()
+    return checkpoint
+
+
+def claim_clue_materialization_batch(
+    session: Session,
+    *,
+    scope: str = "clue_materialization",
+    limit: int = 100,
+    lease_token: str,
+    lease_seconds: int = 300,
+    phase: str = "all",
+) -> list[ClueMaterializationWorkItem]:
+    """Read one bounded keyset batch and advance the durable cursor.
+
+    ``lease_token`` is an attempt-scoped fencing token (normally
+    ``JobAttempt.attempt_id``), not a reusable component or process name.  It
+    is persisted in the legacy-compatible ``lease_owner`` column so an old
+    lease can never be completed by a restarted component that acquired a new
+    attempt token.
+    """
+
+    lease_token = _require_materialization_lease_token(lease_token)
+    if phase not in {"all", "raw", "center"}:
+        raise ValueError("phase must be one of: all, raw, center")
+
+    safe_limit = max(1, int(limit))
+    checkpoint = session.get(JobImpactWatermark, scope)
+    if checkpoint is None:
+        checkpoint = begin_clue_materialization_cycle(session, scope=scope)
+    database_clock = _materialization_clock_expression(session)
+    expired = and_(
+        ClueMaterializationWorkItem.state == "processing",
+        or_(
+            ClueMaterializationWorkItem.lease_expires_at.is_(None),
+            ClueMaterializationWorkItem.lease_expires_at <= database_clock,
+            # A host crash can finish/persist the JobAttempt before the
+            # materialization lease's normal 300s expiry is reached.  The
+            # attempt id is globally unique, so a durable finished row is a
+            # stronger reclaim signal than the future work-item timestamp.
+            exists(
+                select(literal(1)).where(
+                    JobAttempt.attempt_id == ClueMaterializationWorkItem.lease_owner,
+                    JobAttempt.finished_at.is_not(None),
+                )
+            ),
+        ),
+    )
+    phase_ready = literal(True)
+    if phase == "raw":
+        phase_ready = ClueMaterializationWorkItem.raw_page_complete.is_(False)
+    elif phase == "center":
+        phase_ready = ClueMaterializationWorkItem.raw_page_complete.is_(True)
+    stmt = (
+        select(ClueMaterializationWorkItem)
+        .where(
+            ClueMaterializationWorkItem.scope == scope,
+            ClueMaterializationWorkItem.impact_id <= checkpoint.frozen_upper_bound_id,
+            phase_ready,
+            or_(
+                and_(
+                    ClueMaterializationWorkItem.work_item_id > checkpoint.last_work_item_id,
+                    ClueMaterializationWorkItem.state == "pending",
+                ),
+                expired,
+            ),
+        )
+        .order_by(ClueMaterializationWorkItem.work_item_id)
+        .limit(safe_limit)
+        .with_for_update(skip_locked=True)
+    )
+    batch = list(session.scalars(stmt).yield_per(safe_limit))
+    if batch:
+        safe_lease_seconds = max(1, int(lease_seconds))
+        leased_at = _materialization_clock_expression(session)
+        lease_expires_at = _materialization_lease_expiry_expression(
+            session, safe_lease_seconds
+        )
+        for item in batch:
+            item.state = "processing"
+            item.lease_owner = lease_token
+            item.leased_at = leased_at
+            item.lease_expires_at = lease_expires_at
+        session.flush()
+    return batch
+
+
+def complete_clue_materialization_batch(
+    session: Session,
+    work_item_ids: list[int] | tuple[int, ...],
+    *,
+    lease_token: str,
+) -> int:
+    """Mark a bounded batch complete after its materialization transaction commits."""
+
+    lease_token = _require_materialization_lease_token(lease_token)
+    ids = [int(value) for value in work_item_ids]
+    if not ids:
+        return 0
+    result = session.execute(
+        update(ClueMaterializationWorkItem)
+        .where(
+            ClueMaterializationWorkItem.work_item_id.in_(ids),
+            ClueMaterializationWorkItem.state == "processing",
+            ClueMaterializationWorkItem.lease_owner == lease_token,
+            ClueMaterializationWorkItem.lease_expires_at.is_not(None),
+            ClueMaterializationWorkItem.lease_expires_at
+            > _materialization_clock_expression(session),
+        )
+        .values(
+            state="completed",
+            completed_at=utcnow(),
+            lease_owner=None,
+            leased_at=None,
+            lease_expires_at=None,
+        )
+    )
+    _advance_materialization_cursor(session)
+    session.flush()
+    return int(result.rowcount or 0)
+
+
+def renew_clue_materialization_batch(
+    session: Session,
+    work_item_ids: list[int] | tuple[int, ...],
+    *,
+    lease_token: str,
+    lease_seconds: int = 300,
+) -> int:
+    """Renew active page leases with the same attempt-scoped fencing token.
+
+    Renewal is deliberately a CAS against the database clock.  If a raw page
+    outlives its lease, the update returns zero and the page transaction must
+    roll back; a later attempt can reclaim the durable cursor safely.
+    """
+
+    lease_token = _require_materialization_lease_token(lease_token)
+    ids = [int(value) for value in work_item_ids]
+    if not ids:
+        return 0
+    clock = _materialization_clock_expression(session)
+    result = session.execute(
+        update(ClueMaterializationWorkItem)
+        .where(
+            ClueMaterializationWorkItem.work_item_id.in_(ids),
+            ClueMaterializationWorkItem.state == "processing",
+            ClueMaterializationWorkItem.lease_owner == lease_token,
+            ClueMaterializationWorkItem.lease_expires_at.is_not(None),
+            ClueMaterializationWorkItem.lease_expires_at > clock,
+        )
+        .values(
+            leased_at=clock,
+            lease_expires_at=_materialization_lease_expiry_expression(
+                session, max(1, int(lease_seconds))
+            ),
+        )
+    )
+    session.flush()
+    return int(result.rowcount or 0)
+
+
+def retry_clue_materialization_batch(
+    session: Session,
+    work_item_ids: list[int] | tuple[int, ...],
+    *,
+    lease_token: str,
+) -> int:
+    """Return leased items to pending so a crashed stage can retry safely."""
+
+    lease_token = _require_materialization_lease_token(lease_token)
+    ids = [int(value) for value in work_item_ids]
+    if not ids:
+        return 0
+    conditions = [
+        ClueMaterializationWorkItem.work_item_id.in_(ids),
+        ClueMaterializationWorkItem.state == "processing",
+        ClueMaterializationWorkItem.lease_owner == lease_token,
+    ]
+    result = session.execute(
+        update(ClueMaterializationWorkItem)
+        .where(*conditions)
+        .values(
+            state="pending",
+            leased_at=None,
+            lease_owner=None,
+            lease_expires_at=None,
+        )
+    )
+    session.flush()
+    return int(result.rowcount or 0)
+
+
+def _require_materialization_lease_token(value: str) -> str:
+    """Reject missing/reusable materialization identities before any SQL."""
+
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("lease_token is required and must be non-empty")
+    return value.strip()
+
+
+def _materialization_clock_expression(session: Session):
+    """Return a statement-time clock for lease CAS predicates.
+
+    PostgreSQL ``now()`` is transaction-start time, so a long-lived worker
+    transaction could incorrectly retain an expired lease. ``clock_timestamp``
+    is evaluated at statement execution. SQLite has no equivalent volatile
+    clock function; ``CURRENT_TIMESTAMP`` is the portable in-process fallback.
+    """
+
+    if session.get_bind().dialect.name == "postgresql":
+        return func.clock_timestamp()
+    return func.current_timestamp()
+
+
+def _materialization_lease_expiry_expression(session: Session, lease_seconds: int):
+    clock = _materialization_clock_expression(session)
+    if session.get_bind().dialect.name == "postgresql":
+        return clock + text(f"INTERVAL '{lease_seconds} seconds'")
+    return func.datetime("now", f"+{lease_seconds} seconds")
+
+
+def _advance_materialization_cursor(session: Session) -> None:
+    checkpoints = list(
+        session.scalars(
+            select(JobImpactWatermark).where(JobImpactWatermark.last_work_item_id >= 0)
+        ).yield_per(32)
+    )
+    # There are normally only a handful of scopes.  Keep each scope's query
+    # bounded and advance only across contiguous completed work items.
+    for checkpoint in checkpoints:
+        next_unfinished = session.scalar(
+            select(ClueMaterializationWorkItem.work_item_id)
+            .where(
+                ClueMaterializationWorkItem.scope == checkpoint.scope,
+                ClueMaterializationWorkItem.work_item_id > checkpoint.last_work_item_id,
+                ClueMaterializationWorkItem.impact_id <= checkpoint.frozen_upper_bound_id,
+                ClueMaterializationWorkItem.state != "completed",
+            )
+            .order_by(ClueMaterializationWorkItem.work_item_id)
+            .limit(1)
+        )
+        if next_unfinished is None:
+            max_completed = session.scalar(
+                select(func.max(ClueMaterializationWorkItem.work_item_id)).where(
+                    ClueMaterializationWorkItem.scope == checkpoint.scope,
+                    ClueMaterializationWorkItem.impact_id <= checkpoint.frozen_upper_bound_id,
+                    ClueMaterializationWorkItem.state == "completed",
+                )
+            )
+            if max_completed is not None:
+                checkpoint.last_work_item_id = max(
+                    checkpoint.last_work_item_id, int(max_completed)
+                )
+        else:
+            max_before_gap = session.scalar(
+                select(func.max(ClueMaterializationWorkItem.work_item_id)).where(
+                    ClueMaterializationWorkItem.scope == checkpoint.scope,
+                    ClueMaterializationWorkItem.work_item_id > checkpoint.last_work_item_id,
+                    ClueMaterializationWorkItem.work_item_id < int(next_unfinished),
+                    ClueMaterializationWorkItem.impact_id <= checkpoint.frozen_upper_bound_id,
+                    ClueMaterializationWorkItem.state == "completed",
+                )
+            )
+            if max_before_gap is not None:
+                checkpoint.last_work_item_id = int(max_before_gap)
+
+
+def list_job_impacts(
+    session: Session,
+    *,
+    after_id: int = 0,
+    upper_bound_id: int | None = None,
+    limit: int = 100,
+) -> list[JobImpact]:
+    """Bounded keyset read helper; never loads the complete impact table."""
+
+    safe_limit = max(1, int(limit))
+    stmt = select(JobImpact).where(JobImpact.id > int(after_id))
+    if upper_bound_id is not None:
+        stmt = stmt.where(JobImpact.id <= int(upper_bound_id))
+    stmt = stmt.order_by(JobImpact.id).limit(safe_limit)
+    return list(session.scalars(stmt).yield_per(safe_limit))
+
+
+# Explicit aliases make the repository contract discoverable to T3.2 without
+# forcing that stage to depend on implementation-specific names.
+freeze_impact_watermark = begin_clue_materialization_cycle
+claim_impact_batch = claim_clue_materialization_batch
+
+
+def start_job_run(
+    session: Session,
+    job_id: str,
+    job_name: str,
+    *,
+    metadata_json: dict[str, Any] | None = None,
+    started_at: datetime | None = None,
+) -> JobRun:
+    return _merge(
+        session,
+        JobRun,
+        {"job_id": job_id},
+        {
+            "job_name": job_name,
+            "status": "running",
+            "started_at": started_at or utcnow(),
+            "finished_at": None,
+            "success_count": 0,
+            "failed_count": 0,
+            "error_message": None,
+            "metadata_json": metadata_json or {},
+        },
+    )
+
+
+def queue_job_run(
+    session: Session,
+    job_id: str,
+    job_name: str,
+    *,
+    metadata_json: dict[str, Any] | None = None,
+    started_at: datetime | None = None,
+) -> JobRun:
+    return _merge(
+        session,
+        JobRun,
+        {"job_id": job_id},
+        {
+            "job_name": job_name,
+            "status": "queued",
+            "started_at": started_at or utcnow(),
+            "finished_at": None,
+            "success_count": 0,
+            "failed_count": 0,
+            "error_message": None,
+            "metadata_json": metadata_json or {},
+        },
+    )
+
+
+def finish_job_run(
+    session: Session,
+    job_id: str,
+    *,
+    status: str,
+    success_count: int = 0,
+    failed_count: int = 0,
+    error_message: str | None = None,
+    finished_at: datetime | None = None,
+) -> JobRun:
+    job = session.get(JobRun, job_id)
+    if job is None:
+        raise ValueError(f"Unknown job_id: {job_id}")
+    job.status = status
+    job.success_count = success_count
+    job.failed_count = failed_count
+    job.error_message = error_message
+    job.finished_at = finished_at or utcnow()
+    session.flush()
+    return job
 
 
 def date_job_advisory_lock_key(
@@ -1834,4 +2931,48 @@ def _add_job_event(
             payload_json=payload_json or {},
             occurred_at=occurred_at,
         )
+    )
+
+
+def upsert_data_quality_issue(
+    session: Session,
+    issue_id: str,
+    *,
+    issue_type: str,
+    message: str,
+    order_id: str | None = None,
+    coupon_id: str | None = None,
+    severity: str = "warning",
+    raw_context_json: dict[str, Any] | None = None,
+    source_run_id: str | None = None,
+    flush: bool = True,
+) -> DataQualityIssue:
+    values = {
+        "issue_type": issue_type,
+        "order_id": order_id,
+        "coupon_id": coupon_id,
+        "severity": severity,
+        "message": message,
+        "raw_context_json": raw_context_json or {},
+        "source_run_id": source_run_id,
+    }
+    if not flush:
+        pending_issue = next(
+            (
+                row
+                for row in session.new
+                if isinstance(row, DataQualityIssue) and row.issue_id == issue_id
+            ),
+            None,
+        )
+        if pending_issue is not None:
+            for field, value in values.items():
+                setattr(pending_issue, field, value)
+            return pending_issue
+    return _merge(
+        session,
+        DataQualityIssue,
+        {"issue_id": issue_id},
+        values,
+        flush=flush,
     )

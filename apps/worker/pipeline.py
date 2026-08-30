@@ -13,6 +13,7 @@ from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.collectors.aweme_bindings import collect_aweme_bindings
 from apps.worker.collectors.clues import collect_clues
 from apps.worker.collectors.orders import collect_orders
+from apps.worker.collectors.refunds import collect_refunds
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.collectors.verify_records import collect_shop_pois, collect_verify_records
 from apps.worker.collectors.windows import resolve_collection_window
@@ -105,6 +106,9 @@ def default_collectors() -> list[Collector]:
         lambda session, client, window, source_run_id: collect_orders(
             session, client, window, source_run_id=source_run_id
         ),
+        lambda session, client, window, source_run_id: collect_refunds(
+            session, client, window, source_run_id=source_run_id
+        ),
         lambda session, client, window, source_run_id: collect_clues(
             session, client, window, source_run_id=source_run_id
         ),
@@ -147,6 +151,10 @@ class EmptyDouyinClient:
 
     def query_clues(self, start: Any, end: Any, *, page: int = 1, page_size: int = 100) -> dict[str, Any]:
         return {"data": {"clue_data": []}}
+
+    def iter_refunds(self, start: Any, end: Any, *, page_size: int = 100):
+        _ = (start, end, page_size)
+        return iter(())
 
     def decrypt_mask_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
         _ = cipher_texts
