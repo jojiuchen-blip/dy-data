@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from collections.abc import Callable
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -18,11 +18,8 @@ from apps.api.dy_api.models import (
     SettlementOrderDetail,
     utcnow,
 )
-from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
-
-FOLLOWED_RESULTS = {"success", "failed", "lost", "unreachable", "continue_following"}
-SUCCESS_RESULT = "success"
-SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
+BUSINESS_EXECUTION_MODE = "formal"
+ACTIVE_ROUND_STATUSES = ("active_unfollowed", "active_followed")
 PHONE_PAYLOAD_KEYS = (
     "telephone",
     "tel_addr",
@@ -50,12 +47,14 @@ def mask_phone(value: str | None) -> str:
     return f"{phone[:3]}****{phone[-4:]}"
 
 
-def rebuild_clue_center(
+def refresh_clue_center_projection(
     session: Session,
     *,
     now: datetime | None = None,
     phone_plain_resolver: PhonePlainResolver | None = None,
 ) -> dict[str, int]:
+    """Refresh order/contact/product fields without creating assignment rounds."""
+
     now = _aware(now or utcnow())
     raw_clues = session.scalars(
         select(RawDouyinClue)
@@ -65,31 +64,6 @@ def rebuild_clue_center(
         .where(RawDouyinClue.order_id != "0")
     ).all()
 
-    # The legacy projection must not resurrect a center row after the master
-    # ledger has resolved the order as terminal or status-review. During old
-    # standalone imports there may be no master row yet, so retain the legacy
-    # fallback for those rows.
-    if raw_clues:
-        master_rows = session.scalars(
-            select(ClueMasterLead).where(
-                ClueMasterLead.source_clue_row_key.in_(
-                    [clue.clue_row_key for clue in raw_clues]
-                )
-            )
-        ).all()
-        master_by_source = {row.source_clue_row_key: row for row in master_rows}
-        raw_clues = [
-            clue
-            for clue in raw_clues
-            if (
-                (master := master_by_source.get(clue.clue_row_key)) is None
-                or (
-                    master.lifecycle_status == "active"
-                    and master.normalized_order_status == "active"
-                )
-            )
-        ]
-
     grouped: dict[str, list[RawDouyinClue]] = defaultdict(list)
     for clue in raw_clues:
         order_id = (clue.order_id or "").strip()
@@ -97,13 +71,12 @@ def rebuild_clue_center(
             grouped[order_id].append(clue)
 
     if not grouped:
-        return {"eligible_orders": 0, "assignment_rounds": 0}
+        return {"eligible_orders": 0, "projected_orders": 0}
 
     order_ids = set(grouped)
     sku_rules = _sku_rules(session, raw_clues)
     master_leads_by_source_clue_row_key = _master_leads_by_source_clue_row_key(session, raw_clues)
     verifications = _verification_rows(session, order_ids)
-    existing_rounds = _existing_legacy_rounds(session, order_ids)
     existing_center_orders = _existing_center_orders(session, order_ids)
     encrypted_phone_plain_values = _encrypted_phone_plain_values(
         grouped,
@@ -111,96 +84,31 @@ def rebuild_clue_center(
         phone_plain_resolver,
     )
 
-    assignment_rounds = 0
+    projected_orders = 0
     for order_id, clues in grouped.items():
         sorted_clues = sorted(clues, key=_clue_sort_key)
         canonical = sorted_clues[0]
-        assigned_at = _aware(canonical.create_time_detail)
+        lead = next(
+            (
+                master_leads_by_source_clue_row_key.get(clue.clue_row_key)
+                for clue in sorted_clues
+                if master_leads_by_source_clue_row_key.get(clue.clue_row_key) is not None
+            ),
+            None,
+        )
         center_order = existing_center_orders.get(order_id)
-        if center_order is not None and _has_current_self_owned_assignment(session, center_order):
-            product_rule = sku_rules.get(_clean(canonical.product_id) or "")
-            _refresh_center_source_fields(
-                center_order,
-                sorted_clues=sorted_clues,
-                canonical=canonical,
-                product_rule=product_rule,
-                encrypted_phone_plain_values=encrypted_phone_plain_values,
-            )
-            center_order.updated_at = now
+        if lead is not None and lead.lifecycle_status != "active" and center_order is None:
             continue
-
-        assignment_round_id = f"{order_id}-1"
-        round_row = existing_rounds.get(order_id)
-        if round_row is None:
-            round_row = ClueAssignmentRound(
-                assignment_round_id=assignment_round_id,
-                order_id=order_id,
-                round_no=1,
-                execution_mode="legacy",
-                follow_result="pending",
-                created_at=now,
-                updated_at=now,
-                round_status="active_unfollowed",
-            )
-            session.add(round_row)
-            existing_rounds[order_id] = round_row
-
-        round_row.assignment_round_id = assignment_round_id
-        round_row.order_id = order_id
-        round_row.round_no = 1
-        round_row.execution_mode = "legacy"
-        round_row.assigned_at = assigned_at
-        round_row.assigned_at_source = "clue_create_time_detail"
-        round_row.assigned_store_id = _clean(canonical.follow_life_account_id)
-        round_row.assigned_store_name = _clean(canonical.follow_life_account_name)
-        round_row.follow_result = _clean(round_row.follow_result) or "pending"
-        round_row.is_followed = round_row.follow_result in FOLLOWED_RESULTS
-        round_row.is_follow_success = round_row.follow_result == SUCCESS_RESULT
-        lead, rule_version_id, auto_expiry_enabled, first_follow_up_sla_hours = _resolve_legacy_rule_timing(
-            session,
-            round_row=round_row,
-            canonical=canonical,
-            master_leads_by_source_clue_row_key=master_leads_by_source_clue_row_key,
-        )
-        if lead is not None:
-            round_row.lead_key = lead.lead_key
-        if rule_version_id is not None:
-            round_row.rule_version_id = rule_version_id
-            round_row.auto_expiry_enabled = auto_expiry_enabled
-            round_row.first_follow_up_sla_hours = first_follow_up_sla_hours
-        elif round_row.rule_version_id is None:
-            round_row.auto_expiry_enabled = None
-            round_row.first_follow_up_sla_hours = None
-        expires_at = _expires_at(assigned_at, round_row.first_follow_up_sla_hours)
-        round_row.expires_at = expires_at
-        round_row.first_sla_expires_at = expires_at
-        round_row.round_status, round_row.reassign_reason = _round_status(
-            follow_result=round_row.follow_result,
-            is_followed=round_row.is_followed,
-            expires_at=expires_at,
-            auto_expiry_enabled=round_row.auto_expiry_enabled,
-            now=now,
-        )
-
-        verification = _select_verification(
-            verifications.get(order_id, []),
-            assigned_store_id=round_row.assigned_store_id,
-            require_self_store=round_row.is_follow_success,
-        )
-        round_row.verified_store_id = verification.get("verify_store_id")
-        round_row.verified_store_name = verification.get("verify_store_name")
-        round_row.verified_at = verification.get("verify_time")
-        round_row.is_self_store_verified = bool(
-            round_row.is_follow_success
-            and round_row.assigned_store_id
-            and round_row.verified_store_id == round_row.assigned_store_id
-        )
-        round_row.updated_at = now
-        assignment_rounds += 1
-
         product_rule = sku_rules.get(_clean(canonical.product_id) or "")
         if center_order is None:
-            center_order = ClueCenterOrder(order_id=order_id, created_at=now, updated_at=now)
+            center_order = ClueCenterOrder(
+                order_id=order_id,
+                lead_status="pending_allocation",
+                current_round_no=0,
+                current_round_status="pending_allocation",
+                created_at=now,
+                updated_at=now,
+            )
             session.add(center_order)
             existing_center_orders[order_id] = center_order
 
@@ -211,17 +119,31 @@ def rebuild_clue_center(
             product_rule=product_rule,
             encrypted_phone_plain_values=encrypted_phone_plain_values,
         )
-        if not _has_current_self_owned_assignment(session, center_order):
-            center_order.lead_status = _lead_status(round_row)
-            center_order.current_assignment_round_id = assignment_round_id
-            center_order.current_round_no = 1
+        round_row = _formal_round_for_projection(session, lead, center_order)
+        if round_row is not None:
+            verification = _select_verification(
+                verifications.get(order_id, []),
+                assigned_store_id=round_row.assigned_store_id,
+                require_self_store=round_row.is_follow_success,
+            )
+            round_row.verified_store_id = verification.get("verify_store_id")
+            round_row.verified_store_name = verification.get("verify_store_name")
+            round_row.verified_at = verification.get("verify_time")
+            round_row.is_self_store_verified = bool(
+                round_row.is_follow_success
+                and round_row.assigned_store_id
+                and round_row.verified_store_id == round_row.assigned_store_id
+            )
+            round_row.updated_at = now
+
+            center_order.lead_status = _lead_status_for_projection(round_row, lead)
+            center_order.current_assignment_round_id = round_row.assignment_round_id
+            center_order.current_round_no = round_row.round_no
             center_order.current_round_status = round_row.round_status
-            center_order.assigned_at = assigned_at
-            center_order.assigned_at_source = "clue_create_time_detail"
+            center_order.assigned_at = round_row.assigned_at
+            center_order.assigned_at_source = round_row.assigned_at_source
             center_order.assigned_store_id = round_row.assigned_store_id
             center_order.assigned_store_name = round_row.assigned_store_name
-            center_order.assigned_city = _clean(canonical.auto_city_name)
-            center_order.assigned_province = _clean(canonical.auto_province_name)
             center_order.follow_result = round_row.follow_result
             center_order.is_followed = round_row.is_followed
             center_order.is_follow_success = round_row.is_follow_success
@@ -229,12 +151,24 @@ def rebuild_clue_center(
             center_order.verified_store_name = round_row.verified_store_name
             center_order.verified_at = round_row.verified_at
             center_order.is_self_store_verified = round_row.is_self_store_verified
-            center_order.expires_at = expires_at
+            center_order.expires_at = round_row.expires_at
             center_order.reassign_reason = round_row.reassign_reason
+        else:
+            previous_round = _latest_closed_formal_round(session, lead, center_order)
+            _project_unassigned_state(center_order, lead, previous_round=previous_round)
+            verification = _select_verification(
+                verifications.get(order_id, []),
+                assigned_store_id=None,
+                require_self_store=False,
+            )
+            center_order.verified_store_id = verification.get("verify_store_id")
+            center_order.verified_store_name = verification.get("verify_store_name")
+            center_order.verified_at = verification.get("verify_time")
         center_order.updated_at = now
+        projected_orders += 1
 
     session.flush()
-    return {"eligible_orders": len(grouped), "assignment_rounds": assignment_rounds}
+    return {"eligible_orders": projected_orders, "projected_orders": projected_orders}
 
 
 def _clean(value: Any) -> str | None:
@@ -365,42 +299,28 @@ def _clue_identifier(clue: RawDouyinClue) -> str:
     return _clean(clue.clue_id) or clue.clue_row_key
 
 
-def _expires_at(assigned_at: datetime | None, sla_hours: int | None) -> datetime | None:
-    if assigned_at is None or sla_hours is None:
-        return None
-    return assigned_at + timedelta(hours=sla_hours)
-
-
-def _round_status(
-    *,
-    follow_result: str,
-    is_followed: bool,
-    expires_at: datetime | None,
-    auto_expiry_enabled: bool | None,
-    now: datetime | None,
-) -> tuple[str, str | None]:
-    if follow_result in {"failed", "lost"}:
-        reason = "follow_lost" if follow_result == "lost" else "follow_failed"
-        return "failed_pending_reassign", reason
-    if (
-        auto_expiry_enabled is True
-        and expires_at is not None
-        and now is not None
-        and not is_followed
-        and now >= expires_at
-    ):
-        return "expired_pending_reassign", "timeout"
-    if is_followed:
-        return "active_followed", None
-    return "active_unfollowed", None
-
-
 def _lead_status(round_row: ClueAssignmentRound) -> str:
     if round_row.is_follow_success and round_row.verified_at is not None:
         return "converted"
     if round_row.round_status in {"failed_pending_reassign", "expired_pending_reassign"}:
         return "pending_reassign"
     return "active"
+
+
+def _lead_status_for_projection(
+    round_row: ClueAssignmentRound,
+    lead: ClueMasterLead | None,
+) -> str:
+    if lead is not None:
+        terminal_status = {
+            "closed_verified": "converted",
+            "closed_refunded": "refunded",
+            "closed_order": "closed",
+            "status_review": "status_review",
+        }.get(lead.lifecycle_status)
+        if terminal_status:
+            return terminal_status
+    return _lead_status(round_row)
 
 
 def _sku_rules(session: Session, raw_clues: list[RawDouyinClue]) -> dict[str, DimSkuProductRule]:
@@ -425,57 +345,99 @@ def _master_leads_by_source_clue_row_key(
     return {row.source_clue_row_key: row for row in rows}
 
 
-def _resolve_legacy_rule_timing(
+def _formal_round_for_projection(
     session: Session,
-    *,
-    round_row: ClueAssignmentRound,
-    canonical: RawDouyinClue,
-    master_leads_by_source_clue_row_key: dict[str, ClueMasterLead],
-) -> tuple[ClueMasterLead | None, str | None, bool | None, int | None]:
-    lead = session.get(ClueMasterLead, round_row.lead_key) if round_row.lead_key else None
-    if lead is None:
-        lead = master_leads_by_source_clue_row_key.get(canonical.clue_row_key)
-    if lead is None:
-        return None, None, None, None
-    try:
-        binding = bind_lead_rule_version(
-            session,
-            lead_key=lead.lead_key,
-            anchor_store_id=lead.anchor_store_id,
-            anchor_city_code=lead.anchor_city_code,
-        )
-    except RuleResolutionError:
-        return lead, None, None, None
-
-    snapshot = dict(binding.rule_version_snapshot or {})
-    auto_expiry_enabled = snapshot.get("auto_expiry_enabled")
-    if not isinstance(auto_expiry_enabled, bool):
-        auto_expiry_enabled = None
-    first_follow_up_sla_hours = snapshot.get("first_follow_up_sla_hours")
-    if (
-        not isinstance(first_follow_up_sla_hours, int)
-        or isinstance(first_follow_up_sla_hours, bool)
-        or first_follow_up_sla_hours < 1
+    lead: ClueMasterLead | None,
+    center_order: ClueCenterOrder,
+) -> ClueAssignmentRound | None:
+    round_id = (
+        lead.current_assignment_round_id
+        if lead is not None
+        else center_order.current_assignment_round_id
+    )
+    if not round_id:
+        return None
+    round_row = session.get(ClueAssignmentRound, round_id)
+    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
+        return None
+    if round_row.round_status not in ACTIVE_ROUND_STATUSES:
+        return None
+    if round_row.order_id != center_order.order_id:
+        return None
+    if lead is not None and (
+        round_row.lead_key != lead.lead_key
+        or round_row.order_id != lead.order_id
     ):
-        first_follow_up_sla_hours = None
-    return lead, binding.rule_version_id, auto_expiry_enabled, first_follow_up_sla_hours
+        return None
+    return round_row
 
 
-def _existing_legacy_rounds(session: Session, order_ids: set[str]) -> dict[str, ClueAssignmentRound]:
-    rows = session.scalars(
+def _latest_closed_formal_round(
+    session: Session,
+    lead: ClueMasterLead | None,
+    center_order: ClueCenterOrder,
+) -> ClueAssignmentRound | None:
+    statement = (
         select(ClueAssignmentRound)
-        .where(ClueAssignmentRound.order_id.in_(order_ids))
-        .where(ClueAssignmentRound.round_no == 1)
-        .where(ClueAssignmentRound.execution_mode == "legacy")
-    ).all()
-    return {row.order_id: row for row in rows}
+        .where(ClueAssignmentRound.order_id == center_order.order_id)
+        .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
+        .where(ClueAssignmentRound.round_status.not_in(ACTIVE_ROUND_STATUSES))
+        .order_by(
+            ClueAssignmentRound.round_no.desc(),
+            ClueAssignmentRound.assigned_at.desc(),
+            ClueAssignmentRound.assignment_round_id.desc(),
+        )
+        .limit(1)
+    )
+    if lead is not None:
+        statement = statement.where(ClueAssignmentRound.lead_key == lead.lead_key)
+    return session.scalar(statement)
 
 
-def _has_current_self_owned_assignment(session: Session, center_order: ClueCenterOrder) -> bool:
-    if not center_order.current_assignment_round_id:
-        return False
-    round_row = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
-    return round_row is not None and round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
+def _project_unassigned_state(
+    center_order: ClueCenterOrder,
+    lead: ClueMasterLead | None,
+    *,
+    previous_round: ClueAssignmentRound | None = None,
+) -> None:
+    allocation_state = _clean(lead.allocation_state) if lead is not None else None
+    pool_location = _clean(lead.pool_location) if lead is not None else None
+    lifecycle_state = _clean(lead.lifecycle_status) if lead is not None else None
+    display_state = {
+        "closed_verified": "converted",
+        "closed_refunded": "refunded",
+        "closed_order": "closed",
+        "status_review": "status_review",
+    }.get(lifecycle_state) or (
+        "headquarters"
+        if pool_location == "headquarters_pool"
+        else "pending_reassign"
+        if allocation_state == "pending_reassign"
+        else "pending_allocation"
+    )
+    center_order.lead_status = display_state
+    center_order.current_assignment_round_id = None
+    center_order.current_round_no = 0
+    center_order.current_round_status = display_state
+    center_order.assigned_at = None
+    center_order.assigned_at_source = "clue_projection"
+    center_order.assigned_store_id = None
+    center_order.assigned_store_name = None
+    center_order.assigned_city = None
+    center_order.assigned_province = None
+    center_order.follow_result = previous_round.follow_result if previous_round is not None else "pending"
+    center_order.is_followed = previous_round.is_followed if previous_round is not None else False
+    center_order.is_follow_success = False
+    center_order.verified_store_id = None
+    center_order.verified_store_name = None
+    center_order.verified_at = None
+    center_order.is_self_store_verified = False
+    center_order.expires_at = None
+    center_order.reassign_reason = (
+        previous_round.reassign_reason or previous_round.terminal_reason
+        if previous_round is not None
+        else None
+    )
 
 
 def _refresh_center_source_fields(

@@ -138,7 +138,7 @@ class FakeDefaultCollectionClient:
         }
 
 
-def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
+def test_default_collect_and_settle_collects_clues_and_refreshes_projection(
     db_session: Session,
 ):
     def settlement_runner(session: Session, source_run_id: str) -> PhaseStats:
@@ -176,14 +176,13 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
 
     phase_names = [phase.name for phase in stats.phases]
     assert "clues" in phase_names
-    assert "clue_center_rebuild" in phase_names
+    assert "clue_projection_rebuild" in phase_names
     assert "clue_master_rebuild" in phase_names
     assert "store_score_snapshot" in phase_names
-    assert phase_names.index("clue_master_rebuild") < phase_names.index("clue_center_rebuild")
+    assert phase_names.index("clue_master_rebuild") < phase_names.index("clue_projection_rebuild")
     assert phase_names.index("settlement") < phase_names.index("clue_master_refresh")
-    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_center_refresh")
-    assert phase_names.index("clue_center_refresh") < phase_names.index("clue_follow_up_due")
-    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_follow_up_due")
+    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_projection_refresh")
+    assert "clue_follow_up_due" not in phase_names
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
@@ -195,7 +194,7 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     job = db_session.get(JobRun, "collect-clues")
     assert job is not None
     assert job.metadata_json["phases"]["clues"]["upserted"] == 1
-    assert job.metadata_json["phases"]["clue_center_rebuild"]["upserted"] == 1
+    assert job.metadata_json["phases"]["clue_projection_rebuild"]["upserted"] == 1
     assert job.metadata_json["phases"]["clue_master_rebuild"]["upserted"] == 1
 
 
@@ -221,13 +220,8 @@ def test_collect_pipeline_skips_dependent_clue_phases_when_master_materializatio
     monkeypatch.setattr(pipeline, "materialize_clue_master_leads", locked_materialization)
     monkeypatch.setattr(
         pipeline,
-        "rebuild_clue_center",
-        lambda *_args, **_kwargs: calls.append("clue_center") or {"eligible_orders": 0},
-    )
-    monkeypatch.setattr(
-        pipeline,
-        "process_due_transitions",
-        lambda _session: calls.append("due") or {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0},
+        "refresh_clue_center_projection",
+        lambda *_args, **_kwargs: calls.append("projection") or {"projected_orders": 0},
     )
     monkeypatch.setattr(
         pipeline,
@@ -248,10 +242,9 @@ def test_collect_pipeline_skips_dependent_clue_phases_when_master_materializatio
     phases = {phase.name: phase for phase in stats.phases}
     assert calls == ["master", "settlement", "master"]
     assert phases["clue_master_rebuild"].skipped == 1
-    assert phases["clue_center_rebuild"].skipped == 1
+    assert phases["clue_projection_rebuild"].skipped == 1
     assert phases["clue_master_refresh"].skipped == 1
-    assert phases["clue_center_refresh"].skipped == 1
-    assert phases["clue_follow_up_due"].skipped == 1
+    assert phases["clue_projection_refresh"].skipped == 1
     assert phases["store_score_snapshot"].skipped == 1
 
 

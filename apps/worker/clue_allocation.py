@@ -52,7 +52,7 @@ MASTER_MATERIALIZATION_LOCK = "clue-allocation-master-materialization"
 MASTER_STATUS_REPAIR_LOCK = "clue-allocation-master-status-repair"
 MASTER_TERMINAL_SYNC_LOCK = "clue-allocation-master-terminal-sync"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
-SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
+BUSINESS_EXECUTION_MODE = "formal"
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
 ANCHOR_UNAVAILABLE_REASONS = (
     "follow_poi_missing",
@@ -232,12 +232,12 @@ def materialize_clue_master_leads(
                 ).all()
             }
         )
-    legacy_round_ids = {
+    projected_round_ids = {
         row.current_assignment_round_id
         for row in center_orders_by_id.values()
         if row.current_assignment_round_id and row.current_assignment_round_id not in current_rounds_by_id
     }
-    for round_id_batch in _materialization_order_id_batches(legacy_round_ids):
+    for round_id_batch in _materialization_order_id_batches(projected_round_ids):
         current_rounds_by_id.update(
             {
                 row.assignment_round_id: row
@@ -798,6 +798,7 @@ def synchronize_non_active_clue_states(
                 for round_row in session.scalars(
                     select(ClueAssignmentRound)
                     .where(ClueAssignmentRound.order_id.in_(order_ids))
+                    .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
                     .where(ClueAssignmentRound.round_status.in_(active_round_statuses))
                 ).all():
                     rounds_by_order[round_row.order_id].append(round_row)
@@ -2017,7 +2018,7 @@ def _active_self_owned_current_round(
         if current_rounds_by_id is not None
         else session.get(ClueAssignmentRound, lead.current_assignment_round_id)
     )
-    if round_row is None or round_row.execution_mode not in SELF_OWNED_EXECUTION_MODES:
+    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
         return None
     if round_row.round_status not in {"active_unfollowed", "active_followed"}:
         return None
@@ -2050,7 +2051,7 @@ def _close_current_assignment(
         if round_id and current_rounds_by_id is not None
         else (session.get(ClueAssignmentRound, round_id) if round_id else None)
     )
-    if round_row is not None:
+    if round_row is not None and round_row.execution_mode == BUSINESS_EXECUTION_MODE:
         round_row.round_status = round_status
         round_row.terminal_reason = terminal_reason
         round_row.matured_at = closed_at

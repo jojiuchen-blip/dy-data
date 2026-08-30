@@ -24,7 +24,14 @@
 - `python -m pytest tests/test_worker_clue_center.py tests/test_clue_operability_recovery.py tests/test_api_clues.py -v`
 - `python -m pytest tests/test_alembic_migrations.py -v`
 
-**Evidence**：旧路径 RED 测试、迁移/恢复计数、相关回归和静态搜索结果。
+**Evidence**：
+- 2026-08-31：旧物化器改为纯投影刷新，不再创建轮次；采集、物化和跟进状态链均不自动调用正式分配或再分配。
+- `20260831_0046` 将现有 legacy 轮次按原 ID、主档、订单、门店、轮次序号和跟进引用原地转换为 formal；活动轮次关闭自动过期，新增 formal/trial 数据库约束及精确回滚日志。
+- 迁移和只读 preflight 均阻断未知模式、正式命名空间冲突、活动轮次归属/指针异常、重复活动轮次及跟进记录跨表归属不一致；trial 证据不能进入查看号码、跟进或删除业务路径。
+- 投影只接受归属一致的活动 formal 当前轮次；关闭轮次不会复活为当前轮，且待再分配状态继续保留上一轮跟进结果和关闭原因。
+- 旧引擎专项与相关订单回归 `155 passed`；Alembic 全量 `54 passed`；`compileall`、`git diff --check` 通过；静态搜索未发现 apps 下 legacy 运行时写入或 `rebuild_clue_center`。
+- 两轮独立只读审查均无 P0/P1；发现的 trial 删除、preflight 全局门禁、投影摘要和跨表归属 P2 均已修复并补负例。
+- 未执行生产迁移、线上重建或服务重启；真实 PostgreSQL 发布验收保留到最终发布门禁。
 
 **Failure Handling**：迁移发现重复当前轮或门店归属缺失时停止写入并输出可恢复冲突清单。
 
@@ -34,4 +41,4 @@
 
 **前置**：T0.4
 
-**状态**：待开发
+**状态**：已完成（2026-08-31）

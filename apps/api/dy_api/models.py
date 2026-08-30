@@ -2949,7 +2949,7 @@ class ClueAssignmentRound(Base):
     is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
     round_status: Mapped[str] = mapped_column(String(32), index=True)
-    execution_mode: Mapped[str] = mapped_column(String(32), default="legacy", index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="formal", index=True)
     matured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     terminal_reason: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

@@ -76,8 +76,8 @@ def allocate_lead(
 ) -> AllocationResult:
     """Allocate one active M1 lead through its immutable bound rule snapshot.
 
-    This service is deliberately explicit. Collection jobs and legacy clue-center
-    rebuilding do not call it; an operator or future allocation-cycle service does.
+    This service is deliberately explicit. Collection jobs and clue-center
+    projection refreshes do not call it; an operator or allocation-cycle service does.
     """
 
     normalized_lead_key = _required_text(lead_key, "lead_key")
@@ -1089,7 +1089,7 @@ def _project_self_owned_assignment(
         and existing_center_round.execution_mode in SELF_OWNED_EXECUTION_MODES
         and existing_center_round.lead_key != lead.lead_key
     ):
-        # The legacy compatibility projection is still order-grain. Do not let
+        # The clue-center compatibility projection is still order-grain. Do not let
         # a second contact-level lead silently overwrite the first self-owned view.
         return
 

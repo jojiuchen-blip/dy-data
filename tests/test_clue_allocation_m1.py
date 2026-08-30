@@ -775,7 +775,7 @@ def test_source_row_order_change_is_quarantined_as_a_data_quality_conflict(
     assert link.conflict_reason == "source_record_order_changed"
 
 
-def test_terminal_master_status_closes_legacy_current_round(db_session: Session) -> None:
+def test_terminal_master_status_closes_formal_current_round(db_session: Session) -> None:
     db_session.add_all(
         [
             _raw_clue("terminal-row", clue_id="terminal-clue", order_id="terminal-order", order_status="已核销"),
@@ -793,7 +793,16 @@ def test_terminal_master_status_closes_legacy_current_round(db_session: Session)
                 order_id="terminal-order",
                 round_no=1,
                 round_status="active_unfollowed",
-                execution_mode="legacy",
+                execution_mode="formal",
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="terminal-order-trial-1",
+                order_id="terminal-order",
+                round_no=1,
+                round_status="active_unfollowed",
+                execution_mode="trial",
                 created_at=_dt(1),
                 updated_at=_dt(1),
             ),
@@ -811,6 +820,10 @@ def test_terminal_master_status_closes_legacy_current_round(db_session: Session)
     assert order is not None
     assert order.lead_status == "converted"
     assert order.current_round_status == "closed_order_verified"
+    trial_round = db_session.get(ClueAssignmentRound, "terminal-order-trial-1")
+    assert trial_round is not None
+    assert trial_round.round_status == "active_unfollowed"
+    assert trial_round.terminal_reason is None
 
 
 def test_imported_store_locations_use_poi_mapping_and_candidate_eligibility(
@@ -998,13 +1011,13 @@ def test_score_snapshots_use_formal_mature_rounds_and_city_global_fallbacks(
                 updated_at=assigned_at + timedelta(hours=1),
             ),
             ClueAssignmentRound(
-                assignment_round_id="legacy-ignored",
-                order_id="legacy-order",
+                assignment_round_id="trial-ignored",
+                order_id="trial-order",
                 round_no=1,
                 assigned_store_id="store-c",
                 assigned_at=assigned_at,
                 round_status="closed_order_verified",
-                execution_mode="legacy",
+                execution_mode="trial",
                 matured_at=_dt(2),
                 created_at=assigned_at,
                 updated_at=_dt(2),

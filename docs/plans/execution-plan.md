@@ -6,10 +6,10 @@
 
 - 套包阶段：`S4 线索平台收口`。
 - 当前需求序列：`DYDATA-56 -> DYDATA-8 -> DYDATA-14 -> DYDATA-15 -> DYDATA-34 -> DYDATA-58 基础能力 -> DYDATA-70 -> DYDATA-58 剩余能力与最终门禁`。
-- 当前 Task：`T0.4 / DYDATA-15`，状态为“进行中”；T0.1-T0.3 已完成本地代码与专项验收。
+- 当前 Task：`T2.1 / DYDATA-58`，状态为“进行中”；T0.1-T1.1 已完成本地代码、迁移与专项验收。
 - 正式计划：[main-delivery-plan-dydata-clue-platform-completion.md](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)。
 - 任务看板：[task-kanban-dydata-clue-platform-completion.md](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。
-- 当前子计划：[sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md)。
+- 当前子计划：[sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md)。
 
 ## 2. 当前目标
 
@@ -25,5 +25,5 @@
 
 ## 4. 下一步
 
-- 补齐新试运行/批次查询契约，移除旧线索物化重建入口，并复核规则后台权限与高风险确认。
-- 完成 T0.4 后进入 DYDATA-34；不得用现有绿色测试替代 Foundation 验收。
+- 从受保护的旧 worktree 逐片审查并恢复 0030-0033 对应的运行时模型、控制面、租约和按日编排能力。
+- 先完成 SQLite/单进程契约，再以真实 PostgreSQL 验证原子领取、租约、fencing 和崩溃恢复；自动正式分配与自动再分配继续关闭。

@@ -76,18 +76,17 @@ def test_isolated_materialization_stops_after_a_failed_stage() -> None:
             command_runner=runner,
         )
 
-    assert calls == ["clue_master_rebuild", "clue_center_rebuild", "settlement"]
+    assert calls == ["clue_master_rebuild", "clue_projection_rebuild", "settlement"]
 
 
 @pytest.mark.parametrize(
     ("stage", "expected_call"),
     [
         ("clue_master_rebuild", "clue_master"),
-        ("clue_center_rebuild", "clue_center"),
+        ("clue_projection_rebuild", "clue_projection"),
         ("settlement", "settlement"),
         ("clue_master_refresh", "clue_master"),
-        ("clue_center_refresh", "clue_center"),
-        ("clue_follow_up_due", "follow_up"),
+        ("clue_projection_refresh", "clue_projection"),
         ("store_score_snapshot", "store_score"),
     ],
 )
@@ -113,9 +112,9 @@ def test_materialize_once_dispatches_exactly_one_stage(
     )
     monkeypatch.setattr(
         materialize_once,
-        "rebuild_clue_center",
+        "refresh_clue_center_projection",
         lambda session, *, phone_plain_resolver: (
-            calls.append(("clue_center", None))
+            calls.append(("clue_projection", None))
             or {"eligible_orders": 1, "has_resolver": phone_plain_resolver is decrypt}
         ),
     )
@@ -124,11 +123,6 @@ def test_materialize_once_dispatches_exactly_one_stage(
         "rebuild_settlement",
         lambda session, *, source_run_id: calls.append(("settlement", source_run_id))
         or {"detail_count": 1},
-    )
-    monkeypatch.setattr(
-        materialize_once,
-        "process_due_transitions",
-        lambda session: calls.append(("follow_up", None)) or {"sla_expired": 1},
     )
     monkeypatch.setattr(
         materialize_once,
@@ -146,7 +140,7 @@ def test_materialize_once_dispatches_exactly_one_stage(
         (expected_call, "materialize-3" if expected_call == "settlement" else None)
     ]
     assert result
-    if expected_call == "clue_center":
+    if expected_call == "clue_projection":
         assert result["has_resolver"] is True
 
 

@@ -44,7 +44,6 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
     build_douyin_client_from_env = None  # type: ignore[assignment]
 
 from apps.worker.clue_follow_up_state import (
-    SELF_OWNED_EXECUTION_MODES,
     apply_follow_up_action,
     can_reveal_current_order_phone,
     soft_delete_follow_up_record,
@@ -58,6 +57,7 @@ FILE_PATH_RE = re.compile(
     r"(?:(?:[A-Za-z]:\\|/)(?:Users|home|root|var|tmp|opt|data|mnt)[^\s,;]*)"
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+BUSINESS_CLUE_EXECUTION_MODE = "formal"
 _SESSION_FACTORY: Any | None = None
 FOLLOW_UP_RESULTS = {
     "appointment",
@@ -2942,6 +2942,7 @@ class DashboardDataStore:
         )
         base_params = {**round_scope_params, **visibility_params}
         base_clauses = [
+            "r.execution_mode = 'formal'",
             "r.assigned_store_id IS NOT NULL",
             "r.assigned_store_id != ''",
         ]
@@ -3041,6 +3042,13 @@ class DashboardDataStore:
         )
         round_params = {**round_scope_params, **round_visibility_params}
         order_params = {**order_scope_params, **order_visibility_params}
+        formal_order_exists_sql = (
+            " AND EXISTS ("
+            "SELECT 1 FROM clue_assignment_rounds formal_round "
+            "WHERE formal_round.order_id = c.order_id "
+            "AND formal_round.execution_mode = 'formal'"
+            ")"
+        )
         assigned_stores = [
             {
                 "store_id": _to_str(row.get("store_id")),
@@ -3054,6 +3062,7 @@ class DashboardDataStore:
                 JOIN clue_center_orders c ON c.order_id = r.order_id
                 WHERE r.assigned_store_id IS NOT NULL
                   AND r.assigned_store_id != ''
+                  AND r.execution_mode = 'formal'
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.assigned_store_name, r.assigned_store_id
@@ -3068,6 +3077,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.assigned_city
                 FROM clue_center_orders c
                 WHERE c.assigned_city IS NOT NULL AND c.assigned_city != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.assigned_city
@@ -3082,6 +3092,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.assigned_province
                 FROM clue_center_orders c
                 WHERE c.assigned_province IS NOT NULL AND c.assigned_province != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.assigned_province
@@ -3096,6 +3107,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.product_type
                 FROM clue_center_orders c
                 WHERE c.product_type IS NOT NULL AND c.product_type != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.product_type
@@ -3110,6 +3122,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.lead_status
                 FROM clue_center_orders c
                 WHERE c.lead_status IS NOT NULL AND c.lead_status != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.lead_status
@@ -3125,6 +3138,7 @@ class DashboardDataStore:
                 FROM clue_assignment_rounds r
                 JOIN clue_center_orders c ON c.order_id = r.order_id
                 WHERE r.round_status IS NOT NULL AND r.round_status != ''
+                  AND r.execution_mode = 'formal'
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.round_status
@@ -3206,7 +3220,10 @@ class DashboardDataStore:
         if not placeholders:
             return []
 
-        clauses = [f"r.assigned_store_id IN ({placeholders})"]
+        clauses = [
+            "r.execution_mode = 'formal'",
+            f"r.assigned_store_id IN ({placeholders})",
+        ]
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
             visible_placeholders, visible_params = _in_clause_params(
@@ -3541,30 +3558,34 @@ class DashboardDataStore:
              JOIN clue_center_orders c ON c.order_id = r.order_id
              LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE r.order_id = :order_id
+              AND r.execution_mode = 'formal'
             ORDER BY r.round_no, r.assigned_at, r.assignment_round_id
             """,
             {"order_id": order_id},
         )
         record_rows = self._execute(
             """
-            SELECT follow_up_record_id,
-                   order_id,
-                   assignment_round_id,
-                   round_no,
-                   assigned_store_id,
-                   follow_result,
-                   note,
-                   operator_user_id,
-                   operator_username,
-                   created_at,
-                   deleted_at,
-                   deleted_by_user_id,
-                   deleted_by_username,
-                   deletion_reason
-            FROM clue_follow_up_records
-            WHERE order_id = :order_id
-              AND (:include_deleted = true OR deleted_at IS NULL)
-            ORDER BY created_at, follow_up_record_id
+            SELECT follow_record.follow_up_record_id,
+                   follow_record.order_id,
+                   follow_record.assignment_round_id,
+                   follow_record.round_no,
+                   follow_record.assigned_store_id,
+                   follow_record.follow_result,
+                   follow_record.note,
+                   follow_record.operator_user_id,
+                   follow_record.operator_username,
+                   follow_record.created_at,
+                   follow_record.deleted_at,
+                   follow_record.deleted_by_user_id,
+                   follow_record.deleted_by_username,
+                   follow_record.deletion_reason
+            FROM clue_follow_up_records follow_record
+            JOIN clue_assignment_rounds follow_round
+              ON follow_round.assignment_round_id = follow_record.assignment_round_id
+            WHERE follow_record.order_id = :order_id
+              AND follow_round.execution_mode = 'formal'
+              AND (:include_deleted = true OR follow_record.deleted_at IS NULL)
+            ORDER BY follow_record.created_at, follow_record.follow_up_record_id
             """,
             {
                 "order_id": order_id,
@@ -3702,6 +3723,7 @@ class DashboardDataStore:
              AND r.assignment_round_id = c.current_assignment_round_id
             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE c.order_id = :order_id
+              AND r.execution_mode = 'formal'
             LIMIT 1
             """,
             {"order_id": order_id},
@@ -3733,7 +3755,7 @@ class DashboardDataStore:
         assignment_round_id = _to_str(row.get("assignment_round_id")).strip()
         if not assignment_round_id:
             return False
-        if _to_str(row.get("execution_mode")) not in SELF_OWNED_EXECUTION_MODES:
+        if _to_str(row.get("execution_mode")) != BUSINESS_CLUE_EXECUTION_MODE:
             return False
         if assignment_round_id != _to_str(row.get("master_current_assignment_round_id")):
             return False
@@ -3774,7 +3796,7 @@ class DashboardDataStore:
         if _to_str(actor.get("role")) not in {"admin", "store"}:
             return "forbidden", None
         formal_round = self.session.get(ClueAssignmentRound, assignment_round_id) if ClueAssignmentRound is not None else None
-        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+        if formal_round is not None and formal_round.execution_mode == BUSINESS_CLUE_EXECUTION_MODE:
             result = apply_follow_up_action(
                 self.session,
                 order_id=order_id,
@@ -3785,8 +3807,7 @@ class DashboardDataStore:
                 now=generated_at(),
             )
             return result.status, _follow_up_record_payload(result.record)
-        # Legacy rounds remain visible for historical reconciliation, but cannot
-        # run the M2 state machine without an authoritative master lead.
+        # Non-formal rounds are evidence only and never enter the business workflow.
         return "conflict", None
 
     def delete_clue_follow_up_record(
@@ -3813,33 +3834,13 @@ class DashboardDataStore:
     ) -> bool:
         if _to_bool(row.get("has_headquarters_lead")):
             return False
-        if _to_str(row.get("execution_mode")) in SELF_OWNED_EXECUTION_MODES:
-            return bool(
-                self._actor_can_operate_current_round(row, actor)
-                and _to_str(row.get("assignment_round_id"))
-                == _to_str(row.get("current_assignment_round_id"))
-            )
-        if _to_str(row.get("lead_key")).strip():
+        if _to_str(row.get("execution_mode")) != BUSINESS_CLUE_EXECUTION_MODE:
             return False
         return bool(
-            self._is_current_effective_round(row)
-            and self._actor_can_legacy_current_round(row, actor)
+            self._actor_can_operate_current_round(row, actor)
+            and _to_str(row.get("assignment_round_id"))
+            == _to_str(row.get("current_assignment_round_id"))
         )
-
-    def _actor_can_legacy_current_round(
-        self,
-        row: dict[str, Any],
-        actor: dict[str, Any],
-    ) -> bool:
-        role = _to_str(actor.get("role"))
-        if role == "admin":
-            return True
-        if role != "store":
-            return False
-        assigned_store_id = _to_str(
-            row.get("current_assigned_store_id") or row.get("assigned_store_id")
-        ).strip()
-        return bool(assigned_store_id and assigned_store_id in self._actor_store_ids(actor))
 
     def clue_order_phone(
         self,
@@ -3857,7 +3858,7 @@ class DashboardDataStore:
         if not self._actor_can_reveal_round_phone(row, actor):
             return None
         formal_round = self.session.get(ClueAssignmentRound, _to_str(row.get("assignment_round_id"))) if ClueAssignmentRound is not None else None
-        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+        if formal_round is not None and formal_round.execution_mode == BUSINESS_CLUE_EXECUTION_MODE:
             if not can_reveal_current_order_phone(self.session, order_id=order_id, actor=actor):
                 return None
 
@@ -4092,6 +4093,7 @@ class DashboardDataStore:
             " AND EXISTS ("
             "SELECT 1 FROM clue_assignment_rounds scope_round "
             f"WHERE scope_round.order_id = {order_ref} "
+            "AND scope_round.execution_mode = 'formal' "
             f"AND scope_round.assigned_store_id IN ({placeholders})"
             ")"
         )
@@ -4115,6 +4117,7 @@ class DashboardDataStore:
             SELECT 1
             FROM clue_assignment_rounds
             WHERE order_id = :order_id
+              AND execution_mode = 'formal'
               AND assigned_store_id IN ({placeholders})
             LIMIT 1
             """,
@@ -4222,6 +4225,8 @@ class DashboardDataStore:
     ) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
+        if include_round:
+            clauses.append("r.execution_mode = 'formal'")
 
         exact_filters = {
             "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",
