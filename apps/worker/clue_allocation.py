@@ -24,6 +24,7 @@ from apps.api.dy_api.models import (
     ClueLeadRuleVersionBinding,
     ClueMasterLead,
     ClueOrderStatusEvent,
+    ClueSourceRecordLink,
     ClueSourceIdentifierHistory,
     DataQualityIssue,
     DimStore,
@@ -147,8 +148,20 @@ def materialize_clue_master_leads(
         stores_by_id,
         now,
     )
+    source_links_by_record_key = _source_record_links_by_key(
+        session,
+        {row.clue_row_key for row in raw_clues if row.clue_row_key},
+    )
     existing_rows = (
-        _bounded_existing_masters(session, raw_clues, order_ids=order_ids)
+        _bounded_existing_masters(
+            session,
+            raw_clues,
+            order_ids=order_ids,
+            source_link_lead_keys={
+                source_link.lead_key
+                for source_link in source_links_by_record_key.values()
+            },
+        )
         if bounded_context
         else session.scalars(select(ClueMasterLead)).all()
     )
@@ -190,6 +203,10 @@ def materialize_clue_master_leads(
         lead = existing_by_lead_key.get(next(iter(lead_keys)))
         if lead is not None:
             existing_by_source_clue_row_key.setdefault(source_clue_row_key, lead)
+    for source_record_key, source_link in source_links_by_record_key.items():
+        linked_lead = existing_by_lead_key.get(source_link.lead_key)
+        if linked_lead is not None:
+            existing_by_source_clue_row_key.setdefault(source_record_key, linked_lead)
     current_round_ids = {
         row.current_assignment_round_id for row in existing_rows if row.current_assignment_round_id
     }
@@ -284,6 +301,20 @@ def materialize_clue_master_leads(
                 reason=conflict_reason,
                 now=now,
             )
+            conflict_lead = source_match or order_match or identity_match
+            if conflict_lead is not None:
+                _upsert_source_record_link(
+                    session,
+                    raw_clue=raw_clue,
+                    lead=conflict_lead,
+                    order_id=_clean(conflict_lead.order_id),
+                    link_status=3,
+                    link_method=2,
+                    conflict_reason=conflict_reason,
+                    observed_at=_observed_at(raw_clue, now),
+                    now=now,
+                    links_by_record_key=source_links_by_record_key,
+                )
             continue
 
         existing = source_match or order_match
@@ -296,6 +327,7 @@ def materialize_clue_master_leads(
                 ),
                 None,
             )
+        is_new_master = existing is None
         resolution = _resolve_status(
             raw_clue,
             raw_orders.get(order_id or ""),
@@ -304,26 +336,48 @@ def materialize_clue_master_leads(
             coupon_statuses_by_order.get(order_id or "", ()),
         )
         anchor = _resolve_anchor(raw_clue, mappings_by_poi, stores_by_id)
-        lifecycle_status = _lifecycle_status(resolution.normalized_status)
+        is_isolated_source = order_id is None
+        lifecycle_status = (
+            "isolated" if is_isolated_source else _lifecycle_status(resolution.normalized_status)
+        )
 
         observed_at = _observed_at(raw_clue, now)
+        status_observed_at = _status_observed_at(
+            raw_clue,
+            raw_orders.get(order_id or ""),
+            now,
+        )
         if existing is None:
             lead_key = _lead_key(source_identity_key)
             existing = ClueMasterLead(
                 lead_key=lead_key,
                 source_clue_row_key=raw_clue.clue_row_key,
                 source_identity_key=source_identity_key,
+                master_kind=2 if is_isolated_source else 1,
+                is_complete_pool=not is_isolated_source,
+                state_version=1,
                 created_at=now,
             )
             session.add(existing)
             existing_by_lead_key[lead_key] = existing
             status_changed = True
         else:
+            status_changed = False
+
+        state_before = None if is_new_master else _master_state_signature(existing)
+        accepts_status_evidence = _accepts_status_evidence(
+            existing,
+            incoming_status=resolution.normalized_status,
+            observed_at=status_observed_at,
+        )
+        if accepts_status_evidence:
             status_changed = (
                 existing.raw_order_status != resolution.raw_status
                 or existing.normalized_order_status != resolution.normalized_status
                 or existing.status_source != resolution.status_source
             )
+        else:
+            lifecycle_status = existing.lifecycle_status
 
         current_self_owned_round = _active_self_owned_current_round(
             session,
@@ -331,7 +385,10 @@ def materialize_clue_master_leads(
             current_rounds_by_id=current_rounds_by_id,
         )
         active_headquarters_entry = existing.lead_key in active_headquarters_entries_by_lead
-        if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
+        if is_isolated_source:
+            pool_location = None
+            allocation_state = "isolated"
+        elif lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
             pool_location = "closed"
             allocation_state = "closed"
         elif lifecycle_status == "status_review":
@@ -355,21 +412,37 @@ def materialize_clue_master_leads(
         existing.source_identity_key = source_identity_key
         existing.canonical_clue_id = canonical_clue_id or existing.canonical_clue_id
         existing.order_id = order_id
-        existing.raw_order_status = resolution.raw_status
-        existing.normalized_order_status = resolution.normalized_status
-        existing.status_source = resolution.status_source
-        existing.lifecycle_status = lifecycle_status
+        existing.master_kind = 2 if is_isolated_source else 1
+        existing.is_complete_pool = not is_isolated_source
+        if accepts_status_evidence:
+            existing.raw_order_status = resolution.raw_status
+            existing.normalized_order_status = resolution.normalized_status
+            existing.status_source = resolution.status_source
+            existing.order_status_observed_at = status_observed_at
+            existing.lifecycle_status = lifecycle_status
         existing.pool_location = pool_location
         existing.allocation_state = allocation_state
         existing.ended_without_assignment = (
-            lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
+            not is_isolated_source
+            and lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
             and existing.current_assignment_round_id is None
             and existing.allocation_cycle_id is None
         )
-        existing.closed_at = resolution.closed_at if lifecycle_status != "active" else None
-        existing.closed_reason = _closed_reason(resolution.normalized_status)
+        if accepts_status_evidence:
+            existing.closed_at = (
+                resolution.closed_at
+                if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}
+                else None
+            )
+            existing.closed_reason = (
+                _closed_reason(resolution.normalized_status)
+                if not is_isolated_source
+                else None
+            )
         existing.first_seen_at = existing.first_seen_at or _first_seen_at(raw_clue, now)
-        existing.last_seen_at = observed_at
+        existing.last_seen_at = max(
+            filter(None, (_aware(existing.last_seen_at), observed_at)),
+        )
         existing.anchor_poi_id = anchor.poi_id
         existing.anchor_store_id = anchor.store_id
         existing.anchor_source = "douyin_follow_poi" if anchor.poi_id else None
@@ -379,6 +452,8 @@ def materialize_clue_master_leads(
         existing.anchor_city_code = anchor.city_code
         existing.anchor_longitude = anchor.longitude
         existing.anchor_latitude = anchor.latitude
+        if state_before is not None and state_before != _master_state_signature(existing):
+            existing.state_version = max(existing.state_version or 1, 1) + 1
         existing.updated_at = now
 
         materialized_lead_keys.add(existing.lead_key)
@@ -389,6 +464,18 @@ def materialize_clue_master_leads(
         if canonical_clue_id:
             existing_by_canonical_clue_id[canonical_clue_id] = existing
         payload_hash = _source_payload_hash(raw_clue.raw_payload)
+        _upsert_source_record_link(
+            session,
+            raw_clue=raw_clue,
+            lead=existing,
+            order_id=order_id,
+            link_status=2 if is_isolated_source else 1,
+            link_method=2 if is_isolated_source else 1,
+            conflict_reason="missing_order_id" if is_isolated_source else None,
+            observed_at=observed_at,
+            now=now,
+            links_by_record_key=source_links_by_record_key,
+        )
         _set_current_source_identifier(
             session,
             lead_key=existing.lead_key,
@@ -413,22 +500,26 @@ def materialize_clue_master_leads(
             history_by_key=identifier_history_by_key,
             current_by_source_type=current_identifier_history_by_source_type,
         )
-        if lifecycle_status in {"closed_verified", "closed_refunded", "closed_order"}:
+        if not is_isolated_source and lifecycle_status in {
+            "closed_verified",
+            "closed_refunded",
+            "closed_order",
+        }:
             closed_lead_keys.add(existing.lead_key)
         elif pool_location == "headquarters_pool":
             headquarters_pool_keys.add(existing.lead_key)
 
-        if status_changed:
+        if status_changed and not is_isolated_source:
             _record_status_event(
                 session,
                 lead_key=existing.lead_key,
                 order_id=existing.order_id,
                 resolution=resolution,
-                observed_at=observed_at,
+                observed_at=status_observed_at,
                 created_at=now,
                 known_event_ids=status_event_ids,
             )
-        if anchor.unavailable_reason:
+        if anchor.unavailable_reason and not is_isolated_source:
             _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
     session.flush()
     for lead_key in materialized_lead_keys:
@@ -1214,7 +1305,9 @@ def _scheduled_score_refresh_key(snapshot_date: date, rule_version_id: str | Non
 
 def _master_order_is_compatible(master: ClueMasterLead, order_id: str | None) -> bool:
     master_order_id = _clean(master.order_id)
-    return not order_id or not master_order_id or master_order_id == order_id
+    if order_id is None:
+        return master_order_id is None
+    return master_order_id is None or master_order_id == order_id
 
 
 def _master_match_conflict_reason(
@@ -1276,6 +1369,119 @@ def _record_identity_mapping_conflict(
         },
         source_run_id=None,
         flush=False,
+    )
+
+
+def _source_record_links_by_key(
+    session: Session,
+    source_record_keys: set[str],
+) -> dict[str, ClueSourceRecordLink]:
+    links: dict[str, ClueSourceRecordLink] = {}
+    for key_batch in _materialization_order_id_batches(source_record_keys):
+        rows = session.scalars(
+            select(ClueSourceRecordLink)
+            .where(ClueSourceRecordLink.source_table == "raw_douyin_clues")
+            .where(ClueSourceRecordLink.source_record_key.in_(key_batch))
+        ).all()
+        links.update({row.source_record_key: row for row in rows})
+    return links
+
+
+def _upsert_source_record_link(
+    session: Session,
+    *,
+    raw_clue: RawDouyinClue,
+    lead: ClueMasterLead,
+    order_id: str | None,
+    link_status: int,
+    link_method: int,
+    conflict_reason: str | None,
+    observed_at: datetime,
+    now: datetime,
+    links_by_record_key: dict[str, ClueSourceRecordLink],
+) -> ClueSourceRecordLink:
+    source_record_key = raw_clue.clue_row_key
+    link = links_by_record_key.get(source_record_key)
+    if link is None:
+        link = ClueSourceRecordLink(
+            source_system=1,
+            source_table="raw_douyin_clues",
+            source_record_key=source_record_key,
+            lead_key=lead.lead_key,
+            link_status=link_status,
+            link_method=link_method,
+            link_version=1,
+            linked_at=now,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(link)
+        links_by_record_key[source_record_key] = link
+    else:
+        target_lead_key = lead.lead_key
+        if link.lead_key != target_lead_key:
+            link_status = 3
+            conflict_reason = conflict_reason or "source_record_already_linked_to_another_lead"
+            target_lead_key = link.lead_key
+        mapping_before = (
+            link.lead_key,
+            link.order_id,
+            link.link_status,
+            link.link_method,
+        )
+        mapping_after = (target_lead_key, order_id, link_status, link_method)
+        if mapping_before != mapping_after:
+            link.link_version = max(link.link_version or 1, 1) + 1
+        link.lead_key = target_lead_key
+
+    link.source_clue_id = _clean(raw_clue.clue_id)
+    link.source_order_id = _clean(raw_clue.order_id)
+    link.order_id = order_id if link_status == 1 else _clean(lead.order_id)
+    link.link_status = link_status
+    link.link_method = link_method
+    link.source_observed_at = max(
+        filter(None, (_aware(link.source_observed_at), observed_at)),
+    )
+    link.source_payload_hash = _source_payload_hash(raw_clue.raw_payload)
+    link.conflict_reason = conflict_reason
+    link.updated_at = now
+    return link
+
+
+def _accepts_status_evidence(
+    lead: ClueMasterLead,
+    *,
+    incoming_status: str,
+    observed_at: datetime,
+) -> bool:
+    previous_observed_at = _aware(lead.order_status_observed_at)
+    if previous_observed_at is not None and observed_at < previous_observed_at:
+        return False
+    terminal_statuses = {"verified", "refunded", "closed"}
+    if (
+        lead.normalized_order_status in terminal_statuses
+        and incoming_status not in terminal_statuses
+    ):
+        return False
+    return True
+
+
+def _master_state_signature(lead: ClueMasterLead) -> tuple[object, ...]:
+    return (
+        lead.master_kind,
+        lead.normalized_order_status,
+        lead.status_source,
+        lead.lifecycle_status,
+        lead.pool_location,
+        lead.allocation_state,
+        lead.current_assignment_round_id,
+        lead.allocation_cycle_id,
+        lead.ended_without_assignment,
+        lead.closed_reason,
+        lead.is_complete_pool,
+        lead.anchor_poi_id,
+        lead.anchor_store_id,
+        lead.anchor_unavailable_reason,
     )
 
 
@@ -1499,12 +1705,12 @@ def _bounded_existing_masters(
     raw_clues: list[RawDouyinClue],
     *,
     order_ids: set[str],
+    source_link_lead_keys: set[str],
 ) -> list[ClueMasterLead]:
     row_keys = {row.clue_row_key for row in raw_clues if row.clue_row_key}
     canonical_ids = {_clean(row.clue_id) for row in raw_clues}
     canonical_ids.discard(None)
     source_identities = {_source_identity_key(row) for row in raw_clues}
-
     history_selectors = []
     if row_keys:
         history_selectors.append(ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys))
@@ -1543,6 +1749,8 @@ def _bounded_existing_masters(
         selectors.append(ClueMasterLead.order_id.in_(order_ids))
     if history_lead_keys:
         selectors.append(ClueMasterLead.lead_key.in_(history_lead_keys))
+    if source_link_lead_keys:
+        selectors.append(ClueMasterLead.lead_key.in_(source_link_lead_keys))
     if not selectors:
         return []
     return list(
