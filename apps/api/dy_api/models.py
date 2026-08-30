@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     func,
     Identity,
     Index,
@@ -2603,8 +2604,54 @@ def _fill_legacy_monthly_projection_fields(
 
 
 class JobRun(Base):
+    """Persist a legacy-compatible job and its control-plane state."""
+
     __tablename__ = "job_runs"
     __table_args__ = (
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'date_sync' OR ("
+            "parent_job_id IS NOT NULL AND business_date IS NOT NULL "
+            "AND data_source IS NOT NULL AND config_version IS NOT NULL "
+            "AND window_start IS NOT NULL AND window_end IS NOT NULL "
+            "AND window_end > window_start)",
+            name="ck_job_runs_date_sync_complete_window",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'parent_sync' OR ("
+            "parent_job_id IS NOT NULL AND execution_slot IS NOT NULL "
+            "AND execution_slot = 'heavy_sync' "
+            "AND business_date IS NULL AND data_source IS NOT NULL "
+            "AND config_version IS NOT NULL AND window_start IS NOT NULL "
+            "AND window_end IS NOT NULL AND window_end > window_start)",
+            name="ck_job_runs_parent_sync_complete_window",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'range_sync' "
+            "OR execution_slot IS NULL",
+            name="ck_job_runs_range_sync_no_execution_slot",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind IN ("
+            "'range_sync', 'parent_sync', 'date_sync', 'finalize', 'product_sync')",
+            name="ck_job_runs_job_kind_allowlist",
+        ),
+        CheckConstraint(
+            "current_stage IS NULL OR current_stage IN ("
+            "'collect', 'collect_dimensions', 'materialize', 'settle', 'finalize')",
+            name="ck_job_runs_current_stage_allowlist",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'queued', 'running', 'retry_wait', "
+            "'success', 'partial', 'failed', 'cancelled')",
+            name="ck_job_runs_status_allowlist",
+        ),
+        CheckConstraint(
+            "(attempt_count IS NULL OR attempt_count >= 0) AND "
+            "(max_attempts IS NULL OR max_attempts BETWEEN 1 AND 3) AND "
+            "(attempt_count IS NULL OR max_attempts IS NULL "
+            "OR attempt_count <= max_attempts)",
+            name="ck_job_runs_attempt_bounds",
+        ),
         Index(
             "uq_job_runs_product_sync_active_slot",
             "job_name",
@@ -2628,6 +2675,42 @@ class JobRun(Base):
                 "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
             ),
         ),
+        Index(
+            "uq_job_runs_date_sync_identity",
+            "parent_job_id",
+            "business_date",
+            "data_source",
+            "config_version",
+            unique=True,
+            sqlite_where=text(
+                "job_kind = 'date_sync' "
+                "AND parent_job_id IS NOT NULL "
+                "AND business_date IS NOT NULL "
+                "AND data_source IS NOT NULL "
+                "AND config_version IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "job_kind = 'date_sync' "
+                "AND parent_job_id IS NOT NULL "
+                "AND business_date IS NOT NULL "
+                "AND data_source IS NOT NULL "
+                "AND config_version IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_job_runs_heavy_sync_running_slot",
+            "execution_slot",
+            unique=True,
+            sqlite_where=text(
+                "execution_slot = 'heavy_sync' AND status = 'running'"
+            ),
+            postgresql_where=text(
+                "execution_slot = 'heavy_sync' AND status = 'running'"
+            ),
+        ),
+        Index("ix_job_runs_parent_business_date", "parent_job_id", "business_date"),
+        Index("ix_job_runs_lease_expires_at", "lease_expires_at"),
+        Index("ix_job_runs_heartbeat_at", "heartbeat_at"),
     )
 
     job_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -2640,6 +2723,422 @@ class JobRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    parent_job_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("job_runs.job_id", ondelete="RESTRICT"),
+    )
+    job_kind: Mapped[str | None] = mapped_column(String(32))
+    execution_slot: Mapped[str | None] = mapped_column(String(32))
+    business_date: Mapped[date | None] = mapped_column(Date)
+    data_source: Mapped[str | None] = mapped_column(String(128))
+    config_version: Mapped[str | None] = mapped_column(String(128))
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_stage: Mapped[str | None] = mapped_column(String(32))
+    attempt_count: Mapped[int | None] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int | None] = mapped_column(Integer, default=3)
+    lease_owner: Mapped[str | None] = mapped_column(Text)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    progress_current: Mapped[int | None] = mapped_column(BigInteger)
+    progress_total: Mapped[int | None] = mapped_column(BigInteger)
+    rows_read: Mapped[int | None] = mapped_column(BigInteger)
+    rows_written: Mapped[int | None] = mapped_column(BigInteger)
+    rows_affected: Mapped[int | None] = mapped_column(BigInteger)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pause_after_stage_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+
+class JobStageRun(Base):
+    """Store the authoritative checkpoint for one job stage."""
+
+    __tablename__ = "job_stage_runs"
+    __table_args__ = (
+        UniqueConstraint("job_id", "stage_name", name="uq_job_stage_runs_job_stage"),
+        UniqueConstraint(
+            "job_id", "stage_run_id", name="uq_job_stage_runs_job_stage_run"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'success', 'failed', "
+            "'cancelled', 'skipped')",
+            name="ck_job_stage_runs_status",
+        ),
+        CheckConstraint(
+            "status != 'success' OR committed_at IS NOT NULL",
+            name="ck_job_stage_runs_success_committed_at",
+        ),
+        CheckConstraint(
+            "lease_epoch IS NULL OR lease_epoch >= 0",
+            name="ck_job_stage_runs_lease_epoch",
+        ),
+        CheckConstraint(
+            "finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at",
+            name="ck_job_stage_runs_time_order",
+        ),
+        Index("ix_job_stage_runs_job_status", "job_id", "status"),
+        Index("ix_job_stage_runs_committed_at", "committed_at"),
+    )
+
+    stage_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_name: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    checkpoint_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class JobAttempt(Base):
+    """Record one fenced claim and execution attempt for a job."""
+
+    __tablename__ = "job_attempts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "stage_run_id"],
+            ["job_stage_runs.job_id", "job_stage_runs.stage_run_id"],
+            name="fk_job_attempts_job_stage_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["component_instance_id", "component_type"],
+            [
+                "component_heartbeats.component_instance_id",
+                "component_heartbeats.component_type",
+            ],
+            name="fk_job_attempts_component_identity",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "job_id", "attempt_number", name="uq_job_attempts_job_attempt_number"
+        ),
+        UniqueConstraint("job_id", "lease_epoch", name="uq_job_attempts_job_lease_epoch"),
+        UniqueConstraint("job_id", "attempt_id", name="uq_job_attempts_job_attempt"),
+        UniqueConstraint(
+            "job_id",
+            "component_instance_id",
+            "attempt_id",
+            name="uq_job_attempts_job_component_attempt",
+        ),
+        CheckConstraint("attempt_number > 0", name="ck_job_attempts_attempt_number"),
+        CheckConstraint("lease_epoch > 0", name="ck_job_attempts_lease_epoch"),
+        CheckConstraint(
+            "batch_size IS NULL OR batch_size > 0",
+            name="ck_job_attempts_batch_size",
+        ),
+        CheckConstraint(
+            "exit_type IS NULL OR exit_type IN ("
+            "'success', 'retryable_failure', 'fatal_failure', "
+            "'cancelled', 'crashed', 'resource_guard')",
+            name="ck_job_attempts_exit_type",
+        ),
+        CheckConstraint(
+            "finished_at IS NULL OR finished_at >= started_at",
+            name="ck_job_attempts_time_order",
+        ),
+        Index("ix_job_attempts_job_started", "job_id", "started_at"),
+        Index("ix_job_attempts_stage_run_id", "stage_run_id"),
+        Index(
+            "ix_job_attempts_component_started",
+            "component_instance_id",
+            "started_at",
+        ),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_run_id: Mapped[str | None] = mapped_column(Text)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    lease_epoch: Mapped[int] = mapped_column(Integer)
+    component_type: Mapped[str] = mapped_column(String(32))
+    component_instance_id: Mapped[str] = mapped_column(Text)
+    process_id: Mapped[int | None] = mapped_column(Integer)
+    container_instance_id: Mapped[str | None] = mapped_column(Text)
+    batch_size: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exit_type: Mapped[str | None] = mapped_column(String(32))
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    error_id: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobEvent(Base):
+    """Store an append-only audit or observability event for a job."""
+
+    __tablename__ = "job_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "stage_run_id"],
+            ["job_stage_runs.job_id", "job_stage_runs.stage_run_id"],
+            name="fk_job_events_job_stage_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["job_id", "attempt_id"],
+            ["job_attempts.job_id", "job_attempts.attempt_id"],
+            name="fk_job_events_job_attempt",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "actor_type IN ('system', 'worker', 'ops_agent', 'user')",
+            name="ck_job_events_actor_type",
+        ),
+        Index(
+            "uq_job_events_idempotency_key",
+            "job_id",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_job_events_job_occurred", "job_id", "occurred_at"),
+        Index("ix_job_events_attempt_id", "attempt_id"),
+        Index("ix_job_events_type_occurred", "event_type", "occurred_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_run_id: Mapped[str | None] = mapped_column(Text)
+    attempt_id: Mapped[str | None] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(String(64))
+    from_status: Mapped[str | None] = mapped_column(String(32))
+    to_status: Mapped[str | None] = mapped_column(String(32))
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    error_id: Mapped[str | None] = mapped_column(Text)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ComponentHeartbeat(Base):
+    """Store the latest declared state for one component instance."""
+
+    __tablename__ = "component_heartbeats"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["current_job_id", "component_instance_id", "current_attempt_id"],
+            [
+                "job_attempts.job_id",
+                "job_attempts.component_instance_id",
+                "job_attempts.attempt_id",
+            ],
+            name="fk_component_heartbeats_current_attempt",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        UniqueConstraint(
+            "component_instance_id",
+            "component_type",
+            name="uq_component_heartbeats_instance_type",
+        ),
+        CheckConstraint(
+            "current_attempt_id IS NULL OR current_job_id IS NOT NULL",
+            name="ck_component_heartbeats_current_attempt_job",
+        ),
+        CheckConstraint(
+            "component_type IN ("
+            "'worker', 'browser', 'api', 'postgres', 'proxy', 'ops_agent')",
+            name="ck_component_heartbeats_component_type",
+        ),
+        CheckConstraint(
+            "status IN ("
+            "'starting', 'healthy', 'degraded', 'draining', 'unhealthy', 'stopped')",
+            name="ck_component_heartbeats_status",
+        ),
+        CheckConstraint(
+            "rss_bytes IS NULL OR rss_bytes >= 0",
+            name="ck_component_heartbeats_rss_bytes",
+        ),
+        CheckConstraint(
+            "rss_peak_bytes IS NULL OR rss_peak_bytes >= 0",
+            name="ck_component_heartbeats_rss_peak_bytes",
+        ),
+        CheckConstraint(
+            "memory_limit_bytes IS NULL OR memory_limit_bytes > 0",
+            name="ck_component_heartbeats_memory_limit_bytes",
+        ),
+        CheckConstraint(
+            "queue_depth IS NULL OR queue_depth >= 0",
+            name="ck_component_heartbeats_queue_depth",
+        ),
+        Index(
+            "ix_component_heartbeats_type_last_heartbeat",
+            "component_type",
+            "last_heartbeat_at",
+        ),
+        Index("ix_component_heartbeats_status", "status"),
+        Index("ix_component_heartbeats_current_job_id", "current_job_id"),
+    )
+
+    component_instance_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    component_type: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    version: Mapped[str | None] = mapped_column(String(128))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    current_job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    current_attempt_id: Mapped[str | None] = mapped_column(Text)
+    rss_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_limit_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    cpu_percent: Mapped[float | None] = mapped_column(Float)
+    queue_depth: Mapped[int | None] = mapped_column(Integer)
+    activity_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    queue_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ComponentMetricSample(Base):
+    """Store a retained point-in-time component resource metric."""
+
+    __tablename__ = "component_metric_samples"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "component_instance_id", "attempt_id"],
+            [
+                "job_attempts.job_id",
+                "job_attempts.component_instance_id",
+                "job_attempts.attempt_id",
+            ],
+            name="fk_component_metric_samples_job_component_attempt",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "component_instance_id",
+            "metric_name",
+            "sampled_at",
+            name="uq_component_metric_samples_instance_metric_sampled",
+        ),
+        CheckConstraint(
+            "expires_at > sampled_at",
+            name="ck_component_metric_samples_retention",
+        ),
+        CheckConstraint(
+            "attempt_id IS NULL OR job_id IS NOT NULL",
+            name="ck_component_metric_samples_attempt_job",
+        ),
+        Index(
+            "ix_component_metric_samples_component_sampled",
+            "component_instance_id",
+            "sampled_at",
+        ),
+        Index("ix_component_metric_samples_expires_at", "expires_at"),
+        Index("ix_component_metric_samples_job_sampled", "job_id", "sampled_at"),
+    )
+
+    metric_sample_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    component_instance_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("component_heartbeats.component_instance_id", ondelete="RESTRICT"),
+    )
+    job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    attempt_id: Mapped[str | None] = mapped_column(Text)
+    metric_name: Mapped[str] = mapped_column(String(64))
+    metric_value: Mapped[Decimal] = mapped_column(Numeric(24, 6))
+    unit: Mapped[str] = mapped_column(String(32))
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+
+
+class OpsCommand(Base):
+    """Store a confirmed, allowlisted command for the isolated ops agent."""
+
+    __tablename__ = "ops_commands"
+    __table_args__ = (
+        CheckConstraint("command_type = 'restart'", name="ck_ops_commands_command_type"),
+        CheckConstraint(
+            "target_component IN ('worker', 'browser')",
+            name="ck_ops_commands_target_component",
+        ),
+        CheckConstraint(
+            "status IN ("
+            "'pending', 'running', 'success', 'failed', "
+            "'rejected', 'expired', 'cancelled')",
+            name="ck_ops_commands_status",
+        ),
+        CheckConstraint(
+            "lease_epoch IS NULL OR lease_epoch > 0",
+            name="ck_ops_commands_lease_epoch",
+        ),
+        CheckConstraint("expires_at > created_at", name="ck_ops_commands_expiry"),
+        Index(
+            "uq_ops_commands_idempotency_key_hash",
+            "idempotency_key_hash",
+            unique=True,
+        ),
+        Index(
+            "uq_ops_commands_active_target",
+            "target_component",
+            unique=True,
+            sqlite_where=text("status IN ('pending', 'running')"),
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        Index("ix_ops_commands_status_created", "status", "created_at"),
+        Index("ix_ops_commands_expires_at", "expires_at"),
+        Index("ix_ops_commands_related_job_id", "related_job_id"),
+        Index(
+            "ix_ops_commands_target_cooldown",
+            "target_component",
+            "cooldown_until",
+        ),
+    )
+
+    command_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    command_type: Mapped[str] = mapped_column(String(32))
+    target_component: Mapped[str] = mapped_column(String(32))
+    requested_by: Mapped[str] = mapped_column(Text)
+    request_reason: Mapped[str] = mapped_column(Text)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32))
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str] = mapped_column(String(64))
+    related_job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="SET NULL")
+    )
+    claimed_by: Mapped[str | None] = mapped_column(Text)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_code: Mapped[str | None] = mapped_column(String(64))
+    result_summary: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class SyncSetting(Base):

@@ -5,7 +5,7 @@ import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
 
@@ -17,6 +17,12 @@ from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
+from apps.worker.daily_windows import (
+    SHANGHAI_TIMEZONE,
+    SHANGHAI_TIMEZONE_NAME,
+    DailySyncPlan,
+    plan_daily_sync,
+)
 from apps.worker.materialize_once import MATERIALIZATION_STAGES
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
@@ -71,11 +77,33 @@ def resolve_incremental_collection_window(
     days = int(source.get("WORKER_ROLLING_DAYS", str(DEFAULT_ROLLING_DAYS)))
     if days <= 0:
         raise ValueError("WORKER_ROLLING_DAYS must be greater than 0.")
-    return resolve_collection_window(
-        now=now,
-        overlap_days=days,
-        timezone_name=source.get("DOUYIN_COLLECT_TIMEZONE"),
-        env={},
+    configured_timezone = (
+        source.get("DOUYIN_COLLECT_TIMEZONE") or SHANGHAI_TIMEZONE_NAME
+    ).strip()
+    if configured_timezone != SHANGHAI_TIMEZONE_NAME:
+        raise ValueError(
+            "DOUYIN_COLLECT_TIMEZONE must be Asia/Shanghai for daily planning."
+        )
+    current = now or datetime.now(SHANGHAI_TIMEZONE)
+    local_current = (
+        current.astimezone(SHANGHAI_TIMEZONE)
+        if current.tzinfo is not None
+        else current.replace(tzinfo=SHANGHAI_TIMEZONE)
+    )
+    range_end_date = local_current.date()
+    range_start_date = range_end_date - timedelta(days=days)
+    return CollectionWindow(
+        start=datetime.combine(
+            range_start_date,
+            datetime_time.min,
+            tzinfo=SHANGHAI_TIMEZONE,
+        ),
+        end=datetime.combine(
+            range_end_date,
+            datetime_time.min,
+            tzinfo=SHANGHAI_TIMEZONE,
+        ),
+        timezone_name=SHANGHAI_TIMEZONE_NAME,
     )
 
 
@@ -162,86 +190,28 @@ def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str |
     return job_id
 
 
-def run_incremental_collection_chunks(factory, config) -> None:
+def run_incremental_collection_chunks(factory, config) -> DailySyncPlan:
     source_window = resolve_incremental_collection_window(
-        env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
+        env={
+            **os.environ,
+            "WORKER_ROLLING_DAYS": str(config.rolling_days),
+        }
     )
-    chunks = _incremental_chunks_latest_first(
-        source_window,
-        chunk_days=config.history_chunk_days,
-    )
-    day_start = _window_day_start(source_window)
     with session_scope(factory) as session:
-        completed_windows = _successful_collect_window_keys(session, since=day_start)
+        plan = plan_daily_sync(
+            session,
+            start=source_window.start,
+            end=source_window.end,
+            target="all",
+            requested_by="worker-scheduler",
+            trigger_source="scheduler",
+        )
     _log(
-        "incremental_start "
-        f"chunks={len(chunks)} chunk_days={config.history_chunk_days} "
-        f"start={source_window.start.isoformat()} end={source_window.end.isoformat()}"
+        "incremental_planned "
+        f"parent_job_id={plan.parent_job_id} dates={len(plan.daily_jobs)} "
+        f"start={plan.window_start.isoformat()} end={plan.window_end.isoformat()}"
     )
-    failed_chunks = 0
-    max_attempts = _configured_chunk_max_attempts()
-    for index, chunk in enumerate(chunks, start=1):
-        if _window_key(chunk) in completed_windows:
-            _log(f"incremental_chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-            continue
-
-        process_queued_settlement_rebuilds(factory)
-        job_id = _chunk_job_id("collect", index, chunk)
-        _log(f"incremental_chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-        stats = None
-        last_error: Exception | None = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                with session_scope(factory) as session:
-                    stats = run_collect_and_settle(
-                        session,
-                        job_id=job_id,
-                        window=chunk,
-                        include_browser_export=False,
-                        include_materialization=False,
-                    )
-                break
-            except Exception as exc:
-                last_error = exc
-                if attempt < max_attempts:
-                    _log(
-                        f"incremental_chunk_retry index={index} job_id={job_id} "
-                        f"attempt={attempt + 1}/{max_attempts}"
-                    )
-                    continue
-        if stats is None:
-            assert last_error is not None
-            _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=last_error)
-            _log(f"incremental_chunk_failed index={index} job_id={job_id} attempts={max_attempts}")
-            failed_chunks += 1
-            continue
-        completed_windows.add(_window_key(chunk))
-        _log(
-            f"incremental_chunk_done index={index} job_id={job_id} "
-            f"success={stats.success_count} failed={stats.failed_count}"
-        )
-    materialize_job_id = _job_id("collect_materialize")
-    _log(f"incremental_materialize_start job_id={materialize_job_id}")
-    try:
-        completed_stages = run_isolated_materialization(
-            window=source_window,
-            job_id=materialize_job_id,
-        )
-        _record_successful_materialization(
-            factory,
-            job_id=materialize_job_id,
-            window=source_window,
-            completed_stages=completed_stages or MATERIALIZATION_STAGES,
-        )
-    except Exception as exc:
-        _record_failed_collect_chunk(factory, job_id=materialize_job_id, window=source_window, error=exc)
-        _log(
-            f"incremental_materialize_failed job_id={materialize_job_id} "
-            f"error={sanitize_error_message(str(exc))}"
-        )
-        return
-    _log(f"incremental_materialize_done job_id={materialize_job_id}")
-    _log(f"incremental_done failed_chunks={failed_chunks}")
+    return plan
 
 
 def run_isolated_materialization(
