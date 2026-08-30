@@ -6,7 +6,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -52,16 +52,31 @@ def refresh_clue_center_projection(
     *,
     now: datetime | None = None,
     phone_plain_resolver: PhonePlainResolver | None = None,
+    order_ids: set[str] | None = None,
 ) -> dict[str, int]:
     """Refresh order/contact/product fields without creating assignment rounds."""
 
     now = _aware(now or utcnow())
-    raw_clues = session.scalars(
+    selected_order_ids = {
+        str(order_id).strip()
+        for order_id in (order_ids or set())
+        if str(order_id).strip() not in {"", "0"}
+    }
+    incremental = order_ids is not None
+    if incremental and not selected_order_ids:
+        return {"eligible_orders": 0, "projected_orders": 0}
+
+    raw_stmt = (
         select(RawDouyinClue)
         .where(RawDouyinClue.order_status == "履约中")
         .where(RawDouyinClue.order_id.is_not(None))
         .where(RawDouyinClue.order_id != "")
         .where(RawDouyinClue.order_id != "0")
+    )
+    if incremental:
+        raw_stmt = raw_stmt.where(RawDouyinClue.order_id.in_(selected_order_ids))
+    raw_clues = session.scalars(
+        raw_stmt.order_by(RawDouyinClue.order_id, RawDouyinClue.clue_row_key)
     ).all()
 
     grouped: dict[str, list[RawDouyinClue]] = defaultdict(list)
@@ -76,7 +91,26 @@ def refresh_clue_center_projection(
     order_ids = set(grouped)
     sku_rules = _sku_rules(session, raw_clues)
     master_leads_by_source_clue_row_key = _master_leads_by_source_clue_row_key(session, raw_clues)
-    verifications = _verification_rows(session, order_ids)
+    preferred_store_by_order = {
+        order_id: store_id
+        for order_id, store_id in session.execute(
+            select(
+                ClueAssignmentRound.order_id,
+                ClueAssignmentRound.assigned_store_id,
+            )
+            .where(ClueAssignmentRound.order_id.in_(order_ids))
+            .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
+            .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
+            .where(ClueAssignmentRound.is_follow_success.is_(True))
+            .where(ClueAssignmentRound.assigned_store_id.is_not(None))
+        ).all()
+        if order_id and store_id
+    }
+    verifications = _verification_rows(
+        session,
+        order_ids,
+        preferred_store_by_order=preferred_store_by_order,
+    )
     existing_center_orders = _existing_center_orders(session, order_ids)
     encrypted_phone_plain_values = _encrypted_phone_plain_values(
         grouped,
@@ -473,22 +507,74 @@ def _existing_center_orders(session: Session, order_ids: set[str]) -> dict[str, 
     return {row.order_id: row for row in rows}
 
 
-def _verification_rows(session: Session, order_ids: set[str]) -> dict[str, list[dict[str, Any]]]:
-    rows = session.execute(
-        select(
-            SettlementOrderDetail.order_id,
-            SettlementOrderDetail.verify_store_id,
-            SettlementOrderDetail.verify_store_name,
-            SettlementOrderDetail.verify_time,
+def _verification_rows(
+    session: Session,
+    order_ids: set[str],
+    *,
+    preferred_store_by_order: dict[str, str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    selected_order_ids = {
+        str(value) for value in order_ids if _clean(value)
+    }
+    if not selected_order_ids:
+        return {}
+
+    def ranked_rows(
+        store_filter: Any | None = None,
+    ) -> dict[str, dict[str, Any]]:
+        ranking = func.row_number().over(
+            partition_by=SettlementOrderDetail.order_id,
+            order_by=(
+                SettlementOrderDetail.verify_time.asc().nulls_last(),
+                SettlementOrderDetail.coupon_id.asc(),
+            ),
+        ).label("verification_rank")
+        ranked = (
+            select(
+                SettlementOrderDetail.order_id,
+                SettlementOrderDetail.verify_store_id,
+                SettlementOrderDetail.verify_store_name,
+                SettlementOrderDetail.verify_time,
+                ranking,
+            )
+            .where(
+                SettlementOrderDetail.order_id.in_(selected_order_ids)
+            )
+            .where(SettlementOrderDetail.is_verified.is_(True))
         )
-        .where(SettlementOrderDetail.order_id.in_(order_ids))
-        .where(SettlementOrderDetail.is_verified.is_(True))
-    ).mappings()
-    result: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        result[row["order_id"]].append(dict(row))
-    for values in result.values():
-        values.sort(key=lambda row: (_aware(row.get("verify_time")) or datetime.max.replace(tzinfo=timezone.utc)))
+        if store_filter is not None:
+            ranked = ranked.where(store_filter)
+        ranked_subquery = ranked.subquery()
+        rows = session.execute(
+            select(
+                ranked_subquery.c.order_id,
+                ranked_subquery.c.verify_store_id,
+                ranked_subquery.c.verify_store_name,
+                ranked_subquery.c.verify_time,
+            ).where(ranked_subquery.c.verification_rank == 1)
+        ).mappings()
+        return {row["order_id"]: dict(row) for row in rows}
+
+    result: dict[str, list[dict[str, Any]]] = {}
+    preferred = {
+        order_id: store_id
+        for order_id, store_id in (
+            preferred_store_by_order or {}
+        ).items()
+        if order_id in selected_order_ids and _clean(store_id)
+    }
+    if preferred:
+        preferred_store = case(
+            preferred,
+            value=SettlementOrderDetail.order_id,
+        )
+        for order_id, row in ranked_rows(
+            SettlementOrderDetail.verify_store_id == preferred_store
+        ).items():
+            result[order_id] = [row]
+
+    for order_id, row in ranked_rows().items():
+        result.setdefault(order_id, [row])
     return result
 
 

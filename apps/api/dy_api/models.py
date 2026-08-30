@@ -182,6 +182,15 @@ class RawAwemeBinding(Base):
 
 class RawDouyinClue(Base):
     __tablename__ = "raw_douyin_clues"
+    __table_args__ = (
+        Index("ix_raw_douyin_clues_order_row_key", "order_id", "clue_row_key"),
+        Index("ix_raw_douyin_clues_follow_poi_row_key", "follow_poi_id", "clue_row_key"),
+        Index(
+            "ix_raw_douyin_clues_intention_poi_row_key",
+            "intention_poi_id",
+            "clue_row_key",
+        ),
+    )
 
     clue_row_key: Mapped[str] = mapped_column(Text, primary_key=True)
     clue_id: Mapped[str | None] = mapped_column(Text, index=True)
@@ -1024,6 +1033,13 @@ class SettlementOrderDetail(Base):
         Index("ix_settlement_order_details_verify_store_month", "verify_store_id", "verify_time"),
         Index("ix_settlement_order_details_product_type", "product_type"),
         Index("ix_settlement_order_details_relation_type", "relation_type"),
+        Index(
+            "ix_settlement_order_details_order_verified_time",
+            "order_id",
+            "is_verified",
+            "verify_time",
+            "coupon_id",
+        ),
     )
 
     coupon_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3401,6 +3417,11 @@ class ClueMasterLead(Base):
         Index("ix_clue_master_leads_order_location", "order_id", "pool_location"),
         Index("ix_clue_master_leads_lifecycle_location", "lifecycle_status", "pool_location"),
         Index("ix_clue_master_leads_anchor_store", "anchor_store_id"),
+        Index(
+            "ix_clue_master_leads_source_identity_order",
+            "source_identity_key",
+            "order_id",
+        ),
     )
 
     lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3427,6 +3448,7 @@ class ClueMasterLead(Base):
     closed_reason: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_observation_key: Mapped[str | None] = mapped_column(String(256))
     anchor_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_store_id: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_source: Mapped[str | None] = mapped_column(Text)
@@ -3543,6 +3565,19 @@ class ClueSourceIdentifierHistory(Base):
             "source_clue_row_key",
             "identifier_type",
             "is_current",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_source_lead_type",
+            "source_clue_row_key",
+            "lead_key",
+            "identifier_type",
+            "is_current",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_type_value_lead",
+            "identifier_type",
+            "identifier_value",
+            "lead_key",
         ),
     )
 

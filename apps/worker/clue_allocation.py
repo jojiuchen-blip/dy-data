@@ -12,7 +12,7 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from openpyxl import load_workbook
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -22,6 +22,8 @@ from apps.api.dy_api.models import (
     ClueFollowUpRecord,
     ClueHeadquartersPoolEntry,
     ClueLeadRuleVersionBinding,
+    ClueMaterializationTarget,
+    ClueMaterializationWorkItem,
     ClueMasterLead,
     ClueOrderStatusEvent,
     ClueSourceRecordLink,
@@ -29,6 +31,8 @@ from apps.api.dy_api.models import (
     DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
+    JobImpact,
+    JobImpactWatermark,
     RawDouyinClue,
     RawDouyinOrder,
     RawDouyinOrderCoupon,
@@ -42,7 +46,15 @@ from apps.worker.clue_headquarters_pool import (
     ensure_active_headquarters_pool_entry,
 )
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
-from apps.worker.repositories import upsert_data_quality_issue
+from apps.worker.clue_center import refresh_clue_center_projection
+from apps.worker.repositories import (
+    begin_clue_materialization_cycle,
+    claim_clue_materialization_batch,
+    complete_clue_materialization_batch,
+    renew_clue_materialization_batch,
+    retry_clue_materialization_batch,
+    upsert_data_quality_issue,
+)
 
 
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -54,6 +66,7 @@ MASTER_TERMINAL_SYNC_LOCK = "clue-allocation-master-terminal-sync"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 BUSINESS_EXECUTION_MODE = "formal"
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
+CENTER_ORDER_BATCH_SIZE = 64
 ANCHOR_UNAVAILABLE_REASONS = (
     "follow_poi_missing",
     "follow_poi_unmapped",
@@ -117,27 +130,77 @@ def materialize_clue_master_leads(
     *,
     now: datetime | None = None,
     raw_clues: list[RawDouyinClue] | None = None,
+    raw_clue_row_keys: set[str] | None = None,
+    raw_page_clues: list[RawDouyinClue] | None = None,
+    clue_ids: set[str] | None = None,
+    order_ids: set[str] | None = None,
+    poi_ids: set[str] | None = None,
+    source_identity_keys: set[str] | None = None,
+    existing_clue_ids: set[str] | None = None,
+    existing_order_ids: set[str] | None = None,
+    existing_poi_ids: set[str] | None = None,
+    existing_source_identity_keys: set[str] | None = None,
 ) -> dict[str, object]:
-    """Build clue master state from the full ledger or one explicit raw page."""
+    """Build clue master state from the full ledger or one bounded impact page."""
     now = _aware(now or utcnow())
     if not _try_transaction_lock(session, lock_name=MASTER_MATERIALIZATION_LOCK):
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0, "skipped": "locked"}
-    bounded_context = raw_clues is not None
-    raw_clues = (
-        list(raw_clues)
-        if raw_clues is not None
-        else session.scalars(select(RawDouyinClue)).all()
+    if raw_clues is not None and raw_page_clues is not None:
+        raise ValueError("provide either raw_clues or raw_page_clues, not both")
+    incremental = raw_clues is not None or raw_page_clues is not None or any(
+        selector is not None
+        for selector in (
+            raw_clue_row_keys,
+            clue_ids,
+            order_ids,
+            poi_ids,
+            source_identity_keys,
+            existing_clue_ids,
+            existing_order_ids,
+            existing_poi_ids,
+            existing_source_identity_keys,
+        )
     )
+    if incremental:
+        session.info.pop("clue_identifier_conflicts", None)
+        session.info.pop("clue_identifier_conflict_counts", None)
+    explicit_page = raw_page_clues if raw_page_clues is not None else raw_clues
+    if explicit_page is not None:
+        selected_raw_clues = list(explicit_page)
+    elif incremental:
+        selected_raw_clues = _bounded_raw_clues(
+            session,
+            raw_clue_row_keys=raw_clue_row_keys or set(),
+            clue_ids=clue_ids or set(),
+            order_ids=order_ids or set(),
+            poi_ids=poi_ids or set(),
+        )
+    else:
+        selected_raw_clues = session.scalars(select(RawDouyinClue)).all()
+    raw_clues = selected_raw_clues
     if not raw_clues:
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0}
 
-    order_ids = {_clean(row.order_id) for row in raw_clues}
-    order_ids.discard(None)
-    raw_orders = _raw_orders_by_id(session, order_ids)
-    coupon_statuses_by_order = _coupon_statuses_by_order(session, order_ids)
-    verified_at_by_order = _verified_at_by_order(session, order_ids)
-    if bounded_context:
-        mappings_by_poi, stores_by_id = _bounded_location_context(session, raw_clues)
+    selected_order_ids = {_clean(row.order_id) for row in raw_clues}
+    selected_order_ids.discard(None)
+    selected_order_ids.update(
+        _clean(value)
+        for value in (
+            existing_order_ids
+            if explicit_page is not None and existing_order_ids is not None
+            else order_ids or set()
+        )
+    )
+    selected_order_ids.discard(None)
+    raw_orders = _raw_orders_by_id(session, selected_order_ids)
+    coupon_statuses_by_order = _coupon_statuses_by_order(session, selected_order_ids)
+    verified_at_by_order = _verified_at_by_order(session, selected_order_ids)
+    if incremental:
+        mappings_by_poi, stores_by_id = _bounded_location_context(
+            session,
+            raw_clues,
+            poi_ids=poi_ids or set(),
+        )
     else:
         stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
         mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
@@ -156,13 +219,24 @@ def materialize_clue_master_leads(
         _bounded_existing_masters(
             session,
             raw_clues,
-            order_ids=order_ids,
+            order_ids=(
+                existing_order_ids
+                if existing_order_ids is not None
+                else selected_order_ids
+            ),
+            clue_ids=(existing_clue_ids if existing_clue_ids is not None else clue_ids),
+            poi_ids=(existing_poi_ids if existing_poi_ids is not None else poi_ids),
+            source_identity_keys=(
+                existing_source_identity_keys
+                if existing_source_identity_keys is not None
+                else source_identity_keys
+            ),
             source_link_lead_keys={
                 source_link.lead_key
                 for source_link in source_links_by_record_key.values()
             },
         )
-        if bounded_context
+        if incremental
         else session.scalars(select(ClueMasterLead)).all()
     )
     existing_by_lead_key = {row.lead_key: row for row in existing_rows}
@@ -178,11 +252,25 @@ def materialize_clue_master_leads(
     existing_by_order_id = {
         order_id: rows[0] for order_id, rows in masters_by_order_id.items() if len(rows) == 1
     }
-    identifier_history_rows = (
-        _bounded_identifier_history(session, raw_clues)
-        if bounded_context
-        else session.scalars(select(ClueSourceIdentifierHistory)).all()
-    )
+    if incremental:
+        candidate_identifiers = {
+            (identifier_type, identifier_value)
+            for raw_clue in raw_clues
+            for identifier_type, identifier_value in (
+                ("clue_id", _clean(raw_clue.clue_id)),
+                ("source_identity_key", _source_identity_key(raw_clue)),
+            )
+            if identifier_value
+        }
+        identifier_history_rows = _bounded_identifier_history(
+            session,
+            raw_clue_row_keys={row.clue_row_key for row in raw_clues},
+            candidate_identifiers=candidate_identifiers,
+        )
+    else:
+        identifier_history_rows = session.scalars(
+            select(ClueSourceIdentifierHistory)
+        ).all()
     identifier_history_by_key = {
         (row.source_clue_row_key, row.identifier_type, row.identifier_value): row
         for row in identifier_history_rows
@@ -190,9 +278,16 @@ def materialize_clue_master_leads(
     current_identifier_history_by_source_type: dict[
         tuple[str, str], list[ClueSourceIdentifierHistory]
     ] = defaultdict(list)
+    existing_by_identifier: dict[tuple[str, str], ClueMasterLead] = {}
     source_history_lead_keys: dict[str, set[str]] = defaultdict(set)
     for row in identifier_history_rows:
         source_history_lead_keys[row.source_clue_row_key].add(row.lead_key)
+        lead = existing_by_lead_key.get(row.lead_key)
+        if lead is not None:
+            existing_by_identifier.setdefault(
+                (row.identifier_type, row.identifier_value),
+                lead,
+            )
         if row.is_current:
             current_identifier_history_by_source_type[
                 (row.source_clue_row_key, row.identifier_type)
@@ -223,7 +318,7 @@ def materialize_clue_master_leads(
             }
         )
     center_orders_by_id: dict[str, ClueCenterOrder] = {}
-    for order_id_batch in _materialization_order_id_batches(order_ids):
+    for order_id_batch in _materialization_order_id_batches(selected_order_ids):
         center_orders_by_id.update(
             {
                 row.order_id: row
@@ -249,7 +344,7 @@ def materialize_clue_master_leads(
             }
         )
     affected_lead_keys = set(existing_by_lead_key)
-    if bounded_context:
+    if incremental:
         active_headquarters_entries_by_lead = {
             row.lead_key: row
             for row in _bounded_active_headquarters_entries(session, affected_lead_keys)
@@ -282,6 +377,11 @@ def materialize_clue_master_leads(
         identity_match = existing_by_identity.get(source_identity_key)
         canonical_match = (
             existing_by_canonical_clue_id.get(canonical_clue_id) if canonical_clue_id else None
+        )
+        history_match = (
+            existing_by_identifier.get(("clue_id", canonical_clue_id))
+            if canonical_clue_id
+            else None
         )
         lead_key_match = existing_by_lead_key.get(_lead_key(source_identity_key))
 
@@ -317,16 +417,68 @@ def materialize_clue_master_leads(
                 )
             continue
 
+        collision_candidates = _raw_identifier_collision_candidates(
+            raw_clue,
+            source_identity_key=source_identity_key,
+            canonical_clue_id=canonical_clue_id,
+        )
+        collision_counts = session.info.get("clue_identifier_conflict_counts", {})
+        collisions = [
+            (identifier_type, identifier_value, int(collision_counts[key]))
+            for identifier_type, identifier_value in collision_candidates
+            for key in ((identifier_type, identifier_value),)
+            if key in collision_counts and int(collision_counts[key]) > 1
+        ]
+        stronger_match = any(
+            match is not None
+            for match in (source_match, order_match, identity_match, lead_key_match)
+        )
+        if incremental and collisions and not stronger_match:
+            _record_identifier_collision_issue(
+                session,
+                raw_clue=raw_clue,
+                collisions=collisions,
+                now=now,
+            )
+            continue
+
         existing = source_match or order_match
         if existing is None:
             existing = next(
                 (
                     candidate
-                    for candidate in (identity_match, canonical_match, lead_key_match)
+                    for candidate in (
+                        identity_match,
+                        canonical_match,
+                        history_match,
+                        lead_key_match,
+                    )
                     if candidate is not None and _master_order_is_compatible(candidate, order_id)
                 ),
                 None,
             )
+        observed_at = _observed_at(raw_clue, now)
+        if (
+            incremental
+            and existing is not None
+            and existing.last_seen_at is not None
+            and not _observation_is_newer(
+                observed_at,
+                _clean(raw_clue.observation_key),
+                _aware(existing.last_seen_at),
+                _clean(existing.last_observation_key),
+            )
+        ):
+            _record_stale_source_identifiers(
+                session,
+                existing=existing,
+                raw_clue=raw_clue,
+                observed_at=observed_at,
+                now=now,
+                history_by_key=identifier_history_by_key,
+                current_by_source_type=current_identifier_history_by_source_type,
+            )
+            continue
         is_new_master = existing is None
         resolution = _resolve_status(
             raw_clue,
@@ -341,7 +493,6 @@ def materialize_clue_master_leads(
             "isolated" if is_isolated_source else _lifecycle_status(resolution.normalized_status)
         )
 
-        observed_at = _observed_at(raw_clue, now)
         status_observed_at = _status_observed_at(
             raw_clue,
             raw_orders.get(order_id or ""),
@@ -443,6 +594,7 @@ def materialize_clue_master_leads(
         existing.last_seen_at = max(
             filter(None, (_aware(existing.last_seen_at), observed_at)),
         )
+        existing.last_observation_key = _clean(raw_clue.observation_key)
         existing.anchor_poi_id = anchor.poi_id
         existing.anchor_store_id = anchor.store_id
         existing.anchor_source = "douyin_follow_poi" if anchor.poi_id else None
@@ -463,6 +615,8 @@ def materialize_clue_master_leads(
         existing_by_identity[source_identity_key] = existing
         if canonical_clue_id:
             existing_by_canonical_clue_id[canonical_clue_id] = existing
+            existing_by_identifier[("clue_id", canonical_clue_id)] = existing
+        existing_by_identifier[("source_identity_key", source_identity_key)] = existing
         payload_hash = _source_payload_hash(raw_clue.raw_payload)
         _upsert_source_record_link(
             session,
@@ -865,6 +1019,451 @@ def synchronize_non_active_clue_states(
     finally:
         _release_session_advisory_lock(session, lock_key)
     return stats
+
+
+def run_incremental_clue_materialization(
+    session_factory: object,
+    *,
+    scope: str = "clue_materialization",
+    batch_size: int = 100,
+    raw_batch_size: int = 1000,
+    lease_token: str | None = None,
+    lease_seconds: int = 300,
+    max_batches: int | None = None,
+    now: datetime | None = None,
+    phone_plain_resolver: Any | None = None,
+    page_fence: Any | None = None,
+) -> dict[str, object]:
+    """Consume frozen JobImpact work with durable raw-page checkpoints.
+
+    ``session_factory`` must create a new SQLAlchemy Session on every call.  The
+    claim itself is short-lived, then each raw fanout page is processed in its
+    own transaction and Session.  ``ClueMaterializationWorkItem.raw_cursor`` is
+    committed together with the business projection, so a process crash or an
+    expired short lease resumes at the next page.  The completion CAS remains
+    fenced by the attempt token and never silently completes lock contention.
+    """
+
+    if not callable(session_factory):
+        raise TypeError("session_factory must be callable")
+    token = str(lease_token or "").strip()
+    if not token:
+        raise ValueError("lease_token is required and must be non-empty")
+    safe_batch_size = max(1, int(batch_size))
+    safe_raw_batch_size = max(1, int(raw_batch_size))
+    safe_max_batches = None if max_batches is None else max(0, int(max_batches))
+    fixed_now = _aware(now or utcnow())
+    summary: dict[str, object] = {
+        "scope": scope,
+        "work_items": 0,
+        "batches": 0,
+        "master_leads": 0,
+        "closed_leads": 0,
+        "headquarters_pool": 0,
+        "center_orders": 0,
+        "raw_rows": 0,
+        "frozen_upper_bound_id": 0,
+    }
+    checkpoint_started = False
+    cycle_id: str | None = None
+    phase = "raw"
+
+    while safe_max_batches is None or int(summary["batches"]) < safe_max_batches:
+        # Claim in a short transaction.  Business work never shares this
+        # Session, which bounds the identity map before the first raw page.
+        claim_session = session_factory()
+        try:
+            claim_session.begin()
+            if not checkpoint_started:
+                checkpoint = begin_clue_materialization_cycle(claim_session, scope=scope)
+                checkpoint_started = True
+            else:
+                checkpoint = claim_session.get(JobImpactWatermark, scope)
+                if checkpoint is None:
+                    raise RuntimeError("clue materialization checkpoint disappeared")
+            cycle_id = str(checkpoint.cycle_id)
+            summary["frozen_upper_bound_id"] = int(checkpoint.frozen_upper_bound_id)
+            batch = claim_clue_materialization_batch(
+                claim_session,
+                scope=scope,
+                limit=safe_batch_size,
+                lease_token=token,
+                lease_seconds=lease_seconds,
+                phase=phase,
+            )
+            work_item_ids = [int(item.work_item_id) for item in batch]
+            if not work_item_ids:
+                if phase == "raw":
+                    unfinished_raw_count = claim_session.scalar(
+                        select(func.count(ClueMaterializationWorkItem.work_item_id)).where(
+                            ClueMaterializationWorkItem.scope == scope,
+                            ClueMaterializationWorkItem.impact_id
+                            <= checkpoint.frozen_upper_bound_id,
+                            ClueMaterializationWorkItem.state != "completed",
+                            ClueMaterializationWorkItem.raw_page_complete.is_(False),
+                        )
+                    )
+                    if int(unfinished_raw_count or 0) > 0:
+                        raise RuntimeError(
+                            "clue materialization has unfinished raw work within frozen bound"
+                        )
+                    # Raw/master fanout is complete for every impact.  Only
+                    # now can center projection consume the cycle-wide target
+                    # set, which prevents a late impact from being missed.
+                    phase = "center"
+                    claim_session.commit()
+                    claim_session.close()
+                    continue
+                unfinished_count = claim_session.scalar(
+                    select(func.count(ClueMaterializationWorkItem.work_item_id)).where(
+                        ClueMaterializationWorkItem.scope == scope,
+                        ClueMaterializationWorkItem.impact_id
+                        <= checkpoint.frozen_upper_bound_id,
+                        ClueMaterializationWorkItem.state != "completed",
+                    )
+                )
+                if int(unfinished_count or 0) > 0:
+                    raise RuntimeError(
+                        "clue materialization has unfinished work within frozen bound"
+                    )
+            claim_session.commit()
+        except BaseException:
+            try:
+                claim_session.rollback()
+            finally:
+                claim_session.close()
+            raise
+        else:
+            claim_session.close()
+
+        if not work_item_ids:
+            break
+
+        if phase == "raw":
+            summary["batches"] = int(summary["batches"]) + 1
+        for index, work_item_id in enumerate(work_item_ids):
+            try:
+                item_result = _process_incremental_clue_work_item(
+                    session_factory,
+                    work_item_id=work_item_id,
+                    scope=scope,
+                    raw_batch_size=safe_raw_batch_size,
+                    lease_token=token,
+                    lease_seconds=lease_seconds,
+                    now=fixed_now,
+                    phone_plain_resolver=phone_plain_resolver,
+                    page_fence=page_fence,
+                    cycle_id=str(cycle_id),
+                    center_enabled=phase == "center",
+                )
+            except Exception:
+                # Ordinary application failures are recoverable immediately.
+                # Release the current and remaining claims from this batch so
+                # the retry backoff does not wait for the materialization lease
+                # (normally 300s).  BaseException deliberately bypasses this
+                # path: a hard crash relies on finished-at/lease expiry
+                # reclamation because no cleanup code is guaranteed to run.
+                for remaining_id in work_item_ids[index:]:
+                    _release_incremental_clue_work_item(
+                        session_factory,
+                        work_item_id=remaining_id,
+                        lease_token=token,
+                    )
+                raise
+            if phase == "center":
+                summary["work_items"] = int(summary["work_items"]) + 1
+            summary["raw_rows"] = int(summary["raw_rows"]) + int(item_result.get("raw_rows", 0) or 0)
+            for key in ("master_leads", "closed_leads", "headquarters_pool", "center_orders"):
+                summary[key] = int(summary[key]) + int(item_result.get(key, 0) or 0)
+    return summary
+
+
+def _process_incremental_clue_work_item(
+    session_factory: object,
+    *,
+    work_item_id: int,
+    scope: str,
+    raw_batch_size: int,
+    lease_token: str,
+    lease_seconds: int,
+    now: datetime,
+    phone_plain_resolver: Any | None,
+    page_fence: Any | None,
+    cycle_id: str,
+    center_enabled: bool,
+) -> dict[str, int]:
+    """Process one leased impact until its durable raw cursor reaches EOF."""
+
+    totals = {
+        "master_leads": 0,
+        "closed_leads": 0,
+        "headquarters_pool": 0,
+        "center_orders": 0,
+        "raw_rows": 0,
+    }
+    while True:
+        session = session_factory()
+        try:
+            session.begin()
+            item = session.get(ClueMaterializationWorkItem, int(work_item_id))
+            if item is None or item.scope != scope:
+                raise RuntimeError("clue materialization work item disappeared")
+            if item.state != "processing" or item.lease_owner != lease_token:
+                raise RuntimeError("clue materialization work item lease lost")
+            impact = session.scalar(
+                select(JobImpact)
+                .where(JobImpact.id == item.impact_id)
+            )
+            if impact is None:
+                raise RuntimeError("clue materialization work item impact disappeared")
+            closure = _merge_incremental_closure([impact])
+            if item.raw_page_complete:
+                if not center_enabled:
+                    paused = retry_clue_materialization_batch(
+                        session,
+                        [item.work_item_id],
+                        lease_token=lease_token,
+                    )
+                    if paused != 1:
+                        raise RuntimeError("clue materialization raw-phase lease lost")
+                    session.commit()
+                    return totals
+                center_order_ids = _bounded_center_order_ids(
+                    session,
+                    raw_clue_row_keys=closure["raw_clue_row_keys"],
+                    clue_ids=closure["clue_ids"],
+                    order_ids=closure["order_ids"],
+                    poi_ids=closure["poi_ids"],
+                    after_order_id=item.center_cursor,
+                    limit=CENTER_ORDER_BATCH_SIZE,
+                    target_scope=scope,
+                    target_cycle_id=cycle_id,
+                )
+                if center_order_ids:
+                    center_result = refresh_clue_center_projection(
+                        session,
+                        now=now,
+                        phone_plain_resolver=(
+                            phone_plain_resolver
+                            if callable(phone_plain_resolver)
+                            else None
+                        ),
+                        order_ids=set(center_order_ids),
+                    )
+                    _record_cycle_targets(
+                        session,
+                        scope=scope,
+                        cycle_id=cycle_id,
+                        target_type="center",
+                        target_keys=center_order_ids,
+                    )
+                    totals["center_orders"] += int(
+                        center_result.get("eligible_orders", 0) or 0
+                    )
+                    item.center_cursor = center_order_ids[-1]
+                    _assert_incremental_page_fence(page_fence, session)
+                    renewed = renew_clue_materialization_batch(
+                        session,
+                        [item.work_item_id],
+                        lease_token=lease_token,
+                        lease_seconds=lease_seconds,
+                    )
+                    if renewed != 1:
+                        raise RuntimeError("clue materialization center lease expired")
+                    session.commit()
+                    continue
+
+                _assert_incremental_page_fence(page_fence, session)
+                completed = complete_clue_materialization_batch(
+                    session, [item.work_item_id], lease_token=lease_token
+                )
+                if completed != 1:
+                    raise RuntimeError("clue materialization completion lost its lease")
+                session.commit()
+                return totals
+
+            raw_page = _bounded_raw_clues(
+                session,
+                raw_clue_row_keys=closure["raw_clue_row_keys"],
+                clue_ids=closure["clue_ids"],
+                order_ids=closure["order_ids"],
+                poi_ids=closure["poi_ids"],
+                limit=raw_batch_size,
+                after_row_key=item.raw_cursor,
+                target_scope=scope,
+                target_cycle_id=cycle_id,
+            )
+            if not raw_page:
+                item.raw_page_complete = True
+                _assert_incremental_page_fence(page_fence, session)
+                renewed = renew_clue_materialization_batch(
+                    session,
+                    [item.work_item_id],
+                    lease_token=lease_token,
+                    lease_seconds=lease_seconds,
+                )
+                if renewed != 1:
+                    raise RuntimeError("clue materialization raw completion lease expired")
+                session.commit()
+                continue
+
+            page_clue_ids = {
+                value for row in raw_page if (value := _clean(row.clue_id)) is not None
+            }
+            page_order_ids = {
+                value for row in raw_page if (value := _clean(row.order_id)) is not None
+            }
+            page_poi_ids = {
+                value
+                for row in raw_page
+                for candidate in (row.follow_poi_id, row.intention_poi_id)
+                if (value := _clean(candidate)) is not None
+            }
+            # Only old/new values from this impact are context selectors.  The
+            # full closure may contain thousands of sibling rows (for example,
+            # an order or POI fan-out); passing it to the master lookup would
+            # defeat raw-page isolation.
+            context_clue_ids = set(page_clue_ids)
+            context_order_ids = set(page_order_ids)
+            context_poi_ids = set(page_poi_ids)
+            for observed_values in (
+                impact.old_values_json or {},
+                impact.new_values_json or {},
+            ):
+                for field_name, target in (
+                    ("clue_id", context_clue_ids),
+                    ("order_id", context_order_ids),
+                    ("follow_poi_id", context_poi_ids),
+                    ("intention_poi_id", context_poi_ids),
+                ):
+                    value = _clean(observed_values.get(field_name))
+                    if value is not None:
+                        target.add(value)
+            page_result = materialize_clue_master_leads(
+                session,
+                now=now,
+                raw_clue_row_keys={row.clue_row_key for row in raw_page},
+                raw_page_clues=raw_page,
+                clue_ids=closure["clue_ids"],
+                order_ids=closure["order_ids"],
+                poi_ids=closure["poi_ids"],
+                source_identity_keys=closure["source_identity_keys"],
+                existing_clue_ids=context_clue_ids,
+                existing_order_ids=context_order_ids,
+                existing_poi_ids=context_poi_ids,
+                existing_source_identity_keys=closure[
+                    "source_identity_keys"
+                ],
+            )
+            if page_result.get("skipped") == "locked":
+                raise RuntimeError("clue master materialization lock unavailable")
+            _record_cycle_targets(
+                session,
+                scope=scope,
+                cycle_id=cycle_id,
+                target_type="raw",
+                target_keys=[row.clue_row_key for row in raw_page],
+            )
+            for key in ("master_leads", "closed_leads", "headquarters_pool"):
+                totals[key] += int(page_result.get(key, 0) or 0)
+            item.raw_cursor = raw_page[-1].clue_row_key
+            item.raw_page_complete = len(raw_page) < raw_batch_size
+            _assert_incremental_page_fence(page_fence, session)
+            renewed = renew_clue_materialization_batch(
+                session,
+                [item.work_item_id],
+                lease_token=lease_token,
+                lease_seconds=lease_seconds,
+            )
+            if renewed != 1:
+                raise RuntimeError("clue materialization page lease expired")
+            totals["raw_rows"] += len(raw_page)
+            session.commit()
+        except Exception:
+            session.rollback()
+            _release_incremental_clue_work_item(
+                session_factory,
+                work_item_id=work_item_id,
+                lease_token=lease_token,
+            )
+            raise
+        except BaseException:
+            # A hard process interruption (SIGTERM/KeyboardInterrupt/OOM kill)
+            # cannot run the release path.  Leave the durable cursor and lease
+            # for expiry so a later attempt can reclaim it safely.
+            session.rollback()
+            raise
+        finally:
+            session.close()
+
+
+def _release_incremental_clue_work_item(
+    session_factory: object,
+    *,
+    work_item_id: int,
+    lease_token: str,
+) -> None:
+    """Return an application-failed item to pending without masking the error."""
+
+    cleanup_session = session_factory()
+    try:
+        cleanup_session.begin()
+        retry_clue_materialization_batch(
+            cleanup_session,
+            [int(work_item_id)],
+            lease_token=lease_token,
+        )
+        cleanup_session.commit()
+    except BaseException:
+        try:
+            cleanup_session.rollback()
+        finally:
+            cleanup_session.close()
+    else:
+        cleanup_session.close()
+
+
+def _assert_incremental_page_fence(
+    page_fence: Any | None,
+    session: Session,
+) -> None:
+    if page_fence is not None:
+        if not callable(page_fence) or not bool(page_fence(session)):
+            raise RuntimeError("daily execution lease is no longer valid")
+
+
+def _merge_incremental_closure(impacts: list[JobImpact]) -> dict[str, set[str]]:
+    closure: dict[str, set[str]] = {
+        "raw_clue_row_keys": set(),
+        "clue_ids": set(),
+        "order_ids": set(),
+        "poi_ids": set(),
+        "source_identity_keys": set(),
+    }
+    for impact in impacts:
+        entity_type = str(impact.entity_type or "")
+        if entity_type == "clue" and impact.entity_key:
+            closure["raw_clue_row_keys"].add(str(impact.entity_key))
+            closure["clue_ids"].add(str(impact.entity_key))
+        payload = impact.affected_closure_json or {}
+        for value in payload.get("clue_ids", []) or []:
+            if value not in (None, ""):
+                value = str(value)
+                closure["clue_ids"].add(value)
+                # A clue closure contains both row keys and canonical IDs; the
+                # raw-row selector is harmlessly deduplicated if the value is
+                # not a row key.
+                closure["raw_clue_row_keys"].add(value)
+        for field_name in ("order_ids", "poi_ids", "source_identity_keys"):
+            for value in payload.get(field_name, []) or []:
+                if value not in (None, ""):
+                    closure[field_name].add(str(value))
+        if entity_type == "order" and impact.entity_key:
+            closure["order_ids"].add(str(impact.entity_key))
+        elif entity_type == "store_poi_mapping" and impact.entity_key:
+            closure["poi_ids"].add(str(impact.entity_key))
+    return closure
+
 
 
 def import_store_locations(
@@ -1373,6 +1972,102 @@ def _record_identity_mapping_conflict(
     )
 
 
+def _mark_identifier_conflicts(
+    session: Session,
+    rows: list[tuple[str, str, int]],
+) -> None:
+    if not rows:
+        return
+    conflicts: set[tuple[str, str]] = session.info.setdefault(
+        "clue_identifier_conflicts",
+        set(),
+    )
+    counts: dict[tuple[str, str], int] = session.info.setdefault(
+        "clue_identifier_conflict_counts",
+        {},
+    )
+    for identifier_type, identifier_value, lead_count in rows:
+        if int(lead_count) <= 1:
+            continue
+        key = (str(identifier_type), str(identifier_value))
+        conflicts.add(key)
+        counts[key] = max(int(counts.get(key, 0)), int(lead_count))
+
+
+def _raw_identifier_collision_candidates(
+    raw_clue: RawDouyinClue,
+    *,
+    source_identity_key: str,
+    canonical_clue_id: str | None,
+) -> tuple[tuple[str, str], ...]:
+    candidates: list[tuple[str, str]] = []
+    if canonical_clue_id:
+        candidates.append(("clue_id", canonical_clue_id))
+    if source_identity_key:
+        candidates.append(("source_identity_key", source_identity_key))
+    if raw_clue.clue_row_key:
+        candidates.append(("source_clue_row_key", raw_clue.clue_row_key))
+    return tuple(candidates)
+
+
+def _record_identifier_collision_issue(
+    session: Session,
+    *,
+    raw_clue: RawDouyinClue,
+    collisions: list[tuple[str, str, int]],
+    now: datetime,
+) -> None:
+    descriptors = sorted(
+        (
+            identifier_type,
+            sha256(identifier_value.encode("utf-8")).hexdigest()[:16],
+            int(lead_count),
+        )
+        for identifier_type, identifier_value, lead_count in collisions
+    )
+    if not descriptors:
+        return
+    digest_source = "|".join(
+        [
+            raw_clue.clue_row_key,
+            *(
+                f"{identifier_type}:{value_hash}"
+                for identifier_type, value_hash, _ in descriptors
+            ),
+        ]
+    )
+    issue_id = (
+        "clue-identifier-collision:"
+        f"{sha256(digest_source.encode('utf-8')).hexdigest()[:32]}"
+    )
+    upsert_data_quality_issue(
+        session,
+        issue_id,
+        issue_type="clue_identifier_collision",
+        message="clue identifier collision requires manual resolution",
+        order_id=None,
+        severity="error",
+        raw_context_json={
+            "source_row_hash": sha256(
+                raw_clue.clue_row_key.encode("utf-8")
+            ).hexdigest()[:16],
+            "identifier_types": sorted(
+                {identifier_type for identifier_type, _, _ in descriptors}
+            ),
+            "candidate_hashes": [
+                f"{identifier_type}:{value_hash}"
+                for identifier_type, value_hash, _ in descriptors
+            ],
+            "distinct_lead_count": max(
+                lead_count for _, _, lead_count in descriptors
+            ),
+            "observed_at": now.isoformat(),
+        },
+        source_run_id=None,
+        flush=False,
+    )
+
+
 def _source_record_links_by_key(
     session: Session,
     source_record_keys: set[str],
@@ -1561,6 +2256,69 @@ def _set_current_source_identifier(
     current_by_source_type[source_type_key] = [history]
 
 
+def _record_stale_source_identifiers(
+    session: Session,
+    *,
+    existing: ClueMasterLead,
+    raw_clue: RawDouyinClue,
+    observed_at: datetime,
+    now: datetime,
+    history_by_key: dict[tuple[str, str, str], ClueSourceIdentifierHistory],
+    current_by_source_type: dict[
+        tuple[str, str],
+        list[ClueSourceIdentifierHistory],
+    ],
+) -> None:
+    payload_hash = _source_payload_hash(raw_clue.raw_payload)
+    for identifier_type, identifier_value in (
+        ("clue_id", _clean(raw_clue.clue_id)),
+        ("source_identity_key", _source_identity_key(raw_clue)),
+    ):
+        if identifier_value is None:
+            continue
+        history_key = (raw_clue.clue_row_key, identifier_type, identifier_value)
+        history = history_by_key.get(history_key)
+        if history is None:
+            history = ClueSourceIdentifierHistory(
+                identifier_history_id=_source_identifier_history_id(
+                    raw_clue.clue_row_key,
+                    identifier_type,
+                    identifier_value,
+                ),
+                lead_key=existing.lead_key,
+                source_clue_row_key=raw_clue.clue_row_key,
+                identifier_type=identifier_type,
+                identifier_value=identifier_value,
+                source_payload_hash=payload_hash,
+                first_seen_at=observed_at,
+                last_seen_at=observed_at,
+                is_current=False,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(history)
+            history_by_key[history_key] = history
+            continue
+        if history.lead_key != existing.lead_key:
+            raise ValueError("source identifier history is already linked to another lead")
+        history.first_seen_at = min(
+            _aware(history.first_seen_at) or observed_at,
+            observed_at,
+        )
+        history.last_seen_at = max(
+            _aware(history.last_seen_at) or observed_at,
+            observed_at,
+        )
+        if history.source_payload_hash is None:
+            history.source_payload_hash = payload_hash
+        history.updated_at = now
+        if history.is_current:
+            current_by_source_type.setdefault(
+                (raw_clue.clue_row_key, identifier_type),
+                [],
+            )
+
+
 def _source_identity_key(raw_clue: RawDouyinClue) -> str:
     order_id = _clean(raw_clue.order_id)
     contact_value = _clean(raw_clue.telephone) or _clean(raw_clue.enc_telephone)
@@ -1654,9 +2412,14 @@ def _verified_at_by_order(session: Session, order_ids: set[str]) -> dict[str, da
     values: dict[str, datetime] = {}
     for order_id_batch in _materialization_order_id_batches(order_ids):
         rows = session.execute(
-            select(SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time)
+            select(
+                SettlementOrderDetail.order_id,
+                func.min(SettlementOrderDetail.verify_time).label("verify_time"),
+            )
             .where(SettlementOrderDetail.order_id.in_(order_id_batch))
             .where(SettlementOrderDetail.is_verified.is_(True))
+            .where(SettlementOrderDetail.verify_time.is_not(None))
+            .group_by(SettlementOrderDetail.order_id)
         ).all()
         for order_id, verify_time in rows:
             if not order_id:
@@ -1664,9 +2427,7 @@ def _verified_at_by_order(session: Session, order_ids: set[str]) -> dict[str, da
             candidate = _aware(verify_time)
             if candidate is None:
                 continue
-            previous = values.get(order_id)
-            if previous is None or candidate < previous:
-                values[order_id] = candidate
+            values[order_id] = candidate
     return values
 
 
@@ -1678,26 +2439,214 @@ def _materialization_order_id_batches(order_ids: set[str]) -> list[list[str]]:
     ]
 
 
+def _bounded_raw_clues(
+    session: Session,
+    *,
+    raw_clue_row_keys: set[str],
+    clue_ids: set[str],
+    order_ids: set[str],
+    poi_ids: set[str],
+    limit: int | None = None,
+    after_row_key: str | None = None,
+    target_scope: str | None = None,
+    target_cycle_id: str | None = None,
+) -> list[RawDouyinClue]:
+    """Read only the raw rows in one impact closure.
+
+    This helper intentionally returns an empty list when all selectors are
+    empty.  The incremental caller can therefore never accidentally turn an
+    empty impact into a legacy full-table scan.
+    """
+
+    row_keys = {str(value) for value in raw_clue_row_keys if _clean(value)}
+    canonical_ids = {str(value) for value in clue_ids if _clean(value)}
+    selected_orders = {str(value) for value in order_ids if _clean(value)}
+    selected_pois = {str(value) for value in poi_ids if _clean(value)}
+    selectors = []
+    if row_keys:
+        selectors.append(RawDouyinClue.clue_row_key.in_(row_keys))
+    if canonical_ids:
+        selectors.append(RawDouyinClue.clue_id.in_(canonical_ids))
+    if selected_orders:
+        selectors.append(RawDouyinClue.order_id.in_(selected_orders))
+    if selected_pois:
+        selectors.extend(
+            (
+                RawDouyinClue.follow_poi_id.in_(selected_pois),
+                RawDouyinClue.intention_poi_id.in_(selected_pois),
+            )
+        )
+    if not selectors:
+        return []
+    stmt = (
+        select(RawDouyinClue)
+        .where(or_(*selectors))
+        .order_by(RawDouyinClue.clue_row_key)
+    )
+    if target_scope and target_cycle_id:
+        stmt = stmt.where(
+            ~exists(
+                select(1).where(
+                    ClueMaterializationTarget.scope == target_scope,
+                    ClueMaterializationTarget.cycle_id == target_cycle_id,
+                    ClueMaterializationTarget.target_type == "raw",
+                    ClueMaterializationTarget.target_key
+                    == RawDouyinClue.clue_row_key,
+                )
+            )
+        )
+    if after_row_key:
+        stmt = stmt.where(RawDouyinClue.clue_row_key > str(after_row_key))
+    if limit is not None:
+        stmt = stmt.limit(max(1, int(limit)))
+    return list(
+        session.scalars(stmt).yield_per(
+            max(1, min(int(limit or MATERIALIZATION_QUERY_BATCH_SIZE), MATERIALIZATION_QUERY_BATCH_SIZE))
+        )
+    )
+
+
+def _bounded_center_order_ids(
+    session: Session,
+    *,
+    raw_clue_row_keys: set[str],
+    clue_ids: set[str],
+    order_ids: set[str],
+    poi_ids: set[str],
+    after_order_id: str | None = None,
+    limit: int = CENTER_ORDER_BATCH_SIZE,
+    target_scope: str | None = None,
+    target_cycle_id: str | None = None,
+) -> list[str]:
+    """Return one deterministic order-id page for the center phase.
+
+    The query returns only distinct order keys.  Center projection then owns
+    the bounded order page and may read the source clues necessary to rebuild
+    that order; it never re-reads the same order once per raw clue page.
+    """
+
+    row_keys = {str(value) for value in raw_clue_row_keys if _clean(value)}
+    canonical_ids = {str(value) for value in clue_ids if _clean(value)}
+    selected_orders = {str(value) for value in order_ids if _clean(value)}
+    selected_pois = {str(value) for value in poi_ids if _clean(value)}
+    selectors = []
+    if row_keys:
+        selectors.append(RawDouyinClue.clue_row_key.in_(row_keys))
+    if canonical_ids:
+        selectors.append(RawDouyinClue.clue_id.in_(canonical_ids))
+    if selected_orders:
+        selectors.append(RawDouyinClue.order_id.in_(selected_orders))
+    if selected_pois:
+        selectors.extend(
+            (
+                RawDouyinClue.follow_poi_id.in_(selected_pois),
+                RawDouyinClue.intention_poi_id.in_(selected_pois),
+            )
+        )
+    if not selectors:
+        return []
+    stmt = (
+        select(RawDouyinClue.order_id)
+        .where(or_(*selectors))
+        .where(RawDouyinClue.order_status == "\u5c65\u7ea6\u4e2d")
+        .where(RawDouyinClue.order_id.is_not(None))
+        .where(RawDouyinClue.order_id != "")
+        .where(RawDouyinClue.order_id != "0")
+    )
+    if target_scope and target_cycle_id:
+        stmt = stmt.where(
+            ~exists(
+                select(1).where(
+                    ClueMaterializationTarget.scope == target_scope,
+                    ClueMaterializationTarget.cycle_id == target_cycle_id,
+                    ClueMaterializationTarget.target_type == "center",
+                    ClueMaterializationTarget.target_key == RawDouyinClue.order_id,
+                )
+            )
+        )
+    if after_order_id:
+        stmt = stmt.where(RawDouyinClue.order_id > str(after_order_id))
+    stmt = stmt.distinct().order_by(RawDouyinClue.order_id).limit(max(1, int(limit)))
+    return [
+        str(value)
+        for value in session.scalars(stmt).yield_per(max(1, min(int(limit), CENTER_ORDER_BATCH_SIZE)))
+        if _clean(value)
+    ]
+
+
+def _record_cycle_targets(
+    session: Session,
+    *,
+    scope: str,
+    cycle_id: str,
+    target_type: str,
+    target_keys: list[str] | set[str] | tuple[str, ...],
+) -> None:
+    """Persist bounded completion markers in the same projection transaction."""
+
+    keys = {str(value) for value in target_keys if _clean(value)}
+    if not keys:
+        return
+    existing = set(
+        session.scalars(
+            select(ClueMaterializationTarget.target_key).where(
+                ClueMaterializationTarget.scope == scope,
+                ClueMaterializationTarget.cycle_id == cycle_id,
+                ClueMaterializationTarget.target_type == target_type,
+                ClueMaterializationTarget.target_key.in_(keys),
+            )
+        ).all()
+    )
+    for target_key in sorted(keys.difference(existing)):
+        session.add(
+            ClueMaterializationTarget(
+                scope=scope,
+                cycle_id=cycle_id,
+                target_type=target_type,
+                target_key=target_key,
+            )
+        )
+    session.flush()
+
+
+
 def _bounded_location_context(
     session: Session,
     raw_clues: list[RawDouyinClue],
+    *,
+    poi_ids: set[str],
 ) -> tuple[dict[str, DimStorePoiMapping], dict[str, DimStore]]:
-    poi_ids = {
+    selected_pois = {
+        str(value)
+        for value in poi_ids
+        if _clean(value)
+    }
+    selected_pois.update(
         value
         for raw_clue in raw_clues
         for value in (_clean(raw_clue.follow_poi_id), _clean(raw_clue.intention_poi_id))
         if value
-    }
-    if not poi_ids:
+    )
+    if not selected_pois:
         return {}, {}
-    mappings = session.scalars(
-        select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id.in_(poi_ids))
-    ).all()
+    mappings = list(
+        session.scalars(
+            select(DimStorePoiMapping)
+            .where(DimStorePoiMapping.poi_id.in_(selected_pois))
+            .order_by(DimStorePoiMapping.poi_id)
+        ).yield_per(MATERIALIZATION_QUERY_BATCH_SIZE)
+    )
     mappings_by_poi = {row.poi_id: row for row in mappings}
     store_ids = {row.store_id for row in mappings if row.store_id}
     if not store_ids:
         return mappings_by_poi, {}
-    stores = session.scalars(select(DimStore).where(DimStore.store_id.in_(store_ids))).all()
+    stores = list(
+        session.scalars(
+            select(DimStore)
+            .where(DimStore.store_id.in_(store_ids))
+            .order_by(DimStore.store_id)
+        ).yield_per(MATERIALIZATION_QUERY_BATCH_SIZE)
+    )
     return mappings_by_poi, {row.store_id: row for row in stores}
 
 
@@ -1706,80 +2655,311 @@ def _bounded_existing_masters(
     raw_clues: list[RawDouyinClue],
     *,
     order_ids: set[str],
-    source_link_lead_keys: set[str],
+    clue_ids: set[str] | None = None,
+    poi_ids: set[str] | None = None,
+    source_identity_keys: set[str] | None = None,
+    source_link_lead_keys: set[str] | None = None,
 ) -> list[ClueMasterLead]:
     row_keys = {row.clue_row_key for row in raw_clues if row.clue_row_key}
-    canonical_ids = {_clean(row.clue_id) for row in raw_clues}
-    canonical_ids.discard(None)
-    source_identities = {_source_identity_key(row) for row in raw_clues}
-    history_selectors = []
-    if row_keys:
-        history_selectors.append(ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys))
-    if canonical_ids:
-        history_selectors.append(
-            and_(
-                ClueSourceIdentifierHistory.identifier_type == "clue_id",
-                ClueSourceIdentifierHistory.identifier_value.in_(canonical_ids),
-            )
-        )
-    if source_identities:
-        history_selectors.append(
-            and_(
-                ClueSourceIdentifierHistory.identifier_type == "source_identity_key",
-                ClueSourceIdentifierHistory.identifier_value.in_(source_identities),
-            )
-        )
-    history_lead_keys = (
-        set(
-            session.scalars(
-                select(ClueSourceIdentifierHistory.lead_key).where(or_(*history_selectors))
-            ).all()
-        )
-        if history_selectors
-        else set()
+    canonical_ids = {row.clue_id for row in raw_clues if row.clue_id}
+    canonical_ids.update(value for value in (clue_ids or set()) if value)
+    selected_orders = {value for value in order_ids if value}
+    selected_pois = {value for value in (poi_ids or set()) if value}
+    selected_identities = {
+        value for value in (source_identity_keys or set()) if value
+    }
+    selected_identities.update(
+        _source_identity_key(raw_clue)
+        for raw_clue in raw_clues
+        if _source_identity_key(raw_clue)
     )
+
+    canonical_lead_keys: set[str] = set()
+    if canonical_ids:
+        canonical_rows = session.execute(
+            select(
+                ClueMasterLead.canonical_clue_id,
+                func.count(func.distinct(ClueMasterLead.lead_key)).label(
+                    "lead_count"
+                ),
+                func.min(ClueMasterLead.lead_key).label(
+                    "representative_lead_key"
+                ),
+            )
+            .where(ClueMasterLead.canonical_clue_id.in_(canonical_ids))
+            .group_by(ClueMasterLead.canonical_clue_id)
+            .order_by(ClueMasterLead.canonical_clue_id)
+        ).all()
+        _mark_identifier_conflicts(
+            session,
+            [
+                ("clue_id", str(canonical_id), int(lead_count))
+                for canonical_id, lead_count, _ in canonical_rows
+                if canonical_id and int(lead_count) > 1
+            ],
+        )
+        canonical_lead_keys.update(
+            str(representative_lead_key)
+            for canonical_id, lead_count, representative_lead_key in canonical_rows
+            if canonical_id and int(lead_count) == 1 and representative_lead_key
+        )
 
     selectors = []
     if row_keys:
         selectors.append(ClueMasterLead.source_clue_row_key.in_(row_keys))
-    if canonical_ids:
-        selectors.append(ClueMasterLead.canonical_clue_id.in_(canonical_ids))
-    if source_identities:
-        selectors.append(ClueMasterLead.source_identity_key.in_(source_identities))
-    if order_ids:
-        selectors.append(ClueMasterLead.order_id.in_(order_ids))
+    if canonical_lead_keys:
+        selectors.append(ClueMasterLead.lead_key.in_(canonical_lead_keys))
+    has_strong_page_selector = bool(
+        row_keys or canonical_ids or selected_identities
+    )
+    if selected_orders and not has_strong_page_selector:
+        selectors.append(ClueMasterLead.order_id.in_(selected_orders))
+    if selected_pois and not has_strong_page_selector:
+        selectors.append(ClueMasterLead.anchor_poi_id.in_(selected_pois))
+    if selected_identities:
+        selectors.append(
+            ClueMasterLead.source_identity_key.in_(selected_identities)
+        )
+
+    history_lead_keys: set[str] = set()
+    if row_keys:
+        source_history_rows = session.execute(
+            select(
+                ClueSourceIdentifierHistory.source_clue_row_key,
+                func.count(
+                    func.distinct(ClueSourceIdentifierHistory.lead_key)
+                ).label("lead_count"),
+                func.min(ClueSourceIdentifierHistory.lead_key).label(
+                    "representative_lead_key"
+                ),
+            )
+            .where(
+                ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys)
+            )
+            .group_by(ClueSourceIdentifierHistory.source_clue_row_key)
+            .order_by(ClueSourceIdentifierHistory.source_clue_row_key)
+        ).all()
+        _mark_identifier_conflicts(
+            session,
+            [
+                (
+                    "source_clue_row_key",
+                    str(source_row_key),
+                    int(lead_count),
+                )
+                for source_row_key, lead_count, _ in source_history_rows
+                if source_row_key and int(lead_count) > 1
+            ],
+        )
+        history_lead_keys.update(
+            str(representative_lead_key)
+            for source_row_key, lead_count, representative_lead_key in source_history_rows
+            if source_row_key and int(lead_count) == 1 and representative_lead_key
+        )
+
+    candidate_identifier_groups = {
+        "clue_id": canonical_ids,
+        "source_identity_key": selected_identities,
+    }
+    for identifier_type, identifier_values in sorted(
+        candidate_identifier_groups.items()
+    ):
+        values = {
+            str(value) for value in identifier_values if _clean(value)
+        }
+        if not values:
+            continue
+        history_rows = session.execute(
+            select(
+                ClueSourceIdentifierHistory.identifier_value,
+                func.count(
+                    func.distinct(ClueSourceIdentifierHistory.lead_key)
+                ).label("lead_count"),
+                func.min(ClueSourceIdentifierHistory.lead_key).label(
+                    "representative_lead_key"
+                ),
+            )
+            .where(
+                ClueSourceIdentifierHistory.identifier_type == identifier_type
+            )
+            .where(
+                ClueSourceIdentifierHistory.identifier_value.in_(values)
+            )
+            .group_by(ClueSourceIdentifierHistory.identifier_value)
+            .order_by(ClueSourceIdentifierHistory.identifier_value)
+        ).all()
+        _mark_identifier_conflicts(
+            session,
+            [
+                (identifier_type, str(identifier_value), int(lead_count))
+                for identifier_value, lead_count, _ in history_rows
+                if identifier_value and int(lead_count) > 1
+            ],
+        )
+        history_lead_keys.update(
+            str(representative_lead_key)
+            for identifier_value, lead_count, representative_lead_key in history_rows
+            if identifier_value and int(lead_count) == 1 and representative_lead_key
+        )
     if history_lead_keys:
         selectors.append(ClueMasterLead.lead_key.in_(history_lead_keys))
     if source_link_lead_keys:
-        selectors.append(ClueMasterLead.lead_key.in_(source_link_lead_keys))
-    if not selectors:
-        return []
-    return list(
-        session.scalars(
+        selectors.append(
+            ClueMasterLead.lead_key.in_(
+                {value for value in source_link_lead_keys if value}
+            )
+        )
+
+    rows: list[ClueMasterLead] = []
+    if selectors:
+        stmt = (
             select(ClueMasterLead)
             .where(or_(*selectors))
             .order_by(ClueMasterLead.lead_key)
-        ).all()
-    )
+        )
+        rows = list(
+            session.scalars(stmt).yield_per(MATERIALIZATION_QUERY_BATCH_SIZE)
+        )
+    if selected_orders and has_strong_page_selector:
+        ranked_order_leads = (
+            select(
+                ClueMasterLead.lead_key.label("lead_key"),
+                func.row_number()
+                .over(
+                    partition_by=ClueMasterLead.order_id,
+                    order_by=ClueMasterLead.lead_key,
+                )
+                .label("order_rank"),
+            )
+            .where(ClueMasterLead.order_id.in_(selected_orders))
+            .subquery()
+        )
+        order_candidates = list(
+            session.scalars(
+                select(ClueMasterLead)
+                .join(
+                    ranked_order_leads,
+                    ClueMasterLead.lead_key == ranked_order_leads.c.lead_key,
+                )
+                .where(ranked_order_leads.c.order_rank <= 2)
+                .order_by(
+                    ClueMasterLead.order_id,
+                    ClueMasterLead.lead_key,
+                )
+            )
+        )
+        candidates_by_order: dict[str, list[ClueMasterLead]] = defaultdict(list)
+        for row in order_candidates:
+            if row.order_id:
+                candidates_by_order[row.order_id].append(row)
+        existing_lead_keys = {row.lead_key for row in rows}
+        for candidates in candidates_by_order.values():
+            for candidate in candidates:
+                if candidate.lead_key in existing_lead_keys:
+                    continue
+                rows.append(candidate)
+                existing_lead_keys.add(candidate.lead_key)
+    return rows
 
 
 def _bounded_identifier_history(
     session: Session,
-    raw_clues: list[RawDouyinClue],
+    *,
+    raw_clue_row_keys: set[str],
+    candidate_identifiers: set[tuple[str, str]],
 ) -> list[ClueSourceIdentifierHistory]:
-    row_keys = {row.clue_row_key for row in raw_clues if row.clue_row_key}
-    if not row_keys:
-        return []
-    return list(
-        session.scalars(
-            select(ClueSourceIdentifierHistory)
-            .where(ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys))
-            .order_by(
-                ClueSourceIdentifierHistory.source_clue_row_key,
-                ClueSourceIdentifierHistory.identifier_type,
-                ClueSourceIdentifierHistory.identifier_value,
+    row_keys = {
+        str(value) for value in raw_clue_row_keys if _clean(value)
+    }
+    identifiers = {
+        (str(identifier_type), str(identifier_value))
+        for identifier_type, identifier_value in candidate_identifiers
+        if _clean(identifier_type) and _clean(identifier_value)
+    }
+    selectors = []
+    if row_keys:
+        selectors.append(
+            and_(
+                ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys),
+                ClueSourceIdentifierHistory.is_current.is_(True),
             )
+        )
+    if row_keys and identifiers:
+        identifiers_by_type: dict[str, set[str]] = defaultdict(set)
+        for identifier_type, identifier_value in identifiers:
+            identifiers_by_type[identifier_type].add(identifier_value)
+        selectors.extend(
+            and_(
+                ClueSourceIdentifierHistory.source_clue_row_key.in_(row_keys),
+                ClueSourceIdentifierHistory.identifier_type == identifier_type,
+                ClueSourceIdentifierHistory.identifier_value.in_(values),
+            )
+            for identifier_type, values in sorted(
+                identifiers_by_type.items()
+            )
+            if values
+        )
+
+    representative_history_ids: set[str] = set()
+    identifier_values_by_type: dict[str, set[str]] = defaultdict(set)
+    for identifier_type, identifier_value in identifiers:
+        identifier_values_by_type[identifier_type].add(identifier_value)
+    for identifier_type, values in sorted(
+        identifier_values_by_type.items()
+    ):
+        if not values:
+            continue
+        aggregate_rows = session.execute(
+            select(
+                ClueSourceIdentifierHistory.identifier_value,
+                func.count(
+                    func.distinct(ClueSourceIdentifierHistory.lead_key)
+                ).label("lead_count"),
+                func.min(
+                    ClueSourceIdentifierHistory.identifier_history_id
+                ).label("representative_history_id"),
+            )
+            .where(
+                ClueSourceIdentifierHistory.identifier_type == identifier_type
+            )
+            .where(
+                ClueSourceIdentifierHistory.identifier_value.in_(values)
+            )
+            .group_by(ClueSourceIdentifierHistory.identifier_value)
+            .order_by(ClueSourceIdentifierHistory.identifier_value)
         ).all()
+        _mark_identifier_conflicts(
+            session,
+            [
+                (identifier_type, str(identifier_value), int(lead_count))
+                for identifier_value, lead_count, _ in aggregate_rows
+                if identifier_value and int(lead_count) > 1
+            ],
+        )
+        representative_history_ids.update(
+            str(representative_history_id)
+            for identifier_value, lead_count, representative_history_id in aggregate_rows
+            if identifier_value and int(lead_count) == 1 and representative_history_id
+        )
+    if representative_history_ids:
+        selectors.append(
+            ClueSourceIdentifierHistory.identifier_history_id.in_(
+                representative_history_ids
+            )
+        )
+    if not selectors:
+        return []
+    stmt = (
+        select(ClueSourceIdentifierHistory)
+        .where(or_(*selectors))
+        .order_by(
+            ClueSourceIdentifierHistory.source_clue_row_key,
+            ClueSourceIdentifierHistory.identifier_type,
+            ClueSourceIdentifierHistory.identifier_value,
+        )
+    )
+    return list(
+        session.scalars(stmt).yield_per(MATERIALIZATION_QUERY_BATCH_SIZE)
     )
 
 
@@ -1914,7 +3094,30 @@ def _first_seen_at(raw_clue: RawDouyinClue, now: datetime) -> datetime:
 
 
 def _observed_at(raw_clue: RawDouyinClue, now: datetime) -> datetime:
-    return _aware(raw_clue.modify_time) or _aware(raw_clue.fetched_at) or _aware(raw_clue.updated_at) or now
+    return (
+        _aware(raw_clue.source_observed_at)
+        or _aware(raw_clue.modify_time)
+        or _aware(raw_clue.fetched_at)
+        or _aware(raw_clue.updated_at)
+        or now
+    )
+
+
+def _observation_is_newer(
+    candidate_at: datetime,
+    candidate_key: str | None,
+    existing_at: datetime | None,
+    existing_key: str | None,
+) -> bool:
+    if existing_at is None:
+        return True
+    candidate_at = _aware(candidate_at) or candidate_at
+    existing_at = _aware(existing_at) or existing_at
+    if candidate_at != existing_at:
+        return candidate_at > existing_at
+    if candidate_key is None or existing_key is None:
+        return False
+    return candidate_key > existing_key
 
 
 def _status_observed_at(raw_clue: RawDouyinClue, raw_order: RawDouyinOrder | None, now: datetime) -> datetime:

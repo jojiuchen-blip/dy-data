@@ -52,8 +52,8 @@
 |---|---|---|---|
 | DYDATA-56、8、14、15 已有实现但缺当前基线与用户视角验收闭环 | Linear 状态与实际能力不一致 | T0.1-T0.4 | 待核验 |
 | 旧物化器仍创建 `legacy` 轮次 | 正式/旧轮次混杂，权限与可操作性不稳定 | T1.1 | 已处理 |
-| DYDATA-58 的完整实现仅存在旧脏 worktree，未审查集成到 main | 控制面、按日恢复和资源保护未成为正式代码 | T2.1、T2.3、T2.4 | 待处理 |
-| DYDATA-70 依赖控制面和影响集合，不能单独移植 | 线索物化仍可能全历史扫描和线性增内存 | T2.2 | 待处理 |
+| DYDATA-58 的完整实现仅存在旧脏 worktree，未审查集成到 main | 控制面、按日恢复和资源保护未成为正式代码 | T2.1、T2.3、T2.4 | T2.1 已解决；T2.3/T2.4 继续 |
+| DYDATA-70 依赖控制面和影响集合，不能单独移植 | 线索物化仍可能全历史扫描和线性增内存 | T2.2 | 已解决（2026-08-31） |
 
 ## 2. 分工与边界
 
@@ -96,8 +96,8 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T2.1 | [sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md](sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md) | 进行中 |
-| T2.2 | [sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md](sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md) | 待开发 |
+| T2.1 | [sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md](sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md) | 已完成（2026-08-31；环境门禁归入 T2.4） |
+| T2.2 | [sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md](sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md) | 已完成（2026-08-31） |
 | T2.3 | [sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md](sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md) | 待开发 |
 | T2.4 | [sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md](sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md) | 待开发 |
 
@@ -120,7 +120,7 @@
 | 风险 | 影响 | 应对 | Owner | 状态 |
 |---|---|---|---|---|
 | 旧脏 worktree 含大量未审查差异 | 误合并过时或无关代码 | 分任务抽取，逐文件审查，禁止整体 merge | 主代理 | 受控 |
-| 0030-0036 迁移已在 main、运行时模型缺失 | 迁移链与 ORM 不一致 | 先恢复依赖顺序，再运行空库/升级/降级测试 | 主代理 | 处理中（T2.1） |
+| 0030-0036 迁移已在 main、运行时模型缺失 | 迁移链与 ORM 不一致 | 先恢复依赖顺序，再运行空库/升级/降级测试 | 主代理 | 已解决（Alembic 全链 54 passed） |
 | DYDATA-34 原范围要求自动正式分配，但当前产品决策关闭自动分配 | 误将待分配线索自动下发 | 只移除 legacy 创建；正式分配保留显式触发且默认关闭 | 主代理 -> Human Owner | 已确认 |
 | 真实 4C/8GB 环境不可用 | 无法签发最终资源门禁 | 完成本地/PG 门禁并明确外部门禁，不伪造通过 | Human Owner | 待观察 |
 
