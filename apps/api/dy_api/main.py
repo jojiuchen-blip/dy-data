@@ -34,6 +34,7 @@ from dy_api.routes import (
     jobs,
     mcp_auth,
     meta,
+    operations,
 )
 
 
@@ -145,6 +146,11 @@ def create_app(
     app.include_router(cli.router, prefix="/api/v1", tags=["cli-readonly"])
     app.include_router(fee_admin.router, prefix="/api/v1/admin", tags=["fee-admin"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+    app.include_router(
+        operations.router,
+        prefix="/api/v1/admin/operations",
+        tags=["admin-operations"],
+    )
     app.include_router(meta.router, prefix="/api/v1", tags=["metadata"])
     app.include_router(dashboard.router, prefix="/api/v1", tags=["dashboard"])
     app.include_router(clues.router, prefix="/api/v1", tags=["clues"])

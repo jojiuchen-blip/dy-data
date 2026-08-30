@@ -71,18 +71,27 @@ def ensure_access_control_seed(session: Any) -> None:
                 )
             )
     session.flush()
-    existing_defaults = set(
-        session.execute(select(RolePagePermission.role, RolePagePermission.page_key)).all()
-    )
+    existing_defaults = {
+        (row.role, row.page_key): row
+        for row in session.scalars(select(RolePagePermission)).all()
+    }
     for role in ("admin", "store"):
         for page_key in ALL_PAGE_KEYS:
-            if (role, page_key) in existing_defaults:
+            allowed = (
+                role == "admin" and page_key != "D10"
+            ) or page_key in STORE_DEFAULT_PAGE_KEYS
+            existing_default = existing_defaults.get((role, page_key))
+            if existing_default is not None:
+                if page_key == "D10" and existing_default.is_allowed:
+                    existing_default.is_allowed = False
+                    existing_default.updated_by = "system-seed"
+                    existing_default.updated_at = now
                 continue
             session.add(
                 RolePagePermission(
                     role=role,
                     page_key=page_key,
-                    is_allowed=role == "admin" or page_key in STORE_DEFAULT_PAGE_KEYS,
+                    is_allowed=allowed,
                     updated_by="system-seed",
                     updated_at=now,
                 )
@@ -114,6 +123,7 @@ def role_default_page_keys(session: Any, role: str) -> tuple[str, ...]:
             .where(AccessPage.is_active.is_(True))
         ).all()
     )
+    values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -138,6 +148,7 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
         return tuple(key for key in ALL_PAGE_KEYS if key in defaults)
     allow, deny = user_override_sets(session, user.user_id)
     values = (defaults | allow) - deny
+    values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -159,6 +170,8 @@ def replace_user_overrides(
 ) -> None:
     allow = validate_page_keys(extra_allow)
     deny = validate_page_keys(extra_deny)
+    if user.role != "highest_admin" and "D10" in allow:
+        raise ValueError("D10 is reserved for the highest administrator")
     if allow & deny:
         raise ValueError("A page cannot be both allowed and denied")
     session.execute(
@@ -200,6 +213,8 @@ def update_role_defaults_preserving_customizations(
     if role not in {"admin", "store"}:
         raise ValueError("Highest administrator defaults are fixed")
     desired = validate_page_keys(page_keys)
+    if "D10" in desired:
+        raise ValueError("D10 is reserved for the highest administrator")
     ensure_access_control_seed(session)
     customized_users = list(
         session.scalars(
@@ -320,7 +335,11 @@ def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str
         return ("D06",)
     if path.startswith("/api/v1/admin/clue-allocation"):
         return ("D05",)
-    if path.startswith("/api/v1/admin/sync") or path.startswith("/api/v1/jobs"):
+    if (
+        path.startswith("/api/v1/admin/sync")
+        or path.startswith("/api/v1/admin/operations")
+        or path.startswith("/api/v1/jobs")
+    ):
         return ("D10",)
     if path.startswith("/api/v1/admin"):
         return ("D01",)

@@ -455,7 +455,16 @@ class StoreOption(BaseModel):
 class JobRun(BaseModel):
     job_id: str
     job_name: str
-    status: Literal["running", "success", "failed", "partial", "queued"]
+    status: Literal[
+        "pending",
+        "queued",
+        "running",
+        "retry_wait",
+        "success",
+        "partial",
+        "failed",
+        "cancelled",
+    ]
     started_at: datetime | None = None
     finished_at: datetime | None = None
     success_count: int = 0
@@ -526,6 +535,55 @@ class SyncAdminData(BaseModel):
     schedule: SyncScheduleData
     worker_status: SyncWorkerStatusData
     jobs: list[JobRun] = Field(default_factory=list)
+
+
+class AdminOperationCreateJobRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    start: date
+    end: date
+    target: Literal["all", "settlement", "clue_center", "backend_aweme_export"]
+    reason: str = Field(min_length=1, max_length=512)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_create_reason(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class AdminControlIntentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=512)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_control_reason(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("reason is required")
+        return normalized
+
+
+class AdminOpsCommandRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    command_type: Literal["restart"]
+    target_component: Literal["worker", "browser"]
+    reason: str = Field(min_length=1, max_length=512)
+    confirmed: bool
+    related_job_id: str | None = Field(default=None, min_length=1, max_length=512)
+
+    @field_validator("reason")
+    @classmethod
+    def normalize_command_reason(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("reason is required")
+        return normalized
 
 
 class ProductSyncRunRequest(BaseModel):
