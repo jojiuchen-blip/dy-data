@@ -138,11 +138,13 @@ def test_m3_headquarters_pool_exposes_approved_filters_and_inventory_summary() -
 
     for label in [
         "总部池状态",
-        "进入原因",
-        "进入日期起",
-        "进入日期止",
+        "入池原因",
+        "入池日期起",
+        "入池日期止",
         "订单状态",
-        "订单号",
+        "锚点城市",
+        "搜索",
+        "订单号或主线索键",
         "清空筛选",
         "当前库存",
         "筛选结果",
@@ -150,18 +152,77 @@ def test_m3_headquarters_pool_exposes_approved_filters_and_inventory_summary() -
         assert label in page_source
 
     for query_key in [
-        "pool_status",
-        "reason",
+        "entry_status",
+        "reason_code",
         "entered_date_start",
         "entered_date_end",
-        "order_status",
-        "order_id",
+        "normalized_order_status",
+        "city_code",
+        "q",
+        "page",
+        "page_size",
     ]:
         assert query_key in client_source
 
     assert "ClueHeadquartersPoolFilters" in client_source
-    assert "displayOrderStatus(entry.order_status)" in page_source
+    assert "displayOrderStatus(headquartersOrderStatus(entry))" in page_source
     assert "headquartersPool.summary.current_inventory" in page_source
     assert "export interface ClueHeadquartersPoolSummary" in type_source
     assert "export interface ClueHeadquartersPoolFilterOptions" in type_source
     assert ".clue-headquarters-filter-bar" in styles
+
+
+def test_m3_headquarters_pool_locks_canonical_reason_contract_and_unknown_copy() -> None:
+    page_source = _read("pages/AdminClueAllocationPage.tsx")
+    client_source = _read("api/client.ts")
+    type_source = _read("types/dashboard.ts")
+    demo_source = _read("demo/clueDemoRepository.ts")
+    labels_source = _read("utils/userFacingLabels.ts")
+
+    for query_key in [
+        "entry_status",
+        "reason_code",
+        "entered_date_start",
+        "entered_date_end",
+        "normalized_order_status",
+        "city_code",
+        "q",
+        "page",
+        "page_size",
+    ]:
+        assert query_key in client_source
+    for field in ["reason_code", "reason_label", "normalized_order_status"]:
+        assert f"{field}: string" in type_source
+    for option in [
+        "entry_statuses",
+        "reason_codes",
+        "normalized_order_statuses",
+        "city_codes",
+    ]:
+        assert option in type_source
+        assert option in page_source or option in demo_source
+    for reason_code in [
+        "missing_follow_poi",
+        "anchor_store_unmapped",
+        "anchor_geo_invalid",
+        "no_published_rule",
+        "all_strategies_disabled",
+        "no_eligible_candidate",
+        "all_strategies_exhausted",
+        "data_inconsistency",
+        "follow_poi_missing",
+        "follow_poi_unmapped",
+        "follow_poi_store_missing",
+        "anchor_coordinates_invalid",
+        "anchor_province_missing",
+        "anchor_city_missing",
+        "anchor_city_code_missing",
+        "no_candidate",
+        "strategies_exhausted",
+        "headquarters_pool_retained",
+    ]:
+        assert reason_code in labels_source
+    assert "关键事实不一致，待总部治理" in labels_source
+    assert "entry.reason_code || entry.reason" in page_source
+    assert "entry.normalized_order_status || entry.order_status" in page_source
+    assert "entry.lead_key.toLowerCase()" in demo_source

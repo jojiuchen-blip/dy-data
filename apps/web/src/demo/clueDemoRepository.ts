@@ -49,12 +49,13 @@ export interface ClueDemoExportFile {
 }
 
 export interface ClueDemoHeadquartersFilters {
-  pool_status?: string;
-  reason?: string;
+  entry_status?: string;
+  reason_code?: string;
   entered_date_start?: string;
   entered_date_end?: string;
-  order_status?: string;
-  order_id?: string;
+  normalized_order_status?: string;
+  city_code?: string;
+  q?: string;
   page?: number;
   page_size?: number;
 }
@@ -387,8 +388,8 @@ export class ClueDemoRepository {
     const rows = this.state.headquartersPool
       .filter((entry) => {
         const enteredDate = entry.entered_at.slice(0, 10);
-        if (filters.pool_status && entry.status !== filters.pool_status) return false;
-        if (filters.reason && entry.reason !== filters.reason) return false;
+        if (filters.entry_status && entry.status !== filters.entry_status) return false;
+        if (filters.reason_code && entry.reason_code !== filters.reason_code) return false;
         if (
           filters.entered_date_start &&
           enteredDate < filters.entered_date_start
@@ -398,14 +399,23 @@ export class ClueDemoRepository {
         if (filters.entered_date_end && enteredDate > filters.entered_date_end) {
           return false;
         }
-        if (filters.order_status && entry.order_status !== filters.order_status) {
-          return false;
-        }
         if (
-          filters.order_id &&
-          !entry.order_id?.toLowerCase().includes(filters.order_id.toLowerCase())
+          filters.normalized_order_status &&
+          entry.normalized_order_status !== filters.normalized_order_status
         ) {
           return false;
+        }
+        if (filters.city_code && entry.anchor_city_code !== filters.city_code) {
+          return false;
+        }
+        if (filters.q) {
+          const query = filters.q.toLowerCase();
+          if (
+            !entry.order_id?.toLowerCase().includes(query) &&
+            !entry.lead_key.toLowerCase().includes(query)
+          ) {
+            return false;
+          }
         }
         return true;
       })
@@ -421,6 +431,18 @@ export class ClueDemoRepository {
           filtered_total: rows.length,
         },
         filter_options: {
+          entry_statuses: uniqueSorted(
+            this.state.headquartersPool.map((entry) => entry.status),
+          ),
+          reason_codes: uniqueSorted(
+            this.state.headquartersPool.map((entry) => entry.reason_code),
+          ),
+          normalized_order_statuses: uniqueSorted(
+            this.state.headquartersPool.map((entry) => entry.normalized_order_status),
+          ),
+          city_codes: uniqueSorted(
+            this.state.headquartersPool.map((entry) => entry.anchor_city_code),
+          ),
           pool_statuses: uniqueSorted(
             this.state.headquartersPool.map((entry) => entry.status),
           ),
@@ -925,9 +947,12 @@ export class ClueDemoRepository {
           canonical_clue_id: detail.canonical_clue_id,
           order_id: orderId,
           order_status: previousRound?.order_current_status ?? "fulfilling",
+          normalized_order_status: previousRound?.order_current_status ?? "fulfilling",
           raw_order_status: "DEMO_FULFILLING",
           status: "active",
           reason: "strategies_exhausted",
+          reason_code: "all_strategies_exhausted",
+          reason_label: "所有启用策略均已结束",
           entered_at: executedAt,
           closed_at: null,
           close_reason: null,
@@ -1111,9 +1136,12 @@ export class ClueDemoRepository {
         canonical_clue_id: detail.canonical_clue_id,
         order_id: orderId,
         order_status: round.order_current_status,
+        normalized_order_status: round.order_current_status,
         raw_order_status: "DEMO_FULFILLING",
         status: "active",
         reason: "strategies_exhausted",
+        reason_code: "all_strategies_exhausted",
+        reason_label: "所有启用策略均已结束",
         entered_at: createdAt,
         closed_at: null,
         close_reason: null,

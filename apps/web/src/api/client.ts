@@ -2310,12 +2310,13 @@ export async function fetchClueAllocationEligibleLeads(): Promise<
 }
 
 export interface ClueHeadquartersPoolFilters extends QueryParams {
-  pool_status?: string;
-  reason?: string;
+  entry_status?: string;
+  reason_code?: string;
   entered_date_start?: string;
   entered_date_end?: string;
-  order_status?: string;
-  order_id?: string;
+  normalized_order_status?: string;
+  city_code?: string;
+  q?: string;
   page?: number;
   page_size?: number;
 }

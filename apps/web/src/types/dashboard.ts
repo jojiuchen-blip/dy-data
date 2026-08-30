@@ -1220,9 +1220,12 @@ export interface ClueHeadquartersPoolEntry {
   canonical_clue_id: string | null;
   order_id: string | null;
   order_status: string;
+  normalized_order_status: string;
   raw_order_status: string | null;
   status: string;
   reason: string;
+  reason_code: string;
+  reason_label: string;
   entered_at: string;
   closed_at: string | null;
   close_reason: string | null;
@@ -1241,9 +1244,13 @@ export interface ClueHeadquartersPoolSummary {
 }
 
 export interface ClueHeadquartersPoolFilterOptions {
-  pool_statuses: string[];
-  reasons: string[];
-  order_statuses: string[];
+  entry_statuses: string[];
+  reason_codes: string[];
+  normalized_order_statuses: string[];
+  city_codes: string[];
+  pool_statuses?: string[];
+  reasons?: string[];
+  order_statuses?: string[];
 }
 
 export interface ClueHeadquartersPoolData {

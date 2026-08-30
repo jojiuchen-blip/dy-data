@@ -109,26 +109,70 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
 };
 
 const defaultHeadquartersFilters: ClueHeadquartersPoolFilters = {
-  pool_status: "active",
-  reason: "",
+  entry_status: "active",
+  reason_code: "",
   entered_date_start: "",
   entered_date_end: "",
-  order_status: "",
-  order_id: "",
+  normalized_order_status: "",
+  city_code: "",
+  q: "",
 };
 
 const emptyHeadquartersPoolData: ClueHeadquartersPoolData = {
   rows: [],
   pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
   summary: { current_inventory: 0, filtered_total: 0 },
-  filter_options: { pool_statuses: [], reasons: [], order_statuses: [] },
+  filter_options: {
+    entry_statuses: [],
+    reason_codes: [],
+    normalized_order_statuses: [],
+    city_codes: [],
+    pool_statuses: [],
+    reasons: [],
+    order_statuses: [],
+  },
 };
+
+function uniqueNonEmptyValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value && value.trim()))),
+  ).sort();
+}
+
+function preferCanonicalOptions(
+  canonical: string[] | undefined,
+  legacy: string[] | undefined,
+): string[] {
+  return canonical?.length ? canonical : legacy ?? [];
+}
+
+function headquartersReasonCode(entry: ClueHeadquartersPoolEntry): string {
+  return entry.reason_code || entry.reason;
+}
+
+function headquartersOrderStatus(entry: ClueHeadquartersPoolEntry): string {
+  return entry.normalized_order_status || entry.order_status;
+}
+
+function displayHeadquartersPoolReason(entry: ClueHeadquartersPoolEntry): string {
+  return entry.reason_label || displayClueReason(headquartersReasonCode(entry));
+}
 
 function normalizeHeadquartersPoolData(
   data: ClueHeadquartersPoolData,
 ): ClueHeadquartersPoolData {
   const rows = Array.isArray(data.rows) ? data.rows : [];
   const pagination = data.pagination ?? emptyHeadquartersPoolData.pagination;
+  const filterOptions = data.filter_options ?? emptyHeadquartersPoolData.filter_options;
+  const entryStatuses = preferCanonicalOptions(
+    filterOptions.entry_statuses,
+    filterOptions.pool_statuses,
+  );
+  const reasonCodes = preferCanonicalOptions(filterOptions.reason_codes, filterOptions.reasons);
+  const normalizedOrderStatuses = preferCanonicalOptions(
+    filterOptions.normalized_order_statuses,
+    filterOptions.order_statuses,
+  );
   return {
     rows,
     pagination,
@@ -136,12 +180,22 @@ function normalizeHeadquartersPoolData(
       current_inventory: rows.filter((row) => row.status === "active").length,
       filtered_total: pagination.total,
     },
-    filter_options: data.filter_options ?? {
-      pool_statuses: Array.from(new Set(rows.map((row) => row.status))).sort(),
-      reasons: Array.from(new Set(rows.map((row) => row.reason))).sort(),
-      order_statuses: Array.from(
-        new Set(rows.map((row) => row.order_status).filter(Boolean)),
-      ).sort(),
+    filter_options: {
+      entry_statuses: entryStatuses.length
+        ? entryStatuses
+        : uniqueNonEmptyValues(rows.map((row) => row.status)),
+      reason_codes: reasonCodes.length
+        ? reasonCodes
+        : uniqueNonEmptyValues(rows.map((row) => headquartersReasonCode(row))),
+      normalized_order_statuses: normalizedOrderStatuses.length
+        ? normalizedOrderStatuses
+        : uniqueNonEmptyValues(rows.map((row) => headquartersOrderStatus(row))),
+      city_codes: filterOptions.city_codes?.length
+        ? filterOptions.city_codes
+        : uniqueNonEmptyValues(rows.map((row) => row.anchor_city_code)),
+      pool_statuses: filterOptions.pool_statuses ?? entryStatuses,
+      reasons: filterOptions.reasons ?? reasonCodes,
+      order_statuses: filterOptions.order_statuses ?? normalizedOrderStatuses,
     },
   };
 }
@@ -828,13 +882,13 @@ export function AdminClueAllocationPage({
       key: "order-status",
       title: "订单状态",
       minWidth: 110,
-      render: (entry) => displayOrderStatus(entry.order_status),
+      render: (entry) => displayOrderStatus(headquartersOrderStatus(entry)),
     },
     {
       key: "reason",
-      title: "进入原因",
+      title: "入池原因",
       minWidth: 150,
-      render: (entry) => displayClueReason(entry.reason),
+      render: (entry) => displayHeadquartersPoolReason(entry),
     },
     {
       key: "anchor-store",
@@ -1587,31 +1641,31 @@ export function AdminClueAllocationPage({
             <SelectField
               label="总部池状态"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, pool_status: value }))
+                setHeadquartersFilterDraft((current) => ({ ...current, entry_status: value }))
               }
               options={[
                 { value: "", label: "全部" },
                 ...Array.from(
-                  new Set(["active", "closed", ...headquartersPool.filter_options.pool_statuses]),
+                  new Set(["active", "closed", ...headquartersPool.filter_options.entry_statuses]),
                 ).map((value) => ({ value, label: displayHeadquartersPoolStatus(value) })),
               ]}
-              value={headquartersFilterDraft.pool_status ?? ""}
+              value={headquartersFilterDraft.entry_status ?? ""}
             />
             <SelectField
-              label="进入原因"
+              label="入池原因"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, reason: value }))
+                setHeadquartersFilterDraft((current) => ({ ...current, reason_code: value }))
               }
               options={[
                 { value: "", label: "全部" },
-                ...headquartersPool.filter_options.reasons.map((value) => ({
+                ...headquartersPool.filter_options.reason_codes.map((value) => ({
                   value,
                   label: displayClueReason(value),
                 })),
               ]}
-              value={headquartersFilterDraft.reason ?? ""}
+              value={headquartersFilterDraft.reason_code ?? ""}
             />
-            <FilterField label="进入日期起">
+            <FilterField label="入池日期起">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
@@ -1623,7 +1677,7 @@ export function AdminClueAllocationPage({
                 value={headquartersFilterDraft.entered_date_start ?? ""}
               />
             </FilterField>
-            <FilterField label="进入日期止">
+            <FilterField label="入池日期止">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
@@ -1638,30 +1692,47 @@ export function AdminClueAllocationPage({
             <SelectField
               label="订单状态"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, order_status: value }))
+                setHeadquartersFilterDraft((current) => ({
+                  ...current,
+                  normalized_order_status: value,
+                }))
               }
               options={[
                 { value: "", label: "全部" },
-                ...headquartersPool.filter_options.order_statuses.map((value) => ({
+                ...headquartersPool.filter_options.normalized_order_statuses.map((value) => ({
                   value,
                   label: displayOrderStatus(value),
                 })),
               ]}
-              value={headquartersFilterDraft.order_status ?? ""}
+              value={headquartersFilterDraft.normalized_order_status ?? ""}
             />
-            <FilterField label="订单号">
+            <FilterField label="搜索">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
                     ...current,
-                    order_id: event.target.value,
+                    q: event.target.value,
                   }))
                 }
-                placeholder="输入完整或部分订单号"
+                placeholder="输入订单号或主线索键"
                 type="search"
-                value={headquartersFilterDraft.order_id ?? ""}
+                value={headquartersFilterDraft.q ?? ""}
               />
             </FilterField>
+            <SelectField
+              label="锚点城市"
+              onChange={(value) =>
+                setHeadquartersFilterDraft((current) => ({ ...current, city_code: value }))
+              }
+              options={[
+                { value: "", label: "全部" },
+                ...headquartersPool.filter_options.city_codes.map((value) => ({
+                  value,
+                  label: value,
+                })),
+              ]}
+              value={headquartersFilterDraft.city_code ?? ""}
+            />
             <div className="clue-headquarters-filter-bar__actions">
               <Button icon="filter" loading={headquartersLoading} type="submit" variant="primary">
                 筛选
