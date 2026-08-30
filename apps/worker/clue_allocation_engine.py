@@ -23,7 +23,11 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.clue_allocation import haversine_km, normalize_city_code
-from apps.worker.clue_headquarters_pool import close_current_headquarters_pool_entry, enter_headquarters_pool
+from apps.worker.clue_headquarters_pool import (
+    close_current_headquarters_pool_entry,
+    enter_headquarters_pool,
+    headquarters_pool_reason_storage_values,
+)
 from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
 
 
@@ -1156,7 +1160,11 @@ def _is_retriable_rule_version_unavailable(session: Session, lead_key: str) -> b
             select(ClueHeadquartersPoolEntry.headquarters_pool_entry_id)
             .where(ClueHeadquartersPoolEntry.lead_key == lead_key)
             .where(ClueHeadquartersPoolEntry.status == "active")
-            .where(ClueHeadquartersPoolEntry.reason == "rule_version_unavailable")
+            .where(
+                ClueHeadquartersPoolEntry.reason.in_(
+                    headquarters_pool_reason_storage_values("no_published_rule")
+                )
+            )
             .limit(1)
         )
         is not None

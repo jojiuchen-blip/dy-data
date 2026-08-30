@@ -550,6 +550,11 @@ def _enforce_page_permission(request: Request, auth: AuthContext) -> None:
 def get_current_admin(
     current_user: AuthContext = Depends(get_current_user),
 ) -> str:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required",
+        )
     return current_user.username
 
 

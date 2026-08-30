@@ -56,6 +56,11 @@ from apps.worker.collectors.types import CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.clue_center import rebuild_clue_center
 from apps.worker.clue_allocation import materialize_clue_master_leads, refresh_store_score_snapshots
+from apps.worker.clue_headquarters_pool import (
+    HEADQUARTERS_POOL_REASON_CODES,
+    canonical_headquarters_pool_reason,
+    headquarters_pool_reason_storage_values,
+)
 from apps.worker.clue_allocation_cycles import (
     AllocationCycleError,
     preview_rebuild_trial_allocation_cycle,
@@ -174,6 +179,17 @@ from dy_api.schemas import (
 
 router = APIRouter()
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+
+HEADQUARTERS_POOL_REASON_LABELS = {
+    "missing_follow_poi": "缺少位置锚点",
+    "anchor_store_unmapped": "锚点门店无法匹配",
+    "anchor_geo_invalid": "锚点城市或经纬度不可用",
+    "no_published_rule": "未匹配可用分配规则",
+    "all_strategies_disabled": "当前规则未启用分配策略",
+    "no_eligible_candidate": "所有启用策略均无可用门店",
+    "all_strategies_exhausted": "所有启用策略均已结束",
+    "data_inconsistency": "关键事实不一致，待总部治理",
+}
 WORKER_STATUS_JOB_NAMES = (
     "collect_and_settle",
     "backend_aweme_export",
@@ -937,6 +953,12 @@ def list_clue_allocation_eligible_leads(
 
 @router.get("/clue-allocation/headquarters-pool")
 def list_clue_headquarters_pool(
+    entry_status: str | None = None,
+    reason_code: str | None = None,
+    normalized_order_status: str | None = None,
+    city_code: str | None = None,
+    q: str | None = None,
+    # Temporary aliases keep existing clients readable while H01 moves to the Foundation contract.
     pool_status: str | None = None,
     reason: str | None = None,
     entered_date_start: date | None = None,
@@ -955,11 +977,27 @@ def list_clue_headquarters_pool(
             detail="entered_date_end must be on or after entered_date_start",
         )
 
+    selected_entry_status = (entry_status or pool_status or "").strip()
+    selected_reason = (reason_code or reason or "").strip()
+    selected_order_status = (normalized_order_status or order_status or "").strip()
+    selected_query = (q or order_id or "").strip()
+    selected_city_code = (city_code or "").strip()
+    if reason_code and reason_code not in HEADQUARTERS_POOL_REASON_CODES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="reason_code is not a supported headquarters pool reason",
+        )
+
     filters = []
-    if pool_status:
-        filters.append(ClueHeadquartersPoolEntry.status == pool_status)
-    if reason:
-        filters.append(ClueHeadquartersPoolEntry.reason == reason)
+    if selected_entry_status:
+        filters.append(ClueHeadquartersPoolEntry.status == selected_entry_status)
+    if selected_reason:
+        canonical_reason = canonical_headquarters_pool_reason(selected_reason)
+        filters.append(
+            ClueHeadquartersPoolEntry.reason.in_(
+                headquarters_pool_reason_storage_values(canonical_reason)
+            )
+        )
     if entered_date_start:
         filters.append(ClueHeadquartersPoolEntry.entered_at >= _shanghai_day_start(entered_date_start))
     if entered_date_end:
@@ -967,11 +1005,17 @@ def list_clue_headquarters_pool(
             ClueHeadquartersPoolEntry.entered_at
             < _shanghai_day_start(entered_date_end + timedelta(days=1))
         )
-    if order_status:
-        filters.append(ClueMasterLead.normalized_order_status == order_status)
-    normalized_order_id = (order_id or "").strip()
-    if normalized_order_id:
-        filters.append(ClueMasterLead.order_id.contains(normalized_order_id, autoescape=True))
+    if selected_order_status:
+        filters.append(ClueMasterLead.normalized_order_status == selected_order_status)
+    if selected_city_code:
+        filters.append(ClueMasterLead.anchor_city_code == selected_city_code)
+    if selected_query:
+        filters.append(
+            or_(
+                ClueMasterLead.order_id.contains(selected_query, autoescape=True),
+                ClueMasterLead.lead_key.contains(selected_query, autoescape=True),
+            )
+        )
 
     statement = (
         select(ClueHeadquartersPoolEntry, ClueMasterLead)
@@ -993,6 +1037,50 @@ def list_clue_headquarters_pool(
         .offset((page - 1) * page_size)
         .limit(page_size)
     ).all()
+    stored_reason_values = list(
+        store.session.scalars(
+            select(ClueHeadquartersPoolEntry.reason)
+            .distinct()
+            .order_by(ClueHeadquartersPoolEntry.reason)
+        ).all()
+    )
+    canonical_reason_values = {
+        canonical_headquarters_pool_reason(value) for value in stored_reason_values
+    }
+    available_reason_codes = [
+        code for code in HEADQUARTERS_POOL_REASON_CODES if code in canonical_reason_values
+    ]
+    entry_statuses = list(
+        store.session.scalars(
+            select(ClueHeadquartersPoolEntry.status)
+            .distinct()
+            .order_by(ClueHeadquartersPoolEntry.status)
+        ).all()
+    )
+    normalized_order_statuses = list(
+        store.session.scalars(
+            select(ClueMasterLead.normalized_order_status)
+            .join(
+                ClueHeadquartersPoolEntry,
+                ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key,
+            )
+            .distinct()
+            .order_by(ClueMasterLead.normalized_order_status)
+        ).all()
+    )
+    city_codes = list(
+        store.session.scalars(
+            select(ClueMasterLead.anchor_city_code)
+            .join(
+                ClueHeadquartersPoolEntry,
+                ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key,
+            )
+            .where(ClueMasterLead.anchor_city_code.is_not(None))
+            .where(ClueMasterLead.anchor_city_code != "")
+            .distinct()
+            .order_by(ClueMasterLead.anchor_city_code)
+        ).all()
+    )
     data = ClueHeadquartersPoolData(
         rows=[
             ClueHeadquartersPoolEntryRow(
@@ -1013,31 +1101,13 @@ def list_clue_headquarters_pool(
             filtered_total=total,
         ),
         filter_options=ClueHeadquartersPoolFilterOptions(
-            pool_statuses=list(
-                store.session.scalars(
-                    select(ClueHeadquartersPoolEntry.status)
-                    .distinct()
-                    .order_by(ClueHeadquartersPoolEntry.status)
-                ).all()
-            ),
-            reasons=list(
-                store.session.scalars(
-                    select(ClueHeadquartersPoolEntry.reason)
-                    .distinct()
-                    .order_by(ClueHeadquartersPoolEntry.reason)
-                ).all()
-            ),
-            order_statuses=list(
-                store.session.scalars(
-                    select(ClueMasterLead.normalized_order_status)
-                    .join(
-                        ClueHeadquartersPoolEntry,
-                        ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key,
-                    )
-                    .distinct()
-                    .order_by(ClueMasterLead.normalized_order_status)
-                ).all()
-            ),
+            entry_statuses=entry_statuses,
+            reason_codes=available_reason_codes,
+            normalized_order_statuses=normalized_order_statuses,
+            city_codes=city_codes,
+            pool_statuses=entry_statuses,
+            reasons=available_reason_codes,
+            order_statuses=normalized_order_statuses,
         ),
     )
     return {
@@ -2629,15 +2699,20 @@ def _clue_headquarters_pool_entry_payload(
     row: ClueHeadquartersPoolEntry,
     lead: ClueMasterLead,
 ) -> dict:
+    reason_code = canonical_headquarters_pool_reason(row.reason)
     return {
         "headquarters_pool_entry_id": row.headquarters_pool_entry_id,
         "lead_key": row.lead_key,
         "canonical_clue_id": lead.canonical_clue_id,
         "order_id": lead.order_id,
+        "normalized_order_status": lead.normalized_order_status,
         "order_status": lead.normalized_order_status,
         "raw_order_status": lead.raw_order_status,
+        "entry_status": row.status,
         "status": row.status,
-        "reason": row.reason,
+        "reason_code": reason_code,
+        "reason_label": HEADQUARTERS_POOL_REASON_LABELS[reason_code],
+        "reason": reason_code,
         "entered_at": row.entered_at,
         "closed_at": row.closed_at,
         "close_reason": row.close_reason,

@@ -25,6 +25,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.clue_allocation_engine import AllocationResult, allocate_lead
+from apps.worker.clue_headquarters_pool import headquarters_pool_reason_storage_values
 
 
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
@@ -397,7 +398,11 @@ def _assert_no_headquarters_reentry(session: Session, lead_keys: list[str]) -> N
         select(ClueHeadquartersPoolEntry.headquarters_pool_entry_id)
         .where(ClueHeadquartersPoolEntry.lead_key == ClueMasterLead.lead_key)
         .where(ClueHeadquartersPoolEntry.status == "active")
-        .where(ClueHeadquartersPoolEntry.reason == "rule_version_unavailable")
+        .where(
+            ClueHeadquartersPoolEntry.reason.in_(
+                headquarters_pool_reason_storage_values("no_published_rule")
+            )
+        )
         .exists()
     )
     rows = session.scalars(

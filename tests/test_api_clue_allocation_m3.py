@@ -26,6 +26,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     ClueMasterLead,
     DimStore,
     User,
+    UserPagePermissionOverride,
 )
 from apps.worker.clue_headquarters_pool import (  # noqa: E402
     close_current_headquarters_pool_entry,
@@ -358,7 +359,11 @@ def test_m3_headquarters_pool_is_readable_without_contact_data(
     assert response.status_code == 200
     row = response.json()["data"]["rows"][0]
     assert row["lead_key"] == lead.lead_key
-    assert row["reason"] == "no_candidate"
+    assert row["reason_code"] == "no_eligible_candidate"
+    assert row["reason_label"] == "所有启用策略均无可用门店"
+    assert row["reason"] == "no_eligible_candidate"
+    assert row["entry_status"] == "active"
+    assert row["normalized_order_status"] == "active"
     assert "phone" not in json.dumps(row, ensure_ascii=False).lower()
     assert eligible.status_code == 200
     assert eligible.json()["data"]["rows"] == []
@@ -411,12 +416,13 @@ def test_m3_headquarters_pool_filters_inventory_and_order_status(
     response = client.get(
         "/api/v1/admin/clue-allocation/headquarters-pool",
         params={
-            "pool_status": "active",
-            "reason": "no_candidate",
+            "entry_status": "active",
+            "reason_code": "no_eligible_candidate",
             "entered_date_start": "2026-07-02",
             "entered_date_end": "2026-07-02",
-            "order_status": "active",
-            "order_id": "filter-match",
+            "normalized_order_status": "active",
+            "city_code": "CN-SH",
+            "q": "filter-match",
         },
     )
 
@@ -426,15 +432,24 @@ def test_m3_headquarters_pool_filters_inventory_and_order_status(
     assert data["summary"] == {"current_inventory": 3, "filtered_total": 1}
     assert data["filter_options"]["pool_statuses"] == ["active", "closed"]
     assert data["filter_options"]["reasons"] == [
-        "follow_poi_missing",
-        "no_candidate",
-        "strategies_exhausted",
+        "missing_follow_poi",
+        "no_eligible_candidate",
+        "all_strategies_exhausted",
     ]
     assert data["filter_options"]["order_statuses"] == ["active", "verified"]
+    assert data["filter_options"]["entry_statuses"] == ["active", "closed"]
+    assert data["filter_options"]["reason_codes"] == [
+        "missing_follow_poi",
+        "no_eligible_candidate",
+        "all_strategies_exhausted",
+    ]
+    assert data["filter_options"]["normalized_order_statuses"] == ["active", "verified"]
+    assert data["filter_options"]["city_codes"] == ["CN-SH"]
     row = data["rows"][0]
     assert row["lead_key"] == "hq-filter-match"
     assert row["order_id"] == "order-filter-match-001"
     assert row["order_status"] == "active"
+    assert row["normalized_order_status"] == "active"
     assert row["raw_order_status"] == "履约中"
     assert "phone" not in json.dumps(data, ensure_ascii=False).lower()
 
@@ -450,6 +465,47 @@ def test_m3_headquarters_pool_rejects_an_inverted_entry_date_range(
     )
 
     assert response.status_code == 422
+
+
+def test_m3_store_account_cannot_read_headquarters_pool_even_with_d08_override(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    db_session.add(
+        User(
+            user_id="hq-store-user",
+            username="hq-store-user",
+            display_name="HQ Store User",
+            role="store",
+            status="active",
+            is_initialized=True,
+            password_hash=hash_password_pbkdf2("store-password"),
+            store_scope_mode="specified",
+        )
+    )
+    db_session.commit()
+    _login(client)
+    db_session.add(
+        UserPagePermissionOverride(
+            user_id="hq-store-user",
+            page_key="D08",
+            effect="allow",
+            updated_by="system-admin",
+            updated_at=_dt(1),
+        )
+    )
+    db_session.commit()
+    client.post("/api/v1/auth/logout")
+    login = client.post(
+        "/api/v1/auth/login",
+        json={"username": "hq-store-user", "password": "store-password"},
+    )
+    assert login.status_code == 200
+
+    response = client.get("/api/v1/admin/clue-allocation/headquarters-pool")
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Administrator access required"
 
 
 def test_m3_rebuild_uses_a_source_cycle_and_matching_preview(

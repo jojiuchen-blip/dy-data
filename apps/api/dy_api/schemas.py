@@ -1062,9 +1062,13 @@ class ClueHeadquartersPoolEntryRow(BaseModel):
     lead_key: str
     canonical_clue_id: str | None = None
     order_id: str | None = None
+    normalized_order_status: str
     order_status: str
     raw_order_status: str | None = None
+    entry_status: str
     status: str
+    reason_code: str
+    reason_label: str
     reason: str
     entered_at: datetime
     closed_at: datetime | None = None
@@ -1084,6 +1088,10 @@ class ClueHeadquartersPoolSummary(BaseModel):
 
 
 class ClueHeadquartersPoolFilterOptions(BaseModel):
+    entry_statuses: list[str] = Field(default_factory=list)
+    reason_codes: list[str] = Field(default_factory=list)
+    normalized_order_statuses: list[str] = Field(default_factory=list)
+    city_codes: list[str] = Field(default_factory=list)
     pool_statuses: list[str] = Field(default_factory=list)
     reasons: list[str] = Field(default_factory=list)
     order_statuses: list[str] = Field(default_factory=list)
