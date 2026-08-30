@@ -2,15 +2,31 @@
 
 import hashlib
 import json
+import re
 from collections import defaultdict
-from collections.abc import Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import (
+    and_,
+    case,
+    delete,
+    func,
+    insert,
+    literal,
+    or_,
+    select,
+    text,
+    true,
+    union,
+    union_all,
+    update,
+)
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -24,6 +40,7 @@ from apps.api.dy_api.models import (
     DimStorePoiMapping,
     DouyinRefundEvent,
     InvoiceRecord,
+    JobImpact,
     PromotionInvoiceAllocation,
     RawAwemeBinding,
     RawDouyinOrder,
@@ -35,6 +52,11 @@ from apps.api.dy_api.models import (
     SettlementFeeAdjustment,
     SettlementFeeResult,
     SettlementFeeResultCurrent,
+    SettlementMonthlyOverlay,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
+    SettlementProjectionPartitionManifest,
+    SettlementRankingOverlay,
     SettlementScopeRule,
     SettlementStatement,
     SettlementStatementEntry,
@@ -44,6 +66,7 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
+from apps.worker.projection_lineage import resolve_projection_partitions
 from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_quality_issue
 
 
@@ -77,6 +100,14 @@ ACTIVE_FEE_RESULT = 1
 SUPERSEDED_FEE_RESULT = 2
 SUCCESSFUL_REFUND = 2
 SHANGHAI = ZoneInfo("Asia/Shanghai")
+# Keep each captured closure and SQL page bounded independently.
+MAX_SETTLEMENT_CLOSURE_VALUES = 64
+MAX_SETTLEMENT_IMPACT_BATCH_SIZE = 64
+MAX_SETTLEMENT_COUPON_BATCH_SIZE = 100
+MAX_SETTLEMENT_PAGE_CARDINALITY = 8192
+SETTLEMENT_SPARSE_PROTOCOL = "t343-settlement-sparse-v1"
+MAX_SETTLEMENT_SPARSE_MONTHS = 120
+_MONTH_KEY_RE = re.compile(r"\d{4}-\d{2}\Z")
 
 
 @dataclass(frozen=True)
@@ -112,6 +143,60 @@ class StatementProjectionStats:
 
 
 @dataclass(frozen=True)
+class ProjectionManifestSet:
+    generation_id: str
+    base_generation_id: str
+    monthly_partitions: tuple[str, ...]
+    ranking_partitions: tuple[str, ...]
+    manifest_count: int
+    row_count: int
+    manifest_checksum: str
+    resumed: bool
+
+
+class LockedSettlementConflict(RuntimeError):
+    """An immutable locked statement would be replaced by a sparse rebuild."""
+
+
+@dataclass
+class _SparsePartitionDigest:
+    artifact: str
+    partition_key: str
+    row_count: int = 0
+    amount_total_cent: int = 0
+    status_counts: dict[str, int] | None = None
+    digest: str = ""
+    last_key: str | None = None
+
+    @classmethod
+    def fresh(cls, artifact: str, partition_key: str) -> "_SparsePartitionDigest":
+        return cls(
+            artifact=artifact,
+            partition_key=partition_key,
+            status_counts={},
+            digest=hashlib.sha256(_sparse_json({"rows": []})).hexdigest(),
+        )
+
+    def add(
+        self,
+        envelope: Mapping[str, Any],
+        *,
+        amount: int,
+        status: int | None = None,
+        last_key: str,
+    ) -> None:
+        payload = _sparse_json(dict(envelope))
+        self.digest = hashlib.sha256(bytes.fromhex(self.digest) + payload).hexdigest()
+        self.row_count += 1
+        self.amount_total_cent += int(amount)
+        if status is not None:
+            key = str(status)
+            assert self.status_counts is not None
+            self.status_counts[key] = self.status_counts.get(key, 0) + 1
+        self.last_key = last_key
+
+
+@dataclass(frozen=True)
 class StatementSource:
     source_type: int
     source_record_id: str
@@ -144,6 +229,2204 @@ class StatementSource:
     fee_rate: Decimal | None = None
     refund_at: datetime | None = None
     adjustment_type: int | None = None
+
+
+class LocalSettlementResult(dict[str, Any]):
+    """Stable, deterministic result returned by the one-coupon kernel."""
+
+    def __getattr__(self, name: str) -> Any:
+        try:
+            return self[name]
+        except KeyError as exc:  # pragma: no cover - normal AttributeError contract
+            raise AttributeError(name) from exc
+
+
+def _sparse_json(value: Any) -> bytes:
+    """Return stable UTF-8 JSON for sparse row and checkpoint identities."""
+
+    def normalize(item: Any) -> Any:
+        if isinstance(item, datetime):
+            if item.tzinfo is not None and item.utcoffset() is not None:
+                item = item.astimezone(timezone.utc)
+                return item.isoformat().replace("+00:00", "Z")
+            return item.isoformat()
+        if isinstance(item, date):
+            return item.isoformat()
+        if isinstance(item, Decimal):
+            rendered = format(item, "f")
+            return "0" if not rendered or item == 0 else rendered
+        if isinstance(item, Mapping):
+            return {str(key): normalize(child) for key, child in item.items()}
+        if isinstance(item, (list, tuple)):
+            return [normalize(child) for child in item]
+        return item
+
+    try:
+        return json.dumps(
+            normalize(value),
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError("sparse projection metadata is not canonical JSON") from exc
+
+
+def _sparse_identity(value: Any, *, label: str) -> str:
+    if not isinstance(value, str) or not value or value.strip() != value:
+        raise ValueError(f"{label} must be a non-empty canonical string")
+    return value
+
+
+def _sparse_month(value: Any, *, label: str = "month") -> str:
+    if not isinstance(value, str) or _MONTH_KEY_RE.fullmatch(value) is None:
+        raise ValueError(f"{label} must use YYYY-MM")
+    try:
+        parsed = date.fromisoformat(f"{value}-01")
+    except ValueError as exc:
+        raise ValueError(f"{label} must use YYYY-MM") from exc
+    if parsed.strftime("%Y-%m") != value:
+        raise ValueError(f"{label} must use canonical YYYY-MM")
+    return value
+
+
+def _sparse_month_range(start: str, end: str) -> tuple[str, ...]:
+    start_value = date.fromisoformat(f"{_sparse_month(start)}-01")
+    end_value = date.fromisoformat(f"{_sparse_month(end)}-01")
+    if start_value > end_value:
+        return ()
+    values: list[str] = []
+    current = start_value
+    while current <= end_value:
+        values.append(current.strftime("%Y-%m"))
+        if len(values) > MAX_SETTLEMENT_SPARSE_MONTHS:
+            raise ValueError("settlement sparse cumulative suffix is too large")
+        current = date(
+            current.year + (1 if current.month == 12 else 0),
+            1 if current.month == 12 else current.month + 1,
+            1,
+        )
+    return tuple(values)
+
+
+def _sparse_cursor(artifact: str, partition_key: str, values: Mapping[str, Any]) -> str:
+    return _sparse_json(
+        {
+            "artifact": artifact,
+            "partition_key": partition_key,
+            "cursor": dict(values),
+        }
+    ).decode("utf-8")
+
+
+def _sparse_generation_manifest_checksum(
+    manifests: list[Mapping[str, Any]],
+) -> str:
+    # Manifest checksums are a shared protocol across legacy roots, sparse
+    # generations, and compact heads.  Import lazily so settlement's normal
+    # worker import path does not load the bootstrap coordinator.
+    from apps.worker.legacy_projection_bootstrap import _manifest_checksum
+
+    return _manifest_checksum(manifests)
+
+
+def _sparse_base_chain(
+    session: Session, base_generation_id: str
+) -> tuple[SettlementProjectionGeneration, tuple[str, ...]]:
+    base = session.get(SettlementProjectionGeneration, base_generation_id)
+    if base is None:
+        raise ValueError("base settlement generation does not exist")
+    if base.projection_name != "settlement" or base.state != "published":
+        raise ValueError("base settlement generation is not published")
+    try:
+        depth = int(base.lineage_depth)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("base settlement lineage depth is invalid") from exc
+    if depth < 0 or depth >= 64:
+        raise ValueError("base settlement lineage depth exceeds the sparse limit")
+
+    generation_ids: list[str] = []
+    visited: set[str] = set()
+    current: SettlementProjectionGeneration | None = base
+    while current is not None:
+        if current.generation_id in visited:
+            raise ValueError("base settlement lineage contains a cycle")
+        visited.add(current.generation_id)
+        generation_ids.append(current.generation_id)
+        if len(generation_ids) > 65:
+            raise ValueError("base settlement lineage exceeds the sparse limit")
+        if current.generation_kind == "compact":
+            if current.generation_id != base_generation_id:
+                raise ValueError("ordinary lineage cannot contain a compact base")
+            if current.base_generation_id is not None or current.lineage_depth != 0:
+                raise ValueError("compact base settlement metadata is malformed")
+            break
+        next_id = current.base_generation_id
+        if next_id is None:
+            break
+        current = session.get(SettlementProjectionGeneration, next_id)
+        if current is None:
+            raise ValueError("base settlement lineage references a missing generation")
+        if current.state not in {"published", "superseded"}:
+            raise ValueError("base settlement lineage contains an unpublished generation")
+    if current is None or current.base_generation_id is not None:
+        raise ValueError("base settlement lineage is incomplete")
+    if base.generation_kind != "compact" and len(generation_ids) != depth + 1:
+        raise ValueError("base settlement lineage depth is inconsistent")
+    return base, tuple(generation_ids)
+
+
+def _sparse_expand_affected_months(
+    session: Session, affected_months: Iterable[str]
+) -> tuple[str, ...]:
+    values = {_sparse_month(value, label="affected month") for value in affected_months}
+    if not values:
+        raise ValueError("affected_months must not be empty")
+    if len(values) > MAX_SETTLEMENT_SPARSE_MONTHS:
+        raise ValueError("too many affected settlement months")
+    while True:
+        rows = session.execute(
+            select(
+                SettlementFeeAdjustment.original_business_month,
+                SettlementFeeAdjustment.adjustment_posting_month,
+            )
+            .where(
+                or_(
+                    SettlementFeeAdjustment.original_business_month.in_(values),
+                    SettlementFeeAdjustment.adjustment_posting_month.in_(values),
+                )
+            )
+            .distinct()
+            .limit(MAX_SETTLEMENT_SPARSE_MONTHS + 1)
+        ).all()
+        expanded = set(values)
+        for original_month, posting_month in rows:
+            expanded.add(
+                _sparse_month(original_month, label="adjustment original month")
+            )
+            expanded.add(
+                _sparse_month(posting_month, label="adjustment posting month")
+            )
+        if len(expanded) > MAX_SETTLEMENT_SPARSE_MONTHS:
+            raise ValueError("adjustment month closure exceeds sparse limit")
+        if expanded == values:
+            return tuple(sorted(values))
+        values = expanded
+
+
+def _sparse_latest_authoritative_month(
+    session: Session,
+    *,
+    affected_months: tuple[str, ...],
+    base_lineage_ids: tuple[str, ...],
+) -> str:
+    candidates = set(affected_months)
+    scalar_queries = (
+        select(func.max(SettlementFeeResult.original_business_month)).join(
+            SettlementFeeResultCurrent,
+            SettlementFeeResultCurrent.fee_result_id
+            == SettlementFeeResult.fee_result_id,
+        ),
+        select(func.max(SettlementFeeAdjustment.original_business_month)),
+        select(func.max(SettlementFeeAdjustment.adjustment_posting_month)),
+        select(func.max(SettlementStatement.statement_month)),
+        select(func.max(AggStoreMonthlySettlement.month)),
+        select(func.max(AggStoreRanking.period_key)),
+    )
+    for statement in scalar_queries:
+        value = session.scalar(statement)
+        if value is not None:
+            candidates.add(_sparse_month(value, label="authoritative month"))
+    manifest_keys = session.scalars(
+        select(SettlementProjectionPartitionManifest.partition_key).where(
+            SettlementProjectionPartitionManifest.generation_id.in_(base_lineage_ids),
+            SettlementProjectionPartitionManifest.artifact.in_(("monthly", "ranking")),
+        )
+    )
+    for partition_key in manifest_keys:
+        value = str(partition_key)
+        if value.startswith("monthly:") or value.startswith("cumulative:"):
+            value = value.split(":", 1)[1]
+        candidates.add(_sparse_month(value, label="base manifest month"))
+    return max(candidates)
+
+
+def _sparse_preflight(
+    session: Session,
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: Iterable[str],
+    batch_size: int,
+    input_fingerprint: str,
+) -> tuple[
+    SettlementProjectionGeneration,
+    tuple[str, ...],
+    tuple[str, ...],
+    SettlementProjectionGeneration | None,
+]:
+    generation_id = _sparse_identity(generation_id, label="generation_id")
+    base_generation_id = _sparse_identity(
+        base_generation_id, label="base_generation_id"
+    )
+    if generation_id == base_generation_id:
+        raise ValueError("sparse generation cannot reference itself as base")
+    if isinstance(batch_size, bool) or not isinstance(batch_size, int) or not 1 <= batch_size <= 400:
+        raise ValueError("batch_size must be an integer between 1 and 400")
+    if (
+        not isinstance(input_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", input_fingerprint) is None
+    ):
+        raise ValueError("input_fingerprint must be 64 lowercase hexadecimal characters")
+    active = session.get(SettlementProjectionActive, "settlement")
+    if active is None or active.generation_id != base_generation_id:
+        raise ValueError("active settlement pointer does not match sparse base")
+    base, lineage_ids = _sparse_base_chain(session, base_generation_id)
+    expanded = _sparse_expand_affected_months(session, affected_months)
+    locked = session.scalar(
+        select(SettlementStatement.statement_id)
+        .where(
+            SettlementStatement.statement_status == 4,
+            SettlementStatement.statement_month.in_(expanded),
+        )
+        .order_by(SettlementStatement.statement_month, SettlementStatement.statement_id)
+        .limit(1)
+    )
+    if locked is not None:
+        raise LockedSettlementConflict(
+            f"affected settlement month contains locked statement: {locked}"
+        )
+    latest = _sparse_latest_authoritative_month(
+        session,
+        affected_months=expanded,
+        base_lineage_ids=lineage_ids,
+    )
+    cumulative_start = max(min(expanded), FORMAL_SETTLEMENT_START.strftime("%Y-%m"))
+    cumulative_months = _sparse_month_range(cumulative_start, max(latest, cumulative_start))
+    existing = session.get(SettlementProjectionGeneration, generation_id)
+    duplicate_fingerprint = session.scalar(
+        select(SettlementProjectionGeneration.generation_id).where(
+            SettlementProjectionGeneration.input_fingerprint == input_fingerprint,
+            SettlementProjectionGeneration.generation_id != generation_id,
+        )
+    )
+    if duplicate_fingerprint is not None:
+        raise ValueError("input_fingerprint already belongs to another generation")
+    if existing is not None:
+        if (
+            existing.projection_name != "settlement"
+            or existing.generation_kind != "lineage"
+            or existing.base_generation_id != base_generation_id
+            or existing.input_fingerprint != input_fingerprint
+            or existing.lineage_depth != int(base.lineage_depth) + 1
+            or existing.state not in {"staging", "ready", "published"}
+        ):
+            raise ValueError("existing sparse generation metadata conflicts")
+    return base, expanded, cumulative_months, existing
+
+
+def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
+    result_store = case(
+        (SettlementFeeResult.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
+        else_=SettlementFeeResult.verify_store_id,
+    )
+    result_rows = (
+        select(
+            literal("result").label("source_kind"),
+            SettlementFeeResult.fee_result_id.label("source_id"),
+            SettlementFeeResult.original_business_month.label("month"),
+            result_store.label("store_id"),
+            func.coalesce(func.nullif(SettlementFeeResult.product_scope, ""), "all").label(
+                "source_product_scope"
+            ),
+            func.coalesce(func.nullif(SettlementFeeResult.product_type, ""), "all").label(
+                "source_product_type"
+            ),
+            SettlementFeeResult.fee_direction.label("fee_direction"),
+            SettlementFeeResult.order_id.label("order_id"),
+            SettlementFeeResult.source_amount_cent.label("source_amount_cent"),
+            SettlementFeeResult.fee_base_cent.label("base_amount_cent"),
+            SettlementFeeResult.fee_amount_cent.label("fee_amount_cent"),
+        )
+        .join(
+            SettlementFeeResultCurrent,
+            SettlementFeeResultCurrent.fee_result_id
+            == SettlementFeeResult.fee_result_id,
+        )
+        .where(SettlementFeeResult.original_business_month.in_(months))
+    )
+    original_store = case(
+        (SettlementFeeAdjustment.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
+        else_=SettlementFeeResult.verify_store_id,
+    )
+    adjustment_rows = (
+        select(
+            literal("adjustment").label("source_kind"),
+            SettlementFeeAdjustment.adjustment_id.label("source_id"),
+            SettlementFeeAdjustment.adjustment_posting_month.label("month"),
+            original_store.label("store_id"),
+            func.coalesce(func.nullif(SettlementFeeResult.product_scope, ""), "all").label(
+                "source_product_scope"
+            ),
+            func.coalesce(func.nullif(SettlementFeeResult.product_type, ""), "all").label(
+                "source_product_type"
+            ),
+            SettlementFeeAdjustment.fee_direction.label("fee_direction"),
+            SettlementFeeAdjustment.order_id.label("order_id"),
+            literal(0).label("source_amount_cent"),
+            SettlementFeeAdjustment.adjustment_base_cent.label("base_amount_cent"),
+            SettlementFeeAdjustment.adjustment_fee_cent.label("fee_amount_cent"),
+        )
+        .join(
+            SettlementFeeResult,
+            SettlementFeeResult.fee_result_id
+            == SettlementFeeAdjustment.original_fee_result_id,
+        )
+        .where(SettlementFeeAdjustment.adjustment_posting_month.in_(months))
+    )
+    source = union_all(result_rows, adjustment_rows).subquery("sparse_authority")
+
+    common = (
+        source.c.source_kind,
+        source.c.source_id,
+        source.c.month,
+        source.c.store_id,
+        source.c.fee_direction,
+        source.c.order_id,
+        source.c.source_amount_cent,
+        source.c.base_amount_cent,
+        source.c.fee_amount_cent,
+    )
+    expanded = union(
+        select(*common, literal("all").label("product_scope"), literal("all").label("product_type")),
+        select(
+            *common,
+            literal("all").label("product_scope"),
+            source.c.source_product_type.label("product_type"),
+        ),
+        select(
+            *common,
+            source.c.source_product_scope.label("product_scope"),
+            literal("all").label("product_type"),
+        ),
+        select(
+            *common,
+            source.c.source_product_scope.label("product_scope"),
+            source.c.source_product_type.label("product_type"),
+        ),
+    ).subquery("sparse_authority_dimensions")
+    return expanded
+
+
+def _sparse_monthly_query(month: str) -> Any:
+    source = _sparse_authority_relation((month,))
+    original_promotion = and_(
+        source.c.source_kind == "result", source.c.fee_direction == PROMOTION_FEE
+    )
+    original_management = and_(
+        source.c.source_kind == "result", source.c.fee_direction == MANAGEMENT_FEE
+    )
+    adjustment_promotion = and_(
+        source.c.source_kind == "adjustment",
+        source.c.fee_direction == PROMOTION_FEE,
+    )
+    adjustment_management = and_(
+        source.c.source_kind == "adjustment",
+        source.c.fee_direction == MANAGEMENT_FEE,
+    )
+    statement_status = func.coalesce(
+        select(SettlementStatement.statement_status)
+        .where(
+            SettlementStatement.store_id == source.c.store_id,
+            SettlementStatement.statement_month == source.c.month,
+        )
+        .limit(1)
+        .scalar_subquery(),
+        1,
+    )
+    return (
+        select(
+            source.c.month,
+            source.c.store_id,
+            source.c.product_scope,
+            source.c.product_type,
+            func.count(
+                func.distinct(case((original_promotion, source.c.order_id), else_=None))
+            ).label("sales_order_count"),
+            func.coalesce(
+                func.sum(case((original_promotion, source.c.source_amount_cent), else_=0)),
+                0,
+            ).label("sales_amount_cent"),
+            func.count(
+                func.distinct(case((original_management, source.c.order_id), else_=None))
+            ).label("verified_order_count"),
+            func.coalesce(
+                func.sum(case((original_management, source.c.source_amount_cent), else_=0)),
+                0,
+            ).label("verified_amount_cent"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (source.c.fee_direction == PROMOTION_FEE, source.c.base_amount_cent),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("promotion_base_cent"),
+            func.coalesce(
+                func.sum(case((original_promotion, source.c.fee_amount_cent), else_=0)),
+                0,
+            ).label("promotion_original_fee_cent"),
+            func.coalesce(
+                func.sum(case((adjustment_promotion, source.c.fee_amount_cent), else_=0)),
+                0,
+            ).label("promotion_adjustment_fee_cent"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (source.c.fee_direction == MANAGEMENT_FEE, source.c.base_amount_cent),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("management_base_cent"),
+            func.coalesce(
+                func.sum(case((original_management, source.c.fee_amount_cent), else_=0)),
+                0,
+            ).label("management_original_fee_cent"),
+            func.coalesce(
+                func.sum(case((adjustment_management, source.c.fee_amount_cent), else_=0)),
+                0,
+            ).label("management_adjustment_fee_cent"),
+            statement_status.label("statement_status"),
+        )
+        .group_by(
+            source.c.month,
+            source.c.store_id,
+            source.c.product_scope,
+            source.c.product_type,
+        )
+        .order_by(
+            source.c.store_id,
+            source.c.product_scope,
+            source.c.product_type,
+        )
+    )
+
+
+def _sparse_monthly_values(
+    row: Mapping[str, Any], *, generation_id: str, base_generation_id: str
+) -> dict[str, Any]:
+    month = _sparse_month(row.get("month"), label="monthly source month")
+    store_id = _sparse_identity(row.get("store_id"), label="monthly source store_id")
+    product_scope = _sparse_identity(
+        row.get("product_scope"), label="monthly product_scope"
+    )
+    product_type = _sparse_identity(
+        row.get("product_type"), label="monthly product_type"
+    )
+    status = int(row.get("statement_status") or 1)
+    if status not in {1, 2, 3, 4}:
+        raise ValueError("monthly statement status is invalid")
+    promotion_original = int(row.get("promotion_original_fee_cent") or 0)
+    promotion_adjustment = int(row.get("promotion_adjustment_fee_cent") or 0)
+    management_original = int(row.get("management_original_fee_cent") or 0)
+    management_adjustment = int(row.get("management_adjustment_fee_cent") or 0)
+    values: dict[str, Any] = {
+        "generation_id": generation_id,
+        "base_generation_id": base_generation_id,
+        "month": month,
+        "store_id": store_id,
+        "product_scope": product_scope,
+        "product_type": product_type,
+        "partition_key": month,
+        "sales_order_count": int(row.get("sales_order_count") or 0),
+        "sales_amount_cent": int(row.get("sales_amount_cent") or 0),
+        "verified_order_count": int(row.get("verified_order_count") or 0),
+        "verified_amount_cent": int(row.get("verified_amount_cent") or 0),
+        "promotion_base_cent": int(row.get("promotion_base_cent") or 0),
+        "promotion_original_fee_cent": promotion_original,
+        "promotion_adjustment_fee_cent": promotion_adjustment,
+        "promotion_net_fee_cent": promotion_original + promotion_adjustment,
+        "management_base_cent": int(row.get("management_base_cent") or 0),
+        "management_original_fee_cent": management_original,
+        "management_adjustment_fee_cent": management_adjustment,
+        "management_net_fee_cent": management_original + management_adjustment,
+        "statement_status": status,
+        "projection_run_id": generation_id,
+        "estimated_receivable_commission_cent": promotion_original
+        + promotion_adjustment,
+        "commissionable_total_cent": int(row.get("promotion_base_cent") or 0),
+        "estimated_payable_commission_cent": management_original
+        + management_adjustment,
+        "tombstone": False,
+    }
+    values["checksum"] = hashlib.sha256(_sparse_json(values)).hexdigest()
+    return values
+
+
+def _sparse_monthly_envelope(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: values[key]
+        for key in (
+            "month",
+            "store_id",
+            "product_scope",
+            "product_type",
+            "sales_order_count",
+            "sales_amount_cent",
+            "verified_order_count",
+            "verified_amount_cent",
+            "promotion_base_cent",
+            "promotion_original_fee_cent",
+            "promotion_adjustment_fee_cent",
+            "promotion_net_fee_cent",
+            "management_base_cent",
+            "management_original_fee_cent",
+            "management_adjustment_fee_cent",
+            "management_net_fee_cent",
+            "statement_status",
+            "projection_run_id",
+        )
+    }
+
+
+def _sparse_manifest_values(
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    artifact: str,
+    partition_key: str,
+    digest: _SparsePartitionDigest,
+) -> dict[str, Any]:
+    owned = digest.row_count > 0
+    return {
+        "generation_id": generation_id,
+        "artifact": artifact,
+        "partition_key": partition_key,
+        "owner_state": "owned" if owned else "tombstone",
+        "source_kind": "overlay" if owned else "tombstone",
+        "data_generation_id": generation_id if owned else None,
+        "reference_head_generation_id": None,
+        "base_generation_id": base_generation_id,
+        "row_count": digest.row_count,
+        "amount_total_cent": digest.amount_total_cent,
+        "status_counts_json": {
+            key: digest.status_counts[key]
+            for key in sorted(digest.status_counts or {})
+        },
+        "checksum": digest.digest,
+        "last_key": digest.last_key,
+    }
+
+
+def _sparse_assert_writable(
+    session: Session, *, generation_id: str, base_generation_id: str
+) -> SettlementProjectionGeneration:
+    generation = session.get(SettlementProjectionGeneration, generation_id)
+    if generation is None or generation.state != "staging":
+        raise ValueError("sparse settlement generation is not writable")
+    active = session.get(SettlementProjectionActive, "settlement")
+    if active is None or active.generation_id != base_generation_id:
+        raise ValueError("active settlement pointer changed during sparse build")
+    return generation
+
+
+def _sparse_write_monthly_partition(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    month: str,
+    batch_size: int,
+) -> None:
+    with session_factory() as session:
+        _sparse_assert_writable(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+        )
+        session.execute(
+            delete(SettlementMonthlyOverlay).where(
+                SettlementMonthlyOverlay.generation_id == generation_id,
+                SettlementMonthlyOverlay.partition_key == month,
+            )
+        )
+        session.execute(
+            delete(SettlementProjectionPartitionManifest).where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact == "monthly",
+                SettlementProjectionPartitionManifest.partition_key == month,
+            )
+        )
+        digest = _SparsePartitionDigest.fresh("monthly", month)
+        pending: list[dict[str, Any]] = []
+        result = session.execute(
+            _sparse_monthly_query(month).execution_options(yield_per=batch_size)
+        ).mappings()
+        for raw in result:
+            values = _sparse_monthly_values(
+                raw,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+            )
+            cursor = _sparse_cursor(
+                "monthly",
+                month,
+                {
+                    "month": month,
+                    "store_id": values["store_id"],
+                    "product_scope": values["product_scope"],
+                    "product_type": values["product_type"],
+                },
+            )
+            digest.add(
+                _sparse_monthly_envelope(values),
+                amount=int(values["promotion_net_fee_cent"])
+                - int(values["management_net_fee_cent"]),
+                status=int(values["statement_status"]),
+                last_key=cursor,
+            )
+            if digest.row_count > MAX_SETTLEMENT_PAGE_CARDINALITY:
+                raise ValueError("monthly sparse partition exceeds row limit")
+            pending.append(values)
+            if len(pending) == batch_size:
+                session.execute(insert(SettlementMonthlyOverlay), pending)
+                pending.clear()
+        if pending:
+            session.execute(insert(SettlementMonthlyOverlay), pending)
+        session.execute(
+            insert(SettlementProjectionPartitionManifest),
+            [_sparse_manifest_values(
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                artifact="monthly",
+                partition_key=month,
+                digest=digest,
+            )],
+        )
+        session.commit()
+
+
+def _sparse_monthly_ranking_query(generation_id: str, month: str) -> Any:
+    return (
+        select(
+            SettlementMonthlyOverlay.store_id,
+            func.coalesce(DimStore.store_name, SettlementMonthlyOverlay.store_id).label(
+                "store_name"
+            ),
+            SettlementMonthlyOverlay.product_scope,
+            SettlementMonthlyOverlay.product_type,
+            SettlementMonthlyOverlay.sales_order_count,
+            SettlementMonthlyOverlay.sales_amount_cent,
+            SettlementMonthlyOverlay.verified_order_count,
+            SettlementMonthlyOverlay.verified_amount_cent,
+            SettlementMonthlyOverlay.promotion_net_fee_cent,
+            SettlementMonthlyOverlay.management_net_fee_cent,
+        )
+        .outerjoin(DimStore, DimStore.store_id == SettlementMonthlyOverlay.store_id)
+        .where(
+            SettlementMonthlyOverlay.generation_id == generation_id,
+            SettlementMonthlyOverlay.partition_key == month,
+            or_(
+                SettlementMonthlyOverlay.tombstone.is_(False),
+                SettlementMonthlyOverlay.tombstone.is_(None),
+            ),
+        )
+        .order_by(
+            SettlementMonthlyOverlay.store_id,
+            SettlementMonthlyOverlay.product_scope,
+            SettlementMonthlyOverlay.product_type,
+        )
+    )
+
+
+def _sparse_effective_monthly_relation(
+    session: Session,
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    months: tuple[str, ...],
+) -> Any | None:
+    requested = set(months)
+    affected = sorted(requested.intersection(affected_months))
+    inherited = sorted(requested.difference(affected_months))
+    statements: list[Any] = []
+
+    def overlay_select(source_generation_id: str, source_months: list[str]) -> Any:
+        return select(
+            SettlementMonthlyOverlay.month.label("month"),
+            SettlementMonthlyOverlay.store_id.label("store_id"),
+            SettlementMonthlyOverlay.product_scope.label("product_scope"),
+            SettlementMonthlyOverlay.product_type.label("product_type"),
+            SettlementMonthlyOverlay.sales_order_count.label("sales_order_count"),
+            SettlementMonthlyOverlay.sales_amount_cent.label("sales_amount_cent"),
+            SettlementMonthlyOverlay.verified_order_count.label("verified_order_count"),
+            SettlementMonthlyOverlay.verified_amount_cent.label("verified_amount_cent"),
+            SettlementMonthlyOverlay.promotion_net_fee_cent.label(
+                "promotion_net_fee_cent"
+            ),
+            SettlementMonthlyOverlay.management_net_fee_cent.label(
+                "management_net_fee_cent"
+            ),
+        ).where(
+            SettlementMonthlyOverlay.generation_id == source_generation_id,
+            SettlementMonthlyOverlay.partition_key.in_(source_months),
+            or_(
+                SettlementMonthlyOverlay.tombstone.is_(False),
+                SettlementMonthlyOverlay.tombstone.is_(None),
+            ),
+        )
+
+    def legacy_select(source_months: list[str]) -> Any:
+        return select(
+            AggStoreMonthlySettlement.month.label("month"),
+            AggStoreMonthlySettlement.store_id.label("store_id"),
+            AggStoreMonthlySettlement.product_scope.label("product_scope"),
+            AggStoreMonthlySettlement.product_type.label("product_type"),
+            AggStoreMonthlySettlement.sales_order_count.label("sales_order_count"),
+            AggStoreMonthlySettlement.sales_amount_cent.label("sales_amount_cent"),
+            AggStoreMonthlySettlement.verified_order_count.label("verified_order_count"),
+            AggStoreMonthlySettlement.verified_amount_cent.label("verified_amount_cent"),
+            AggStoreMonthlySettlement.promotion_net_fee_cent.label(
+                "promotion_net_fee_cent"
+            ),
+            AggStoreMonthlySettlement.management_net_fee_cent.label(
+                "management_net_fee_cent"
+            ),
+        ).where(AggStoreMonthlySettlement.month.in_(source_months))
+
+    if affected:
+        statements.append(overlay_select(generation_id, affected))
+    if inherited:
+        resolutions = resolve_projection_partitions(
+            session,
+            artifact="monthly",
+            partition_keys=inherited,
+            pinned_generation_id=base_generation_id,
+        )
+        overlay_groups: dict[str, list[str]] = defaultdict(list)
+        legacy_months: list[str] = []
+        for month in inherited:
+            resolution = resolutions[month]
+            if resolution.source_kind == "tombstone":
+                continue
+            if resolution.source_kind == "legacy_root":
+                legacy_months.append(month)
+                continue
+            if not resolution.actual_data_generation_id:
+                raise ValueError("base monthly overlay has no data generation")
+            overlay_groups[resolution.actual_data_generation_id].append(month)
+        if legacy_months:
+            statements.append(legacy_select(legacy_months))
+        for source_generation_id, source_months in sorted(overlay_groups.items()):
+            statements.append(overlay_select(source_generation_id, source_months))
+    if not statements:
+        return None
+    return union_all(*statements).subquery("effective_sparse_monthly")
+
+
+def _sparse_cumulative_ranking_query(
+    session: Session,
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    cutoff: str,
+) -> Any | None:
+    formal_month = FORMAL_SETTLEMENT_START.strftime("%Y-%m")
+    months = _sparse_month_range(formal_month, cutoff)
+    source = _sparse_effective_monthly_relation(
+        session,
+        generation_id=generation_id,
+        base_generation_id=base_generation_id,
+        affected_months=affected_months,
+        months=months,
+    )
+    if source is None:
+        return None
+    return (
+        select(
+            source.c.store_id,
+            func.coalesce(func.max(DimStore.store_name), source.c.store_id).label(
+                "store_name"
+            ),
+            source.c.product_scope,
+            source.c.product_type,
+            func.sum(source.c.sales_order_count).label("sales_order_count"),
+            func.sum(source.c.sales_amount_cent).label("sales_amount_cent"),
+            func.sum(source.c.verified_order_count).label("verified_order_count"),
+            func.sum(source.c.verified_amount_cent).label("verified_amount_cent"),
+            func.sum(source.c.promotion_net_fee_cent).label(
+                "promotion_net_fee_cent"
+            ),
+            func.sum(source.c.management_net_fee_cent).label(
+                "management_net_fee_cent"
+            ),
+        )
+        .outerjoin(DimStore, DimStore.store_id == source.c.store_id)
+        .group_by(source.c.store_id, source.c.product_scope, source.c.product_type)
+        .order_by(source.c.store_id, source.c.product_scope, source.c.product_type)
+    )
+
+
+def _sparse_ranking_values(
+    row: Mapping[str, Any],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    period_type: int,
+    period_key: str,
+) -> dict[str, Any]:
+    if period_type not in {1, 2}:
+        raise ValueError("ranking period type is invalid")
+    period_key = _sparse_month(period_key, label="ranking period key")
+    store_id = _sparse_identity(row.get("store_id"), label="ranking store_id")
+    product_scope = _sparse_identity(
+        row.get("product_scope"), label="ranking product_scope"
+    )
+    product_type = _sparse_identity(
+        row.get("product_type"), label="ranking product_type"
+    )
+    promotion = int(row.get("promotion_net_fee_cent") or 0)
+    management = int(row.get("management_net_fee_cent") or 0)
+    prefix = "monthly" if period_type == 1 else "cumulative"
+    values: dict[str, Any] = {
+        "generation_id": generation_id,
+        "base_generation_id": base_generation_id,
+        "period_type": period_type,
+        "period_key": period_key,
+        "store_id": store_id,
+        "store_name": str(row.get("store_name") or store_id),
+        "product_scope": product_scope,
+        "product_type": product_type,
+        "partition_key": f"{prefix}:{period_key}",
+        "sales_order_count": int(row.get("sales_order_count") or 0),
+        "sales_amount_cent": int(row.get("sales_amount_cent") or 0),
+        "verified_order_count": int(row.get("verified_order_count") or 0),
+        "verified_amount_cent": int(row.get("verified_amount_cent") or 0),
+        "promotion_net_fee_cent": promotion,
+        "management_net_fee_cent": management,
+        "net_settlement_reference_cent": promotion - management,
+        "projection_run_id": generation_id,
+        "month": period_key,
+        "self_sold_self_verified_count": 0,
+        "self_sold_other_verified_count": 0,
+        "other_sold_self_verified_count": 0,
+        "self_verify_income_cent": int(row.get("verified_amount_cent") or 0),
+        "effective_commission_income_cent": promotion,
+        "tombstone": False,
+    }
+    values["checksum"] = hashlib.sha256(_sparse_json(values)).hexdigest()
+    return values
+
+
+def _sparse_ranking_envelope(values: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        key: values[key]
+        for key in (
+            "period_type",
+            "period_key",
+            "store_id",
+            "store_name",
+            "product_scope",
+            "product_type",
+            "sales_order_count",
+            "sales_amount_cent",
+            "verified_order_count",
+            "verified_amount_cent",
+            "promotion_net_fee_cent",
+            "management_net_fee_cent",
+            "net_settlement_reference_cent",
+            "projection_run_id",
+            "month",
+        )
+    }
+
+
+def _sparse_write_ranking_partition(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    period_type: int,
+    period_key: str,
+    batch_size: int,
+) -> None:
+    prefix = "monthly" if period_type == 1 else "cumulative"
+    partition_key = f"{prefix}:{period_key}"
+    with session_factory() as session:
+        _sparse_assert_writable(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+        )
+        session.execute(
+            delete(SettlementRankingOverlay).where(
+                SettlementRankingOverlay.generation_id == generation_id,
+                SettlementRankingOverlay.partition_key == partition_key,
+            )
+        )
+        session.execute(
+            delete(SettlementProjectionPartitionManifest).where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact == "ranking",
+                SettlementProjectionPartitionManifest.partition_key == partition_key,
+            )
+        )
+        query = (
+            _sparse_monthly_ranking_query(generation_id, period_key)
+            if period_type == 1
+            else _sparse_cumulative_ranking_query(
+                session,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                affected_months=affected_months,
+                cutoff=period_key,
+            )
+        )
+        digest = _SparsePartitionDigest.fresh("ranking", partition_key)
+        pending: list[dict[str, Any]] = []
+        rows = () if query is None else session.execute(
+            query.execution_options(yield_per=batch_size)
+        ).mappings()
+        for raw in rows:
+            values = _sparse_ranking_values(
+                raw,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                period_type=period_type,
+                period_key=period_key,
+            )
+            cursor = _sparse_cursor(
+                "ranking",
+                partition_key,
+                {
+                    "period_type": period_type,
+                    "period_key": period_key,
+                    "store_id": values["store_id"],
+                    "product_scope": values["product_scope"],
+                    "product_type": values["product_type"],
+                },
+            )
+            digest.add(
+                _sparse_ranking_envelope(values),
+                amount=int(values["net_settlement_reference_cent"]),
+                last_key=cursor,
+            )
+            if digest.row_count > MAX_SETTLEMENT_PAGE_CARDINALITY:
+                raise ValueError("ranking sparse partition exceeds row limit")
+            pending.append(values)
+            if len(pending) == batch_size:
+                session.execute(insert(SettlementRankingOverlay), pending)
+                pending.clear()
+        if pending:
+            session.execute(insert(SettlementRankingOverlay), pending)
+        session.execute(
+            insert(SettlementProjectionPartitionManifest),
+            [_sparse_manifest_values(
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                artifact="ranking",
+                partition_key=partition_key,
+                digest=digest,
+            )],
+        )
+        session.commit()
+
+
+def _sparse_source_input(
+    *,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    cumulative_months: tuple[str, ...],
+    batch_size: int,
+) -> dict[str, Any]:
+    return {
+        "protocol": SETTLEMENT_SPARSE_PROTOCOL,
+        "projection": "settlement",
+        "operation": "build_settlement_sparse_overlay",
+        "base_generation_id": base_generation_id,
+        "affected_months": list(affected_months),
+        "cumulative_months": list(cumulative_months),
+        "batch_size": batch_size,
+    }
+
+
+def _sparse_result(
+    session: Session,
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    resumed: bool,
+) -> ProjectionManifestSet:
+    generation = session.get(SettlementProjectionGeneration, generation_id)
+    if generation is None:
+        raise ValueError("sparse settlement generation disappeared")
+    manifests = list(
+        session.scalars(
+            select(SettlementProjectionPartitionManifest)
+            .where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact.in_(("monthly", "ranking")),
+            )
+            .order_by(
+                SettlementProjectionPartitionManifest.artifact,
+                SettlementProjectionPartitionManifest.partition_key,
+            )
+        )
+    )
+    monthly = tuple(
+        row.partition_key for row in manifests if row.artifact == "monthly"
+    )
+    ranking = tuple(
+        sorted(
+            (row.partition_key for row in manifests if row.artifact == "ranking"),
+            key=lambda value: (
+                0 if value.startswith("monthly:") else 1,
+                value.split(":", 1)[1],
+            ),
+        )
+    )
+    checksum = generation.manifest_checksum
+    if not isinstance(checksum, str) or re.fullmatch(r"[0-9a-f]{64}", checksum) is None:
+        raise ValueError("sparse settlement generation has no canonical manifest checksum")
+    return ProjectionManifestSet(
+        generation_id=generation_id,
+        base_generation_id=base_generation_id,
+        monthly_partitions=monthly,
+        ranking_partitions=ranking,
+        manifest_count=len(manifests),
+        row_count=sum(int(row.row_count) for row in manifests),
+        manifest_checksum=checksum,
+        resumed=resumed,
+    )
+
+
+def _sparse_finalize_generation(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    cumulative_months: tuple[str, ...],
+    batch_size: int,
+    resumed: bool,
+) -> ProjectionManifestSet:
+    with session_factory() as session:
+        generation = _sparse_assert_writable(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+        )
+        manifest_rows = [
+            dict(row)
+            for row in session.execute(
+                select(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                    SettlementProjectionPartitionManifest.owner_state,
+                    SettlementProjectionPartitionManifest.source_kind,
+                    SettlementProjectionPartitionManifest.data_generation_id,
+                    SettlementProjectionPartitionManifest.base_generation_id,
+                    SettlementProjectionPartitionManifest.row_count,
+                    SettlementProjectionPartitionManifest.amount_total_cent,
+                    SettlementProjectionPartitionManifest.status_counts_json,
+                    SettlementProjectionPartitionManifest.checksum,
+                )
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id == generation_id
+                )
+                .order_by(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                )
+            ).mappings()
+        ]
+        manifest_checksum = _sparse_generation_manifest_checksum(manifest_rows)
+        manifest_count = len(manifest_rows)
+        data_rows = sum(int(row["row_count"]) for row in manifest_rows)
+        write_rows = 1 + manifest_count + data_rows
+        write_bytes = 16_384 + 4_096 * (manifest_count + data_rows)
+        wal_bytes = 2 * write_bytes
+        terminal = (
+            _sparse_cursor(
+                str(manifest_rows[-1]["artifact"]),
+                str(manifest_rows[-1]["partition_key"]),
+                {"partition_key": str(manifest_rows[-1]["partition_key"])},
+            )
+            if manifest_rows
+            else None
+        )
+        source_input = _sparse_source_input(
+            base_generation_id=base_generation_id,
+            affected_months=affected_months,
+            cumulative_months=cumulative_months,
+            batch_size=batch_size,
+        )
+        generation.estimated_write_rows = write_rows
+        generation.estimated_write_bytes = write_bytes
+        generation.estimated_wal_bytes = wal_bytes
+        generation.estimated_disk_headroom_bytes = 0
+        generation.checkpoint_json = {
+            **source_input,
+            "phase": "settlement_ready",
+            "expected_active_pointer": base_generation_id,
+            "manifest_count": manifest_count,
+            "row_count": data_rows,
+            "last_key": terminal,
+        }
+        generation.last_key = terminal
+        generation.manifest_checksum = manifest_checksum
+        generation.source_input_json = source_input
+        session.commit()
+        return _sparse_result(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            resumed=resumed,
+        )
+
+
+def build_settlement_sparse_overlay(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    affected_months: Iterable[str],
+    batch_size: int,
+    input_fingerprint: str,
+) -> ProjectionManifestSet:
+    """Build only claimed monthly/ranking partitions over a pinned base.
+
+    Each partition is committed independently to keep transactions and memory
+    bounded.  A retry rebuilds only this generation's claimed partitions; the
+    legacy aggregate and active pointer are never mutated here.
+    """
+
+    if not callable(session_factory):
+        raise TypeError("session_factory must be callable")
+    with session_factory() as preflight_session:
+        base, affected, cumulative_months, existing = _sparse_preflight(
+            preflight_session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            affected_months=affected_months,
+            batch_size=batch_size,
+            input_fingerprint=input_fingerprint,
+        )
+        base_depth = int(base.lineage_depth)
+        has_existing_generation = existing is not None
+        resumed = bool(
+            existing is not None
+            and preflight_session.scalar(
+                select(func.count())
+                .select_from(SettlementProjectionPartitionManifest)
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id
+                    == generation_id
+                )
+            )
+        )
+        existing_state = existing.state if existing is not None else None
+
+    if existing_state in {"ready", "published"}:
+        with session_factory() as session:
+            return _sparse_result(
+                session,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                resumed=True,
+            )
+
+    source_input = _sparse_source_input(
+        base_generation_id=base_generation_id,
+        affected_months=affected,
+        cumulative_months=cumulative_months,
+        batch_size=batch_size,
+    )
+    if not has_existing_generation:
+        with session_factory() as session:
+            active = session.get(SettlementProjectionActive, "settlement")
+            if active is None or active.generation_id != base_generation_id:
+                raise ValueError("active settlement pointer changed before sparse claim")
+            session.add(
+                SettlementProjectionGeneration(
+                    generation_id=generation_id,
+                    base_generation_id=base_generation_id,
+                    generation_kind="lineage",
+                    compaction_base_generation_id=None,
+                    projection_name="settlement",
+                    state="staging",
+                    input_fingerprint=input_fingerprint,
+                    lineage_depth=base_depth + 1,
+                    estimated_write_rows=0,
+                    estimated_write_bytes=0,
+                    estimated_wal_bytes=0,
+                    estimated_disk_headroom_bytes=0,
+                    checkpoint_json={
+                        **source_input,
+                        "phase": "settlement_build",
+                        "expected_active_pointer": base_generation_id,
+                        "manifest_count": 0,
+                        "row_count": 0,
+                        "last_key": None,
+                    },
+                    last_key=None,
+                    manifest_checksum=None,
+                    source_input_json=source_input,
+                )
+            )
+            try:
+                session.commit()
+            except IntegrityError:
+                session.rollback()
+                peer = session.get(SettlementProjectionGeneration, generation_id)
+                if (
+                    peer is None
+                    or peer.base_generation_id != base_generation_id
+                    or peer.input_fingerprint != input_fingerprint
+                    or peer.state != "staging"
+                ):
+                    raise
+                resumed = True
+
+    for month in affected:
+        _sparse_write_monthly_partition(
+            session_factory,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            month=month,
+            batch_size=batch_size,
+        )
+    for month in affected:
+        _sparse_write_ranking_partition(
+            session_factory,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            affected_months=affected,
+            period_type=1,
+            period_key=month,
+            batch_size=batch_size,
+        )
+    for month in cumulative_months:
+        _sparse_write_ranking_partition(
+            session_factory,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            affected_months=affected,
+            period_type=2,
+            period_key=month,
+            batch_size=batch_size,
+        )
+    return _sparse_finalize_generation(
+        session_factory,
+        generation_id=generation_id,
+        base_generation_id=base_generation_id,
+        affected_months=affected,
+        cumulative_months=cumulative_months,
+        batch_size=batch_size,
+        resumed=resumed,
+    )
+
+
+def settle_coupon_local(
+    session: Session,
+    coupon: RawDouyinOrderCoupon | str,
+    calculation_run_id: str,
+) -> LocalSettlementResult:
+    """Lock and rebuild one coupon's local settlement facts.
+
+    This is intentionally a coupon-level primitive.  It never discovers or
+    iterates other coupons, monthly/ranking projections, or a global DQI set;
+    the caller owns batching and impact closure in a later slice.
+    """
+
+    coupon_id = coupon.coupon_id if isinstance(coupon, RawDouyinOrderCoupon) else str(coupon)
+    locked_coupon = session.scalar(
+        select(RawDouyinOrderCoupon)
+        .where(RawDouyinOrderCoupon.coupon_id == coupon_id)
+        .with_for_update()
+    )
+    if locked_coupon is None:
+        raise ValueError(f"unknown settlement coupon: {coupon_id}")
+
+    previous = _capture_local_coupon_state(session, coupon_id)
+    session.info["incremental_dqi_identity"] = True
+    invalid = False
+    locked = False
+    try:
+        order = _raw_order_for_coupon(session, locked_coupon)
+        invalid = _is_invalid_or_closed_coupon(locked_coupon, order)
+        if invalid:
+            locked = _local_coupon_settlement_locked(session, previous)
+            session.execute(
+                delete(SettlementOrderDetail).where(
+                    SettlementOrderDetail.coupon_id == coupon_id
+                )
+            )
+            if not locked:
+                session.execute(
+                    delete(SettlementFeeResultCurrent).where(
+                        SettlementFeeResultCurrent.coupon_id == coupon_id
+                    )
+                )
+            _record_issue(
+                session,
+                issue_type="incremental_invalid_coupon",
+                message="券已失效或关闭，局部结算事实已按锁账状态处理。",
+                order_id=locked_coupon.order_id,
+                coupon_id=coupon_id,
+                source_run_id=calculation_run_id,
+                severity="warning",
+                raw_context={
+                    "coupon_status": locked_coupon.coupon_status_normalized
+                    or locked_coupon.coupon_status,
+                    "locked": locked,
+                },
+                identity_suffix="invalid-or-closed",
+            )
+        else:
+            session.execute(
+                delete(SettlementOrderDetail).where(
+                    SettlementOrderDetail.coupon_id == coupon_id
+                )
+            )
+            _materialize_coupon(session, locked_coupon, source_run_id=calculation_run_id)
+            rebuild_dual_fee_results(
+                session,
+                calculation_run_id=calculation_run_id,
+                coupon_ids=(coupon_id,),
+            )
+        session.flush()
+    finally:
+        session.info.pop("incremental_dqi_identity", None)
+
+    current = _capture_local_coupon_state(session, coupon_id)
+    months: set[str] = set()
+    stores: set[str] = set()
+    _collect_local_affected_checkpoint(previous, months, stores)
+    _collect_local_affected_checkpoint(current, months, stores)
+    return LocalSettlementResult(
+        coupon_id=coupon_id,
+        invalid=invalid,
+        locked=locked,
+        detail_count=int(current["detail"] is not None),
+        result_count=max(0, len(current["results"]) - len(previous["results"])),
+        adjustment_count=max(
+            0, len(current["adjustments"]) - len(previous["adjustments"])
+        ),
+        affected_months=sorted(months),
+        affected_store_ids=sorted(stores),
+        completed=True,
+    )
+
+
+# Names retained for the next slice's integration adapter without making that
+# adapter part of this local-kernel task.
+settle_coupon_incremental = settle_coupon_local
+settle_one_coupon = settle_coupon_local
+
+
+def settle_impacted_coupons(
+    session_factory: Any,
+    source_run_id: str,
+    page_fence: Any,
+    impact_batch_size: int,
+    coupon_batch_size: int,
+) -> dict[str, Any]:
+    """Settle only coupons selected by one source run's impact stream.
+
+    Impacts are consumed with an ``id`` keyset page (never ``offset`` or an
+    unbounded ``all()``).  Each selected coupon page is settled in an
+    independent short transaction.  The fence is checked immediately before
+    that transaction commits; a false fence rolls back only the current page
+    and returns ``completed=False`` while preserving earlier commits.  A
+    caller may safely retry from the impact stream head: the coupon kernel's
+    input fingerprint and revision fences turn already committed coupons into
+    no-ops.
+
+    ``impact_count`` counts impact rows consumed (including safe-to-skip rows),
+    ``coupon_count`` counts coupon rows handed to the kernel, and the three
+    projection counts sum the corresponding kernel deltas after a successful
+    commit.  ``last_impact_id`` advances only after an entire impact page has
+    been consumed.  ``affected_months`` and ``affected_store_ids`` are sorted
+    de-duplicated checkpoint dimensions gathered from both impact closures and
+    committed coupon results.
+    """
+
+    if not callable(session_factory):
+        raise TypeError("session_factory must be callable")
+    if page_fence is not None and not callable(page_fence):
+        raise TypeError("page_fence must be callable or None")
+    safe_impact_batch_size = min(
+        _positive_batch_size(impact_batch_size, "impact_batch_size"),
+        MAX_SETTLEMENT_IMPACT_BATCH_SIZE,
+    )
+    safe_coupon_batch_size = min(
+        _positive_batch_size(coupon_batch_size, "coupon_batch_size"),
+        MAX_SETTLEMENT_COUPON_BATCH_SIZE,
+    )
+
+    summary: dict[str, Any] = {
+        "impact_count": 0,
+        "coupon_count": 0,
+        "detail_count": 0,
+        "result_count": 0,
+        "adjustment_count": 0,
+        "last_impact_id": 0,
+        "affected_months": [],
+        "affected_store_ids": [],
+        "completed": False,
+    }
+    affected_months: set[str] = set()
+    affected_store_ids: set[str] = set()
+    last_impact_id = 0
+
+    while True:
+        impact_page = _read_settlement_impact_page(
+            session_factory,
+            source_run_id=str(source_run_id),
+            after_impact_id=last_impact_id,
+            limit=safe_impact_batch_size,
+        )
+        if not impact_page:
+            if not _settlement_fence_only(session_factory, page_fence):
+                summary["last_impact_id"] = last_impact_id
+                summary["affected_months"] = sorted(affected_months)
+                summary["affected_store_ids"] = sorted(affected_store_ids)
+                return summary
+            summary["last_impact_id"] = last_impact_id
+            summary["affected_months"] = sorted(affected_months)
+            summary["affected_store_ids"] = sorted(affected_store_ids)
+            summary["completed"] = True
+            return summary
+
+        summary["impact_count"] += len(impact_page)
+        page_months: set[str] = set()
+        page_store_ids: set[str] = set()
+        page_coupon_ids: set[str] = set()
+        page_order_ids: set[str] = set()
+        page_verify_ids: set[str] = set()
+        page_poi_ids: set[str] = set()
+        page_selector_store_ids: set[str] = set()
+        for impact in impact_page:
+            selectors = _settlement_coupon_selectors(impact)
+            if not selectors.has_sources:
+                continue
+            _collect_settlement_impact_dimensions(
+                impact,
+                affected_months=page_months,
+                affected_store_ids=page_store_ids,
+            )
+            page_coupon_ids.update(selectors.direct_coupon_ids)
+            page_order_ids.update(selectors.order_ids)
+            page_verify_ids.update(selectors.verify_ids)
+            page_poi_ids.update(selectors.poi_ids)
+            page_selector_store_ids.update(selectors.store_ids)
+            _enforce_settlement_page_cardinality(
+                page_coupon_ids=page_coupon_ids,
+                page_order_ids=page_order_ids,
+                page_verify_ids=page_verify_ids,
+                page_poi_ids=page_poi_ids,
+                page_selector_store_ids=page_selector_store_ids,
+                page_months=page_months,
+                page_store_ids=page_store_ids,
+            )
+        selectors = _SettlementCouponSelectors(
+            direct_coupon_ids=tuple(sorted(page_coupon_ids)),
+            order_ids=tuple(sorted(page_order_ids)),
+            verify_ids=tuple(sorted(page_verify_ids)),
+            poi_ids=tuple(sorted(page_poi_ids)),
+            store_ids=tuple(sorted(page_selector_store_ids)),
+        )
+        coupon_cursor: str | None = None
+        committed_any = False
+        while selectors.has_sources:
+            coupon_ids = _read_settlement_coupon_page(
+                session_factory,
+                selectors,
+                after_coupon_id=coupon_cursor,
+                limit=safe_coupon_batch_size,
+            )
+            if not coupon_ids:
+                break
+            batch_result = _settle_coupon_batch(
+                session_factory,
+                coupon_ids=coupon_ids,
+                source_run_id=str(source_run_id),
+                page_fence=page_fence,
+            )
+            if batch_result is None:
+                # Once any batch from this impact page committed, report the
+                # page's closure dimensions conservatively even though the
+                # current batch was fenced out.  Do not expose rolled-back
+                # page dimensions when the first batch itself failed.
+                if committed_any:
+                    affected_months.update(page_months)
+                    affected_store_ids.update(page_store_ids)
+                summary["last_impact_id"] = last_impact_id
+                summary["affected_months"] = sorted(affected_months)
+                summary["affected_store_ids"] = sorted(affected_store_ids)
+                return summary
+            committed_any = True
+            summary["coupon_count"] += len(coupon_ids)
+            summary["detail_count"] += batch_result["detail_count"]
+            summary["result_count"] += batch_result["result_count"]
+            summary["adjustment_count"] += batch_result["adjustment_count"]
+            affected_months.update(batch_result["affected_months"])
+            affected_store_ids.update(batch_result["affected_store_ids"])
+            coupon_cursor = coupon_ids[-1]
+        if not selectors.has_sources:
+            # Unknown/irrelevant impacts are intentionally skipped, but a
+            # short fenced transaction still proves ownership before the
+            # impact page can advance.
+            if not _settlement_fence_only(session_factory, page_fence):
+                summary["last_impact_id"] = last_impact_id
+                summary["affected_months"] = sorted(affected_months)
+                summary["affected_store_ids"] = sorted(affected_store_ids)
+                return summary
+        elif not committed_any:
+            # A valid selector can point at a row deleted between capture and
+            # settlement. Keep this page bounded and fence the no-op.
+            if not _settlement_fence_only(session_factory, page_fence):
+                summary["last_impact_id"] = last_impact_id
+                summary["affected_months"] = sorted(affected_months)
+                summary["affected_store_ids"] = sorted(affected_store_ids)
+                return summary
+        if selectors.has_sources:
+            affected_months.update(page_months)
+            affected_store_ids.update(page_store_ids)
+
+        last_impact_id = int(impact_page[-1]["id"])
+        summary["last_impact_id"] = last_impact_id
+
+
+def _positive_batch_size(value: int, name: str) -> int:
+    try:
+        bounded = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if bounded <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return bounded
+
+
+def _enforce_settlement_page_cardinality(
+    *,
+    page_coupon_ids: set[str],
+    page_order_ids: set[str],
+    page_verify_ids: set[str],
+    page_poi_ids: set[str],
+    page_selector_store_ids: set[str],
+    page_months: set[str],
+    page_store_ids: set[str],
+) -> None:
+    cardinality = sum(
+        len(values)
+        for values in (
+            page_coupon_ids,
+            page_order_ids,
+            page_verify_ids,
+            page_poi_ids,
+            page_selector_store_ids,
+            page_months,
+            page_store_ids,
+        )
+    )
+    if cardinality > MAX_SETTLEMENT_PAGE_CARDINALITY:
+        raise ValueError("settlement impact page exceeds maximum cardinality")
+
+
+def _read_settlement_impact_page(
+    session_factory: Any,
+    *,
+    source_run_id: str,
+    after_impact_id: int,
+    limit: int,
+) -> list[dict[str, Any]]:
+    session = session_factory()
+    try:
+        session.begin()
+        rows = list(
+            session.scalars(
+                select(JobImpact)
+                .where(
+                    JobImpact.source_run_id == source_run_id,
+                    JobImpact.id > int(after_impact_id),
+                )
+                .order_by(JobImpact.id)
+                .limit(limit)
+            )
+        )
+        return [_snapshot_settlement_impact(row) for row in rows]
+    finally:
+        try:
+            session.rollback()
+        finally:
+            session.close()
+
+
+def _snapshot_settlement_impact(impact: JobImpact) -> dict[str, Any]:
+    return {
+        "id": int(impact.id),
+        "entity_type": str(impact.entity_type or "").strip().lower(),
+        "entity_key": str(impact.entity_key or ""),
+        "old_values_json": dict(impact.old_values_json or {}),
+        "new_values_json": dict(impact.new_values_json or {}),
+        "affected_closure_json": dict(impact.affected_closure_json or {}),
+    }
+
+
+@dataclass(frozen=True)
+class _SettlementCouponSelectors:
+    direct_coupon_ids: tuple[str, ...] = ()
+    order_ids: tuple[str, ...] = ()
+    verify_ids: tuple[str, ...] = ()
+    poi_ids: tuple[str, ...] = ()
+    store_ids: tuple[str, ...] = ()
+
+    @property
+    def has_sources(self) -> bool:
+        return bool(
+            self.direct_coupon_ids
+            or self.order_ids
+            or self.verify_ids
+            or self.poi_ids
+            or self.store_ids
+        )
+
+
+def _settlement_values(payload: Mapping[str, Any] | None, key: str) -> tuple[str, ...]:
+    if not isinstance(payload, Mapping) or not payload:
+        return ()
+    value = payload.get(key)
+    if value in (None, ""):
+        return ()
+    if isinstance(value, (list, tuple, set)) and len(value) > MAX_SETTLEMENT_CLOSURE_VALUES:
+        raise ValueError(
+            "settlement impact closure field exceeds maximum cardinality"
+        )
+    values = value if isinstance(value, (list, tuple, set)) else (value,)
+    return tuple(str(item) for item in values if item not in (None, ""))
+
+
+def _settlement_values_with_old_new(
+    payload: Mapping[str, Any] | None, key: str
+) -> tuple[str, ...]:
+    values = set(_settlement_values(payload, key))
+    values.update(_settlement_values(payload, f"old_{key}"))
+    values.update(_settlement_values(payload, f"new_{key}"))
+    return tuple(sorted(values))
+
+
+def _settlement_payloads(impact: Mapping[str, Any]) -> tuple[Mapping[str, Any], ...]:
+    closure = impact.get("affected_closure_json") or {}
+    payloads: list[Mapping[str, Any]] = [closure]
+    for key in (
+        "old",
+        "new",
+        "old_values",
+        "new_values",
+        "old_values_json",
+        "new_values_json",
+    ):
+        nested = closure.get(key) if isinstance(closure, Mapping) else None
+        if isinstance(nested, Mapping):
+            payloads.append(nested)
+    payloads.extend(
+        (
+            impact.get("old_values_json") or {},
+            impact.get("new_values_json") or {},
+        )
+    )
+    return tuple(payloads)
+
+
+def _collect_settlement_impact_dimensions(
+    impact: Mapping[str, Any],
+    *,
+    affected_months: set[str],
+    affected_store_ids: set[str],
+) -> None:
+    for payload in _settlement_payloads(impact):
+        for field_name in (
+            "affected_months",
+            "sale_months",
+            "verify_months",
+            "refund_months",
+            "clue_months",
+            "months",
+            "original_business_month",
+            "posting_month",
+            "adjustment_posting_month",
+        ):
+            affected_months.update(
+                _settlement_values_with_old_new(payload, field_name)
+            )
+        affected_store_ids.update(
+            _settlement_values_with_old_new(payload, "store_ids")
+        )
+        affected_store_ids.update(
+            _settlement_values_with_old_new(payload, "affected_store_ids")
+        )
+        for field_name in ("sale_store_ids", "verify_store_ids"):
+            affected_store_ids.update(
+                _settlement_values_with_old_new(payload, field_name)
+            )
+        for field_name in (
+            "sale_store_id",
+            "verify_store_id",
+            "old_store_id",
+            "new_store_id",
+        ):
+            affected_store_ids.update(
+                _settlement_values_with_old_new(payload, field_name)
+            )
+        for field_name in (
+            "sale_time",
+            "pay_time",
+            "create_order_time",
+            "verify_time",
+            "cancel_time",
+            "occurred_at",
+            "coupon_refund_time",
+            "latest_refund_at",
+            "create_time_detail",
+            "month",
+        ):
+            for value in _settlement_values_with_old_new(payload, field_name):
+                affected_months.update(_settlement_months(value))
+
+
+def _settlement_month(value: str) -> str | None:
+    raw = str(value).strip()
+    if len(raw) >= 7 and raw[4] == "-":
+        candidate = raw[:7]
+        if candidate[:4].isdigit() and candidate[5:7].isdigit():
+            return candidate
+    return None
+
+
+def _settlement_months(value: Any) -> set[str]:
+    """Return raw and Shanghai business months for timestamp-like values.
+
+    Aware timestamps are interpreted in their own timezone; naive datetime
+    objects and timestamp strings follow the project convention of UTC before
+    Shanghai business-month conversion.  Both forms retain the raw ``YYYY-MM``
+    prefix and add the derived Shanghai month.  Date-only values and plain
+    ``YYYY-MM`` values remain raw-month-only.
+    """
+
+    raw = str(value).strip()
+    months: set[str] = set()
+    raw_month = _settlement_month(raw)
+    if raw_month:
+        months.add(raw_month)
+    parsed: datetime | None = None
+    if isinstance(value, datetime):
+        parsed = value
+    elif "T" in raw or " " in raw:
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except ValueError:
+            parsed = None
+    if parsed is not None:
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        months.add(parsed.astimezone(SHANGHAI).strftime("%Y-%m"))
+    return months
+
+
+def _settlement_coupon_selectors(impact: Mapping[str, Any]) -> _SettlementCouponSelectors:
+    entity_type = str(impact.get("entity_type") or "").strip().lower()
+    entity_key = str(impact.get("entity_key") or "").strip()
+    coupon_types = {"coupon"}
+    order_types = {"order"}
+    refund_types = {"refund", "refund_event", "douyin_refund_event", "refund_record"}
+    verify_types = {"verify", "verify_record", "douyin_verify_record"}
+    mapping_types = {"store_poi_mapping", "store-poi-mapping", "poi_mapping"}
+    if entity_type not in coupon_types | order_types | refund_types | verify_types | mapping_types:
+        return _SettlementCouponSelectors()
+
+    def typed_values(
+        payload: Mapping[str, Any] | None,
+        plural_names: tuple[str, ...],
+        scalar_names: tuple[str, ...],
+    ) -> set[str]:
+        values: set[str] = set()
+        for name in plural_names:
+            values.update(_settlement_values_with_old_new(payload, name))
+        for name in scalar_names:
+            values.update(_settlement_values_with_old_new(payload, name))
+        return values
+
+    payloads = _settlement_payloads(impact)
+    coupon_ids: set[str] = set()
+    order_ids: set[str] = set()
+    verify_ids: set[str] = set()
+    poi_ids: set[str] = set()
+    store_ids: set[str] = set()
+    if entity_type in coupon_types:
+        for payload in payloads:
+            coupon_ids.update(
+                typed_values(payload, ("coupon_ids",), ("coupon_id",))
+            )
+        if entity_key:
+            coupon_ids.add(entity_key)
+    elif entity_type in order_types:
+        for payload in payloads:
+            order_ids.update(
+                typed_values(payload, ("order_ids",), ("order_id",))
+            )
+        if entity_key:
+            order_ids.add(entity_key)
+    elif entity_type in verify_types:
+        for payload in payloads:
+            coupon_ids.update(
+                typed_values(payload, ("coupon_ids",), ("coupon_id",))
+            )
+            verify_ids.update(
+                typed_values(payload, ("verify_ids",), ("verify_id",))
+            )
+            for field_names in (
+                ("poi_ids",),
+                ("verify_poi_ids",),
+                ("intention_poi_ids",),
+            ):
+                poi_ids.update(typed_values(payload, field_names, ()))
+            poi_ids.update(typed_values(payload, (), ("poi_id",)))
+        if entity_key:
+            verify_ids.add(entity_key)
+    elif entity_type in mapping_types:
+        for payload in payloads:
+            for field_names in (
+                ("poi_ids",),
+                ("verify_poi_ids",),
+                ("intention_poi_ids",),
+            ):
+                poi_ids.update(typed_values(payload, field_names, ()))
+            poi_ids.update(typed_values(payload, (), ("poi_id",)))
+            store_ids.update(
+                typed_values(payload, ("store_ids",), ("store_id",))
+            )
+            store_ids.update(
+                typed_values(payload, ("sale_store_ids",), ()))
+            store_ids.update(
+                typed_values(payload, ("verify_store_ids",), ()))
+        # Capture entity_key is the POI.  Never guess it is a store id.
+        if entity_key:
+            poi_ids.add(entity_key)
+    else:  # refund_types
+        old_values = impact.get("old_values_json")
+        new_values = impact.get("new_values_json")
+        typed_side = False
+        for payload in (old_values, new_values):
+            side_coupons = typed_values(payload, ("coupon_ids",), ("coupon_id",))
+            side_orders = typed_values(payload, ("order_ids",), ("order_id",))
+            if side_coupons:
+                coupon_ids.update(side_coupons)
+                typed_side = True
+            elif side_orders:
+                order_ids.update(side_orders)
+                typed_side = True
+        if not typed_side:
+            closure = impact.get("affected_closure_json")
+            closure_coupons = typed_values(
+                closure, ("coupon_ids",), ("coupon_id",)
+            )
+            closure_orders = typed_values(closure, ("order_ids",), ("order_id",))
+            if closure_coupons:
+                coupon_ids.update(closure_coupons)
+            else:
+                order_ids.update(closure_orders)
+    return _SettlementCouponSelectors(
+        direct_coupon_ids=tuple(sorted(coupon_ids)),
+        order_ids=tuple(sorted(order_ids)),
+        verify_ids=tuple(sorted(verify_ids)),
+        poi_ids=tuple(sorted(poi_ids)),
+        store_ids=tuple(sorted(store_ids)),
+    )
+
+
+def _read_settlement_coupon_page(
+    session_factory: Any,
+    selectors: _SettlementCouponSelectors,
+    *,
+    after_coupon_id: str | None,
+    limit: int,
+) -> list[str]:
+    session = session_factory()
+    try:
+        session.begin()
+        predicates = []
+        if selectors.direct_coupon_ids:
+            predicates.append(
+                RawDouyinOrderCoupon.coupon_id.in_(selectors.direct_coupon_ids)
+            )
+        if selectors.order_ids:
+            predicates.append(RawDouyinOrderCoupon.order_id.in_(selectors.order_ids))
+        if selectors.verify_ids:
+            predicates.append(
+                RawDouyinOrderCoupon.coupon_id.in_(
+                    select(RawDouyinVerifyRecord.coupon_id).where(
+                        RawDouyinVerifyRecord.verify_id.in_(selectors.verify_ids),
+                        RawDouyinVerifyRecord.coupon_id.is_not(None),
+                    )
+                )
+            )
+        if selectors.poi_ids:
+            predicates.append(
+                RawDouyinOrderCoupon.coupon_id.in_(
+                    select(RawDouyinVerifyRecord.coupon_id).where(
+                        RawDouyinVerifyRecord.poi_id.in_(selectors.poi_ids),
+                        RawDouyinVerifyRecord.coupon_id.is_not(None),
+                    )
+                )
+            )
+            predicates.append(
+                RawDouyinOrderCoupon.order_id.in_(
+                    select(RawDouyinOrder.order_id).where(
+                        RawDouyinOrder.intention_poi_id.in_(selectors.poi_ids)
+                    )
+                )
+            )
+        if selectors.store_ids:
+            mapping_pois = select(DimStorePoiMapping.poi_id).where(
+                DimStorePoiMapping.store_id.in_(selectors.store_ids)
+            )
+            predicates.append(
+                RawDouyinOrderCoupon.coupon_id.in_(
+                    select(RawDouyinVerifyRecord.coupon_id).where(
+                        RawDouyinVerifyRecord.poi_id.in_(mapping_pois),
+                        RawDouyinVerifyRecord.coupon_id.is_not(None),
+                    )
+                )
+            )
+            predicates.append(
+                RawDouyinOrderCoupon.order_id.in_(
+                    select(RawDouyinOrder.order_id).where(
+                        RawDouyinOrder.intention_poi_id.in_(mapping_pois)
+                    )
+                )
+            )
+        if not predicates:
+            return []
+        statement = select(RawDouyinOrderCoupon.coupon_id).where(or_(*predicates))
+        if after_coupon_id is not None:
+            statement = statement.where(RawDouyinOrderCoupon.coupon_id > after_coupon_id)
+        statement = statement.order_by(RawDouyinOrderCoupon.coupon_id).limit(limit)
+        return [str(value) for value in session.scalars(statement)]
+    finally:
+        try:
+            session.rollback()
+        finally:
+            session.close()
+
+
+def _settle_coupon_batch(
+    session_factory: Any,
+    *,
+    coupon_ids: list[str],
+    source_run_id: str,
+    page_fence: Any,
+) -> dict[str, Any] | None:
+    session = session_factory()
+    batch_totals = {
+        "detail_count": 0,
+        "result_count": 0,
+        "adjustment_count": 0,
+        "affected_months": set(),
+        "affected_store_ids": set(),
+    }
+    try:
+        session.begin()
+        for coupon_id in coupon_ids:
+            result = settle_coupon_local(session, coupon_id, source_run_id)
+            batch_totals["detail_count"] += int(result.get("detail_count", 0) or 0)
+            batch_totals["result_count"] += int(result.get("result_count", 0) or 0)
+            batch_totals["adjustment_count"] += int(result.get("adjustment_count", 0) or 0)
+            batch_totals["affected_months"].update(
+                str(value)
+                for value in result.get("affected_months", []) or []
+                if value not in (None, "")
+            )
+            batch_totals["affected_store_ids"].update(
+                str(value)
+                for value in result.get("affected_store_ids", []) or []
+                if value not in (None, "")
+            )
+        if page_fence is not None and not bool(page_fence(session)):
+            session.rollback()
+            return None
+        session.commit()
+        return {
+            "detail_count": int(batch_totals["detail_count"]),
+            "result_count": int(batch_totals["result_count"]),
+            "adjustment_count": int(batch_totals["adjustment_count"]),
+            "affected_months": sorted(batch_totals["affected_months"]),
+            "affected_store_ids": sorted(batch_totals["affected_store_ids"]),
+        }
+    except BaseException:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _settlement_fence_only(session_factory: Any, page_fence: Any) -> bool:
+    session = session_factory()
+    try:
+        session.begin()
+        if page_fence is not None and not bool(page_fence(session)):
+            session.rollback()
+            return False
+        session.commit()
+        return True
+    except BaseException:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+
+def _capture_local_coupon_state(session: Session, coupon_id: str) -> dict[str, Any]:
+    detail = session.scalar(
+        select(SettlementOrderDetail).where(
+            SettlementOrderDetail.coupon_id == coupon_id
+        )
+    )
+    current = list(
+        session.scalars(
+            select(SettlementFeeResultCurrent)
+            .where(SettlementFeeResultCurrent.coupon_id == coupon_id)
+            .order_by(SettlementFeeResultCurrent.fee_direction)
+        )
+    )
+    results = list(
+        session.scalars(
+            select(SettlementFeeResult)
+            .where(SettlementFeeResult.coupon_id == coupon_id)
+            .order_by(SettlementFeeResult.fee_direction, SettlementFeeResult.result_version)
+        )
+    )
+    adjustments = list(
+        session.scalars(
+            select(SettlementFeeAdjustment)
+            .where(SettlementFeeAdjustment.coupon_id == coupon_id)
+            .order_by(
+                SettlementFeeAdjustment.occurred_at,
+                SettlementFeeAdjustment.adjustment_id,
+            )
+        )
+    )
+    return {
+        "detail": detail,
+        "current": current,
+        "results": results,
+        "adjustments": adjustments,
+    }
+
+
+def _collect_local_affected_checkpoint(
+    state: dict[str, Any], months: set[str], stores: set[str]
+) -> None:
+    detail = state.get("detail")
+    if detail is not None:
+        for value in (detail.sale_time, detail.verify_time):
+            month = _month(value)
+            if month:
+                months.add(month)
+            month = _local_business_month(value)
+            if month:
+                months.add(month)
+        for value in (detail.sale_store_id, detail.verify_store_id):
+            if value:
+                stores.add(str(value))
+    results = state.get("results", [])
+    for result in results:
+        if result.original_business_month:
+            months.add(str(result.original_business_month))
+        for value in (result.sale_store_id, result.verify_store_id):
+            if value:
+                stores.add(str(value))
+    for adjustment in state.get("adjustments", []):
+        for value in (
+            adjustment.original_business_month,
+            adjustment.adjustment_posting_month,
+        ):
+            if value:
+                months.add(str(value))
+        original = next(
+            (
+                result
+                for result in results
+                if result.fee_result_id == adjustment.original_fee_result_id
+            ),
+            None,
+        )
+        if original is not None:
+            store_id = (
+                original.sale_store_id
+                if adjustment.fee_direction == PROMOTION_FEE
+                else original.verify_store_id
+            )
+            if store_id:
+                stores.add(str(store_id))
+
+
+def _is_invalid_or_closed_coupon(
+    coupon: RawDouyinOrderCoupon, order: RawDouyinOrder | None
+) -> bool:
+    status = _normalized(coupon.coupon_status_normalized or coupon.coupon_status)
+    return status in {
+        "invalid",
+        "closed",
+        "cancelled",
+        "canceled",
+        "void",
+        "unavailable",
+    } or (order is not None and _dual_order_status(order) == "closed")
+
+
+def _local_coupon_settlement_locked(
+    session: Session, state: dict[str, Any]
+) -> bool:
+    results = {
+        result.fee_result_id: result for result in state.get("results", [])
+    }
+    for current in state.get("current", []):
+        result = results.get(current.fee_result_id)
+        if result is None:
+            continue
+        store_id = (
+            result.sale_store_id
+            if current.fee_direction == PROMOTION_FEE
+            else result.verify_store_id
+        )
+        if store_id and _is_fee_result_locked(
+            session,
+            store_id=store_id,
+            month=result.original_business_month,
+            current_fee_result_id=current.fee_result_id,
+        ):
+            return True
+    detail = state.get("detail")
+    if detail is not None:
+        for store_id, value in (
+            (detail.sale_store_id, detail.sale_time),
+            (detail.verify_store_id, detail.verify_time),
+        ):
+            month = _local_business_month(value)
+            if store_id and month and _is_fee_result_locked(
+                session, store_id=str(store_id), month=month
+            ):
+                return True
+    return False
+
 
 
 def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> SettlementStats:
@@ -329,6 +2612,7 @@ def rebuild_dual_fee_results(
     *,
     calculation_run_id: str,
     force_recalculate: bool = False,
+    coupon_ids: Iterable[str] | None = None,
 ) -> DualFeeStats:
     """Materialize immutable promotion/management results and later adjustments.
 
@@ -337,14 +2621,28 @@ def rebuild_dual_fee_results(
     recalculation creates a new version and switches only an unlocked pointer.
     """
 
-    before_results = _model_count(session, SettlementFeeResult)
-    before_adjustments = _model_count(session, SettlementFeeAdjustment)
-    blocked_count = 0
-    coupons = list(
-        session.scalars(
-            select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)
+    bounded_coupon_ids: tuple[str, ...] | None = None
+    if coupon_ids is not None:
+        bounded_coupon_ids = tuple(sorted({str(value) for value in coupon_ids}))
+        if not bounded_coupon_ids:
+            return DualFeeStats(result_count=0, adjustment_count=0, blocked_count=0)
+    if bounded_coupon_ids is None:
+        before_results = _model_count(session, SettlementFeeResult)
+        before_adjustments = _model_count(session, SettlementFeeAdjustment)
+    else:
+        before_results = _scoped_model_count(
+            session, SettlementFeeResult, bounded_coupon_ids
         )
-    )
+        before_adjustments = _scoped_model_count(
+            session, SettlementFeeAdjustment, bounded_coupon_ids
+        )
+    blocked_count = 0
+    coupon_query = select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)
+    if bounded_coupon_ids is not None:
+        coupon_query = coupon_query.where(
+            RawDouyinOrderCoupon.coupon_id.in_(bounded_coupon_ids)
+        )
+    coupons = list(session.scalars(coupon_query))
     for coupon in coupons:
         # The coupon row is the stable serialization key for both fee directions.
         # PostgreSQL therefore cannot race on max(version)+1/current-pointer updates.
@@ -390,11 +2688,12 @@ def rebuild_dual_fee_results(
 
         for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
             current = _current_fee_result(session, coupon.coupon_id, direction)
-            if current is not None and not force_recalculate:
-                continue
-            if current is not None and _has_calculation_result(
+            run_result = _calculation_run_result(
                 session, coupon.coupon_id, direction, calculation_run_id
-            ):
+            )
+            if run_result is not None:
+                if current is None and run_result.result_status == ACTIVE_FEE_RESULT:
+                    _reattach_active_calculation_result(session, run_result)
                 continue
             blocked_count += int(
                 not _materialize_dual_fee_direction(
@@ -404,6 +2703,7 @@ def rebuild_dual_fee_results(
                     direction=direction,
                     calculation_run_id=calculation_run_id,
                     current=current,
+                    force_recalculate=force_recalculate,
                 )
             )
 
@@ -419,11 +2719,21 @@ def rebuild_dual_fee_results(
         )
 
     session.flush()
+    if bounded_coupon_ids is None:
+        result_count = _model_count(session, SettlementFeeResult) - before_results
+        adjustment_count = _model_count(session, SettlementFeeAdjustment) - before_adjustments
+    else:
+        result_count = (
+            _scoped_model_count(session, SettlementFeeResult, bounded_coupon_ids)
+            - before_results
+        )
+        adjustment_count = (
+            _scoped_model_count(session, SettlementFeeAdjustment, bounded_coupon_ids)
+            - before_adjustments
+        )
     return DualFeeStats(
-        result_count=_model_count(session, SettlementFeeResult) - before_results,
-        adjustment_count=(
-            _model_count(session, SettlementFeeAdjustment) - before_adjustments
-        ),
+        result_count=result_count,
+        adjustment_count=adjustment_count,
         blocked_count=blocked_count,
     )
 
@@ -436,6 +2746,7 @@ def _materialize_dual_fee_direction(
     direction: int,
     calculation_run_id: str,
     current: SettlementFeeResult | None,
+    force_recalculate: bool = False,
 ) -> bool:
     direction_name = "promotion" if direction == PROMOTION_FEE else "management"
     product = (
@@ -662,6 +2973,34 @@ def _materialize_dual_fee_direction(
     )
     fee_amount = _commission_cent(fee_base, fee_rate)
 
+    input_fingerprint = _fee_result_input_fingerprint(
+        coupon_id=coupon.coupon_id,
+        order_id=order.order_id,
+        fee_direction=direction,
+        original_business_month=business_month,
+        rule_match_date=business_date,
+        sale_store_id=sale_account.store_id,
+        verify_store_id=verify_store_id,
+        sku_id=product.sku_id,
+        product_scope=product.product_scope,
+        product_type=product.product_type,
+        sale_channel_normalized=channel,
+        source_amount_cent=source_amount,
+        refunded_amount_cent=refunded_amount,
+        fee_base_cent=fee_base,
+        fee_rate=fee_rate,
+        fee_amount_cent=fee_amount,
+        rule_version=fee_rule.rule_version,
+        scope_rule_version=scope_rule.scope_rule_version,
+        result_status=ACTIVE_FEE_RESULT,
+    )
+    if (
+        current is not None
+        and current.input_fingerprint == input_fingerprint
+        and not force_recalculate
+    ):
+        return True
+
     _lock_settlement_slot(session, responsible_store_id, business_month)
     if _is_fee_result_locked(
         session,
@@ -695,6 +3034,20 @@ def _materialize_dual_fee_direction(
     fee_result_id = _stable_business_id(
         "fee-result", coupon.coupon_id, str(direction), str(version)
     )
+    if current is None:
+        # An invalid-unlocked pass may have removed the pointer while leaving
+        # historical ACTIVE rows.  Collapse every such anomaly before the new
+        # pointer is created; the predicate also makes convergence deterministic
+        # if multiple ACTIVE rows predate this repair.
+        session.execute(
+            update(SettlementFeeResult)
+            .where(
+                SettlementFeeResult.coupon_id == coupon.coupon_id,
+                SettlementFeeResult.fee_direction == direction,
+                SettlementFeeResult.result_status == ACTIVE_FEE_RESULT,
+            )
+            .values(result_status=SUPERSEDED_FEE_RESULT)
+        )
     result = SettlementFeeResult(
         fee_result_id=fee_result_id,
         coupon_id=coupon.coupon_id,
@@ -718,6 +3071,7 @@ def _materialize_dual_fee_direction(
         scope_rule_version=scope_rule.scope_rule_version,
         result_status=ACTIVE_FEE_RESULT,
         calculation_run_id=calculation_run_id,
+        input_fingerprint=input_fingerprint,
         calculated_at=utcnow(),
     )
     session.add(result)
@@ -761,6 +3115,17 @@ def _materialize_refund_adjustments(
     for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
         original = _current_fee_result(session, coupon.coupon_id, direction)
         if original is None:
+            continue
+        if direction == MANAGEMENT_FEE and session.scalar(
+            select(SettlementFeeAdjustment.id).where(
+                SettlementFeeAdjustment.original_fee_result_id
+                == original.fee_result_id,
+                SettlementFeeAdjustment.fee_direction == MANAGEMENT_FEE,
+                SettlementFeeAdjustment.adjustment_type == 3,
+            )
+        ):
+            # Cancellation already zeroed the management fee. A later refund
+            # must not append another reduction and make the net amount negative.
             continue
         cumulative_refund = original.refunded_amount_cent
         event_refund_total = 0
@@ -931,6 +3296,38 @@ def _materialize_refund_adjustments(
             applied_fee_adjustment += adjustment_fee
 
 
+def _persist_adjustment_idempotently(
+    session: Session, adjustment: SettlementFeeAdjustment
+) -> tuple[SettlementFeeAdjustment, bool]:
+    """Insert one append-only adjustment and converge on a unique race."""
+
+    try:
+        with session.begin_nested():
+            session.add(adjustment)
+            session.flush()
+    except IntegrityError:
+        if adjustment.refund_event_id is None:
+            existing = session.scalar(
+                select(SettlementFeeAdjustment).where(
+                    SettlementFeeAdjustment.adjustment_id == adjustment.adjustment_id
+                )
+            )
+        else:
+            existing = session.scalar(
+                select(SettlementFeeAdjustment).where(
+                    SettlementFeeAdjustment.refund_event_id
+                    == adjustment.refund_event_id,
+                    SettlementFeeAdjustment.original_fee_result_id
+                    == adjustment.original_fee_result_id,
+                    SettlementFeeAdjustment.fee_direction == adjustment.fee_direction,
+                )
+            )
+        if existing is None:
+            raise
+        return existing, False
+    return adjustment, True
+
+
 def _resolved_refund_events(
     session: Session,
     *,
@@ -942,6 +3339,7 @@ def _resolved_refund_events(
         session.scalars(
             select(DouyinRefundEvent).where(
                 DouyinRefundEvent.coupon_id == coupon.coupon_id,
+                DouyinRefundEvent.order_id == coupon.order_id,
                 DouyinRefundEvent.refund_status == SUCCESSFUL_REFUND,
             )
         )
@@ -1019,7 +3417,7 @@ def _materialize_verify_cancellation_adjustment(
     adjustment_id = _stable_business_id(
         "verify-cancellation",
         cancelled.verify_id,
-        cancelled.cancel_time.isoformat(),
+        _as_utc(cancelled.cancel_time).isoformat(timespec="microseconds"),
         original.fee_result_id,
     )
     if session.scalar(
@@ -1029,7 +3427,9 @@ def _materialize_verify_cancellation_adjustment(
     ):
         return
     source_event_key = (
-        f"verify-cancellation:{cancelled.verify_id}:{cancelled.cancel_time.isoformat()}"
+        "verify-cancellation:"
+        f"{cancelled.verify_id}:"
+        f"{_as_utc(cancelled.cancel_time).isoformat(timespec='microseconds')}"
     )
     existing_source = _carryforward_source(
         session,
@@ -1137,7 +3537,6 @@ def _carryforward_source(
         )
     )
 
-
 def _effective_adjustment_totals(
     session: Session,
     *,
@@ -1183,7 +3582,6 @@ def _effective_adjustment_totals(
         sum(row.adjustment_fee_cent for row in sources)
         + sum(row.adjustment_fee_cent for row in ordinary_adjustments),
     )
-
 
 def _create_carryforward_source(
     session: Session,
@@ -1343,18 +3741,44 @@ def _current_fee_result(
     )
 
 
+def _calculation_run_result(
+    session: Session, coupon_id: str, direction: int, calculation_run_id: str
+) -> SettlementFeeResult | None:
+    return session.scalar(
+        select(SettlementFeeResult).where(
+            SettlementFeeResult.coupon_id == coupon_id,
+            SettlementFeeResult.fee_direction == direction,
+            SettlementFeeResult.calculation_run_id == calculation_run_id,
+        )
+    )
+
+
+def _reattach_active_calculation_result(
+    session: Session, result: SettlementFeeResult
+) -> None:
+    pointer = session.scalar(
+        select(SettlementFeeResultCurrent).where(
+            SettlementFeeResultCurrent.coupon_id == result.coupon_id,
+            SettlementFeeResultCurrent.fee_direction == result.fee_direction,
+        )
+    )
+    if pointer is None:
+        session.add(
+            SettlementFeeResultCurrent(
+                coupon_id=result.coupon_id,
+                fee_direction=result.fee_direction,
+                fee_result_id=result.fee_result_id,
+            )
+        )
+        session.flush()
+
+
 def _has_calculation_result(
     session: Session, coupon_id: str, direction: int, calculation_run_id: str
 ) -> bool:
-    return bool(
-        session.scalar(
-            select(SettlementFeeResult.id).where(
-                SettlementFeeResult.coupon_id == coupon_id,
-                SettlementFeeResult.fee_direction == direction,
-                SettlementFeeResult.calculation_run_id == calculation_run_id,
-            )
-        )
-    )
+    return _calculation_run_result(
+        session, coupon_id, direction, calculation_run_id
+    ) is not None
 
 
 def _next_fee_result_version(
@@ -1474,6 +3898,81 @@ def _stable_business_id(prefix: str, *parts: str) -> str:
     return f"{prefix}-{hashlib.sha256(payload.encode('utf-8')).hexdigest()[:40]}"
 
 
+def _fee_result_input_fingerprint(
+    *,
+    coupon_id: str,
+    order_id: str,
+    fee_direction: int,
+    original_business_month: str | None,
+    rule_match_date: date | None,
+    sale_store_id: str | None,
+    verify_store_id: str | None,
+    sku_id: str | None,
+    product_scope: str | None,
+    product_type: str | None,
+    sale_channel_normalized: str | None,
+    source_amount_cent: int,
+    refunded_amount_cent: int,
+    fee_base_cent: int,
+    fee_rate: Decimal,
+    fee_amount_cent: int,
+    rule_version: str | None,
+    scope_rule_version: str | None,
+    result_status: int,
+) -> str:
+    """Return a deterministic SHA-256 over business inputs and result fields."""
+
+    payload = {
+        "coupon_id": coupon_id,
+        "order_id": order_id,
+        "fee_direction": fee_direction,
+        "original_business_month": original_business_month,
+        "rule_match_date": rule_match_date,
+        "sale_store_id": sale_store_id,
+        "verify_store_id": verify_store_id,
+        "sku_id": sku_id,
+        "product_scope": product_scope,
+        "product_type": product_type,
+        "sale_channel_normalized": sale_channel_normalized,
+        "source_amount_cent": source_amount_cent,
+        "refunded_amount_cent": refunded_amount_cent,
+        "fee_base_cent": fee_base_cent,
+        "fee_rate": fee_rate,
+        "fee_amount_cent": fee_amount_cent,
+        "rule_version": rule_version,
+        "scope_rule_version": scope_rule_version,
+        "result_status": result_status,
+    }
+    normalized = {
+        key: _canonical_fingerprint_value(value)
+        for key, value in payload.items()
+    }
+    encoded = json.dumps(
+        normalized,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def _canonical_fingerprint_value(value: Any) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        normalized = value.normalize()
+        return "0" if normalized == 0 else format(normalized, "f")
+    if isinstance(value, datetime):
+        return _as_utc(value).isoformat(timespec="microseconds")
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, str)):
+        return value
+    return str(value)
+
+
 def _lock_settlement_slot(
     session: Session, store_id: str, statement_month: str
 ) -> None:
@@ -1496,6 +3995,19 @@ def _lock_settlement_slot(
 
 def _model_count(session: Session, model: type[Any]) -> int:
     return int(session.scalar(select(func.count()).select_from(model)) or 0)
+
+
+def _scoped_model_count(
+    session: Session, model: type[Any], coupon_ids: tuple[str, ...]
+) -> int:
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(model)
+            .where(model.coupon_id.in_(coupon_ids))
+        )
+        or 0
+    )
 
 
 def lock_settlement_statement(
@@ -2970,6 +5482,7 @@ def _record_issue(
         coupon_id,
         source_run_id,
         identity_suffix=identity_suffix,
+        include_source_run=not session.info.get("incremental_dqi_identity", False),
     )
     upsert_data_quality_issue(
         session,
@@ -3005,13 +5518,15 @@ def _issue_id(
     source_run_id: str,
     *,
     identity_suffix: str | None = None,
+    include_source_run: bool = True,
 ) -> str:
     identity = {
         "issue_type": issue_type,
         "order_id": order_id,
         "coupon_id": coupon_id,
-        "source_run_id": source_run_id,
     }
+    if include_source_run:
+        identity["source_run_id"] = source_run_id
     if identity_suffix is not None:
         identity["identity_suffix"] = identity_suffix
     payload = json.dumps(identity, sort_keys=True)
@@ -3035,6 +5550,12 @@ def _month(value: datetime | None) -> str | None:
     if value is None:
         return None
     return value.strftime("%Y-%m")
+
+
+def _local_business_month(value: datetime | None) -> str | None:
+    if value is None:
+        return None
+    return _business_month(value)
 
 
 def _product_groups(product_type: str | None) -> tuple[str, str]:

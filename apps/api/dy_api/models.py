@@ -1276,6 +1276,12 @@ class SettlementFeeResult(Base):
             "result_version",
             name="uk_settlement_fee_result_revision",
         ),
+        UniqueConstraint(
+            "coupon_id",
+            "fee_direction",
+            "calculation_run_id",
+            name="uk_settlement_fee_result_calculation_run",
+        ),
         CheckConstraint(
             "fee_direction IN (1, 2)", name="ck_settlement_fee_result_direction"
         ),
@@ -1339,6 +1345,7 @@ class SettlementFeeResult(Base):
     scope_rule_version: Mapped[str] = mapped_column(String(64))
     result_status: Mapped[int] = mapped_column(Integer, default=1)
     calculation_run_id: Mapped[str] = mapped_column(String(128))
+    input_fingerprint: Mapped[str | None] = mapped_column(String(64))
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         "gmt_create", DateTime(timezone=True), default=utcnow
@@ -1387,6 +1394,12 @@ class SettlementFeeAdjustment(Base):
     __table_args__ = (
         UniqueConstraint(
             "adjustment_id", name="uk_settlement_fee_adjustment_id"
+        ),
+        UniqueConstraint(
+            "refund_event_id",
+            "original_fee_result_id",
+            "fee_direction",
+            name="uk_settlement_fee_adjustment_refund_result_direction",
         ),
         CheckConstraint(
             "fee_direction IN (1, 2)",

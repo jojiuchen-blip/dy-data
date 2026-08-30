@@ -381,6 +381,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert {
         ("fee_result_id",),
         ("coupon_id", "fee_direction", "result_version"),
+        ("coupon_id", "fee_direction", "calculation_run_id"),
     }.issubset(
         {
             tuple(constraint.columns.keys())
@@ -406,6 +407,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
         "scope_rule_version",
         "result_status",
         "calculation_run_id",
+        "input_fingerprint",
         "calculated_at",
     }.issubset(fee_result.columns.keys())
 
@@ -423,6 +425,16 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
 
     adjustment = tables["settlement_fee_adjustment"]
     assert [column.name for column in adjustment.primary_key] == ["id"]
+    assert {
+        ("adjustment_id",),
+        ("refund_event_id", "original_fee_result_id", "fee_direction"),
+    }.issubset(
+        {
+            tuple(constraint.columns.keys())
+            for constraint in adjustment.constraints
+            if constraint.__class__.__name__ == "UniqueConstraint"
+        }
+    )
     assert {
         "adjustment_id",
         "original_fee_result_id",
