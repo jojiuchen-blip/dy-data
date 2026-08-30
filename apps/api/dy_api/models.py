@@ -2815,6 +2815,509 @@ class AggStoreMonthlySettlement(Base):
     )
 
 
+class SettlementProjectionGeneration(Base):
+    """Durable lineage and resource metadata for one sparse projection build."""
+
+    __tablename__ = "settlement_projection_generation"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_generation_base",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["compaction_base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_generation_compaction_base",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_job_id"],
+            ["job_runs.job_id"],
+            name="fk_settlement_projection_generation_source_job",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "input_fingerprint",
+            name="uq_settlement_projection_generation_input_fingerprint",
+        ),
+        CheckConstraint(
+            "projection_name = 'settlement'",
+            name="ck_settlement_projection_generation_projection_name",
+        ),
+        CheckConstraint(
+            "state IN ('staging', 'ready', 'published', 'failed', 'superseded')",
+            name="ck_settlement_projection_generation_state",
+        ),
+        CheckConstraint(
+            "lineage_depth >= 0",
+            name="ck_settlement_projection_generation_lineage_depth",
+        ),
+        CheckConstraint(
+            "estimated_write_rows >= 0 AND estimated_write_bytes >= 0 "
+            "AND estimated_wal_bytes >= 0 AND estimated_disk_headroom_bytes >= 0",
+            name="ck_settlement_projection_generation_resources",
+        ),
+        CheckConstraint(
+            "base_generation_id IS NULL OR base_generation_id <> generation_id",
+            name="ck_settlement_projection_generation_self_reference",
+        ),
+        CheckConstraint(
+            "generation_kind IN ('lineage', 'legacy_root', 'compact')",
+            name="ck_settlement_projection_generation_kind",
+        ),
+        CheckConstraint(
+            "(generation_kind = 'lineage' AND compaction_base_generation_id IS NULL) OR "
+            "(generation_kind = 'legacy_root' AND base_generation_id IS NULL "
+            "AND lineage_depth = 0 AND compaction_base_generation_id IS NULL) OR "
+            "(generation_kind = 'compact' AND base_generation_id IS NULL "
+            "AND lineage_depth = 0 AND compaction_base_generation_id IS NOT NULL)",
+            name="ck_settlement_projection_generation_kind_base_depth",
+        ),
+        CheckConstraint(
+            "compaction_base_generation_id IS NULL "
+            "OR compaction_base_generation_id <> generation_id",
+            name="ck_settlement_projection_generation_compaction_self_reference",
+        ),
+        Index(
+            "ix_settlement_projection_generation_state",
+            "projection_name",
+            "state",
+            "created_at",
+        ),
+        Index(
+            "ix_settlement_projection_generation_input",
+            "projection_name",
+            "input_fingerprint",
+        ),
+        Index(
+            "ix_settlement_projection_generation_base",
+            "base_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_generation_compaction_base",
+            "compaction_base_generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    generation_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="lineage", server_default="lineage"
+    )
+    compaction_base_generation_id: Mapped[str | None] = mapped_column(Text)
+    projection_name: Mapped[str] = mapped_column(String(64), default="settlement")
+    state: Mapped[str] = mapped_column(String(32), default="staging")
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    lineage_depth: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_write_rows: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_write_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_wal_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_disk_headroom_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    checkpoint_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    last_key: Mapped[str | None] = mapped_column(Text)
+    manifest_checksum: Mapped[str | None] = mapped_column(String(64))
+    source_job_id: Mapped[str | None] = mapped_column(Text)
+    source_input_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class SettlementProjectionCompactionClosure(Base):
+    """Immutable provenance membership for one depth-zero compact generation."""
+
+    __tablename__ = "settlement_projection_compaction_closure"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["compact_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_compaction_closure_compact",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_compaction_closure_source",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "compact_generation_id <> source_generation_id",
+            name="ck_settlement_projection_compaction_closure_distinct",
+        ),
+        CheckConstraint(
+            "length(source_digest) = 64 AND source_digest = lower(source_digest) AND "
+            "replace(replace(replace(replace(replace(replace(replace(replace("
+            "replace(replace(replace(replace(replace(replace(replace(replace("
+            "source_digest, '0', ''), '1', ''), '2', ''), '3', ''), '4', ''), "
+            "'5', ''), '6', ''), '7', ''), '8', ''), '9', ''), 'a', ''), "
+            "'b', ''), 'c', ''), 'd', ''), 'e', ''), 'f', '') = ''",
+            name="ck_settlement_projection_compaction_closure_digest",
+        ),
+        Index(
+            "ix_settlement_projection_compaction_closure_source",
+            "source_generation_id",
+        ),
+    )
+
+    compact_generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SettlementProjectionActive(Base):
+    """The nullable pointer published only after a generation is certified."""
+
+    __tablename__ = "settlement_projection_active"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_active_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("generation_id", name="uq_settlement_projection_active_generation"),
+        CheckConstraint(
+            "projection_name = 'settlement'",
+            name="ck_settlement_projection_active_projection_name",
+        ),
+    )
+
+    projection_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    generation_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SettlementProjectionPartitionManifest(Base):
+    """Ownership and source metadata for each sparse artifact partition."""
+
+    __tablename__ = "settlement_projection_partition_manifest"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["data_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_data_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["reference_head_generation_id", "data_generation_id"],
+            [
+                "settlement_projection_compaction_closure.compact_generation_id",
+                "settlement_projection_compaction_closure.source_generation_id",
+            ],
+            name="fk_settlement_projection_manifest_compaction_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_base_generation",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "artifact IN ('monthly', 'ranking', 'score')",
+            name="ck_settlement_projection_manifest_artifact",
+        ),
+        CheckConstraint(
+            "owner_state IN ('owned', 'tombstone')",
+            name="ck_settlement_projection_manifest_owner_state",
+        ),
+        CheckConstraint(
+            "source_kind IN ('overlay', 'legacy_root', 'tombstone')",
+            name="ck_settlement_projection_manifest_source_kind",
+        ),
+        CheckConstraint(
+            "row_count >= 0",
+            name="ck_settlement_projection_manifest_non_negative_counts",
+        ),
+        CheckConstraint(
+            "(owner_state = 'owned' AND source_kind = 'overlay' "
+            "AND data_generation_id IS NOT NULL) OR "
+            "(owner_state = 'owned' AND source_kind = 'legacy_root' "
+            "AND data_generation_id IS NULL) OR "
+            "(owner_state = 'tombstone' AND source_kind = 'tombstone' "
+            "AND data_generation_id IS NULL AND row_count = 0)",
+            name="ck_settlement_projection_manifest_source_invariants",
+        ),
+        CheckConstraint(
+            "reference_head_generation_id IS NULL OR "
+            "(reference_head_generation_id = generation_id AND owner_state='owned' "
+            "AND source_kind='overlay' AND data_generation_id IS NOT NULL)",
+            name="ck_settlement_projection_manifest_reference_head",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_state",
+            "artifact",
+            "owner_state",
+            "source_kind",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_data_generation",
+            "data_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_base_generation",
+            "base_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_reference_source",
+            "reference_head_generation_id",
+            "data_generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    artifact: Mapped[str] = mapped_column(String(32), primary_key=True)
+    partition_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    owner_state: Mapped[str] = mapped_column(String(32), default="owned")
+    source_kind: Mapped[str] = mapped_column(String(32), default="overlay")
+    data_generation_id: Mapped[str | None] = mapped_column(Text)
+    reference_head_generation_id: Mapped[str | None] = mapped_column(Text)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    row_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    amount_total_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    status_counts_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    last_key: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SettlementMonthlyOverlay(Base):
+    """Generation-scoped monthly settlement rows; legacy aggregate stays untouched."""
+
+    __tablename__ = "settlement_monthly_overlay"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_monthly_overlay_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_monthly_overlay_base_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "month",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uq_settlement_monthly_overlay_natural_key",
+        ),
+        CheckConstraint(
+            "statement_status IN (1, 2, 3, 4)",
+            name="ck_settlement_monthly_overlay_status",
+        ),
+        CheckConstraint(
+            "partition_key = month",
+            name="ck_settlement_monthly_overlay_partition",
+        ),
+        Index(
+            "ix_settlement_monthly_overlay_generation_partition",
+            "generation_id",
+            "partition_key",
+        ),
+        Index(
+            "ix_settlement_monthly_overlay_store_month",
+            "store_id",
+            "month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    generation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    product_scope: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    product_type: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(7), nullable=False)
+    sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    statement_status: Mapped[int] = mapped_column(Integer, default=1)
+    projection_run_id: Mapped[str] = mapped_column(String(128), default="")
+    estimated_receivable_commission_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    commissionable_total_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_payable_commission_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    tombstone: Mapped[bool] = mapped_column(Boolean, default=False)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SettlementRankingOverlay(Base):
+    """Generation-scoped monthly/cumulative ranking rows."""
+
+    __tablename__ = "settlement_ranking_overlay"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_ranking_overlay_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_ranking_overlay_base_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "period_type",
+            "period_key",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uq_settlement_ranking_overlay_natural_key",
+        ),
+        CheckConstraint(
+            "period_type IN (1, 2)",
+            name="ck_settlement_ranking_overlay_period_type",
+        ),
+        CheckConstraint(
+            "net_settlement_reference_cent = promotion_net_fee_cent - "
+            "management_net_fee_cent",
+            name="ck_settlement_ranking_overlay_net_reference",
+        ),
+        CheckConstraint(
+            "(period_type = 1 AND partition_key = 'monthly:' || period_key "
+            "AND month = period_key) OR "
+            "(period_type = 2 AND partition_key = 'cumulative:' || period_key "
+            "AND month = period_key)",
+            name="ck_settlement_ranking_overlay_partition",
+        ),
+        Index(
+            "ix_settlement_ranking_overlay_generation_partition",
+            "generation_id",
+            "period_type",
+            "period_key",
+        ),
+        Index(
+            "ix_settlement_ranking_overlay_store_period",
+            "store_id",
+            "period_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    generation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    period_type: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    period_key: Mapped[str] = mapped_column(String(7), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_name: Mapped[str] = mapped_column(String(255), default="")
+    product_scope: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    product_type: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_settlement_reference_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    projection_run_id: Mapped[str] = mapped_column(String(128), default="")
+    month: Mapped[str] = mapped_column(String(7), default="")
+    self_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    self_sold_other_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    other_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    self_verify_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    effective_commission_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    tombstone: Mapped[bool] = mapped_column(Boolean, default=False)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StoreScoreSnapshotGeneration(Base):
+    """Generation sidecar for existing score rows; it never fabricates a row."""
+
+    __tablename__ = "store_score_snapshot_generation"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_store_score_snapshot_generation_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["rule_version_id"],
+            ["clue_allocation_rule_versions.rule_version_id"],
+            name="fk_store_score_snapshot_generation_rule_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_run_id", "store_id"],
+            ["store_score_snapshots.snapshot_run_id", "store_score_snapshots.store_id"],
+            name="fk_store_score_snapshot_generation_snapshot_store",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "snapshot_date",
+            "rule_version_id",
+            "store_id",
+            name="uq_store_score_snapshot_generation_partition",
+        ),
+        CheckConstraint(
+            "owner_state = 'owned'",
+            name="ck_store_score_snapshot_generation_owner_state",
+        ),
+        Index(
+            "ix_store_score_snapshot_generation_partition",
+            "snapshot_date",
+            "rule_version_id",
+            "store_id",
+        ),
+        Index(
+            "ix_store_score_snapshot_generation_generation",
+            "generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    store_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_version_id: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    owner_state: Mapped[str] = mapped_column(String(32), default="owned")
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+
 @event.listens_for(AggStoreRanking, "before_insert")
 def _fill_legacy_ranking_projection_fields(
     _mapper: Any, _connection: Any, target: AggStoreRanking
