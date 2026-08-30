@@ -18,6 +18,13 @@ from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.models import ComponentHeartbeat, JobAttempt, JobRun, JobStageRun
+from apps.ops_agent.resources import (
+    ResourceAction,
+    ResourceDecision,
+    ResourceThresholds,
+    collect_resource_snapshot,
+    evaluate_resource_guard,
+)
 from apps.worker import repositories
 from apps.worker.pipeline import sanitize_error_message
 from apps.worker.task_control import (
@@ -81,6 +88,24 @@ MIN_LEASE_SECONDS = 1
 MAX_LEASE_SECONDS = 3600
 
 
+def _truthy(value: str | None) -> bool:
+    return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def worker_resource_decision() -> ResourceDecision:
+    """Evaluate the benchmark-tuned guard before claiming a heavy child."""
+
+    if not _truthy(os.getenv("WORKER_RESOURCE_GUARD_ENABLED")):
+        return ResourceDecision(ResourceAction.ALLOW, ())
+    try:
+        snapshot = collect_resource_snapshot(os.getpid())
+        return evaluate_resource_guard(snapshot, ResourceThresholds.from_env())
+    except Exception:
+        # A malformed threshold or unreadable sampler must not start another
+        # memory-heavy child with an unknown safety posture.
+        return ResourceDecision(ResourceAction.STOP, ("resource_guard_configuration_invalid",))
+
+
 class SubprocessSupervisor:
     """Run at most one ``heavy_sync`` child and persist each attempt outcome."""
 
@@ -134,6 +159,17 @@ class SubprocessSupervisor:
             raise ValueError("command is required")
         if max_attempts <= 0 or max_attempts > 3:
             raise ValueError("max_attempts must be between 1 and 3")
+
+        resource_decision = worker_resource_decision()
+        if resource_decision.action is not ResourceAction.ALLOW:
+            reasons = ",".join(resource_decision.reasons) or "resource_guard_blocked"
+            return ChildRunResult(
+                job_id=job_id or "",
+                status=ChildRunStatus.CONTROL_ERROR,
+                attempts=0,
+                error_summary=f"worker resource guard blocked child claim: {reasons}",
+                termination_reason=ChildTerminationReason.RSS_GUARD,
+            )
 
         if not self._heavy_child_lock.acquire(blocking=False):
             return ChildRunResult(

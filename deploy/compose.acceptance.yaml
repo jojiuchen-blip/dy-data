@@ -1,0 +1,20 @@
+# Local acceptance overlay. The host contract is an 8GB-class machine with
+# 4 CPUs (7.4-8.5 GiB Linux-visible memory); service limits remain lower and
+# must be tuned from the recorded benchmark evidence.
+x-acceptance-host:
+  cpus: 4
+  mem_limit: 8g
+
+services:
+  api:
+    cpus: ${ACCEPTANCE_API_CPUS:-0.75}
+    mem_limit: ${ACCEPTANCE_API_MEMORY_LIMIT:-768m}
+  worker:
+    cpus: ${ACCEPTANCE_WORKER_CPUS:-2.0}
+    mem_limit: ${ACCEPTANCE_WORKER_MEMORY_LIMIT:-3g}
+  browser:
+    cpus: ${ACCEPTANCE_BROWSER_CPUS:-1.0}
+    mem_limit: ${ACCEPTANCE_BROWSER_MEMORY_LIMIT:-2g}
+  ops-agent:
+    cpus: ${ACCEPTANCE_OPS_AGENT_CPUS:-0.25}
+    mem_limit: ${ACCEPTANCE_OPS_AGENT_MEMORY_LIMIT:-256m}

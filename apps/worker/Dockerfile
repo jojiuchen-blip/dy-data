@@ -32,6 +32,7 @@ COPY scripts ./scripts
 COPY alembic.ini ./alembic.ini
 COPY alembic ./alembic
 COPY apps/api ./apps/api
+COPY apps/ops_agent ./apps/ops_agent
 COPY apps/worker ./apps/worker
 
 CMD ["python", "-m", "apps.worker.scheduler"]

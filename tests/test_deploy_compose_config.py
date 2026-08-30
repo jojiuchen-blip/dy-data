@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _compose_service(compose: str, name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [a-z0-9_-]+:\n|^networks:\n|\Z)",
+        compose,
+    )
+    assert match is not None, f"compose service {name!r} is missing"
+    return match.group(0)
 
 
 def test_nginx_compresses_text_responses_without_caching_private_api_data():
@@ -24,8 +34,9 @@ def test_compose_wires_worker_collection_defaults():
 
     assert "${WORKER_COMMAND:-python -m apps.worker.scheduler}" in compose
     assert "WORKER_MODE: ${WORKER_MODE:-collect_and_settle}" in compose
-    assert "mem_limit: ${WORKER_MEMORY_LIMIT:-5g}" in compose
-    assert "memswap_limit: ${WORKER_MEMORY_SWAP_LIMIT:-7g}" in compose
+    assert "command: [\"sh\", \"-c\", \"exec ${WORKER_COMMAND:-python -m apps.worker.scheduler}\"]" in compose
+    assert "mem_limit: ${WORKER_MEMORY_LIMIT:-3g}" in compose
+    assert "memswap_limit:" not in compose
     assert "DOUYIN_COLLECT_START: ${DOUYIN_COLLECT_START:-2026-01-01}" in compose
     assert "DOUYIN_COLLECT_OVERLAP_DAYS: ${DOUYIN_COLLECT_OVERLAP_DAYS:-7}" in compose
     assert "DOUYIN_VERIFY_CHUNK_DAYS: ${DOUYIN_VERIFY_CHUNK_DAYS:-7}" in compose
@@ -280,3 +291,68 @@ def test_tencent_deploy_blocks_unresolved_statement_snapshot_migration_exception
     assert 'if [ "$unresolved_snapshot_exceptions" -ne 0 ]' in deploy_script
     assert "snapshot exception gate returned an invalid count" in deploy_script
     assert "deployment blocked by unresolved statement snapshot migration exceptions" in deploy_script
+
+
+def test_ops_agent_isolated_socket_holder_has_fixed_restart_allowlist():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    ops_agent = _compose_service(compose, "ops-agent")
+    api = _compose_service(compose, "api")
+
+    assert "dockerfile: apps/ops_agent/Dockerfile" in ops_agent
+    assert "/var/run/docker.sock:/var/run/docker.sock" in ops_agent
+    assert "ports:" not in ops_agent
+    assert "expose:" not in ops_agent
+    assert "OPS_AGENT_ALLOWED_TARGETS: worker,browser" in ops_agent
+    assert "OPS_AGENT_ALLOWED_ACTIONS: restart" in ops_agent
+    assert "OPS_AGENT_COMMAND_TTL_SECONDS: 120" in ops_agent
+    assert "OPS_AGENT_COOLDOWN_SECONDS: 300" in ops_agent
+    assert "docker.sock" not in api
+
+
+def test_ops_components_have_health_resource_and_log_guardrails():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+
+    expected_limits = {
+        "api": "mem_limit: ${API_MEMORY_LIMIT:-768m}",
+        "worker": "mem_limit: ${WORKER_MEMORY_LIMIT:-3g}",
+        "browser": "mem_limit: ${BROWSER_MEMORY_LIMIT:-2g}",
+        "ops-agent": "mem_limit: ${OPS_AGENT_MEMORY_LIMIT:-256m}",
+    }
+    for service, memory_limit in expected_limits.items():
+        block = _compose_service(compose, service)
+        assert memory_limit in block
+        assert "no-new-privileges:true" in block
+        assert "healthcheck:" in block
+        assert "driver: json-file" in block
+        assert "max-size: ${LOG_MAX_SIZE:-10m}" in block
+        assert 'max-file: "${LOG_MAX_FILE:-3}"' in block
+
+    worker = _compose_service(compose, "worker")
+    assert "dockerfile: apps/worker/Dockerfile" in worker
+    assert "WORKER_RESOURCE_GUARD_ENABLED: ${WORKER_RESOURCE_GUARD_ENABLED:-true}" in worker
+    assert "WORKER_RESOURCE_MAX_SWAP_USED_BYTES: ${WORKER_RESOURCE_MAX_SWAP_USED_BYTES:-0}" in worker
+    assert "stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-5m}" in worker
+
+
+def test_browser_activity_marker_and_acceptance_overlay_are_wired():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    browser = _compose_service(compose, "browser")
+    ops_agent = _compose_service(compose, "ops-agent")
+    acceptance = (ROOT / "deploy" / "compose.acceptance.yaml").read_text(encoding="utf-8")
+    env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
+
+    assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in browser
+    assert "browser-runtime:/run/browser" in browser
+    assert "browser-runtime:/run/browser:ro" in ops_agent
+    assert "x-acceptance-host:" in acceptance
+    assert "mem_limit: 8g" in acceptance
+    assert "cpus: ${ACCEPTANCE_WORKER_CPUS:-2.0}" in acceptance
+    assert "cpus: ${ACCEPTANCE_OPS_AGENT_CPUS:-0.25}" in acceptance
+    assert "OPS_AGENT_DATABASE_URL=postgresql+psycopg://dy_ops_agent:" in env_example
+    assert "WORKER_MEMORY_SWAP_LIMIT" not in env_example
+    assert "production values require the 4C/8GB acceptance run" in env_example
+
+
+def test_worker_image_contains_ops_agent_code():
+    dockerfile = (ROOT / "apps" / "worker" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY apps/ops_agent ./apps/ops_agent" in dockerfile
