@@ -478,7 +478,7 @@ export class ClueDemoRepository {
     const operation = payload.operation ?? "trial";
     let sourceCycleId: string | null = null;
     let requestedLeadKeys: string[];
-    if (operation === "rebuild") {
+    if (operation === "trial_rebuild") {
       sourceCycleId = payload.source_cycle_id ?? null;
       const sourceCycle = this.state.cycles.find(
         (cycle) => cycle.allocation_cycle_id === sourceCycleId,
@@ -540,7 +540,7 @@ export class ClueDemoRepository {
   runTrial(
     payload: ClueAllocationCycleRequest,
   ): ApiResponse<ClueAllocationCycleExecution> {
-    if (!payload.confirm) {
+    if (payload.confirmation_text !== "确认试运行") {
       throw new ClueDemoRepositoryError(422, "试运行需要明确确认");
     }
     const preview = this.requirePreviewToken(
@@ -560,7 +560,10 @@ export class ClueDemoRepository {
   rebuildTrial(
     payload: ClueAllocationCycleRebuildRequest,
   ): ApiResponse<ClueAllocationCycleExecution> {
-    if (!payload.confirm || !payload.privileged_confirmation) {
+    if (
+      payload.confirmation_text !== "确认重建试运行" ||
+      !payload.privileged_confirmation
+    ) {
       throw new ClueDemoRepositoryError(422, "重建需要最高管理员二次确认");
     }
     if (
@@ -572,7 +575,7 @@ export class ClueDemoRepository {
     }
     const preview = this.requirePreviewToken(
       payload.preview_token,
-      "rebuild",
+      "trial_rebuild",
       undefined,
       payload.source_cycle_id,
     );
@@ -777,7 +780,7 @@ export class ClueDemoRepository {
 
   private requirePreviewToken(
     tokenValue: string | undefined,
-    operation: "trial" | "rebuild",
+    operation: "trial" | "trial_rebuild",
     leadKeys: string[] | undefined,
     sourceCycleId: string | null,
   ): ClueDemoPreviewToken {

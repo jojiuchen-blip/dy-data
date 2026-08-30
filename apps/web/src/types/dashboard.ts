@@ -1303,12 +1303,12 @@ export interface ClueAllocationAuditLogData {
 export interface ClueAllocationCycleRequest {
   lead_keys: string[];
   preview_token?: string;
-  confirm?: boolean;
+  confirmation_text: string;
   privileged_confirmation?: boolean;
 }
 
 export interface ClueAllocationCyclePreviewRequest {
-  operation?: "trial" | "rebuild";
+  operation?: "trial" | "trial_rebuild";
   lead_keys?: string[];
   source_cycle_id?: string;
   privileged_confirmation?: boolean;
@@ -1317,7 +1317,7 @@ export interface ClueAllocationCyclePreviewRequest {
 export interface ClueAllocationCycleRebuildRequest {
   source_cycle_id: string;
   preview_token: string;
-  confirm?: boolean;
+  confirmation_text: string;
   privileged_confirmation?: boolean;
 }
 
@@ -1326,7 +1326,7 @@ export interface ClueAllocationCyclePreview {
   active_lead_count: number;
   lead_keys: string[];
   summary: Record<string, number>;
-  operation: string;
+  operation: "trial" | "trial_rebuild";
   source_cycle_id: string | null;
   preview_token: string;
   preview_expires_at: string;
@@ -1479,13 +1479,6 @@ export interface StoreScoreSnapshotData {
   run: StoreScoreSnapshotRun | null;
   rows: StoreScoreSnapshot[];
   pagination: Pagination;
-}
-
-export interface ClueCenterMaterializationResult {
-  job_id?: string | null;
-  status?: "queued" | "running" | "success" | "failed";
-  rebuilt_order_count?: number | null;
-  rebuilt_round_count?: number | null;
 }
 
 export interface ProductTypeVisibilityData {

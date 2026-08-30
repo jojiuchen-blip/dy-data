@@ -29,7 +29,7 @@ export interface ClueDemoRuleBundle {
 
 export interface ClueDemoPreviewToken {
   token: string;
-  operation: "trial" | "rebuild";
+  operation: "trial" | "trial_rebuild";
   leadKeys: string[];
   sourceCycleId: string | null;
   expiresAt: string;

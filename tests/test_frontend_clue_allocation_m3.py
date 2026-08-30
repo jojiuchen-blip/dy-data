@@ -30,14 +30,17 @@ def test_m3_allocation_control_uses_preview_then_confirmed_execution() -> None:
     page_source = _read("pages/AdminClueAllocationPage.tsx")
     client_source = _read("api/client.ts")
     type_source = _read("types/dashboard.ts")
+    demo_source = _read("demo/clueDemoRepository.ts")
 
     assert "fetchClueAllocationEligibleLeads" in page_source
     assert "fetchClueHeadquartersPool" in page_source
     assert "previewClueAllocationCycle" in page_source
     assert "runClueAllocationTrial" in page_source
     assert "rebuildClueAllocationTrial" in page_source
-    assert 'confirm: true' in page_source
-    assert "window.confirm" in page_source
+    assert 'confirmation_text: "确认试运行"' in page_source
+    assert 'confirmation_text: "确认重建试运行"' in page_source
+    assert "ConfirmDialog" in page_source
+    assert "window.confirm" not in page_source
     assert "允许覆盖已有跟进记录" in page_source
     assert "preview_token" in page_source
     assert "source_cycle_id" in page_source
@@ -46,11 +49,21 @@ def test_m3_allocation_control_uses_preview_then_confirmed_execution() -> None:
     for endpoint in [
         "/admin/clue-allocation/eligible-leads",
         "/admin/clue-allocation/headquarters-pool",
+        "/admin/clue-allocation/cycle-previews",
+        "/admin/clue-allocation/trial-cycles",
+        "/admin/clue-allocation/rebuild-cycles",
+    ]:
+        assert endpoint in client_source
+    for legacy_endpoint in [
         "/admin/clue-allocation/cycles/preview",
         "/admin/clue-allocation/cycles/trial",
         "/admin/clue-allocation/cycles/rebuild",
     ]:
-        assert endpoint in client_source
+        assert legacy_endpoint not in client_source
+    assert 'handlePreview("trial_rebuild")' in page_source
+    assert 'operation?: "trial" | "trial_rebuild"' in type_source
+    assert 'payload.confirmation_text !== "确认试运行"' in demo_source
+    assert 'payload.confirmation_text !== "确认重建试运行"' in demo_source
     assert "usingMock: false" in client_source
     assert "export interface ClueAllocationCycleRequest" in type_source
     assert "export interface ClueHeadquartersPoolEntry" in type_source

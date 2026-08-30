@@ -4,7 +4,6 @@ import {
   fetchAdminSession,
   fetchSyncAdmin,
   loginAdmin,
-  rebuildClueCenterMaterialization,
   runManualSync,
   saveSyncConfig,
 } from "../api/client";
@@ -12,7 +11,6 @@ import { Button } from "../components/Button";
 import { AdminProductSyncPanel } from "../components/AdminProductSyncPanel";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
-import { ConfirmDialog } from "../components/Dialog";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import type {
@@ -28,7 +26,6 @@ import {
   displaySyncPhaseName,
   displayWorkerMode,
 } from "../utils/userFacingLabels";
-import { userFacingError } from "../utils/userFacingError";
 
 const targetOptions: { value: ManualSyncTarget; label: string }[] = [
   { value: "all", label: "全部开放接口数据" },
@@ -136,10 +133,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [runningManual, setRunningManual] = useState(false);
-  const [rebuildingClueCenter, setRebuildingClueCenter] = useState(false);
-  const [confirmingClueCenterMaintenance, setConfirmingClueCenterMaintenance] =
-    useState(false);
-  const [clueCenterMaintenanceStatus, setClueCenterMaintenanceStatus] = useState("");
   const [statusText, setStatusText] = useState("");
   const draftDirtyRef = useRef(false);
   const configBaselineRef = useRef("");
@@ -351,47 +344,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       }
     } finally {
       setRunningManual(false);
-    }
-  };
-
-  const handleClueCenterMaintenance = async () => {
-    if (!isHighestAdmin) {
-      setStatusText("当前账号为只读权限，不能执行线索中心数据维护。");
-      return;
-    }
-    setConfirmingClueCenterMaintenance(false);
-    setRebuildingClueCenter(true);
-    setStatusText("正在执行线索中心数据维护...");
-    setClueCenterMaintenanceStatus("正在维护，请勿关闭或刷新页面。完成后会在这里显示结果。");
-    try {
-      const response = await rebuildClueCenterMaterialization();
-      const result = response.data;
-      const rebuilt = [
-        result.rebuilt_order_count == null
-          ? null
-          : `订单 ${formatInteger(result.rebuilt_order_count)} 条`,
-        result.rebuilt_round_count == null
-          ? null
-          : `分配轮次 ${formatInteger(result.rebuilt_round_count)} 条`,
-      ].filter((value): value is string => Boolean(value));
-      const completedText =
-        rebuilt.length
-          ? `线索中心数据维护已完成：${rebuilt.join("，")}。不会重建任何分配试运行批次。`
-          : "线索中心数据维护已完成。不会重建任何分配试运行批次。";
-      setStatusText(completedText);
-      setClueCenterMaintenanceStatus(completedText);
-    } catch (error) {
-      if (error instanceof ApiRequestError && error.status === 401) {
-        setAuthenticated(false);
-        setStatusText("登录已过期，请重新输入管理密码。");
-        setClueCenterMaintenanceStatus("登录已过期，本次维护未完成，请重新登录后再试。");
-      } else {
-        const failureText = userFacingError(error, "数据维护执行失败，请稍后重试。");
-        setStatusText(failureText);
-        setClueCenterMaintenanceStatus(failureText);
-      }
-    } finally {
-      setRebuildingClueCenter(false);
     }
   };
 
@@ -728,43 +680,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
       <section className="content-section">
         <div className="section-title">
           <div>
-            <h2>线索中心数据维护</h2>
-            <p>用于重建线索中心物化和联系方式解析，不会重建任何分配试运行批次。</p>
-          </div>
-        </div>
-        <div className="clue-center-maintenance__body">
-          <div>
-            <h3>线索中心物化重建</h3>
-            <p className="admin-muted">
-              {isHighestAdmin
-                ? "该操作仅影响线索中心数据，不会创建或重建分配试运行批次。"
-                : "当前账号为只读权限，可查看同步与线索分配数据，但不能触发维护。"}
-            </p>
-            {clueCenterMaintenanceStatus ? (
-              <p
-                aria-atomic="true"
-                aria-live="polite"
-                className="clue-center-maintenance__status"
-                role="status"
-              >
-                {clueCenterMaintenanceStatus}
-              </p>
-            ) : null}
-          </div>
-          <Button
-            disabled={!isHighestAdmin || rebuildingClueCenter}
-            loading={rebuildingClueCenter}
-            onClick={() => setConfirmingClueCenterMaintenance(true)}
-            type="button"
-          >
-            {rebuildingClueCenter ? "维护中" : "执行线索中心维护"}
-          </Button>
-        </div>
-      </section>
-
-      <section className="content-section">
-        <div className="section-title">
-          <div>
             <h2>同步日志</h2>
             <p>最近 20 个任务，包含后台自动任务和手动任务。</p>
           </div>
@@ -776,15 +691,6 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           tableClassName="admin-sync-table"
         />
       </section>
-      <ConfirmDialog
-        confirmLabel="确认执行"
-        description="维护期间请保持当前页面打开。"
-        message="该操作会重建线索中心物化和联系方式解析，不会创建或重建任何分配试运行批次。"
-        onClose={() => setConfirmingClueCenterMaintenance(false)}
-        onConfirm={() => void handleClueCenterMaintenance()}
-        open={confirmingClueCenterMaintenance}
-        title="确认执行线索中心数据维护"
-      />
     </div>
   );
 }

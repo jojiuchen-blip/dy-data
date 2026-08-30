@@ -20,6 +20,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { ConfirmDialog } from "../components/Dialog";
 import { FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -331,6 +332,12 @@ export function AdminClueAllocationPage({
   const [action, setAction] = useState<
     "preview" | "trial" | "rebuild" | "rule" | "publish" | "retire" | null
   >(null);
+  const [confirmingTrial, setConfirmingTrial] = useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = useState(false);
+  const [pendingRuleVersionAction, setPendingRuleVersionAction] = useState<{
+    kind: "publish" | "retire";
+    version: ClueAllocationRuleVersion;
+  } | null>(null);
   const [allowPrivilegedRebuild, setAllowPrivilegedRebuild] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [isCompactViewport, setIsCompactViewport] = useState(false);
@@ -545,7 +552,7 @@ export function AdminClueAllocationPage({
     return false;
   };
 
-  const handlePreview = async (operation: "trial" | "rebuild") => {
+  const handlePreview = async (operation: "trial" | "trial_rebuild") => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -553,7 +560,7 @@ export function AdminClueAllocationPage({
     if (operation === "trial" && !ensureTrialSelection()) {
       return;
     }
-    if (operation === "rebuild" && !selectedRebuildCycleId) {
+    if (operation === "trial_rebuild" && !selectedRebuildCycleId) {
       setStatusText("请先选择需要重建的来源试运行批次。");
       return;
     }
@@ -577,7 +584,7 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const runTrial = async () => {
+  const runTrial = async (confirmedByDialog = false) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -589,15 +596,17 @@ export function AdminClueAllocationPage({
       setStatusText("请先预览当前选择范围，再确认执行。");
       return;
     }
-    if (!window.confirm(`确认启动这 ${selectedKeys.length} 条线索的试运行？`)) {
+    if (!confirmedByDialog) {
+      setConfirmingTrial(true);
       return;
     }
+    setConfirmingTrial(false);
     setAction("trial");
     try {
       const response = await runClueAllocationTrial({
         lead_keys: selectedKeys,
         preview_token: preview.preview_token,
-        confirm: true,
+        confirmation_text: "确认试运行",
       });
       setPreview(null);
       setStatusText(`试运行已完成。${summaryLabel(response.data.summary)}`);
@@ -609,7 +618,7 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const runRebuild = async () => {
+  const runRebuild = async (confirmedByDialog = false) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -620,21 +629,23 @@ export function AdminClueAllocationPage({
     }
     if (
       !preview ||
-      preview.operation !== "rebuild" ||
+      preview.operation !== "trial_rebuild" ||
       preview.source_cycle_id !== selectedRebuildCycleId
     ) {
       setStatusText("请先预览该来源批次，再确认重建。");
       return;
     }
-    if (!window.confirm(`确认重建试运行批次 ${selectedRebuildCycleId}？`)) {
+    if (!confirmedByDialog) {
+      setConfirmingRebuild(true);
       return;
     }
+    setConfirmingRebuild(false);
     setAction("rebuild");
     try {
       const response = await rebuildClueAllocationTrial({
         source_cycle_id: selectedRebuildCycleId,
         preview_token: preview.preview_token,
-        confirm: true,
+        confirmation_text: "确认重建试运行",
         privileged_confirmation: allowPrivilegedRebuild,
       });
       setPreview(null);
@@ -761,14 +772,19 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const handlePublishRuleVersion = async (version: ClueAllocationRuleVersion) => {
+  const handlePublishRuleVersion = async (
+    version: ClueAllocationRuleVersion,
+    confirmedByDialog = false,
+  ) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端发布规则。");
       return;
     }
-    if (!window.confirm(`确认发布 V${version.version_no}？同一规则范围的旧发布版本将自动退役。`)) {
+    if (!confirmedByDialog) {
+      setPendingRuleVersionAction({ kind: "publish", version });
       return;
     }
+    setPendingRuleVersionAction(null);
     setAction("publish");
     try {
       await publishClueAllocationRuleVersion(version.rule_version_id);
@@ -782,14 +798,19 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const handleRetireRuleVersion = async (version: ClueAllocationRuleVersion) => {
+  const handleRetireRuleVersion = async (
+    version: ClueAllocationRuleVersion,
+    confirmedByDialog = false,
+  ) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端退役规则。");
       return;
     }
-    if (!window.confirm(`确认退役 V${version.version_no}？该范围的新线索将回退到更低优先级的已发布规则。`)) {
+    if (!confirmedByDialog) {
+      setPendingRuleVersionAction({ kind: "retire", version });
       return;
     }
+    setPendingRuleVersionAction(null);
     setAction("retire");
     try {
       await retireClueAllocationRuleVersion(version.rule_version_id);
@@ -1153,7 +1174,7 @@ export function AdminClueAllocationPage({
               <strong>{preview ? summaryLabel(preview.summary) : "尚未生成"}</strong>
               <small>
                 {preview
-                  ? `${preview.operation === "rebuild" ? "重建" : "试运行"}有效线索 ${preview.active_lead_count} 条`
+                  ? `${preview.operation === "trial_rebuild" ? "重建" : "试运行"}有效线索 ${preview.active_lead_count} 条`
                   : "先选择线索或来源批次生成预览"}
               </small>
             </div>
@@ -1184,7 +1205,7 @@ export function AdminClueAllocationPage({
             <Button
               icon="eye"
               disabled={action !== null || !selectedRebuildCycleId}
-              onClick={() => void handlePreview("rebuild")}
+              onClick={() => void handlePreview("trial_rebuild")}
               type="button"
             >
               {action === "preview" ? "预览中" : "预览重建"}
@@ -1194,7 +1215,7 @@ export function AdminClueAllocationPage({
               disabled={
                 action !== null ||
                 !selectedRebuildCycleId ||
-                preview?.operation !== "rebuild" ||
+                preview?.operation !== "trial_rebuild" ||
                 preview.source_cycle_id !== selectedRebuildCycleId
               }
               onClick={() => void runRebuild()}
@@ -1772,6 +1793,52 @@ export function AdminClueAllocationPage({
             totalPages={headquartersPool.pagination.total_pages}
           />
         </section>
+      ) : null}
+
+      <ConfirmDialog
+        confirmLabel="确认试运行"
+        description="确认后将提交当前预览范围，并写入试运行结果。"
+        message={`即将对当前选择的 ${selectedKeys.length} 条线索执行试运行。确认后将提交固定确认词“确认试运行”。`}
+        onClose={() => setConfirmingTrial(false)}
+        onConfirm={() => void runTrial(true)}
+        open={confirmingTrial}
+        title="确认启动试运行"
+      />
+      <ConfirmDialog
+        confirmLabel="确认重建试运行"
+        danger
+        description="确认后将按当前预览重建来源试运行批次。"
+        message={`即将重建来源试运行批次 ${selectedRebuildCycleId}。确认后将提交固定确认词“确认重建试运行”。`}
+        onClose={() => setConfirmingRebuild(false)}
+        onConfirm={() => void runRebuild(true)}
+        open={confirmingRebuild}
+        title="确认重建试运行"
+      />
+      {pendingRuleVersionAction ? (
+        <ConfirmDialog
+          confirmLabel={pendingRuleVersionAction.kind === "publish" ? "确认发布" : "确认退役"}
+          danger={pendingRuleVersionAction.kind === "retire"}
+          description={
+            pendingRuleVersionAction.kind === "publish"
+              ? "发布后，同一规则范围的旧发布版本将自动退役。"
+              : "退役后，该范围的新线索将回退到更低优先级的已发布规则。"
+          }
+          message={`${pendingRuleVersionAction.kind === "publish" ? "确认发布" : "确认退役"} V${pendingRuleVersionAction.version.version_no}？`}
+          onClose={() => setPendingRuleVersionAction(null)}
+          onConfirm={() => {
+            const pending = pendingRuleVersionAction;
+            if (!pending) {
+              return;
+            }
+            if (pending.kind === "publish") {
+              void handlePublishRuleVersion(pending.version, true);
+            } else {
+              void handleRetireRuleVersion(pending.version, true);
+            }
+          }}
+          open
+          title={pendingRuleVersionAction.kind === "publish" ? "确认发布规则版本" : "确认退役规则版本"}
+        />
       ) : null}
 
     </div>

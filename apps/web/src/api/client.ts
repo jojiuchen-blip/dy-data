@@ -33,7 +33,6 @@ import type {
   AccessControlData,
   AdminUser,
   ClueAssignmentRoundData,
-  ClueCenterMaterializationResult,
   ClueAllocationAuditLogData,
   ClueAllocationCycleData,
   ClueAllocationCycleExecution,
@@ -2284,17 +2283,6 @@ export async function runManualSync({
   };
 }
 
-export async function rebuildClueCenterMaterialization(): Promise<
-  ApiLoadResult<ClueCenterMaterializationResult>
-> {
-  return {
-    ...(await sendJson<ClueCenterMaterializationResult>("/admin/sync/clue-center/rebuild", {
-      method: "POST",
-    })),
-    usingMock: false,
-  };
-}
-
 export async function fetchClueAllocationEligibleLeads(): Promise<
   ApiLoadResult<ClueAllocationEligibleLeadData>
 > {
@@ -2374,7 +2362,7 @@ export async function previewClueAllocationCycle(
   }
   return {
     ...(await sendJson<ClueAllocationCyclePreview>(
-      "/admin/clue-allocation/cycles/preview",
+      "/admin/clue-allocation/cycle-previews",
       { body: payload, method: "POST" },
     )),
     usingMock: false,
@@ -2389,7 +2377,7 @@ export async function runClueAllocationTrial(
   }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
-      "/admin/clue-allocation/cycles/trial",
+      "/admin/clue-allocation/trial-cycles",
       { body: payload, method: "POST" },
     )),
     usingMock: false,
@@ -2404,7 +2392,7 @@ export async function rebuildClueAllocationTrial(
   }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
-      "/admin/clue-allocation/cycles/rebuild",
+      "/admin/clue-allocation/rebuild-cycles",
       { body: payload, method: "POST" },
     )),
     usingMock: false,
