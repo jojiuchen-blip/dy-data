@@ -2693,11 +2693,17 @@ class ClueMasterLead(Base):
     lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
     source_clue_row_key: Mapped[str] = mapped_column(Text)
     source_identity_key: Mapped[str] = mapped_column(Text)
+    master_kind: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     canonical_clue_id: Mapped[str | None] = mapped_column(Text, index=True)
     order_id: Mapped[str | None] = mapped_column(Text, index=True)
     raw_order_status: Mapped[str | None] = mapped_column(Text)
     normalized_order_status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
     status_source: Mapped[str] = mapped_column(String(32), default="clue")
+    order_status_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     pool_location: Mapped[str | None] = mapped_column(String(32), index=True)
     allocation_state: Mapped[str] = mapped_column(String(32), default="pending_allocation", index=True)
@@ -2717,8 +2723,91 @@ class ClueMasterLead(Base):
     anchor_city_code: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     anchor_latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    is_complete_pool: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    state_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueSourceRecordLink(Base):
+    __tablename__ = "clue_source_record_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_table",
+            "source_record_key",
+            name="uq_clue_source_record_links_source",
+        ),
+        Index("ix_clue_source_record_links_lead_key", "lead_key"),
+        Index("ix_clue_source_record_links_order_id", "order_id"),
+        Index(
+            "ix_clue_source_record_links_status_updated_at",
+            "link_status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_system: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    source_table: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="raw_douyin_clues",
+        server_default=text("'raw_douyin_clues'"),
+    )
+    source_record_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_clue_id: Mapped[str | None] = mapped_column(String(64))
+    source_order_id: Mapped[str | None] = mapped_column(String(64))
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    order_id: Mapped[str | None] = mapped_column(String(64))
+    link_status: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    link_method: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    link_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    source_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_run_id: Mapped[str | None] = mapped_column(String(64))
+    source_payload_hash: Mapped[str | None] = mapped_column(String(64))
+    conflict_reason: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
 
 class ClueSourceIdentifierHistory(Base):

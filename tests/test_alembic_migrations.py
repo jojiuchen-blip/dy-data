@@ -19,7 +19,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260824_0043"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260830_0044"]
 
 
 def test_production_revision_chain_resolves_orphaned_0036() -> None:
@@ -48,7 +48,240 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260824_0043"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260830_0044"
+
+
+def test_clue_source_record_link_migration_backfills_state_and_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "clue-source-record-links.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    script = ScriptDirectory.from_config(config)
+    revision = script.get_revision("20260830_0044")
+    assert revision is not None
+    assert revision.revision == "20260830_0044"
+    assert revision.down_revision == "20260824_0043"
+
+    command.upgrade(config, "20260824_0043")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 30, 12, tzinfo=timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    canonical_clue_id, order_id, normalized_order_status,
+                    status_source, lifecycle_status, allocation_state,
+                    ended_without_assignment, first_seen_at, last_seen_at,
+                    created_at, updated_at
+                ) VALUES (
+                    :lead_key, :source_clue_row_key, :source_identity_key,
+                    :canonical_clue_id, :order_id, 'active', 'clue', 'active',
+                    'pending_allocation', 0, :observed_at, :observed_at,
+                    :observed_at, :observed_at
+                )
+                """
+            ),
+            [
+                {
+                    "lead_key": "lead-with-order",
+                    "source_clue_row_key": "raw-with-order",
+                    "source_identity_key": "identity-with-order",
+                    "canonical_clue_id": "clue-with-order",
+                    "order_id": "order-1",
+                    "observed_at": observed_at,
+                },
+                {
+                    "lead_key": "lead-without-order",
+                    "source_clue_row_key": "raw-without-order",
+                    "source_identity_key": "identity-without-order",
+                    "canonical_clue_id": "clue-without-order",
+                    "order_id": None,
+                    "observed_at": observed_at,
+                },
+                {
+                    "lead_key": "lead-with-empty-source",
+                    "source_clue_row_key": "",
+                    "source_identity_key": "identity-with-empty-source",
+                    "canonical_clue_id": None,
+                    "order_id": None,
+                    "observed_at": observed_at,
+                },
+            ],
+        )
+
+    command.upgrade(config, "20260830_0044")
+    upgraded = inspect(engine)
+    assert "clue_source_record_links" in upgraded.get_table_names()
+    master_columns = {column["name"]: column for column in upgraded.get_columns("clue_master_leads")}
+    assert {
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
+    }.issubset(master_columns)
+    assert master_columns["master_kind"]["default"] is not None
+    assert master_columns["is_complete_pool"]["default"] is not None
+    assert master_columns["state_version"]["default"] is not None
+
+    link_columns = {column["name"]: column for column in upgraded.get_columns("clue_source_record_links")}
+    assert {
+        "id",
+        "source_system",
+        "source_table",
+        "source_record_key",
+        "source_clue_id",
+        "source_order_id",
+        "lead_key",
+        "order_id",
+        "link_status",
+        "link_method",
+        "link_version",
+        "linked_at",
+        "source_observed_at",
+        "source_run_id",
+        "source_payload_hash",
+        "conflict_reason",
+        "created_at",
+        "updated_at",
+    }.issubset(link_columns)
+    assert link_columns["source_table"]["default"] is not None
+    assert link_columns["link_status"]["default"] is not None
+    assert link_columns["link_method"]["default"] is not None
+    assert link_columns["link_version"]["default"] is not None
+    assert link_columns["linked_at"]["default"] is not None
+    assert link_columns["created_at"]["default"] is not None
+    assert link_columns["updated_at"]["default"] is not None
+    assert upgraded.get_pk_constraint("clue_source_record_links")[
+        "constrained_columns"
+    ] == ["id"]
+    assert ("source_table", "source_record_key") in {
+        tuple(constraint["column_names"])
+        for constraint in upgraded.get_unique_constraints("clue_source_record_links")
+    }
+    assert {
+        "ix_clue_source_record_links_lead_key",
+        "ix_clue_source_record_links_order_id",
+        "ix_clue_source_record_links_status_updated_at",
+    }.issubset(
+        {index["name"] for index in upgraded.get_indexes("clue_source_record_links")}
+    )
+    foreign_keys = upgraded.get_foreign_keys("clue_source_record_links")
+    assert len(foreign_keys) == 1
+    assert foreign_keys[0]["constrained_columns"] == ["lead_key"]
+    assert foreign_keys[0]["referred_table"] == "clue_master_leads"
+    assert foreign_keys[0]["referred_columns"] == ["lead_key"]
+    assert foreign_keys[0]["options"] == {"ondelete": "RESTRICT"}
+
+    with engine.connect() as connection:
+        master_rows = connection.execute(
+            text(
+                """
+                SELECT lead_key, master_kind, is_complete_pool, state_version,
+                       order_status_observed_at = last_seen_at AS observed_matches
+                FROM clue_master_leads
+                ORDER BY lead_key
+                """
+            )
+        ).mappings().all()
+        assert master_rows == [
+            {
+                "lead_key": "lead-with-empty-source",
+                "master_kind": 2,
+                "is_complete_pool": 0,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+            {
+                "lead_key": "lead-with-order",
+                "master_kind": 1,
+                "is_complete_pool": 1,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+            {
+                "lead_key": "lead-without-order",
+                "master_kind": 2,
+                "is_complete_pool": 0,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+        ]
+        links = connection.execute(
+            text(
+                """
+                SELECT source_table, source_record_key, source_clue_id,
+                       source_order_id, lead_key, order_id, link_status,
+                       link_method, link_version, source_observed_at,
+                       linked_at, created_at, updated_at
+                FROM clue_source_record_links
+                ORDER BY source_record_key
+                """
+            )
+        ).mappings().all()
+        assert len(links) == 2
+        assert [
+            {
+                key: row[key]
+                for key in (
+                    "source_table",
+                    "source_record_key",
+                    "source_clue_id",
+                    "source_order_id",
+                    "lead_key",
+                    "order_id",
+                    "link_status",
+                    "link_method",
+                    "link_version",
+                )
+            }
+            for row in links
+        ] == [
+            {
+                "source_table": "raw_douyin_clues",
+                "source_record_key": "raw-with-order",
+                "source_clue_id": "clue-with-order",
+                "source_order_id": "order-1",
+                "lead_key": "lead-with-order",
+                "order_id": "order-1",
+                "link_status": 1,
+                "link_method": 2,
+                "link_version": 1,
+            },
+            {
+                "source_table": "raw_douyin_clues",
+                "source_record_key": "raw-without-order",
+                "source_clue_id": "clue-without-order",
+                "source_order_id": None,
+                "lead_key": "lead-without-order",
+                "order_id": None,
+                "link_status": 2,
+                "link_method": 2,
+                "link_version": 1,
+            },
+        ]
+        assert all(
+            row["source_observed_at"] is not None
+            and row["linked_at"] is not None
+            and row["created_at"] is not None
+            and row["updated_at"] is not None
+            for row in links
+        )
+
+    command.downgrade(config, "20260824_0043")
+    downgraded = inspect(engine)
+    assert "clue_source_record_links" not in downgraded.get_table_names()
+    assert not {
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
+    }.intersection({column["name"] for column in downgraded.get_columns("clue_master_leads")})
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
