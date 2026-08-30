@@ -35,6 +35,7 @@ import type {
   ClueAssignmentRoundData,
   ClueAllocationAuditLogData,
   ClueAllocationCycleData,
+  ClueAllocationCycleDetailData,
   ClueAllocationCycleExecution,
   ClueAllocationCyclePreview,
   ClueAllocationCyclePreviewRequest,
@@ -1882,6 +1883,19 @@ export function createIdempotencyKey(prefix: string): string {
   return `${prefix}-${suffix}`;
 }
 
+function createStableIdempotencyKey(prefix: string, source: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < source.length; index += 1) {
+    const value = source.charCodeAt(index);
+    first = Math.imul(first ^ value, 0x01000193) >>> 0;
+    second = Math.imul(second ^ value, 0x85ebca6b) >>> 0;
+  }
+  return `${prefix}-${first.toString(16).padStart(8, "0")}${second
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
 export async function fetchSkuProducts(params: {
   page?: number;
   pageSize?: number;
@@ -2340,6 +2354,23 @@ export async function fetchClueAllocationCycles(): Promise<
   };
 }
 
+export async function fetchClueAllocationCycle(
+  cycleId: string,
+  page = 1,
+  pageSize = 50,
+): Promise<ApiLoadResult<ClueAllocationCycleDetailData>> {
+  if (isClueDemoRuntime()) {
+    return demoLoad(() => clueDemoRepository.getCycle(cycleId, page, pageSize));
+  }
+  return {
+    ...(await requestJson<ClueAllocationCycleDetailData>(
+      `/admin/clue-allocation/cycles/${encodeURIComponent(cycleId)}`,
+      { page, page_size: pageSize },
+    )),
+    usingMock: false,
+  };
+}
+
 export async function fetchClueAllocationAuditLogs(): Promise<
   ApiLoadResult<ClueAllocationAuditLogData>
 > {
@@ -2378,7 +2409,16 @@ export async function runClueAllocationTrial(
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
       "/admin/clue-allocation/trial-cycles",
-      { body: payload, method: "POST" },
+      {
+        body: payload,
+        headers: {
+          "Idempotency-Key": createStableIdempotencyKey(
+            "clue-trial",
+            payload.preview_token ?? payload.lead_keys.join("|"),
+          ),
+        },
+        method: "POST",
+      },
     )),
     usingMock: false,
   };
@@ -2393,7 +2433,16 @@ export async function rebuildClueAllocationTrial(
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
       "/admin/clue-allocation/rebuild-cycles",
-      { body: payload, method: "POST" },
+      {
+        body: payload,
+        headers: {
+          "Idempotency-Key": createStableIdempotencyKey(
+            "clue-trial-rebuild",
+            payload.preview_token,
+          ),
+        },
+        method: "POST",
+      },
     )),
     usingMock: false,
   };

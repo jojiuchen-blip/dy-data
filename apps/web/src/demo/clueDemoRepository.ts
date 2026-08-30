@@ -3,7 +3,9 @@ import type {
   ClueAllocationAuditLogData,
   ClueAllocationCycle,
   ClueAllocationCycleData,
+  ClueAllocationCycleDetailData,
   ClueAllocationCycleExecution,
+  ClueAllocationCycleItem,
   ClueAllocationCyclePreview,
   ClueAllocationCyclePreviewRequest,
   ClueAllocationCycleRebuildRequest,
@@ -465,6 +467,59 @@ export class ClueDemoRepository {
     return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
   }
 
+  getCycle(
+    cycleId: string,
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationCycleDetailData> {
+    const cycle = this.state.cycles.find(
+      (candidate) => candidate.allocation_cycle_id === cycleId,
+    );
+    if (!cycle) {
+      throw new ClueDemoRepositoryError(404, "分配批次不存在");
+    }
+    const items = cycle.selected_lead_keys.map<ClueAllocationCycleItem>(
+      (leadKey, index) => {
+        const decisions = this.state.decisions
+          .filter(
+            (decision) =>
+              decision.allocation_cycle_id === cycleId && decision.lead_key === leadKey,
+          )
+          .sort((left, right) => (right.execution_order ?? 0) - (left.execution_order ?? 0));
+        const decision =
+          decisions.find((candidate) =>
+            ["selected", "headquarters"].includes(candidate.decision_status),
+          ) ?? decisions[0];
+        return {
+          cycle_item_id: `${cycleId}-ITEM-${String(index + 1).padStart(4, "0")}`,
+          sequence_no: index + 1,
+          lead_key: leadKey,
+          order_id: decision?.order_id ?? null,
+          item_status: decision?.decision_status ?? "skipped",
+          initial_pool_location: "pending_allocation",
+          outcome_reason: decision?.reason ?? null,
+          rule_binding_id: decision?.rule_version_id ? leadKey : null,
+          decision_id: decision?.decision_id ?? null,
+          assignment_round_id: null,
+          headquarters_pool_entry_id: null,
+          attempt_count: 1,
+          started_at: cycle.executed_at,
+          completed_at: cycle.completed_at,
+          error_code: null,
+        };
+      },
+    );
+    const pagedItems = paginate(items, page, pageSize);
+    return demoResponse(
+      {
+        cycle,
+        items: pagedItems.rows,
+        pagination: pagedItems.pagination,
+      },
+      this.state.generatedAt,
+    );
+  }
+
   getAuditLogs(): ApiResponse<ClueAllocationAuditLogData> {
     const rows = [...this.state.auditLogs].sort((left, right) =>
       right.created_at.localeCompare(left.created_at),
@@ -475,7 +530,7 @@ export class ClueDemoRepository {
   previewCycle(
     payload: ClueAllocationCyclePreviewRequest,
   ): ApiResponse<ClueAllocationCyclePreview> {
-    const operation = payload.operation ?? "trial";
+    const operation = payload.operation;
     let sourceCycleId: string | null = null;
     let requestedLeadKeys: string[];
     if (operation === "trial_rebuild") {
@@ -506,7 +561,7 @@ export class ClueDemoRepository {
     );
     const createdAt = new Date().toISOString();
     const expiresAt = new Date(
-      new Date(createdAt).getTime() + 5 * 60 * 1000,
+      new Date(createdAt).getTime() + 10 * 60 * 1000,
     ).toISOString();
     const token = this.nextId("DEMO-PREVIEW-");
     this.state.previewTokens.set(token, {
@@ -515,6 +570,8 @@ export class ClueDemoRepository {
       leadKeys: activeLeadKeys,
       sourceCycleId,
       expiresAt,
+      privilegedConfirmation: Boolean(payload.privileged_confirmation),
+      rebindRuleVersion: Boolean(payload.rebind_rule_version),
     });
     const summary = {
       assigned: activeLeadKeys.length,
@@ -525,9 +582,14 @@ export class ClueDemoRepository {
     return demoResponse(
       {
         requested_lead_count: requestedLeadKeys.length,
+        eligible_lead_count: activeLeadKeys.length,
         active_lead_count: activeLeadKeys.length,
         lead_keys: activeLeadKeys,
         summary,
+        changed_leads: activeLeadKeys.map((leadKey) => ({
+          lead_key: leadKey,
+          outcome: "assigned",
+        })),
         operation,
         source_cycle_id: sourceCycleId,
         preview_token: token,
@@ -548,23 +610,21 @@ export class ClueDemoRepository {
       "trial",
       payload.lead_keys,
       null,
+      Boolean(payload.privileged_confirmation),
     );
     return this.executeCycle({
       cycleType: "trial",
       preview,
       parentCycleId: null,
-      privilegedConfirmation: false,
+      privilegedConfirmation: Boolean(payload.privileged_confirmation),
     });
   }
 
   rebuildTrial(
     payload: ClueAllocationCycleRebuildRequest,
   ): ApiResponse<ClueAllocationCycleExecution> {
-    if (
-      payload.confirmation_text !== "确认重建试运行" ||
-      !payload.privileged_confirmation
-    ) {
-      throw new ClueDemoRepositoryError(422, "重建需要最高管理员二次确认");
+    if (payload.confirmation_text !== "确认重建试运行") {
+      throw new ClueDemoRepositoryError(422, "重建需要明确确认");
     }
     if (
       !this.state.cycles.some(
@@ -578,12 +638,13 @@ export class ClueDemoRepository {
       "trial_rebuild",
       undefined,
       payload.source_cycle_id,
+      Boolean(payload.privileged_confirmation),
     );
     return this.executeCycle({
-      cycleType: "rebuild",
+      cycleType: "trial_rebuild",
       preview,
       parentCycleId: payload.source_cycle_id,
-      privilegedConfirmation: true,
+      privilegedConfirmation: Boolean(payload.privileged_confirmation),
     });
   }
 
@@ -783,6 +844,7 @@ export class ClueDemoRepository {
     operation: "trial" | "trial_rebuild",
     leadKeys: string[] | undefined,
     sourceCycleId: string | null,
+    privilegedConfirmation: boolean,
   ): ClueDemoPreviewToken {
     const preview = tokenValue
       ? this.state.previewTokens.get(tokenValue)
@@ -796,7 +858,8 @@ export class ClueDemoRepository {
     }
     if (
       preview.operation !== operation ||
-      preview.sourceCycleId !== sourceCycleId
+      preview.sourceCycleId !== sourceCycleId ||
+      preview.privilegedConfirmation !== privilegedConfirmation
     ) {
       throw new ClueDemoRepositoryError(409, "预览令牌与当前操作不匹配");
     }
@@ -815,14 +878,25 @@ export class ClueDemoRepository {
     parentCycleId,
     privilegedConfirmation,
   }: {
-    cycleType: "trial" | "rebuild";
+    cycleType: "trial" | "trial_rebuild";
     preview: ClueDemoPreviewToken;
     parentCycleId: string | null;
     privilegedConfirmation: boolean;
   }): ApiResponse<ClueAllocationCycleExecution> {
+    const completed = this.state.completedCycleResults.get(preview.token);
+    if (completed) {
+      return demoResponse(completed, this.state.generatedAt);
+    }
     const createdAt = new Date().toISOString();
     const cycleId = this.nextId("DEMO-CYCLE-");
     const summary = { assigned: 0, headquarters: 0, skipped: 0 };
+    const businessState = {
+      eligibleLeads: structuredClone(this.state.eligibleLeads),
+      headquartersPool: structuredClone(this.state.headquartersPool),
+      orderDetails: structuredClone(this.state.orderDetails),
+      rounds: structuredClone(this.state.rounds),
+    };
+    const decisionStart = this.state.decisions.length;
     for (const leadKey of preview.leadKeys) {
       const result = this.allocateLead(
         leadKey,
@@ -832,16 +906,40 @@ export class ClueDemoRepository {
       );
       summary[result] += 1;
     }
+    this.state.eligibleLeads = businessState.eligibleLeads;
+    this.state.headquartersPool = businessState.headquartersPool;
+    this.state.orderDetails = businessState.orderDetails;
+    this.state.rounds = businessState.rounds;
+    for (const decision of this.state.decisions.slice(decisionStart)) {
+      decision.cycle_id = cycleId;
+      decision.dataset_kind = "trial";
+      decision.assignment_round_id = null;
+      decision.round_no = null;
+      decision.payload = {
+        ...decision.payload,
+        dataset_kind: "trial",
+      };
+    }
     const activeLeadCount = summary.assigned + summary.headquarters;
     const cycle: ClueAllocationCycle = {
+      cycle_id: cycleId,
       allocation_cycle_id: cycleId,
+      cycle_mode: cycleType,
       cycle_type: cycleType,
       execution_mode: "trial",
+      cycle_status: "completed",
       status: "completed",
+      trigger_type: "manual",
       parent_cycle_id: parentCycleId,
+      source_cycle_id: parentCycleId,
       selected_lead_keys: [...preview.leadKeys],
       requested_lead_count: preview.leadKeys.length,
+      eligible_lead_count: activeLeadCount,
       active_lead_count: activeLeadCount,
+      assigned_lead_count: summary.assigned,
+      headquarters_pool_count: summary.headquarters,
+      skipped_lead_count: summary.skipped,
+      failed_lead_count: 0,
       planned_impact: {
         assigned: preview.leadKeys.length,
         headquarters: 0,
@@ -849,19 +947,18 @@ export class ClueDemoRepository {
       },
       actual_impact: { ...summary },
       actor: "DEMO-USER-ADMIN",
+      actor_user_id: "DEMO-USER-ADMIN",
+      actor_username: "演示最高管理员",
       privileged_confirmation: privilegedConfirmation,
+      requested_at: createdAt,
       created_at: createdAt,
       executed_at: createdAt,
       completed_at: createdAt,
+      error_summary: {},
     };
     this.state.cycles.push(cycle);
-    const selected = new Set(preview.leadKeys);
-    this.state.eligibleLeads = this.state.eligibleLeads.filter(
-      (lead) => !selected.has(lead.lead_key),
-    );
-    this.state.previewTokens.delete(preview.token);
     this.appendAudit(
-      cycleType === "rebuild" ? "trial_rebuilt" : "trial_executed",
+      cycleType === "trial_rebuild" ? "trial_rebuilt" : "trial_executed",
       cycleId,
       { eligible_lead_count: this.state.eligibleLeads.length + activeLeadCount },
       summary,
@@ -869,26 +966,34 @@ export class ClueDemoRepository {
       privilegedConfirmation,
     );
     this.state.generatedAt = createdAt;
-    return demoResponse(
-      {
+    const execution: ClueAllocationCycleExecution = {
+        cycle_id: cycleId,
         allocation_cycle_id: cycleId,
+        cycle_mode: cycleType,
         cycle_type: cycleType,
         execution_mode: "trial",
+        cycle_status: "completed",
         status: "completed",
         requested_lead_count: preview.leadKeys.length,
+        eligible_lead_count: activeLeadCount,
         active_lead_count: activeLeadCount,
+        assigned_lead_count: summary.assigned,
+        headquarters_pool_count: summary.headquarters,
+        skipped_lead_count: summary.skipped,
+        failed_lead_count: 0,
         privileged_confirmation: privilegedConfirmation,
         parent_cycle_id: parentCycleId,
+        source_cycle_id: parentCycleId,
         summary,
-      },
-      createdAt,
-    );
+      };
+    this.state.completedCycleResults.set(preview.token, execution);
+    return demoResponse(execution, createdAt);
   }
 
   private allocateLead(
     leadKey: string,
     cycleId: string,
-    cycleType: "trial" | "rebuild",
+    cycleType: "trial" | "trial_rebuild",
     sourceCycleId: string | null,
   ): "assigned" | "headquarters" | "skipped" {
     const eligibleLead = this.state.eligibleLeads.find(
@@ -954,7 +1059,7 @@ export class ClueDemoRepository {
           raw_order_status: "DEMO_FULFILLING",
           status: "active",
           reason: "strategies_exhausted",
-          reason_code: "all_strategies_exhausted",
+          reason_code: "strategies_exhausted",
           reason_label: "所有启用策略均已结束",
           entered_at: executedAt,
           closed_at: null,
@@ -1085,6 +1190,13 @@ export class ClueDemoRepository {
       event_type: eventType,
       allocation_cycle_id: allocationCycleId,
       actor: "DEMO-USER-ADMIN",
+      actor_user_id: "DEMO-USER-ADMIN",
+      actor_username_snapshot: "演示最高管理员",
+      actor_role_snapshot: "highest_admin",
+      actor_scope_snapshot: { mode: "all", store_ids: [] },
+      request_id: this.nextId("DEMO-REQUEST-"),
+      result_status: "success",
+      reason_code: null,
       privileged_confirmation: privilegedConfirmation,
       before_snapshot: structuredClone(beforeSnapshot),
       after_snapshot: structuredClone(afterSnapshot),
@@ -1143,7 +1255,7 @@ export class ClueDemoRepository {
         raw_order_status: "DEMO_FULFILLING",
         status: "active",
         reason: "strategies_exhausted",
-        reason_code: "all_strategies_exhausted",
+        reason_code: "strategies_exhausted",
         reason_label: "所有启用策略均已结束",
         entered_at: createdAt,
         closed_at: null,

@@ -4620,6 +4620,28 @@ a.metric-card:hover,
   font-size: var(--font-size-control);
 }
 
+.clue-allocation-cycle-dialog {
+  grid-template-rows: auto minmax(0, 1fr);
+  width: min(1200px, calc(100vw - 48px));
+  max-height: min(88vh, 820px);
+}
+
+.clue-allocation-cycle-dialog__body {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+}
+
+.clue-allocation-cycle-dialog__summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.clue-allocation-cycle-dialog .table-wrap {
+  max-height: min(480px, calc(88vh - 260px));
+}
+
 .clue-allocation-management-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.75fr);

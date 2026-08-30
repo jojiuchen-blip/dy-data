@@ -1261,25 +1261,63 @@ export interface ClueHeadquartersPoolData {
 }
 
 export interface ClueAllocationCycle {
+  cycle_id: string;
   allocation_cycle_id: string;
+  cycle_mode: string;
   cycle_type: string;
   execution_mode: string;
+  cycle_status: string;
   status: string;
+  trigger_type: string;
   parent_cycle_id: string | null;
+  source_cycle_id: string | null;
   selected_lead_keys: string[];
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
+  assigned_lead_count: number;
+  headquarters_pool_count: number;
+  skipped_lead_count: number;
+  failed_lead_count: number;
   planned_impact: Record<string, unknown>;
   actual_impact: Record<string, unknown>;
   actor: string | null;
+  actor_user_id: string | null;
+  actor_username: string | null;
   privileged_confirmation: boolean;
+  requested_at: string;
   created_at: string;
   executed_at: string | null;
   completed_at: string | null;
+  error_summary: Record<string, unknown>;
 }
 
 export interface ClueAllocationCycleData {
   rows: ClueAllocationCycle[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationCycleItem {
+  cycle_item_id: string;
+  sequence_no: number;
+  lead_key: string;
+  order_id: string | null;
+  item_status: string;
+  initial_pool_location: string | null;
+  outcome_reason: string | null;
+  rule_binding_id: string | null;
+  decision_id: string | null;
+  assignment_round_id: string | null;
+  headquarters_pool_entry_id: string | null;
+  attempt_count: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error_code: string | null;
+}
+
+export interface ClueAllocationCycleDetailData {
+  cycle: ClueAllocationCycle;
+  items: ClueAllocationCycleItem[];
   pagination: Pagination;
 }
 
@@ -1288,6 +1326,13 @@ export interface ClueAllocationAuditLog {
   event_type: string;
   allocation_cycle_id: string | null;
   actor: string | null;
+  actor_user_id: string | null;
+  actor_username_snapshot: string | null;
+  actor_role_snapshot: string | null;
+  actor_scope_snapshot: Record<string, unknown>;
+  request_id: string | null;
+  result_status: string;
+  reason_code: string | null;
   privileged_confirmation: boolean;
   before_snapshot: Record<string, unknown>;
   after_snapshot: Record<string, unknown>;
@@ -1308,10 +1353,11 @@ export interface ClueAllocationCycleRequest {
 }
 
 export interface ClueAllocationCyclePreviewRequest {
-  operation?: "trial" | "trial_rebuild";
+  operation: "trial" | "trial_rebuild";
   lead_keys?: string[];
   source_cycle_id?: string;
   privileged_confirmation?: boolean;
+  rebind_rule_version?: boolean;
 }
 
 export interface ClueAllocationCycleRebuildRequest {
@@ -1323,9 +1369,11 @@ export interface ClueAllocationCycleRebuildRequest {
 
 export interface ClueAllocationCyclePreview {
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
   lead_keys: string[];
   summary: Record<string, number>;
+  changed_leads: Array<Record<string, unknown>>;
   operation: "trial" | "trial_rebuild";
   source_cycle_id: string | null;
   preview_token: string;
@@ -1333,14 +1381,23 @@ export interface ClueAllocationCyclePreview {
 }
 
 export interface ClueAllocationCycleExecution {
+  cycle_id: string;
   allocation_cycle_id: string;
+  cycle_mode: string;
   cycle_type: string;
   execution_mode: string;
+  cycle_status: string;
   status: string;
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
+  assigned_lead_count: number;
+  headquarters_pool_count: number;
+  skipped_lead_count: number;
+  failed_lead_count: number;
   privileged_confirmation: boolean;
   parent_cycle_id: string | null;
+  source_cycle_id: string | null;
   summary: Record<string, number>;
 }
 
@@ -1422,6 +1479,7 @@ export interface ClueAllocationRuleVersionWrite {
 
 export interface ClueAllocationDecision {
   decision_id: string;
+  cycle_id?: string | null;
   lead_key: string;
   order_id: string | null;
   rule_id: string | null;
@@ -1431,6 +1489,7 @@ export interface ClueAllocationDecision {
   strategy_type: string;
   execution_order: number | null;
   allocation_cycle_id: string | null;
+  dataset_kind?: string;
   execution_mode: string;
   assignment_round_id: string | null;
   round_no: number | null;
@@ -1438,6 +1497,9 @@ export interface ClueAllocationDecision {
   selected_store_name: string | null;
   decision_status: string;
   reason: string | null;
+  composite_score?: number | null;
+  distance_km?: number | null;
+  candidate_count?: number;
   payload: Record<string, unknown>;
   actor: string | null;
   executed_at: string;

@@ -61,12 +61,59 @@ def test_m3_allocation_control_uses_preview_then_confirmed_execution() -> None:
     ]:
         assert legacy_endpoint not in client_source
     assert 'handlePreview("trial_rebuild")' in page_source
-    assert 'operation?: "trial" | "trial_rebuild"' in type_source
+    assert 'operation: "trial" | "trial_rebuild"' in type_source
     assert 'payload.confirmation_text !== "确认试运行"' in demo_source
     assert 'payload.confirmation_text !== "确认重建试运行"' in demo_source
+    assert "this.state.eligibleLeads = businessState.eligibleLeads" in demo_source
+    assert "decision.assignment_round_id = null" in demo_source
+    assert 'decision.dataset_kind = "trial"' in demo_source
+    assert 'cycle_mode: cycleType' in demo_source
     assert "usingMock: false" in client_source
     assert "export interface ClueAllocationCycleRequest" in type_source
     assert "export interface ClueHeadquartersPoolEntry" in type_source
+    assert "createStableIdempotencyKey" in client_source
+    assert "payload.preview_token" in client_source
+    assert "completedCycleResults" in demo_source
+
+
+def test_m3_allocation_records_expose_persisted_cycle_item_details() -> None:
+    page_source = _read("pages/AdminClueAllocationPage.tsx")
+    client_source = _read("api/client.ts")
+    type_source = _read("types/dashboard.ts")
+    styles = _read("styles.css")
+
+    assert "fetchClueAllocationCycle" in page_source
+    assert "分配批次详情" in page_source
+    assert "查看详情" in page_source
+    assert "cycleItemColumns" in page_source
+    for field in [
+        "item.rule_binding_id",
+        "item.decision_id",
+        "item.assignment_round_id",
+        "item.headquarters_pool_entry_id",
+        "item.started_at",
+        "item.completed_at",
+        "item.error_code",
+    ]:
+        assert field in page_source
+    assert "/admin/clue-allocation/cycles/${encodeURIComponent(cycleId)}" in client_source
+    assert "export interface ClueAllocationCycleItem" in type_source
+    assert "export interface ClueAllocationCycleDetailData" in type_source
+    assert ".clue-allocation-cycle-dialog" in styles
+
+
+def test_m3_each_allocation_subview_only_loads_its_own_api_group() -> None:
+    page_source = _read("pages/AdminClueAllocationPage.tsx")
+
+    assert 'if (activeSubview === "trial")' in page_source
+    assert 'else if (activeSubview === "records")' in page_source
+    assert 'else if (activeSubview === "headquarters")' in page_source
+    assert "fetchClueAllocationEligibleLeads()," in page_source
+    assert "const auditData = await fetchClueAllocationAuditLogs();" in page_source
+    assert "if (isHighestAdmin)" in page_source
+    assert "{isHighestAdmin ? (" in page_source
+    assert "fetchClueHeadquartersPool({" in page_source
+    assert "fetchClueAllocationRules();" in page_source
 
 
 def test_m3_allocation_control_has_mobile_safe_layout() -> None:

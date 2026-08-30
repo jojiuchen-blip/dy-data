@@ -76,7 +76,7 @@
 | T0.1 | [sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md](sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md) | 已完成（2026-08-30） |
 | T0.2 | [sub-delivery-plan-dydata-clue-platform-completion-T0.2-dydata-8.md](sub-delivery-plan-dydata-clue-platform-completion-T0.2-dydata-8.md) | 已完成（2026-08-31） |
 | T0.3 | [sub-delivery-plan-dydata-clue-platform-completion-T0.3-dydata-14.md](sub-delivery-plan-dydata-clue-platform-completion-T0.3-dydata-14.md) | 已完成（2026-08-31） |
-| T0.4 | [sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md](sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md) | 进行中 |
+| T0.4 | [sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md](sub-delivery-plan-dydata-clue-platform-completion-T0.4-dydata-15.md) | 已完成（2026-08-31） |
 
 ### Phase 1：旧分配引擎下线
 
@@ -86,7 +86,7 @@
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T1.1 | [sub-delivery-plan-dydata-clue-platform-completion-T1.1-dydata-34.md](sub-delivery-plan-dydata-clue-platform-completion-T1.1-dydata-34.md) | 待开发 |
+| T1.1 | [sub-delivery-plan-dydata-clue-platform-completion-T1.1-dydata-34.md](sub-delivery-plan-dydata-clue-platform-completion-T1.1-dydata-34.md) | 进行中 |
 
 ### Phase 2：8GB 安全同步与线索增量物化
 

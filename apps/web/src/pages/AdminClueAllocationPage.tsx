@@ -3,6 +3,7 @@ import {
   ApiRequestError,
   createClueAllocationRule,
   createClueAllocationRuleVersion,
+  fetchClueAllocationCycle,
   fetchClueAllocationAuditLogs,
   fetchClueAllocationCycles,
   fetchClueAllocationDecisions,
@@ -20,7 +21,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
-import { ConfirmDialog } from "../components/Dialog";
+import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -29,6 +30,8 @@ import { TertiaryNav } from "../components/TertiaryNav";
 import type {
   ClueAllocationAuditLog,
   ClueAllocationCycle,
+  ClueAllocationCycleDetailData,
+  ClueAllocationCycleItem,
   ClueAllocationCyclePreview,
   ClueAllocationDecision,
   ClueAllocationEligibleLead,
@@ -95,7 +98,7 @@ interface RuleVersionDraft {
 }
 
 const defaultRuleVersionDraft: RuleVersionDraft = {
-  auto_expiry_enabled: true,
+  auto_expiry_enabled: false,
   first_follow_up_sla_hours: 24,
   protection_days: 7,
   conversion_weight: 0.7,
@@ -212,6 +215,15 @@ function displayHeadquartersPoolStatus(value: string): string {
   return value;
 }
 
+function displayCycleItemStatus(value: string): string {
+  if (value === "assigned" || value === "selected") return "已选中门店";
+  if (value === "headquarters") return "进入总部池";
+  if (value === "skipped") return "已跳过";
+  if (value === "failed") return "执行失败";
+  if (value === "running") return "执行中";
+  return value;
+}
+
 function summaryLabel(summary: Record<string, number> | undefined): string {
   if (!summary) {
     return "-";
@@ -317,6 +329,9 @@ export function AdminClueAllocationPage({
     useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
   const [headquartersLoading, setHeadquartersLoading] = useState(false);
   const [cycles, setCycles] = useState<ClueAllocationCycle[]>([]);
+  const [selectedCycleDetail, setSelectedCycleDetail] =
+    useState<ClueAllocationCycleDetailData | null>(null);
+  const [cycleDetailLoading, setCycleDetailLoading] = useState(false);
   const [auditLogs, setAuditLogs] = useState<ClueAllocationAuditLog[]>([]);
   const [rules, setRules] = useState<ClueAllocationRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState("");
@@ -415,38 +430,53 @@ export function AdminClueAllocationPage({
   const load = async ({ clearStatus = true }: { clearStatus?: boolean } = {}) => {
     setLoading(true);
     try {
-      const [eligible, headquarters, cycleData, auditData, ruleData, decisionData, scores] = await Promise.all([
-        fetchClueAllocationEligibleLeads(),
-        fetchClueHeadquartersPool({
+      if (activeSubview === "trial") {
+        const [eligible, cycleData] = await Promise.all([
+          fetchClueAllocationEligibleLeads(),
+          fetchClueAllocationCycles(),
+        ]);
+        setEligibleLeads(eligible.data.rows);
+        setCycles(cycleData.data.rows);
+        setSelectedLeadKeys((current) => {
+          const valid = new Set(eligible.data.rows.map((row) => row.lead_key));
+          return new Set(Array.from(current).filter((leadKey) => valid.has(leadKey)));
+        });
+        setSelectedRebuildCycleId((current) =>
+          cycleData.data.rows.some((cycle) => cycle.allocation_cycle_id === current)
+            ? current
+            : "",
+        );
+      } else if (activeSubview === "records") {
+        const [cycleData, decisionData, scores] = await Promise.all([
+          fetchClueAllocationCycles(),
+          fetchClueAllocationDecisions(),
+          fetchClueAllocationStoreScores(),
+        ]);
+        setCycles(cycleData.data.rows);
+        setDecisions(decisionData.data.rows);
+        setScoreData(scores.data);
+        if (isHighestAdmin) {
+          const auditData = await fetchClueAllocationAuditLogs();
+          setAuditLogs(auditData.data.rows);
+        } else {
+          setAuditLogs([]);
+        }
+      } else if (activeSubview === "headquarters") {
+        const headquarters = await fetchClueHeadquartersPool({
           ...headquartersFilters,
           page: headquartersPool.pagination.page,
           page_size: headquartersPool.pagination.page_size,
-        }),
-        fetchClueAllocationCycles(),
-        fetchClueAllocationAuditLogs(),
-        fetchClueAllocationRules(),
-        fetchClueAllocationDecisions(),
-        fetchClueAllocationStoreScores(),
-      ]);
-      setEligibleLeads(eligible.data.rows);
-      setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
-      setCycles(cycleData.data.rows);
-      setAuditLogs(auditData.data.rows);
-      setRules(ruleData.data.rows);
-      setDecisions(decisionData.data.rows);
-      setScoreData(scores?.data ?? null);
-      setSelectedLeadKeys((current) => {
-        const valid = new Set(eligible.data.rows.map((row) => row.lead_key));
-        return new Set(Array.from(current).filter((leadKey) => valid.has(leadKey)));
-      });
-      setSelectedRebuildCycleId((current) =>
-        cycleData.data.rows.some((cycle) => cycle.allocation_cycle_id === current) ? current : "",
-      );
-      setSelectedRuleId((current) =>
-        ruleData.data.rows.some((rule) => rule.rule_id === current)
-          ? current
-          : ruleData.data.rows[0]?.rule_id ?? "",
-      );
+        });
+        setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
+      } else {
+        const ruleData = await fetchClueAllocationRules();
+        setRules(ruleData.data.rows);
+        setSelectedRuleId((current) =>
+          ruleData.data.rows.some((rule) => rule.rule_id === current)
+            ? current
+            : ruleData.data.rows[0]?.rule_id ?? "",
+        );
+      }
       if (clearStatus) {
         setStatusText("");
       }
@@ -462,8 +492,9 @@ export function AdminClueAllocationPage({
   };
 
   useEffect(() => {
+    setSelectedCycleDetail(null);
     void load();
-  }, []);
+  }, [activeSubview]);
 
   useEffect(() => {
     const viewport = window.matchMedia("(max-width: 760px)");
@@ -824,6 +855,22 @@ export function AdminClueAllocationPage({
     }
   };
 
+  const loadCycleDetail = async (
+    cycleId: string,
+    page = 1,
+    pageSize = 50,
+  ) => {
+    setCycleDetailLoading(true);
+    try {
+      const response = await fetchClueAllocationCycle(cycleId, page, pageSize);
+      setSelectedCycleDetail(response.data);
+    } catch (error) {
+      setStatusText(userFacingError(error, "分配批次详情暂时无法读取。"));
+    } finally {
+      setCycleDetailLoading(false);
+    }
+  };
+
   const eligibleColumns: Column<ClueAllocationEligibleLead>[] = [
     ...(isWritable
       ? [
@@ -999,6 +1046,105 @@ export function AdminClueAllocationPage({
     },
   ];
 
+  const cycleItemColumns: Column<ClueAllocationCycleItem>[] = [
+    {
+      key: "sequence",
+      title: "序号",
+      width: 72,
+      render: (item) => item.sequence_no,
+    },
+    {
+      key: "lead",
+      title: "主线索键",
+      minWidth: 180,
+      render: (item) => item.lead_key,
+    },
+    {
+      key: "order",
+      title: "订单编号",
+      minWidth: 170,
+      render: (item) => displayValue(item.order_id),
+    },
+    {
+      key: "initial-pool",
+      title: "执行前位置",
+      minWidth: 130,
+      render: (item) => displayClueReason(item.initial_pool_location),
+    },
+    {
+      key: "status",
+      title: "处理结果",
+      minWidth: 130,
+      render: (item) => displayCycleItemStatus(item.item_status),
+    },
+    {
+      key: "reason",
+      title: "结果原因",
+      minWidth: 180,
+      render: (item) => displayClueReason(item.outcome_reason),
+    },
+    {
+      key: "attempts",
+      title: "尝试次数",
+      minWidth: 100,
+      render: (item) => item.attempt_count,
+    },
+    {
+      key: "rule-binding",
+      title: "规则绑定",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.rule_binding_id ?? undefined}>{displayValue(item.rule_binding_id)}</span>
+      ),
+    },
+    {
+      key: "decision",
+      title: "决策记录",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.decision_id ?? undefined}>{displayValue(item.decision_id)}</span>
+      ),
+    },
+    {
+      key: "assignment-round",
+      title: "分配轮次",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.assignment_round_id ?? undefined}>
+          {displayValue(item.assignment_round_id)}
+        </span>
+      ),
+    },
+    {
+      key: "headquarters-entry",
+      title: "总部池记录",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.headquarters_pool_entry_id ?? undefined}>
+          {displayValue(item.headquarters_pool_entry_id)}
+        </span>
+      ),
+    },
+    {
+      key: "started-at",
+      title: "开始时间",
+      minWidth: 160,
+      render: (item) => formatDateTime(item.started_at),
+    },
+    {
+      key: "completed-at",
+      title: "完成时间",
+      minWidth: 160,
+      render: (item) => formatDateTime(item.completed_at),
+    },
+    {
+      key: "error-code",
+      title: "错误码",
+      minWidth: 140,
+      render: (item) => displayValue(item.error_code),
+    },
+  ];
+
   const cycleColumns: Column<ClueAllocationCycle>[] = [
     {
       key: "type",
@@ -1025,6 +1171,25 @@ export function AdminClueAllocationPage({
       title: "完成时间",
       minWidth: 160,
       render: (cycle) => formatDateTime(cycle.completed_at ?? cycle.executed_at),
+    },
+    {
+      key: "detail",
+      title: "操作",
+      minWidth: 120,
+      render: (cycle) => (
+        <Button
+          icon="eye"
+          loading={
+            cycleDetailLoading &&
+            selectedCycleDetail?.cycle.allocation_cycle_id === cycle.allocation_cycle_id
+          }
+          onClick={() => void loadCycleDetail(cycle.allocation_cycle_id)}
+          size="sm"
+          type="button"
+        >
+          查看详情
+        </Button>
+      ),
     },
   ];
 
@@ -1083,7 +1248,7 @@ export function AdminClueAllocationPage({
 
       {!isHighestAdmin ? (
         <div aria-live="polite" className="resource-notice" role="status">
-          当前账号为只读权限，可查看线索分配状态、总部池、试运行记录和审计记录。
+          当前账号为只读权限，可查看授权门店范围内的线索分配状态、总部池和试运行记录。
         </div>
       ) : null}
 
@@ -1622,20 +1787,22 @@ export function AdminClueAllocationPage({
             />
           </section>
 
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>审计记录</h2>
-                <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+          {isHighestAdmin ? (
+            <section className="content-section">
+              <div className="section-title">
+                <div>
+                  <h2>审计记录</h2>
+                  <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+                </div>
               </div>
-            </div>
-            <DataTable
-              columns={auditColumns}
-              emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
-              rows={auditLogs}
-              stickyHeader="container"
-            />
-          </section>
+              <DataTable
+                columns={auditColumns}
+                emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
+                rows={auditLogs}
+                stickyHeader="container"
+              />
+            </section>
+          ) : null}
         </>
       ) : null}
 
@@ -1794,6 +1961,72 @@ export function AdminClueAllocationPage({
           />
         </section>
       ) : null}
+
+      <Dialog
+        bodyClassName="clue-allocation-cycle-dialog__body"
+        description={
+          selectedCycleDetail
+            ? `${displayAllocationCycleType(selectedCycleDetail.cycle.cycle_type)} · ${formatDateTime(selectedCycleDetail.cycle.completed_at ?? selectedCycleDetail.cycle.executed_at)}`
+            : undefined
+        }
+        onClose={() => setSelectedCycleDetail(null)}
+        open={Boolean(selectedCycleDetail)}
+        panelClassName="clue-allocation-cycle-dialog"
+        title="分配批次详情"
+      >
+        {selectedCycleDetail ? (
+          <>
+            <div className="clue-allocation-cycle-dialog__summary">
+              <span className="source-pill">
+                {displayAllocationCycleStatus(selectedCycleDetail.cycle.status)}
+              </span>
+              <span className="source-pill">
+                请求 {selectedCycleDetail.cycle.requested_lead_count} 条
+              </span>
+              <span className="source-pill">
+                分配 {selectedCycleDetail.cycle.assigned_lead_count} 条
+              </span>
+              <span className="source-pill">
+                总部池 {selectedCycleDetail.cycle.headquarters_pool_count} 条
+              </span>
+              <span className="source-pill">
+                失败 {selectedCycleDetail.cycle.failed_lead_count} 条
+              </span>
+            </div>
+            <DataTable
+              columns={cycleItemColumns}
+              emptyText="该批次暂无逐条处理记录"
+              loadingText="正在加载批次详情..."
+              rows={selectedCycleDetail.items}
+              state={cycleDetailLoading ? "loading" : "ready"}
+              stickyHeader="container"
+            />
+            <TablePagination
+              loading={cycleDetailLoading}
+              onPageChange={(page) =>
+                void loadCycleDetail(
+                  selectedCycleDetail.cycle.allocation_cycle_id,
+                  page,
+                  selectedCycleDetail.pagination.page_size,
+                )
+              }
+              onPageSizeChange={(pageSize) =>
+                void loadCycleDetail(
+                  selectedCycleDetail.cycle.allocation_cycle_id,
+                  1,
+                  pageSize,
+                )
+              }
+              page={selectedCycleDetail.pagination.page}
+              pageSize={selectedCycleDetail.pagination.page_size}
+              pageSizeOptions={[20, 50, 100]}
+              rowsOnPage={selectedCycleDetail.items.length}
+              total={selectedCycleDetail.pagination.total}
+              totalPages={selectedCycleDetail.pagination.total_pages}
+            />
+          </>
+        ) : null}
+      </Dialog>
 
       <ConfirmDialog
         confirmLabel="确认试运行"

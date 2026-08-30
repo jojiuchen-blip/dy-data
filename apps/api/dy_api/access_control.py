@@ -278,65 +278,79 @@ def account_permission_snapshot(session: Any, user: User) -> dict[str, Any]:
     }
 
 
-def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None:
+def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str, ...] | None:
     if path.startswith("/api/v1/auth/") or path.startswith("/api/v1/meta/") or path == "/api/v1/feedback":
         return None
     if path.startswith("/api/v1/admin/accounts") or path.startswith("/api/v1/admin/access-control"):
-        return "D02"
+        return ("D02",)
     if path.startswith("/api/v1/admin/feedback"):
-        return "D09"
+        return ("D09",)
     if path.startswith("/api/v1/admin/product-type"):
-        return "D04"
+        return ("D04",)
     if (
         path.startswith("/api/v1/admin/sku-products")
         or path.startswith("/api/v1/admin/sku-fee-rules")
         or path.startswith("/api/v1/admin/sku-fee-rule-imports")
         or path.startswith("/api/v1/admin/settlement-scope-rules")
     ):
-        return "D03"
+        return ("D03",)
     if path.startswith("/api/v1/admin/product-sync-runs"):
-        return "D10"
+        return ("D10",)
     if path.startswith("/api/v1/admin/sku-rules") or path.startswith("/api/v1/admin/non-commission"):
-        return "D03"
-    if path.startswith("/api/v1/admin/clue-allocation/headquarters") or path.startswith("/api/v1/admin/clue-allocation/eligible"):
-        return "D08"
+        return ("D03",)
+    if path.startswith("/api/v1/admin/clue-allocation/headquarters"):
+        return ("D08",)
+    if path.startswith("/api/v1/admin/clue-allocation/eligible"):
+        return ("D06",)
     if (
         path.startswith("/api/v1/admin/clue-allocation/records")
         or path.startswith("/api/v1/admin/clue-allocation/decisions")
         or path.startswith("/api/v1/admin/clue-allocation/audit-logs")
         or path.startswith("/api/v1/admin/clue-allocation/master-leads")
+        or path.startswith("/api/v1/admin/clue-allocation/store-scores")
     ):
-        return "D07"
-    if path.startswith("/api/v1/admin/clue-allocation/trial") or path.startswith("/api/v1/admin/clue-allocation/cycles"):
-        return "D06"
+        return ("D07",)
+    if path.startswith("/api/v1/admin/clue-allocation/cycles"):
+        return ("D06", "D07")
+    if (
+        path.startswith("/api/v1/admin/clue-allocation/trial")
+        or path.startswith("/api/v1/admin/clue-allocation/cycle-previews")
+        or path.startswith("/api/v1/admin/clue-allocation/rebuild-cycles")
+    ):
+        return ("D06",)
     if path.startswith("/api/v1/admin/clue-allocation"):
-        return "D05"
+        return ("D05",)
     if path.startswith("/api/v1/admin/sync") or path.startswith("/api/v1/jobs"):
-        return "D10"
+        return ("D10",)
     if path.startswith("/api/v1/admin"):
-        return "D01"
+        return ("D01",)
     if path.startswith("/api/v1/clues/filters") or path.startswith("/api/v1/clues/overview"):
-        return "A01"
+        return ("A01",)
     if path.startswith("/api/v1/clues/"):
-        return "A02"
+        return ("A02",)
     if path.startswith("/api/v1/clues"):
-        return "A01"
+        return ("A01",)
     if path.startswith("/api/v1/commission-rules"):
         return None
     if path.startswith("/api/v1/dashboard/store-ranking"):
-        return "B01"
+        return ("B01",)
     if path.startswith(
         ("/api/v1/store-settlements", "/api/v1/promotion-invoices", "/api/v1/disputes")
     ):
-        return "B02"
+        return ("B02",)
     if path.startswith("/api/v1/stores/") and (
         "monthly-settlement" in path or "sap-suggestions" in path
     ):
-        return "B02"
-    if path.startswith("/api/v1/order-details"):
-        return "B03"
-    if path.startswith("/api/v1/order-fee-details"):
-        return "B03"
+        return ("B02",)
+    if path.startswith("/api/v1/order-details") or path.startswith("/api/v1/order-fee-details"):
+        return ("B03",)
     if path.startswith("/api/v1/dashboard/sales"):
-        return "C01"
-    return "__UNREGISTERED__" if path.startswith("/api/v1/") else None
+        return ("C01",)
+    return ("__UNREGISTERED__",) if path.startswith("/api/v1/") else None
+
+
+def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None:
+    """Return the primary page key for legacy callers and diagnostics."""
+
+    page_keys = required_page_keys_for_api_path(path, method)
+    return page_keys[0] if page_keys else None

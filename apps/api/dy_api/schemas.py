@@ -838,11 +838,6 @@ class CluePhoneRevealData(BaseModel):
     phone_masked: str
 
 
-class ClueRebuildResult(BaseModel):
-    rebuilt_order_count: int = 0
-    rebuilt_round_count: int = 0
-
-
 class ProductTypeVisibilityData(BaseModel):
     enabled: bool = False
     visible_product_scopes: list[str] = Field(default_factory=list)
@@ -1014,6 +1009,7 @@ class ClueMasterLeadData(BaseModel):
 
 class ClueAllocationDecisionRow(BaseModel):
     decision_id: str
+    cycle_id: str | None = None
     lead_key: str
     order_id: str | None = None
     rule_id: str | None = None
@@ -1023,6 +1019,7 @@ class ClueAllocationDecisionRow(BaseModel):
     strategy_type: str
     execution_order: int | None = None
     allocation_cycle_id: str | None = None
+    dataset_kind: str = "formal"
     execution_mode: str
     assignment_round_id: str | None = None
     round_no: int | None = None
@@ -1030,6 +1027,9 @@ class ClueAllocationDecisionRow(BaseModel):
     selected_store_name: str | None = None
     decision_status: str
     reason: str | None = None
+    composite_score: float | None = None
+    distance_km: float | None = None
+    candidate_count: int = 0
     payload: dict[str, Any] = Field(default_factory=dict)
     actor: str | None = None
     executed_at: datetime
@@ -1038,6 +1038,28 @@ class ClueAllocationDecisionRow(BaseModel):
 class ClueAllocationDecisionData(BaseModel):
     rows: list[ClueAllocationDecisionRow] = Field(default_factory=list)
     pagination: Pagination
+
+
+class ClueAllocationCandidateRow(BaseModel):
+    candidate_id: str
+    store_id: str
+    store_name: str | None = None
+    eligibility_status: str
+    exclusion_reason_code: str | None = None
+    is_sales_store: bool = False
+    is_historical_assignment: bool = False
+    distance_km: float | None = None
+    conversion_rate: float | None = None
+    follow_24h_rate: float | None = None
+    store_weight: float | None = None
+    composite_score: float | None = None
+    rank_no: int | None = None
+    is_selected: bool = False
+
+
+class ClueAllocationDecisionDetailData(BaseModel):
+    decision: ClueAllocationDecisionRow
+    candidates: list[ClueAllocationCandidateRow] = Field(default_factory=list)
 
 
 class ClueAllocationEligibleLeadRow(BaseModel):
@@ -1105,25 +1127,63 @@ class ClueHeadquartersPoolData(BaseModel):
 
 
 class ClueAllocationCycleRow(BaseModel):
+    cycle_id: str
     allocation_cycle_id: str
+    cycle_mode: str
     cycle_type: str
     execution_mode: str
+    cycle_status: str
     status: str
+    trigger_type: str = "manual"
     parent_cycle_id: str | None = None
+    source_cycle_id: str | None = None
     selected_lead_keys: list[str] = Field(default_factory=list)
     requested_lead_count: int = 0
+    eligible_lead_count: int = 0
     active_lead_count: int = 0
+    assigned_lead_count: int = 0
+    headquarters_pool_count: int = 0
+    skipped_lead_count: int = 0
+    failed_lead_count: int = 0
     planned_impact: dict[str, Any] = Field(default_factory=dict)
     actual_impact: dict[str, Any] = Field(default_factory=dict)
     actor: str | None = None
+    actor_user_id: str | None = None
+    actor_username: str | None = None
     privileged_confirmation: bool = False
+    requested_at: datetime
     created_at: datetime
     executed_at: datetime | None = None
     completed_at: datetime | None = None
+    error_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ClueAllocationCycleData(BaseModel):
     rows: list[ClueAllocationCycleRow] = Field(default_factory=list)
+    pagination: Pagination
+
+
+class ClueAllocationCycleItemRow(BaseModel):
+    cycle_item_id: str
+    sequence_no: int
+    lead_key: str
+    order_id: str | None = None
+    item_status: str
+    initial_pool_location: str | None = None
+    outcome_reason: str | None = None
+    rule_binding_id: str | None = None
+    decision_id: str | None = None
+    assignment_round_id: str | None = None
+    headquarters_pool_entry_id: str | None = None
+    attempt_count: int = 1
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_code: str | None = None
+
+
+class ClueAllocationCycleDetailData(BaseModel):
+    cycle: ClueAllocationCycleRow
+    items: list[ClueAllocationCycleItemRow] = Field(default_factory=list)
     pagination: Pagination
 
 
@@ -1132,6 +1192,13 @@ class ClueAllocationAuditLogRow(BaseModel):
     event_type: str
     allocation_cycle_id: str | None = None
     actor: str | None = None
+    actor_user_id: str | None = None
+    actor_username_snapshot: str | None = None
+    actor_role_snapshot: str | None = None
+    actor_scope_snapshot: dict[str, Any] = Field(default_factory=dict)
+    request_id: str | None = None
+    result_status: str = "success"
+    reason_code: str | None = None
     privileged_confirmation: bool = False
     before_snapshot: dict[str, Any] = Field(default_factory=dict)
     after_snapshot: dict[str, Any] = Field(default_factory=dict)
@@ -1145,10 +1212,11 @@ class ClueAllocationAuditLogData(BaseModel):
 
 
 class ClueAllocationCyclePreviewRequest(BaseModel):
-    operation: Literal["trial", "rebuild"] = "trial"
-    lead_keys: list[str] = Field(default_factory=list, max_length=500)
+    operation: Literal["trial", "trial_rebuild"]
+    lead_keys: list[str] = Field(default_factory=list, max_length=200)
     source_cycle_id: str | None = Field(default=None, max_length=256)
     privileged_confirmation: bool = False
+    rebind_rule_version: bool = False
 
     @field_validator("lead_keys")
     def normalize_preview_lead_keys(cls, values: list[str]) -> list[str]:
@@ -1158,15 +1226,15 @@ class ClueAllocationCyclePreviewRequest(BaseModel):
     def validate_preview_target(self) -> "ClueAllocationCyclePreviewRequest":
         if self.operation == "trial" and not self.lead_keys:
             raise ValueError("trial preview requires at least one lead key")
-        if self.operation == "rebuild" and not (self.source_cycle_id or "").strip():
+        if self.operation == "trial_rebuild" and not (self.source_cycle_id or "").strip():
             raise ValueError("rebuild preview requires a source cycle")
         return self
 
 
 class ClueAllocationCycleRequest(BaseModel):
-    lead_keys: list[str] = Field(min_length=1, max_length=500)
+    lead_keys: list[str] = Field(min_length=1, max_length=200)
     preview_token: str | None = Field(default=None, max_length=4096)
-    confirm: bool = False
+    confirmation_text: str = Field(max_length=32)
     privileged_confirmation: bool = False
 
     @field_validator("lead_keys")
@@ -1180,7 +1248,7 @@ class ClueAllocationCycleRequest(BaseModel):
 class ClueAllocationCycleRebuildRequest(BaseModel):
     source_cycle_id: str = Field(min_length=1, max_length=256)
     preview_token: str | None = Field(default=None, max_length=4096)
-    confirm: bool = False
+    confirmation_text: str = Field(max_length=32)
     privileged_confirmation: bool = False
 
     @field_validator("source_cycle_id")
@@ -1193,9 +1261,11 @@ class ClueAllocationCycleRebuildRequest(BaseModel):
 
 class ClueAllocationCyclePreviewData(BaseModel):
     requested_lead_count: int = 0
+    eligible_lead_count: int = 0
     active_lead_count: int = 0
     lead_keys: list[str] = Field(default_factory=list)
     summary: dict[str, int] = Field(default_factory=dict)
+    changed_leads: list[dict[str, Any]] = Field(default_factory=list)
     operation: str = "trial"
     source_cycle_id: str | None = None
     preview_token: str
@@ -1203,14 +1273,23 @@ class ClueAllocationCyclePreviewData(BaseModel):
 
 
 class ClueAllocationCycleExecutionData(BaseModel):
+    cycle_id: str
     allocation_cycle_id: str
+    cycle_mode: str
     cycle_type: str
     execution_mode: str
+    cycle_status: str
     status: str
     requested_lead_count: int = 0
+    eligible_lead_count: int = 0
     active_lead_count: int = 0
+    assigned_lead_count: int = 0
+    headquarters_pool_count: int = 0
+    skipped_lead_count: int = 0
+    failed_lead_count: int = 0
     privileged_confirmation: bool = False
     parent_cycle_id: str | None = None
+    source_cycle_id: str | None = None
     summary: dict[str, int] = Field(default_factory=dict)
 
 

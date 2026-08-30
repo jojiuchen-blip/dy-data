@@ -3222,6 +3222,8 @@ class ClueAllocationCycle(Base):
         Index("ix_clue_allocation_cycles_mode_status", "execution_mode", "status"),
         Index("ix_clue_allocation_cycles_parent", "parent_cycle_id"),
         Index("uq_clue_allocation_cycles_preview_token_hash", "preview_token_hash", unique=True),
+        Index("uq_clue_allocation_cycles_idempotency_key_hash", "idempotency_key_hash", unique=True),
+        Index("ix_clue_allocation_cycles_actor_user", "actor_user_id", "created_at"),
     )
 
     allocation_cycle_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3235,11 +3237,104 @@ class ClueAllocationCycle(Base):
     planned_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     actual_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     actor: Mapped[str | None] = mapped_column(Text)
+    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_username_snapshot: Mapped[str | None] = mapped_column(Text)
     privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
     preview_token_hash: Mapped[str | None] = mapped_column(String(64))
+    preview_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    idempotency_request_hash: Mapped[str | None] = mapped_column(String(64))
+    request_scope_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    error_summary: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    state_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ClueAllocationCycleItem(Base):
+    """Per-lead execution evidence for one allocation cycle."""
+
+    __tablename__ = "clue_allocation_cycle_items"
+    __table_args__ = (
+        UniqueConstraint("allocation_cycle_id", "lead_key", name="uq_clue_allocation_cycle_items_cycle_lead"),
+        UniqueConstraint(
+            "allocation_cycle_id",
+            "sequence_no",
+            name="uq_clue_allocation_cycle_items_cycle_sequence",
+        ),
+        Index("ix_clue_allocation_cycle_items_cycle_status", "allocation_cycle_id", "item_status"),
+        Index("ix_clue_allocation_cycle_items_lead_created", "lead_key", "created_at"),
+    )
+
+    cycle_item_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    allocation_cycle_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_cycles.allocation_cycle_id", ondelete="CASCADE"),
+        index=True,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer)
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    item_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    initial_pool_location: Mapped[str | None] = mapped_column(String(32))
+    rule_binding_id: Mapped[str | None] = mapped_column(Text)
+    decision_id: Mapped[str | None] = mapped_column(Text, index=True)
+    assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    headquarters_pool_entry_id: Mapped[str | None] = mapped_column(Text, index=True)
+    outcome_reason: Mapped[str | None] = mapped_column(String(128))
+    precondition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_detail: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueAllocationCandidate(Base):
+    """Immutable candidate snapshot captured when an allocation decision is made."""
+
+    __tablename__ = "clue_allocation_candidates"
+    __table_args__ = (
+        UniqueConstraint("decision_id", "store_id", name="uq_clue_allocation_candidates_decision_store"),
+        Index("ix_clue_allocation_candidates_decision_rank", "decision_id", "eligibility_status", "rank_no"),
+        Index("ix_clue_allocation_candidates_store_evaluated", "store_id", "evaluated_at"),
+        Index("ix_clue_allocation_candidates_exclusion", "exclusion_reason_code", "evaluated_at"),
+    )
+
+    candidate_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    decision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_decisions.decision_id", ondelete="CASCADE"),
+        index=True,
+    )
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    strategy_type: Mapped[str] = mapped_column(String(64), index=True)
+    store_id: Mapped[str] = mapped_column(Text, index=True)
+    store_name_snapshot: Mapped[str] = mapped_column(Text)
+    city_code: Mapped[str | None] = mapped_column(String(64))
+    eligibility_status: Mapped[str] = mapped_column(String(32), index=True)
+    exclusion_reason_code: Mapped[str | None] = mapped_column(String(128), index=True)
+    exclusion_detail: Mapped[str | None] = mapped_column(String(500))
+    is_sales_store: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_historical_assignment: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_serviceable: Mapped[bool] = mapped_column(Boolean, default=False)
+    distance_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    store_location_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    score_snapshot_id: Mapped[str | None] = mapped_column(Text, index=True)
+    conversion_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    follow_24h_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    store_weight: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    composite_score: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), index=True)
+    rank_no: Mapped[int | None] = mapped_column(Integer)
+    is_selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_key_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ClueHeadquartersPoolEntry(Base):
@@ -3293,6 +3388,8 @@ class ClueAllocationAuditLog(Base):
     __table_args__ = (
         Index("ix_clue_allocation_audit_logs_cycle_created", "allocation_cycle_id", "created_at"),
         Index("ix_clue_allocation_audit_logs_event_created", "event_type", "created_at"),
+        Index("ix_clue_allocation_audit_logs_actor_created", "actor_user_id", "created_at"),
+        Index("ix_clue_allocation_audit_logs_request_id", "request_id"),
     )
 
     audit_log_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3303,6 +3400,13 @@ class ClueAllocationAuditLog(Base):
         index=True,
     )
     actor: Mapped[str | None] = mapped_column(Text)
+    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_username_snapshot: Mapped[str | None] = mapped_column(Text)
+    actor_role_snapshot: Mapped[str | None] = mapped_column(String(32))
+    actor_scope_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    request_id: Mapped[str | None] = mapped_column(Text)
+    result_status: Mapped[str] = mapped_column(String(32), default="success")
+    reason_code: Mapped[str | None] = mapped_column(String(128))
     privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
     before_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     after_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
