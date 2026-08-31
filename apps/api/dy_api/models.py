@@ -3388,7 +3388,7 @@ class JobRun(Base):
         ),
         CheckConstraint(
             "status IN ('pending', 'queued', 'running', 'retry_wait', "
-            "'success', 'partial', 'failed', 'cancelled')",
+            "'success', 'succeeded', 'partial', 'failed', 'cancelled')",
             name="ck_job_runs_status_allowlist",
         ),
         CheckConstraint(

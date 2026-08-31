@@ -1,6 +1,6 @@
 """protect finance dispute detection idempotency
 
-Revision ID: 20260830_0044
+Revision ID: 20260831_0044
 Revises: 20260824_0043
 Create Date: 2026-08-30 21:30:00
 """
@@ -11,7 +11,7 @@ from alembic import op
 import sqlalchemy as sa
 
 
-revision = "20260830_0044"
+revision = "20260831_0044"
 down_revision = "20260824_0043"
 branch_labels = None
 depends_on = None
