@@ -31,6 +31,11 @@ import type {
   AccountRow,
   AccountUpsertPayload,
   AccessControlData,
+  AdminJobControlAction,
+  AdminOperationJob,
+  AdminOperationJobDetail,
+  AdminOperationsOverview,
+  AdminOpsCommand,
   AdminUser,
   ClueAssignmentRoundData,
   ClueAllocationAuditLogData,
@@ -180,6 +185,7 @@ interface RequestJsonOptions {
   cacheKey?: string;
   forceRefresh?: boolean;
   maxAgeMs?: number;
+  signal?: AbortSignal;
 }
 
 interface CachedGetResponse {
@@ -324,7 +330,7 @@ async function requestJson<T>(
     cachedGetResponses.delete(requestKey);
   }
 
-  const inFlight = inFlightGetRequests.get(requestKey);
+  const inFlight = options.signal ? undefined : inFlightGetRequests.get(requestKey);
   if (inFlight) {
     return inFlight as Promise<ApiResponse<T>>;
   }
@@ -333,6 +339,7 @@ async function requestJson<T>(
   const request = fetch(url, {
     credentials: "include",
     headers: { Accept: "application/json" },
+    signal: options.signal,
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -363,10 +370,12 @@ async function requestJson<T>(
       inFlightGetRequests.delete(requestKey);
     }
   });
-  inFlightGetRequests.set(
-    requestKey,
-    trackedRequest as Promise<ApiResponse<unknown>>,
-  );
+  if (!options.signal) {
+    inFlightGetRequests.set(
+      requestKey,
+      trackedRequest as Promise<ApiResponse<unknown>>,
+    );
+  }
   return trackedRequest;
 }
 
@@ -2265,6 +2274,74 @@ export async function fetchCommissionRulesSummary(): Promise<
 export async function fetchSyncAdmin(): Promise<ApiLoadResult<SyncAdminData>> {
   return {
     ...(await requestJson<SyncAdminData>("/admin/sync")),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminOperationsOverview(
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOperationsOverview>> {
+  return {
+    ...(await requestJson<AdminOperationsOverview>(
+      "/admin/operations/overview",
+      undefined,
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminOperationJob(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOperationJobDetail>> {
+  return {
+    ...(await requestJson<AdminOperationJobDetail>(
+      `/admin/operations/jobs/${encodeURIComponent(jobId)}`,
+      undefined,
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function submitAdminJobControl(
+  jobId: string,
+  action: AdminJobControlAction,
+  reason: string,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<AdminOperationJob & { replayed: boolean; intent: string }>> {
+  return {
+    ...(await sendJson<AdminOperationJob & { replayed: boolean; intent: string }>(
+      `/admin/operations/jobs/${encodeURIComponent(jobId)}/${action}`,
+      {
+        body: { reason },
+        headers: { "Idempotency-Key": idempotencyKey },
+        method: "POST",
+      },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function submitAdminOpsCommand(
+  targetComponent: "worker" | "browser",
+  reason: string,
+  idempotencyKey: string,
+  relatedJobId?: string | null,
+): Promise<ApiLoadResult<AdminOpsCommand>> {
+  return {
+    ...(await sendJson<AdminOpsCommand>("/admin/operations/commands", {
+      body: {
+        command_type: "restart",
+        target_component: targetComponent,
+        reason,
+        confirmed: true,
+        related_job_id: relatedJobId ?? null,
+      },
+      headers: { "Idempotency-Key": idempotencyKey },
+      method: "POST",
+    })),
     usingMock: false,
   };
 }

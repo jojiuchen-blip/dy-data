@@ -240,7 +240,15 @@ export interface AccountPasswordResetPayload
 export interface JobRun {
   job_id: string;
   job_name: string;
-  status: "running" | "success" | "failed" | "queued";
+  status:
+    | "pending"
+    | "queued"
+    | "running"
+    | "retry_wait"
+    | "success"
+    | "partial"
+    | "failed"
+    | "cancelled";
   started_at: string | null;
   finished_at: string | null;
   success_count: number;
@@ -291,6 +299,106 @@ export interface SyncAdminData {
   schedule: SyncScheduleData;
   worker_status: SyncWorkerStatusData;
   jobs: JobRun[];
+}
+
+export type AdminObservedStatus =
+  | "starting"
+  | "healthy"
+  | "degraded"
+  | "draining"
+  | "unhealthy"
+  | "stopped"
+  | "lost"
+  | "unknown";
+
+export interface AdminOperationResources {
+  cpu_percent?: number | null;
+  rss_bytes?: number | null;
+  rss_peak_bytes?: number | null;
+  memory_limit_bytes?: number | null;
+  queue_depth?: number | null;
+}
+
+export interface AdminOperationComponent {
+  component_type: "api" | "postgres" | "worker" | "browser" | "proxy" | "ops_agent";
+  component_instance_id: string | null;
+  declared_status: string | null;
+  observed_status: AdminObservedStatus;
+  last_heartbeat_at: string | null;
+  allow_restart: boolean;
+  current_job_id?: string | null;
+  current_attempt_id?: string | null;
+  activity: Record<string, unknown>;
+  queue_summary: Record<string, unknown>;
+  resources: AdminOperationResources;
+}
+
+export interface AdminOperationJob {
+  job_id: string;
+  parent_job_id: string | null;
+  job_name: string;
+  job_kind: string | null;
+  business_date: string | null;
+  status: JobRun["status"];
+  current_stage: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  started_at: string | null;
+  finished_at: string | null;
+  heartbeat_at: string | null;
+  next_retry_at: string | null;
+  progress_current: number;
+  progress_total: number;
+  progress_percent: number | null;
+  rows_read: number;
+  rows_written: number;
+  rows_affected: number;
+  rss_peak_bytes: number;
+  error_code: string | null;
+  error_summary: string | null;
+  cancel_requested: boolean;
+  pause_requested: boolean;
+}
+
+export interface AdminOperationsOverview {
+  components: AdminOperationComponent[];
+  jobs: AdminOperationJob[];
+  active_count: number;
+  queued_count: number;
+}
+
+export interface AdminOperationJobDetail {
+  job: AdminOperationJob;
+  eta: {
+    state: "available" | "estimating";
+    remaining_seconds: number | null;
+    confidence: string;
+  };
+  children: AdminOperationJob[];
+  stages: Array<Record<string, unknown>>;
+  attempts: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+}
+
+export type AdminJobControlAction = "pause" | "resume" | "cancel" | "retry";
+
+export interface AdminOpsCommand {
+  command_id: string;
+  command_type: "restart";
+  target_component: "worker" | "browser";
+  requested_by: string;
+  request_reason: string;
+  confirmed_at: string;
+  status: string;
+  related_job_id: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string;
+  cooldown_until: string | null;
+  result_code: string | null;
+  result_summary: string | null;
+  replayed: boolean;
 }
 
 export interface SyncConfigUpdate {

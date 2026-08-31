@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { AdminProductSyncPanel } from "../components/AdminProductSyncPanel";
+import { ComponentRoom } from "../components/admin-sync/ComponentRoom";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { FieldInput, SelectField } from "../components/FormControls";
@@ -65,6 +66,9 @@ function statusLabel(status: JobRun["status"]): string {
   if (status === "success") return "成功";
   if (status === "failed") return "失败";
   if (status === "running") return "运行中";
+  if (status === "partial") return "部分完成";
+  if (status === "cancelled") return "已取消";
+  if (status === "retry_wait") return "等待重试";
   return "已排队";
 }
 
@@ -136,6 +140,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   const [statusText, setStatusText] = useState("");
   const draftDirtyRef = useRef(false);
   const configBaselineRef = useRef("");
+  const manualTaskRef = useRef<HTMLElement | null>(null);
 
   const loadData = () => {
     setLoading(true);
@@ -170,7 +175,13 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
   };
 
   useEffect(() => {
+    if (!isHighestAdmin) {
+      setAuthenticated(false);
+      setCheckingSession(false);
+      return undefined;
+    }
     let cancelled = false;
+    setCheckingSession(true);
     fetchAdminSession()
       .then(() => {
         if (!cancelled) {
@@ -190,14 +201,14 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isHighestAdmin]);
 
   useEffect(() => {
-    if (!authenticated) return undefined;
+    if (!isHighestAdmin || !authenticated) return undefined;
     loadData();
     const timer = window.setInterval(loadData, 30000);
     return () => window.clearInterval(timer);
-  }, [authenticated]);
+  }, [authenticated, isHighestAdmin]);
 
   const updateDraft = (patch: Partial<ReturnType<typeof configToDraft>>) => {
     setDraft((current) => (current ? { ...current, ...patch } : current));
@@ -277,6 +288,10 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         job.error_message ? displaySyncFailureReason(job.error_message) : phaseSummary(job),
     },
   ];
+
+  if (!isHighestAdmin) {
+    return null;
+  }
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -407,6 +422,11 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
           {statusText}
         </div>
       ) : null}
+      <ComponentRoom
+        onCreateTask={() =>
+          manualTaskRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
+        }
+      />
       <AdminProductSyncPanel />
       {remoteConfigChanged ? (
         <div
@@ -459,7 +479,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         />
       </section>
 
-      <section className="content-section">
+      <section className="content-section" id="manual-sync-task" ref={manualTaskRef}>
         <div className="section-title">
           <div>
             <h2>后台同步状态</h2>
