@@ -2,6 +2,27 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
+## S4-FCR-006：门店开票登记与状态查询契约补充
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-006` |
+| 来源 Task | `T1.1 DYDATA-81 门店端财务页面` |
+| 分类 | `DRIFT` |
+| 改动项 | 门店开票登记增加服务端日期边界校验；发票列表增加号码精确查询条件并在服务端分页前执行；B02 写操作权限按既有页面权限与门店范围控制，不再额外限定仅门店角色。 |
+| 原因 | 用户 2026-08-28 最新明确确认覆盖冲突旧讨论：开票日期不得早于账单确认/锁账日且不得晚于服务器北京时间当前日；发票号要求精确服务端查询；管理员不被角色硬编码禁止登记或处理替换。现有 Foundation 尚未完整冻结这些条件。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py` 的推广费发票列表、登记与生命周期端点；`apps/web/src/api/client.ts`；`apps/web/src/pages/StoreInvoicePage.tsx`；`apps/web/src/pages/StoreInvoiceStatusPage.tsx`；`tests/test_api_store_billing.py` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §4`；对应权限与状态流转章节 |
+| 严重度 | `高（日期越界、查询语义或角色硬限制会直接改变门店开票结果）` |
+| 状态 | `待评审` |
+
+### 已按最新确认实现的保护边界
+
+- 列表查询使用发票号码精确等值条件，先筛选再计算总数与分页；不在浏览器做号码子串过滤。
+- 开票日期下界取所覆盖账期的确认时间、账单确认时间和锁账时间中的最晚日期，上界取服务器北京时间当前日期。
+- 页面访问与写操作继续经过 B02、门店数据范围和既有操作权限；不以 `role === store` 作为额外业务限制。
+- 本条只记录 Foundation 漂移，不修改财务端页面、财务端接口、导航、权限或测试。
+
 ## S4-FCR-005：账单响应缺少服务端可确认金额
 
 | 字段 | 内容 |

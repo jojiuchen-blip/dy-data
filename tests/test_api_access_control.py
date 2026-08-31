@@ -207,6 +207,14 @@ def test_all_current_business_api_families_are_registered_and_unknown_defaults_t
     assert required_page_key_for_api_path("/api/v1/future-business-page") == "__UNREGISTERED__"
 
 
+def test_store_invoice_status_api_uses_the_store_settlement_permission() -> None:
+    assert required_page_key_for_api_path("/api/v1/store-invoice-status") == "B02"
+
+
+def test_embedded_order_fee_details_use_the_store_settlement_permission() -> None:
+    assert required_page_key_for_api_path("/api/v1/order-fee-details") == "B02"
+
+
 def test_order_detail_permission_registers_all_current_frontend_routes() -> None:
     definition = next(page for page in PAGE_DEFINITIONS if page.page_key == "B03")
     assert definition.route_patterns == ("/details", "/invoice")

@@ -106,6 +106,11 @@ const StoreInvoicePage = lazy(() =>
     default: module.StoreInvoicePage,
   })),
 );
+const StoreInvoiceStatusPage = lazy(() =>
+  import("./pages/StoreInvoiceStatusPage").then((module) => ({
+    default: module.StoreInvoiceStatusPage,
+  })),
+);
 
 function readLocation() {
   return {
@@ -171,6 +176,7 @@ const pageKeyByPath: Array<[string, string]> = [
   ["/clues", "A01"],
   ["/ranking", "B01"],
   ["/settlement", "B02"],
+  ["/settlement/invoice/status", "B02"],
   ["/settlement/invoice", "B02"],
   ["/details", "B03"],
   ["/invoice", "B02"],
@@ -183,9 +189,6 @@ function firstAccessiblePath(user: AdminUser): string {
 }
 
 export function hasPageAccess(user: AdminUser, pathname: string): boolean {
-  if (pathname === "/finance/stores" && user.role === "store") {
-    return user.page_keys.includes("B02");
-  }
   const match = pageKeyByPath.find(
     ([path]) => pathname === path,
   );
@@ -409,7 +412,9 @@ export function App() {
 
         const page =
           location.pathname === "/settlement" ? (
-            <StoreSettlementPage searchParams={searchParams} />
+            <StoreSettlementPage currentUser={user} searchParams={searchParams} />
+          ) : location.pathname === "/settlement/invoice/status" ? (
+            <StoreInvoiceStatusPage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/settlement/invoice" ? (
             <StoreInvoicePage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/promotion" ? (

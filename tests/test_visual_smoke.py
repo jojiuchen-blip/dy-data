@@ -724,7 +724,7 @@ def vite_live_admin_api_base_url(live_admin_fastapi_base_url: str) -> Generator[
             process.wait(timeout=10)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="module")
 def browser() -> Generator[Browser]:
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
@@ -1629,7 +1629,13 @@ def test_settlement_desktop_subnav_keeps_every_item_visible(
         nav_box = nav.bounding_box()
         assert nav_box is not None
         links = nav.locator("a")
-        assert links.count() == 5
+        assert links.count() == 4
+        assert links.all_text_contents() == [
+            "全国门店榜单",
+            "单店分账",
+            "开票确认",
+            "发票状态查看",
+        ]
         for index in range(links.count()):
             link_box = links.nth(index).bounding_box()
             assert link_box is not None
@@ -1818,6 +1824,7 @@ def test_sales_charts_keep_keyboard_accessible_names_and_readable_type(
         page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
         page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
         figures = page.locator(".sales-echart")
+        figures.first.wait_for(timeout=10000)
         assert figures.count() == 2
 
         rainfall = figures.first
@@ -1855,6 +1862,38 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
     page = context.new_page()
     try:
         install_api_routes(page)
+        page.unroute("**/api/v1/store-settlements?*")
+
+        def matching_statement(route) -> None:
+            metric_scope = (
+                "CUMULATIVE"
+                if "metricScope=CUMULATIVE" in route.request.url
+                else "MONTH"
+            )
+            route.fulfill(
+                status=200,
+                content_type="application/json",
+                body=api_payload({
+                    "list": [
+                        billing_statement_data(
+                            "ST-SH-001",
+                            "上海浦东体验中心",
+                        )
+                    ],
+                    "total": 1,
+                    "page": 1,
+                    "pageSize": 1,
+                    "metricScope": metric_scope,
+                    "metrics": {
+                        metric_scope.lower(): {
+                            "promotionAmountCent": 38000,
+                            "managementAmountCent": 9000,
+                        }
+                    },
+                }),
+            )
+
+        page.route("**/api/v1/store-settlements?*", matching_statement)
         page.goto(f"{vite_base_url}/settlement", wait_until="domcontentloaded")
         page.get_by_role("heading", name="单店分账", exact=True).wait_for(timeout=10000)
 
@@ -1862,8 +1901,9 @@ def test_settlement_mock_filter_and_statement_use_the_same_store(
             "上海浦东体验中心",
             timeout=10000,
         )
-        page.get_by_role("region", name="账单状态").get_by_text(
-            "上海浦东体验中心",
+        page.get_by_role(
+            "button",
+            name="确认管理服务费",
             exact=True,
         ).wait_for(timeout=10000)
     finally:
@@ -1907,6 +1947,25 @@ def test_settlement_does_not_offer_stale_statement_while_filter_refresh_is_pendi
             )
 
         def fulfill_billing(route) -> None:
+            if "metricScope=CUMULATIVE" in route.request.url:
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=api_payload({
+                        "list": [],
+                        "total": 0,
+                        "page": 1,
+                        "pageSize": 1,
+                        "metricScope": "CUMULATIVE",
+                        "metrics": {
+                            "cumulative": {
+                                "promotionAmountCent": 38000,
+                                "managementAmountCent": 9000,
+                            }
+                        },
+                    }),
+                )
+                return
             if "storeId=store_002" in route.request.url or "month=2026-09" in route.request.url:
                 pending_billing_routes.append(route)
                 return
@@ -1979,6 +2038,25 @@ def test_settlement_version_conflict_closes_dialog_and_refreshes_statement(
 
         def fulfill_billing(route) -> None:
             nonlocal billing_requests
+            if "metricScope=CUMULATIVE" in route.request.url:
+                route.fulfill(
+                    status=200,
+                    content_type="application/json",
+                    body=api_payload({
+                        "list": [],
+                        "total": 0,
+                        "page": 1,
+                        "pageSize": 1,
+                        "metricScope": "CUMULATIVE",
+                        "metrics": {
+                            "cumulative": {
+                                "promotionAmountCent": 38000,
+                                "managementAmountCent": 9000,
+                            }
+                        },
+                    }),
+                )
+                return
             billing_requests += 1
             if conflict_seen:
                 pending_billing_routes.append(route)
@@ -2060,7 +2138,10 @@ def test_settlement_version_conflict_closes_dialog_and_refreshes_statement(
                 "metrics": {"month": {"promotionAmountCent": 38000, "managementAmountCent": 9500}},
             }),
         )
-        expect(page.get_by_text("当前金额 ¥95.00", exact=False)).to_be_visible(timeout=10000)
+        management_card = page.locator("article").filter(has_text="管理服务费确认")
+        expect(management_card.get_by_text("¥95.00", exact=True)).to_be_visible(
+            timeout=10000,
+        )
         assert billing_requests > requests_before_confirmation
     finally:
         for pending_route in pending_billing_routes:
@@ -2156,6 +2237,16 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
                             "promotionNetFeeCent": 800,
                             "managementNetFeeCent": 400,
                             "netSettlementReferenceCent": 400,
+                            "salesOrderCountCumulative": 1,
+                            "salesAmountCumulativeCent": 10000,
+                            "verifiedOrderCountCumulative": 1,
+                            "verifiedAmountCumulativeCent": 10000,
+                            "promotionMonthFeeCent": 800,
+                            "promotionCumulativeFeeCent": 800,
+                            "managementMonthFeeCent": 400,
+                            "managementCumulativeFeeCent": 400,
+                            "netSettlementReferenceMonthCent": 400,
+                            "netSettlementReferenceCumulativeCent": 400,
                         },
                         "list": [],
                         "total": 0,
@@ -2172,8 +2263,9 @@ def test_ranking_uses_backend_enum_contract_and_latest_sale_month(
         assert ranking_urls
         request_url = ranking_urls[-1]
         assert "periodKey=2026-07" in request_url
-        assert "sortBy=NET_SETTLEMENT_REFERENCE" in request_url
+        assert "sortBy=PROMOTION_FEE" in request_url
         assert "sortOrder=DESC" in request_url
+        assert "rankingBasis=PROMOTION_FEE_MONTH" in request_url
     finally:
         context.close()
 
@@ -3707,6 +3799,7 @@ def test_sales_metric_cards_share_one_white_card_treatment(
         page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
 
         cards = page.locator(".metric-card")
+        cards.first.wait_for(timeout=10000)
         assert cards.count() == 6
         treatments = cards.evaluate_all(
             """(nodes) => nodes.map((node) => {
@@ -3802,6 +3895,9 @@ def test_desktop_detail_pages_keep_pagination_visible_and_scroll_table_region(
         install_api_routes(page)
         page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
         page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+        page.locator(
+            ".content-section--data-workspace .table-pagination",
+        ).wait_for(timeout=10000)
 
         metrics = page.evaluate(
             """() => {
@@ -3950,19 +4046,27 @@ def test_store_invoice_preserves_422_input_then_reads_back_success(
             f"{vite_base_url}/settlement/invoice?storeId=store_001&month=2026-08",
             wait_until="domcontentloaded",
         )
-        page.get_by_role("button", name="选择抵扣组").click()
+        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
+        page.get_by_label("填写人电话").fill("13800000000")
+        page.get_by_label("税率").fill("6")
         number = page.get_by_label("20 位数电专票号码")
         invoice_date = page.get_by_label("开票日期")
-        number.fill("12345678901234567890")
+        number.fill("12345678901234567891")
         invoice_date.fill("2026-08-08")
-        page.get_by_role("button", name="登记并提交").click()
-        page.get_by_text("提交内容未通过校验，请检查后重试。", exact=True).wait_for(timeout=10000)
-        assert number.input_value() == "12345678901234567890"
+        page.get_by_label("不含税金额").fill("358.49")
+        page.get_by_label("税额").fill("21.51")
+        page.get_by_label("价税合计").fill("380.00")
+        page.get_by_role("button", name="核验并登记发票").click()
+        page.get_by_text(
+            "提交内容未通过校验，请检查后重试。",
+            exact=True,
+        ).wait_for(timeout=10000)
+        assert number.input_value() == "12345678901234567891"
         assert invoice_date.input_value() == "2026-08-08"
 
-        page.get_by_role("button", name="登记并提交").click()
+        page.get_by_role("button", name="核验并登记发票").click()
         page.get_by_text("发票信息已登记，状态已更新。", exact=True).wait_for(timeout=10000)
-        assert page.get_by_label("20 位数电专票号码").count() == 0
+        assert page.get_by_label("20 位数电专票号码").input_value() == ""
         assert posted_payloads[-1]["buyerName"] == "比亚迪汽车销售有限公司"
         assert posted_payloads[-1]["taxRatePercent"] == 6
         assert posted_payloads[-1]["invoiceAmountCent"] == 38000
@@ -4146,10 +4250,16 @@ def test_store_invoice_recovers_terminated_history_and_refreshes_chain_after_rep
         page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
         page.reload(wait_until="domcontentloaded")
         page.get_by_text("替换原发票 12345678901234567890", exact=False).wait_for()
+        page.get_by_label("购买方名称").fill("比亚迪汽车销售有限公司")
+        page.get_by_label("填写人电话").fill("13800000000")
+        page.get_by_label("税率").fill("6")
         page.get_by_label("20 位数电专票号码").fill("12345678901234567891")
         page.get_by_label("开票日期").fill("2026-08-21")
-        page.get_by_role("button", name="登记并提交").click()
-        page.get_by_text("替换链：12345678901234567890 → 12345678901234567891", exact=True).wait_for()
+        page.get_by_label("不含税金额").fill("358.49")
+        page.get_by_label("税额").fill("21.51")
+        page.get_by_label("价税合计").fill("380.00")
+        page.get_by_role("button", name="核验并登记发票").click()
+        page.get_by_text("发票信息已登记，状态已更新。", exact=True).wait_for()
         assert registered_payloads[-1]["replacesInvoiceId"] == "INV-TERMINATED-001"
     finally:
         context.close()

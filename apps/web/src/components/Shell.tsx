@@ -9,9 +9,24 @@ import { SolarIcon, type SolarIconName } from "./SolarIcon";
 import { BrandAttribution } from "./BrandAttribution";
 import { ThemePicker } from "./ThemePicker";
 
-const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/settlement/invoice"]);
+const settlementPaths = new Set([
+  "/ranking",
+  "/settlement",
+  "/details",
+  "/settlement/invoice",
+  "/settlement/invoice/status",
+]);
 const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
+const financePaths = new Set([
+  "/finance/promotion",
+  "/finance/management",
+  "/finance/orders/promotion",
+  "/finance/orders/management",
+  "/finance/stores",
+  "/finance/disputes",
+  "/finance/imports",
+]);
 const adminPaths = new Set([
   "/admin",
   "/admin/accounts",
@@ -22,16 +37,9 @@ const adminPaths = new Set([
   "/admin/product-types",
   "/rule-admin",
   "/sync-admin",
-  "/finance/promotion",
-  "/finance/management",
-  "/finance/orders/promotion",
-  "/finance/orders/management",
-  "/finance/stores",
-  "/finance/disputes",
-  "/finance/imports",
 ]);
 
-type NavSection = "settlement" | "verification" | "clues" | "admin";
+type NavSection = "settlement" | "verification" | "clues" | "finance" | "admin";
 
 interface NavItem {
   href: string;
@@ -73,8 +81,16 @@ const moduleNavItems: ModuleNavItem[] = [
     icon: "chart",
     label: "订单分佣",
     section: "settlement",
-    description: "试运行",
-    badge: "试运行",
+    description: "分账结算",
+  },
+  {
+    href: "/finance/promotion",
+    pageKey: "D01",
+    pageKeys: ["D01"],
+    icon: "details",
+    label: "财务",
+    section: "finance",
+    description: "财务管理",
   },
   {
     href: "/admin",
@@ -90,9 +106,8 @@ const moduleNavItems: ModuleNavItem[] = [
 const settlementNavItems: NavItem[] = [
   { href: "/ranking", label: "全国门店榜单", pageKey: "B01" },
   { href: "/settlement", label: "单店分账", pageKey: "B02" },
-  { href: "/details", label: "订单费用明细", pageKey: "B03" },
   { href: "/settlement/invoice", label: "开票确认", pageKey: "B02" },
-  { href: "/finance/stores", label: "SAP 建议", pageKey: "B02" },
+  { href: "/settlement/invoice/status", label: "发票状态查看", pageKey: "B02" },
 ];
 
 const clueNavItems: NavItem[] = [
@@ -132,11 +147,9 @@ const sectionLabels: Record<NavSection, string> = {
   settlement: "订单分佣结算中心",
   verification: "核销表现",
   clues: "线索中心",
+  finance: "财务中心",
   admin: "管理后台",
 };
-
-const settlementTrialNotice =
-  "提示：预计分佣比例、金额仅为试运行参考，不代表最终规则或最终到账金额。";
 
 const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
   { label: "使用体验", value: "experience" },
@@ -154,6 +167,12 @@ interface ShellProps {
 }
 
 function activeSection(currentPath: string): NavSection {
+  if (
+    financePaths.has(currentPath) ||
+    Array.from(financePaths).some((path) => currentPath.startsWith(`${path}/`))
+  ) {
+    return "finance";
+  }
   if (
     adminPaths.has(currentPath) ||
     Array.from(adminPaths).some(
@@ -174,11 +193,11 @@ function activeSection(currentPath: string): NavSection {
   return "settlement";
 }
 
-function secondaryNav(section: NavSection, currentPath: string): NavItem[] {
+function secondaryNav(section: NavSection): NavItem[] {
+  if (section === "finance") {
+    return financeNavItems;
+  }
   if (section === "admin") {
-    if (currentPath.startsWith("/finance")) {
-      return financeNavItems;
-    }
     return adminNavItems;
   }
   if (section === "clues") {
@@ -211,6 +230,9 @@ const defaultHrefByPageKey: Record<string, string> = Object.fromEntries(
 );
 
 function accessibleModuleHref(item: ModuleNavItem, user?: AdminUser | null): string {
+  if (item.pageKey && user?.page_keys.includes(item.pageKey)) {
+    return item.href;
+  }
   const pageKey = item.pageKeys.find((key) => user?.page_keys.includes(key));
   return (pageKey && defaultHrefByPageKey[pageKey]) || item.href;
 }
@@ -262,11 +284,8 @@ export function Shell({
     "error" | "success" | null
   >(null);
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
-  const section =
-    currentPath === "/finance/stores" && currentUser?.role === "store"
-      ? "settlement"
-      : activeSection(currentPath);
-  const sectionNavItems = secondaryNav(section, currentPath).filter((item) => {
+  const section = activeSection(currentPath);
+  const sectionNavItems = secondaryNav(section).filter((item) => {
     const pageKey = item.pageKey ?? pageKeyByNavHref[item.href];
     return pageKey ? currentUser?.page_keys.includes(pageKey) : false;
   });
@@ -431,15 +450,6 @@ export function Shell({
       <div className="workspace-shell">
         <header className="workspace-topbar">
           {renderSecondaryNav("workspace-subnav--desktop")}
-          {section === "settlement" ? (
-            <div
-              aria-label={settlementTrialNotice}
-              className="settlement-trial-notice"
-              role="note"
-            >
-              {settlementTrialNotice}
-            </div>
-          ) : null}
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (
@@ -475,11 +485,6 @@ export function Shell({
         </header>
 
         {renderSecondaryNav("workspace-subnav--mobile")}
-        {section === "settlement" ? (
-          <div className="settlement-trial-notice settlement-trial-notice--mobile">
-            {settlementTrialNotice}
-          </div>
-        ) : null}
 
         {isDemoMode ? (
           <div className="demo-mode-notice" role="note">

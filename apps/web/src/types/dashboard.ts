@@ -376,6 +376,11 @@ export type RankingSortBy =
   | "MANAGEMENT_FEE"
   | "NET_SETTLEMENT_REFERENCE";
 export type SortOrder = "ASC" | "DESC";
+export type StoreFinanceRankingBasis =
+  | "SALES_AMOUNT_CUMULATIVE"
+  | "VERIFIED_AMOUNT_CUMULATIVE"
+  | "PROMOTION_FEE_MONTH"
+  | "PROMOTION_FEE_CUMULATIVE";
 
 export interface SettlementFilterMetaData {
   stores: Array<{ storeId: string; storeName: string }>;
@@ -403,11 +408,18 @@ export interface SettlementStoreRankingRow {
   promotionNetFeeCent: number;
   managementNetFeeCent: number;
   netSettlementReferenceCent: number;
+  salesOrderCountCumulative: number;
+  salesAmountCumulativeCent: number;
+  verifiedOrderCountCumulative: number;
+  verifiedAmountCumulativeCent: number;
+  promotionMonthFeeCent: number;
+  promotionCumulativeFeeCent: number;
 }
 
 export interface SettlementStoreRankingData {
   periodType: PeriodType;
   periodKey: string;
+  rankingBasis?: StoreFinanceRankingBasis;
   productScope: string;
   productType: string;
   scopeMode: "AUTHORIZED" | "GLOBAL_TOP_20_EXCEPTION";
@@ -1597,6 +1609,8 @@ export interface PromotionInvoiceRow {
   invoiceAmountCent: number;
   buyerName: string;
   taxRatePercent: number;
+  netAmountCent: number | null;
+  taxAmountCent: number | null;
   status: PromotionInvoiceStatus;
   registeredAt: string;
   statementId: string;
@@ -1612,12 +1626,119 @@ export interface PromotionInvoiceListData {
   pageSize: number;
 }
 
+/**
+ * Store-facing invoice status projection.  The server owns the aggregation
+ * and returns null metrics when there is no formal billing data; the client
+ * must not reconstruct these values from the invoice rows.
+ */
+export interface StoreInvoiceStatusMetricData extends BillingMetrics {
+  approvedAmountCent: number;
+  hasData: boolean;
+}
+
+export interface StorePromotionInvoiceStatusRow extends PromotionInvoiceRow {
+  isMultiPeriod: boolean;
+  rejectionReason: string | null;
+  settledAt: string | null;
+}
+
+export interface StoreManagementInvoiceStatusRow {
+  invoiceId: string;
+  storeId: string;
+  statementId: string;
+  statementMonth: string;
+  feeDirection: FeeDirection;
+  versionNo: number;
+  isCurrent: boolean;
+  invoiceNumber: string;
+  invoiceDate: string;
+  invoiceAmountCent: number;
+  status: string;
+  registeredAt: string | null;
+  factoryDeductionDate: string | null;
+  factoryDeductionAmountCent: number | null;
+  settledAt: string | null;
+}
+
+export interface StoreInvoiceDifferenceRow {
+  feeDirection: FeeDirection;
+  sourceStatementMonth: string;
+  targetStatementMonth: string;
+  differenceAmountCent: number;
+  reason: string;
+}
+
+export interface StoreInvoiceStatusData {
+  month: string | null;
+  metrics: StoreInvoiceStatusMetricData | null;
+  promotionInvoices: StorePromotionInvoiceStatusRow[];
+  promotionTotal: number;
+  managementInvoices: StoreManagementInvoiceStatusRow[];
+  differenceLedger: StoreInvoiceDifferenceRow[];
+  page: number;
+  pageSize: number;
+}
+
+export type StoreDisputeType =
+  | "RATE_ERROR"
+  | "DATA_MISSING"
+  | "AMOUNT_ERROR"
+  | "OTHER";
+
+export interface StoreBillingDisputeOrder {
+  orderId: string;
+  couponId?: string | null;
+  disputedAmountCent: number;
+}
+
+export interface StoreBillingDisputeEvidence {
+  objectKey: string;
+}
+
+export interface StoreBillingDisputePayload {
+  feeDirection: FeeDirection;
+  disputeType: StoreDisputeType;
+  description: string;
+  contactName: string;
+  contactPhone: string;
+  disputedAmountCent: number;
+  orders: StoreBillingDisputeOrder[];
+  evidence: StoreBillingDisputeEvidence[];
+  readVersion: number;
+}
+
+export interface StoreBillingDispute {
+  disputeId: string;
+  statementId: string;
+  storeId: string;
+  statementMonth: string;
+  feeDirection: FeeDirection;
+  disputeType: StoreDisputeType;
+  status: string;
+  disputedAmountCent: number;
+  description: string;
+  contactName: string;
+  contactPhoneMasked: string;
+  evidence: StoreBillingDisputeEvidence[];
+  orders: StoreBillingDisputeOrder[];
+  submittedAt: string;
+  resolutionNote: string | null;
+  resultStatementId: string | null;
+}
+
+export interface StoreBillingDisputeListData {
+  list: StoreBillingDispute[];
+}
+
 export interface PromotionInvoiceRegistrationPayload {
   storeId: string;
   buyerName: string;
+  fillerPhone: string;
   taxRatePercent: number;
   invoiceNumber: string;
   invoiceDate: string;
+  netAmountCent: number;
+  taxAmountCent: number;
   invoiceAmountCent: number;
   replacesInvoiceId?: string;
   allocations: Array<{
@@ -1643,6 +1764,8 @@ export interface PromotionInvoiceHeader {
   invoiceAmountCent: number;
   buyerName: string;
   taxRatePercent: number;
+  netAmountCent: number | null;
+  taxAmountCent: number | null;
   status: PromotionInvoiceStatus;
   registeredAt: string;
 }
@@ -1703,6 +1826,7 @@ export interface PromotionInvoiceDetail extends PromotionInvoiceHeader {
     fromStatus: PromotionInvoiceStatus | null;
     toStatus: PromotionInvoiceStatus;
     operatorId: string;
+    resultReason: string | null;
     occurredAt: string;
   }>;
   lifecycleEvents: PromotionInvoiceLifecycleEvent[];

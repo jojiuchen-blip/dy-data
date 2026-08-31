@@ -80,6 +80,12 @@ RANKING_SORT_FIELDS = {
     "MANAGEMENT_FEE",
     "NET_SETTLEMENT_REFERENCE",
 }
+STORE_FINANCE_RANKING_BASES = {
+    "SALES_AMOUNT_CUMULATIVE",
+    "VERIFIED_AMOUNT_CUMULATIVE",
+    "PROMOTION_FEE_MONTH",
+    "PROMOTION_FEE_CUMULATIVE",
+}
 SORT_ORDERS = {"ASC", "DESC"}
 CONFIRMATION_DIRECTION_TO_DB = {"PROMOTION": 1, "MANAGEMENT": 2}
 CONFIRMATION_DIRECTION_FROM_DB = {value: key for key, value in CONFIRMATION_DIRECTION_TO_DB.items()}
@@ -361,6 +367,7 @@ def store_ranking(
     product_scope: str = Query(default="all", alias="productScope"),
     product_type: str = Query(default="all", alias="productType"),
     q: str | None = None,
+    ranking_basis: str | None = Query(default=None, alias="rankingBasis"),
     sort_by: str = Query(default="NET_SETTLEMENT_REFERENCE", alias="sortBy"),
     sort_order: str = Query(default="DESC", alias="sortOrder"),
     page: int = Query(default=1, ge=1),
@@ -371,10 +378,18 @@ def store_ranking(
     period_type = period_type.upper()
     sort_by = sort_by.upper()
     sort_order = sort_order.upper()
+    ranking_basis = ranking_basis.upper() if ranking_basis is not None else None
     _validate_month(period_key, "periodKey", request)
     _validate_enum(period_type, PERIOD_TYPES, "periodType", request)
     _validate_enum(sort_by, RANKING_SORT_FIELDS, "sortBy", request)
     _validate_enum(sort_order, SORT_ORDERS, "sortOrder", request)
+    if ranking_basis is not None:
+        _validate_enum(
+            ranking_basis,
+            STORE_FINANCE_RANKING_BASES,
+            "rankingBasis",
+            request,
+        )
     _validate_product_selection(store, product_scope, product_type, request)
     scope_mode = (
         "AUTHORIZED"
@@ -390,6 +405,7 @@ def store_ranking(
         "product_scope": product_scope,
         "product_type": product_type,
         "q": (q or "").strip() or None,
+        "ranking_basis": ranking_basis,
         "sort_by": sort_by,
         "sort_order": sort_order,
         "page": page,
@@ -1741,6 +1757,9 @@ def _append_promotion_reversal_version(
         invoice_amount_cent=source.invoice_amount_cent,
         buyer_name=source.buyer_name,
         tax_rate_percent=source.tax_rate_percent,
+        filler_phone_ciphertext=source.filler_phone_ciphertext,
+        net_amount_cent=source.net_amount_cent,
+        tax_amount_cent=source.tax_amount_cent,
         invoice_status=source.invoice_status,
         registered_by=operator_id,
         registered_at=now,
@@ -2311,6 +2330,7 @@ def list_promotion_invoices(
     request: Request,
     store_id: str = Query(alias="storeId"),
     month: str = Query(),
+    invoice_number: str | None = Query(default=None, alias="invoiceNumber"),
     status_filter: str | None = Query(default=None, alias="status"),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
@@ -2335,6 +2355,8 @@ def list_promotion_invoices(
         if normalized_status == "PENDING_INVOICE":
             return _reporting_success(request, {"list": [], "total": 0, "page": page, "page_size": page_size})
         conditions.append(PromotionInvoice.invoice_status == _invoice_status_db(normalized_status))
+    if invoice_number is not None:
+        conditions.append(PromotionInvoice.invoice_number == invoice_number.strip())
     query = (
         select(PromotionInvoice, PromotionInvoiceAllocation)
         .join(PromotionInvoiceAllocation, PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id)
@@ -2359,7 +2381,6 @@ def list_promotion_invoice_replacement_candidates(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_promotion_invoice_store_operator(current_user, request)
     _require_billing_store_scope(current_user, store_id, request)
     _require_billing_store(session, store_id, request)
     events = list(
@@ -2413,6 +2434,200 @@ def list_promotion_invoice_replacement_candidates(
         )
     return _reporting_success(
         request, {"list": candidates, "total": len(candidates)}
+    )
+
+
+@router.get("/store-invoice-status")
+def get_store_invoice_status(
+    request: Request,
+    store_id: str = Query(alias="storeId"),
+    month: str | None = Query(default=None),
+    invoice_number: str | None = Query(default=None, alias="invoiceNumber"),
+    status_filter: str | None = Query(default=None, alias="status"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Return the store-facing invoice status workbench projection.
+
+    This endpoint intentionally keeps the status page independent from the
+    protected ``/finance/*`` admin APIs.  Aggregates are calculated once on the
+    server, while invoice-number searches are exact and are applied before
+    pagination.  ``month`` is optional so a full authorized-store search is
+    not accidentally narrowed to the latest period.
+    """
+    session = _billing_session(store, request)
+    _require_billing_store_scope(current_user, store_id, request)
+    _require_billing_store(session, store_id, request)
+    if month is not None:
+        _validate_month(month, "month", request)
+    normalized_invoice_number = invoice_number.strip() if invoice_number is not None else None
+    normalized_status = status_filter.upper() if status_filter else None
+    invoice_scope_month = None if normalized_invoice_number else month
+    if normalized_status is not None:
+        _validate_enum(normalized_status, set(INVOICE_STATUS_NAMES.values()), "status", request)
+
+    statement_conditions = [
+        SettlementStatement.store_id == store_id,
+        SettlementStatement.is_current.is_(True),
+        SettlementStatement.statement_month >= FORMAL_PERIOD_START_MONTH,
+    ]
+    if month is not None:
+        statement_conditions.append(SettlementStatement.statement_month == month)
+    statement_count = session.scalar(
+        select(func.count()).select_from(SettlementStatement).where(*statement_conditions)
+    ) or 0
+    latest_month = session.scalar(
+        select(func.max(SettlementStatement.statement_month)).where(*statement_conditions)
+    )
+    metric_month = month or latest_month
+    metrics = None
+    if metric_month is not None:
+        metric_values = _finance_summary_metrics(
+            session,
+            month=metric_month,
+            fee_direction="PROMOTION",
+            metric_scope="CUMULATIVE",
+            store_id=store_id,
+        )
+        approved_promotion_conditions = [
+            PromotionInvoiceAllocation.store_id == store_id,
+            PromotionInvoiceAllocation.is_current.is_(True),
+            PromotionInvoice.is_current.is_(True),
+            PromotionInvoice.is_tombstone.is_(False),
+            PromotionInvoice.invoice_status == 3,
+            PromotionInvoiceAllocation.statement_month >= FORMAL_PERIOD_START_MONTH,
+            PromotionInvoiceAllocation.statement_month <= metric_month,
+        ]
+        approved_promotion_amount = session.scalar(
+            select(func.coalesce(func.sum(PromotionInvoiceAllocation.allocated_amount_cent), 0))
+            .join(
+                PromotionInvoice,
+                PromotionInvoice.invoice_id == PromotionInvoiceAllocation.invoice_id,
+            )
+            .where(*approved_promotion_conditions)
+        ) or 0
+        metrics = {
+            **metric_values,
+            "approved_amount_cent": int(approved_promotion_amount),
+            "has_data": bool(statement_count),
+        }
+
+    promotion_allocation_conditions = [
+        PromotionInvoiceAllocation.store_id == store_id,
+        PromotionInvoiceAllocation.is_current.is_(True),
+        PromotionInvoiceAllocation.statement_month >= FORMAL_PERIOD_START_MONTH,
+    ]
+    if invoice_scope_month is not None:
+        promotion_allocation_conditions.append(
+            PromotionInvoiceAllocation.statement_month == invoice_scope_month
+        )
+    if normalized_status == "PENDING_INVOICE":
+        promotion_rows = []
+        promotion_total = 0
+    else:
+        allocation_match = select(PromotionInvoiceAllocation.allocation_id).where(
+            PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
+            *promotion_allocation_conditions,
+        ).exists()
+        promotion_query = (
+            select(PromotionInvoice)
+            .where(
+                PromotionInvoice.store_id == store_id,
+                PromotionInvoice.is_current.is_(True),
+                PromotionInvoice.is_tombstone.is_(False),
+                PromotionInvoice.invoice_status != 1,
+                allocation_match,
+            )
+            .order_by(PromotionInvoice.registered_at.desc(), PromotionInvoice.invoice_id)
+        )
+        if normalized_invoice_number:
+            promotion_query = promotion_query.where(
+                PromotionInvoice.invoice_number == normalized_invoice_number
+            )
+        if normalized_status is not None:
+            promotion_query = promotion_query.where(
+                PromotionInvoice.invoice_status == _invoice_status_db(normalized_status)
+            )
+        promotion_total = session.scalar(
+            select(func.count()).select_from(promotion_query.subquery())
+        ) or 0
+        promotion_rows = session.scalars(
+            promotion_query.offset((page - 1) * page_size).limit(page_size)
+        ).all()
+
+    management_conditions = [
+        InvoiceRecord.store_id == store_id,
+        InvoiceRecord.fee_direction == 2,
+        InvoiceRecord.is_current.is_(True),
+        InvoiceRecord.is_tombstone.is_(False),
+        InvoiceRecord.invoice_status != 1,
+        InvoiceRecord.statement_month >= FORMAL_PERIOD_START_MONTH,
+    ]
+    if invoice_scope_month is not None:
+        management_conditions.append(InvoiceRecord.statement_month == invoice_scope_month)
+    if normalized_invoice_number:
+        management_conditions.append(InvoiceRecord.invoice_number == normalized_invoice_number)
+    if normalized_status is not None:
+        management_conditions.append(
+            InvoiceRecord.invoice_status == _invoice_status_db(normalized_status)
+        )
+    management_rows = list(
+        session.scalars(
+            select(InvoiceRecord)
+            .where(*management_conditions)
+            .order_by(InvoiceRecord.registered_at.desc(), InvoiceRecord.invoice_id)
+        )
+    )
+
+    difference_conditions = [
+        ManagementCarryforwardApplication.store_id == store_id,
+        ManagementCarryforwardApplication.is_current.is_(True),
+        ManagementCarryforwardApplication.source_statement_month >= FORMAL_PERIOD_START_MONTH,
+        ManagementCarryforwardApplication.target_statement_month >= FORMAL_PERIOD_START_MONTH,
+    ]
+    if month is not None:
+        difference_conditions.append(
+            (ManagementCarryforwardApplication.source_statement_month == month)
+            | (ManagementCarryforwardApplication.target_statement_month == month)
+        )
+    difference_rows = list(
+        session.scalars(
+            select(ManagementCarryforwardApplication)
+            .where(*difference_conditions)
+            .order_by(
+                ManagementCarryforwardApplication.target_statement_month,
+                ManagementCarryforwardApplication.source_statement_month,
+                ManagementCarryforwardApplication.application_id,
+            )
+        )
+    )
+
+    return _reporting_success(
+        request,
+        {
+            "month": metric_month,
+            "metrics": metrics,
+            "promotion_invoices": [
+                _store_promotion_invoice_status_item(session, invoice)
+                for invoice in promotion_rows
+            ],
+            "promotion_total": int(promotion_total),
+            "management_invoices": [_management_invoice_item(invoice) for invoice in management_rows],
+            "difference_ledger": [
+                {
+                    "fee_direction": "MANAGEMENT",
+                    "source_statement_month": row.source_statement_month,
+                    "target_statement_month": row.target_statement_month,
+                    "difference_amount_cent": row.applied_amount_cent,
+                    "reason": "管理服务费结转抵扣",
+                }
+                for row in difference_rows
+            ],
+            "page": page,
+            "page_size": page_size,
+        },
     )
 
 
@@ -2502,7 +2717,7 @@ def get_promotion_invoice_detail(
                 }
                 for row in allocations
             ],
-            "status_events": [
+        "status_events": [
                 {
                     "event_id": row.event_id,
                     "invoice_id": row.invoice_id,
@@ -2513,6 +2728,7 @@ def get_promotion_invoice_detail(
                     ),
                     "to_status": INVOICE_STATUS_NAMES[row.to_status],
                     "operator_id": row.operator_id,
+                    "result_reason": row.result_reason,
                     "occurred_at": row.occurred_at,
                 }
                 for row in status_events
@@ -2543,7 +2759,6 @@ def create_promotion_invoice_lifecycle_event(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_promotion_invoice_store_operator(current_user, request)
     event_type = payload.get("eventType")
     reason = payload.get("reason")
     read_version = payload.get("readVersion")
@@ -2734,10 +2949,18 @@ def register_promotion_invoice(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_promotion_invoice_store_operator(current_user, request)
     parsed = _parse_promotion_invoice_payload(payload, request)
     _require_billing_store_scope(current_user, parsed["store_id"], request)
     _require_billing_store(session, parsed["store_id"], request)
+    server_today = _promotion_invoice_beijing_datetime(utcnow()).date()
+    if parsed["invoice_date"] > server_today:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "开票日期不得晚于服务器当前日期",
+            field="invoiceDate",
+        )
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     payload_hash = _canonical_billing_sha256(parsed)
     replay = session.scalar(select(PromotionInvoice).where(PromotionInvoice.idempotency_key_hash == key_hash))
@@ -2858,6 +3081,28 @@ def register_promotion_invoice(
         ))
         if confirmed is None or confirmed.confirmed_amount_cent != item["allocated_amount_cent"]:
             _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "每个账期分配金额必须等于当前有效推广费确认金额", field="allocations")
+        invoice_date_floor_candidates = [
+            value
+            for value in (
+                confirmed.confirmed_at,
+                statement.confirmed_at,
+                statement.locked_at,
+            )
+            if value is not None
+        ]
+        if invoice_date_floor_candidates:
+            invoice_date_floor = max(
+                _promotion_invoice_beijing_datetime(value).date()
+                for value in invoice_date_floor_candidates
+            )
+            if parsed["invoice_date"] < invoice_date_floor:
+                _raise_reporting_error(
+                    request,
+                    status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    "VALIDATION_FAILED",
+                    "开票日期不得早于账单确认或锁账日期",
+                    field="invoiceDate",
+                )
         occupied = session.scalar(select(PromotionInvoiceAllocation).where(
             PromotionInvoiceAllocation.store_id == statement.store_id,
             PromotionInvoiceAllocation.statement_month == statement.statement_month,
@@ -2882,6 +3127,24 @@ def register_promotion_invoice(
                     "requiredStatementIds": sorted(required_statement_ids),
                 },
             )
+    required_invoiceable_group_ids = {
+        group["group_id"]
+        for group in promotion_groups
+        if group["invoiceable_amount_cent"] > 0
+    }
+    if set(selected_statement_ids_by_group) != required_invoiceable_group_ids:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "PROMOTION_INVOICE_SELECTION_INCOMPLETE",
+            "登记发票必须一次包含所有当前可开票且未开票的完整账期",
+            field="allocations",
+            data={
+                "requiredPromotionInvoiceGroupIds": sorted(
+                    required_invoiceable_group_ids
+                ),
+            },
+        )
     selected_statement_ids = [statement.statement_id for statement, _ in allocations]
     unmatched_terminations: list[PromotionInvoiceLifecycleEvent] = []
     if selected_statement_ids:
@@ -3056,6 +3319,9 @@ def register_promotion_invoice(
         invoice_number=parsed["invoice_number"], invoice_date=parsed["invoice_date"],
         invoice_amount_cent=parsed["invoice_amount_cent"], invoice_status=2,
         buyer_name=parsed["buyer_name"], tax_rate_percent=parsed["tax_rate_percent"],
+        filler_phone_ciphertext=_encrypt_dispute_phone(parsed["filler_phone"], request),
+        net_amount_cent=parsed["net_amount_cent"],
+        tax_amount_cent=parsed["tax_amount_cent"],
         registered_by=current_user.username, registered_at=now,
         idempotency_key_hash=key_hash, request_payload_sha256=payload_hash,
     )
@@ -4734,18 +5000,6 @@ def _require_billing_store_scope(
         )
 
 
-def _require_promotion_invoice_store_operator(
-    current_user: AuthContext, request: Request
-) -> None:
-    if current_user.role != "store":
-        _raise_reporting_error(
-            request,
-            status.HTTP_403_FORBIDDEN,
-            "DATA_SCOPE_FORBIDDEN",
-            "仅门店账号可以登记推广费发票、替换发票或生命周期事件",
-        )
-
-
 def _lock_promotion_invoice_physical(
     session, physical_invoice_id: str, request: Request
 ) -> PromotionInvoiceNumberRegistry:
@@ -4821,6 +5075,9 @@ def _promotion_invoice_carryforward_projection(
             PromotionInvoiceAllocation.is_current.is_(True),
             PromotionInvoice.is_current.is_(True),
             PromotionInvoice.is_tombstone.is_(False),
+            # A factory-rejected invoice no longer occupies its allocation;
+            # its full group must re-enter the server-owned pending amount.
+            PromotionInvoice.invoice_status.in_((2, 3)),
         )
         .exists()
     )
@@ -6250,6 +6507,9 @@ def _commit_promotion_factory_result_row(
             invoice_amount_cent=current_invoice.invoice_amount_cent,
             buyer_name=current_invoice.buyer_name,
             tax_rate_percent=current_invoice.tax_rate_percent,
+            filler_phone_ciphertext=current_invoice.filler_phone_ciphertext,
+            net_amount_cent=current_invoice.net_amount_cent,
+            tax_amount_cent=current_invoice.tax_amount_cent,
             invoice_status=next_status,
             registered_by=current_invoice.registered_by,
             registered_at=current_invoice.registered_at,
@@ -6441,6 +6701,9 @@ def _commit_promotion_review_row(
         invoice_amount_cent=current_invoice.invoice_amount_cent,
         buyer_name=current_invoice.buyer_name,
         tax_rate_percent=current_invoice.tax_rate_percent,
+        filler_phone_ciphertext=current_invoice.filler_phone_ciphertext,
+        net_amount_cent=current_invoice.net_amount_cent,
+        tax_amount_cent=current_invoice.tax_amount_cent,
         invoice_status=next_status,
         registered_by=current_invoice.registered_by,
         registered_at=current_invoice.registered_at,
@@ -7916,6 +8179,70 @@ def _promotion_invoice_item(
     }
 
 
+def _store_promotion_invoice_status_item(
+    session,
+    invoice: PromotionInvoice,
+) -> dict:
+    """Add store-safe review facts without changing the admin invoice API."""
+    allocations = list(
+        session.scalars(
+            select(PromotionInvoiceAllocation)
+            .where(
+                PromotionInvoiceAllocation.invoice_id == invoice.invoice_id,
+                PromotionInvoiceAllocation.is_current.is_(True),
+            )
+            .order_by(
+                PromotionInvoiceAllocation.statement_month,
+                PromotionInvoiceAllocation.allocation_id,
+            )
+        )
+    )
+    allocation = allocations[0] if allocations else None
+    if allocation is None:
+        return {
+            **_promotion_invoice_header_item_from_invoice(invoice),
+            "statement_id": None,
+            "statement_month": None,
+            "settlement_batch_month": None,
+            "allocated_amount_cent": invoice.invoice_amount_cent,
+            "is_multi_period": False,
+            "rejection_reason": None,
+            "settled_at": None,
+        }
+    item = _promotion_invoice_item(invoice, allocation)
+    item["statement_id"] = "、".join(row.statement_id for row in allocations)
+    item["statement_month"] = "、".join(row.statement_month for row in allocations)
+    item["settlement_batch_month"] = "、".join(
+        sorted({row.settlement_batch_month for row in allocations})
+    )
+    item["allocated_amount_cent"] = sum(
+        row.allocated_amount_cent for row in allocations
+    )
+    latest_event = session.scalar(
+        select(InvoiceStatusEvent)
+        .where(InvoiceStatusEvent.invoice_id == invoice.invoice_id)
+        .order_by(InvoiceStatusEvent.occurred_at.desc(), InvoiceStatusEvent.event_id.desc())
+    )
+    return {
+        **item,
+        "is_multi_period": len(allocations) > 1,
+        "rejection_reason": (
+            latest_event.result_reason
+            if latest_event is not None and latest_event.to_status == 4
+            else None
+        ),
+        "settled_at": (
+            latest_event.business_date.isoformat()
+            if (
+                latest_event is not None
+                and latest_event.to_status == 3
+                and latest_event.business_date is not None
+            )
+            else None
+        ),
+    }
+
+
 def _promotion_invoice_header_item(session, invoice: PromotionInvoice) -> dict:
     allocations = list(session.scalars(select(PromotionInvoiceAllocation).where(
         PromotionInvoiceAllocation.invoice_id == invoice.invoice_id,
@@ -7947,6 +8274,8 @@ def _promotion_invoice_header_item_from_invoice(invoice: PromotionInvoice) -> di
         "invoice_amount_cent": invoice.invoice_amount_cent,
         "buyer_name": invoice.buyer_name,
         "tax_rate_percent": invoice.tax_rate_percent,
+        "net_amount_cent": invoice.net_amount_cent,
+        "tax_amount_cent": invoice.tax_amount_cent,
         "status": INVOICE_STATUS_NAMES[invoice.invoice_status],
         "registered_at": _promotion_invoice_beijing_datetime(invoice.registered_at),
     }
@@ -8460,10 +8789,13 @@ def _promotion_invoice_settlement_batch_month(value: datetime) -> str:
 def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
     store_id = payload.get("storeId")
     buyer_name = payload.get("buyerName")
+    filler_phone = payload.get("fillerPhone")
     tax_rate_percent = payload.get("taxRatePercent")
     invoice_number = payload.get("invoiceNumber")
     invoice_date_value = payload.get("invoiceDate")
     invoice_amount = payload.get("invoiceAmountCent")
+    net_amount = payload.get("netAmountCent")
+    tax_amount = payload.get("taxAmountCent")
     rows = payload.get("allocations")
     replaces_invoice_id = payload.get("replacesInvoiceId")
     if not isinstance(store_id, str) or not store_id.strip():
@@ -8488,6 +8820,30 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
             "taxRatePercent 必须为整数 6",
             field="taxRatePercent",
         )
+    if (
+        not isinstance(filler_phone, str)
+        or not filler_phone.strip()
+        or len(filler_phone.strip()) > 64
+    ):
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "fillerPhone 必须填写且不超过 64 个字符",
+            field="fillerPhone",
+        )
+    for field, value in (
+        ("netAmountCent", net_amount),
+        ("taxAmountCent", tax_amount),
+    ):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            _raise_reporting_error(
+                request,
+                status.HTTP_422_UNPROCESSABLE_ENTITY,
+                "VALIDATION_FAILED",
+                f"{field} 必须为非负整数分",
+                field=field,
+            )
     if not isinstance(invoice_number, str) or not invoice_number.isdigit() or len(invoice_number) != 20:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceNumber 必须为 20 位数字", field="invoiceNumber")
     try:
@@ -8498,6 +8854,14 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceDate 必须为 YYYY-MM-DD", field="invoiceDate")
     if isinstance(invoice_amount, bool) or not isinstance(invoice_amount, int) or invoice_amount <= 0:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "invoiceAmountCent 必须为正整数", field="invoiceAmountCent")
+    if abs(net_amount + tax_amount - invoice_amount) > 1:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "不含税金额 + 税额必须等于开票金额，允许 0.01 元容差",
+            field="invoiceAmountCent",
+        )
     if not isinstance(rows, list) or not rows:
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED", "allocations 至少包含一个完整账期", field="allocations")
     if replaces_invoice_id is not None and (
@@ -8543,10 +8907,13 @@ def _parse_promotion_invoice_payload(payload: dict, request: Request) -> dict:
     return {
         "store_id": store_id.strip(),
         "buyer_name": buyer_name,
+        "filler_phone": filler_phone.strip(),
         "tax_rate_percent": tax_rate_percent,
         "invoice_number": invoice_number,
         "invoice_date": parsed_date,
         "invoice_amount_cent": invoice_amount,
+        "net_amount_cent": net_amount,
+        "tax_amount_cent": tax_amount,
         "replaces_invoice_id": (
             replaces_invoice_id.strip()
             if isinstance(replaces_invoice_id, str)

@@ -97,7 +97,7 @@ def test_sales_dashboard_has_product_scope_filter_before_product_type() -> None:
     assert "export function productOptionsForScope" in options_source
 
 
-def test_settlement_pages_have_product_scope_before_product_type_filters() -> None:
+def test_store_finance_filters_follow_the_latest_uat_contract() -> None:
     ranking_source = read_source("pages/StoreRankingPage.tsx")
     settlement_source = read_source("pages/StoreSettlementPage.tsx")
     details_source = read_source("pages/OrderDetailsPage.tsx")
@@ -105,15 +105,19 @@ def test_settlement_pages_have_product_scope_before_product_type_filters() -> No
     types_source = read_source("types/dashboard.ts")
     utils_source = read_source("utils/settlement.ts")
 
-    for source in [ranking_source, settlement_source]:
-        assert 'label="产品范围"' in source
-        assert 'label="商品类型"' in source
-        assert source.index('label="产品范围"') < source.index('label="商品类型"')
-        assert "meta?.productScopeTypeMap[productScope]" in source
-        assert "meta?.productTypes" in source
+    # The frozen UAT keeps product scope on the nationwide ranking page and
+    # removes the legacy product-type controls from both store pages. The
+    # single-store page only exposes the locked accounting period and bound
+    # store; ranking adds its explicit ranking-basis control.
+    assert 'label="产品范围"' in ranking_source
+    assert 'label="商品类型"' not in ranking_source
+    assert 'label="排行依据"' in ranking_source
+    assert 'label="商品类型"' not in settlement_source
+    assert 'label="产品范围"' not in settlement_source
+    assert 'label="账期"' in settlement_source
+    assert 'label="门店"' in settlement_source
 
     assert "productScope," in ranking_source
-    assert "productScope," in settlement_source
     assert 'searchParams.get("productScope")' in details_source
     assert 'searchParams.get("productType")' in details_source
     assert "productScope," in details_source

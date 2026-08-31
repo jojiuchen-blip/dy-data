@@ -1913,6 +1913,20 @@ class PromotionInvoice(Base):
         ),
         CheckConstraint("invoice_amount_cent >= 0", name="ck_promotion_invoice_amount"),
         CheckConstraint("tax_rate_percent = 6", name="ck_promotion_invoice_tax_rate"),
+        CheckConstraint(
+            "net_amount_cent IS NULL OR net_amount_cent >= 0",
+            name="ck_promotion_invoice_net_amount",
+        ),
+        CheckConstraint(
+            "tax_amount_cent IS NULL OR tax_amount_cent >= 0",
+            name="ck_promotion_invoice_tax_amount",
+        ),
+        CheckConstraint(
+            "(net_amount_cent IS NULL AND tax_amount_cent IS NULL) OR "
+            "(net_amount_cent IS NOT NULL AND tax_amount_cent IS NOT NULL "
+            "AND ABS(net_amount_cent + tax_amount_cent - invoice_amount_cent) <= 1)",
+            name="ck_promotion_invoice_amount_identity",
+        ),
         Index(
             "idx_promotion_invoice_current_number",
             "invoice_number",
@@ -1963,6 +1977,9 @@ class PromotionInvoice(Base):
     invoice_amount_cent: Mapped[int] = mapped_column(BigInteger)
     buyer_name: Mapped[str] = mapped_column(String(255))
     tax_rate_percent: Mapped[int] = mapped_column(Integer)
+    filler_phone_ciphertext: Mapped[str | None] = mapped_column(Text)
+    net_amount_cent: Mapped[int | None] = mapped_column(BigInteger)
+    tax_amount_cent: Mapped[int | None] = mapped_column(BigInteger)
     invoice_status: Mapped[int] = mapped_column(Integer, default=2)
     registered_by: Mapped[str] = mapped_column(String(128))
     registered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -96,13 +96,18 @@ import type {
   PromotionInvoiceRow,
   StoreBillingConfirmationPayload,
   StoreBillingConfirmationResult,
+  StoreBillingDisputeListData,
+  StoreBillingDisputePayload,
+  StoreBillingDispute,
   StoreBillingStatement,
   StoreBillingStatementListData,
+  StoreInvoiceStatusData,
   MonthlySettlementData,
   OrderFeeDetailsData,
   PeriodType,
   RankingSortBy,
   SortOrder,
+  StoreFinanceRankingBasis,
   NonCommissionOwnerAccountListData,
   NonCommissionOwnerAccountUpdateResult,
   OrderDetailsData,
@@ -1148,7 +1153,10 @@ function mockSettlementFilterMetaResponse(): ApiResponse<SettlementFilterMetaDat
       defaultProductType: legacy.default_product_type,
       saleMonths: legacy.sale_months,
       verifyMonths: legacy.verify_months,
-      statementMonths: legacy.verify_months,
+      statementMonths: [
+        "2026-08",
+        ...legacy.verify_months.filter((month) => month !== "2026-08"),
+      ],
       periodTypes: ["MONTHLY", "CUMULATIVE"],
       feeDirections: ["PROMOTION", "MANAGEMENT"],
       formalPeriodStartMonth: "2026-08",
@@ -1174,6 +1182,7 @@ export function fetchSettlementStoreRanking({
   productScope,
   productType,
   q,
+  rankingBasis,
   sortBy,
   sortOrder,
   page,
@@ -1184,6 +1193,7 @@ export function fetchSettlementStoreRanking({
   productScope: string;
   productType: string;
   q?: string;
+  rankingBasis?: StoreFinanceRankingBasis;
   sortBy?: RankingSortBy;
   sortOrder?: SortOrder;
   page: number;
@@ -1197,6 +1207,7 @@ export function fetchSettlementStoreRanking({
         productScope,
         productType,
         q,
+        rankingBasis,
         sortBy,
         sortOrder,
         page,
@@ -1206,6 +1217,7 @@ export function fetchSettlementStoreRanking({
       data: {
         periodType,
         periodKey,
+        rankingBasis,
         productScope,
         productType,
         scopeMode: "AUTHORIZED",
@@ -1217,6 +1229,12 @@ export function fetchSettlementStoreRanking({
           promotionNetFeeCent: 28640,
           managementNetFeeCent: 12480,
           netSettlementReferenceCent: 16160,
+          salesOrderCountCumulative: 36,
+          salesAmountCumulativeCent: 428600,
+          verifiedOrderCountCumulative: 31,
+          verifiedAmountCumulativeCent: 368000,
+          promotionMonthFeeCent: 28640,
+          promotionCumulativeFeeCent: 28640,
         },
         list: [{
           rank: 1,
@@ -1229,6 +1247,12 @@ export function fetchSettlementStoreRanking({
           promotionNetFeeCent: 28640,
           managementNetFeeCent: 12480,
           netSettlementReferenceCent: 16160,
+          salesOrderCountCumulative: 36,
+          salesAmountCumulativeCent: 428600,
+          verifiedOrderCountCumulative: 31,
+          verifiedAmountCumulativeCent: 368000,
+          promotionMonthFeeCent: 28640,
+          promotionCumulativeFeeCent: 28640,
         }],
         total: 1,
         page,
@@ -2586,9 +2610,29 @@ export function confirmStoreBillingStatement(
   ).then((response) => ({ ...response, usingMock: false }));
 }
 
+export function fetchStoreBillingDisputes(
+  statementId: string,
+): Promise<ApiLoadResult<StoreBillingDisputeListData>> {
+  return requestJson<StoreBillingDisputeListData>(
+    `/store-settlements/${encodeURIComponent(statementId)}/disputes`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function submitStoreBillingDispute(
+  statementId: string,
+  payload: StoreBillingDisputePayload,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<StoreBillingDispute>> {
+  return sendJson<StoreBillingDispute>(
+    `/store-settlements/${encodeURIComponent(statementId)}/disputes`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
 export function fetchPromotionInvoices(query: {
   storeId: string;
   month: string;
+  invoiceNumber?: string;
   status?: string;
   page?: number;
   pageSize?: number;
@@ -2612,6 +2656,19 @@ export function fetchPromotionInvoiceDetail(
   invoiceId: string,
 ): Promise<ApiLoadResult<PromotionInvoiceDetail>> {
   return requestJson<PromotionInvoiceDetail>(`/promotion-invoices/${invoiceId}`).then(
+    (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function fetchStoreInvoiceStatus(query: {
+  storeId: string;
+  month?: string;
+  invoiceNumber?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ApiLoadResult<StoreInvoiceStatusData>> {
+  return requestJson<StoreInvoiceStatusData>("/store-invoice-status", query).then(
     (response) => ({ ...response, usingMock: false }),
   );
 }
