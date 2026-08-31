@@ -382,6 +382,15 @@ export interface AdminOperationJobDetail {
 
 export type AdminJobControlAction = "pause" | "resume" | "cancel" | "retry";
 
+export type AdminOpsCommandStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "rejected"
+  | "expired"
+  | "cancelled";
+
 export interface AdminOpsCommand {
   command_id: string;
   command_type: "restart";
@@ -389,7 +398,7 @@ export interface AdminOpsCommand {
   requested_by: string;
   request_reason: string;
   confirmed_at: string;
-  status: string;
+  status: AdminOpsCommandStatus;
   related_job_id: string | null;
   created_at: string;
   started_at: string | null;
@@ -398,7 +407,11 @@ export interface AdminOpsCommand {
   cooldown_until: string | null;
   result_code: string | null;
   result_summary: string | null;
-  replayed: boolean;
+  replayed?: boolean;
+}
+
+export interface AdminOpsCommandListData {
+  rows: AdminOpsCommand[];
 }
 
 export interface SyncConfigUpdate {

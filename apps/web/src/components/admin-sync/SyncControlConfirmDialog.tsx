@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type RefObject } from "react";
 import { Button } from "../Button";
 import { Dialog } from "../Dialog";
 import { FieldInput } from "../FormControls";
@@ -6,20 +6,24 @@ import { FieldInput } from "../FormControls";
 interface SyncControlConfirmDialogProps {
   actionLabel: string;
   busy: boolean;
+  error: string;
   impact: string;
   onClose: () => void;
   onConfirm: (reason: string) => void;
   open: boolean;
+  returnFocusRef: RefObject<HTMLElement | null>;
   targetLabel: string;
 }
 
 export function SyncControlConfirmDialog({
   actionLabel,
   busy,
+  error,
   impact,
   onClose,
   onConfirm,
   open,
+  returnFocusRef,
   targetLabel,
 }: SyncControlConfirmDialogProps) {
   const [reason, setReason] = useState("");
@@ -54,6 +58,7 @@ export function SyncControlConfirmDialog({
       description="此处只提交控制意图，不代表操作已经成功。"
       onClose={onClose}
       open={open}
+      returnFocusRef={returnFocusRef}
       title={`${actionLabel} · ${targetLabel}`}
     >
       <div className="sync-control-confirm">
@@ -64,6 +69,11 @@ export function SyncControlConfirmDialog({
         <p>
           同步工作进程或浏览器采集组件会在安全边界内处理；中断后的任务依赖租约恢复和数据库检查点继续。
         </p>
+        {error ? (
+          <p className="resource-notice resource-notice--warning" role="alert">
+            {error}
+          </p>
+        ) : null}
         <label className="filter-field">
           <span>操作原因</span>
           <FieldInput

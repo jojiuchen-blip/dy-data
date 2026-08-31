@@ -36,6 +36,7 @@ import type {
   AdminOperationJobDetail,
   AdminOperationsOverview,
   AdminOpsCommand,
+  AdminOpsCommandListData,
   AdminUser,
   ClueAssignmentRoundData,
   ClueAllocationAuditLogData,
@@ -2299,6 +2300,19 @@ export async function fetchAdminOperationJob(
     ...(await requestJson<AdminOperationJobDetail>(
       `/admin/operations/jobs/${encodeURIComponent(jobId)}`,
       undefined,
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminOpsCommands(
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOpsCommandListData>> {
+  return {
+    ...(await requestJson<AdminOpsCommandListData>(
+      "/admin/operations/commands",
+      { limit: 12 },
       { signal },
     )),
     usingMock: false,

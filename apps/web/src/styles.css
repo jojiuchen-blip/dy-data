@@ -6946,6 +6946,61 @@ a.metric-card:hover,
   margin: var(--space-6) 0 0;
 }
 
+.ops-command-history {
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: var(--space-6);
+  margin-top: var(--space-8);
+  padding-top: var(--space-6);
+}
+
+.ops-command-history > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-4);
+  justify-content: space-between;
+}
+
+.ops-command-history h3,
+.ops-command-history p {
+  margin: 0;
+}
+
+.ops-command-history header p,
+.ops-command-history header > span,
+.ops-command-row small,
+.ops-command-row > p {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
+.ops-command-list {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.ops-command-row {
+  align-items: start;
+  background: var(--surface-muted);
+  border: 1px solid var(--line);
+  border-radius: var(--control-radius);
+  display: grid;
+  gap: var(--space-3) var(--space-6);
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: var(--space-6);
+}
+
+.ops-command-row__identity {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ops-command-row > p {
+  grid-column: 1 / -1;
+  overflow-wrap: anywhere;
+}
+
 .sync-task-rail {
   background: var(--surface-muted);
   border: 1px solid var(--line);

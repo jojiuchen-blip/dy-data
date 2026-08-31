@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent } from "react";
 import {
   fetchAdminOperationJob,
+  fetchAdminOpsCommands,
   fetchAdminOperationsOverview,
   submitAdminJobControl,
   submitAdminOpsCommand,
@@ -11,10 +12,12 @@ import type {
   AdminOperationJob,
   AdminOperationJobDetail,
   AdminOperationsOverview,
+  AdminOpsCommand,
 } from "../../types/dashboard";
 import { userFacingError } from "../../utils/userFacingError";
 import { Button } from "../Button";
 import { ComponentCard } from "./ComponentCard";
+import { OpsCommandHistory } from "./OpsCommandHistory";
 import { SyncControlConfirmDialog } from "./SyncControlConfirmDialog";
 import { SyncDetailDrawer, type SyncDrawerSelection } from "./SyncDetailDrawer";
 import { SyncTaskRail } from "./SyncTaskRail";
@@ -31,8 +34,17 @@ interface ComponentRoomProps {
 }
 
 type ControlRequest =
-  | { kind: "restart"; component: AdminOperationComponent }
-  | { kind: "job"; job: AdminOperationJob; action: AdminJobControlAction };
+  | {
+      kind: "restart";
+      component: AdminOperationComponent;
+      idempotencyKey: string;
+    }
+  | {
+      kind: "job";
+      job: AdminOperationJob;
+      action: AdminJobControlAction;
+      idempotencyKey: string;
+    };
 
 const actionLabels: Record<AdminJobControlAction, string> = {
   pause: "暂停领取",
@@ -47,13 +59,16 @@ function nextIdempotencyKey(prefix: string): string {
 
 export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
   const [overview, setOverview] = useState<AdminOperationsOverview | null>(null);
+  const [commands, setCommands] = useState<AdminOpsCommand[]>([]);
   const [error, setError] = useState("");
+  const [commandsError, setCommandsError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [selection, setSelection] = useState<SyncDrawerSelection | null>(null);
   const [detail, setDetail] = useState<AdminOperationJobDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [control, setControl] = useState<ControlRequest | null>(null);
   const [controlBusy, setControlBusy] = useState(false);
+  const [controlError, setControlError] = useState("");
   const [statusText, setStatusText] = useState("");
   const lastTriggerRef = useRef<HTMLElement | null>(null);
   const detailControllerRef = useRef<AbortController | null>(null);
@@ -71,20 +86,30 @@ export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
     const load = async () => {
       if (stopped || document.hidden) return;
       controller?.abort();
-      controller = new AbortController();
-      try {
-        const response = await fetchAdminOperationsOverview(controller.signal);
-        if (stopped) return;
-        setOverview(response.data);
+      const currentController = new AbortController();
+      controller = currentController;
+      const [overviewResult, commandsResult] = await Promise.allSettled([
+        fetchAdminOperationsOverview(currentController.signal),
+        fetchAdminOpsCommands(currentController.signal),
+      ]);
+      if (stopped || currentController.signal.aborted) return;
+
+      let activeCount = 0;
+      if (overviewResult.status === "fulfilled") {
+        setOverview(overviewResult.value.data);
         setError("");
-        schedule(response.data.active_count);
-      } catch (reason) {
-        if (stopped || (reason instanceof DOMException && reason.name === "AbortError")) {
-          return;
-        }
-        setError(userFacingError(reason, "组件与任务状态暂时无法读取。"));
-        schedule(0);
+        activeCount = overviewResult.value.data.active_count;
+      } else {
+        setError(userFacingError(overviewResult.reason, "组件与任务状态暂时无法读取。"));
       }
+
+      if (commandsResult.status === "fulfilled") {
+        setCommands(commandsResult.value.data.rows);
+        setCommandsError("");
+      } else {
+        setCommandsError(userFacingError(commandsResult.reason, "Ops 命令状态暂时无法读取。"));
+      }
+      schedule(activeCount);
     };
 
     const handleVisibility = () => {
@@ -148,15 +173,41 @@ export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
     }
   };
 
+  const requestJobControl = (
+    job: AdminOperationJob,
+    action: AdminJobControlAction,
+  ) => {
+    setControlError("");
+    setControl({
+      kind: "job",
+      job,
+      action,
+      idempotencyKey: nextIdempotencyKey(`${action}-${job.job_id}`),
+    });
+  };
+
+  const requestRestart = (component: AdminOperationComponent) => {
+    if (!component.allow_restart || !restartableComponentTypes.has(component.component_type)) {
+      return;
+    }
+    setControlError("");
+    setControl({
+      kind: "restart",
+      component,
+      idempotencyKey: nextIdempotencyKey(`restart-${component.component_type}`),
+    });
+  };
+
   const submitControl = async (reason: string) => {
     if (!control) return;
+    setControlError("");
     setControlBusy(true);
     try {
       if (control.kind === "restart") {
         await submitAdminOpsCommand(
           control.component.component_type as "worker" | "browser",
           reason,
-          nextIdempotencyKey(`restart-${control.component.component_type}`),
+          control.idempotencyKey,
           control.component.current_job_id,
         );
         setStatusText("命令已提交，等待 Ops Agent 在安全边界执行；当前状态不代表重启成功。");
@@ -165,14 +216,16 @@ export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
           control.job.job_id,
           control.action,
           reason,
-          nextIdempotencyKey(`${control.action}-${control.job.job_id}`),
+          control.idempotencyKey,
         );
         setStatusText("控制命令已提交；任务事实会在执行组件接收意图后更新。");
       }
       setControl(null);
       setRefreshKey((value) => value + 1);
     } catch (requestError) {
-      setStatusText(userFacingError(requestError, "控制命令提交失败。"));
+      const message = userFacingError(requestError, "控制命令提交失败，可在当前确认框内重试。");
+      setControlError(message);
+      setStatusText(message);
     } finally {
       setControlBusy(false);
     }
@@ -230,6 +283,7 @@ export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
           <p className="component-room-boundary">
             API、Postgres、Proxy 和宿主机不提供重启入口；同步工作进程和浏览器采集组件也只提交命令，不乐观显示成功。
           </p>
+          <OpsCommandHistory commands={commands} error={commandsError} />
         </div>
         <SyncTaskRail
           jobs={overview?.jobs ?? []}
@@ -237,34 +291,38 @@ export function ComponentRoom({ onCreateTask }: ComponentRoomProps) {
           onSelectJob={(job, event) => void selectJob(job, event)}
         />
       </div>
-      <SyncDetailDrawer
-        detail={detail}
-        loading={detailLoading}
-        onClose={() => {
-          detailControllerRef.current?.abort();
-          detailControllerRef.current = null;
-          setSelection(null);
-          setDetail(null);
-          setDetailLoading(false);
-        }}
-        onJobControl={(job, action) => setControl({ kind: "job", job, action })}
-        onRestart={(component) => {
-          if (component.allow_restart && restartableComponentTypes.has(component.component_type)) {
-            setControl({ kind: "restart", component });
-          }
-        }}
-        returnFocusRef={lastTriggerRef}
-        selection={selection}
-      />
-      <SyncControlConfirmDialog
-        actionLabel={controlAction}
-        busy={controlBusy}
-        impact={impact}
-        onClose={() => setControl(null)}
-        onConfirm={(reason) => void submitControl(reason)}
-        open={control !== null}
-        targetLabel={controlTarget}
-      />
+      {control === null ? (
+        <SyncDetailDrawer
+          detail={detail}
+          loading={detailLoading}
+          onClose={() => {
+            detailControllerRef.current?.abort();
+            detailControllerRef.current = null;
+            setSelection(null);
+            setDetail(null);
+            setDetailLoading(false);
+          }}
+          onJobControl={requestJobControl}
+          onRestart={requestRestart}
+          returnFocusRef={lastTriggerRef}
+          selection={selection}
+        />
+      ) : (
+        <SyncControlConfirmDialog
+          actionLabel={controlAction}
+          busy={controlBusy}
+          error={controlError}
+          impact={impact}
+          onClose={() => {
+            setControl(null);
+            setControlError("");
+          }}
+          onConfirm={(reason) => void submitControl(reason)}
+          open
+          returnFocusRef={lastTriggerRef}
+          targetLabel={controlTarget}
+        />
+      )}
     </section>
   );
 }

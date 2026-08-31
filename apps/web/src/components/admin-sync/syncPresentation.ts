@@ -2,6 +2,7 @@ import type {
   AdminObservedStatus,
   AdminOperationComponent,
   AdminOperationJob,
+  AdminOpsCommandStatus,
 } from "../../types/dashboard";
 import type { ChipTone } from "../Chips";
 
@@ -41,6 +42,16 @@ const eventLabels: Record<string, string> = {
   admin_resume_requested: "已请求恢复队列",
   admin_retry_requested: "已请求人工重试",
   admin_sync_created: "已创建同步任务",
+};
+
+const opsCommandStatusLabels: Record<AdminOpsCommandStatus, string> = {
+  pending: "等待执行",
+  running: "执行中",
+  success: "成功",
+  failed: "失败",
+  rejected: "已拒绝",
+  expired: "已过期",
+  cancelled: "已取消",
 };
 
 export function componentLabel(type: AdminOperationComponent["component_type"]): string {
@@ -88,6 +99,18 @@ export function operationJobTone(status: AdminOperationJob["status"]): ChipTone 
   if (status === "running") return "info";
   if (status === "failed" || status === "cancelled") return "danger";
   return "warning";
+}
+
+export function opsCommandStatusLabel(status: AdminOpsCommandStatus): string {
+  return opsCommandStatusLabels[status] ?? "未知";
+}
+
+export function opsCommandStatusTone(status: AdminOpsCommandStatus): ChipTone {
+  if (status === "success") return "success";
+  if (status === "running") return "info";
+  if (status === "pending") return "warning";
+  if (status === "cancelled") return "neutral";
+  return "danger";
 }
 
 export function formatBytes(value: number | null | undefined): string {
