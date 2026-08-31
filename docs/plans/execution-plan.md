@@ -33,4 +33,10 @@
 - T0.1-T2.3 的代码、迁移、专项测试和文档证据全部闭合，运行时不再创建 `execution_mode=legacy` 轮次。
 - 全量 pytest、Web production build、Alembic 单 head、Compose 配置和 `git diff --check` 全部通过。
 - 真实 PostgreSQL 与 4C/8GB Linux 三轮资源门禁有可复现报告；在此之前 `DYDATA-58` 保持发布阻断，不宣称生产完成。
+
+## 6. DYDATA-81 门店端财务交付记录
+
+- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。
+- 当前子开发计划：`sub-delivery-plan-dydata-81-store-finance-T1.3-production-release.md`。
+- 本记录仅保存 DYDATA-81 已合入主线的发布证据，不改变当前主线 Linear 交付序列；生产发布仍以本轮门禁和用户最终验收为准。
 - 自动正式分配和自动再分配未被隐式开启，且未触碰腾讯云生产环境。
