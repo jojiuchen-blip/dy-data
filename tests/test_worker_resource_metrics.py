@@ -1,9 +1,143 @@
 from __future__ import annotations
 
+import os
+import signal
 from pathlib import Path
+
+import pytest
 
 
 GIB = 1024**3
+
+
+def test_backend_aweme_export_holds_shared_marker_during_worker_execution(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker, backend_aweme
+
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+    observed_tokens: list[str] = []
+
+    def parse_workbook(_path: Path) -> list[dict[str, object]]:
+        assert marker.is_file()
+        observed_tokens.append(marker.read_text(encoding="ascii"))
+        return []
+
+    expected = object()
+    monkeypatch.setattr(backend_aweme, "parse_backend_aweme_workbook", parse_workbook)
+    monkeypatch.setattr(
+        backend_aweme,
+        "upsert_backend_aweme_records",
+        lambda *_args, **_kwargs: expected,
+    )
+
+    result = backend_aweme.run_backend_aweme_export(
+        object(),
+        source_run_id="worker-export",
+        workbook_path=tmp_path / "input.xlsx",
+    )
+
+    assert result is expected
+    assert observed_tokens and observed_tokens[0].startswith(f"{os.getpid()}:")
+    assert not marker.exists()
+
+
+def test_backend_aweme_export_cleans_shared_marker_after_exception(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker, backend_aweme
+
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+
+    def fail_while_active(_path: Path) -> list[dict[str, object]]:
+        assert marker.is_file()
+        raise RuntimeError("export failed")
+
+    monkeypatch.setattr(backend_aweme, "parse_backend_aweme_workbook", fail_while_active)
+
+    with pytest.raises(RuntimeError, match="export failed"):
+        backend_aweme.run_backend_aweme_export(
+            object(),
+            source_run_id="worker-export",
+            workbook_path=tmp_path / "input.xlsx",
+        )
+
+    assert not marker.exists()
+
+
+def test_browser_export_marker_is_atomic_and_does_not_remove_another_owner(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker
+
+    marker = tmp_path / "browser-export.active"
+    marker.write_text("existing-owner\n", encoding="ascii")
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+
+    with pytest.raises(active_marker.BrowserExportActiveError, match="already active"):
+        with active_marker.browser_export_active():
+            raise AssertionError("an existing marker must fail closed")
+
+    assert marker.read_text(encoding="ascii") == "existing-owner\n"
+
+
+def test_browser_export_marker_cleans_on_signal_and_restores_handler(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker
+
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+    previous_handler = signal.getsignal(signal.SIGTERM)
+
+    with pytest.raises(SystemExit) as raised:
+        with active_marker.browser_export_active():
+            installed_handler = signal.getsignal(signal.SIGTERM)
+            assert callable(installed_handler)
+            installed_handler(signal.SIGTERM, None)
+
+    assert raised.value.code == 128 + signal.SIGTERM
+    assert not marker.exists()
+    assert signal.getsignal(signal.SIGTERM) == previous_handler
+
+
+def test_browser_export_marker_preserves_worker_drain_until_export_finishes(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker
+
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+    original_handler = signal.getsignal(signal.SIGTERM)
+    drain_calls: list[int] = []
+
+    def request_drain(signum: int, _frame) -> None:
+        drain_calls.append(signum)
+
+    signal.signal(signal.SIGTERM, request_drain)
+    try:
+        with active_marker.browser_export_active():
+            installed_handler = signal.getsignal(signal.SIGTERM)
+            assert callable(installed_handler)
+            installed_handler(signal.SIGTERM, None)
+            assert drain_calls == [signal.SIGTERM]
+            assert marker.is_file()
+    finally:
+        signal.signal(signal.SIGTERM, original_handler)
+
+    assert not marker.exists()
 
 
 def test_process_tree_rss_includes_children_but_not_unrelated_processes(tmp_path: Path) -> None:
@@ -72,8 +206,6 @@ def test_cgroup_v1_swap_is_derived_from_memsw_minus_memory(tmp_path: Path) -> No
 
 
 def test_resource_thresholds_are_configurable_and_require_warn_below_stop() -> None:
-    import pytest
-
     from apps.ops_agent.resources import ResourceThresholds
 
     thresholds = ResourceThresholds.from_env(

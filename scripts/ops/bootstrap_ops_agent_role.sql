@@ -2,6 +2,8 @@
 
 -- Run as a PostgreSQL role administrator after the control-plane migration.
 -- Credentials are intentionally configured separately with psql's \password.
+BEGIN;
+
 DO $bootstrap$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'dy_ops_agent') THEN
@@ -29,6 +31,23 @@ FROM pg_namespace AS namespace
 WHERE namespace.nspname <> 'information_schema'
   AND namespace.nspname NOT LIKE 'pg\_%' ESCAPE '\'
 \gexec
+
+-- Effective privilege checks include grants inherited from default/public ACLs
+-- and implicit owner privileges. The administrator must narrow those ACLs first.
+DO $preflight$
+BEGIN
+    IF has_database_privilege('dy_ops_agent', current_database(), 'CREATE')
+       OR has_database_privilege('dy_ops_agent', current_database(), 'TEMP') THEN
+        RAISE EXCEPTION
+            'dy_ops_agent must not have effective database CREATE or TEMP privileges';
+    END IF;
+
+    IF has_schema_privilege('dy_ops_agent', 'public', 'CREATE') THEN
+        RAISE EXCEPTION
+            'dy_ops_agent must not have effective CREATE on schema public';
+    END IF;
+END
+$preflight$;
 
 SELECT format(
     'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I FROM dy_ops_agent',
@@ -65,6 +84,15 @@ DECLARE
         'public.ops_commands:UPDATE'
     ];
 BEGIN
+    IF has_database_privilege('dy_ops_agent', current_database(), 'CREATE')
+       OR has_database_privilege('dy_ops_agent', current_database(), 'TEMP') THEN
+        RAISE EXCEPTION 'dy_ops_agent has an effective database CREATE or TEMP privilege';
+    END IF;
+
+    IF has_schema_privilege('dy_ops_agent', 'public', 'CREATE') THEN
+        RAISE EXCEPTION 'dy_ops_agent has effective CREATE on schema public';
+    END IF;
+
     SELECT array_agg(
         format('%s.%s:%s', table_schema, table_name, privilege_type)
         ORDER BY table_schema, table_name, privilege_type
@@ -123,3 +151,5 @@ BEGIN
     END IF;
 END
 $verify$;
+
+COMMIT;

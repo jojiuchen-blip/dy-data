@@ -1,11 +1,7 @@
 from __future__ import annotations
 
 import re
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -340,11 +336,14 @@ def test_ops_components_have_health_resource_and_log_guardrails():
 
 def test_browser_activity_marker_and_acceptance_overlay_are_wired():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    worker = _compose_service(compose, "worker")
     browser = _compose_service(compose, "browser")
     ops_agent = _compose_service(compose, "ops-agent")
     acceptance = (ROOT / "deploy" / "compose.acceptance.yaml").read_text(encoding="utf-8")
     env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
 
+    assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in worker
+    assert "browser-runtime:/run/browser" in worker
     assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in browser
     assert "browser-runtime:/run/browser" in browser
     assert "browser-runtime:/run/browser:ro" in ops_agent
@@ -358,49 +357,22 @@ def test_browser_activity_marker_and_acceptance_overlay_are_wired():
     assert "production values require the 4C/8GB acceptance run" in env_example
 
 
-def test_browser_export_marker_is_visible_during_command_and_cleaned_on_failure():
-    bash = shutil.which("bash")
-    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
-    if git_bash.exists():
-        bash = str(git_bash)
-    elif bash is not None and "system32" in bash.lower():
-        bash = None
-    if bash is None:
-        pytest.skip("a native bash runtime is unavailable")
+def test_browser_entrypoint_uses_the_common_python_marker_protocol():
     entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(
         encoding="utf-8"
     )
-    guard = entrypoint.split("# BEGIN browser export marker guard", 1)[1].split(
-        "# END browser export marker guard", 1
-    )[0]
-    harness = f"""
-set -u
-{guard}
-marker_root="$(mktemp -d)"
-BROWSER_EXPORT_ACTIVE_FILE="$marker_root/browser-export.active"
-if run_browser_export_with_marker \
-  bash -c 'test -f "$1"; exit 23' marker-check "$BROWSER_EXPORT_ACTIVE_FILE"; then
-  status=0
-else
-  status="$?"
-fi
-test "$status" -eq 23
-test ! -e "$BROWSER_EXPORT_ACTIVE_FILE"
-rmdir "$marker_root"
-"""
 
-    completed = subprocess.run(
-        [bash, "-c", harness],
-        check=False,
-        capture_output=True,
-        text=True,
+    assert (
+        'BROWSER_EXPORT_ACTIVE_FILE="${BROWSER_EXPORT_ACTIVE_FILE:-/run/browser/browser-export.active}"'
+        in entrypoint
     )
-
-    assert completed.returncode == 0, completed.stderr
-    assert "mktemp" in guard
-    assert 'mv -f -- "$marker_tmp" "$BROWSER_EXPORT_ACTIVE_FILE"' in guard
-    assert "trap cleanup_browser_export_marker EXIT" in guard
-    assert "trap 'exit 143' TERM" in guard
+    assert "export BROWSER_EXPORT_ACTIVE_FILE" in entrypoint
+    assert 'mkdir -p "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert 'chown browser:browser "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert 'chmod 1777 "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert "run_browser_export_with_marker" not in entrypoint
+    assert 'rm -f -- "$BROWSER_EXPORT_ACTIVE_FILE"' not in entrypoint
+    assert "python3 -m apps.worker.scheduler" in entrypoint
 
 
 def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():
@@ -409,6 +381,8 @@ def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():
     )
 
     assert "IF NOT EXISTS" in sql
+    assert "BEGIN;" in sql
+    assert sql.rstrip().endswith("COMMIT;")
     assert "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT" in sql
     assert "NOREPLICATION NOBYPASSRLS" in sql
     assert "REVOKE %I FROM dy_ops_agent" in sql
@@ -420,8 +394,31 @@ def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():
         "TO dy_ops_agent;"
     ) in sql
     assert "GRANT SELECT ON TABLE public.job_runs TO dy_ops_agent;" in sql
+    assert sql.count(
+        "has_database_privilege('dy_ops_agent', current_database(), 'CREATE')"
+    ) >= 2
+    assert sql.count(
+        "has_database_privilege('dy_ops_agent', current_database(), 'TEMP')"
+    ) >= 2
+    assert sql.count(
+        "has_schema_privilege('dy_ops_agent', 'public', 'CREATE')"
+    ) >= 2
+    assert "FROM PUBLIC;" not in sql.upper()
+    assert "TO PUBLIC;" not in sql.upper()
     assert "non-allowlisted table" in sql
     assert re.search(r"\bPASSWORD\b\s+['\"]", sql, flags=re.IGNORECASE) is None
+
+
+def test_ops_agent_role_runbook_requires_audited_public_acl_prerequisite():
+    runbook = (ROOT / "docs" / "runbook.md").read_text(encoding="utf-8")
+
+    assert "脚本不会设置或保存密码，也不会自动修改 PUBLIC ACL" in runbook
+    assert "aclexplode" in runbook
+    assert "WHERE rolcanlogin" in runbook
+    assert 'GRANT TEMPORARY ON DATABASE :"DBNAME" TO :"required_temp_role";' in runbook
+    assert 'REVOKE CREATE, TEMPORARY ON DATABASE :"DBNAME" FROM PUBLIC;' in runbook
+    assert "REVOKE CREATE ON SCHEMA public FROM PUBLIC;" in runbook
+    assert "bootstrap 会在事务内 fail closed 并回滚" in runbook
 
 
 def test_worker_image_contains_ops_agent_code():

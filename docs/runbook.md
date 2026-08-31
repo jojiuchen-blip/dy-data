@@ -220,7 +220,50 @@ Ops Agent 是独立的、无 HTTP 端口的运维进程。它只接受数据库�
 
 资源采样读取进程树 RSS、Linux cgroup current/limit、`MemAvailable` 和 swap。默认阈值是主机已用内存告警 6.0 GiB、停止 6.4 GiB、进程树 RSS 2 GiB、cgroup current 3 GiB、swap 使用 0；这些值只是可配置的 benchmark 初值，不代表已通过生产验证。worker 在领取重型子进程前遇到 drain/stop 决策会返回 control error，已有子进程 RSS 护栏仍按自身配置工作。
 
-首次启用或数据库迁移新增表后，由 PostgreSQL 角色管理员重复执行最小权限脚本。脚本不会设置或保存密码；随后在交互式 `psql` 中用 `\password` 设置部署环境密钥，且不要把密钥放进命令行、仓库或日志：
+首次启用或数据库迁移新增表后，由 PostgreSQL 角色管理员重复执行最小权限脚本。脚本不会设置或保存密码，也不会自动修改 PUBLIC ACL。PostgreSQL 数据库通常默认向 PUBLIC 提供 `TEMPORARY`，旧数据库的 `public` schema 也可能仍向 PUBLIC 提供 `CREATE`；这两类有效权限不能通过只对 `dy_ops_agent` 执行 `REVOKE` 来抵消。
+
+因此，执行 bootstrap 前必须由管理员完成一次显式前置门禁。先盘点 PUBLIC ACL 和所有登录角色的现有效权限，不得直接假设其他业务角色不需要临时表或迁移建表能力：
+
+```sql
+SELECT database_acl.privilege_type, database_acl.is_grantable
+FROM pg_database AS database
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(database.datacl, acldefault('d', database.datdba))
+) AS database_acl
+WHERE database.datname = current_database()
+  AND database_acl.grantee = 0;
+
+SELECT schema_acl.privilege_type, schema_acl.is_grantable
+FROM pg_namespace AS namespace
+CROSS JOIN LATERAL aclexplode(
+    COALESCE(namespace.nspacl, acldefault('n', namespace.nspowner))
+) AS schema_acl
+WHERE namespace.nspname = 'public'
+  AND schema_acl.grantee = 0;
+
+SELECT rolname,
+       has_database_privilege(oid, current_database(), 'CREATE') AS database_create,
+       has_database_privilege(oid, current_database(), 'TEMP') AS database_temp,
+       has_schema_privilege(oid, 'public', 'CREATE') AS public_schema_create
+FROM pg_roles
+WHERE rolcanlogin
+ORDER BY rolname;
+```
+
+只对盘点后确认仍需这些能力、且收紧前已经拥有相同有效权限的业务或迁移角色补直接授权，然后再收紧 PUBLIC。下面的角色变量必须替换为实际审计确认的角色；不要把未知角色批量授权，也不要在 bootstrap 脚本中自动执行这组全局变更：
+
+```sql
+\set required_temp_role 'replace_after_audit'
+\set required_migration_role 'replace_after_audit'
+GRANT TEMPORARY ON DATABASE :"DBNAME" TO :"required_temp_role";
+GRANT CREATE ON DATABASE :"DBNAME" TO :"required_migration_role";
+GRANT CREATE ON SCHEMA public TO :"required_migration_role";
+
+REVOKE CREATE, TEMPORARY ON DATABASE :"DBNAME" FROM PUBLIC;
+REVOKE CREATE ON SCHEMA public FROM PUBLIC;
+```
+
+若未完成该前置，或 `dy_ops_agent` 是数据库/schema owner，bootstrap 会在事务内 fail closed 并回滚。前置校验通过后再执行最小权限脚本，随后在交互式 `psql` 中用 `\password` 设置部署环境密钥，且不要把密钥放进命令行、仓库或日志：
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T postgres \
@@ -232,7 +275,7 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml exec postgres \
 # 在 psql 内执行：\password dy_ops_agent
 ```
 
-`dy_ops_agent` 的业务表权限固定为：`ops_commands` 仅 `SELECT/UPDATE`，`component_heartbeats` 仅 `SELECT/INSERT/UPDATE`，`job_runs` 仅 `SELECT`。脚本先撤销该角色在所有非系统 schema 的既有表、序列和 schema 权限及角色成员关系，再授予固定集合，并对任何其他有效业务表权限 fail closed。执行完成后再把独立凭据写入未跟踪的 `OPS_AGENT_DATABASE_URL`。
+`dy_ops_agent` 的业务表权限固定为：`ops_commands` 仅 `SELECT/UPDATE`，`component_heartbeats` 仅 `SELECT/INSERT/UPDATE`，`job_runs` 仅 `SELECT`。脚本先撤销该角色在所有非系统 schema 的既有表、序列和 schema 权限及角色成员关系，再验证其不具有数据库 `CREATE/TEMP` 和 `public` schema `CREATE`，最后授予固定集合；任何额外有效业务表权限或对象所有权带来的越权都会 fail closed。执行完成后再把独立凭据写入未跟踪的 `OPS_AGENT_DATABASE_URL`。
 
 本地只做配置与专项验证，不执行生产 Docker 操作：
 

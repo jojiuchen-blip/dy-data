@@ -105,6 +105,7 @@ services:
       BROWSER_EXPORT_DOWNLOAD_DIR: ${BROWSER_EXPORT_DOWNLOAD_DIR:-/home/browser/Downloads/job-runs}
       BROWSER_EXPORT_ARTIFACT_DIR: ${BROWSER_EXPORT_ARTIFACT_DIR:-/data/browser-exports}
       BROWSER_EXPORT_COMMAND: ${BROWSER_EXPORT_COMMAND:-python -m apps.worker.browser_exports.backend_aweme}
+      BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active
       BACKEND_AWEME_EXPORT_URL: ${BACKEND_AWEME_EXPORT_URL:-https://life.douyin.com/}
       WORKER_RESOURCE_GUARD_ENABLED: ${WORKER_RESOURCE_GUARD_ENABLED:-true}
       WORKER_RESOURCE_WARN_HOST_USED_BYTES: ${WORKER_RESOURCE_WARN_HOST_USED_BYTES:-6442450944}
@@ -115,6 +116,7 @@ services:
       TZ: Asia/Shanghai
     volumes:
       - browser-downloads:/home/browser/Downloads
+      - browser-runtime:/run/browser
       - exports-data:/data
     stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-5m}
     mem_limit: ${WORKER_MEMORY_LIMIT:-3g}
