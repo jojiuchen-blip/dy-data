@@ -526,6 +526,21 @@ def _sparse_preflight(
     return base, expanded, cumulative_months, existing
 
 
+def _active_adjustment_condition() -> Any:
+    """Keep only ordinary adjustments and the current carryforward version."""
+
+    is_versioned = select(SettlementCarryforwardApplication.id).where(
+        SettlementCarryforwardApplication.target_adjustment_id
+        == SettlementFeeAdjustment.adjustment_id
+    ).exists()
+    is_current = select(SettlementCarryforwardApplication.id).where(
+        SettlementCarryforwardApplication.target_adjustment_id
+        == SettlementFeeAdjustment.adjustment_id,
+        SettlementCarryforwardApplication.is_current.is_(True),
+    ).exists()
+    return or_(~is_versioned, is_current)
+
+
 def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
     result_store = case(
         (SettlementFeeResult.fee_direction == PROMOTION_FEE, SettlementFeeResult.sale_store_id),
@@ -579,16 +594,14 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             SettlementFeeAdjustment.adjustment_fee_cent.label("fee_amount_cent"),
         )
         .join(
-            SettlementFeeResultCurrent,
-            SettlementFeeResultCurrent.fee_result_id
-            == SettlementFeeAdjustment.original_fee_result_id,
-        )
-        .join(
             SettlementFeeResult,
             SettlementFeeResult.fee_result_id
             == SettlementFeeAdjustment.original_fee_result_id,
         )
-        .where(SettlementFeeAdjustment.adjustment_posting_month.in_(months))
+        .where(
+            SettlementFeeAdjustment.adjustment_posting_month.in_(months),
+            _active_adjustment_condition(),
+        )
     )
     source = union_all(result_rows, adjustment_rows).subquery("sparse_authority")
 
@@ -4893,7 +4906,8 @@ def _projection_sources(
             == SettlementFeeAdjustment.original_fee_result_id,
         )
         .where(
-            SettlementFeeAdjustment.adjustment_posting_month == posting_month
+            SettlementFeeAdjustment.adjustment_posting_month == posting_month,
+            _active_adjustment_condition(),
         )
         .execution_options(yield_per=batch_size)
     )
