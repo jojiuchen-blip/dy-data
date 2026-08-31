@@ -141,7 +141,10 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
         'docker compose'
         in deploy_script
     )
-    assert "compose build --progress=plain api web browser worker" in deploy_script
+    assert "compose build --progress=plain api web browser worker ops-agent" in deploy_script
+    assert "compose up -d --no-deps api web browser ops-agent" in deploy_script
+    assert 'wait_for_healthy_service ops-agent' in deploy_script
+    assert 'compose logs --tail=80 api web proxy ops-agent' in deploy_script
     assert "compose up -d --no-deps --force-recreate worker" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script

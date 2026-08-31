@@ -138,11 +138,39 @@ backup_database() {
   log "database backup complete path=$backup_file"
 }
 
+wait_for_healthy_service() {
+  local service="$1"
+  local container_id
+  local status
+
+  for attempt in $(seq 1 30); do
+    container_id="$(compose ps -q "$service")"
+    if [ -n "$container_id" ]; then
+      status="$(
+        sudo docker inspect \
+          --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+          "$container_id" 2>/dev/null || true
+      )"
+      if [ "$status" = "healthy" ]; then
+        return 0
+      fi
+      if [ "$status" = "exited" ] || [ "$status" = "dead" ]; then
+        break
+      fi
+    fi
+    sleep 2
+  done
+
+  log "$service failed to become healthy status=${status:-missing}"
+  compose logs --tail=80 "$service" || true
+  return 1
+}
+
 on_error() {
   status=$?
   log "deployment failed with status=$status"
   compose ps -a || true
-  compose logs --tail=80 api web proxy || true
+  compose logs --tail=80 api web proxy ops-agent || true
   exit "$status"
 }
 
@@ -181,7 +209,7 @@ log "using apt mirror $APT_MIRROR"
 validate_compose_config
 
 log "building images"
-compose build --progress=plain api web browser worker
+compose build --progress=plain api web browser worker ops-agent
 
 log "starting postgres"
 compose up -d postgres
@@ -213,7 +241,10 @@ if [ "$unresolved_snapshot_exceptions" -ne 0 ]; then
 fi
 
 log "starting runtime services without worker"
-compose up -d --no-deps api web browser
+compose up -d --no-deps api web browser ops-agent
+
+log "waiting for ops-agent health"
+wait_for_healthy_service ops-agent
 
 log "recreating proxy so nginx resolves fresh upstream container addresses"
 compose up -d --no-deps --force-recreate proxy
