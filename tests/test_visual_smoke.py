@@ -1824,6 +1824,7 @@ def test_sales_charts_keep_keyboard_accessible_names_and_readable_type(
         page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
         page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
         figures = page.locator(".sales-echart")
+        figures.nth(1).wait_for(timeout=10000)
         assert figures.count() == 2
 
         rainfall = figures.first
@@ -2865,6 +2866,7 @@ def test_clue_secondary_navigation_marks_only_the_most_specific_route_current(
         navigation = page.get_by_role("navigation", name="线索中心导航")
         current_links = navigation.locator('a[aria-current="page"]')
 
+        current_links.first.wait_for(timeout=10000)
         assert current_links.count() == 1
         assert current_links.first.inner_text() == "线索明细"
         assert (
