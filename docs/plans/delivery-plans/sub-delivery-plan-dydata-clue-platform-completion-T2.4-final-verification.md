@@ -31,4 +31,8 @@
 
 **前置**：T2.3
 
-**状态**：待开发
+**状态**：进行中（LOCAL FUNCTIONAL GREEN / RELEASE BLOCKED）
+
+**本地完成证据（2026-08-31）**：全量 `2225 passed / 128 skipped`；Web production build 完成（724 modules）；Alembic 唯一 head 为 `20260831_0046`；基础和 acceptance Compose 配置通过；Bash 语法、Python compileall 与 `git diff --check` 通过；合成 fixture、shadow checksum、durable checkpoint、故障恢复与三轮确定性检查见 [T5.2-main-integration.md](../../reports/dydata-58/T5.2-main-integration.md)。
+
+**发布阻断**：尚未在独立真实 PostgreSQL 测试库验证并发租约、fencing、崩溃恢复和跨日统计；尚未在 4C/8GB Linux 连续三轮采集 worker RSS、主机内存、cgroup、swap/OOM 及 HTTPS、SSH、API、PostgreSQL 可用性。因此不得将 DYDATA-58 标为生产完成，也不得据此部署或重启腾讯云服务。

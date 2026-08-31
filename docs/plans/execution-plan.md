@@ -18,15 +18,15 @@
 
 ## 3. 进行中任务
 
-- `T2.4 / DYDATA-58`：完成全量回归、单迁移头、Web production build、Compose 解析和本地 shadow/checkpoint 验收。
-- 修复本轮全量回归识别出的少量契约回归，并在聚焦测试通过后重新执行完整门禁。
+- `T2.4 / DYDATA-58`：本地代码与功能门禁已完成，状态为 `LOCAL FUNCTIONAL GREEN / RELEASE BLOCKED`。
+- 本地证据包括全量 `2225 passed / 128 skipped`、Web production build、Alembic 单 head、Compose 解析以及 shadow/checkpoint 验收。
 - 保护未跟踪规格文件、旧隔离 worktree 和 `stash@{0}`；不执行生产部署、重启或数据写入。
 
 ## 4. 下一步任务
 
-- 同步 T2.3 已完成证据，并把 T2.4 的本地结果和外部环境阻断项写回主计划、任务看板和子计划。
 - 在独立、可丢弃的真实 PostgreSQL 测试库完成原子领取、租约、fencing、崩溃恢复和跨日统计验证。
 - 在 4C/8GB Linux 环境连续运行三轮资源验收，验证 worker RSS、主机内存、swap/OOM 及 HTTPS、SSH、API、PostgreSQL 可用性。
+- Linear OAuth 恢复后，将本地完成证据回写对应 issue；`DYDATA-58` 在外部发布门禁通过前不改为完成。
 
 ## 5. 完成标准
 

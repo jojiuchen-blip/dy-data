@@ -30,4 +30,6 @@
 
 **前置**：T2.2
 
-**状态**：待开发
+**状态**：已完成（2026-08-31）
+
+**完成证据**：受影响订单增量 rebuild、generation lineage 和月度/全局投影已集成；最高管理员 D10 控制面与前端控制台已集成；Ops Agent 只允许 `restart(worker|browser)`，通过 owner/epoch/lease fencing、同目标 300 秒冷却、唯一容器匹配和 replacement heartbeat 约束；worker/browser/API/ops-agent 资源与权限边界进入 Compose。专项验证包括 Ops/resource/Compose `62 passed`、Aweme/pipeline `40 passed`、控制台/API 权限专项通过及 Web production build 通过。最终全量结果归入 T2.4。
