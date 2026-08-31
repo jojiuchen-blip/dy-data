@@ -229,7 +229,7 @@ Phase 5 自查未改变 Phase 4 已确认的业务边界；需用户确认本节
 | 页面操作 | 关键字段 | 写入 API | Schema 落点 | 结论 |
 |---|---|---|---|---|
 | 门店方向确认 | 账单版本、费用方向、确认金额 | #25 | `settlement_statement_confirmation` | ✓ |
-| 门店提交/撤回异议 | 类型、订单、金额、说明、联系人、手机号、证明资料 | #27/#28 | `settlement_dispute`、`settlement_dispute_order` | ✓ |
+| 门店提交/撤回异议 | 类型、订单、金额、具体原因、联系人、手机号 | #27/#28 | `settlement_dispute`、`settlement_dispute_order` | ✓ |
 | 门店登记推广费发票 | 发票头、一个或多个完整账期及各自读取版本、20 位号码、日期、总金额与分配金额 | #30 | `promotion_invoice`、`promotion_invoice_allocation`、`invoice_status_event` | ✓ |
 | 管理员处理异议 | 目标状态、说明、调整金额、读取版本、上一/当前版本链 | #36 | 异议表、`settlement_statement.version_no/is_current/supersedes_statement_id`、账单行/来源快照、审计 | ✓ |
 | 管理员导入 | 四类模板、账期、文件、读取版本、变更原因 | #38/#40/#41 | `finance_import_batch/row`、发票、事件、审计 | ✓ |

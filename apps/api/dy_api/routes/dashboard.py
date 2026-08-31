@@ -8960,8 +8960,8 @@ def _parse_dispute_payload(payload: dict, request: Request) -> dict:
         _raise_dispute_validation(request, "readVersion", "readVersion 必须为正整数")
     if not isinstance(orders, list) or not orders:
         _raise_dispute_validation(request, "orders", "orders 至少包含一条争议订单")
-    if not isinstance(evidence, list) or not evidence:
-        _raise_dispute_validation(request, "evidence", "evidence 至少包含一个受控对象键")
+    if evidence not in (None, []):
+        _raise_dispute_validation(request, "evidence", "账单异议不支持上传证明材料")
 
     parsed_orders = []
     seen_order_keys = set()
@@ -9001,22 +9001,6 @@ def _parse_dispute_payload(payload: dict, request: Request) -> dict:
             request, "orders", "订单争议金额合计必须等于异议总金额"
         )
 
-    parsed_evidence = []
-    for item in evidence:
-        object_key = item.get("objectKey") if isinstance(item, dict) else None
-        normalized_object_key = (
-            object_key.strip() if isinstance(object_key, str) else None
-        )
-        if (
-            not normalized_object_key
-            or normalized_object_key.lower().startswith(("http://", "https://"))
-            or ".." in normalized_object_key
-        ):
-            _raise_dispute_validation(
-                request, "evidence", "evidence 仅接受受控 objectKey"
-            )
-        parsed_evidence.append({"objectKey": normalized_object_key})
-
     return {
         "fee_direction": normalized_direction,
         "dispute_type": normalized_type,
@@ -9025,7 +9009,7 @@ def _parse_dispute_payload(payload: dict, request: Request) -> dict:
         "contact_phone": contact_phone,
         "disputed_amount_cent": disputed_amount,
         "orders": parsed_orders,
-        "evidence": parsed_evidence,
+        "evidence": [],
         "read_version": read_version,
     }
 

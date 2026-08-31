@@ -4501,6 +4501,24 @@ a.metric-card:hover,
   font-size: var(--font-size-control);
 }
 
+.store-dispute-dialog {
+  width: min(820px, calc(100vw - 32px));
+}
+
+.admin-dispute-history-item {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--surface-subtle);
+}
+
+.admin-dispute-history-item span {
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
 .tertiary-nav {
   display: flex;
   align-items: flex-end;

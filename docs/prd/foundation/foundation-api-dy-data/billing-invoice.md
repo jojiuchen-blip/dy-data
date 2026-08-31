@@ -60,7 +60,7 @@
 
 ### 3.1 `POST /api/v1/store-settlements/{statementId}/disputes`
 
-请求：`feeDirection`、`disputeType=RATE_ERROR/DATA_MISSING/AMOUNT_ERROR/OTHER`、`description`、`contactName`、`contactPhone`、`disputedAmountCent`、`orders[]`、`evidence[]`、`readVersion`。`orders[]` 含 `orderId/couponId?/disputedAmountCent`；证明资料先经受控上传取得对象键。
+请求：`feeDirection`、`disputeType=RATE_ERROR/DATA_MISSING/AMOUNT_ERROR/OTHER`、`description`、`contactName`、`contactPhone`、`disputedAmountCent`、`orders[]`、`readVersion`。`description` 为具体原因，去除首尾空白后不得为空；`orders[]` 含 `orderId/couponId?/disputedAmountCent`。不接受非空 `evidence` 字段，不创建或保存异议附件。
 
 成功后状态为 `PENDING`（待处理）。异议不阻断另一费用方向，且用户已确认两个方向均不互相阻断。
 

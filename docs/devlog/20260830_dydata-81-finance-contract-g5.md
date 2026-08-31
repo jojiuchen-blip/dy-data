@@ -69,17 +69,26 @@ Owner 已书面授权完成六个财务页面的最小实现、自动化测试�
 ## 独立审查
 
 - 两轮独立复审确认四项 Important 已关闭：异步检测 CAS 竞争、worker 验证晚于流量切换、SAP tombstone 后旧类型回退、`/finance/imports` 同路径 query remount 状态丢失。
-- `objectKey` 已先做 trim、大小写和 URL 形式的 fail-closed 校验，但这只关闭客户端 URL 绕过，不构成受控上传合同；对象存在性、归属、门店/账单绑定、读取和清理仍由 DYDATA-82 定义。
+- 截至 2026-08-30，`objectKey` 曾做 trim、大小写和 URL 形式的 fail-closed 校验；该历史检查不再代表当前合同，2026-08-31 用户裁决已取消异议文件上传。
 - 除已知 DYDATA-82 外，复审未发现新的 Critical/Important；这不替代目标 PostgreSQL、PR/CI、备份和线上 smoke 门禁。
 
 ## 当前发布阻塞
 
-- DYDATA-82 于 2026-08-31 重新从 Linear 实时核查：仍为 Backlog / Needs Definition，0 条评论；证明材料受控上传仍缺存储、文件类型/大小/数量、留存、安全和审计合同。DYDATA-19 已把证明材料定义为新建异议必需项，因此生产发布保持 BLOCKED；不得用自由文本 `objectKey` 或前端假上传绕过。
+- 2026-08-31 Owner 书面裁决：账单异议取消文件上传，改为填写具体原因；不创建对象存储或附件生命周期。reason-only API/UI 已按该裁决实现，新建记录的 `evidence_json=[]`，非空 `evidence` 请求返回 422；旧 `evidence_json` 仅保留兼容读取。
+- 原 DYDATA-82 对象存储阻塞已由该裁决解除；D-09 的 API、三档浏览器 UAT、刷新回读与截图证据已通过，转为 PASS。
 - 任一正式字段来源、业务口径、迁移、权限、CI、备份、UAT 或线上 smoke 未通过时不得部署。
 - 本机未安装 Docker 与 `psql`，目标 PostgreSQL 发布门禁必须由仓库 CI 服务容器执行；GitHub CLI 当前未登录，若发布阶段仍无可用 Git 凭据，则无法创建/观察 PR、CI 或触发受控生产流程，必须停止并报告，禁止绕过。
 
 ## 下一步
 
-1. 将最终测试、UAT、独立审查、本地提交和发布阻塞回填 DYDATA-81，Issue 保持 In Progress。
-2. 在 DYDATA-82 完成并通过安全门禁，或 Owner 明确书面批准排除“新建异议”且认可既有异议处理可独立发布之前，不创建生产发布。
-3. 后续恢复发布时必须先取得 GitHub/CI 权限、目标 PostgreSQL门禁、worker 单实例归属、备份与回滚证据，再按既有腾讯云 workflow 部署。
+1. 将 reason-only 测试、三档 UAT、独立审查、本地提交和当前发布门禁回填 DYDATA-81，Issue 保持 In Progress。
+2. 全量 pytest 首次结果为 `1479 passed, 2 skipped, 1 failed`，唯一失败为通用 ranking 768 视觉导航的 Windows `ERR_NO_BUFFER_SPACE`；该节点单独重跑 `1 passed`。
+- 2026-08-31：清理环境后完整重跑 pytest 通过，`1480 passed, 2 skipped, 271 warnings`（36:12）；上述 Windows 缓冲区错误未复现，技术回归门禁收口。
+3. 后续恢复发布时必须先取得 GitHub/CI 权限、目标 PostgreSQL 门禁、worker 单实例归属、备份与回滚证据，再按既有腾讯云 workflow 部署。
+
+## 2026-08-31 最新验证
+
+- API/前端回归：`62 passed, 10 warnings`。
+- 三档 reason-only 真实 FastAPI 浏览器 UAT：`3 passed, 242 deselected, 2 warnings`；截图位于 `output/playwright/dydata-81-g5/reason-only/`。
+- DYDATA-81 专项视觉/真实 API 回归：`10 passed, 235 deselected, 2 warnings`；全量视觉回归：`245 passed, 2 warnings`。
+- `compileall`、`git diff --check`、suite lock、global-file 和 S4 route checks 通过；Web build 通过（717 modules transformed）。完整 pytest 重跑为 `1480 passed, 2 skipped, 271 warnings`。目标发布门禁仍未解除。

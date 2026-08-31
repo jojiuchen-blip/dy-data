@@ -99,6 +99,8 @@ import type {
   StoreBillingConfirmationResult,
   StoreBillingStatement,
   StoreBillingStatementListData,
+  StoreSettlementDisputeListData,
+  StoreSettlementDisputePayload,
   MonthlySettlementData,
   OrderFeeDetailsData,
   PeriodType,
@@ -2583,6 +2585,25 @@ export function confirmStoreBillingStatement(
 ): Promise<ApiLoadResult<StoreBillingConfirmationResult>> {
   return sendJson<StoreBillingConfirmationResult>(
     `/store-settlements/${encodeURIComponent(statementId)}/confirmations`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchStoreSettlementDisputes(
+  statementId: string,
+): Promise<ApiLoadResult<StoreSettlementDisputeListData>> {
+  return requestJson<StoreSettlementDisputeListData>(
+    `/store-settlements/${encodeURIComponent(statementId)}/disputes`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function createStoreSettlementDispute(
+  statementId: string,
+  payload: StoreSettlementDisputePayload,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<StoreSettlementDisputeListData["list"][number]>> {
+  return sendJson<StoreSettlementDisputeListData["list"][number]>(
+    `/store-settlements/${encodeURIComponent(statementId)}/disputes`,
     { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
   ).then((response) => ({ ...response, usingMock: false }));
 }

@@ -1,6 +1,6 @@
 # DYDATA-81 财务页面合同 G5 验收记录
 
-> 状态：实现与隔离 UAT 已通过，生产发布被 D-09 阻塞（2026-08-31）
+> 状态：实现与隔离 UAT 已通过，生产发布被 GitHub/CI 与目标环境门禁阻塞（2026-08-31）
 > 业务权威：Linear DYDATA-81 / DYDATA-19 / DYDATA-31 与 Owner 书面裁决
 > 页面合同：`codex/dydata-19-finance-mock@9a574fa`、`docs/prototypes/dydata-19-finance-flow-dashboard/`
 > 视觉权威：主应用 Shell、design token、共享组件、响应式与权限骨架
@@ -97,7 +97,7 @@
 | D-06 | 检测执行失败 | 查看详情并刷新 | 状态为失败，展示正式失败原因和可重试入口；不伪装成 100% 或空结果 | API/截图 | PASS |
 | D-07 | 检测已完成 | 财务手工受理或驳回 | 沿用正式状态机、乐观锁和审计；受理生成新账单版本，驳回按既有确认规则处理 | API/数据库/审计 | PASS |
 | D-08 | 当前筛选/权限已确定 | 导出账单异议 | 导出重新鉴权且字段与列表/处理结果一致，无原型预览示例行 | CSV/API | PASS |
-| D-09 | 门店提交异议需要证明资料 | 请求上传/绑定证据 | 当前 Foundation 要求受控对象键，但 DYDATA-82 尚未定义上传、读取、清理与留存合同 | Linear DYDATA-82、Foundation | BLOCKED |
+| D-09 | 门店提交异议填写具体原因 | 提交不带附件的 reason-only 请求并刷新查询 | 正式 API 保存 `description`、账单/门店/费用方向/账期和订单事实；新建记录 `evidence=[]`，非空 `evidence` 被 422 拒绝；刷新后异议仍可追溯 | API 回归 62 passed；390×844、768×1024、1440×900 浏览器 UAT 3 passed；三张 reason-only 截图 | PASS |
 
 ## 8. 导入记录
 
@@ -110,7 +110,7 @@
 
 ## 9. 发布裁决
 
-在所有非 `APPROVED DEVIATION` 行成为 `PASS` 前，不得部署。当前 `D-09` 明确为 `BLOCKED`：Foundation 已要求异议提交携带受控证明对象键，而 DYDATA-82 尚未提供安全上传/读取/清理合同。除非 Owner 书面批准本轮不含“新建异议”且确认既有异议处理可独立发布，或 DYDATA-82 完成并通过门禁，否则 DYDATA-81 G5 不进入生产。
+在所有非 `APPROVED DEVIATION` 行成为 `PASS` 前，不得部署。2026-08-31 Owner 已书面裁决取消账单异议文件上传，D-09 不再等待对象存储合同；D-09 的原因-only API、三档浏览器回读和截图证据已通过。生产仍须通过 GitHub/CI、目标 PostgreSQL、备份、部署和 smoke 门禁后才可进入生产。
 
 ## 10. 三档并排证据索引
 
@@ -133,7 +133,14 @@
 - DYDATA-81 专项浏览器回归：`7 passed`，覆盖真实异步检测刷新回读、SAP 单条矫正审计、六页三档布局、导入展开与查询状态保留。
 - 三档真实 API UAT 已生成 32 张主系统证据；冻结原型另生成 18 张同尺寸参考图，共 50 张并已附加到 Linear。
 - Web production build：`717 modules transformed`，通过；仅保留既有大 chunk warning。
-- 独立复审确认四项 Important 已关闭：异步检测 CAS 竞争、worker 切流顺序、SAP tombstone/legacy 控制版本、导入记录同路径查询状态；未发现新的 Critical/Important。证明资料对象生命周期仍归 DYDATA-82，保持发布阻塞。
+- 独立复审确认四项 Important 已关闭：异步检测 CAS 竞争、worker 切流顺序、SAP tombstone/legacy 控制版本、导入记录同路径查询状态；未发现新的 Critical/Important。2026-08-31 用户裁决取消异议文件上传；reason-only API/UI、三档浏览器回读和截图已通过，D-09 转为 PASS；对象存储生命周期不再是本轮发布依赖。
 - 回归期间关闭导入撤销按数值主键误查批次的问题；路由现按正式 `batch_id` 查询，并补充锁顺序测试。
 - `git diff --check`、`compileall`、`alembic heads`、Git Bash 部署脚本语法：通过，唯一 head 为 `20260830_0044`。
-- 目标 PostgreSQL CI、PR/CI、备份、生产部署与线上 smoke 尚未执行；D-09、GitHub 鉴权和目标环境门禁未关闭前不得发布。
+- 全量 pytest 已重跑通过：`1480 passed, 2 skipped, 271 warnings`（36:12）；此前通用 ranking 768 视觉导航的 Windows `ERR_NO_BUFFER_SPACE` 在完整重跑中未复现。目标 PostgreSQL CI、PR/CI、备份、生产部署与线上 smoke 尚未执行；GitHub 鉴权和目标环境门禁未关闭前不得发布。
+
+## 12. 2026-08-31 reason-only 增量证据
+
+- 用户裁决：账单异议去掉文件，改为填写具体原因；不创建对象存储或附件生命周期。新请求不接受非空 `evidence`，历史 `evidence_json` 仅兼容读取。
+- API/前端回归：`python -m pytest tests/test_api_store_billing.py tests/test_frontend_store_settlement_confirmation.py -q --tb=short` → `62 passed, 10 warnings`。
+- 三档真实 FastAPI 浏览器回归：`python -m pytest tests/test_visual_smoke.py -k "store_dispute_reason_only_flow_has_no_file_upload" -q --tb=short` → `3 passed, 242 deselected, 2 warnings`。
+- 截图：`output/playwright/dydata-81-g5/reason-only/390x844/store-settlement.png`、`768x1024/store-settlement.png`、`1440x900/store-settlement.png`；三档均验证具体原因提交、真实 API 保存、`evidence=[]`、刷新回读和无文件输入。

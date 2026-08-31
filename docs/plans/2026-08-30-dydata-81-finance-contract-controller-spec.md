@@ -1,7 +1,7 @@
 # DYDATA-81 财务页面合同实现 Controller Spec
 
 Status: Active
-Date: 2026-08-30
+Date: 2026-08-31
 Controller: Codex 主控
 Repo / workspace: dy-data 隔离工作树
 Branch / target: `codex/dydata-81-finance-contract` -> PR -> `main` -> 受控腾讯云生产发布
@@ -20,7 +20,7 @@ Branch / target: `codex/dydata-81-finance-contract` -> PR -> `main` -> 受控腾
 | SAP | 财务导入值直接成为有效 SAP；保留门店原值、财务值、操作人、时间、版本；支持单条矫正 | DYDATA-81 2026-08-30 评论 | High | 历史账单/订单快照不回写 |
 | 异步检测 | 状态、进度、结果、失败原因必须来自正式 API，刷新后可追溯 | DYDATA-81 2026-08-30 评论 | High | 自动检测只输出数据一致性证据，不替代管理员业务裁决 |
 | 正式实现 | 六页、财务查询/导入/异议 API 和不可变版本基础已存在 | `apps/web/src/pages/Finance*.tsx`、`apps/api/dy_api/routes/dashboard.py` | High | 当前布局、字段、SAP 生效与异步检测仍有差异 |
-| 已知发布阻塞 | 异议证明材料没有受控上传/读取/清理接口，存储策略未定义 | Linear DYDATA-82 | High | 若发布前仍未定义且影响本轮真实闭环，则停止部署 |
+| 已知发布阻塞 | 旧异议附件合同已被用户取消；reason-only API/UI 改动需补新鲜回归与 UAT 证据 | 用户书面裁决 2026-08-31；正式 API | High | 对象存储不再是本轮依赖；验证未完成前仍停止部署 |
 
 ## 3. Scope
 
@@ -37,7 +37,7 @@ Excluded:
 
 - 演示金额、日期、门店、发票、SAP、状态或假成功。
 - 真实开票、厂端审核、资金划拨、模糊匹配或历史事实覆盖。
-- 未经定义的对象存储策略、手工生产数据库修改、绕过 CI/迁移/备份/权限。
+- 未经用户确认的新业务字段、手工生产数据库修改、绕过 CI/迁移/备份/权限。
 - DYDATA-83/84 的门店端发票扩展，除非验证证明是六个管理员财务页面的直接发布依赖。
 
 Scope control rule:
@@ -51,7 +51,7 @@ Scope control rule:
 | A1 | 异步检测的自动结论边界 | Assumption | Controller | 只核对正式数据库中异议订单范围、金额合计、账单版本与冻结分录一致性；不自动判定异议成立/不成立，管理员处理状态机保持不变 |
 | A2 | SAP 有效值优先级 | Assumption | Controller | 最新一次财务导入或财务单条矫正成为当前有效值；后发生操作覆盖当前指针但永久保留旧版本与审计；历史账单快照不变 |
 | A3 | 模板下载示例数据 | Assumption | Controller | 生产模板仅输出已冻结正式字段表头和填写说明，不包含原型示例值 |
-| Q1 | DYDATA-82 对本轮生产放行的影响 | Question | Controller / User | 发布前按真实闭环验证；若仍缺安全定义且构成门禁，停止部署并集中报告 |
+| Q1 | reason-only 异议对本轮生产放行的影响 | Resolved | User | 2026-08-31 用户书面裁决取消文件上传；新建异议填写具体原因，`evidence` 非空拒绝，历史字段仅兼容读取；API/UI 回归、三档真实 FastAPI UAT 与截图证据已通过 |
 | Q2 | 目标正式接口 UAT 是否具备安全可写样例 | Question | Controller | 无受控样例时只做读/预校验/回滚安全验证，不在生产制造业务数据 |
 
 ## 5. Work Breakdown

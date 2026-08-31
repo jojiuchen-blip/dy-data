@@ -9,7 +9,7 @@
 - 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
 - G4 一级“财务”导航已由 `df617e7` 生产部署；G5 六页内部合同、推广费 5 卡口径、订单筛选/表头、SAP 财务值生效与版本审计、单条矫正、真实异步检测和三视口隔离 UAT 已完成本地实现与验证，当前停在生产发布硬门禁。
 - 页面内部结构与业务交互以冻结原型逐项验收；视觉继续以 `docs/design-system/tokens.json`、`docs/design-system/README.md`、`apps/web/src/design-tokens.css` 和共享组件为权威。
-- DYDATA-82 证明材料受控上传的发布影响仍需关闭；在其与其他数据正确性、正式 API、CI/迁移/备份/smoke 门禁全部通过前不得生产部署。
+- 2026-08-31 用户已裁决取消账单异议文件上传，改为填写具体原因；reason-only API/UI、三档 UAT 与截图证据已补齐。对象存储不再是 DYDATA-81 发布依赖。
 
 ## 0.1 并行增量入口：DYDATA-46
 
@@ -42,7 +42,7 @@
 ## 3. 进行中任务
 
 - 本地实现、完整 pytest、Web build、独立审查和 1440/768/390 隔离 UAT 已完成；证据归档与 Linear 回填进行中。
-- 当前生产发布被 DYDATA-82 受控证明对象合同、GitHub/CI 鉴权、目标 PostgreSQL/备份/部署凭据门禁阻塞，禁止绕过。
+- 当前生产发布仍被 GitHub/CI 鉴权、目标 PostgreSQL/备份/部署凭据门禁阻塞，禁止绕过；reason-only 异议改动的专项回归和 UAT 已通过。
 - 门禁恢复后先执行 PR/CI、目标 PostgreSQL 升级/回滚与并发核查，再按既有受控流程部署并完成入口、六页、权限、导入、SAP 审计、筛选/跳转和 worker 线上 smoke。
 
 ## 4. 下一步任务
@@ -56,7 +56,7 @@
 - T5.7 G3 已完成：0043 固化账单头与订单明细快照，历史缺失值进入异常清单，查询不再回退可变主数据，部署前强制异常归零；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 均通过，独立复审 Critical/Important/Minor 均为 0、`Ready: yes`。
 - 发布前主线预检：当前隔离分支直接基于 `origin/main@ef547ab4` 建立，已避免旧分支硬合并与历史迁移链冲突。ahead/behind 是随本轮证据提交变化的运行时状态，不在计划中写死；发布前必须重新 `fetch` 并以 `git rev-list --left-right --count origin/main...HEAD` 的新鲜结果为准。后续仍须通过 PR/CI、目标 PostgreSQL 迁移与回滚门禁、部署后 smoke，才可进入生产发布。
 - T5.7 本地全量回归已完成：视觉 229 passed；其余 1182 passed、2 skipped；合计 1411 passed、2 skipped、0 failed。此前视觉失败已确认由 v2-clean 标题基线漂移与 SPA/StrictMode 时序断言导致，并在测试层修正；结算页面另关闭上下文切换期间旧账单误确认与 409 冲突后旧版本残留两个 Important 缺口，线索演示模式恢复 D05-D08 管理分配验收路径且未扩展演示边界。最终独立复审 Critical/Important/Minor 均为 0，Ready: yes。迁移回滚契约仍为：空库可逆；已有不可变事实时拒绝有损降级，生产使用备份恢复或前向修复。PR/CI、目标 PostgreSQL 门禁、目标环境部署与 smoke 尚未完成。
-- T5.7 G5 新鲜全量回归：完整视觉 242 passed；其余 1233 passed、2 skipped；合计 1475 passed、2 skipped、0 failed。高风险组合 167 passed，DYDATA-81 专项浏览器 7 passed，Web build 717 modules。独立复审关闭四项 Important，未发现新的 Critical/Important；DYDATA-82 受控证明对象仍为 Critical 发布阻塞。PR/CI、目标 PostgreSQL、备份、生产部署与线上 smoke 未执行。
+- T5.7 G5 reason-only 增量：API/前端回归 `62 passed`；三档真实 FastAPI UAT `3 passed`；DYDATA-81 专项视觉/真实 API 回归 `10 passed`；全量视觉回归 `245 passed`。全量 pytest 已在清理后的环境重跑通过：`1480 passed, 2 skipped, 271 warnings`（36:12）；此前通用 ranking 768 视觉导航的 Windows `ERR_NO_BUFFER_SPACE` 未复现，技术门禁已收口。DYDATA-82 对象存储门禁已由 2026-08-31 用户裁决解除；PR/CI、目标 PostgreSQL、备份、生产部署与线上 smoke 仍未执行。
 
 ## 5. 完成标准摘要
 

@@ -2153,7 +2153,6 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
                     "disputedAmountCent": 100,
                 }
             ],
-            "evidence": [{"objectKey": "evidence/dispute-001.pdf"}],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "store-dispute-submit-key-0001"},
@@ -2163,6 +2162,7 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
     assert submitted.json()["data"]["status"] == "PENDING"
     assert submitted.json()["data"]["feeDirection"] == "PROMOTION"
     assert submitted.json()["data"]["contactPhoneMasked"] == "138****5678"
+    assert submitted.json()["data"]["evidence"] == []
     replay = client.post(
         "/api/v1/store-settlements/statement-1-v2/disputes",
         json={
@@ -2179,7 +2179,6 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
                     "disputedAmountCent": 100,
                 }
             ],
-            "evidence": [{"objectKey": "evidence/dispute-001.pdf"}],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "store-dispute-submit-key-0001"},
@@ -2232,7 +2231,7 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
     assert listed.json()["data"]["list"][0]["disputeId"] == submitted.json()["data"]["disputeId"]
 
 
-def test_dispute_evidence_security_checks_use_the_normalized_object_key() -> None:
+def test_dispute_payload_rejects_legacy_evidence_object_keys() -> None:
     request = Request(
         {
             "type": "http",
@@ -2264,6 +2263,73 @@ def test_dispute_evidence_security_checks_use_the_normalized_object_key() -> Non
 
     assert exc_info.value.status_code == 422
     assert exc_info.value.detail["errors"][0]["field"] == "evidence"
+
+
+def test_dispute_payload_accepts_a_concrete_reason_without_evidence() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/store-settlements/statement/disputes",
+            "headers": [],
+        }
+    )
+    payload = {
+        "feeDirection": "PROMOTION",
+        "disputeType": "AMOUNT_ERROR",
+        "description": "具体原因：当前账单费用与门店核对结果不一致",
+        "contactName": "门店联系人",
+        "contactPhone": "13812345678",
+        "disputedAmountCent": 100,
+        "orders": [
+            {
+                "orderId": "order-reason-only",
+                "couponId": "coupon-reason-only",
+                "disputedAmountCent": 100,
+            }
+        ],
+        "readVersion": 1,
+    }
+
+    parsed = dashboard_routes._parse_dispute_payload(payload, request)
+
+    assert parsed["description"] == "具体原因：当前账单费用与门店核对结果不一致"
+    assert parsed["evidence"] == []
+
+
+def test_dispute_payload_rejects_new_evidence_uploads() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/store-settlements/statement/disputes",
+            "headers": [],
+        }
+    )
+    payload = {
+        "feeDirection": "PROMOTION",
+        "disputeType": "AMOUNT_ERROR",
+        "description": "具体原因：当前账单费用与门店核对结果不一致",
+        "contactName": "门店联系人",
+        "contactPhone": "13812345678",
+        "disputedAmountCent": 100,
+        "orders": [
+            {
+                "orderId": "order-evidence-disabled",
+                "couponId": "coupon-evidence-disabled",
+                "disputedAmountCent": 100,
+            }
+        ],
+        "evidence": [{"objectKey": "legacy/dispute-proof.pdf"}],
+        "readVersion": 1,
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_routes._parse_dispute_payload(payload, request)
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["errors"][0]["field"] == "evidence"
+    assert exc_info.value.detail["message"] == "账单异议不支持上传证明材料"
 
 def test_store_withdraws_dispute_before_result_without_changing_statement(
     client: TestClient, db_session: Session
@@ -2304,7 +2370,6 @@ def test_store_withdraws_dispute_before_result_without_changing_statement(
                     "disputedAmountCent": 100,
                 }
             ],
-            "evidence": [{"objectKey": "evidence/dispute-withdraw.pdf"}],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "store-dispute-withdraw-key-0001"},
@@ -2478,7 +2543,6 @@ def test_admin_accepts_dispute_by_creating_a_new_immutable_statement_version(
                     "disputedAmountCent": 100,
                 }
             ],
-            "evidence": [{"objectKey": "evidence/dispute-accepted.pdf"}],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "store-dispute-accepted-key-0001"},
@@ -4027,7 +4091,6 @@ def test_admin_accepts_dispute_with_adjustment_as_new_statement_version(
                     "disputedAmountCent": 100,
                 }
             ],
-            "evidence": [{"objectKey": "evidence/dispute-admin-transition.pdf"}],
             "readVersion": 2,
         },
         headers={"Idempotency-Key": "dispute-admin-transition-create-0001"},

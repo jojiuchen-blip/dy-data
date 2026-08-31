@@ -34,7 +34,7 @@
 | 5 | 管理员推广服务费 | 指标、发票与订单穿透 | 按单月/累计查询推广费并穿透发票和订单，查看系统外结果导入后的状态。 | [05-subprd-finance-promotion.md](subprd/05-subprd-finance-promotion.md) | 已确认 |
 | 6 | 管理员管理服务费 | 指标、扣款与订单穿透 | 按单月/累计查询管理费、厂家扣款/发票明细及订单依据。 | [06-subprd-finance-management.md](subprd/06-subprd-finance-management.md) | 已确认 |
 | 7 | 门店基础信息 | 门店与 SAP 信息查询 | 查询财务核对所需门店基础信息；业务匹配只以门店 ID 为唯一键。 | [07-subprd-finance-store-info.md](subprd/07-subprd-finance-store-info.md) | 已确认 |
-| 8 | 账单异议 | 门店提交与管理员处理 | 门店提交带证明资料的异议，管理员在系统内处理并生成可追溯结果。 | [08-subprd-finance-disputes.md](subprd/08-subprd-finance-disputes.md) | 已确认 |
+| 8 | 账单异议 | 门店提交与管理员处理 | 门店提交带具体原因的异议，管理员在系统内处理并生成可追溯结果。 | [08-subprd-finance-disputes.md](subprd/08-subprd-finance-disputes.md) | 已确认 |
 | 9 | 财务导入 | 四类模板、差异、错误与版本 | 管理员预校验并原子提交四类模板，处理无变化、差异、整批失败和版本冲突。 | [09-subprd-finance-imports.md](subprd/09-subprd-finance-imports.md) | 已确认 |
 
 ---
@@ -238,11 +238,11 @@
 **布局**：
 
 ```
-[筛选][异议列表] [订单/金额/证明资料] [待处理→审核中→待审批→结果]
+[筛选][异议列表] [订单/金额/具体原因] [待处理→审核中→待审批→结果]
 ```
 
 **业务逻辑**：
-- 门店提交类型、说明、订单、金额、联系人、手机号和证明资料。
+- 门店提交类型、具体原因、订单、金额、联系人和手机号。
 - 内部管理员在系统页面处理；异议不阻断另一费用方向，成立时生成新账单版本。
 
 **涉及使用者**：门店账号、管理员、最高管理员

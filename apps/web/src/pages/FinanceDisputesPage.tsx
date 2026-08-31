@@ -262,7 +262,7 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
             <div><dt>费用方向 / 账期</dt><dd>{displayFeeDirection(selected.feeDirection)} / {selected.statementMonth}</dd></div>
             <div><dt>异议金额</dt><dd>{formatCurrency(selected.disputedAmountCent)}</dd></div>
             <div><dt>提交时间</dt><dd>{formatDateTime(selected.submittedAt)}</dd></div>
-            <div><dt>说明</dt><dd>{selected.description}</dd></div>
+            <div><dt>具体原因</dt><dd>{selected.description}</dd></div>
           </dl>
 
           <section className="finance-dispute-detection">

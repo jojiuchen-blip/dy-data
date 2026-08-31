@@ -4570,6 +4570,75 @@ def test_dydata_81_dispute_detection_persists_through_real_api_and_refresh(
         context.close()
 
 
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_dydata_81_store_dispute_reason_only_flow_has_no_file_upload(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    context.add_cookies(
+        [{"name": "dy_e2e_role", "value": "store", "url": live_admin_fastapi_base_url}]
+    )
+    page = context.new_page()
+    reason = f"UAT reason-only {width}x{height}"
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/settlement?storeId=store-1&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="单店分账", exact=True, level=1).wait_for(
+            timeout=15000
+        )
+        page.get_by_role("button", name="发起推广服务费异议", exact=True).click()
+        dialog = page.get_by_role("dialog")
+        dialog.get_by_label("联系人", exact=True).fill("UAT 门店联系人")
+        dialog.get_by_label("联系电话", exact=True).fill("13812345678")
+        dialog.get_by_label("订单号 1", exact=True).fill("DY2026071900842")
+        dialog.get_by_label("券 ID（可选）", exact=True).fill("uat-coupon-promotion")
+        dialog.get_by_label("订单争议金额（元）", exact=True).fill("640.50")
+        dialog.get_by_label("具体原因", exact=True).fill(reason)
+        expect(dialog.get_by_label("争议总金额（元）", exact=True)).to_have_value("640.50")
+        expect(dialog.get_by_role("button", name="提交异议并开始检测", exact=True)).to_be_enabled()
+        dialog.get_by_role("button", name="提交异议并开始检测", exact=True).click()
+        page.get_by_text("推广服务费异议已提交，系统将按正式流程开始检测。", exact=True).wait_for(
+            timeout=15000
+        )
+        page.get_by_text(f"推广服务费 · {reason}", exact=True).wait_for(timeout=15000)
+        assert page.locator('input[type="file"]').count() == 0
+        assert "证据上传能力尚未接入" not in page.locator("body").inner_text()
+
+        disputes = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/store-settlements/uat-statement-store-1/disputes"
+        )
+        assert disputes.status == 200
+        matching = [
+            item
+            for item in disputes.json()["data"]["list"]
+            if item["description"] == reason
+        ]
+        assert len(matching) == 1
+        assert matching[0]["feeDirection"] == "PROMOTION"
+        assert matching[0]["evidence"] == []
+
+        page.reload(wait_until="domcontentloaded")
+        page.get_by_text(f"推广服务费 · {reason}", exact=True).wait_for(timeout=15000)
+        output_dir = (
+            REPO_ROOT
+            / "output"
+            / "playwright"
+            / "dydata-81-g5"
+            / "reason-only"
+            / f"{width}x{height}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=output_dir / "store-settlement.png", full_page=True)
+    finally:
+        context.close()
+
+
 def test_dydata_81_finance_sibling_navigation_resets_direction_state(
     browser: Browser,
     vite_live_admin_api_base_url: str,

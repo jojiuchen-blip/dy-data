@@ -1528,6 +1528,33 @@ export interface StoreBillingConfirmationResult extends BillingConfirmationSumma
   isCurrent: boolean;
 }
 
+export type StoreSettlementDisputeType =
+  | "RATE_ERROR"
+  | "DATA_MISSING"
+  | "AMOUNT_ERROR"
+  | "OTHER";
+
+export interface StoreSettlementDisputeOrderPayload {
+  orderId: string;
+  couponId?: string;
+  disputedAmountCent: number;
+}
+
+export interface StoreSettlementDisputePayload {
+  feeDirection: FeeDirection;
+  disputeType: StoreSettlementDisputeType;
+  description: string;
+  contactName: string;
+  contactPhone: string;
+  disputedAmountCent: number;
+  orders: StoreSettlementDisputeOrderPayload[];
+  readVersion: number;
+}
+
+export interface StoreSettlementDisputeListData {
+  list: FinanceDisputeRow[];
+}
+
 export interface StoreBillingStatement {
   statementId: string;
   storeId: string;

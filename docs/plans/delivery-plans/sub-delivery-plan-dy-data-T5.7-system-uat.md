@@ -62,7 +62,7 @@
 - 门店账号看不到“财务”和“SAP 建议”，直接访问 `/finance/stores` 进入现有无权限页；`/finance` 仍只兼容跳转 `/finance/promotion`。
 - 六页合同矩阵不存在未记录偏差；所有真实字段均可追到正式 API/Schema，演示金额、日期、状态与假动作未进入生产构建。
 - 推广费 5 卡、订单结算状态、管理费全额扣减状态、SAP 当前值/版本审计和异步检测刷新恢复均通过 API、页面和导出一致性回归。
-- DYDATA-82 若被判定为本轮正式异议提交的必需能力，则其受控上传必须先完成安全、存储、留存、权限和审计门禁；未裁决前不得生产发布。
+- 2026-08-31 用户裁决取消账单异议文件上传；新建异议改为具体原因必填并由正式 API 持久化，`evidence` 非空请求拒绝，历史 `evidence_json` 仅兼容读取。DYDATA-82 的对象存储门禁不再属于本轮发布依赖。
 
 **Verification Method**：
 - 执行 `git diff --check`、`python -m pytest`、`npm --prefix apps/web run build`、治理门禁、计划一致性和目标环境 smoke。
@@ -79,7 +79,7 @@
 - 任一数据正确性、权限、迁移、并发或原子性场景失败即阻断发布与关闭。
 - 无目标环境或业务样例时只报告本地完成，不把缺失证据写成已验收。
 - 发现原型与 V0.2 冲突时以 V0.2 为视觉权威；发现基线与 DYDATA-19/PRD/Foundation 冲突时停止对应实现并记录偏差，不以原型覆盖业务真相。
-- 发现合同字段无正式来源、业务裁决冲突、异步检测需要外部能力或 DYDATA-82 仍影响闭环时，将对应项标记 BLOCKED，停止生产发布并集中报告，不自行补规则。
+- 发现合同字段无正式来源、业务裁决冲突、异步检测需要外部能力或 reason-only 异议闭环缺少真实 API 证据时，将对应项标记 BLOCKED，停止生产发布并集中报告，不自行补规则。
 - 生产凭据、分支保护、CI、备份、目标 PostgreSQL 或线上 smoke 任一硬门禁失败时停止发布，不绕过、不泄露秘密。
 - 新发现问题按是否阻断拆分 Linear follow-up，并保留主 Issue 风险记录。
 
@@ -92,4 +92,4 @@
 
 **状态**：进行中（2026-08-30；G4 已生产部署，G5 获 Owner 明确授权完成实现、测试、隔离 UAT 和受控生产发布；任一合同、数据正确性、DYDATA-82 裁决或发布硬门禁失败仍停止发布，完成后等待 Owner 验收，不自行关闭 DYDATA-81）
 
-**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G4 一级财务导航已由 `df617e7` 经既有受控流程部署生产并完成 smoke。G5 已完成六页合同、SAP 有效值/审计、单条矫正、真实异步检测和三视口隔离 UAT；新鲜完整回归为视觉 242 passed、其余 1233 passed/2 skipped，合计 1475 passed、2 skipped、0 failed，Web build 717 modules，独立复审无新增 Critical/Important。生产放行仍被 DYDATA-82、GitHub/CI 鉴权与目标 PostgreSQL/备份/部署门禁阻塞。
+**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G4 一级财务导航已由 `df617e7` 经既有受控流程部署生产并完成 smoke。G5 已完成六页合同、SAP 有效值/审计、单条矫正、真实异步检测和三视口隔离 UAT；reason-only 异议增量的 API/前端回归 62 passed、三档真实 FastAPI UAT 3 passed、DYDATA-81 专项视觉回归 10 passed、全量视觉回归 245 passed，D-09 已转为 PASS。全量 pytest 已重跑通过：`1480 passed, 2 skipped, 271 warnings`（36:12）；此前 Windows `ERR_NO_BUFFER_SPACE` 未复现。生产放行不再受 DYDATA-82 对象存储合同阻塞，仍受 GitHub/CI 鉴权、目标 PostgreSQL/备份/部署门禁约束。
