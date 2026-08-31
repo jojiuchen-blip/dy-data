@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -14,122 +14,57 @@ from apps.api.dy_api.models import (
     RawDouyinClue,
     SettlementOrderDetail,
 )
-from apps.worker.clue_center import mask_phone, rebuild_clue_center
-from apps.worker.clue_rule_versions import (
-    bind_lead_rule_version,
-    create_rule,
-    create_rule_version,
-    publish_rule_version,
-)
+from apps.worker.clue_center import mask_phone, refresh_clue_center_projection
 
 
 def _dt(day: int, hour: int = 10) -> datetime:
-    return datetime(2026, 6, day, hour, 0, tzinfo=timezone.utc)
-
-
-def _assert_same_instant(actual: datetime | None, expected: datetime) -> None:
-    assert actual is not None
-    assert actual.replace(tzinfo=timezone.utc) == expected
+    return datetime(2026, 6, day, hour, tzinfo=timezone.utc)
 
 
 def _raw_clue(
     key: str,
     *,
-    order_id: str,
-    clue_id: str,
-    create_time: datetime,
-    status: str = "履约中",
+    order_id: str = "order-1",
+    clue_id: str = "clue-1",
     telephone: str = "13812345678",
-    store_id: str = "store-1",
-    store_name: str = "Store One",
-    product_id: str = "sku-1",
+    status: str = "履约中",
 ) -> RawDouyinClue:
     return RawDouyinClue(
         clue_row_key=key,
         clue_id=clue_id,
-        create_time_detail=create_time,
+        create_time_detail=_dt(1),
         telephone=telephone,
-        enc_telephone="encrypted",
-        product_id=product_id,
+        enc_telephone=None,
+        product_id="sku-1",
         product_name="Service Product",
         order_id=order_id,
         order_status=status,
-        follow_life_account_id=store_id,
-        follow_life_account_name=store_name,
-        auto_city_name="Shanghai",
-        auto_province_name="Shanghai",
+        follow_life_account_id="douyin-store",
+        follow_life_account_name="Douyin Store",
         author_nickname="Author",
         raw_payload={"clue_id": clue_id},
-        imported_at=create_time,
-        updated_at=create_time,
+        imported_at=_dt(1),
+        updated_at=_dt(1),
     )
 
 
-def _rule_strategy_configs() -> list[dict]:
-    return [
-        {
-            "strategy_type": "sales_store_priority",
-            "enabled": True,
-            "execution_order": 1,
-            "params": {"max_distance_km": 10},
-        },
-        {
-            "strategy_type": "nearby_city_optimization",
-            "enabled": True,
-            "execution_order": 2,
-            "params": {"max_distance_km": 15},
-        },
-        {
-            "strategy_type": "city_fallback",
-            "enabled": True,
-            "execution_order": 3,
-            "params": {},
-        },
-    ]
-
-
-def _publish_global_rule(
-    session: Session,
-    *,
-    rule_id: str | None = None,
-    auto_expiry_enabled: bool = True,
-    first_follow_up_sla_hours: int | None = 24,
-):
-    if rule_id is None:
-        rule = create_rule(session, name="Global", scope_type="global", created_by="system-admin")
-        rule_id = rule.rule_id
-    version = create_rule_version(
-        session,
-        rule_id,
-        auto_expiry_enabled=auto_expiry_enabled,
-        first_follow_up_sla_hours=first_follow_up_sla_hours,
-        protection_days=7,
-        conversion_weight=Decimal("0.7"),
-        follow_24h_weight=Decimal("0.3"),
-        lookback_days=30,
-        min_samples=20,
-        strategy_configs=_rule_strategy_configs(),
-        created_by="system-admin",
-    )
-    return publish_rule_version(session, version.rule_version_id, published_by="system-admin")
-
-
-def _master_lead_for_raw_clue(raw_clue: RawDouyinClue, *, lead_key: str) -> ClueMasterLead:
+def _lead(raw: RawDouyinClue, *, current_round_id: str | None = None) -> ClueMasterLead:
     return ClueMasterLead(
-        lead_key=lead_key,
-        source_clue_row_key=raw_clue.clue_row_key,
-        source_identity_key=f"identity-{lead_key}",
-        canonical_clue_id=raw_clue.clue_id,
-        order_id=raw_clue.order_id,
-        raw_order_status=raw_clue.order_status,
+        lead_key=f"lead-{raw.clue_row_key}",
+        source_clue_row_key=raw.clue_row_key,
+        source_identity_key=f"identity-{raw.clue_row_key}",
+        canonical_clue_id=raw.clue_id,
+        order_id=raw.order_id,
         normalized_order_status="active",
         status_source="test",
         lifecycle_status="active",
-        allocation_state="pending_allocation",
-        first_seen_at=raw_clue.create_time_detail,
-        last_seen_at=raw_clue.create_time_detail,
-        created_at=raw_clue.create_time_detail,
-        updated_at=raw_clue.create_time_detail,
+        pool_location="store_follow_up_pool" if current_round_id else None,
+        allocation_state="assigned" if current_round_id else "pending_allocation",
+        current_assignment_round_id=current_round_id,
+        first_seen_at=_dt(1),
+        last_seen_at=_dt(1),
+        created_at=_dt(1),
+        updated_at=_dt(1),
     )
 
 
@@ -139,476 +74,299 @@ def test_mask_phone_hides_middle_four_digits() -> None:
     assert mask_phone(None) == ""
 
 
-def test_rebuild_materializes_eligible_order_level_clues(db_session: Session) -> None:
-    db_session.add(
-        DimSkuProductRule(
-            sku_id="sku-1",
-            product_type="Car Service",
-            product_name="Service Product",
-            commission_rate=Decimal("0"),
-            is_service_product=True,
-        )
-    )
+def test_projection_materializes_source_fields_without_creating_assignment_round(
+    db_session: Session,
+) -> None:
+    raw = _raw_clue("raw-1")
     db_session.add_all(
         [
-            _raw_clue("row-1-late", order_id="order-1", clue_id="clue-late", create_time=_dt(1, 12)),
-            _raw_clue("row-1-early", order_id="order-1", clue_id="clue-early", create_time=_dt(1, 9)),
-            _raw_clue("row-closed", order_id="order-closed", clue_id="closed", create_time=_dt(1), status="交易关闭"),
-            _raw_clue("row-zero", order_id="0", clue_id="zero", create_time=_dt(1)),
+            raw,
+            _lead(raw),
+            DimSkuProductRule(
+                sku_id="sku-1",
+                product_type="Car Service",
+                product_name="Service Product",
+                commission_rate=Decimal("0"),
+                is_service_product=True,
+            ),
         ]
     )
     db_session.commit()
 
-    stats = rebuild_clue_center(db_session, now=_dt(2))
+    result = refresh_clue_center_projection(db_session, now=_dt(2))
 
-    assert stats == {"eligible_orders": 1, "assignment_rounds": 1}
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    assert order.canonical_clue_id == "clue-early"
-    assert order.source_clue_count == 2
-    assert order.source_clue_ids == ["clue-early", "clue-late"]
-    _assert_same_instant(order.assigned_at, _dt(1, 9))
-    assert order.assigned_at_source == "clue_create_time_detail"
-    assert order.assigned_store_id == "store-1"
-    assert order.product_type == "Car Service"
-    assert order.phone_plain == "13812345678"
-    assert order.phone_masked == "138****5678"
-    assert order.lead_status == "active"
-    assert order.current_round_status == "active_unfollowed"
-    assert order.expires_at is None
-
-    assert db_session.get(ClueCenterOrder, "order-closed") is None
-    assert db_session.get(ClueCenterOrder, "0") is None
+    assert result == {"eligible_orders": 1, "projected_orders": 1}
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
+    center = db_session.get(ClueCenterOrder, "order-1")
+    assert center is not None
+    assert center.current_assignment_round_id is None
+    assert center.current_round_no == 0
+    assert center.current_round_status == "pending_allocation"
+    assert center.assigned_store_id is None
+    assert center.phone_plain == "13812345678"
+    assert center.phone_masked == "138****5678"
+    assert center.product_type == "Car Service"
+    assert center.canonical_clue_id == "clue-1"
 
 
-def test_rebuild_does_not_resurrect_terminal_master_lead(db_session: Session) -> None:
-    clue = _raw_clue(
-        "row-terminal",
-        order_id="order-terminal",
-        clue_id="clue-terminal",
-        create_time=_dt(1),
-    )
-    db_session.add(
-        ClueMasterLead(
-            lead_key="lead-terminal",
-            source_clue_row_key=clue.clue_row_key,
-            source_identity_key="identity-terminal",
-            canonical_clue_id=clue.clue_id,
-            order_id=clue.order_id,
-            raw_order_status="1",
-            normalized_order_status="verified",
-            status_source="order",
-            lifecycle_status="closed_verified",
-            pool_location="closed",
-            allocation_state="closed",
-            first_seen_at=clue.create_time_detail,
-            last_seen_at=clue.create_time_detail,
-            created_at=clue.create_time_detail,
-            updated_at=clue.create_time_detail,
-        )
-    )
-    db_session.add(clue)
-    db_session.commit()
-
-    stats = rebuild_clue_center(db_session, now=_dt(2))
-
-    assert stats == {"eligible_orders": 0, "assignment_rounds": 0}
-    assert db_session.get(ClueCenterOrder, "order-terminal") is None
-    assert db_session.scalar(select(ClueAssignmentRound.assignment_round_id)) is None
-
-
-def test_rebuild_masks_phone_from_raw_payload_when_telephone_column_is_empty(
+def test_projection_uses_only_authoritative_formal_assignment(
     db_session: Session,
 ) -> None:
-    clue = _raw_clue(
-        "row-1",
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw, current_round_id="formal-round")
+    formal_round = ClueAssignmentRound(
+        assignment_round_id="formal-round",
         order_id="order-1",
-        clue_id="clue-1",
-        create_time=_dt(1),
-        telephone="",
+        lead_key=lead.lead_key,
+        round_no=2,
+        assigned_at=_dt(1),
+        assigned_at_source="clue_allocation_engine",
+        assigned_store_id="formal-store",
+        assigned_store_name="Formal Store",
+        follow_result="pending",
+        is_followed=False,
+        is_follow_success=False,
+        round_status="active_unfollowed",
+        execution_mode="formal",
+        auto_expiry_enabled=False,
+        created_at=_dt(1),
+        updated_at=_dt(1),
     )
-    clue.raw_payload = {"clue_id": "clue-1", "tel_addr": "13812345678"}
-    db_session.add(clue)
+    db_session.add_all([raw, lead, formal_round])
     db_session.commit()
 
-    rebuild_clue_center(db_session, now=_dt(2))
+    refresh_clue_center_projection(db_session, now=_dt(2))
 
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    assert order.phone_plain == "13812345678"
-    assert order.phone_masked == "138****5678"
-    assert order.phone_source == "raw_payload"
+    center = db_session.get(ClueCenterOrder, "order-1")
+    assert center is not None
+    assert center.current_assignment_round_id == "formal-round"
+    assert center.current_round_no == 2
+    assert center.assigned_store_id == "formal-store"
+    assert center.assigned_store_name == "Formal Store"
+    assert center.assigned_store_id != raw.follow_life_account_id
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 1
 
 
-def test_rebuild_masks_phone_from_encrypted_telephone_resolver(
+def test_projection_never_uses_legacy_round_as_current_assignment(db_session: Session) -> None:
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw)
+    legacy_round = ClueAssignmentRound(
+        assignment_round_id="legacy-round",
+        order_id="order-1",
+        lead_key=lead.lead_key,
+        round_no=1,
+        assigned_store_id="old-store",
+        round_status="active_unfollowed",
+        execution_mode="legacy",
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    center = ClueCenterOrder(
+        order_id="order-1",
+        lead_status="active",
+        current_assignment_round_id="legacy-round",
+        current_round_no=1,
+        current_round_status="active_unfollowed",
+        assigned_store_id="old-store",
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    db_session.add_all([raw, lead, legacy_round, center])
+    db_session.commit()
+
+    refresh_clue_center_projection(db_session, now=_dt(2))
+
+    assert center.current_assignment_round_id is None
+    assert center.assigned_store_id is None
+    assert center.current_round_status == "pending_allocation"
+    assert db_session.get(ClueAssignmentRound, "legacy-round") is legacy_round
+
+
+def test_projection_does_not_resurrect_stale_formal_center_pointer(
     db_session: Session,
 ) -> None:
-    clue = _raw_clue(
-        "row-1",
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw)
+    stale_round = ClueAssignmentRound(
+        assignment_round_id="stale-formal-round",
         order_id="order-1",
-        clue_id="clue-1",
-        create_time=_dt(1),
-        telephone="",
+        lead_key=lead.lead_key,
+        round_no=1,
+        assigned_store_id="old-store",
+        round_status="active_unfollowed",
+        execution_mode="formal",
+        created_at=_dt(1),
+        updated_at=_dt(1),
     )
-    clue.enc_telephone = "Enc.phone-1"
-    clue.raw_payload = {"clue_id": "clue-1"}
-    db_session.add(clue)
+    center = ClueCenterOrder(
+        order_id="order-1",
+        lead_status="active",
+        current_assignment_round_id="stale-formal-round",
+        current_round_no=1,
+        current_round_status="active_unfollowed",
+        assigned_store_id="old-store",
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    db_session.add_all([raw, lead, stale_round, center])
+    db_session.commit()
+
+    refresh_clue_center_projection(db_session, now=_dt(2))
+
+    assert center.current_assignment_round_id is None
+    assert center.assigned_store_id is None
+    assert center.current_round_status == "pending_allocation"
+    assert stale_round.round_status == "active_unfollowed"
+
+
+def test_projection_rejects_closed_current_pointer_and_preserves_closed_summary(
+    db_session: Session,
+) -> None:
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw, current_round_id="closed-formal-round")
+    lead.pool_location = None
+    lead.allocation_state = "pending_reassign"
+    closed_round = ClueAssignmentRound(
+        assignment_round_id="closed-formal-round",
+        order_id=raw.order_id,
+        lead_key=lead.lead_key,
+        round_no=1,
+        assigned_at=_dt(1),
+        assigned_store_id="old-store",
+        follow_result="lost",
+        is_followed=True,
+        is_follow_success=False,
+        round_status="closed_reassigned",
+        terminal_reason="follow_lost",
+        reassign_reason="follow_lost",
+        execution_mode="formal",
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    db_session.add_all([raw, lead, closed_round])
+    db_session.commit()
+
+    refresh_clue_center_projection(db_session, now=_dt(2))
+
+    center = db_session.get(ClueCenterOrder, raw.order_id)
+    assert center is not None
+    assert center.lead_status == "pending_reassign"
+    assert center.current_assignment_round_id is None
+    assert center.current_round_status == "pending_reassign"
+    assert center.assigned_store_id is None
+    assert center.follow_result == "lost"
+    assert center.is_followed is True
+    assert center.is_follow_success is False
+    assert center.reassign_reason == "follow_lost"
+
+
+def test_projection_rejects_current_round_owned_by_another_order(
+    db_session: Session,
+) -> None:
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw, current_round_id="wrong-order-round")
+    wrong_round = ClueAssignmentRound(
+        assignment_round_id="wrong-order-round",
+        order_id="another-order",
+        lead_key=lead.lead_key,
+        round_no=1,
+        assigned_store_id="wrong-store",
+        round_status="active_unfollowed",
+        execution_mode="formal",
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    db_session.add_all([raw, lead, wrong_round])
+    db_session.commit()
+
+    refresh_clue_center_projection(db_session, now=_dt(2))
+
+    center = db_session.get(ClueCenterOrder, raw.order_id)
+    assert center is not None
+    assert center.current_assignment_round_id is None
+    assert center.assigned_store_id is None
+    assert center.current_round_status == "pending_allocation"
+
+
+def test_projection_does_not_resurrect_terminal_master(db_session: Session) -> None:
+    raw = _raw_clue("raw-terminal", order_id="terminal-order")
+    lead = _lead(raw)
+    lead.normalized_order_status = "verified"
+    lead.lifecycle_status = "closed_verified"
+    lead.pool_location = "closed"
+    lead.allocation_state = "closed"
+    db_session.add_all([raw, lead])
+    db_session.commit()
+
+    result = refresh_clue_center_projection(db_session, now=_dt(2))
+
+    assert result == {"eligible_orders": 0, "projected_orders": 0}
+    assert db_session.get(ClueCenterOrder, "terminal-order") is None
+
+
+def test_projection_resolves_encrypted_phone_once(db_session: Session) -> None:
+    raw = _raw_clue("raw-1", telephone="")
+    raw.enc_telephone = "Enc.phone-1"
+    lead = _lead(raw)
+    db_session.add_all([raw, lead])
     db_session.commit()
     calls: list[list[str]] = []
 
-    def resolver(cipher_texts: list[str]) -> dict[str, str]:
-        calls.append(cipher_texts)
-        return {"Enc.phone-1": "13812345678"}
+    def resolver(values: list[str]) -> dict[str, str]:
+        calls.append(values)
+        return {"Enc.phone-1": "13912345678"}
 
-    rebuild_clue_center(db_session, now=_dt(2), phone_plain_resolver=resolver)
+    refresh_clue_center_projection(db_session, now=_dt(2), phone_plain_resolver=resolver)
 
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
+    center = db_session.get(ClueCenterOrder, "order-1")
+    assert center is not None
     assert calls == [["Enc.phone-1"]]
-    assert order.phone_plain == "13812345678"
-    assert order.phone_masked == "138****5678"
-    assert order.phone_source == "enc_telephone"
+    assert center.phone_plain == "13912345678"
+    assert center.phone_masked == "139****5678"
 
 
-def test_rebuild_keeps_existing_encrypted_phone_mask_without_resolving_again(
-    db_session: Session,
-) -> None:
-    clue = _raw_clue(
-        "row-1",
+def test_projection_updates_verification_on_formal_round(db_session: Session) -> None:
+    raw = _raw_clue("raw-1")
+    lead = _lead(raw, current_round_id="formal-round")
+    round_row = ClueAssignmentRound(
+        assignment_round_id="formal-round",
         order_id="order-1",
-        clue_id="clue-1",
-        create_time=_dt(1),
-        telephone="",
-    )
-    clue.enc_telephone = "Enc.phone-1"
-    clue.raw_payload = {"clue_id": "clue-1"}
-    db_session.add_all(
-        [
-            clue,
-            ClueCenterOrder(
-                order_id="order-1",
-                lead_status="active",
-                current_round_status="active_unfollowed",
-                phone_plain="13812345678",
-                phone_masked="138****5678",
-                phone_source="enc_telephone",
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-        ]
-    )
-    db_session.commit()
-
-    def resolver(cipher_texts: list[str]) -> dict[str, str]:
-        raise AssertionError(f"resolver should not be called for existing phones: {cipher_texts!r}")
-
-    rebuild_clue_center(db_session, now=_dt(2), phone_plain_resolver=resolver)
-
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    assert order.phone_plain == "13812345678"
-    assert order.phone_masked == "138****5678"
-    assert order.phone_source == "enc_telephone"
-
-
-def test_rebuild_uses_phone_from_any_source_clue_for_same_order(
-    db_session: Session,
-) -> None:
-    early = _raw_clue(
-        "row-early",
-        order_id="order-1",
-        clue_id="clue-early",
-        create_time=_dt(1, 9),
-        telephone="",
-    )
-    early.raw_payload = {"clue_id": "clue-early"}
-    late = _raw_clue(
-        "row-late",
-        order_id="order-1",
-        clue_id="clue-late",
-        create_time=_dt(1, 12),
-        telephone="",
-    )
-    late.raw_payload = {"clue_id": "clue-late", "tel_addr": "13912345678"}
-    db_session.add_all([early, late])
-    db_session.commit()
-
-    rebuild_clue_center(db_session, now=_dt(2))
-
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    assert order.canonical_clue_id == "clue-early"
-    assert order.phone_plain == "13912345678"
-    assert order.phone_masked == "139****5678"
-    assert order.phone_source == "raw_payload"
-
-
-def test_rebuild_uses_lead_bound_rule_version_for_sla_and_auto_expiry(db_session: Session) -> None:
-    raw_clue = _raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1))
-    lead = _master_lead_for_raw_clue(raw_clue, lead_key="lead-1")
-    db_session.add_all([raw_clue, lead])
-    first_version = _publish_global_rule(db_session, first_follow_up_sla_hours=24)
-    binding = bind_lead_rule_version(
-        db_session,
         lead_key=lead.lead_key,
-        anchor_store_id=None,
-        anchor_city_code=None,
+        round_no=1,
+        assigned_store_id="store-1",
+        follow_result="appointment",
+        is_followed=True,
+        is_follow_success=True,
+        round_status="active_followed",
+        execution_mode="formal",
+        created_at=_dt(1),
+        updated_at=_dt(1),
     )
-    replacement_version = _publish_global_rule(
-        db_session,
-        rule_id=first_version.rule_id,
-        first_follow_up_sla_hours=72,
+    verification = SettlementOrderDetail(
+        coupon_id="coupon-1",
+        order_id="order-1",
+        product_type="Car Service",
+        sale_time=_dt(1),
+        is_verified=True,
+        verify_store_id="store-1",
+        verify_store_name="Store One",
+        verify_time=_dt(2),
+        relation_type="same_store",
+        is_commissionable=False,
+        is_refund_excluded=False,
+        paid_amount_cent=10000,
+        commission_rate=Decimal("0"),
+        receivable_commission_cent=0,
+        payable_commission_cent=0,
+        updated_at=_dt(2),
     )
+    db_session.add_all([raw, lead, round_row, verification])
     db_session.commit()
 
-    rebuild_clue_center(db_session, now=_dt(1, 12))
+    refresh_clue_center_projection(db_session, now=_dt(3))
 
-    round_row = db_session.get(ClueAssignmentRound, "order-1-1")
-    assert round_row is not None
-    assert binding.rule_version_id == first_version.rule_version_id
-    assert replacement_version.rule_version_id != first_version.rule_version_id
-    assert round_row.lead_key == lead.lead_key
-    assert round_row.rule_version_id == first_version.rule_version_id
-    assert round_row.auto_expiry_enabled is True
-    assert round_row.first_follow_up_sla_hours == 24
-    _assert_same_instant(round_row.first_sla_expires_at, _dt(1) + timedelta(hours=24))
-    _assert_same_instant(round_row.expires_at, _dt(1) + timedelta(hours=24))
-
-
-def test_rebuild_respects_disabled_auto_expiry_from_lead_bound_rule_version(db_session: Session) -> None:
-    raw_clue = _raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1))
-    lead = _master_lead_for_raw_clue(raw_clue, lead_key="lead-1")
-    db_session.add_all([raw_clue, lead])
-    version = _publish_global_rule(
-        db_session,
-        auto_expiry_enabled=False,
-        first_follow_up_sla_hours=None,
-    )
-    bind_lead_rule_version(
-        db_session,
-        lead_key=lead.lead_key,
-        anchor_store_id=None,
-        anchor_city_code=None,
-    )
-    db_session.commit()
-
-    rebuild_clue_center(db_session, now=_dt(5))
-
-    round_row = db_session.get(ClueAssignmentRound, "order-1-1")
-    assert round_row is not None
-    assert round_row.rule_version_id == version.rule_version_id
-    assert round_row.auto_expiry_enabled is False
-    assert round_row.first_follow_up_sla_hours is None
-    assert round_row.first_sla_expires_at is None
-    assert round_row.expires_at is None
-    assert round_row.round_status == "active_unfollowed"
-    assert round_row.reassign_reason is None
-
-
-def test_failed_and_unreachable_follow_results_have_distinct_meanings(db_session: Session) -> None:
-    db_session.add_all(
-        [
-            _raw_clue("row-failed", order_id="order-failed", clue_id="clue-failed", create_time=_dt(1)),
-            _raw_clue("row-lost", order_id="order-lost", clue_id="clue-lost", create_time=_dt(1)),
-            _raw_clue("row-unreachable", order_id="order-unreachable", clue_id="clue-unreachable", create_time=_dt(1)),
-            ClueAssignmentRound(
-                assignment_round_id="order-failed-1",
-                order_id="order-failed",
-                round_no=1,
-                assigned_at=_dt(1),
-                assigned_at_source="clue_create_time_detail",
-                follow_result="failed",
-                is_followed=True,
-                is_follow_success=False,
-                round_status="active_unfollowed",
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-            ClueAssignmentRound(
-                assignment_round_id="order-lost-1",
-                order_id="order-lost",
-                round_no=1,
-                assigned_at=_dt(1),
-                assigned_at_source="clue_create_time_detail",
-                follow_result="lost",
-                is_followed=True,
-                is_follow_success=False,
-                round_status="active_unfollowed",
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-            ClueAssignmentRound(
-                assignment_round_id="order-unreachable-1",
-                order_id="order-unreachable",
-                round_no=1,
-                assigned_at=_dt(1),
-                assigned_at_source="clue_create_time_detail",
-                follow_result="unreachable",
-                is_followed=True,
-                is_follow_success=False,
-                round_status="active_unfollowed",
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-        ]
-    )
-    db_session.commit()
-
-    rebuild_clue_center(db_session, now=_dt(2))
-
-    failed = db_session.get(ClueCenterOrder, "order-failed")
-    lost = db_session.get(ClueCenterOrder, "order-lost")
-    unreachable = db_session.get(ClueCenterOrder, "order-unreachable")
-    assert failed is not None
-    assert lost is not None
-    assert unreachable is not None
-    assert failed.current_round_status == "failed_pending_reassign"
-    assert failed.lead_status == "pending_reassign"
-    assert lost.follow_result == "lost"
-    assert lost.current_round_status == "failed_pending_reassign"
-    assert lost.lead_status == "pending_reassign"
-    assert lost.reassign_reason == "follow_lost"
-    assert unreachable.current_round_status == "active_followed"
-    assert unreachable.is_followed is True
-    assert unreachable.is_follow_success is False
-
-
-def test_successful_follow_self_store_verification_counts_as_converted(db_session: Session) -> None:
-    db_session.add(_raw_clue("row-1", order_id="order-1", clue_id="clue-1", create_time=_dt(1)))
-    db_session.add(
-        ClueAssignmentRound(
-            assignment_round_id="order-1-1",
-            order_id="order-1",
-            round_no=1,
-            assigned_at=_dt(1),
-            assigned_at_source="clue_create_time_detail",
-            followed_at=_dt(1, 12),
-            follow_result="success",
-            is_followed=True,
-            is_follow_success=True,
-            round_status="active_unfollowed",
-            created_at=_dt(1),
-            updated_at=_dt(1),
-        )
-    )
-    db_session.add(
-        SettlementOrderDetail(
-            coupon_id="coupon-1",
-            order_id="order-1",
-            product_type="Car Service",
-            sale_time=_dt(1),
-            is_verified=True,
-            verify_store_id="store-1",
-            verify_store_name="Store One",
-            verify_time=_dt(2),
-            relation_type="same_store",
-            is_commissionable=False,
-            is_refund_excluded=False,
-            paid_amount_cent=10000,
-            commission_rate=Decimal("0"),
-            receivable_commission_cent=0,
-            payable_commission_cent=0,
-            updated_at=_dt(2),
-        )
-    )
-    db_session.commit()
-
-    rebuild_clue_center(db_session, now=_dt(3))
-
-    order = db_session.get(ClueCenterOrder, "order-1")
-    round_row = db_session.get(ClueAssignmentRound, "order-1-1")
-    assert order is not None
-    assert round_row is not None
-    assert order.lead_status == "converted"
-    assert order.is_follow_success is True
-    assert order.is_self_store_verified is True
+    center = db_session.get(ClueCenterOrder, "order-1")
+    assert center is not None
     assert round_row.is_self_store_verified is True
-    assert order.verified_store_id == "store-1"
-    _assert_same_instant(order.verified_at, _dt(2))
-
-
-def test_rebuild_preserves_current_self_owned_projection_without_creating_legacy_round(
-    db_session: Session,
-) -> None:
-    db_session.add(
-        DimSkuProductRule(
-            sku_id="sku-1",
-            product_type="Car Service",
-            product_name="Service Product",
-            commission_rate=Decimal("0"),
-            is_service_product=True,
-        )
-    )
-    db_session.add_all(
-        [
-            _raw_clue(
-                "raw-1",
-                order_id="order-1",
-                clue_id="clue-1",
-                create_time=_dt(1),
-                store_id="douyin-store",
-                store_name="Douyin Store",
-            ),
-            ClueAssignmentRound(
-                assignment_round_id="formal-order-1-1",
-                order_id="order-1",
-                lead_key="lead-1",
-                round_no=1,
-                assigned_at=_dt(1),
-                assigned_at_source="clue_allocation_engine",
-                assigned_store_id="self-owned-store",
-                assigned_store_name="Self Owned Store",
-                follow_result="pending",
-                is_followed=False,
-                is_follow_success=False,
-                round_status="active_unfollowed",
-                execution_mode="formal",
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-            ClueCenterOrder(
-                order_id="order-1",
-                lead_status="active",
-                current_assignment_round_id="formal-order-1-1",
-                current_round_no=1,
-                current_round_status="active_unfollowed",
-                assigned_at=_dt(1),
-                assigned_at_source="clue_allocation_engine",
-                assigned_store_id="self-owned-store",
-                assigned_store_name="Self Owned Store",
-                assigned_city="Self City",
-                assigned_province="Self Province",
-                phone_plain="13812345678",
-                phone_masked="138****5678",
-                phone_source="telephone",
-                product_id="old-sku",
-                product_name="Old Product",
-                product_type="Old Type",
-                author_nickname="Old Author",
-                follow_result="pending",
-                is_followed=False,
-                is_follow_success=False,
-                created_at=_dt(1),
-                updated_at=_dt(1),
-            ),
-        ]
-    )
-    db_session.commit()
-
-    rebuild_clue_center(db_session, now=_dt(2))
-
-    formal = db_session.get(ClueAssignmentRound, "formal-order-1-1")
-    legacy = db_session.get(ClueAssignmentRound, "order-1-1")
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert formal is not None
-    assert formal.execution_mode == "formal"
-    assert formal.assigned_store_id == "self-owned-store"
-    assert legacy is None
-    assert order is not None
-    assert order.current_assignment_round_id == "formal-order-1-1"
-    assert order.assigned_store_id == "self-owned-store"
-    assert order.assigned_store_name == "Self Owned Store"
-    assert order.assigned_city == "Self City"
-    assert order.phone_plain == "13812345678"
-    assert order.product_id == "sku-1"
-    assert order.product_type == "Car Service"
+    assert center.is_self_store_verified is True
+    assert center.lead_status == "converted"

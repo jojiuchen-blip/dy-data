@@ -1,6 +1,7 @@
 import type {
   ClueAllocationAuditLog,
   ClueAllocationCycle,
+  ClueAllocationCycleExecution,
   ClueAllocationDecision,
   ClueAllocationEligibleLead,
   ClueAllocationRule,
@@ -29,10 +30,12 @@ export interface ClueDemoRuleBundle {
 
 export interface ClueDemoPreviewToken {
   token: string;
-  operation: "trial" | "rebuild";
+  operation: "trial" | "trial_rebuild";
   leadKeys: string[];
   sourceCycleId: string | null;
   expiresAt: string;
+  privilegedConfirmation: boolean;
+  rebindRuleVersion: boolean;
 }
 
 export interface ClueDemoState {
@@ -49,5 +52,6 @@ export interface ClueDemoState {
   decisions: ClueAllocationDecision[];
   storeScores: StoreScoreSnapshot[];
   previewTokens: Map<string, ClueDemoPreviewToken>;
+  completedCycleResults: Map<string, ClueAllocationCycleExecution>;
   sequence: number;
 }

@@ -5,8 +5,18 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
+import type { AdminUser } from "../types/dashboard";
 
-const adminModules = [
+interface AdminModule {
+  description: string;
+  highestAdminOnly?: boolean;
+  href: string;
+  meta: string;
+  pageKey?: string;
+  title: string;
+}
+
+const adminModules: AdminModule[] = [
   {
     href: "/admin/accounts",
     title: "账号管理",
@@ -42,25 +52,30 @@ const adminModules = [
     title: "数据同步管理",
     description: "配置同步时间跨度、同步间隔，查看任务日志和手动补拉数据。",
     meta: "同步与任务",
+    pageKey: "D10",
+    highestAdminOnly: true,
   },
 ];
 
 export function AdminHomePage() {
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
+  const [sessionUser, setSessionUser] = useState<AdminUser | null>(null);
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     fetchAdminSession()
-      .then(() => {
+      .then((response) => {
         if (!cancelled) {
+          setSessionUser(response.data);
           setAuthenticated(true);
         }
       })
       .catch(() => {
         if (!cancelled) {
+          setSessionUser(null);
           setAuthenticated(false);
         }
       })
@@ -78,8 +93,9 @@ export function AdminHomePage() {
     event.preventDefault();
     setLoginError("");
     try {
-      await loginAdmin(password);
+      const response = await loginAdmin(password);
       setPassword("");
+      setSessionUser(response.data);
       setAuthenticated(true);
     } catch {
       setLoginError("密码不正确，或后端未配置管理密码。");
@@ -135,15 +151,22 @@ export function AdminHomePage() {
       </section>
 
       <section className="admin-module-grid">
-        {adminModules.map((item) => (
-          <a className="admin-module-card" href={item.href} key={item.href}>
-            <div>
-              <h2>{item.title}</h2>
-              <p>{item.description}</p>
-            </div>
-            <span>{item.meta}</span>
-          </a>
-        ))}
+        {adminModules
+          .filter(
+            (item) =>
+              !item.highestAdminOnly ||
+              (sessionUser?.is_highest_admin === true &&
+                (!item.pageKey || sessionUser.page_keys.includes(item.pageKey))),
+          )
+          .map((item) => (
+            <a className="admin-module-card" href={item.href} key={item.href}>
+              <div>
+                <h2>{item.title}</h2>
+                <p>{item.description}</p>
+              </div>
+              <span>{item.meta}</span>
+            </a>
+          ))}
       </section>
     </div>
   );

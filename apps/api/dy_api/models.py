@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     func,
     Identity,
     Index,
@@ -82,6 +83,9 @@ class RawDouyinOrder(Base):
     intention_poi_id: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
@@ -120,6 +124,9 @@ class RawDouyinOrderCoupon(Base):
     latest_refund_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 @event.listens_for(RawDouyinOrderCoupon, "before_insert")
@@ -152,6 +159,9 @@ class RawDouyinVerifyRecord(Base):
     cancel_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 class RawAwemeBinding(Base):
@@ -172,6 +182,15 @@ class RawAwemeBinding(Base):
 
 class RawDouyinClue(Base):
     __tablename__ = "raw_douyin_clues"
+    __table_args__ = (
+        Index("ix_raw_douyin_clues_order_row_key", "order_id", "clue_row_key"),
+        Index("ix_raw_douyin_clues_follow_poi_row_key", "follow_poi_id", "clue_row_key"),
+        Index(
+            "ix_raw_douyin_clues_intention_poi_row_key",
+            "intention_poi_id",
+            "clue_row_key",
+        ),
+    )
 
     clue_row_key: Mapped[str] = mapped_column(Text, primary_key=True)
     clue_id: Mapped[str | None] = mapped_column(Text, index=True)
@@ -196,8 +215,63 @@ class RawDouyinClue(Base):
     author_nickname: Mapped[str | None] = mapped_column(Text)
     raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     source_file: Mapped[str | None] = mapped_column(Text)
+    source_run_id: Mapped[str | None] = mapped_column(Text, index=True)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class RawDouyinRefundRecord(Base):
+    """Raw evidence returned by the Douyin after-sale/refund API."""
+
+    __tablename__ = "raw_douyin_refund_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_record_key",
+            name="uk_raw_douyin_refund_record_source_record_key",
+        ),
+        Index(
+            "idx_raw_douyin_refund_record_order_observed",
+            "order_id",
+            "source_observed_at",
+        ),
+        Index("idx_raw_douyin_refund_record_refund_id", "refund_id"),
+        Index("idx_raw_douyin_refund_record_source_run", "source_run_id"),
+        CheckConstraint(
+            "normalized_refund_status BETWEEN 0 AND 4",
+            name="ck_raw_douyin_refund_record_normalized_status",
+        ),
+        CheckConstraint(
+            "refund_amount_cent >= 0",
+            name="ck_raw_douyin_refund_record_amount",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_record_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    account_id: Mapped[str | None] = mapped_column(String(64))
+    order_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    refund_id: Mapped[str | None] = mapped_column(String(128))
+    raw_refund_status: Mapped[str | None] = mapped_column(String(128))
+    normalized_refund_status: Mapped[int] = mapped_column(Integer, default=0)
+    refund_amount_cent: Mapped[int | None] = mapped_column(BigInteger)
+    refund_applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refund_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_run_id: Mapped[str | None] = mapped_column(String(64))
+    payload_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    raw_payload: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    gmt_create: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    gmt_modified: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class DimStore(Base):
@@ -536,6 +610,10 @@ class DimStorePoiMapping(Base):
     poi_name: Mapped[str | None] = mapped_column(Text)
     mapping_source: Mapped[str | None] = mapped_column(Text)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    source_run_id: Mapped[str | None] = mapped_column(Text)
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
 
 
 class DimSkuProductRule(Base):
@@ -955,6 +1033,13 @@ class SettlementOrderDetail(Base):
         Index("ix_settlement_order_details_verify_store_month", "verify_store_id", "verify_time"),
         Index("ix_settlement_order_details_product_type", "product_type"),
         Index("ix_settlement_order_details_relation_type", "relation_type"),
+        Index(
+            "ix_settlement_order_details_order_verified_time",
+            "order_id",
+            "is_verified",
+            "verify_time",
+            "coupon_id",
+        ),
     )
 
     coupon_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -1012,6 +1097,9 @@ class DouyinRefundEvent(Base):
     refund_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     source_run_id: Mapped[str | None] = mapped_column(String(128))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    observation_key: Mapped[str | None] = mapped_column(String(256))
     raw_payload: Mapped[dict[str, Any] | None] = mapped_column(JSON_TYPE)
     successful_observed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), index=True
@@ -1035,6 +1123,149 @@ def _freeze_refund_success_observed_at(
         target.successful_observed_at = utcnow()
 
 
+class JobImpact(Base):
+    """Durable, deduplicated change-capture record for incremental stages."""
+
+    __tablename__ = "job_impacts"
+    __table_args__ = (
+        UniqueConstraint("impact_key", name="uk_job_impacts_impact_key"),
+        Index("ix_job_impacts_entity_order", "entity_type", "entity_key", "id"),
+        Index("ix_job_impacts_created", "created_at", "id"),
+        Index("ix_job_impacts_source_run", "source_run_id"),
+        Index("ix_job_impacts_source_run_id_id", "source_run_id", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    impact_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    change_kind: Mapped[str] = mapped_column(String(32), default="upsert")
+    old_values_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    new_values_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    affected_closure_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    source_run_id: Mapped[str | None] = mapped_column(String(128))
+    source_observed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueMaterializationWorkItem(Base):
+    """Stable keyset item materialized from one change-capture record."""
+
+    __tablename__ = "clue_materialization_work_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope", "impact_id", name="uk_clue_materialization_work_scope_impact"
+        ),
+        Index(
+            "ix_clue_materialization_work_scope_state",
+            "scope",
+            "state",
+            "work_item_id",
+        ),
+        Index("ix_clue_materialization_work_impact", "impact_id"),
+        Index(
+            "ix_clue_materialization_work_lease",
+            "state",
+            "lease_expires_at",
+        ),
+        CheckConstraint(
+            "state IN ('pending', 'processing', 'completed')",
+            name="ck_clue_materialization_work_state",
+        ),
+    )
+
+    work_item_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    impact_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        ForeignKey("job_impacts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    entity_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    entity_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), default="pending")
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    leased_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    raw_cursor: Mapped[str | None] = mapped_column(Text)
+    raw_page_complete: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False
+    )
+    center_cursor: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueMaterializationTarget(Base):
+    """Durable cycle-level marker for bounded raw and center fanout."""
+
+    __tablename__ = "clue_materialization_targets"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "cycle_id",
+            "target_type",
+            "target_key",
+            name="uk_clue_materialization_target_cycle_key",
+        ),
+        Index(
+            "ix_clue_materialization_target_cycle_type_key",
+            "scope",
+            "cycle_id",
+            "target_type",
+            "target_key",
+        ),
+        CheckConstraint(
+            "target_type IN ('raw', 'center')",
+            name="ck_clue_materialization_target_type",
+        ),
+    )
+
+    target_id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    scope: Mapped[str] = mapped_column(String(128), nullable=False)
+    cycle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    target_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_key: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobImpactWatermark(Base):
+    """Frozen upper bound and cursor for one bounded incremental pass."""
+
+    __tablename__ = "job_impact_watermarks"
+    __table_args__ = (
+        Index("ix_job_impact_watermarks_upper_bound", "frozen_upper_bound_id"),
+    )
+
+    scope: Mapped[str] = mapped_column(String(128), primary_key=True)
+    cycle_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    frozen_upper_bound_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    last_work_item_id: Mapped[int] = mapped_column(BigInteger, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+ClueMaterializationCheckpoint = JobImpactWatermark
+ImpactWatermark = JobImpactWatermark
+
+
 class SettlementFeeResult(Base):
     __tablename__ = "settlement_fee_result"
     __table_args__ = (
@@ -1044,6 +1275,12 @@ class SettlementFeeResult(Base):
             "fee_direction",
             "result_version",
             name="uk_settlement_fee_result_revision",
+        ),
+        UniqueConstraint(
+            "coupon_id",
+            "fee_direction",
+            "calculation_run_id",
+            name="uk_settlement_fee_result_calculation_run",
         ),
         CheckConstraint(
             "fee_direction IN (1, 2)", name="ck_settlement_fee_result_direction"
@@ -1108,6 +1345,7 @@ class SettlementFeeResult(Base):
     scope_rule_version: Mapped[str] = mapped_column(String(64))
     result_status: Mapped[int] = mapped_column(Integer, default=1)
     calculation_run_id: Mapped[str] = mapped_column(String(128))
+    input_fingerprint: Mapped[str | None] = mapped_column(String(64))
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         "gmt_create", DateTime(timezone=True), default=utcnow
@@ -1156,6 +1394,12 @@ class SettlementFeeAdjustment(Base):
     __table_args__ = (
         UniqueConstraint(
             "adjustment_id", name="uk_settlement_fee_adjustment_id"
+        ),
+        UniqueConstraint(
+            "refund_event_id",
+            "original_fee_result_id",
+            "fee_direction",
+            name="uk_settlement_fee_adjustment_refund_result_direction",
         ),
         CheckConstraint(
             "fee_direction IN (1, 2)",
@@ -2601,6 +2845,509 @@ class AggStoreMonthlySettlement(Base):
     )
 
 
+class SettlementProjectionGeneration(Base):
+    """Durable lineage and resource metadata for one sparse projection build."""
+
+    __tablename__ = "settlement_projection_generation"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_generation_base",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["compaction_base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_generation_compaction_base",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_job_id"],
+            ["job_runs.job_id"],
+            name="fk_settlement_projection_generation_source_job",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "input_fingerprint",
+            name="uq_settlement_projection_generation_input_fingerprint",
+        ),
+        CheckConstraint(
+            "projection_name = 'settlement'",
+            name="ck_settlement_projection_generation_projection_name",
+        ),
+        CheckConstraint(
+            "state IN ('staging', 'ready', 'published', 'failed', 'superseded')",
+            name="ck_settlement_projection_generation_state",
+        ),
+        CheckConstraint(
+            "lineage_depth >= 0",
+            name="ck_settlement_projection_generation_lineage_depth",
+        ),
+        CheckConstraint(
+            "estimated_write_rows >= 0 AND estimated_write_bytes >= 0 "
+            "AND estimated_wal_bytes >= 0 AND estimated_disk_headroom_bytes >= 0",
+            name="ck_settlement_projection_generation_resources",
+        ),
+        CheckConstraint(
+            "base_generation_id IS NULL OR base_generation_id <> generation_id",
+            name="ck_settlement_projection_generation_self_reference",
+        ),
+        CheckConstraint(
+            "generation_kind IN ('lineage', 'legacy_root', 'compact')",
+            name="ck_settlement_projection_generation_kind",
+        ),
+        CheckConstraint(
+            "(generation_kind = 'lineage' AND compaction_base_generation_id IS NULL) OR "
+            "(generation_kind = 'legacy_root' AND base_generation_id IS NULL "
+            "AND lineage_depth = 0 AND compaction_base_generation_id IS NULL) OR "
+            "(generation_kind = 'compact' AND base_generation_id IS NULL "
+            "AND lineage_depth = 0 AND compaction_base_generation_id IS NOT NULL)",
+            name="ck_settlement_projection_generation_kind_base_depth",
+        ),
+        CheckConstraint(
+            "compaction_base_generation_id IS NULL "
+            "OR compaction_base_generation_id <> generation_id",
+            name="ck_settlement_projection_generation_compaction_self_reference",
+        ),
+        Index(
+            "ix_settlement_projection_generation_state",
+            "projection_name",
+            "state",
+            "created_at",
+        ),
+        Index(
+            "ix_settlement_projection_generation_input",
+            "projection_name",
+            "input_fingerprint",
+        ),
+        Index(
+            "ix_settlement_projection_generation_base",
+            "base_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_generation_compaction_base",
+            "compaction_base_generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    generation_kind: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="lineage", server_default="lineage"
+    )
+    compaction_base_generation_id: Mapped[str | None] = mapped_column(Text)
+    projection_name: Mapped[str] = mapped_column(String(64), default="settlement")
+    state: Mapped[str] = mapped_column(String(32), default="staging")
+    input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    lineage_depth: Mapped[int] = mapped_column(Integer, default=0)
+    estimated_write_rows: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_write_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_wal_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_disk_headroom_bytes: Mapped[int] = mapped_column(BigInteger, default=0)
+    checkpoint_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    last_key: Mapped[str | None] = mapped_column(Text)
+    manifest_checksum: Mapped[str | None] = mapped_column(String(64))
+    source_job_id: Mapped[str | None] = mapped_column(Text)
+    source_input_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    failure_code: Mapped[str | None] = mapped_column(String(64))
+    failure_reason: Mapped[str | None] = mapped_column(Text)
+
+
+class SettlementProjectionCompactionClosure(Base):
+    """Immutable provenance membership for one depth-zero compact generation."""
+
+    __tablename__ = "settlement_projection_compaction_closure"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["compact_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_compaction_closure_compact",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["source_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_compaction_closure_source",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "compact_generation_id <> source_generation_id",
+            name="ck_settlement_projection_compaction_closure_distinct",
+        ),
+        CheckConstraint(
+            "length(source_digest) = 64 AND source_digest = lower(source_digest) AND "
+            "replace(replace(replace(replace(replace(replace(replace(replace("
+            "replace(replace(replace(replace(replace(replace(replace(replace("
+            "source_digest, '0', ''), '1', ''), '2', ''), '3', ''), '4', ''), "
+            "'5', ''), '6', ''), '7', ''), '8', ''), '9', ''), 'a', ''), "
+            "'b', ''), 'c', ''), 'd', ''), 'e', ''), 'f', '') = ''",
+            name="ck_settlement_projection_compaction_closure_digest",
+        ),
+        Index(
+            "ix_settlement_projection_compaction_closure_source",
+            "source_generation_id",
+        ),
+    )
+
+    compact_generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    source_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class SettlementProjectionActive(Base):
+    """The nullable pointer published only after a generation is certified."""
+
+    __tablename__ = "settlement_projection_active"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_active_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint("generation_id", name="uq_settlement_projection_active_generation"),
+        CheckConstraint(
+            "projection_name = 'settlement'",
+            name="ck_settlement_projection_active_projection_name",
+        ),
+    )
+
+    projection_name: Mapped[str] = mapped_column(String(64), primary_key=True)
+    generation_id: Mapped[str | None] = mapped_column(Text)
+
+
+class SettlementProjectionPartitionManifest(Base):
+    """Ownership and source metadata for each sparse artifact partition."""
+
+    __tablename__ = "settlement_projection_partition_manifest"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["data_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_data_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["reference_head_generation_id", "data_generation_id"],
+            [
+                "settlement_projection_compaction_closure.compact_generation_id",
+                "settlement_projection_compaction_closure.source_generation_id",
+            ],
+            name="fk_settlement_projection_manifest_compaction_source",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_projection_manifest_base_generation",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "artifact IN ('monthly', 'ranking', 'score')",
+            name="ck_settlement_projection_manifest_artifact",
+        ),
+        CheckConstraint(
+            "owner_state IN ('owned', 'tombstone')",
+            name="ck_settlement_projection_manifest_owner_state",
+        ),
+        CheckConstraint(
+            "source_kind IN ('overlay', 'legacy_root', 'tombstone')",
+            name="ck_settlement_projection_manifest_source_kind",
+        ),
+        CheckConstraint(
+            "row_count >= 0",
+            name="ck_settlement_projection_manifest_non_negative_counts",
+        ),
+        CheckConstraint(
+            "(owner_state = 'owned' AND source_kind = 'overlay' "
+            "AND data_generation_id IS NOT NULL) OR "
+            "(owner_state = 'owned' AND source_kind = 'legacy_root' "
+            "AND data_generation_id IS NULL) OR "
+            "(owner_state = 'tombstone' AND source_kind = 'tombstone' "
+            "AND data_generation_id IS NULL AND row_count = 0)",
+            name="ck_settlement_projection_manifest_source_invariants",
+        ),
+        CheckConstraint(
+            "reference_head_generation_id IS NULL OR "
+            "(reference_head_generation_id = generation_id AND owner_state='owned' "
+            "AND source_kind='overlay' AND data_generation_id IS NOT NULL)",
+            name="ck_settlement_projection_manifest_reference_head",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_state",
+            "artifact",
+            "owner_state",
+            "source_kind",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_data_generation",
+            "data_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_base_generation",
+            "base_generation_id",
+        ),
+        Index(
+            "ix_settlement_projection_manifest_reference_source",
+            "reference_head_generation_id",
+            "data_generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    artifact: Mapped[str] = mapped_column(String(32), primary_key=True)
+    partition_key: Mapped[str] = mapped_column(String(128), primary_key=True)
+    owner_state: Mapped[str] = mapped_column(String(32), default="owned")
+    source_kind: Mapped[str] = mapped_column(String(32), default="overlay")
+    data_generation_id: Mapped[str | None] = mapped_column(Text)
+    reference_head_generation_id: Mapped[str | None] = mapped_column(Text)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    row_count: Mapped[int] = mapped_column(BigInteger, default=0)
+    amount_total_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    status_counts_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    last_key: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class SettlementMonthlyOverlay(Base):
+    """Generation-scoped monthly settlement rows; legacy aggregate stays untouched."""
+
+    __tablename__ = "settlement_monthly_overlay"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_monthly_overlay_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_monthly_overlay_base_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "month",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uq_settlement_monthly_overlay_natural_key",
+        ),
+        CheckConstraint(
+            "statement_status IN (1, 2, 3, 4)",
+            name="ck_settlement_monthly_overlay_status",
+        ),
+        CheckConstraint(
+            "partition_key = month",
+            name="ck_settlement_monthly_overlay_partition",
+        ),
+        Index(
+            "ix_settlement_monthly_overlay_generation_partition",
+            "generation_id",
+            "partition_key",
+        ),
+        Index(
+            "ix_settlement_monthly_overlay_store_month",
+            "store_id",
+            "month",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    generation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    month: Mapped[str] = mapped_column(String(7), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    product_scope: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    product_type: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(7), nullable=False)
+    sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_base_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_original_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_adjustment_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    statement_status: Mapped[int] = mapped_column(Integer, default=1)
+    projection_run_id: Mapped[str] = mapped_column(String(128), default="")
+    estimated_receivable_commission_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    commissionable_total_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    estimated_payable_commission_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    tombstone: Mapped[bool] = mapped_column(Boolean, default=False)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class SettlementRankingOverlay(Base):
+    """Generation-scoped monthly/cumulative ranking rows."""
+
+    __tablename__ = "settlement_ranking_overlay"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_ranking_overlay_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["base_generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_settlement_ranking_overlay_base_generation",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "period_type",
+            "period_key",
+            "store_id",
+            "product_scope",
+            "product_type",
+            name="uq_settlement_ranking_overlay_natural_key",
+        ),
+        CheckConstraint(
+            "period_type IN (1, 2)",
+            name="ck_settlement_ranking_overlay_period_type",
+        ),
+        CheckConstraint(
+            "net_settlement_reference_cent = promotion_net_fee_cent - "
+            "management_net_fee_cent",
+            name="ck_settlement_ranking_overlay_net_reference",
+        ),
+        CheckConstraint(
+            "(period_type = 1 AND partition_key = 'monthly:' || period_key "
+            "AND month = period_key) OR "
+            "(period_type = 2 AND partition_key = 'cumulative:' || period_key "
+            "AND month = period_key)",
+            name="ck_settlement_ranking_overlay_partition",
+        ),
+        Index(
+            "ix_settlement_ranking_overlay_generation_partition",
+            "generation_id",
+            "period_type",
+            "period_key",
+        ),
+        Index(
+            "ix_settlement_ranking_overlay_store_period",
+            "store_id",
+            "period_key",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    generation_id: Mapped[str] = mapped_column(Text, nullable=False)
+    base_generation_id: Mapped[str | None] = mapped_column(Text)
+    period_type: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    period_key: Mapped[str] = mapped_column(String(7), nullable=False)
+    store_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    store_name: Mapped[str] = mapped_column(String(255), default="")
+    product_scope: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    product_type: Mapped[str] = mapped_column(String(128), default="all", nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(32), nullable=False)
+    sales_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    sales_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    verified_order_count: Mapped[int] = mapped_column(Integer, default=0)
+    verified_amount_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    promotion_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    management_net_fee_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    net_settlement_reference_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    projection_run_id: Mapped[str] = mapped_column(String(128), default="")
+    month: Mapped[str] = mapped_column(String(7), default="")
+    self_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    self_sold_other_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    other_sold_self_verified_count: Mapped[int] = mapped_column(Integer, default=0)
+    self_verify_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    effective_commission_income_cent: Mapped[int] = mapped_column(BigInteger, default=0)
+    tombstone: Mapped[bool] = mapped_column(Boolean, default=False)
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class StoreScoreSnapshotGeneration(Base):
+    """Generation sidecar for existing score rows; it never fabricates a row."""
+
+    __tablename__ = "store_score_snapshot_generation"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["generation_id"],
+            ["settlement_projection_generation.generation_id"],
+            name="fk_store_score_snapshot_generation_generation",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["rule_version_id"],
+            ["clue_allocation_rule_versions.rule_version_id"],
+            name="fk_store_score_snapshot_generation_rule_version",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["snapshot_run_id", "store_id"],
+            ["store_score_snapshots.snapshot_run_id", "store_score_snapshots.store_id"],
+            name="fk_store_score_snapshot_generation_snapshot_store",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "generation_id",
+            "snapshot_date",
+            "rule_version_id",
+            "store_id",
+            name="uq_store_score_snapshot_generation_partition",
+        ),
+        CheckConstraint(
+            "owner_state = 'owned'",
+            name="ck_store_score_snapshot_generation_owner_state",
+        ),
+        Index(
+            "ix_store_score_snapshot_generation_partition",
+            "snapshot_date",
+            "rule_version_id",
+            "store_id",
+        ),
+        Index(
+            "ix_store_score_snapshot_generation_generation",
+            "generation_id",
+        ),
+    )
+
+    generation_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    snapshot_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    store_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    rule_version_id: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot_date: Mapped[date] = mapped_column(Date, nullable=False)
+    partition_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    owner_state: Mapped[str] = mapped_column(String(32), default="owned")
+    checksum: Mapped[str | None] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+
 @event.listens_for(AggStoreRanking, "before_insert")
 def _fill_legacy_ranking_projection_fields(
     _mapper: Any, _connection: Any, target: AggStoreRanking
@@ -2620,8 +3367,54 @@ def _fill_legacy_monthly_projection_fields(
 
 
 class JobRun(Base):
+    """Persist a legacy-compatible job and its control-plane state."""
+
     __tablename__ = "job_runs"
     __table_args__ = (
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'date_sync' OR ("
+            "parent_job_id IS NOT NULL AND business_date IS NOT NULL "
+            "AND data_source IS NOT NULL AND config_version IS NOT NULL "
+            "AND window_start IS NOT NULL AND window_end IS NOT NULL "
+            "AND window_end > window_start)",
+            name="ck_job_runs_date_sync_complete_window",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'parent_sync' OR ("
+            "parent_job_id IS NOT NULL AND execution_slot IS NOT NULL "
+            "AND execution_slot = 'heavy_sync' "
+            "AND business_date IS NULL AND data_source IS NOT NULL "
+            "AND config_version IS NOT NULL AND window_start IS NOT NULL "
+            "AND window_end IS NOT NULL AND window_end > window_start)",
+            name="ck_job_runs_parent_sync_complete_window",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind != 'range_sync' "
+            "OR execution_slot IS NULL",
+            name="ck_job_runs_range_sync_no_execution_slot",
+        ),
+        CheckConstraint(
+            "job_kind IS NULL OR job_kind IN ("
+            "'range_sync', 'parent_sync', 'date_sync', 'finalize', 'product_sync')",
+            name="ck_job_runs_job_kind_allowlist",
+        ),
+        CheckConstraint(
+            "current_stage IS NULL OR current_stage IN ("
+            "'collect', 'collect_dimensions', 'materialize', 'settle', 'finalize')",
+            name="ck_job_runs_current_stage_allowlist",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'queued', 'running', 'retry_wait', "
+            "'success', 'partial', 'failed', 'cancelled')",
+            name="ck_job_runs_status_allowlist",
+        ),
+        CheckConstraint(
+            "(attempt_count IS NULL OR attempt_count >= 0) AND "
+            "(max_attempts IS NULL OR max_attempts BETWEEN 1 AND 3) AND "
+            "(attempt_count IS NULL OR max_attempts IS NULL "
+            "OR attempt_count <= max_attempts)",
+            name="ck_job_runs_attempt_bounds",
+        ),
         Index(
             "uq_job_runs_product_sync_active_slot",
             "job_name",
@@ -2645,6 +3438,42 @@ class JobRun(Base):
                 "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
             ),
         ),
+        Index(
+            "uq_job_runs_date_sync_identity",
+            "parent_job_id",
+            "business_date",
+            "data_source",
+            "config_version",
+            unique=True,
+            sqlite_where=text(
+                "job_kind = 'date_sync' "
+                "AND parent_job_id IS NOT NULL "
+                "AND business_date IS NOT NULL "
+                "AND data_source IS NOT NULL "
+                "AND config_version IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "job_kind = 'date_sync' "
+                "AND parent_job_id IS NOT NULL "
+                "AND business_date IS NOT NULL "
+                "AND data_source IS NOT NULL "
+                "AND config_version IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_job_runs_heavy_sync_running_slot",
+            "execution_slot",
+            unique=True,
+            sqlite_where=text(
+                "execution_slot = 'heavy_sync' AND status = 'running'"
+            ),
+            postgresql_where=text(
+                "execution_slot = 'heavy_sync' AND status = 'running'"
+            ),
+        ),
+        Index("ix_job_runs_parent_business_date", "parent_job_id", "business_date"),
+        Index("ix_job_runs_lease_expires_at", "lease_expires_at"),
+        Index("ix_job_runs_heartbeat_at", "heartbeat_at"),
     )
 
     job_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -2657,6 +3486,422 @@ class JobRun(Base):
     error_message: Mapped[str | None] = mapped_column(Text)
     idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    parent_job_id: Mapped[str | None] = mapped_column(
+        Text,
+        ForeignKey("job_runs.job_id", ondelete="RESTRICT"),
+    )
+    job_kind: Mapped[str | None] = mapped_column(String(32))
+    execution_slot: Mapped[str | None] = mapped_column(String(32))
+    business_date: Mapped[date | None] = mapped_column(Date)
+    data_source: Mapped[str | None] = mapped_column(String(128))
+    config_version: Mapped[str | None] = mapped_column(String(128))
+    window_start: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    window_end: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    current_stage: Mapped[str | None] = mapped_column(String(32))
+    attempt_count: Mapped[int | None] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int | None] = mapped_column(Integer, default=3)
+    lease_owner: Mapped[str | None] = mapped_column(Text)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer, default=0)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    progress_current: Mapped[int | None] = mapped_column(BigInteger)
+    progress_total: Mapped[int | None] = mapped_column(BigInteger)
+    rows_read: Mapped[int | None] = mapped_column(BigInteger)
+    rows_written: Mapped[int | None] = mapped_column(BigInteger)
+    rows_affected: Mapped[int | None] = mapped_column(BigInteger)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    cancel_requested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    pause_after_stage_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+
+class JobStageRun(Base):
+    """Store the authoritative checkpoint for one job stage."""
+
+    __tablename__ = "job_stage_runs"
+    __table_args__ = (
+        UniqueConstraint("job_id", "stage_name", name="uq_job_stage_runs_job_stage"),
+        UniqueConstraint(
+            "job_id", "stage_run_id", name="uq_job_stage_runs_job_stage_run"
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'success', 'failed', "
+            "'cancelled', 'skipped')",
+            name="ck_job_stage_runs_status",
+        ),
+        CheckConstraint(
+            "status != 'success' OR committed_at IS NOT NULL",
+            name="ck_job_stage_runs_success_committed_at",
+        ),
+        CheckConstraint(
+            "lease_epoch IS NULL OR lease_epoch >= 0",
+            name="ck_job_stage_runs_lease_epoch",
+        ),
+        CheckConstraint(
+            "finished_at IS NULL OR started_at IS NULL OR finished_at >= started_at",
+            name="ck_job_stage_runs_time_order",
+        ),
+        Index("ix_job_stage_runs_job_status", "job_id", "status"),
+        Index("ix_job_stage_runs_committed_at", "committed_at"),
+    )
+
+    stage_run_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_name: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    checkpoint_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    committed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class JobAttempt(Base):
+    """Record one fenced claim and execution attempt for a job."""
+
+    __tablename__ = "job_attempts"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "stage_run_id"],
+            ["job_stage_runs.job_id", "job_stage_runs.stage_run_id"],
+            name="fk_job_attempts_job_stage_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["component_instance_id", "component_type"],
+            [
+                "component_heartbeats.component_instance_id",
+                "component_heartbeats.component_type",
+            ],
+            name="fk_job_attempts_component_identity",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "job_id", "attempt_number", name="uq_job_attempts_job_attempt_number"
+        ),
+        UniqueConstraint("job_id", "lease_epoch", name="uq_job_attempts_job_lease_epoch"),
+        UniqueConstraint("job_id", "attempt_id", name="uq_job_attempts_job_attempt"),
+        UniqueConstraint(
+            "job_id",
+            "component_instance_id",
+            "attempt_id",
+            name="uq_job_attempts_job_component_attempt",
+        ),
+        CheckConstraint("attempt_number > 0", name="ck_job_attempts_attempt_number"),
+        CheckConstraint("lease_epoch > 0", name="ck_job_attempts_lease_epoch"),
+        CheckConstraint(
+            "batch_size IS NULL OR batch_size > 0",
+            name="ck_job_attempts_batch_size",
+        ),
+        CheckConstraint(
+            "exit_type IS NULL OR exit_type IN ("
+            "'success', 'retryable_failure', 'fatal_failure', "
+            "'cancelled', 'crashed', 'resource_guard')",
+            name="ck_job_attempts_exit_type",
+        ),
+        CheckConstraint(
+            "finished_at IS NULL OR finished_at >= started_at",
+            name="ck_job_attempts_time_order",
+        ),
+        Index("ix_job_attempts_job_started", "job_id", "started_at"),
+        Index("ix_job_attempts_stage_run_id", "stage_run_id"),
+        Index(
+            "ix_job_attempts_component_started",
+            "component_instance_id",
+            "started_at",
+        ),
+    )
+
+    attempt_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_run_id: Mapped[str | None] = mapped_column(Text)
+    attempt_number: Mapped[int] = mapped_column(Integer)
+    lease_epoch: Mapped[int] = mapped_column(Integer)
+    component_type: Mapped[str] = mapped_column(String(32))
+    component_instance_id: Mapped[str] = mapped_column(Text)
+    process_id: Mapped[int | None] = mapped_column(Integer)
+    container_instance_id: Mapped[str | None] = mapped_column(Text)
+    batch_size: Mapped[int | None] = mapped_column(Integer)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    exit_type: Mapped[str | None] = mapped_column(String(32))
+    exit_code: Mapped[int | None] = mapped_column(Integer)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    error_id: Mapped[str | None] = mapped_column(Text)
+    error_code: Mapped[str | None] = mapped_column(String(64))
+    error_summary: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class JobEvent(Base):
+    """Store an append-only audit or observability event for a job."""
+
+    __tablename__ = "job_events"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "stage_run_id"],
+            ["job_stage_runs.job_id", "job_stage_runs.stage_run_id"],
+            name="fk_job_events_job_stage_run",
+            ondelete="RESTRICT",
+        ),
+        ForeignKeyConstraint(
+            ["job_id", "attempt_id"],
+            ["job_attempts.job_id", "job_attempts.attempt_id"],
+            name="fk_job_events_job_attempt",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "actor_type IN ('system', 'worker', 'ops_agent', 'user')",
+            name="ck_job_events_actor_type",
+        ),
+        Index(
+            "uq_job_events_idempotency_key",
+            "job_id",
+            "idempotency_key",
+            unique=True,
+            sqlite_where=text("idempotency_key IS NOT NULL"),
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+        Index("ix_job_events_job_occurred", "job_id", "occurred_at"),
+        Index("ix_job_events_attempt_id", "attempt_id"),
+        Index("ix_job_events_type_occurred", "event_type", "occurred_at"),
+    )
+
+    event_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    job_id: Mapped[str] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    stage_run_id: Mapped[str | None] = mapped_column(Text)
+    attempt_id: Mapped[str | None] = mapped_column(Text)
+    event_type: Mapped[str] = mapped_column(String(64))
+    from_status: Mapped[str | None] = mapped_column(String(32))
+    to_status: Mapped[str | None] = mapped_column(String(32))
+    actor_type: Mapped[str] = mapped_column(String(32))
+    actor_id: Mapped[str | None] = mapped_column(Text)
+    reason: Mapped[str | None] = mapped_column(Text)
+    error_id: Mapped[str | None] = mapped_column(Text)
+    idempotency_key: Mapped[str | None] = mapped_column(String(128))
+    payload_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class ComponentHeartbeat(Base):
+    """Store the latest declared state for one component instance."""
+
+    __tablename__ = "component_heartbeats"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["current_job_id", "component_instance_id", "current_attempt_id"],
+            [
+                "job_attempts.job_id",
+                "job_attempts.component_instance_id",
+                "job_attempts.attempt_id",
+            ],
+            name="fk_component_heartbeats_current_attempt",
+            ondelete="RESTRICT",
+            use_alter=True,
+        ),
+        UniqueConstraint(
+            "component_instance_id",
+            "component_type",
+            name="uq_component_heartbeats_instance_type",
+        ),
+        CheckConstraint(
+            "current_attempt_id IS NULL OR current_job_id IS NOT NULL",
+            name="ck_component_heartbeats_current_attempt_job",
+        ),
+        CheckConstraint(
+            "component_type IN ("
+            "'worker', 'browser', 'api', 'postgres', 'proxy', 'ops_agent')",
+            name="ck_component_heartbeats_component_type",
+        ),
+        CheckConstraint(
+            "status IN ("
+            "'starting', 'healthy', 'degraded', 'draining', 'unhealthy', 'stopped')",
+            name="ck_component_heartbeats_status",
+        ),
+        CheckConstraint(
+            "rss_bytes IS NULL OR rss_bytes >= 0",
+            name="ck_component_heartbeats_rss_bytes",
+        ),
+        CheckConstraint(
+            "rss_peak_bytes IS NULL OR rss_peak_bytes >= 0",
+            name="ck_component_heartbeats_rss_peak_bytes",
+        ),
+        CheckConstraint(
+            "memory_limit_bytes IS NULL OR memory_limit_bytes > 0",
+            name="ck_component_heartbeats_memory_limit_bytes",
+        ),
+        CheckConstraint(
+            "queue_depth IS NULL OR queue_depth >= 0",
+            name="ck_component_heartbeats_queue_depth",
+        ),
+        Index(
+            "ix_component_heartbeats_type_last_heartbeat",
+            "component_type",
+            "last_heartbeat_at",
+        ),
+        Index("ix_component_heartbeats_status", "status"),
+        Index("ix_component_heartbeats_current_job_id", "current_job_id"),
+    )
+
+    component_instance_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    component_type: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(32))
+    version: Mapped[str | None] = mapped_column(String(128))
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    current_job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    current_attempt_id: Mapped[str | None] = mapped_column(Text)
+    rss_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    rss_peak_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    memory_limit_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    cpu_percent: Mapped[float | None] = mapped_column(Float)
+    queue_depth: Mapped[int | None] = mapped_column(Integer)
+    activity_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    queue_summary_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ComponentMetricSample(Base):
+    """Store a retained point-in-time component resource metric."""
+
+    __tablename__ = "component_metric_samples"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["job_id", "component_instance_id", "attempt_id"],
+            [
+                "job_attempts.job_id",
+                "job_attempts.component_instance_id",
+                "job_attempts.attempt_id",
+            ],
+            name="fk_component_metric_samples_job_component_attempt",
+            ondelete="RESTRICT",
+        ),
+        UniqueConstraint(
+            "component_instance_id",
+            "metric_name",
+            "sampled_at",
+            name="uq_component_metric_samples_instance_metric_sampled",
+        ),
+        CheckConstraint(
+            "expires_at > sampled_at",
+            name="ck_component_metric_samples_retention",
+        ),
+        CheckConstraint(
+            "attempt_id IS NULL OR job_id IS NOT NULL",
+            name="ck_component_metric_samples_attempt_job",
+        ),
+        Index(
+            "ix_component_metric_samples_component_sampled",
+            "component_instance_id",
+            "sampled_at",
+        ),
+        Index("ix_component_metric_samples_expires_at", "expires_at"),
+        Index("ix_component_metric_samples_job_sampled", "job_id", "sampled_at"),
+    )
+
+    metric_sample_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    component_instance_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("component_heartbeats.component_instance_id", ondelete="RESTRICT"),
+    )
+    job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="RESTRICT")
+    )
+    attempt_id: Mapped[str | None] = mapped_column(Text)
+    metric_name: Mapped[str] = mapped_column(String(64))
+    metric_value: Mapped[Decimal] = mapped_column(Numeric(24, 6))
+    unit: Mapped[str] = mapped_column(String(32))
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+
+
+class OpsCommand(Base):
+    """Store a confirmed, allowlisted command for the isolated ops agent."""
+
+    __tablename__ = "ops_commands"
+    __table_args__ = (
+        CheckConstraint("command_type = 'restart'", name="ck_ops_commands_command_type"),
+        CheckConstraint(
+            "target_component IN ('worker', 'browser')",
+            name="ck_ops_commands_target_component",
+        ),
+        CheckConstraint(
+            "status IN ("
+            "'pending', 'running', 'success', 'failed', "
+            "'rejected', 'expired', 'cancelled')",
+            name="ck_ops_commands_status",
+        ),
+        CheckConstraint(
+            "lease_epoch IS NULL OR lease_epoch > 0",
+            name="ck_ops_commands_lease_epoch",
+        ),
+        CheckConstraint("expires_at > created_at", name="ck_ops_commands_expiry"),
+        Index(
+            "uq_ops_commands_idempotency_key_hash",
+            "idempotency_key_hash",
+            unique=True,
+        ),
+        Index(
+            "uq_ops_commands_active_target",
+            "target_component",
+            unique=True,
+            sqlite_where=text("status IN ('pending', 'running')"),
+            postgresql_where=text("status IN ('pending', 'running')"),
+        ),
+        Index("ix_ops_commands_status_created", "status", "created_at"),
+        Index("ix_ops_commands_expires_at", "expires_at"),
+        Index("ix_ops_commands_related_job_id", "related_job_id"),
+        Index(
+            "ix_ops_commands_target_cooldown",
+            "target_component",
+            "cooldown_until",
+        ),
+    )
+
+    command_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    command_type: Mapped[str] = mapped_column(String(32))
+    target_component: Mapped[str] = mapped_column(String(32))
+    requested_by: Mapped[str] = mapped_column(Text)
+    request_reason: Mapped[str] = mapped_column(Text)
+    confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(32))
+    idempotency_key_hash: Mapped[str] = mapped_column(String(64))
+    request_payload_sha256: Mapped[str] = mapped_column(String(64))
+    related_job_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("job_runs.job_id", ondelete="SET NULL")
+    )
+    claimed_by: Mapped[str | None] = mapped_column(Text)
+    lease_epoch: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    cooldown_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_code: Mapped[str | None] = mapped_column(String(64))
+    result_summary: Mapped[str | None] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
 
 
 class SyncSetting(Base):
@@ -2705,16 +3950,27 @@ class ClueMasterLead(Base):
         Index("ix_clue_master_leads_order_location", "order_id", "pool_location"),
         Index("ix_clue_master_leads_lifecycle_location", "lifecycle_status", "pool_location"),
         Index("ix_clue_master_leads_anchor_store", "anchor_store_id"),
+        Index(
+            "ix_clue_master_leads_source_identity_order",
+            "source_identity_key",
+            "order_id",
+        ),
     )
 
     lead_key: Mapped[str] = mapped_column(Text, primary_key=True)
     source_clue_row_key: Mapped[str] = mapped_column(Text)
     source_identity_key: Mapped[str] = mapped_column(Text)
+    master_kind: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     canonical_clue_id: Mapped[str | None] = mapped_column(Text, index=True)
     order_id: Mapped[str | None] = mapped_column(Text, index=True)
     raw_order_status: Mapped[str | None] = mapped_column(Text)
     normalized_order_status: Mapped[str] = mapped_column(String(32), default="unknown", index=True)
     status_source: Mapped[str] = mapped_column(String(32), default="clue")
+    order_status_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     lifecycle_status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     pool_location: Mapped[str | None] = mapped_column(String(32), index=True)
     allocation_state: Mapped[str] = mapped_column(String(32), default="pending_allocation", index=True)
@@ -2725,6 +3981,7 @@ class ClueMasterLead(Base):
     closed_reason: Mapped[str | None] = mapped_column(Text)
     first_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    last_observation_key: Mapped[str | None] = mapped_column(String(256))
     anchor_poi_id: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_store_id: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_source: Mapped[str | None] = mapped_column(Text)
@@ -2734,8 +3991,91 @@ class ClueMasterLead(Base):
     anchor_city_code: Mapped[str | None] = mapped_column(Text, index=True)
     anchor_longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     anchor_latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    is_complete_pool: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    state_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class ClueSourceRecordLink(Base):
+    __tablename__ = "clue_source_record_links"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_table",
+            "source_record_key",
+            name="uq_clue_source_record_links_source",
+        ),
+        Index("ix_clue_source_record_links_lead_key", "lead_key"),
+        Index("ix_clue_source_record_links_order_id", "order_id"),
+        Index(
+            "ix_clue_source_record_links_status_updated_at",
+            "link_status",
+            "updated_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    source_system: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    source_table: Mapped[str] = mapped_column(
+        String(64),
+        nullable=False,
+        default="raw_douyin_clues",
+        server_default=text("'raw_douyin_clues'"),
+    )
+    source_record_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_clue_id: Mapped[str | None] = mapped_column(String(64))
+    source_order_id: Mapped[str | None] = mapped_column(String(64))
+    lead_key: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_master_leads.lead_key", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    order_id: Mapped[str | None] = mapped_column(String(64))
+    link_status: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    link_method: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    link_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    linked_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    source_observed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    source_run_id: Mapped[str | None] = mapped_column(String(64))
+    source_payload_hash: Mapped[str | None] = mapped_column(String(64))
+    conflict_reason: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utcnow,
+        onupdate=utcnow,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
 
 
 class ClueSourceIdentifierHistory(Base):
@@ -2758,6 +4098,19 @@ class ClueSourceIdentifierHistory(Base):
             "source_clue_row_key",
             "identifier_type",
             "is_current",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_source_lead_type",
+            "source_clue_row_key",
+            "lead_key",
+            "identifier_type",
+            "is_current",
+        ),
+        Index(
+            "ix_clue_source_identifier_history_type_value_lead",
+            "identifier_type",
+            "identifier_value",
+            "lead_key",
         ),
     )
 
@@ -2877,7 +4230,7 @@ class ClueAssignmentRound(Base):
     is_followed: Mapped[bool] = mapped_column(Boolean, default=False)
     is_follow_success: Mapped[bool] = mapped_column(Boolean, default=False)
     round_status: Mapped[str] = mapped_column(String(32), index=True)
-    execution_mode: Mapped[str] = mapped_column(String(32), default="legacy", index=True)
+    execution_mode: Mapped[str] = mapped_column(String(32), default="formal", index=True)
     matured_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     terminal_reason: Mapped[str | None] = mapped_column(Text)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
@@ -3150,6 +4503,8 @@ class ClueAllocationCycle(Base):
         Index("ix_clue_allocation_cycles_mode_status", "execution_mode", "status"),
         Index("ix_clue_allocation_cycles_parent", "parent_cycle_id"),
         Index("uq_clue_allocation_cycles_preview_token_hash", "preview_token_hash", unique=True),
+        Index("uq_clue_allocation_cycles_idempotency_key_hash", "idempotency_key_hash", unique=True),
+        Index("ix_clue_allocation_cycles_actor_user", "actor_user_id", "created_at"),
     )
 
     allocation_cycle_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3163,11 +4518,104 @@ class ClueAllocationCycle(Base):
     planned_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     actual_impact_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     actor: Mapped[str | None] = mapped_column(Text)
+    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_username_snapshot: Mapped[str | None] = mapped_column(Text)
     privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
     preview_token_hash: Mapped[str | None] = mapped_column(String(64))
+    preview_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    idempotency_request_hash: Mapped[str | None] = mapped_column(String(64))
+    request_scope_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    error_summary: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    state_version: Mapped[int] = mapped_column(Integer, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     executed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+
+
+class ClueAllocationCycleItem(Base):
+    """Per-lead execution evidence for one allocation cycle."""
+
+    __tablename__ = "clue_allocation_cycle_items"
+    __table_args__ = (
+        UniqueConstraint("allocation_cycle_id", "lead_key", name="uq_clue_allocation_cycle_items_cycle_lead"),
+        UniqueConstraint(
+            "allocation_cycle_id",
+            "sequence_no",
+            name="uq_clue_allocation_cycle_items_cycle_sequence",
+        ),
+        Index("ix_clue_allocation_cycle_items_cycle_status", "allocation_cycle_id", "item_status"),
+        Index("ix_clue_allocation_cycle_items_lead_created", "lead_key", "created_at"),
+    )
+
+    cycle_item_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    allocation_cycle_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_cycles.allocation_cycle_id", ondelete="CASCADE"),
+        index=True,
+    )
+    sequence_no: Mapped[int] = mapped_column(Integer)
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    item_status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
+    initial_pool_location: Mapped[str | None] = mapped_column(String(32))
+    rule_binding_id: Mapped[str | None] = mapped_column(Text)
+    decision_id: Mapped[str | None] = mapped_column(Text, index=True)
+    assignment_round_id: Mapped[str | None] = mapped_column(Text, index=True)
+    headquarters_pool_entry_id: Mapped[str | None] = mapped_column(Text, index=True)
+    outcome_reason: Mapped[str | None] = mapped_column(String(128))
+    precondition_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    error_code: Mapped[str | None] = mapped_column(String(128))
+    error_detail: Mapped[str | None] = mapped_column(String(1000))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ClueAllocationCandidate(Base):
+    """Immutable candidate snapshot captured when an allocation decision is made."""
+
+    __tablename__ = "clue_allocation_candidates"
+    __table_args__ = (
+        UniqueConstraint("decision_id", "store_id", name="uq_clue_allocation_candidates_decision_store"),
+        Index("ix_clue_allocation_candidates_decision_rank", "decision_id", "eligibility_status", "rank_no"),
+        Index("ix_clue_allocation_candidates_store_evaluated", "store_id", "evaluated_at"),
+        Index("ix_clue_allocation_candidates_exclusion", "exclusion_reason_code", "evaluated_at"),
+    )
+
+    candidate_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    decision_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("clue_allocation_decisions.decision_id", ondelete="CASCADE"),
+        index=True,
+    )
+    lead_key: Mapped[str] = mapped_column(Text, index=True)
+    order_id: Mapped[str | None] = mapped_column(Text, index=True)
+    strategy_type: Mapped[str] = mapped_column(String(64), index=True)
+    store_id: Mapped[str] = mapped_column(Text, index=True)
+    store_name_snapshot: Mapped[str] = mapped_column(Text)
+    city_code: Mapped[str | None] = mapped_column(String(64))
+    eligibility_status: Mapped[str] = mapped_column(String(32), index=True)
+    exclusion_reason_code: Mapped[str | None] = mapped_column(String(128), index=True)
+    exclusion_detail: Mapped[str | None] = mapped_column(String(500))
+    is_sales_store: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_historical_assignment: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_serviceable: Mapped[bool] = mapped_column(Boolean, default=False)
+    distance_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 3))
+    store_location_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    score_snapshot_id: Mapped[str | None] = mapped_column(Text, index=True)
+    conversion_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    follow_24h_rate: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
+    store_weight: Mapped[Decimal | None] = mapped_column(Numeric(8, 4))
+    composite_score: Mapped[Decimal | None] = mapped_column(Numeric(12, 6), index=True)
+    rank_no: Mapped[int | None] = mapped_column(Integer)
+    is_selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_key_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ClueHeadquartersPoolEntry(Base):
@@ -3221,6 +4669,8 @@ class ClueAllocationAuditLog(Base):
     __table_args__ = (
         Index("ix_clue_allocation_audit_logs_cycle_created", "allocation_cycle_id", "created_at"),
         Index("ix_clue_allocation_audit_logs_event_created", "event_type", "created_at"),
+        Index("ix_clue_allocation_audit_logs_actor_created", "actor_user_id", "created_at"),
+        Index("ix_clue_allocation_audit_logs_request_id", "request_id"),
     )
 
     audit_log_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -3231,6 +4681,13 @@ class ClueAllocationAuditLog(Base):
         index=True,
     )
     actor: Mapped[str | None] = mapped_column(Text)
+    actor_user_id: Mapped[str | None] = mapped_column(Text)
+    actor_username_snapshot: Mapped[str | None] = mapped_column(Text)
+    actor_role_snapshot: Mapped[str | None] = mapped_column(String(32))
+    actor_scope_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
+    request_id: Mapped[str | None] = mapped_column(Text)
+    result_status: Mapped[str] = mapped_column(String(32), default="success")
+    reason_code: Mapped[str | None] = mapped_column(String(128))
     privileged_confirmation: Mapped[bool] = mapped_column(Boolean, default=False)
     before_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     after_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)

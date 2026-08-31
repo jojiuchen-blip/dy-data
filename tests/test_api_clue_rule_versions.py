@@ -5,13 +5,14 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from apps.api.dy_api.models import DimStore, User  # noqa: E402
+from apps.api.dy_api.models import ClueAllocationAuditLog, DimStore, User  # noqa: E402
 from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
@@ -81,6 +82,7 @@ def _seed_users(session: Session) -> None:
                 username="database-admin",
                 display_name="Database Admin",
                 role="admin",
+                store_scope_mode="all",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("database-admin-password"),
@@ -157,6 +159,24 @@ def test_rule_version_apis_enforce_read_and_write_permissions(client: TestClient
     ).status_code == 409
     assert client.delete(f"/api/v1/admin/clue-allocation/rule-versions/{version_id}").status_code == 409
 
+    audit_rows = list(
+        db_session.scalars(
+            select(ClueAllocationAuditLog).order_by(ClueAllocationAuditLog.created_at)
+        )
+    )
+    assert [row.event_type for row in audit_rows] == [
+        "rule_created",
+        "rule_version_created",
+        "rule_version_published",
+    ]
+    assert all(row.actor_user_id == "environment:system-admin" for row in audit_rows)
+    assert all(row.actor_role_snapshot == "highest_admin" for row in audit_rows)
+    assert all(row.request_id for row in audit_rows)
+    assert audit_rows[0].after_snapshot["rule_id"] == rule_id
+    assert audit_rows[1].after_snapshot["rule_version_id"] == version_id
+    assert audit_rows[2].before_snapshot["status"] == "draft"
+    assert audit_rows[2].after_snapshot["status"] == "published"
+
 
 def test_highest_admin_can_manage_store_group_members(client: TestClient, db_session: Session) -> None:
     _seed_users(db_session)
@@ -185,3 +205,16 @@ def test_highest_admin_can_manage_store_group_members(client: TestClient, db_ses
         f"/api/v1/admin/clue-allocation/store-groups/{group_id}/members",
         json={"member_store_ids": ["store-1"]},
     ).status_code == 403
+
+    audit_rows = list(
+        db_session.scalars(
+            select(ClueAllocationAuditLog).order_by(ClueAllocationAuditLog.created_at)
+        )
+    )
+    assert [row.event_type for row in audit_rows] == [
+        "store_group_created",
+        "store_group_members_updated",
+    ]
+    assert audit_rows[0].after_snapshot["member_store_ids"] == ["store-1"]
+    assert audit_rows[1].before_snapshot["member_store_ids"] == ["store-1"]
+    assert audit_rows[1].after_snapshot["member_store_ids"] == []

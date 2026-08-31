@@ -74,8 +74,13 @@
 - 账号：`/accounts*`、未激活门店、账号创建/更新和密码重置。
 - 反馈：`/feedback*`。
 - 商品与归属规则：`/sku-rules*`、`/non-commission-owner-accounts*`、`/product-type-visibility*`。
-- 线索分配：`/clue-allocation/master-leads`、`decisions`、`eligible-leads`、`headquarters-pool`、`cycles*`、`audit-logs`、`store-scores*`、`rules*`、`rule-versions*`、`store-groups*`。
-- 同步：`/sync`、`/sync/config`、`/sync/run`、`/sync/clue-center/rebuild`。
+- 线索分配：`/clue-allocation/master-leads`、`decisions*`、`eligible-leads`、`headquarters-pool`、`cycles*`、`cycle-previews`、`trial-cycles`、`rebuild-cycles`、`audit-logs`、`store-scores*`、`rules*`、`rule-versions*`、`store-groups*`。
+  - `POST /clue-allocation/cycle-previews` 生成 10 分钟有效的短时预览，并绑定线索状态版本、规则版本和目标范围。
+  - `POST /clue-allocation/trial-cycles` 与 `POST /clue-allocation/rebuild-cycles` 仅供最高管理员显式确认后执行，必须携带 `Idempotency-Key`；同键同请求重放原结果，同键不同请求返回冲突。
+  - `GET /clue-allocation/cycles/{cycle_id}` 返回批次摘要和分页逐线索执行项；`GET /clue-allocation/decisions/{decision_id}` 返回结构化候选与评分证据。
+  - 页面权限按 `D05` 规则配置、`D06` 试运行、`D07` 分配记录、`D08` 总部池拆分；批次列表和详情允许 `D06` 或 `D07`。
+  - 试运行证据与正式轮次隔离，不改变线索池位置、门店责任和经营指标；旧同步页不再提供直接线索物化入口。
+- 同步：`/sync`、`/sync/config`、`/sync/run`。线索正式重建不再通过同步页的直接物化入口触发。
 
 完整 method、参数和 schema 以 `admin.py` 及自动生成的 OpenAPI 为准；新增管理端点必须显式选择管理员依赖。
 

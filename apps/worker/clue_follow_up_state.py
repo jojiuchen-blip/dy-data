@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead
 
 
-SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
+BUSINESS_EXECUTION_MODE = "formal"
 FOLLOW_UP_ACTIONS = {
     "appointment",
     "further_follow_up",
@@ -78,9 +78,9 @@ def apply_follow_up_action(
     )
     session.add(record)
     if action in {"lost", "request_store_change"}:
-        _close_and_allocate_next(lead, round_row, action, executed_at, session, record.follow_up_record_id)
+        _close_for_reassignment(lead, round_row, action, executed_at, session)
         session.flush()
-        return FollowUpStateResult("ok", record, lead.current_assignment_round_id)
+        return FollowUpStateResult("ok", record, None)
     _apply_visible_summary(round_row, action, executed_at)
     _project_current_round_summary(lead, round_row, session, executed_at)
     session.flush()
@@ -88,13 +88,13 @@ def apply_follow_up_action(
 
 
 def process_due_transitions(session: Session, *, now: datetime | None = None) -> dict[str, int]:
-    """Advance only existing active self-owned rounds; this never allocates pending leads."""
+    """Advance only existing active formal rounds; this never allocates pending leads."""
 
     processed_at = _aware(now)
     stats = {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0}
     rounds = session.scalars(
         select(ClueAssignmentRound)
-        .where(ClueAssignmentRound.execution_mode.in_(SELF_OWNED_EXECUTION_MODES))
+        .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
         .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
         .order_by(ClueAssignmentRound.assignment_round_id)
     ).all()
@@ -110,17 +110,16 @@ def process_due_transitions(session: Session, *, now: datetime | None = None) ->
             continue
         sla_expires_at = round_row.first_sla_expires_at or round_row.expires_at
         if not round_row.is_followed and sla_expires_at is not None and _aware(sla_expires_at) <= processed_at:
-            _close_and_allocate_next(lead, round_row, "sla_expired", processed_at, session, f"due:{round_row.assignment_round_id}:sla")
+            _close_for_reassignment(lead, round_row, "sla_expired", processed_at, session)
             stats["sla_expired"] += 1
             continue
         if round_row.protection_expires_at is not None and _aware(round_row.protection_expires_at) <= processed_at:
-            _close_and_allocate_next(
+            _close_for_reassignment(
                 lead,
                 round_row,
                 "protection_expired",
                 processed_at,
                 session,
-                f"due:{round_row.assignment_round_id}:protection",
             )
             stats["protection_expired"] += 1
     session.flush()
@@ -144,6 +143,9 @@ def soft_delete_follow_up_record(
         return FollowUpStateResult("not_found")
     if record.deleted_at is not None:
         return FollowUpStateResult("conflict")
+    round_row = session.get(ClueAssignmentRound, record.assignment_round_id)
+    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
+        return FollowUpStateResult("conflict")
     deleted_at = _aware(now)
     record.deleted_at = deleted_at
     record.deleted_by_user_id = _text(actor.get("user_id"))
@@ -151,12 +153,11 @@ def soft_delete_follow_up_record(
     record.deletion_reason = _text(reason)
     session.flush()
 
-    round_row = session.get(ClueAssignmentRound, record.assignment_round_id)
     lead = session.get(ClueMasterLead, round_row.lead_key) if round_row is not None and round_row.lead_key else None
     if round_row is not None and lead is not None and _is_current_active_round(lead, round_row):
         _recalculate_active_round_summary(session, lead, round_row, deleted_at)
     elif round_row is not None:
-        _recalculate_legacy_active_round_summary(session, round_row, deleted_at)
+        _recalculate_detached_round_summary(session, round_row, deleted_at)
     session.flush()
     return FollowUpStateResult("ok", record, round_row.assignment_round_id if round_row is not None else None)
 
@@ -217,7 +218,7 @@ def _recalculate_active_round_summary(
     _project_current_round_summary(lead, round_row, session, now)
 
 
-def _recalculate_legacy_active_round_summary(
+def _recalculate_detached_round_summary(
     session: Session,
     round_row: ClueAssignmentRound,
     now: datetime,
@@ -265,13 +266,12 @@ def _recalculate_legacy_active_round_summary(
         center.updated_at = now
 
 
-def _close_and_allocate_next(
+def _close_for_reassignment(
     lead: ClueMasterLead,
     round_row: ClueAssignmentRound,
     cause: str,
     now: datetime,
     session: Session,
-    transition_key: str,
 ) -> None:
     reason_by_cause = {
         "lost": "follow_lost",
@@ -296,19 +296,6 @@ def _close_and_allocate_next(
     lead.updated_at = now
     _project_closed_round(round_row, reason, session, now)
     session.flush()
-
-    from apps.worker.clue_allocation_engine import allocate_lead
-
-    allocate_lead(
-        session,
-        lead.lead_key,
-        execution_mode=round_row.execution_mode,
-        allocation_cycle_id=lead.allocation_cycle_id,
-        actor="follow_up_state",
-        now=now,
-        start_after_strategy=round_row.strategy_type,
-        transition_key=transition_key,
-    )
 
 
 def _project_closed_round(round_row: ClueAssignmentRound, reason: str, session: Session, now: datetime) -> None:
@@ -402,7 +389,7 @@ def _is_current_active_round(lead: ClueMasterLead, round_row: ClueAssignmentRoun
 
 def _is_current_self_owned_round(lead: ClueMasterLead, round_row: ClueAssignmentRound) -> bool:
     return bool(
-        round_row.execution_mode in SELF_OWNED_EXECUTION_MODES
+        round_row.execution_mode == BUSINESS_EXECUTION_MODE
         and lead.current_assignment_round_id == round_row.assignment_round_id
     )
 

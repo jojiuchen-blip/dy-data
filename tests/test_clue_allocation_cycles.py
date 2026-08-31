@@ -7,9 +7,12 @@ import pytest
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+import apps.worker.clue_allocation_cycles as clue_allocation_cycles
 from apps.api.dy_api.models import (
     ClueAllocationAuditLog,
+    ClueAllocationCandidate,
     ClueAllocationCycle,
+    ClueAllocationCycleItem,
     ClueAllocationDecision,
     ClueAssignmentRound,
     ClueFollowUpRecord,
@@ -23,12 +26,17 @@ from apps.worker.clue_allocation_cycles import (
     rebuild_trial_allocation_cycle,
     run_trial_allocation_cycle,
 )
-from apps.worker.clue_follow_up_state import apply_follow_up_action
 from apps.worker.clue_rule_versions import create_rule, create_rule_version, publish_rule_version
 
 
 def _dt(day: int, hour: int = 9) -> datetime:
     return datetime(2026, 7, day, hour, tzinfo=timezone.utc)
+
+
+def test_candidate_model_declares_the_migration_ranking_index() -> None:
+    assert "ix_clue_allocation_candidates_composite_score" in {
+        index.name for index in ClueAllocationCandidate.__table__.indexes
+    }
 
 
 def _store(store_id: str, *, candidate: bool = True) -> DimStore:
@@ -136,7 +144,7 @@ def test_trial_preview_does_not_persist_bindings_decisions_rounds_or_pool_entrie
     assert refreshed.allocation_state == "pending_allocation"
 
 
-def test_trial_cycle_creates_a_batch_and_disables_time_expiry(db_session: Session) -> None:
+def test_trial_cycle_persists_evidence_without_mutating_business_state(db_session: Session) -> None:
     lead = _seed_trial_candidates(db_session)
 
     result = run_trial_allocation_cycle(
@@ -153,15 +161,74 @@ def test_trial_cycle_creates_a_batch_and_disables_time_expiry(db_session: Sessio
     assert cycle.execution_mode == "trial"
     assert cycle.status == "completed"
     assert master is not None
-    round_row = db_session.get(ClueAssignmentRound, master.current_assignment_round_id)
-    assert round_row is not None
-    assert round_row.execution_mode == "trial"
-    assert round_row.allocation_cycle_id == cycle.allocation_cycle_id
-    assert round_row.auto_expiry_enabled is False
+    assert master.current_assignment_round_id is None
+    assert master.allocation_state == "pending_allocation"
+    assert master.pool_location is None
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
+    decisions = list(
+        db_session.scalars(
+            select(ClueAllocationDecision)
+            .where(ClueAllocationDecision.allocation_cycle_id == cycle.allocation_cycle_id)
+        )
+    )
+    assert decisions
+    assert all(decision.execution_mode == "trial" for decision in decisions)
+    assert all(decision.assignment_round_id is None for decision in decisions)
+    assert all((decision.decision_snapshot or {}).get("dataset_kind") == "trial" for decision in decisions)
+    item = db_session.scalar(
+        select(ClueAllocationCycleItem).where(
+            ClueAllocationCycleItem.allocation_cycle_id == cycle.allocation_cycle_id
+        )
+    )
+    assert item is not None
+    assert item.lead_key == lead.lead_key
+    assert item.initial_pool_location == "pending_allocation"
+    assert item.item_status == "assigned"
+    assert item.decision_id in {decision.decision_id for decision in decisions}
+    candidates = list(
+        db_session.scalars(
+            select(ClueAllocationCandidate).where(
+                ClueAllocationCandidate.decision_id.in_(
+                    [decision.decision_id for decision in decisions]
+                )
+            )
+        )
+    )
+    assert candidates
+    assert any(candidate.is_selected for candidate in candidates)
     assert db_session.scalar(select(func.count()).select_from(ClueAllocationAuditLog)) == 1
 
 
-def test_rebuild_supersedes_old_trial_round_and_preserves_its_history(db_session: Session) -> None:
+def test_failed_trial_cycle_records_a_failed_audit_result(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lead = _seed_trial_candidates(db_session)
+
+    def fail_trial_evidence(*args, **kwargs):
+        raise RuntimeError("simulated trial failure")
+
+    monkeypatch.setattr(
+        clue_allocation_cycles,
+        "_persist_trial_evidence",
+        fail_trial_evidence,
+    )
+
+    result = run_trial_allocation_cycle(
+        db_session,
+        lead_keys=[lead.lead_key],
+        actor="test-admin",
+        now=_dt(2),
+    )
+
+    assert result["cycle_status"] == "failed"
+    audit = db_session.scalar(select(ClueAllocationAuditLog))
+    assert audit is not None
+    assert audit.result_status == "failed"
+    assert audit.reason_code == "cycle_items_failed"
+
+
+def test_rebuild_creates_new_immutable_trial_evidence_without_rounds(db_session: Session) -> None:
     lead = _seed_trial_candidates(db_session)
     first = run_trial_allocation_cycle(
         db_session,
@@ -169,10 +236,12 @@ def test_rebuild_supersedes_old_trial_round_and_preserves_its_history(db_session
         actor="test-admin",
         now=_dt(2),
     )
-    master = db_session.get(ClueMasterLead, lead.lead_key)
-    assert master is not None
-    old_round = db_session.get(ClueAssignmentRound, master.current_assignment_round_id)
-    assert old_round is not None
+    source_decision_ids = set(
+        db_session.scalars(
+            select(ClueAllocationDecision.decision_id)
+            .where(ClueAllocationDecision.allocation_cycle_id == first["allocation_cycle_id"])
+        )
+    )
 
     rebuilt = rebuild_trial_allocation_cycle(
         db_session,
@@ -181,20 +250,24 @@ def test_rebuild_supersedes_old_trial_round_and_preserves_its_history(db_session
         now=_dt(3),
     )
 
+    rebuilt_cycle = db_session.get(ClueAllocationCycle, rebuilt["allocation_cycle_id"])
+    rebuilt_decision_ids = set(
+        db_session.scalars(
+            select(ClueAllocationDecision.decision_id)
+            .where(ClueAllocationDecision.allocation_cycle_id == rebuilt["allocation_cycle_id"])
+        )
+    )
     current = db_session.get(ClueMasterLead, lead.lead_key)
+    assert rebuilt_cycle is not None
+    assert rebuilt_cycle.cycle_type == "trial_rebuild"
+    assert rebuilt_cycle.parent_cycle_id == first["allocation_cycle_id"]
+    assert source_decision_ids
+    assert rebuilt_decision_ids
+    assert source_decision_ids.isdisjoint(rebuilt_decision_ids)
     assert current is not None
-    new_round = db_session.get(ClueAssignmentRound, current.current_assignment_round_id)
-    assert old_round.round_status == "superseded"
-    assert old_round.terminal_reason == "trial_rebuilt"
-    assert new_round is not None
-    assert new_round.assignment_round_id != old_round.assignment_round_id
-    assert new_round.allocation_cycle_id == rebuilt["allocation_cycle_id"]
-    assert new_round.assigned_store_id == "store-b"
-    assert db_session.scalar(
-        select(func.count())
-        .select_from(ClueFollowUpRecord)
-        .where(ClueFollowUpRecord.assignment_round_id == old_round.assignment_round_id)
-    ) == 0
+    assert current.current_assignment_round_id is None
+    assert current.allocation_state == "pending_allocation"
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
     assert first["allocation_cycle_id"] != rebuilt["allocation_cycle_id"]
 
 
@@ -229,48 +302,6 @@ def test_rebuild_links_to_the_latest_cycle_for_the_selected_lead_only(
     cycle = db_session.get(ClueAllocationCycle, rebuilt["allocation_cycle_id"])
     assert cycle is not None
     assert cycle.parent_cycle_id == first_a["allocation_cycle_id"]
-
-
-def test_rebuild_blocks_real_follow_up_without_privileged_confirmation(db_session: Session) -> None:
-    lead = _seed_trial_candidates(db_session)
-    first = run_trial_allocation_cycle(
-        db_session,
-        lead_keys=[lead.lead_key],
-        actor="test-admin",
-        now=_dt(2),
-    )
-    master = db_session.get(ClueMasterLead, lead.lead_key)
-    assert master is not None
-    round_row = db_session.get(ClueAssignmentRound, master.current_assignment_round_id)
-    assert round_row is not None
-    action = apply_follow_up_action(
-        db_session,
-        order_id=round_row.order_id,
-        assignment_round_id=round_row.assignment_round_id,
-        follow_result="appointment",
-        actor={"role": "admin", "username": "test-admin", "is_highest_admin": True},
-        now=_dt(3),
-    )
-    assert action.status == "ok"
-    db_session.commit()
-
-    with pytest.raises(AllocationCycleError, match="rebuild_blocked_by_follow_up"):
-        rebuild_trial_allocation_cycle(
-            db_session,
-            source_cycle_id=first["allocation_cycle_id"],
-            actor="test-admin",
-            now=_dt(4),
-        )
-
-    rebuilt = rebuild_trial_allocation_cycle(
-        db_session,
-        source_cycle_id=first["allocation_cycle_id"],
-        actor="test-admin",
-        privileged_confirmation=True,
-        now=_dt(4),
-    )
-    assert rebuilt["privileged_confirmation"] is True
-    assert db_session.scalar(select(func.count()).select_from(ClueFollowUpRecord)) == 1
 
 
 def test_rebuild_blocks_formal_follow_up_without_privileged_confirmation(db_session: Session) -> None:
@@ -327,7 +358,7 @@ def test_rebuild_blocks_formal_follow_up_without_privileged_confirmation(db_sess
         )
 
 
-def test_trial_headquarters_result_keeps_master_and_pool_entry_on_the_same_cycle(
+def test_trial_headquarters_result_does_not_move_master_or_create_pool_entry(
     db_session: Session,
 ) -> None:
     lead = _seed_trial_candidates(db_session)
@@ -354,9 +385,11 @@ def test_trial_headquarters_result_keeps_master_and_pool_entry_on_the_same_cycle
     )
     assert result["summary"]["headquarters"] == 1
     assert master is not None
-    assert master.allocation_cycle_id == result["allocation_cycle_id"]
-    assert entry is not None
-    assert entry.allocation_cycle_id == result["allocation_cycle_id"]
+    assert master.allocation_cycle_id is None
+    assert master.pool_location is None
+    assert master.allocation_state == "pending_allocation"
+    assert entry is None
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
 
 
 def test_trial_rejects_headquarters_pool_reentry(db_session: Session) -> None:

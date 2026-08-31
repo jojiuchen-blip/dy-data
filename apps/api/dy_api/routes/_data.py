@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import csv
 import io
@@ -44,10 +44,17 @@ except ImportError:  # pragma: no cover - covered only in stripped runtime image
     build_douyin_client_from_env = None  # type: ignore[assignment]
 
 from apps.worker.clue_follow_up_state import (
-    SELF_OWNED_EXECUTION_MODES,
     apply_follow_up_action,
     can_reveal_current_order_phone,
     soft_delete_follow_up_record,
+)
+from apps.worker.projection_lineage import (
+    MAX_LINEAGE_DEPTH,
+    MAX_PARTITION_KEYS,
+    LineageError,
+    PartitionResolution,
+    active_generation_id,
+    resolve_projection_partitions,
 )
 
 
@@ -58,6 +65,7 @@ FILE_PATH_RE = re.compile(
     r"(?:(?:[A-Za-z]:\\|/)(?:Users|home|root|var|tmp|opt|data|mnt)[^\s,;]*)"
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
+BUSINESS_CLUE_EXECUTION_MODE = "formal"
 _SESSION_FACTORY: Any | None = None
 FOLLOW_UP_RESULTS = {
     "appointment",
@@ -498,6 +506,8 @@ def _remaining_reassign_seconds(expires_at: Any) -> int | None:
 class DashboardDataStore:
     def __init__(self, session: Any | None):
         self.session = session
+        self._aggregate_generation_unset = object()
+        self._aggregate_generation: str | None | object = self._aggregate_generation_unset
 
     @property
     def available(self) -> bool:
@@ -527,6 +537,645 @@ class DashboardDataStore:
             if _truthy(os.getenv("DY_API_ALLOW_EMPTY_ON_DB_ERROR")):
                 return []
             raise
+
+
+    def _execute_lineage(
+        self, sql: str, params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        """Execute a pinned aggregate query without the legacy empty-on-error escape."""
+
+        if not self.available:
+            return []
+        try:
+            result = self.session.execute(text(sql), params or {})
+            return _as_dicts(result.mappings().all())
+        except LineageError:
+            raise
+        except Exception as exc:
+            raise LineageError("pinned projection read failed") from exc
+
+    def _pinned_aggregate_generation(self) -> str | None:
+        """Capture active generation once per request-scoped data store."""
+
+        if self._aggregate_generation is self._aggregate_generation_unset:
+            if not self.available:
+                self._aggregate_generation = None
+            else:
+                self._aggregate_generation = active_generation_id(self.session)
+        value = self._aggregate_generation
+        return None if value is self._aggregate_generation_unset else value  # type: ignore[return-value]
+
+    def _resolve_aggregate_partitions(
+        self, artifact: str, partition_keys: Iterable[str]
+    ) -> dict[str, PartitionResolution]:
+        pinned = self._pinned_aggregate_generation()
+        return resolve_projection_partitions(
+            self.session,
+            artifact=artifact,
+            partition_keys=partition_keys,
+            pinned_generation_id=pinned,
+        )
+
+    def _ranking_partition_key(self, period_type: int, period_key: str) -> str:
+        prefix = "monthly" if period_type == PERIOD_TYPE_TO_DB["MONTHLY"] else "cumulative"
+        return f"{prefix}:{period_key}"
+
+    def _ranking_source_spec(
+        self,
+        *,
+        period_type: int,
+        period_key: str,
+        resolutions: dict[str, PartitionResolution] | None = None,
+    ) -> tuple[str | None, str, dict[str, Any]]:
+        """Return a bounded SQL source relation for one ranking partition."""
+
+        partition_key = self._ranking_partition_key(period_type, period_key)
+        resolution = (
+            resolutions or self._resolve_aggregate_partitions("ranking", [partition_key])
+        )[partition_key]
+        if resolution.source_kind == "tombstone":
+            return None, "1 = 0", {}
+        if resolution.source_kind == "overlay":
+            if not resolution.actual_data_generation_id:
+                raise LineageError("overlay ranking partition has no data generation")
+            return (
+                "settlement_ranking_overlay AS source",
+                "source.generation_id = :source_generation_id "
+                "AND source.partition_key = :source_partition_key "
+                "AND (source.tombstone = FALSE OR source.tombstone IS NULL)",
+                {
+                    "source_generation_id": resolution.actual_data_generation_id,
+                    "source_partition_key": partition_key,
+                },
+            )
+        return (
+            "agg_store_ranking AS source",
+            "source.period_type = :source_period_type "
+            "AND source.period_key = :source_period_key",
+            {
+                "source_period_type": period_type,
+                "source_period_key": period_key,
+            },
+        )
+
+    def _monthly_source_spec(
+        self,
+        *,
+        month: str,
+        resolutions: dict[str, PartitionResolution] | None = None,
+    ) -> tuple[str | None, str, dict[str, Any]]:
+        """Return a bounded SQL source relation for one monthly partition."""
+
+        resolution = (resolutions or self._resolve_aggregate_partitions("monthly", [month]))[
+            month
+        ]
+        if resolution.source_kind == "tombstone":
+            return None, "1 = 0", {}
+        if resolution.source_kind == "overlay":
+            if not resolution.actual_data_generation_id:
+                raise LineageError("overlay monthly partition has no data generation")
+            return (
+                "settlement_monthly_overlay AS source",
+                "source.generation_id = :source_generation_id "
+                "AND source.partition_key = :source_partition_key "
+                "AND (source.tombstone = FALSE OR source.tombstone IS NULL)",
+                {
+                    "source_generation_id": resolution.actual_data_generation_id,
+                    "source_partition_key": month,
+                },
+            )
+        return (
+            "agg_store_monthly_settlement AS source",
+            "source.month = :source_month",
+            {"source_month": month},
+        )
+
+    def _ranking_source_rows(
+        self,
+        *,
+        period_type: int,
+        period_key: str,
+        resolutions: dict[str, PartitionResolution] | None = None,
+    ) -> list[dict[str, Any]]:
+        source_table, source_where, source_params = self._ranking_source_spec(
+            period_type=period_type,
+            period_key=period_key,
+            resolutions=resolutions,
+        )
+        if source_table is None:
+            return []
+        # This compatibility helper is intentionally page bounded.  Aggregate
+        # readers use SQL grouping/limit directly and never call it for a whole
+        # partition, while direct callers cannot materialize an unbounded slice.
+        return self._execute_lineage(
+            f"""
+            SELECT source.store_id, source.store_name, source.product_scope,
+                   source.product_type, source.sales_order_count,
+                   source.sales_amount_cent, source.verified_order_count,
+                   source.verified_amount_cent, source.promotion_net_fee_cent,
+                   source.management_net_fee_cent, source.net_settlement_reference_cent,
+                   source.self_sold_self_verified_count,
+                   source.self_sold_other_verified_count,
+                   source.other_sold_self_verified_count,
+                   source.self_verify_income_cent,
+                   source.effective_commission_income_cent
+            FROM {source_table}
+            WHERE {source_where}
+            ORDER BY source.store_id, source.product_scope, source.product_type
+            LIMIT :source_page_limit
+            """,
+            {**source_params, "source_page_limit": 500},
+        )
+
+    def _monthly_source_rows(
+        self,
+        *,
+        month: str,
+        resolutions: dict[str, PartitionResolution] | None = None,
+    ) -> list[dict[str, Any]]:
+        source_table, source_where, source_params = self._monthly_source_spec(
+            month=month,
+            resolutions=resolutions,
+        )
+        if source_table is None:
+            return []
+        return self._execute_lineage(
+            f"""
+            SELECT source.store_id, source.product_scope, source.product_type,
+                   source.sales_order_count, source.sales_amount_cent,
+                   source.verified_order_count, source.verified_amount_cent,
+                   source.promotion_base_cent, source.promotion_original_fee_cent,
+                   source.promotion_adjustment_fee_cent, source.promotion_net_fee_cent,
+                   source.management_base_cent, source.management_original_fee_cent,
+                   source.management_adjustment_fee_cent, source.management_net_fee_cent,
+                   source.statement_status,
+                   source.estimated_receivable_commission_cent,
+                   source.commissionable_total_cent,
+                   source.estimated_payable_commission_cent
+            FROM {source_table}
+            WHERE {source_where}
+            ORDER BY source.store_id, source.product_scope, source.product_type
+            LIMIT :source_page_limit
+            """,
+            {**source_params, "source_page_limit": 500},
+        )
+
+    def _aggregate_row_matches_product(
+        self,
+        row: dict[str, Any],
+        *,
+        product_scope: str,
+        product_type: str,
+    ) -> bool:
+        if _to_str(row.get("product_scope"), "all") != product_scope:
+            return False
+        row_type = _to_str(row.get("product_type"), "all")
+        if product_type != "all":
+            return row_type == product_type
+        visible_product_types = self._visible_product_types()
+        if visible_product_types is None:
+            return row_type == "all"
+        return row_type in set(visible_product_types)
+
+    def _store_ranking_report_pinned(self, filters: dict[str, Any]) -> dict[str, Any]:
+        period_type = _to_str(filters.get("period_type"), "MONTHLY")
+        period_key = _to_str(filters.get("period_key"))
+        page = _to_int(filters.get("page"), 1)
+        page_size = _to_int(filters.get("page_size"), 20)
+        product_scope = _normalize_product_scope_value(filters.get("product_scope"))
+        product_type = _normalize_product_type_value(filters.get("product_type"))
+        empty_totals = {
+            "sales_order_count": 0,
+            "sales_amount_cent": 0,
+            "verified_order_count": 0,
+            "verified_amount_cent": 0,
+            "promotion_net_fee_cent": 0,
+            "management_net_fee_cent": 0,
+            "net_settlement_reference_cent": 0,
+        }
+        if period_type == "CUMULATIVE" and period_key < "2026-08":
+            return {
+                "period_type": period_type,
+                "period_key": period_key,
+                "product_scope": product_scope,
+                "product_type": product_type,
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+                "totals": empty_totals,
+                "list": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+            }
+        period_type_db = PERIOD_TYPE_TO_DB[period_type]
+        source_table, source_where, source_params = self._ranking_source_spec(
+            period_type=period_type_db, period_key=period_key
+        )
+        metrics = tuple(empty_totals)
+        if source_table is None:
+            return {
+                "period_type": period_type,
+                "period_key": period_key,
+                "product_scope": product_scope,
+                "product_type": product_type,
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+                "totals": empty_totals,
+                "list": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+            }
+        params = dict(source_params)
+        clauses = [
+            source_where,
+            self._reporting_projection_product_condition(
+                params,
+                product_scope=product_scope,
+                product_type=product_type,
+                prefix="ranking_product",
+            ),
+        ]
+        keyword = _to_str(filters.get("q")).strip()
+        if keyword:
+            params["ranking_keyword"] = f"%{keyword.lower()}%"
+            clauses.append("LOWER(source.store_name) LIKE :ranking_keyword")
+        if filters.get("scope_mode") == "AUTHORIZED" and filters.get("scope_store_ids") is not None:
+            placeholders, scope_params = _in_clause_params(
+                "ranking_scope", filters.get("scope_store_ids") or []
+            )
+            if not placeholders:
+                clauses.append("1 = 0")
+            else:
+                params.update(scope_params)
+                clauses.append(f"source.store_id IN ({placeholders})")
+        where_sql = " AND ".join(clauses)
+        aggregate_rows = self._execute_lineage(
+            f"""
+            SELECT COUNT(DISTINCT source.store_id) AS total,
+                   COALESCE(SUM(source.sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(source.sales_amount_cent), 0) AS sales_amount_cent,
+                   COALESCE(SUM(source.verified_order_count), 0) AS verified_order_count,
+                   COALESCE(SUM(source.verified_amount_cent), 0) AS verified_amount_cent,
+                   COALESCE(SUM(source.promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                   COALESCE(SUM(source.management_net_fee_cent), 0) AS management_net_fee_cent,
+                   COALESCE(SUM(source.net_settlement_reference_cent), 0)
+                       AS net_settlement_reference_cent
+            FROM {source_table}
+            WHERE {where_sql}
+            """,
+            params,
+        )
+        aggregate_row = aggregate_rows[0] if aggregate_rows else {}
+        totals = {key: _to_int(aggregate_row.get(key)) for key in metrics}
+        total = _to_int(aggregate_row.get("total"))
+        sort_column = {
+            "SALES_AMOUNT": "sales_amount_cent",
+            "VERIFIED_AMOUNT": "verified_amount_cent",
+            "PROMOTION_FEE": "promotion_net_fee_cent",
+            "MANAGEMENT_FEE": "management_net_fee_cent",
+            "NET_SETTLEMENT_REFERENCE": "net_settlement_reference_cent",
+        }[_to_str(filters.get("sort_by"), "NET_SETTLEMENT_REFERENCE")]
+        offset = (page - 1) * page_size
+        sort_order = (
+            "ASC" if _to_str(filters.get("sort_order"), "DESC") == "ASC" else "DESC"
+        )
+        page_rows = self._execute_lineage(
+            f"""
+            SELECT source.store_id,
+                   COALESCE(MAX(NULLIF(source.store_name, '')), source.store_id) AS store_name,
+                   COALESCE(SUM(source.sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(source.sales_amount_cent), 0) AS sales_amount_cent,
+                   COALESCE(SUM(source.verified_order_count), 0) AS verified_order_count,
+                   COALESCE(SUM(source.verified_amount_cent), 0) AS verified_amount_cent,
+                   COALESCE(SUM(source.promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                   COALESCE(SUM(source.management_net_fee_cent), 0) AS management_net_fee_cent,
+                   COALESCE(SUM(source.net_settlement_reference_cent), 0)
+                       AS net_settlement_reference_cent
+            FROM {source_table}
+            WHERE {where_sql}
+            GROUP BY source.store_id
+            ORDER BY {sort_column} {sort_order}, source.store_id ASC
+            LIMIT :ranking_page_limit OFFSET :ranking_page_offset
+            """,
+            {
+                **params,
+                "ranking_page_limit": page_size,
+                "ranking_page_offset": offset,
+            },
+        )
+        return {
+            "period_type": period_type,
+            "period_key": period_key,
+            "product_scope": product_scope,
+            "product_type": product_type,
+            "formal_period_start_month": "2026-08",
+            "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+            "totals": totals,
+            "list": [
+                {
+                    "rank": offset + index + 1,
+                    "store_id": _to_str(row.get("store_id")),
+                    "store_name": _to_str(row.get("store_name")),
+                    **{key: _to_int(row.get(key)) for key in metrics},
+                }
+                for index, row in enumerate(page_rows)
+            ],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def _monthly_settlement_report_pinned(self, filters: dict[str, Any]) -> dict[str, Any]:
+        store_id = _to_str(filters.get("store_id"))
+        month = _to_str(filters.get("month"))
+        product_scope = _normalize_product_scope_value(filters.get("product_scope"))
+        product_type = _normalize_product_type_value(filters.get("product_type"))
+        source_table, source_where, source_params = self._monthly_source_spec(month=month)
+        metric_fields = (
+            "sales_order_count",
+            "sales_amount_cent",
+            "verified_order_count",
+            "verified_amount_cent",
+            "promotion_base_cent",
+            "promotion_original_fee_cent",
+            "promotion_adjustment_fee_cent",
+            "promotion_net_fee_cent",
+            "management_base_cent",
+            "management_original_fee_cent",
+            "management_adjustment_fee_cent",
+            "management_net_fee_cent",
+        )
+        if source_table is None:
+            metrics = {key: 0 for key in metric_fields}
+        else:
+            params = {
+                **source_params,
+                "monthly_store_id": store_id,
+            }
+            product_sql = self._reporting_projection_product_condition(
+                params,
+                product_scope=product_scope,
+                product_type=product_type,
+                prefix="monthly_source_product",
+            )
+            rows = self._execute_lineage(
+                f"""
+                SELECT COALESCE(SUM(source.sales_order_count), 0) AS sales_order_count,
+                       COALESCE(SUM(source.sales_amount_cent), 0) AS sales_amount_cent,
+                       COALESCE(SUM(source.verified_order_count), 0) AS verified_order_count,
+                       COALESCE(SUM(source.verified_amount_cent), 0) AS verified_amount_cent,
+                       COALESCE(SUM(source.promotion_base_cent), 0) AS promotion_base_cent,
+                       COALESCE(SUM(source.promotion_original_fee_cent), 0)
+                           AS promotion_original_fee_cent,
+                       COALESCE(SUM(source.promotion_adjustment_fee_cent), 0)
+                           AS promotion_adjustment_fee_cent,
+                       COALESCE(SUM(source.promotion_net_fee_cent), 0) AS promotion_net_fee_cent,
+                       COALESCE(SUM(source.management_base_cent), 0) AS management_base_cent,
+                       COALESCE(SUM(source.management_original_fee_cent), 0)
+                           AS management_original_fee_cent,
+                       COALESCE(SUM(source.management_adjustment_fee_cent), 0)
+                           AS management_adjustment_fee_cent,
+                       COALESCE(SUM(source.management_net_fee_cent), 0) AS management_net_fee_cent,
+                       MAX(source.statement_status) AS statement_status
+                FROM {source_table}
+                WHERE {source_where}
+                  AND source.store_id = :monthly_store_id
+                  AND {product_sql}
+                """,
+                params,
+            )
+            summary = rows[0] if rows else {}
+            metrics = {key: _to_int(summary.get(key)) for key in metric_fields}
+        metrics["net_settlement_reference_cent"] = (
+            metrics["promotion_net_fee_cent"] - metrics["management_net_fee_cent"]
+        )
+        statement_rows = self._execute_lineage(
+            """
+            SELECT statement_id, statement_status, confirmed_at, locked_at, lock_version
+            FROM settlement_statement
+            WHERE store_id = :store_id AND statement_month = :month
+            LIMIT 1
+            """,
+            {"store_id": store_id, "month": month},
+        )
+        statement_row = statement_rows[0] if statement_rows else None
+        statement = None
+        if statement_row is not None:
+            statement = {
+                "statement_id": _to_str(statement_row.get("statement_id")),
+                "statement_status": STATEMENT_STATUS_FROM_DB.get(
+                    _to_int(statement_row.get("statement_status")), "GENERATING"
+                ),
+                "confirmed_at": statement_row.get("confirmed_at"),
+                "locked_at": statement_row.get("locked_at"),
+                "lock_version": statement_row.get("lock_version"),
+            }
+        lines = self._statement_report_lines(
+            statement_id=(
+                statement["statement_id"]
+                if statement and statement["statement_status"] == "LOCKED"
+                else None
+            ),
+            store_id=store_id,
+            month=month,
+            product_scope=product_scope,
+            product_type=product_type,
+        )
+        if statement and statement["statement_status"] == "LOCKED":
+            promotion_lines = [line for line in lines if line["fee_direction"] == "PROMOTION"]
+            management_lines = [line for line in lines if line["fee_direction"] == "MANAGEMENT"]
+            metrics.update(
+                {
+                    "promotion_base_cent": sum(line["net_base_cent"] for line in promotion_lines),
+                    "promotion_original_fee_cent": sum(line["original_fee_cent"] for line in promotion_lines),
+                    "promotion_adjustment_fee_cent": sum(line["adjustment_fee_cent"] for line in promotion_lines),
+                    "promotion_net_fee_cent": sum(line["net_fee_cent"] for line in promotion_lines),
+                    "management_base_cent": sum(line["net_base_cent"] for line in management_lines),
+                    "management_original_fee_cent": sum(line["original_fee_cent"] for line in management_lines),
+                    "management_adjustment_fee_cent": sum(line["adjustment_fee_cent"] for line in management_lines),
+                    "management_net_fee_cent": sum(line["net_fee_cent"] for line in management_lines),
+                }
+            )
+            metrics["net_settlement_reference_cent"] = (
+                metrics["promotion_net_fee_cent"] - metrics["management_net_fee_cent"]
+            )
+        return {
+            "store": self.get_store(store_id),
+            "month": month,
+            "product_scope": product_scope,
+            "product_type": product_type,
+            "is_formal_period": month >= "2026-08",
+            "statement": statement,
+            "metrics": metrics,
+            "lines": lines,
+        }
+
+    def _store_ranking_pinned(
+        self,
+        *,
+        month: str,
+        product_type: str,
+        limit: int,
+        product_scope: str,
+    ) -> list[dict[str, Any]]:
+        requested_product_type = _normalize_product_type_value(product_type)
+        requested_product_scope = _normalize_product_scope_value(product_scope)
+        source_table, source_where, source_params = self._ranking_source_spec(
+            period_type=1, period_key=month
+        )
+        if source_table is None:
+            return []
+        params = dict(source_params)
+        product_sql = self._reporting_projection_product_condition(
+            params,
+            product_scope=requested_product_scope,
+            product_type=requested_product_type,
+            prefix="ranking_product",
+        )
+        where_sql = f"{source_where} AND {product_sql}"
+        ranked = self._execute_lineage(
+            f"""
+            SELECT source.store_id,
+                   COALESCE(MAX(NULLIF(source.store_name, '')), source.store_id) AS store_name,
+                   COALESCE(SUM(source.sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(source.self_sold_self_verified_count), 0)
+                       AS self_sold_self_verified_count,
+                   COALESCE(SUM(source.self_sold_other_verified_count), 0)
+                       AS self_sold_other_verified_count,
+                   COALESCE(SUM(source.other_sold_self_verified_count), 0)
+                       AS other_sold_self_verified_count,
+                   COALESCE(SUM(source.self_verify_income_cent), 0) AS self_verify_income_cent,
+                   COALESCE(SUM(source.effective_commission_income_cent), 0)
+                       AS effective_commission_income_cent
+            FROM {source_table}
+            WHERE {where_sql}
+            GROUP BY source.store_id
+            ORDER BY sales_order_count DESC,
+                     effective_commission_income_cent DESC,
+                     source.store_id ASC
+            LIMIT :ranking_result_limit
+            """,
+            {**params, "ranking_result_limit": limit},
+        )
+        return [self._clean_ranking_row(index + 1, row) for index, row in enumerate(ranked)]
+
+    def _store_ranking_totals_pinned(
+        self,
+        *,
+        month: str,
+        product_type: str,
+        product_scope: str,
+    ) -> dict[str, Any]:
+        requested_product_type = _normalize_product_type_value(product_type)
+        requested_product_scope = _normalize_product_scope_value(product_scope)
+        source_table, source_where, source_params = self._ranking_source_spec(
+            period_type=1, period_key=month
+        )
+        if source_table is None:
+            return {
+                "sales_order_count": 0,
+                "self_verify_income_cent": 0,
+                "effective_commission_income_cent": 0,
+            }
+        params = dict(source_params)
+        product_sql = self._reporting_projection_product_condition(
+            params,
+            product_scope=requested_product_scope,
+            product_type=requested_product_type,
+            prefix="ranking_total_product",
+        )
+        rows = self._execute_lineage(
+            f"""
+            SELECT COALESCE(SUM(source.sales_order_count), 0) AS sales_order_count,
+                   COALESCE(SUM(source.self_verify_income_cent), 0)
+                       AS self_verify_income_cent,
+                   COALESCE(SUM(source.effective_commission_income_cent), 0)
+                       AS effective_commission_income_cent
+            FROM {source_table}
+            WHERE {source_where} AND {product_sql}
+            """,
+            params,
+        )
+        row = rows[0] if rows else {}
+        return {
+            "sales_order_count": _to_int(row.get("sales_order_count")),
+            "self_verify_income_cent": _to_int(row.get("self_verify_income_cent")),
+            "effective_commission_income_cent": _to_int(
+                row.get("effective_commission_income_cent")
+            ),
+        }
+
+    def _monthly_settlement_pinned(
+        self,
+        *,
+        store_id: str,
+        month: str,
+        product_type: str,
+        product_scope: str,
+    ) -> dict[str, Any]:
+        requested_product_type = _normalize_product_type_value(product_type)
+        requested_product_scope = _normalize_product_scope_value(product_scope)
+        source_table, source_where, source_params = self._monthly_source_spec(month=month)
+        if source_table is None:
+            metrics = {
+                "estimated_receivable_commission_cent": 0,
+                "commissionable_total_cent": 0,
+                "estimated_payable_commission_cent": 0,
+            }
+        else:
+            params = {**source_params, "settlement_store_id": store_id}
+            product_sql = self._reporting_projection_product_condition(
+                params,
+                product_scope=requested_product_scope,
+                product_type=requested_product_type,
+                prefix="monthly_settlement_product",
+            )
+            rows = self._execute_lineage(
+                f"""
+                SELECT COALESCE(SUM(source.estimated_receivable_commission_cent), 0)
+                           AS estimated_receivable_commission_cent,
+                       COALESCE(SUM(source.commissionable_total_cent), 0)
+                           AS commissionable_total_cent,
+                       COALESCE(SUM(source.estimated_payable_commission_cent), 0)
+                           AS estimated_payable_commission_cent
+                FROM {source_table}
+                WHERE {source_where}
+                  AND source.store_id = :settlement_store_id
+                  AND {product_sql}
+                """,
+                params,
+            )
+            row = rows[0] if rows else {}
+            metrics = {
+                "estimated_receivable_commission_cent": _to_int(
+                    row.get("estimated_receivable_commission_cent")
+                ),
+                "commissionable_total_cent": _to_int(row.get("commissionable_total_cent")),
+                "estimated_payable_commission_cent": _to_int(
+                    row.get("estimated_payable_commission_cent")
+                ),
+            }
+        return {
+            "store": self.get_store(store_id),
+            "month": month,
+            "product_scope": requested_product_scope,
+            "product_type": requested_product_type,
+            "metrics": metrics,
+            "tables": {
+                "receivable_commissions": self._receivable_rows(
+                    store_id, month, requested_product_type, requested_product_scope
+                ),
+                "payable_commissions": self._payable_rows(
+                    store_id, month, requested_product_type, requested_product_scope
+                ),
+                "non_commission_orders": self._non_commission_rows(
+                    store_id, month, requested_product_type, requested_product_scope
+                ),
+            },
+        }
+
+
 
     def list_stores(self, scope_store_ids: tuple[str, ...] | None = None) -> list[dict[str, Any]]:
         params: dict[str, Any] = {}
@@ -858,45 +1507,134 @@ class DashboardDataStore:
         return self.product_type_visibility()
 
     def list_sale_months(self) -> list[str]:
+        pinned_generation = self._pinned_aggregate_generation()
         months: set[str] = set()
+        raw_month_reader = (
+            self._execute_lineage if pinned_generation is not None else self._execute
+        )
         for table, column in (
             ("settlement_order_details", "sale_time"),
             ("raw_douyin_orders", "sale_time"),
         ):
             expr = self._month_expr(column)
-            rows = self._execute(
+            raw_month_bound = (
+                " ORDER BY month DESC LIMIT :raw_month_limit"
+                if pinned_generation is not None
+                else ""
+            )
+            raw_month_params = (
+                {"raw_month_limit": MAX_PARTITION_KEYS}
+                if pinned_generation is not None
+                else {}
+            )
+            rows = raw_month_reader(
                 f"""
                 SELECT DISTINCT {expr} AS month
                 FROM {table}
                 WHERE {column} IS NOT NULL
-                """
+                {raw_month_bound}
+                """,
+                raw_month_params,
             )
             months.update(
                 _to_str(row.get("month")) for row in rows if row.get("month")
             )
-        months.update(
-            _to_str(row.get("month"))
-            for row in self._execute(
-                """
-                SELECT DISTINCT period_key AS month
-                FROM agg_store_ranking
-                WHERE period_key IS NOT NULL AND period_key != ''
-                """
+        if pinned_generation is None:
+            months.update(
+                _to_str(row.get("month"))
+                for row in self._execute(
+                    """
+                    SELECT DISTINCT period_key AS month
+                    FROM agg_store_ranking
+                    WHERE period_key IS NOT NULL AND period_key != ''
+                    """
+                )
+                if row.get("month")
             )
-            if row.get("month")
-        )
+        else:
+            candidate_rows = self._execute_lineage(
+                """
+                WITH RECURSIVE projection_lineage AS (
+                    SELECT generation_id, base_generation_id, 0 AS hop
+                    FROM settlement_projection_generation
+                    WHERE generation_id = :pinned_generation_id
+                    UNION ALL
+                    SELECT generation.generation_id, generation.base_generation_id,
+                           projection_lineage.hop + 1
+                    FROM settlement_projection_generation AS generation
+                    JOIN projection_lineage
+                      ON generation.generation_id = projection_lineage.base_generation_id
+                    WHERE projection_lineage.hop < :max_lineage_depth
+                )
+                SELECT month
+                FROM (
+                    SELECT DISTINCT period_key AS month
+                    FROM agg_store_ranking
+                    WHERE period_type = 1 AND period_key IS NOT NULL AND period_key != ''
+                    UNION
+                    SELECT DISTINCT substr(overlay.partition_key, 9) AS month
+                    FROM settlement_ranking_overlay AS overlay
+                    JOIN projection_lineage
+                      ON projection_lineage.generation_id = overlay.generation_id
+                    WHERE overlay.period_type = 1
+                      AND overlay.partition_key LIKE 'monthly:%'
+                      AND (overlay.tombstone = FALSE OR overlay.tombstone IS NULL)
+                ) AS candidates
+                ORDER BY month DESC
+                LIMIT :candidate_limit
+                """
+                ,
+                {
+                    "pinned_generation_id": pinned_generation,
+                    "max_lineage_depth": MAX_LINEAGE_DEPTH,
+                    "candidate_limit": MAX_PARTITION_KEYS,
+                },
+            )
+            candidate_months = [
+                _to_str(row.get("month"))
+                for row in candidate_rows
+                if row.get("month")
+            ]
+            resolutions = self._resolve_aggregate_partitions(
+                "ranking", [f"monthly:{month}" for month in candidate_months]
+            )
+            months.update(
+                month
+                for month in candidate_months
+                if resolutions.get(f"monthly:{month}") is not None
+                and resolutions[f"monthly:{month}"].source_kind != "tombstone"
+            )
         return sorted(months, reverse=True)
 
     def list_verify_months(self) -> list[str]:
+        # Verify-month enumeration remains raw-detail based, but pin the request
+        # alongside the other aggregate readers so a later call cannot observe a
+        # different active generation.
+        pinned_generation = self._pinned_aggregate_generation()
         months: set[str] = set()
+        raw_month_reader = (
+            self._execute_lineage if pinned_generation is not None else self._execute
+        )
         for table in ("settlement_order_details", "raw_douyin_verify_records"):
             expr = self._month_expr("verify_time")
-            rows = self._execute(
+            raw_month_bound = (
+                " ORDER BY month DESC LIMIT :raw_month_limit"
+                if pinned_generation is not None
+                else ""
+            )
+            raw_month_params = (
+                {"raw_month_limit": MAX_PARTITION_KEYS}
+                if pinned_generation is not None
+                else {}
+            )
+            rows = raw_month_reader(
                 f"""
                 SELECT DISTINCT {expr} AS month
                 FROM {table}
                 WHERE verify_time IS NOT NULL
-                """
+                {raw_month_bound}
+                """,
+                raw_month_params,
             )
             months.update(
                 _to_str(row.get("month")) for row in rows if row.get("month")
@@ -904,15 +1642,69 @@ class DashboardDataStore:
         return sorted(months, reverse=True)
 
     def list_statement_months(self) -> list[str]:
-        rows = self._execute(
+        pinned_generation = self._pinned_aggregate_generation()
+        if pinned_generation is None:
+            rows = self._execute(
+                """
+                SELECT DISTINCT month
+                FROM agg_store_monthly_settlement
+                WHERE month IS NOT NULL AND month != ''
+                ORDER BY month DESC
+                """
+            )
+            return [_to_str(row.get("month")) for row in rows if row.get("month")]
+        candidate_rows = self._execute_lineage(
             """
-            SELECT DISTINCT month
-            FROM agg_store_monthly_settlement
-            WHERE month IS NOT NULL AND month != ''
+            WITH RECURSIVE projection_lineage AS (
+                SELECT generation_id, base_generation_id, 0 AS hop
+                FROM settlement_projection_generation
+                WHERE generation_id = :pinned_generation_id
+                UNION ALL
+                SELECT generation.generation_id, generation.base_generation_id,
+                       projection_lineage.hop + 1
+                FROM settlement_projection_generation AS generation
+                JOIN projection_lineage
+                  ON generation.generation_id = projection_lineage.base_generation_id
+                WHERE projection_lineage.hop < :max_lineage_depth
+            )
+            SELECT month
+            FROM (
+                SELECT DISTINCT month
+                FROM agg_store_monthly_settlement
+                WHERE month IS NOT NULL AND month != ''
+                UNION
+                SELECT DISTINCT overlay.partition_key AS month
+                FROM settlement_monthly_overlay AS overlay
+                JOIN projection_lineage
+                  ON projection_lineage.generation_id = overlay.generation_id
+                WHERE overlay.partition_key IS NOT NULL
+                  AND overlay.partition_key != ''
+                  AND (overlay.tombstone = FALSE OR overlay.tombstone IS NULL)
+            ) AS candidates
             ORDER BY month DESC
-            """
+            LIMIT :candidate_limit
+            """,
+            {
+                "pinned_generation_id": pinned_generation,
+                "max_lineage_depth": MAX_LINEAGE_DEPTH,
+                "candidate_limit": MAX_PARTITION_KEYS,
+            },
         )
-        return [_to_str(row.get("month")) for row in rows if row.get("month")]
+        candidate_months = [
+            _to_str(row.get("month"))
+            for row in candidate_rows
+            if row.get("month")
+        ]
+        resolutions = self._resolve_aggregate_partitions("monthly", candidate_months)
+        return sorted(
+            [
+                month
+                for month in candidate_months
+                if resolutions.get(month) is not None
+                and resolutions[month].source_kind != "tombstone"
+            ],
+            reverse=True,
+        )
 
     def _sku_rule_source_cte(self) -> str:
         return """
@@ -1220,7 +2012,8 @@ class DashboardDataStore:
     def store_ranking_report(self, filters: dict[str, Any]) -> dict[str, Any]:
         if _to_str(filters.get("ranking_basis")).strip():
             return self._store_finance_ranking_report(filters)
-
+        if self._pinned_aggregate_generation() is not None:
+            return self._store_ranking_report_pinned(filters)
         period_type = _to_str(filters.get("period_type"), "MONTHLY")
         period_key = _to_str(filters.get("period_key"))
         page = _to_int(filters.get("page"), 1)
@@ -1550,6 +2343,8 @@ class DashboardDataStore:
         }
 
     def monthly_settlement_report(self, filters: dict[str, Any]) -> dict[str, Any]:
+        if self._pinned_aggregate_generation() is not None:
+            return self._monthly_settlement_report_pinned(filters)
         store_id = _to_str(filters.get("store_id"))
         month = _to_str(filters.get("month"))
         product_scope = _normalize_product_scope_value(filters.get("product_scope"))
@@ -2464,6 +3259,13 @@ class DashboardDataStore:
     def store_ranking(
         self, *, month: str, product_type: str, limit: int, product_scope: str = "all"
     ) -> list[dict[str, Any]]:
+        if self._pinned_aggregate_generation() is not None:
+            return self._store_ranking_pinned(
+                month=month,
+                product_type=product_type,
+                limit=limit,
+                product_scope=product_scope,
+            )
         params: dict[str, Any] = {"month": month, "limit": limit}
         product_sql = self._product_filter_condition(
             "product_type",
@@ -2521,6 +3323,12 @@ class DashboardDataStore:
     def store_ranking_totals(
         self, *, month: str, product_type: str, product_scope: str = "all"
     ) -> dict[str, Any]:
+        if self._pinned_aggregate_generation() is not None:
+            return self._store_ranking_totals_pinned(
+                month=month,
+                product_type=product_type,
+                product_scope=product_scope,
+            )
         params: dict[str, Any] = {"month": month}
         product_sql = self._product_filter_condition(
             "product_type",
@@ -2579,6 +3387,35 @@ class DashboardDataStore:
         )
 
     def monthly_settlement_context_exists(self, store_id: str, month: str) -> bool:
+        if self._pinned_aggregate_generation() is not None:
+            source_table, source_where, source_params = self._monthly_source_spec(month=month)
+            monthly_rows = (
+                []
+                if source_table is None
+                else self._execute_lineage(
+                    f"""
+                    SELECT 1
+                    FROM {source_table}
+                    WHERE {source_where}
+                      AND source.store_id = :context_store_id
+                    LIMIT 1
+                    """,
+                    {**source_params, "context_store_id": store_id},
+                )
+            )
+            return bool(
+                monthly_rows
+            ) or bool(
+                self._execute_lineage(
+                    """
+                    SELECT 1
+                    FROM settlement_statement
+                    WHERE store_id = :store_id AND statement_month = :month
+                    LIMIT 1
+                    """,
+                    {"store_id": store_id, "month": month},
+                )
+            )
         return bool(
             self._execute(
                 """
@@ -2603,6 +3440,13 @@ class DashboardDataStore:
         product_type: str,
         product_scope: str = "all",
     ) -> dict[str, Any]:
+        if self._pinned_aggregate_generation() is not None:
+            return self._monthly_settlement_pinned(
+                store_id=store_id,
+                month=month,
+                product_type=product_type,
+                product_scope=product_scope,
+            )
         requested_product_type = _normalize_product_type_value(product_type)
         requested_product_scope = _normalize_product_scope_value(product_scope)
         summary_params: dict[str, Any] = {"store_id": store_id, "month": month}
@@ -3128,6 +3972,7 @@ class DashboardDataStore:
         )
         base_params = {**round_scope_params, **visibility_params}
         base_clauses = [
+            "r.execution_mode = 'formal'",
             "r.assigned_store_id IS NOT NULL",
             "r.assigned_store_id != ''",
         ]
@@ -3227,6 +4072,13 @@ class DashboardDataStore:
         )
         round_params = {**round_scope_params, **round_visibility_params}
         order_params = {**order_scope_params, **order_visibility_params}
+        formal_order_exists_sql = (
+            " AND EXISTS ("
+            "SELECT 1 FROM clue_assignment_rounds formal_round "
+            "WHERE formal_round.order_id = c.order_id "
+            "AND formal_round.execution_mode = 'formal'"
+            ")"
+        )
         assigned_stores = [
             {
                 "store_id": _to_str(row.get("store_id")),
@@ -3240,6 +4092,7 @@ class DashboardDataStore:
                 JOIN clue_center_orders c ON c.order_id = r.order_id
                 WHERE r.assigned_store_id IS NOT NULL
                   AND r.assigned_store_id != ''
+                  AND r.execution_mode = 'formal'
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.assigned_store_name, r.assigned_store_id
@@ -3254,6 +4107,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.assigned_city
                 FROM clue_center_orders c
                 WHERE c.assigned_city IS NOT NULL AND c.assigned_city != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.assigned_city
@@ -3268,6 +4122,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.assigned_province
                 FROM clue_center_orders c
                 WHERE c.assigned_province IS NOT NULL AND c.assigned_province != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.assigned_province
@@ -3282,6 +4137,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.product_type
                 FROM clue_center_orders c
                 WHERE c.product_type IS NOT NULL AND c.product_type != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.product_type
@@ -3296,6 +4152,7 @@ class DashboardDataStore:
                 SELECT DISTINCT c.lead_status
                 FROM clue_center_orders c
                 WHERE c.lead_status IS NOT NULL AND c.lead_status != ''
+                  {formal_order_exists_sql}
                   {order_scope_sql}
                   {order_visibility_sql}
                 ORDER BY c.lead_status
@@ -3311,6 +4168,7 @@ class DashboardDataStore:
                 FROM clue_assignment_rounds r
                 JOIN clue_center_orders c ON c.order_id = r.order_id
                 WHERE r.round_status IS NOT NULL AND r.round_status != ''
+                  AND r.execution_mode = 'formal'
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.round_status
@@ -3392,7 +4250,10 @@ class DashboardDataStore:
         if not placeholders:
             return []
 
-        clauses = [f"r.assigned_store_id IN ({placeholders})"]
+        clauses = [
+            "r.execution_mode = 'formal'",
+            f"r.assigned_store_id IN ({placeholders})",
+        ]
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
             visible_placeholders, visible_params = _in_clause_params(
@@ -3727,30 +4588,34 @@ class DashboardDataStore:
              JOIN clue_center_orders c ON c.order_id = r.order_id
              LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE r.order_id = :order_id
+              AND r.execution_mode = 'formal'
             ORDER BY r.round_no, r.assigned_at, r.assignment_round_id
             """,
             {"order_id": order_id},
         )
         record_rows = self._execute(
             """
-            SELECT follow_up_record_id,
-                   order_id,
-                   assignment_round_id,
-                   round_no,
-                   assigned_store_id,
-                   follow_result,
-                   note,
-                   operator_user_id,
-                   operator_username,
-                   created_at,
-                   deleted_at,
-                   deleted_by_user_id,
-                   deleted_by_username,
-                   deletion_reason
-            FROM clue_follow_up_records
-            WHERE order_id = :order_id
-              AND (:include_deleted = true OR deleted_at IS NULL)
-            ORDER BY created_at, follow_up_record_id
+            SELECT follow_record.follow_up_record_id,
+                   follow_record.order_id,
+                   follow_record.assignment_round_id,
+                   follow_record.round_no,
+                   follow_record.assigned_store_id,
+                   follow_record.follow_result,
+                   follow_record.note,
+                   follow_record.operator_user_id,
+                   follow_record.operator_username,
+                   follow_record.created_at,
+                   follow_record.deleted_at,
+                   follow_record.deleted_by_user_id,
+                   follow_record.deleted_by_username,
+                   follow_record.deletion_reason
+            FROM clue_follow_up_records follow_record
+            JOIN clue_assignment_rounds follow_round
+              ON follow_round.assignment_round_id = follow_record.assignment_round_id
+            WHERE follow_record.order_id = :order_id
+              AND follow_round.execution_mode = 'formal'
+              AND (:include_deleted = true OR follow_record.deleted_at IS NULL)
+            ORDER BY follow_record.created_at, follow_record.follow_up_record_id
             """,
             {
                 "order_id": order_id,
@@ -3888,6 +4753,7 @@ class DashboardDataStore:
              AND r.assignment_round_id = c.current_assignment_round_id
             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE c.order_id = :order_id
+              AND r.execution_mode = 'formal'
             LIMIT 1
             """,
             {"order_id": order_id},
@@ -3919,7 +4785,7 @@ class DashboardDataStore:
         assignment_round_id = _to_str(row.get("assignment_round_id")).strip()
         if not assignment_round_id:
             return False
-        if _to_str(row.get("execution_mode")) not in SELF_OWNED_EXECUTION_MODES:
+        if _to_str(row.get("execution_mode")) != BUSINESS_CLUE_EXECUTION_MODE:
             return False
         if assignment_round_id != _to_str(row.get("master_current_assignment_round_id")):
             return False
@@ -3960,7 +4826,7 @@ class DashboardDataStore:
         if _to_str(actor.get("role")) not in {"admin", "store"}:
             return "forbidden", None
         formal_round = self.session.get(ClueAssignmentRound, assignment_round_id) if ClueAssignmentRound is not None else None
-        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+        if formal_round is not None and formal_round.execution_mode == BUSINESS_CLUE_EXECUTION_MODE:
             result = apply_follow_up_action(
                 self.session,
                 order_id=order_id,
@@ -3971,8 +4837,7 @@ class DashboardDataStore:
                 now=generated_at(),
             )
             return result.status, _follow_up_record_payload(result.record)
-        # Legacy rounds remain visible for historical reconciliation, but cannot
-        # run the M2 state machine without an authoritative master lead.
+        # Non-formal rounds are evidence only and never enter the business workflow.
         return "conflict", None
 
     def delete_clue_follow_up_record(
@@ -3999,33 +4864,13 @@ class DashboardDataStore:
     ) -> bool:
         if _to_bool(row.get("has_headquarters_lead")):
             return False
-        if _to_str(row.get("execution_mode")) in SELF_OWNED_EXECUTION_MODES:
-            return bool(
-                self._actor_can_operate_current_round(row, actor)
-                and _to_str(row.get("assignment_round_id"))
-                == _to_str(row.get("current_assignment_round_id"))
-            )
-        if _to_str(row.get("lead_key")).strip():
+        if _to_str(row.get("execution_mode")) != BUSINESS_CLUE_EXECUTION_MODE:
             return False
         return bool(
-            self._is_current_effective_round(row)
-            and self._actor_can_legacy_current_round(row, actor)
+            self._actor_can_operate_current_round(row, actor)
+            and _to_str(row.get("assignment_round_id"))
+            == _to_str(row.get("current_assignment_round_id"))
         )
-
-    def _actor_can_legacy_current_round(
-        self,
-        row: dict[str, Any],
-        actor: dict[str, Any],
-    ) -> bool:
-        role = _to_str(actor.get("role"))
-        if role == "admin":
-            return True
-        if role != "store":
-            return False
-        assigned_store_id = _to_str(
-            row.get("current_assigned_store_id") or row.get("assigned_store_id")
-        ).strip()
-        return bool(assigned_store_id and assigned_store_id in self._actor_store_ids(actor))
 
     def clue_order_phone(
         self,
@@ -4043,7 +4888,7 @@ class DashboardDataStore:
         if not self._actor_can_reveal_round_phone(row, actor):
             return None
         formal_round = self.session.get(ClueAssignmentRound, _to_str(row.get("assignment_round_id"))) if ClueAssignmentRound is not None else None
-        if formal_round is not None and formal_round.execution_mode in SELF_OWNED_EXECUTION_MODES:
+        if formal_round is not None and formal_round.execution_mode == BUSINESS_CLUE_EXECUTION_MODE:
             if not can_reveal_current_order_phone(self.session, order_id=order_id, actor=actor):
                 return None
 
@@ -4278,6 +5123,7 @@ class DashboardDataStore:
             " AND EXISTS ("
             "SELECT 1 FROM clue_assignment_rounds scope_round "
             f"WHERE scope_round.order_id = {order_ref} "
+            "AND scope_round.execution_mode = 'formal' "
             f"AND scope_round.assigned_store_id IN ({placeholders})"
             ")"
         )
@@ -4301,6 +5147,7 @@ class DashboardDataStore:
             SELECT 1
             FROM clue_assignment_rounds
             WHERE order_id = :order_id
+              AND execution_mode = 'formal'
               AND assigned_store_id IN ({placeholders})
             LIMIT 1
             """,
@@ -4408,6 +5255,8 @@ class DashboardDataStore:
     ) -> tuple[str, dict[str, Any]]:
         clauses: list[str] = []
         params: dict[str, Any] = {}
+        if include_round:
+            clauses.append("r.execution_mode = 'formal'")
 
         exact_filters = {
             "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",

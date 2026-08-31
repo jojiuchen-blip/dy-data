@@ -31,11 +31,17 @@ import type {
   AccountRow,
   AccountUpsertPayload,
   AccessControlData,
+  AdminJobControlAction,
+  AdminOperationJob,
+  AdminOperationJobDetail,
+  AdminOperationsOverview,
+  AdminOpsCommand,
+  AdminOpsCommandListData,
   AdminUser,
   ClueAssignmentRoundData,
-  ClueCenterMaterializationResult,
   ClueAllocationAuditLogData,
   ClueAllocationCycleData,
+  ClueAllocationCycleDetailData,
   ClueAllocationCycleExecution,
   ClueAllocationCyclePreview,
   ClueAllocationCyclePreviewRequest,
@@ -185,6 +191,7 @@ interface RequestJsonOptions {
   cacheKey?: string;
   forceRefresh?: boolean;
   maxAgeMs?: number;
+  signal?: AbortSignal;
 }
 
 interface CachedGetResponse {
@@ -329,7 +336,7 @@ async function requestJson<T>(
     cachedGetResponses.delete(requestKey);
   }
 
-  const inFlight = inFlightGetRequests.get(requestKey);
+  const inFlight = options.signal ? undefined : inFlightGetRequests.get(requestKey);
   if (inFlight) {
     return inFlight as Promise<ApiResponse<T>>;
   }
@@ -338,6 +345,7 @@ async function requestJson<T>(
   const request = fetch(url, {
     credentials: "include",
     headers: { Accept: "application/json" },
+    signal: options.signal,
   })
     .then(async (response) => {
       if (!response.ok) {
@@ -368,10 +376,12 @@ async function requestJson<T>(
       inFlightGetRequests.delete(requestKey);
     }
   });
-  inFlightGetRequests.set(
-    requestKey,
-    trackedRequest as Promise<ApiResponse<unknown>>,
-  );
+  if (!options.signal) {
+    inFlightGetRequests.set(
+      requestKey,
+      trackedRequest as Promise<ApiResponse<unknown>>,
+    );
+  }
   return trackedRequest;
 }
 
@@ -1907,6 +1917,19 @@ export function createIdempotencyKey(prefix: string): string {
   return `${prefix}-${suffix}`;
 }
 
+function createStableIdempotencyKey(prefix: string, source: string): string {
+  let first = 0x811c9dc5;
+  let second = 0x9e3779b9;
+  for (let index = 0; index < source.length; index += 1) {
+    const value = source.charCodeAt(index);
+    first = Math.imul(first ^ value, 0x01000193) >>> 0;
+    second = Math.imul(second ^ value, 0x85ebca6b) >>> 0;
+  }
+  return `${prefix}-${first.toString(16).padStart(8, "0")}${second
+    .toString(16)
+    .padStart(8, "0")}`;
+}
+
 export async function fetchSkuProducts(params: {
   page?: number;
   pageSize?: number;
@@ -2280,6 +2303,87 @@ export async function fetchSyncAdmin(): Promise<ApiLoadResult<SyncAdminData>> {
   };
 }
 
+export async function fetchAdminOperationsOverview(
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOperationsOverview>> {
+  return {
+    ...(await requestJson<AdminOperationsOverview>(
+      "/admin/operations/overview",
+      undefined,
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminOperationJob(
+  jobId: string,
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOperationJobDetail>> {
+  return {
+    ...(await requestJson<AdminOperationJobDetail>(
+      `/admin/operations/jobs/${encodeURIComponent(jobId)}`,
+      undefined,
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function fetchAdminOpsCommands(
+  signal?: AbortSignal,
+): Promise<ApiLoadResult<AdminOpsCommandListData>> {
+  return {
+    ...(await requestJson<AdminOpsCommandListData>(
+      "/admin/operations/commands",
+      { limit: 12 },
+      { signal },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function submitAdminJobControl(
+  jobId: string,
+  action: AdminJobControlAction,
+  reason: string,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<AdminOperationJob & { replayed: boolean; intent: string }>> {
+  return {
+    ...(await sendJson<AdminOperationJob & { replayed: boolean; intent: string }>(
+      `/admin/operations/jobs/${encodeURIComponent(jobId)}/${action}`,
+      {
+        body: { reason },
+        headers: { "Idempotency-Key": idempotencyKey },
+        method: "POST",
+      },
+    )),
+    usingMock: false,
+  };
+}
+
+export async function submitAdminOpsCommand(
+  targetComponent: "worker" | "browser",
+  reason: string,
+  idempotencyKey: string,
+  relatedJobId?: string | null,
+): Promise<ApiLoadResult<AdminOpsCommand>> {
+  return {
+    ...(await sendJson<AdminOpsCommand>("/admin/operations/commands", {
+      body: {
+        command_type: "restart",
+        target_component: targetComponent,
+        reason,
+        confirmed: true,
+        related_job_id: relatedJobId ?? null,
+      },
+      headers: { "Idempotency-Key": idempotencyKey },
+      method: "POST",
+    })),
+    usingMock: false,
+  };
+}
+
 export async function saveSyncConfig(
   config: SyncConfigUpdate,
 ): Promise<ApiLoadResult<SyncAdminData>> {
@@ -2308,17 +2412,6 @@ export async function runManualSync({
   };
 }
 
-export async function rebuildClueCenterMaterialization(): Promise<
-  ApiLoadResult<ClueCenterMaterializationResult>
-> {
-  return {
-    ...(await sendJson<ClueCenterMaterializationResult>("/admin/sync/clue-center/rebuild", {
-      method: "POST",
-    })),
-    usingMock: false,
-  };
-}
-
 export async function fetchClueAllocationEligibleLeads(): Promise<
   ApiLoadResult<ClueAllocationEligibleLeadData>
 > {
@@ -2334,12 +2427,13 @@ export async function fetchClueAllocationEligibleLeads(): Promise<
 }
 
 export interface ClueHeadquartersPoolFilters extends QueryParams {
-  pool_status?: string;
-  reason?: string;
+  entry_status?: string;
+  reason_code?: string;
   entered_date_start?: string;
   entered_date_end?: string;
-  order_status?: string;
-  order_id?: string;
+  normalized_order_status?: string;
+  city_code?: string;
+  q?: string;
   page?: number;
   page_size?: number;
 }
@@ -2375,6 +2469,23 @@ export async function fetchClueAllocationCycles(): Promise<
   };
 }
 
+export async function fetchClueAllocationCycle(
+  cycleId: string,
+  page = 1,
+  pageSize = 50,
+): Promise<ApiLoadResult<ClueAllocationCycleDetailData>> {
+  if (isClueDemoRuntime()) {
+    return demoLoad(() => clueDemoRepository.getCycle(cycleId, page, pageSize));
+  }
+  return {
+    ...(await requestJson<ClueAllocationCycleDetailData>(
+      `/admin/clue-allocation/cycles/${encodeURIComponent(cycleId)}`,
+      { page, page_size: pageSize },
+    )),
+    usingMock: false,
+  };
+}
+
 export async function fetchClueAllocationAuditLogs(): Promise<
   ApiLoadResult<ClueAllocationAuditLogData>
 > {
@@ -2397,7 +2508,7 @@ export async function previewClueAllocationCycle(
   }
   return {
     ...(await sendJson<ClueAllocationCyclePreview>(
-      "/admin/clue-allocation/cycles/preview",
+      "/admin/clue-allocation/cycle-previews",
       { body: payload, method: "POST" },
     )),
     usingMock: false,
@@ -2412,8 +2523,17 @@ export async function runClueAllocationTrial(
   }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
-      "/admin/clue-allocation/cycles/trial",
-      { body: payload, method: "POST" },
+      "/admin/clue-allocation/trial-cycles",
+      {
+        body: payload,
+        headers: {
+          "Idempotency-Key": createStableIdempotencyKey(
+            "clue-trial",
+            payload.preview_token ?? payload.lead_keys.join("|"),
+          ),
+        },
+        method: "POST",
+      },
     )),
     usingMock: false,
   };
@@ -2427,8 +2547,17 @@ export async function rebuildClueAllocationTrial(
   }
   return {
     ...(await sendJson<ClueAllocationCycleExecution>(
-      "/admin/clue-allocation/cycles/rebuild",
-      { body: payload, method: "POST" },
+      "/admin/clue-allocation/rebuild-cycles",
+      {
+        body: payload,
+        headers: {
+          "Idempotency-Key": createStableIdempotencyKey(
+            "clue-trial-rebuild",
+            payload.preview_token,
+          ),
+        },
+        method: "POST",
+      },
     )),
     usingMock: false,
   };

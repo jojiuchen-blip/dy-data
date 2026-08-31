@@ -3,6 +3,7 @@ import {
   ApiRequestError,
   createClueAllocationRule,
   createClueAllocationRuleVersion,
+  fetchClueAllocationCycle,
   fetchClueAllocationAuditLogs,
   fetchClueAllocationCycles,
   fetchClueAllocationDecisions,
@@ -20,6 +21,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
+import { ConfirmDialog, Dialog } from "../components/Dialog";
 import { FilterField } from "../components/Filters";
 import { FieldInput, SelectField } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -28,6 +30,8 @@ import { TertiaryNav } from "../components/TertiaryNav";
 import type {
   ClueAllocationAuditLog,
   ClueAllocationCycle,
+  ClueAllocationCycleDetailData,
+  ClueAllocationCycleItem,
   ClueAllocationCyclePreview,
   ClueAllocationDecision,
   ClueAllocationEligibleLead,
@@ -94,7 +98,7 @@ interface RuleVersionDraft {
 }
 
 const defaultRuleVersionDraft: RuleVersionDraft = {
-  auto_expiry_enabled: true,
+  auto_expiry_enabled: false,
   first_follow_up_sla_hours: 24,
   protection_days: 7,
   conversion_weight: 0.7,
@@ -109,26 +113,70 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
 };
 
 const defaultHeadquartersFilters: ClueHeadquartersPoolFilters = {
-  pool_status: "active",
-  reason: "",
+  entry_status: "active",
+  reason_code: "",
   entered_date_start: "",
   entered_date_end: "",
-  order_status: "",
-  order_id: "",
+  normalized_order_status: "",
+  city_code: "",
+  q: "",
 };
 
 const emptyHeadquartersPoolData: ClueHeadquartersPoolData = {
   rows: [],
   pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
   summary: { current_inventory: 0, filtered_total: 0 },
-  filter_options: { pool_statuses: [], reasons: [], order_statuses: [] },
+  filter_options: {
+    entry_statuses: [],
+    reason_codes: [],
+    normalized_order_statuses: [],
+    city_codes: [],
+    pool_statuses: [],
+    reasons: [],
+    order_statuses: [],
+  },
 };
+
+function uniqueNonEmptyValues(values: Array<string | null | undefined>): string[] {
+  return Array.from(
+    new Set(values.filter((value): value is string => Boolean(value && value.trim()))),
+  ).sort();
+}
+
+function preferCanonicalOptions(
+  canonical: string[] | undefined,
+  legacy: string[] | undefined,
+): string[] {
+  return canonical?.length ? canonical : legacy ?? [];
+}
+
+function headquartersReasonCode(entry: ClueHeadquartersPoolEntry): string {
+  return entry.reason_code || entry.reason;
+}
+
+function headquartersOrderStatus(entry: ClueHeadquartersPoolEntry): string {
+  return entry.normalized_order_status || entry.order_status;
+}
+
+function displayHeadquartersPoolReason(entry: ClueHeadquartersPoolEntry): string {
+  return entry.reason_label || displayClueReason(headquartersReasonCode(entry));
+}
 
 function normalizeHeadquartersPoolData(
   data: ClueHeadquartersPoolData,
 ): ClueHeadquartersPoolData {
   const rows = Array.isArray(data.rows) ? data.rows : [];
   const pagination = data.pagination ?? emptyHeadquartersPoolData.pagination;
+  const filterOptions = data.filter_options ?? emptyHeadquartersPoolData.filter_options;
+  const entryStatuses = preferCanonicalOptions(
+    filterOptions.entry_statuses,
+    filterOptions.pool_statuses,
+  );
+  const reasonCodes = preferCanonicalOptions(filterOptions.reason_codes, filterOptions.reasons);
+  const normalizedOrderStatuses = preferCanonicalOptions(
+    filterOptions.normalized_order_statuses,
+    filterOptions.order_statuses,
+  );
   return {
     rows,
     pagination,
@@ -136,12 +184,22 @@ function normalizeHeadquartersPoolData(
       current_inventory: rows.filter((row) => row.status === "active").length,
       filtered_total: pagination.total,
     },
-    filter_options: data.filter_options ?? {
-      pool_statuses: Array.from(new Set(rows.map((row) => row.status))).sort(),
-      reasons: Array.from(new Set(rows.map((row) => row.reason))).sort(),
-      order_statuses: Array.from(
-        new Set(rows.map((row) => row.order_status).filter(Boolean)),
-      ).sort(),
+    filter_options: {
+      entry_statuses: entryStatuses.length
+        ? entryStatuses
+        : uniqueNonEmptyValues(rows.map((row) => row.status)),
+      reason_codes: reasonCodes.length
+        ? reasonCodes
+        : uniqueNonEmptyValues(rows.map((row) => headquartersReasonCode(row))),
+      normalized_order_statuses: normalizedOrderStatuses.length
+        ? normalizedOrderStatuses
+        : uniqueNonEmptyValues(rows.map((row) => headquartersOrderStatus(row))),
+      city_codes: filterOptions.city_codes?.length
+        ? filterOptions.city_codes
+        : uniqueNonEmptyValues(rows.map((row) => row.anchor_city_code)),
+      pool_statuses: filterOptions.pool_statuses ?? entryStatuses,
+      reasons: filterOptions.reasons ?? reasonCodes,
+      order_statuses: filterOptions.order_statuses ?? normalizedOrderStatuses,
     },
   };
 }
@@ -154,6 +212,15 @@ function displayHeadquartersPoolStatus(value: string): string {
   if (value === "active") return "在池";
   if (value === "closed") return "已离池";
   if (value === "superseded") return "已被新记录替代";
+  return value;
+}
+
+function displayCycleItemStatus(value: string): string {
+  if (value === "assigned" || value === "selected") return "已选中门店";
+  if (value === "headquarters") return "进入总部池";
+  if (value === "skipped") return "已跳过";
+  if (value === "failed") return "执行失败";
+  if (value === "running") return "执行中";
   return value;
 }
 
@@ -262,6 +329,9 @@ export function AdminClueAllocationPage({
     useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
   const [headquartersLoading, setHeadquartersLoading] = useState(false);
   const [cycles, setCycles] = useState<ClueAllocationCycle[]>([]);
+  const [selectedCycleDetail, setSelectedCycleDetail] =
+    useState<ClueAllocationCycleDetailData | null>(null);
+  const [cycleDetailLoading, setCycleDetailLoading] = useState(false);
   const [auditLogs, setAuditLogs] = useState<ClueAllocationAuditLog[]>([]);
   const [rules, setRules] = useState<ClueAllocationRule[]>([]);
   const [selectedRuleId, setSelectedRuleId] = useState("");
@@ -277,6 +347,12 @@ export function AdminClueAllocationPage({
   const [action, setAction] = useState<
     "preview" | "trial" | "rebuild" | "rule" | "publish" | "retire" | null
   >(null);
+  const [confirmingTrial, setConfirmingTrial] = useState(false);
+  const [confirmingRebuild, setConfirmingRebuild] = useState(false);
+  const [pendingRuleVersionAction, setPendingRuleVersionAction] = useState<{
+    kind: "publish" | "retire";
+    version: ClueAllocationRuleVersion;
+  } | null>(null);
   const [allowPrivilegedRebuild, setAllowPrivilegedRebuild] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [isCompactViewport, setIsCompactViewport] = useState(false);
@@ -354,38 +430,53 @@ export function AdminClueAllocationPage({
   const load = async ({ clearStatus = true }: { clearStatus?: boolean } = {}) => {
     setLoading(true);
     try {
-      const [eligible, headquarters, cycleData, auditData, ruleData, decisionData, scores] = await Promise.all([
-        fetchClueAllocationEligibleLeads(),
-        fetchClueHeadquartersPool({
+      if (activeSubview === "trial") {
+        const [eligible, cycleData] = await Promise.all([
+          fetchClueAllocationEligibleLeads(),
+          fetchClueAllocationCycles(),
+        ]);
+        setEligibleLeads(eligible.data.rows);
+        setCycles(cycleData.data.rows);
+        setSelectedLeadKeys((current) => {
+          const valid = new Set(eligible.data.rows.map((row) => row.lead_key));
+          return new Set(Array.from(current).filter((leadKey) => valid.has(leadKey)));
+        });
+        setSelectedRebuildCycleId((current) =>
+          cycleData.data.rows.some((cycle) => cycle.allocation_cycle_id === current)
+            ? current
+            : "",
+        );
+      } else if (activeSubview === "records") {
+        const [cycleData, decisionData, scores] = await Promise.all([
+          fetchClueAllocationCycles(),
+          fetchClueAllocationDecisions(),
+          fetchClueAllocationStoreScores(),
+        ]);
+        setCycles(cycleData.data.rows);
+        setDecisions(decisionData.data.rows);
+        setScoreData(scores.data);
+        if (isHighestAdmin) {
+          const auditData = await fetchClueAllocationAuditLogs();
+          setAuditLogs(auditData.data.rows);
+        } else {
+          setAuditLogs([]);
+        }
+      } else if (activeSubview === "headquarters") {
+        const headquarters = await fetchClueHeadquartersPool({
           ...headquartersFilters,
           page: headquartersPool.pagination.page,
           page_size: headquartersPool.pagination.page_size,
-        }),
-        fetchClueAllocationCycles(),
-        fetchClueAllocationAuditLogs(),
-        fetchClueAllocationRules(),
-        fetchClueAllocationDecisions(),
-        fetchClueAllocationStoreScores(),
-      ]);
-      setEligibleLeads(eligible.data.rows);
-      setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
-      setCycles(cycleData.data.rows);
-      setAuditLogs(auditData.data.rows);
-      setRules(ruleData.data.rows);
-      setDecisions(decisionData.data.rows);
-      setScoreData(scores?.data ?? null);
-      setSelectedLeadKeys((current) => {
-        const valid = new Set(eligible.data.rows.map((row) => row.lead_key));
-        return new Set(Array.from(current).filter((leadKey) => valid.has(leadKey)));
-      });
-      setSelectedRebuildCycleId((current) =>
-        cycleData.data.rows.some((cycle) => cycle.allocation_cycle_id === current) ? current : "",
-      );
-      setSelectedRuleId((current) =>
-        ruleData.data.rows.some((rule) => rule.rule_id === current)
-          ? current
-          : ruleData.data.rows[0]?.rule_id ?? "",
-      );
+        });
+        setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
+      } else {
+        const ruleData = await fetchClueAllocationRules();
+        setRules(ruleData.data.rows);
+        setSelectedRuleId((current) =>
+          ruleData.data.rows.some((rule) => rule.rule_id === current)
+            ? current
+            : ruleData.data.rows[0]?.rule_id ?? "",
+        );
+      }
       if (clearStatus) {
         setStatusText("");
       }
@@ -401,8 +492,9 @@ export function AdminClueAllocationPage({
   };
 
   useEffect(() => {
+    setSelectedCycleDetail(null);
     void load();
-  }, []);
+  }, [activeSubview]);
 
   useEffect(() => {
     const viewport = window.matchMedia("(max-width: 760px)");
@@ -491,7 +583,7 @@ export function AdminClueAllocationPage({
     return false;
   };
 
-  const handlePreview = async (operation: "trial" | "rebuild") => {
+  const handlePreview = async (operation: "trial" | "trial_rebuild") => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -499,7 +591,7 @@ export function AdminClueAllocationPage({
     if (operation === "trial" && !ensureTrialSelection()) {
       return;
     }
-    if (operation === "rebuild" && !selectedRebuildCycleId) {
+    if (operation === "trial_rebuild" && !selectedRebuildCycleId) {
       setStatusText("请先选择需要重建的来源试运行批次。");
       return;
     }
@@ -523,7 +615,7 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const runTrial = async () => {
+  const runTrial = async (confirmedByDialog = false) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -535,15 +627,17 @@ export function AdminClueAllocationPage({
       setStatusText("请先预览当前选择范围，再确认执行。");
       return;
     }
-    if (!window.confirm(`确认启动这 ${selectedKeys.length} 条线索的试运行？`)) {
+    if (!confirmedByDialog) {
+      setConfirmingTrial(true);
       return;
     }
+    setConfirmingTrial(false);
     setAction("trial");
     try {
       const response = await runClueAllocationTrial({
         lead_keys: selectedKeys,
         preview_token: preview.preview_token,
-        confirm: true,
+        confirmation_text: "确认试运行",
       });
       setPreview(null);
       setStatusText(`试运行已完成。${summaryLabel(response.data.summary)}`);
@@ -555,7 +649,7 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const runRebuild = async () => {
+  const runRebuild = async (confirmedByDialog = false) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端执行分配操作。");
       return;
@@ -566,21 +660,23 @@ export function AdminClueAllocationPage({
     }
     if (
       !preview ||
-      preview.operation !== "rebuild" ||
+      preview.operation !== "trial_rebuild" ||
       preview.source_cycle_id !== selectedRebuildCycleId
     ) {
       setStatusText("请先预览该来源批次，再确认重建。");
       return;
     }
-    if (!window.confirm(`确认重建试运行批次 ${selectedRebuildCycleId}？`)) {
+    if (!confirmedByDialog) {
+      setConfirmingRebuild(true);
       return;
     }
+    setConfirmingRebuild(false);
     setAction("rebuild");
     try {
       const response = await rebuildClueAllocationTrial({
         source_cycle_id: selectedRebuildCycleId,
         preview_token: preview.preview_token,
-        confirm: true,
+        confirmation_text: "确认重建试运行",
         privileged_confirmation: allowPrivilegedRebuild,
       });
       setPreview(null);
@@ -707,14 +803,19 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const handlePublishRuleVersion = async (version: ClueAllocationRuleVersion) => {
+  const handlePublishRuleVersion = async (
+    version: ClueAllocationRuleVersion,
+    confirmedByDialog = false,
+  ) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端发布规则。");
       return;
     }
-    if (!window.confirm(`确认发布 V${version.version_no}？同一规则范围的旧发布版本将自动退役。`)) {
+    if (!confirmedByDialog) {
+      setPendingRuleVersionAction({ kind: "publish", version });
       return;
     }
+    setPendingRuleVersionAction(null);
     setAction("publish");
     try {
       await publishClueAllocationRuleVersion(version.rule_version_id);
@@ -728,14 +829,19 @@ export function AdminClueAllocationPage({
     }
   };
 
-  const handleRetireRuleVersion = async (version: ClueAllocationRuleVersion) => {
+  const handleRetireRuleVersion = async (
+    version: ClueAllocationRuleVersion,
+    confirmedByDialog = false,
+  ) => {
     if (!isWritable) {
       setStatusText("移动端仅可查看，请使用桌面端退役规则。");
       return;
     }
-    if (!window.confirm(`确认退役 V${version.version_no}？该范围的新线索将回退到更低优先级的已发布规则。`)) {
+    if (!confirmedByDialog) {
+      setPendingRuleVersionAction({ kind: "retire", version });
       return;
     }
+    setPendingRuleVersionAction(null);
     setAction("retire");
     try {
       await retireClueAllocationRuleVersion(version.rule_version_id);
@@ -746,6 +852,22 @@ export function AdminClueAllocationPage({
       setStatusText(userFacingError(error, "退役规则版本失败。"));
     } finally {
       setAction(null);
+    }
+  };
+
+  const loadCycleDetail = async (
+    cycleId: string,
+    page = 1,
+    pageSize = 50,
+  ) => {
+    setCycleDetailLoading(true);
+    try {
+      const response = await fetchClueAllocationCycle(cycleId, page, pageSize);
+      setSelectedCycleDetail(response.data);
+    } catch (error) {
+      setStatusText(userFacingError(error, "分配批次详情暂时无法读取。"));
+    } finally {
+      setCycleDetailLoading(false);
     }
   };
 
@@ -828,13 +950,13 @@ export function AdminClueAllocationPage({
       key: "order-status",
       title: "订单状态",
       minWidth: 110,
-      render: (entry) => displayOrderStatus(entry.order_status),
+      render: (entry) => displayOrderStatus(headquartersOrderStatus(entry)),
     },
     {
       key: "reason",
-      title: "进入原因",
+      title: "入池原因",
       minWidth: 150,
-      render: (entry) => displayClueReason(entry.reason),
+      render: (entry) => displayHeadquartersPoolReason(entry),
     },
     {
       key: "anchor-store",
@@ -924,6 +1046,105 @@ export function AdminClueAllocationPage({
     },
   ];
 
+  const cycleItemColumns: Column<ClueAllocationCycleItem>[] = [
+    {
+      key: "sequence",
+      title: "序号",
+      width: 72,
+      render: (item) => item.sequence_no,
+    },
+    {
+      key: "lead",
+      title: "主线索键",
+      minWidth: 180,
+      render: (item) => item.lead_key,
+    },
+    {
+      key: "order",
+      title: "订单编号",
+      minWidth: 170,
+      render: (item) => displayValue(item.order_id),
+    },
+    {
+      key: "initial-pool",
+      title: "执行前位置",
+      minWidth: 130,
+      render: (item) => displayClueReason(item.initial_pool_location),
+    },
+    {
+      key: "status",
+      title: "处理结果",
+      minWidth: 130,
+      render: (item) => displayCycleItemStatus(item.item_status),
+    },
+    {
+      key: "reason",
+      title: "结果原因",
+      minWidth: 180,
+      render: (item) => displayClueReason(item.outcome_reason),
+    },
+    {
+      key: "attempts",
+      title: "尝试次数",
+      minWidth: 100,
+      render: (item) => item.attempt_count,
+    },
+    {
+      key: "rule-binding",
+      title: "规则绑定",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.rule_binding_id ?? undefined}>{displayValue(item.rule_binding_id)}</span>
+      ),
+    },
+    {
+      key: "decision",
+      title: "决策记录",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.decision_id ?? undefined}>{displayValue(item.decision_id)}</span>
+      ),
+    },
+    {
+      key: "assignment-round",
+      title: "分配轮次",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.assignment_round_id ?? undefined}>
+          {displayValue(item.assignment_round_id)}
+        </span>
+      ),
+    },
+    {
+      key: "headquarters-entry",
+      title: "总部池记录",
+      minWidth: 180,
+      render: (item) => (
+        <span title={item.headquarters_pool_entry_id ?? undefined}>
+          {displayValue(item.headquarters_pool_entry_id)}
+        </span>
+      ),
+    },
+    {
+      key: "started-at",
+      title: "开始时间",
+      minWidth: 160,
+      render: (item) => formatDateTime(item.started_at),
+    },
+    {
+      key: "completed-at",
+      title: "完成时间",
+      minWidth: 160,
+      render: (item) => formatDateTime(item.completed_at),
+    },
+    {
+      key: "error-code",
+      title: "错误码",
+      minWidth: 140,
+      render: (item) => displayValue(item.error_code),
+    },
+  ];
+
   const cycleColumns: Column<ClueAllocationCycle>[] = [
     {
       key: "type",
@@ -950,6 +1171,25 @@ export function AdminClueAllocationPage({
       title: "完成时间",
       minWidth: 160,
       render: (cycle) => formatDateTime(cycle.completed_at ?? cycle.executed_at),
+    },
+    {
+      key: "detail",
+      title: "操作",
+      minWidth: 120,
+      render: (cycle) => (
+        <Button
+          icon="eye"
+          loading={
+            cycleDetailLoading &&
+            selectedCycleDetail?.cycle.allocation_cycle_id === cycle.allocation_cycle_id
+          }
+          onClick={() => void loadCycleDetail(cycle.allocation_cycle_id)}
+          size="sm"
+          type="button"
+        >
+          查看详情
+        </Button>
+      ),
     },
   ];
 
@@ -1008,7 +1248,7 @@ export function AdminClueAllocationPage({
 
       {!isHighestAdmin ? (
         <div aria-live="polite" className="resource-notice" role="status">
-          当前账号为只读权限，可查看线索分配状态、总部池、试运行记录和审计记录。
+          当前账号为只读权限，可查看授权门店范围内的线索分配状态、总部池和试运行记录。
         </div>
       ) : null}
 
@@ -1099,7 +1339,7 @@ export function AdminClueAllocationPage({
               <strong>{preview ? summaryLabel(preview.summary) : "尚未生成"}</strong>
               <small>
                 {preview
-                  ? `${preview.operation === "rebuild" ? "重建" : "试运行"}有效线索 ${preview.active_lead_count} 条`
+                  ? `${preview.operation === "trial_rebuild" ? "重建" : "试运行"}有效线索 ${preview.active_lead_count} 条`
                   : "先选择线索或来源批次生成预览"}
               </small>
             </div>
@@ -1130,7 +1370,7 @@ export function AdminClueAllocationPage({
             <Button
               icon="eye"
               disabled={action !== null || !selectedRebuildCycleId}
-              onClick={() => void handlePreview("rebuild")}
+              onClick={() => void handlePreview("trial_rebuild")}
               type="button"
             >
               {action === "preview" ? "预览中" : "预览重建"}
@@ -1140,7 +1380,7 @@ export function AdminClueAllocationPage({
               disabled={
                 action !== null ||
                 !selectedRebuildCycleId ||
-                preview?.operation !== "rebuild" ||
+                preview?.operation !== "trial_rebuild" ||
                 preview.source_cycle_id !== selectedRebuildCycleId
               }
               onClick={() => void runRebuild()}
@@ -1547,20 +1787,22 @@ export function AdminClueAllocationPage({
             />
           </section>
 
-          <section className="content-section">
-            <div className="section-title">
-              <div>
-                <h2>审计记录</h2>
-                <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+          {isHighestAdmin ? (
+            <section className="content-section">
+              <div className="section-title">
+                <div>
+                  <h2>审计记录</h2>
+                  <p>保留试运行与重建的范围、确认状态和结果摘要。</p>
+                </div>
               </div>
-            </div>
-            <DataTable
-              columns={auditColumns}
-              emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
-              rows={auditLogs}
-              stickyHeader="container"
-            />
-          </section>
+              <DataTable
+                columns={auditColumns}
+                emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
+                rows={auditLogs}
+                stickyHeader="container"
+              />
+            </section>
+          ) : null}
         </>
       ) : null}
 
@@ -1587,31 +1829,31 @@ export function AdminClueAllocationPage({
             <SelectField
               label="总部池状态"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, pool_status: value }))
+                setHeadquartersFilterDraft((current) => ({ ...current, entry_status: value }))
               }
               options={[
                 { value: "", label: "全部" },
                 ...Array.from(
-                  new Set(["active", "closed", ...headquartersPool.filter_options.pool_statuses]),
+                  new Set(["active", "closed", ...headquartersPool.filter_options.entry_statuses]),
                 ).map((value) => ({ value, label: displayHeadquartersPoolStatus(value) })),
               ]}
-              value={headquartersFilterDraft.pool_status ?? ""}
+              value={headquartersFilterDraft.entry_status ?? ""}
             />
             <SelectField
-              label="进入原因"
+              label="入池原因"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, reason: value }))
+                setHeadquartersFilterDraft((current) => ({ ...current, reason_code: value }))
               }
               options={[
                 { value: "", label: "全部" },
-                ...headquartersPool.filter_options.reasons.map((value) => ({
+                ...headquartersPool.filter_options.reason_codes.map((value) => ({
                   value,
                   label: displayClueReason(value),
                 })),
               ]}
-              value={headquartersFilterDraft.reason ?? ""}
+              value={headquartersFilterDraft.reason_code ?? ""}
             />
-            <FilterField label="进入日期起">
+            <FilterField label="入池日期起">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
@@ -1623,7 +1865,7 @@ export function AdminClueAllocationPage({
                 value={headquartersFilterDraft.entered_date_start ?? ""}
               />
             </FilterField>
-            <FilterField label="进入日期止">
+            <FilterField label="入池日期止">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
@@ -1638,30 +1880,47 @@ export function AdminClueAllocationPage({
             <SelectField
               label="订单状态"
               onChange={(value) =>
-                setHeadquartersFilterDraft((current) => ({ ...current, order_status: value }))
+                setHeadquartersFilterDraft((current) => ({
+                  ...current,
+                  normalized_order_status: value,
+                }))
               }
               options={[
                 { value: "", label: "全部" },
-                ...headquartersPool.filter_options.order_statuses.map((value) => ({
+                ...headquartersPool.filter_options.normalized_order_statuses.map((value) => ({
                   value,
                   label: displayOrderStatus(value),
                 })),
               ]}
-              value={headquartersFilterDraft.order_status ?? ""}
+              value={headquartersFilterDraft.normalized_order_status ?? ""}
             />
-            <FilterField label="订单号">
+            <FilterField label="搜索">
               <FieldInput
                 onChange={(event) =>
                   setHeadquartersFilterDraft((current) => ({
                     ...current,
-                    order_id: event.target.value,
+                    q: event.target.value,
                   }))
                 }
-                placeholder="输入完整或部分订单号"
+                placeholder="输入订单号或主线索键"
                 type="search"
-                value={headquartersFilterDraft.order_id ?? ""}
+                value={headquartersFilterDraft.q ?? ""}
               />
             </FilterField>
+            <SelectField
+              label="锚点城市"
+              onChange={(value) =>
+                setHeadquartersFilterDraft((current) => ({ ...current, city_code: value }))
+              }
+              options={[
+                { value: "", label: "全部" },
+                ...headquartersPool.filter_options.city_codes.map((value) => ({
+                  value,
+                  label: value,
+                })),
+              ]}
+              value={headquartersFilterDraft.city_code ?? ""}
+            />
             <div className="clue-headquarters-filter-bar__actions">
               <Button icon="filter" loading={headquartersLoading} type="submit" variant="primary">
                 筛选
@@ -1701,6 +1960,118 @@ export function AdminClueAllocationPage({
             totalPages={headquartersPool.pagination.total_pages}
           />
         </section>
+      ) : null}
+
+      <Dialog
+        bodyClassName="clue-allocation-cycle-dialog__body"
+        description={
+          selectedCycleDetail
+            ? `${displayAllocationCycleType(selectedCycleDetail.cycle.cycle_type)} · ${formatDateTime(selectedCycleDetail.cycle.completed_at ?? selectedCycleDetail.cycle.executed_at)}`
+            : undefined
+        }
+        onClose={() => setSelectedCycleDetail(null)}
+        open={Boolean(selectedCycleDetail)}
+        panelClassName="clue-allocation-cycle-dialog"
+        title="分配批次详情"
+      >
+        {selectedCycleDetail ? (
+          <>
+            <div className="clue-allocation-cycle-dialog__summary">
+              <span className="source-pill">
+                {displayAllocationCycleStatus(selectedCycleDetail.cycle.status)}
+              </span>
+              <span className="source-pill">
+                请求 {selectedCycleDetail.cycle.requested_lead_count} 条
+              </span>
+              <span className="source-pill">
+                分配 {selectedCycleDetail.cycle.assigned_lead_count} 条
+              </span>
+              <span className="source-pill">
+                总部池 {selectedCycleDetail.cycle.headquarters_pool_count} 条
+              </span>
+              <span className="source-pill">
+                失败 {selectedCycleDetail.cycle.failed_lead_count} 条
+              </span>
+            </div>
+            <DataTable
+              columns={cycleItemColumns}
+              emptyText="该批次暂无逐条处理记录"
+              loadingText="正在加载批次详情..."
+              rows={selectedCycleDetail.items}
+              state={cycleDetailLoading ? "loading" : "ready"}
+              stickyHeader="container"
+            />
+            <TablePagination
+              loading={cycleDetailLoading}
+              onPageChange={(page) =>
+                void loadCycleDetail(
+                  selectedCycleDetail.cycle.allocation_cycle_id,
+                  page,
+                  selectedCycleDetail.pagination.page_size,
+                )
+              }
+              onPageSizeChange={(pageSize) =>
+                void loadCycleDetail(
+                  selectedCycleDetail.cycle.allocation_cycle_id,
+                  1,
+                  pageSize,
+                )
+              }
+              page={selectedCycleDetail.pagination.page}
+              pageSize={selectedCycleDetail.pagination.page_size}
+              pageSizeOptions={[20, 50, 100]}
+              rowsOnPage={selectedCycleDetail.items.length}
+              total={selectedCycleDetail.pagination.total}
+              totalPages={selectedCycleDetail.pagination.total_pages}
+            />
+          </>
+        ) : null}
+      </Dialog>
+
+      <ConfirmDialog
+        confirmLabel="确认试运行"
+        description="确认后将提交当前预览范围，并写入试运行结果。"
+        message={`即将对当前选择的 ${selectedKeys.length} 条线索执行试运行。确认后将提交固定确认词“确认试运行”。`}
+        onClose={() => setConfirmingTrial(false)}
+        onConfirm={() => void runTrial(true)}
+        open={confirmingTrial}
+        title="确认启动试运行"
+      />
+      <ConfirmDialog
+        confirmLabel="确认重建试运行"
+        danger
+        description="确认后将按当前预览重建来源试运行批次。"
+        message={`即将重建来源试运行批次 ${selectedRebuildCycleId}。确认后将提交固定确认词“确认重建试运行”。`}
+        onClose={() => setConfirmingRebuild(false)}
+        onConfirm={() => void runRebuild(true)}
+        open={confirmingRebuild}
+        title="确认重建试运行"
+      />
+      {pendingRuleVersionAction ? (
+        <ConfirmDialog
+          confirmLabel={pendingRuleVersionAction.kind === "publish" ? "确认发布" : "确认退役"}
+          danger={pendingRuleVersionAction.kind === "retire"}
+          description={
+            pendingRuleVersionAction.kind === "publish"
+              ? "发布后，同一规则范围的旧发布版本将自动退役。"
+              : "退役后，该范围的新线索将回退到更低优先级的已发布规则。"
+          }
+          message={`${pendingRuleVersionAction.kind === "publish" ? "确认发布" : "确认退役"} V${pendingRuleVersionAction.version.version_no}？`}
+          onClose={() => setPendingRuleVersionAction(null)}
+          onConfirm={() => {
+            const pending = pendingRuleVersionAction;
+            if (!pending) {
+              return;
+            }
+            if (pending.kind === "publish") {
+              void handlePublishRuleVersion(pending.version, true);
+            } else {
+              void handleRetireRuleVersion(pending.version, true);
+            }
+          }}
+          open
+          title={pendingRuleVersionAction.kind === "publish" ? "确认发布规则版本" : "确认退役规则版本"}
+        />
       ) : null}
 
     </div>

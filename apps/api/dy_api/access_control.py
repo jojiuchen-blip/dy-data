@@ -71,18 +71,27 @@ def ensure_access_control_seed(session: Any) -> None:
                 )
             )
     session.flush()
-    existing_defaults = set(
-        session.execute(select(RolePagePermission.role, RolePagePermission.page_key)).all()
-    )
+    existing_defaults = {
+        (row.role, row.page_key): row
+        for row in session.scalars(select(RolePagePermission)).all()
+    }
     for role in ("admin", "store"):
         for page_key in ALL_PAGE_KEYS:
-            if (role, page_key) in existing_defaults:
+            allowed = (
+                role == "admin" and page_key != "D10"
+            ) or page_key in STORE_DEFAULT_PAGE_KEYS
+            existing_default = existing_defaults.get((role, page_key))
+            if existing_default is not None:
+                if page_key == "D10" and existing_default.is_allowed:
+                    existing_default.is_allowed = False
+                    existing_default.updated_by = "system-seed"
+                    existing_default.updated_at = now
                 continue
             session.add(
                 RolePagePermission(
                     role=role,
                     page_key=page_key,
-                    is_allowed=role == "admin" or page_key in STORE_DEFAULT_PAGE_KEYS,
+                    is_allowed=allowed,
                     updated_by="system-seed",
                     updated_at=now,
                 )
@@ -114,6 +123,7 @@ def role_default_page_keys(session: Any, role: str) -> tuple[str, ...]:
             .where(AccessPage.is_active.is_(True))
         ).all()
     )
+    values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -138,6 +148,7 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
         return tuple(key for key in ALL_PAGE_KEYS if key in defaults)
     allow, deny = user_override_sets(session, user.user_id)
     values = (defaults | allow) - deny
+    values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -159,6 +170,8 @@ def replace_user_overrides(
 ) -> None:
     allow = validate_page_keys(extra_allow)
     deny = validate_page_keys(extra_deny)
+    if user.role != "highest_admin" and "D10" in allow:
+        raise ValueError("D10 is reserved for the highest administrator")
     if allow & deny:
         raise ValueError("A page cannot be both allowed and denied")
     session.execute(
@@ -200,6 +213,8 @@ def update_role_defaults_preserving_customizations(
     if role not in {"admin", "store"}:
         raise ValueError("Highest administrator defaults are fixed")
     desired = validate_page_keys(page_keys)
+    if "D10" in desired:
+        raise ValueError("D10 is reserved for the highest administrator")
     ensure_access_control_seed(session)
     customized_users = list(
         session.scalars(
@@ -278,53 +293,66 @@ def account_permission_snapshot(session: Any, user: User) -> dict[str, Any]:
     }
 
 
-def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None:
+def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str, ...] | None:
     if path.startswith("/api/v1/auth/") or path.startswith("/api/v1/meta/") or path == "/api/v1/feedback":
         return None
     if path.startswith("/api/v1/admin/accounts") or path.startswith("/api/v1/admin/access-control"):
-        return "D02"
+        return ("D02",)
     if path.startswith("/api/v1/admin/feedback"):
-        return "D09"
+        return ("D09",)
     if path.startswith("/api/v1/admin/product-type"):
-        return "D04"
+        return ("D04",)
     if (
         path.startswith("/api/v1/admin/sku-products")
         or path.startswith("/api/v1/admin/sku-fee-rules")
         or path.startswith("/api/v1/admin/sku-fee-rule-imports")
         or path.startswith("/api/v1/admin/settlement-scope-rules")
     ):
-        return "D03"
+        return ("D03",)
     if path.startswith("/api/v1/admin/product-sync-runs"):
-        return "D10"
+        return ("D10",)
     if path.startswith("/api/v1/admin/sku-rules") or path.startswith("/api/v1/admin/non-commission"):
-        return "D03"
-    if path.startswith("/api/v1/admin/clue-allocation/headquarters") or path.startswith("/api/v1/admin/clue-allocation/eligible"):
-        return "D08"
+        return ("D03",)
+    if path.startswith("/api/v1/admin/clue-allocation/headquarters"):
+        return ("D08",)
+    if path.startswith("/api/v1/admin/clue-allocation/eligible"):
+        return ("D06",)
     if (
         path.startswith("/api/v1/admin/clue-allocation/records")
         or path.startswith("/api/v1/admin/clue-allocation/decisions")
         or path.startswith("/api/v1/admin/clue-allocation/audit-logs")
         or path.startswith("/api/v1/admin/clue-allocation/master-leads")
+        or path.startswith("/api/v1/admin/clue-allocation/store-scores")
     ):
-        return "D07"
-    if path.startswith("/api/v1/admin/clue-allocation/trial") or path.startswith("/api/v1/admin/clue-allocation/cycles"):
-        return "D06"
+        return ("D07",)
+    if path.startswith("/api/v1/admin/clue-allocation/cycles"):
+        return ("D06", "D07")
+    if (
+        path.startswith("/api/v1/admin/clue-allocation/trial")
+        or path.startswith("/api/v1/admin/clue-allocation/cycle-previews")
+        or path.startswith("/api/v1/admin/clue-allocation/rebuild-cycles")
+    ):
+        return ("D06",)
     if path.startswith("/api/v1/admin/clue-allocation"):
-        return "D05"
-    if path.startswith("/api/v1/admin/sync") or path.startswith("/api/v1/jobs"):
-        return "D10"
+        return ("D05",)
+    if (
+        path.startswith("/api/v1/admin/sync")
+        or path.startswith("/api/v1/admin/operations")
+        or path.startswith("/api/v1/jobs")
+    ):
+        return ("D10",)
     if path.startswith("/api/v1/admin"):
-        return "D01"
+        return ("D01",)
     if path.startswith("/api/v1/clues/filters") or path.startswith("/api/v1/clues/overview"):
-        return "A01"
+        return ("A01",)
     if path.startswith("/api/v1/clues/"):
-        return "A02"
+        return ("A02",)
     if path.startswith("/api/v1/clues"):
-        return "A01"
+        return ("A01",)
     if path.startswith("/api/v1/commission-rules"):
         return None
     if path.startswith("/api/v1/dashboard/store-ranking"):
-        return "B01"
+        return ("B01",)
     if path.startswith(
         (
             "/api/v1/store-settlements",
@@ -334,13 +362,20 @@ def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None
             "/api/v1/order-fee-details",
         )
     ):
-        return "B02"
+        return ("B02",)
     if path.startswith("/api/v1/stores/") and (
         "monthly-settlement" in path or "sap-suggestions" in path
     ):
-        return "B02"
+        return ("B02",)
     if path.startswith("/api/v1/order-details"):
-        return "B03"
+        return ("B03",)
     if path.startswith("/api/v1/dashboard/sales"):
-        return "C01"
-    return "__UNREGISTERED__" if path.startswith("/api/v1/") else None
+        return ("C01",)
+    return ("__UNREGISTERED__",) if path.startswith("/api/v1/") else None
+
+
+def required_page_key_for_api_path(path: str, method: str = "GET") -> str | None:
+    """Return the primary page key for legacy callers and diagnostics."""
+
+    page_keys = required_page_keys_for_api_path(path, method)
+    return page_keys[0] if page_keys else None

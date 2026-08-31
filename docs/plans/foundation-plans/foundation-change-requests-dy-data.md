@@ -23,6 +23,27 @@
 - 页面访问与写操作继续经过 B02、门店数据范围和既有操作权限；不以 `role === store` 作为额外业务限制。
 - 本条只记录 Foundation 漂移，不修改财务端页面、财务端接口、导航、权限或测试。
 
+## S4-FCR-007：旧轮次原地转为正式轮次并保留历史身份
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-007` |
+| 来源 Task | `DYDATA-34 / T1.1 旧分配引擎全面下线` |
+| 分类 | `DRIFT` |
+| 改动项 | 旧 `execution_mode=legacy` 轮次不删除、不生成替代 ID，而是在迁移门禁通过后原地改为 `formal`；保留轮次 ID、门店归属、轮次序号、状态、时间及跟进记录引用。现有活动轮次同时关闭自动过期，正式自动分配和自动再分配继续保持关闭。 |
+| 原因 | 当前系统尚未正式投入门店生产使用，用户明确不存在需要保留为独立语义的“历史旧轮次”；原地转换可以恢复现有有效线索的可操作性，并避免重建造成归属和跟进历史断链。 |
+| 指向代码块 | `alembic/versions/20260831_0046_retire_legacy_clue_rounds.py`；`apps/worker/clue_center.py`；`apps/worker/clue_operability_recovery.py`；`apps/api/dy_api/routes/_data.py` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-delivery-clue-center.md` 交付边界；`foundation-api-clue-center/jobs-security-and-migration.md` 正式重建与迁移章节；`foundation-schema-clue-center/clue_assignment_round.md` |
+| 严重度 | `高（直接影响既有线索是否可跟进及历史引用是否连续）` |
+| 状态 | `产品裁决已确认；运行实现、可逆迁移与本地门禁已完成，待 Foundation 正文同步` |
+
+### 实现与门禁
+
+- 转换前阻断未知模式、正式命名空间冲突、活动轮次归属/指针异常、同一主档多个活动旧轮次及跟进记录跨表归属不一致。
+- 迁移只改变命名空间和活动轮次自动过期开关；不重写主档指针、线索中心投影、门店归属、SLA 时间或跟进记录。
+- 迁移保留精确回滚日志；降级只恢复本次转换的轮次及其原始自动过期开关，出现后续正式命名空间冲突时拒绝降级。
+- 业务列表、指标、导出、联系方式和跟进只读取 `formal`；`trial` 继续作为隔离证据，不进入经营数据。
+
 ## S4-FCR-005：账单响应缺少服务端可确认金额
 
 | 字段 | 内容 |

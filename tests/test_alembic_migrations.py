@@ -19,7 +19,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260831_0044"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260831_0046"]
 
 
 def test_promotion_invoice_manual_fields_migration_is_reversible_when_unused(
@@ -86,10 +86,749 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert (
-            connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == script.get_heads()[0]
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260831_0046"
+
+
+def test_legacy_round_retirement_migration_preserves_identity_and_follow_history(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    canonical_clue_id, order_id, normalized_order_status,
+                    status_source, lifecycle_status, pool_location,
+                    allocation_state, current_assignment_round_id,
+                    ended_without_assignment,
+                    first_seen_at, last_seen_at, created_at, updated_at
+                ) VALUES (
+                    'lead-legacy', 'raw-legacy', 'identity-legacy',
+                    'clue-legacy', 'order-legacy', 'active',
+                    'test', 'active', 'store_follow_up_pool', 'assigned',
+                    'legacy-round', 0,
+                    :observed_at, :observed_at, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
         )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_assignment_rounds (
+                    assignment_round_id, order_id, lead_key, round_no,
+                    assigned_at, assigned_at_source, assigned_store_id,
+                    assigned_store_name, follow_result, is_followed,
+                    is_follow_success, round_status, execution_mode,
+                    expires_at, first_sla_expires_at, auto_expiry_enabled,
+                    first_follow_up_sla_hours, is_self_store_verified,
+                    created_at, updated_at
+                ) VALUES (
+                    'legacy-round', 'order-legacy', 'lead-legacy', 1,
+                    :observed_at, 'legacy', 'store-1', 'Store 1',
+                    'unreachable', 1, 1, 'active_followed', 'legacy',
+                    :observed_at, :observed_at, 1, 24, 0,
+                    :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_center_orders (
+                    order_id, source_clue_ids, source_clue_count,
+                    canonical_clue_id, lead_status,
+                    current_assignment_round_id, current_round_no,
+                    current_round_status, assigned_at_source,
+                    assigned_store_id, assigned_store_name,
+                    follow_result, is_followed, is_follow_success,
+                    is_self_store_verified, expires_at, created_at, updated_at
+                ) VALUES (
+                    'order-legacy', '[]', 1, 'clue-legacy', 'active',
+                    'legacy-round', 1, 'active_followed', 'legacy',
+                    'store-1', 'Store 1', 'unreachable', 1, 1, 0,
+                    :observed_at, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_follow_up_records (
+                    follow_up_record_id, order_id, assignment_round_id,
+                    round_no, assigned_store_id, follow_result, note,
+                    operator_user_id, operator_username, created_at
+                ) VALUES (
+                    'follow-1', 'order-legacy', 'legacy-round', 1,
+                    'store-1', 'unreachable', 'called', 'user-1', 'User 1',
+                    :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+
+    command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        migrated_round = connection.execute(
+            text(
+                """
+                SELECT assignment_round_id, execution_mode, assigned_store_id,
+                       auto_expiry_enabled, first_sla_expires_at, expires_at
+                FROM clue_assignment_rounds
+                WHERE assignment_round_id = 'legacy-round'
+                """
+            )
+        ).mappings().one()
+        migrated_lead = connection.execute(
+            text(
+                """
+                SELECT current_assignment_round_id, pool_location, allocation_state
+                FROM clue_master_leads WHERE lead_key = 'lead-legacy'
+                """
+            )
+        ).mappings().one()
+        migrated_center = connection.execute(
+            text(
+                """
+                SELECT current_assignment_round_id, assigned_store_id, expires_at
+                FROM clue_center_orders WHERE order_id = 'order-legacy'
+                """
+            )
+        ).mappings().one()
+        follow_round_id = connection.execute(
+            text(
+                "SELECT assignment_round_id FROM clue_follow_up_records WHERE follow_up_record_id = 'follow-1'"
+            )
+        ).scalar_one()
+        legacy_count = connection.execute(
+            text("SELECT COUNT(*) FROM clue_assignment_rounds WHERE execution_mode = 'legacy'")
+        ).scalar_one()
+
+    assert {
+        key: migrated_round[key]
+        for key in (
+            "assignment_round_id",
+            "execution_mode",
+            "assigned_store_id",
+            "auto_expiry_enabled",
+        )
+    } == {
+        "assignment_round_id": "legacy-round",
+        "execution_mode": "formal",
+        "assigned_store_id": "store-1",
+        "auto_expiry_enabled": False,
+    }
+    assert str(migrated_round["first_sla_expires_at"]) == str(observed_at)
+    assert str(migrated_round["expires_at"]) == str(observed_at)
+    assert migrated_lead == {
+        "current_assignment_round_id": "legacy-round",
+        "pool_location": "store_follow_up_pool",
+        "allocation_state": "assigned",
+    }
+    assert migrated_center == {
+        "current_assignment_round_id": "legacy-round",
+        "assigned_store_id": "store-1",
+        "expires_at": str(observed_at),
+    }
+    assert follow_round_id == "legacy-round"
+    assert legacy_count == 0
+
+    command.downgrade(config, "20260831_0045")
+    with engine.connect() as connection:
+        restored = connection.execute(
+            text(
+                """
+                SELECT execution_mode, auto_expiry_enabled
+                FROM clue_assignment_rounds
+                WHERE assignment_round_id = 'legacy-round'
+                """
+            )
+        ).mappings().one()
+        assert restored == {
+            "execution_mode": "legacy",
+            "auto_expiry_enabled": True,
+        }
+
+
+def test_legacy_round_retirement_aborts_on_formal_namespace_collision(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-namespace-collision.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        for round_id, execution_mode in (
+            ("legacy-collision", "legacy"),
+            ("formal-collision", "formal"),
+        ):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO clue_assignment_rounds (
+                        assignment_round_id, order_id, lead_key, round_no,
+                        assigned_at_source, follow_result, is_followed,
+                        is_follow_success, round_status, execution_mode,
+                        auto_expiry_enabled, is_self_store_verified,
+                        created_at, updated_at
+                    ) VALUES (
+                        :round_id, 'order-collision', 'lead-collision', 1,
+                        'test', 'pending', 0, 0, 'expired_timeout',
+                        :execution_mode, 1, 0, :observed_at, :observed_at
+                    )
+                    """
+                ),
+                {
+                    "round_id": round_id,
+                    "execution_mode": execution_mode,
+                    "observed_at": observed_at,
+                },
+            )
+
+    with pytest.raises(RuntimeError, match="formal namespace collisions"):
+        command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == "20260831_0045"
+        assert connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM clue_assignment_rounds
+                WHERE execution_mode = 'legacy'
+                """
+            )
+        ).scalar_one() == 1
+        assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
+
+
+def test_legacy_round_retirement_aborts_before_mutation_on_invalid_active_round(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-invalid.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_assignment_rounds (
+                    assignment_round_id, order_id, round_no, assigned_at_source,
+                    follow_result, is_followed, is_follow_success, round_status,
+                    execution_mode, auto_expiry_enabled, is_self_store_verified,
+                    created_at, updated_at
+                ) VALUES (
+                    'legacy-invalid', 'order-invalid', 1, 'legacy',
+                    'pending', 0, 0, 'active_unfollowed',
+                    'legacy', 1, 0, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+
+    with pytest.raises(RuntimeError, match="invalid ownership/pointers"):
+        command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260831_0045"
+        assert connection.execute(
+            text("SELECT execution_mode FROM clue_assignment_rounds WHERE assignment_round_id = 'legacy-invalid'")
+        ).scalar_one() == "legacy"
+        assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
+
+
+def test_legacy_round_retirement_rejects_active_master_order_mismatch(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-master-order-mismatch.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    order_id, normalized_order_status, status_source,
+                    lifecycle_status, pool_location, allocation_state,
+                    current_assignment_round_id, ended_without_assignment,
+                    first_seen_at, last_seen_at, created_at, updated_at
+                ) VALUES (
+                    'lead-order-mismatch', 'raw-order-mismatch', 'identity-order-mismatch',
+                    'another-order', 'active', 'test', 'active',
+                    'store_follow_up_pool', 'assigned', 'legacy-order-mismatch', 0,
+                    :observed_at, :observed_at, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_assignment_rounds (
+                    assignment_round_id, order_id, lead_key, round_no,
+                    assigned_at_source, assigned_store_id, follow_result,
+                    is_followed, is_follow_success, round_status, execution_mode,
+                    auto_expiry_enabled, is_self_store_verified, created_at, updated_at
+                ) VALUES (
+                    'legacy-order-mismatch', 'expected-order', 'lead-order-mismatch', 1,
+                    'legacy', 'store-1', 'pending', 0, 0, 'active_unfollowed',
+                    'legacy', 1, 0, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_center_orders (
+                    order_id, source_clue_ids, source_clue_count, lead_status,
+                    current_assignment_round_id, current_round_no,
+                    current_round_status, assigned_at_source, follow_result,
+                    is_followed, is_follow_success, is_self_store_verified,
+                    created_at, updated_at
+                ) VALUES (
+                    'expected-order', '[]', 1, 'active', 'legacy-order-mismatch',
+                    1, 'active_unfollowed', 'legacy', 'pending', 0, 0, 0,
+                    :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+
+    with pytest.raises(RuntimeError, match="invalid ownership/pointers"):
+        command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260831_0045"
+        assert connection.execute(
+            text(
+                "SELECT execution_mode FROM clue_assignment_rounds "
+                "WHERE assignment_round_id = 'legacy-order-mismatch'"
+            )
+        ).scalar_one() == "legacy"
+        assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
+
+
+def test_legacy_round_retirement_rejects_inconsistent_follow_record_ownership(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-follow-ownership.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_assignment_rounds (
+                    assignment_round_id, order_id, round_no, assigned_at_source,
+                    assigned_store_id, follow_result, is_followed,
+                    is_follow_success, round_status, execution_mode,
+                    auto_expiry_enabled, is_self_store_verified, created_at, updated_at
+                ) VALUES (
+                    'legacy-follow-owner', 'expected-order', 2, 'legacy',
+                    'store-1', 'pending', 0, 0, 'closed_reassigned', 'legacy',
+                    1, 0, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+        for record_id, order_id, round_no, store_id in (
+            ("follow-bad-order", "another-order", 2, "store-1"),
+            ("follow-bad-round", "expected-order", 3, "store-1"),
+            ("follow-bad-store", "expected-order", 2, "store-2"),
+        ):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO clue_follow_up_records (
+                        follow_up_record_id, order_id, assignment_round_id,
+                        round_no, assigned_store_id, follow_result, created_at
+                    ) VALUES (
+                        :record_id, :order_id, 'legacy-follow-owner',
+                        :round_no, :store_id, 'unreachable', :observed_at
+                    )
+                    """
+                ),
+                {
+                    "record_id": record_id,
+                    "order_id": order_id,
+                    "round_no": round_no,
+                    "store_id": store_id,
+                    "observed_at": observed_at,
+                },
+            )
+
+    with pytest.raises(RuntimeError, match="inconsistent follow-up record ownership"):
+        command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260831_0045"
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM clue_follow_up_records")
+        ).scalar_one() == 3
+        assert connection.execute(
+            text(
+                "SELECT execution_mode FROM clue_assignment_rounds "
+                "WHERE assignment_round_id = 'legacy-follow-owner'"
+            )
+        ).scalar_one() == "legacy"
+        assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
+
+
+def test_legacy_round_retirement_is_noop_for_formal_data_and_blocks_new_legacy(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-noop.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_assignment_rounds (
+                    assignment_round_id, order_id, round_no, assigned_at_source,
+                    follow_result, is_followed, is_follow_success, round_status,
+                    execution_mode, auto_expiry_enabled, is_self_store_verified,
+                    created_at, updated_at
+                ) VALUES (
+                    'formal-existing', 'order-formal', 1, 'engine',
+                    'pending', 0, 0, 'expired_timeout',
+                    'formal', 1, 0, :observed_at, :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+
+    command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        row = connection.execute(
+            text(
+                """
+                SELECT execution_mode, auto_expiry_enabled
+                FROM clue_assignment_rounds
+                WHERE assignment_round_id = 'formal-existing'
+                """
+            )
+        ).mappings().one()
+        assert row == {"execution_mode": "formal", "auto_expiry_enabled": True}
+        assert connection.execute(
+            text("SELECT COUNT(*) FROM clue_legacy_round_retirement_log")
+        ).scalar_one() == 0
+
+    with pytest.raises(IntegrityError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO clue_assignment_rounds (
+                        assignment_round_id, order_id, round_no, assigned_at_source,
+                        follow_result, is_followed, is_follow_success, round_status,
+                        execution_mode, auto_expiry_enabled, is_self_store_verified,
+                        created_at, updated_at
+                    ) VALUES (
+                        'legacy-reintroduced', 'order-legacy-new', 1, 'legacy',
+                        'pending', 0, 0, 'expired_timeout',
+                        'legacy', 1, 0, :observed_at, :observed_at
+                    )
+                    """
+                ),
+                {"observed_at": observed_at},
+            )
+
+
+def test_clue_source_record_link_migration_backfills_state_and_is_reversible(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "clue-source-record-links.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    script = ScriptDirectory.from_config(config)
+    revision = script.get_revision("20260830_0044")
+    assert revision is not None
+    assert revision.revision == "20260830_0044"
+    assert revision.down_revision == "20260824_0043"
+
+    command.upgrade(config, "20260824_0043")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 30, 12, tzinfo=timezone.utc)
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_master_leads (
+                    lead_key, source_clue_row_key, source_identity_key,
+                    canonical_clue_id, order_id, normalized_order_status,
+                    status_source, lifecycle_status, allocation_state,
+                    ended_without_assignment, first_seen_at, last_seen_at,
+                    created_at, updated_at
+                ) VALUES (
+                    :lead_key, :source_clue_row_key, :source_identity_key,
+                    :canonical_clue_id, :order_id, 'active', 'clue', 'active',
+                    'pending_allocation', 0, :observed_at, :observed_at,
+                    :observed_at, :observed_at
+                )
+                """
+            ),
+            [
+                {
+                    "lead_key": "lead-with-order",
+                    "source_clue_row_key": "raw-with-order",
+                    "source_identity_key": "identity-with-order",
+                    "canonical_clue_id": "clue-with-order",
+                    "order_id": "order-1",
+                    "observed_at": observed_at,
+                },
+                {
+                    "lead_key": "lead-without-order",
+                    "source_clue_row_key": "raw-without-order",
+                    "source_identity_key": "identity-without-order",
+                    "canonical_clue_id": "clue-without-order",
+                    "order_id": None,
+                    "observed_at": observed_at,
+                },
+                {
+                    "lead_key": "lead-with-empty-source",
+                    "source_clue_row_key": "",
+                    "source_identity_key": "identity-with-empty-source",
+                    "canonical_clue_id": None,
+                    "order_id": None,
+                    "observed_at": observed_at,
+                },
+            ],
+        )
+
+    command.upgrade(config, "20260830_0044")
+    upgraded = inspect(engine)
+    assert "clue_source_record_links" in upgraded.get_table_names()
+    master_columns = {column["name"]: column for column in upgraded.get_columns("clue_master_leads")}
+    assert {
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
+    }.issubset(master_columns)
+    assert master_columns["master_kind"]["default"] is not None
+    assert master_columns["is_complete_pool"]["default"] is not None
+    assert master_columns["state_version"]["default"] is not None
+
+    link_columns = {column["name"]: column for column in upgraded.get_columns("clue_source_record_links")}
+    assert {
+        "id",
+        "source_system",
+        "source_table",
+        "source_record_key",
+        "source_clue_id",
+        "source_order_id",
+        "lead_key",
+        "order_id",
+        "link_status",
+        "link_method",
+        "link_version",
+        "linked_at",
+        "source_observed_at",
+        "source_run_id",
+        "source_payload_hash",
+        "conflict_reason",
+        "created_at",
+        "updated_at",
+    }.issubset(link_columns)
+    assert link_columns["source_table"]["default"] is not None
+    assert link_columns["link_status"]["default"] is not None
+    assert link_columns["link_method"]["default"] is not None
+    assert link_columns["link_version"]["default"] is not None
+    assert link_columns["linked_at"]["default"] is not None
+    assert link_columns["created_at"]["default"] is not None
+    assert link_columns["updated_at"]["default"] is not None
+    assert upgraded.get_pk_constraint("clue_source_record_links")[
+        "constrained_columns"
+    ] == ["id"]
+    assert ("source_table", "source_record_key") in {
+        tuple(constraint["column_names"])
+        for constraint in upgraded.get_unique_constraints("clue_source_record_links")
+    }
+    assert {
+        "ix_clue_source_record_links_lead_key",
+        "ix_clue_source_record_links_order_id",
+        "ix_clue_source_record_links_status_updated_at",
+    }.issubset(
+        {index["name"] for index in upgraded.get_indexes("clue_source_record_links")}
+    )
+    foreign_keys = upgraded.get_foreign_keys("clue_source_record_links")
+    assert len(foreign_keys) == 1
+    assert foreign_keys[0]["constrained_columns"] == ["lead_key"]
+    assert foreign_keys[0]["referred_table"] == "clue_master_leads"
+    assert foreign_keys[0]["referred_columns"] == ["lead_key"]
+    assert foreign_keys[0]["options"] == {"ondelete": "RESTRICT"}
+
+    with engine.connect() as connection:
+        master_rows = connection.execute(
+            text(
+                """
+                SELECT lead_key, master_kind, is_complete_pool, state_version,
+                       order_status_observed_at = last_seen_at AS observed_matches
+                FROM clue_master_leads
+                ORDER BY lead_key
+                """
+            )
+        ).mappings().all()
+        assert master_rows == [
+            {
+                "lead_key": "lead-with-empty-source",
+                "master_kind": 2,
+                "is_complete_pool": 0,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+            {
+                "lead_key": "lead-with-order",
+                "master_kind": 1,
+                "is_complete_pool": 1,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+            {
+                "lead_key": "lead-without-order",
+                "master_kind": 2,
+                "is_complete_pool": 0,
+                "state_version": 1,
+                "observed_matches": 1,
+            },
+        ]
+        links = connection.execute(
+            text(
+                """
+                SELECT source_table, source_record_key, source_clue_id,
+                       source_order_id, lead_key, order_id, link_status,
+                       link_method, link_version, source_observed_at,
+                       linked_at, created_at, updated_at
+                FROM clue_source_record_links
+                ORDER BY source_record_key
+                """
+            )
+        ).mappings().all()
+        assert len(links) == 2
+        assert [
+            {
+                key: row[key]
+                for key in (
+                    "source_table",
+                    "source_record_key",
+                    "source_clue_id",
+                    "source_order_id",
+                    "lead_key",
+                    "order_id",
+                    "link_status",
+                    "link_method",
+                    "link_version",
+                )
+            }
+            for row in links
+        ] == [
+            {
+                "source_table": "raw_douyin_clues",
+                "source_record_key": "raw-with-order",
+                "source_clue_id": "clue-with-order",
+                "source_order_id": "order-1",
+                "lead_key": "lead-with-order",
+                "order_id": "order-1",
+                "link_status": 1,
+                "link_method": 2,
+                "link_version": 1,
+            },
+            {
+                "source_table": "raw_douyin_clues",
+                "source_record_key": "raw-without-order",
+                "source_clue_id": "clue-without-order",
+                "source_order_id": None,
+                "lead_key": "lead-without-order",
+                "order_id": None,
+                "link_status": 2,
+                "link_method": 2,
+                "link_version": 1,
+            },
+        ]
+        assert all(
+            row["source_observed_at"] is not None
+            and row["linked_at"] is not None
+            and row["created_at"] is not None
+            and row["updated_at"] is not None
+            for row in links
+        )
+
+    command.downgrade(config, "20260824_0043")
+    downgraded = inspect(engine)
+    assert "clue_source_record_links" not in downgraded.get_table_names()
+    assert not {
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
+    }.intersection({column["name"] for column in downgraded.get_columns("clue_master_leads")})
 
 
 def test_online_postgresql_migrations_use_a_session_advisory_lock() -> None:
@@ -1386,7 +2125,7 @@ def test_clue_rule_version_migration_is_at_head_and_reversible(tmp_path: Path) -
     }.intersection(downgraded.get_table_names())
 
 
-def test_clue_allocation_engine_migration_preserves_legacy_rounds_and_has_an_empty_schema_round_trip(
+def test_clue_allocation_engine_migration_preserves_rounds_and_has_an_empty_schema_round_trip(
     tmp_path: Path,
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -1421,7 +2160,7 @@ def test_clue_allocation_engine_migration_preserves_legacy_rounds_and_has_an_emp
                 "follow_result": "pending",
                 "is_followed": False,
                 "is_follow_success": False,
-                "round_status": "active_unfollowed",
+                "round_status": "expired_timeout",
                 "execution_mode": "legacy",
                 "is_self_store_verified": False,
                 "created_at": now,

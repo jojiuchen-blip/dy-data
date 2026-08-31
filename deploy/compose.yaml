@@ -43,6 +43,19 @@ services:
       TZ: Asia/Shanghai
     expose:
       - "8000"
+    mem_limit: ${API_MEMORY_LIMIT:-768m}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('127.0.0.1', 8000), 2).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: "${LOG_MAX_FILE:-3}"
     networks:
       - app
 
@@ -67,19 +80,17 @@ services:
   worker:
     build:
       context: ..
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/worker/Dockerfile
       args:
         APT_MIRROR: ${APT_MIRROR:-}
     image: ${WORKER_IMAGE:-dy-dashboard-worker:local}
     restart: unless-stopped
-    mem_limit: ${WORKER_MEMORY_LIMIT:-5g}
-    memswap_limit: ${WORKER_MEMORY_SWAP_LIMIT:-7g}
     depends_on:
       migrate:
         condition: service_completed_successfully
       browser:
         condition: service_started
-    command: ["sh", "-c", "${WORKER_COMMAND:-python -m apps.worker.scheduler}"]
+    command: ["sh", "-c", "exec ${WORKER_COMMAND:-python -m apps.worker.scheduler}"]
     environment:
       DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
       DOUYIN_APP_ID: ${DOUYIN_APP_ID:-CHANGE_ME_DOUYIN_APP_ID}
@@ -94,11 +105,33 @@ services:
       BROWSER_EXPORT_DOWNLOAD_DIR: ${BROWSER_EXPORT_DOWNLOAD_DIR:-/home/browser/Downloads/job-runs}
       BROWSER_EXPORT_ARTIFACT_DIR: ${BROWSER_EXPORT_ARTIFACT_DIR:-/data/browser-exports}
       BROWSER_EXPORT_COMMAND: ${BROWSER_EXPORT_COMMAND:-python -m apps.worker.browser_exports.backend_aweme}
+      BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active
       BACKEND_AWEME_EXPORT_URL: ${BACKEND_AWEME_EXPORT_URL:-https://life.douyin.com/}
+      WORKER_RESOURCE_GUARD_ENABLED: ${WORKER_RESOURCE_GUARD_ENABLED:-true}
+      WORKER_RESOURCE_WARN_HOST_USED_BYTES: ${WORKER_RESOURCE_WARN_HOST_USED_BYTES:-6442450944}
+      WORKER_RESOURCE_STOP_HOST_USED_BYTES: ${WORKER_RESOURCE_STOP_HOST_USED_BYTES:-6871947673}
+      WORKER_RESOURCE_MAX_PROCESS_TREE_RSS_BYTES: ${WORKER_RESOURCE_MAX_PROCESS_TREE_RSS_BYTES:-2147483648}
+      WORKER_RESOURCE_MAX_CGROUP_CURRENT_BYTES: ${WORKER_RESOURCE_MAX_CGROUP_CURRENT_BYTES:-3221225472}
+      WORKER_RESOURCE_MAX_SWAP_USED_BYTES: ${WORKER_RESOURCE_MAX_SWAP_USED_BYTES:-0}
       TZ: Asia/Shanghai
     volumes:
       - browser-downloads:/home/browser/Downloads
+      - browser-runtime:/run/browser
       - exports-data:/data
+    stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-5m}
+    mem_limit: ${WORKER_MEMORY_LIMIT:-3g}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os; os.kill(1, 0)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: "${LOG_MAX_FILE:-3}"
     networks:
       - app
 
@@ -125,24 +158,74 @@ services:
     restart: unless-stopped
     shm_size: "2gb"
     environment:
-      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://dy_dashboard:CHANGE_ME_POSTGRES_PASSWORD@postgres:5432/dy_dashboard}
       VNC_PASSWORD: ${BROWSER_VNC_PASSWORD:-CHANGE_ME_BROWSER_VNC_PASSWORD}
       CHROMIUM_START_URL: ${CHROMIUM_START_URL:-https://life.douyin.com/}
       SCREEN_WIDTH: ${BROWSER_SCREEN_WIDTH:-1440}
       SCREEN_HEIGHT: ${BROWSER_SCREEN_HEIGHT:-1000}
-      BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}
-      BROWSER_EXPORT_START_DELAY_SECONDS: ${BROWSER_EXPORT_START_DELAY_SECONDS:-60}
-      BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}
-      BROWSER_EXPORT_DOWNLOAD_DIR: ${BROWSER_EXPORT_DOWNLOAD_DIR:-/home/browser/Downloads/job-runs}
-      BROWSER_EXPORT_ARTIFACT_DIR: ${BROWSER_EXPORT_ARTIFACT_DIR:-/home/browser/Downloads/exports}
-      BACKEND_AWEME_EXPORT_URL: ${BACKEND_AWEME_EXPORT_URL:-https://life.douyin.com/}
       TZ: Asia/Shanghai
     volumes:
       - browser-profile:/home/browser/.config/chromium
       - browser-downloads:/home/browser/Downloads
+      - browser-runtime:/run/browser
     expose:
       - "6080"
       - "9222"
+    mem_limit: ${BROWSER_MEMORY_LIMIT:-2g}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9223), 2).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: "${LOG_MAX_FILE:-3}"
+    networks:
+      - app
+
+  ops-agent:
+    build:
+      context: ..
+      dockerfile: apps/ops_agent/Dockerfile
+    image: ${OPS_AGENT_IMAGE:-dy-dashboard-ops-agent:local}
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      browser:
+        condition: service_healthy
+    environment:
+      OPS_AGENT_DATABASE_URL: ${OPS_AGENT_DATABASE_URL:?OPS_AGENT_DATABASE_URL is required}
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-dy-dashboard}
+      OPS_AGENT_ALLOWED_TARGETS: worker,browser
+      OPS_AGENT_ALLOWED_ACTIONS: restart
+      OPS_AGENT_COMMAND_TTL_SECONDS: 120
+      OPS_AGENT_COOLDOWN_SECONDS: ${OPS_AGENT_COOLDOWN_SECONDS:-300}
+      OPS_AGENT_DOCKER_SOCKET: /var/run/docker.sock
+      BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active
+      TZ: Asia/Shanghai
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - browser-runtime:/run/browser:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    mem_limit: ${OPS_AGENT_MEMORY_LIMIT:-256m}
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os,time; p='/tmp/ops-agent.healthy'; assert os.path.exists(p) and time.time()-os.path.getmtime(p) < 30"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: ${LOG_MAX_SIZE:-10m}
+        max-file: "${LOG_MAX_FILE:-3}"
     networks:
       - app
 
@@ -171,4 +254,5 @@ volumes:
   postgres-data:
   browser-profile:
   browser-downloads:
+  browser-runtime:
   exports-data:

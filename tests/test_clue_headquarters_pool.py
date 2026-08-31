@@ -115,7 +115,8 @@ def test_exhausted_candidates_open_an_auditable_hq_entry_without_a_round(db_sess
     master = db_session.get(ClueMasterLead, lead.lead_key)
     assert entry is not None
     assert entry.status == "active"
-    assert entry.reason == "no_candidate"
+    assert entry.reason == "no_eligible_candidate"
+    assert entry.source_snapshot["original_reason_code"] == "no_candidate"
     assert entry.source_assignment_round_id is None
     assert entry.source_decision_id == result.decision_ids[-1]
     assert entry.source_rule_version_id == version.rule_version_id
@@ -142,7 +143,8 @@ def test_missing_anchor_opens_a_distinct_auditable_hq_entry_without_a_round(db_s
     assert result.status == "headquarters"
     assert result.reason == "follow_poi_missing"
     assert entry is not None
-    assert entry.reason == "follow_poi_missing"
+    assert entry.reason == "missing_follow_poi"
+    assert entry.source_snapshot["original_reason_code"] == "follow_poi_missing"
     assert entry.source_assignment_round_id is None
     assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
 

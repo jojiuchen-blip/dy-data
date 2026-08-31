@@ -23,7 +23,11 @@ from apps.api.dy_api.models import (
     utcnow,
 )
 from apps.worker.clue_allocation import haversine_km, normalize_city_code
-from apps.worker.clue_headquarters_pool import close_current_headquarters_pool_entry, enter_headquarters_pool
+from apps.worker.clue_headquarters_pool import (
+    close_current_headquarters_pool_entry,
+    enter_headquarters_pool,
+    headquarters_pool_reason_storage_values,
+)
 from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
 
 
@@ -72,8 +76,8 @@ def allocate_lead(
 ) -> AllocationResult:
     """Allocate one active M1 lead through its immutable bound rule snapshot.
 
-    This service is deliberately explicit. Collection jobs and legacy clue-center
-    rebuilding do not call it; an operator or future allocation-cycle service does.
+    This service is deliberately explicit. Collection jobs and clue-center
+    projection refreshes do not call it; an operator or allocation-cycle service does.
     """
 
     normalized_lead_key = _required_text(lead_key, "lead_key")
@@ -1085,7 +1089,7 @@ def _project_self_owned_assignment(
         and existing_center_round.execution_mode in SELF_OWNED_EXECUTION_MODES
         and existing_center_round.lead_key != lead.lead_key
     ):
-        # The legacy compatibility projection is still order-grain. Do not let
+        # The clue-center compatibility projection is still order-grain. Do not let
         # a second contact-level lead silently overwrite the first self-owned view.
         return
 
@@ -1156,7 +1160,11 @@ def _is_retriable_rule_version_unavailable(session: Session, lead_key: str) -> b
             select(ClueHeadquartersPoolEntry.headquarters_pool_entry_id)
             .where(ClueHeadquartersPoolEntry.lead_key == lead_key)
             .where(ClueHeadquartersPoolEntry.status == "active")
-            .where(ClueHeadquartersPoolEntry.reason == "rule_version_unavailable")
+            .where(
+                ClueHeadquartersPoolEntry.reason.in_(
+                    headquarters_pool_reason_storage_values("no_published_rule")
+                )
+            )
             .limit(1)
         )
         is not None

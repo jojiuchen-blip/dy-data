@@ -35,7 +35,7 @@ def test_legacy_reassign_rule_frontend_surface_is_removed() -> None:
     assert '"rebuild": {' not in clue_mock_source
 
 
-def test_allocation_module_has_exactly_four_subviews_and_sync_owns_maintenance_action() -> None:
+def test_allocation_module_has_exactly_four_subviews_and_sync_has_no_legacy_maintenance_action() -> None:
     app_source = _read("App.tsx")
     allocation_source = _read("pages/AdminClueAllocationPage.tsx")
     sync_source = _read("pages/AdminSyncPage.tsx")
@@ -64,19 +64,19 @@ def test_allocation_module_has_exactly_four_subviews_and_sync_owns_maintenance_a
     assert 'id: "maintenance"' not in allocation_source
     assert 'activeSubview === "maintenance"' not in allocation_source
     assert "rebuildClueCenterMaterialization" not in allocation_source
-    assert "rebuildClueCenterMaterialization" in client_source
-    assert '"/admin/sync/clue-center/rebuild"' in client_source
+    assert "rebuildClueCenterMaterialization" not in client_source
+    assert '"/admin/sync/clue-center/rebuild"' not in client_source
     assert '"/admin/clues/rebuild"' not in client_source
-    assert "rebuildClueCenterMaterialization" in sync_source
-    assert "线索中心数据维护" in sync_source
-    assert "不会重建任何分配试运行批次" in sync_source
-    assert "disabled={!isHighestAdmin || rebuildingClueCenter}" in sync_source
-    assert "ConfirmDialog" in sync_source
+    assert "rebuildClueCenterMaterialization" not in sync_source
+    assert "线索中心数据维护" not in sync_source
+    assert "不会重建任何分配试运行批次" not in sync_source
+    assert "rebuildingClueCenter" not in sync_source
+    assert "ConfirmDialog" not in sync_source
     assert "window.confirm(" not in sync_source
-    assert "loading={rebuildingClueCenter}" in sync_source
     assert 'aria-live="polite"' in sync_source
     assert "rebuildClueAllocationTrial" in allocation_source
-    assert '"/admin/clue-allocation/cycles/rebuild"' in client_source
+    assert '"/admin/clue-allocation/rebuild-cycles"' in client_source
+    assert '"/admin/clue-allocation/cycles/rebuild"' not in client_source
     assert "<AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />" in app_source
     assert "hasPageAccess(user, location.pathname)" in app_source
     assert 'user.is_highest_admin ? "最高管理员" : "管理员"' in shell_source

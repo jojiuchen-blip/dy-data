@@ -15,19 +15,17 @@ from apps.worker.clue_allocation import (
     materialize_clue_master_leads,
     refresh_due_store_score_snapshots,
 )
-from apps.worker.clue_center import rebuild_clue_center
-from apps.worker.clue_follow_up_state import process_due_transitions
+from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.pipeline import build_douyin_client_from_env
 from apps.worker.settlement import rebuild_settlement
 
 
 MATERIALIZATION_STAGES = (
     "clue_master_rebuild",
-    "clue_center_rebuild",
+    "clue_projection_rebuild",
     "settlement",
     "clue_master_refresh",
-    "clue_center_refresh",
-    "clue_follow_up_due",
+    "clue_projection_refresh",
     "store_score_snapshot",
 )
 DEFAULT_CLUE_MASTER_BATCH_SIZE = 2_000
@@ -48,17 +46,15 @@ def run_materialization_stage(
 ) -> Any:
     if stage in {"clue_master_rebuild", "clue_master_refresh"}:
         return materialize_clue_master_leads(session)
-    if stage in {"clue_center_rebuild", "clue_center_refresh"}:
+    if stage in {"clue_projection_rebuild", "clue_projection_refresh"}:
         client = build_douyin_client_from_env()
         resolver = getattr(client, "decrypt_cipher_texts", None)
-        return rebuild_clue_center(
+        return refresh_clue_center_projection(
             session,
             phone_plain_resolver=resolver if callable(resolver) else None,
         )
     if stage == "settlement":
         return rebuild_settlement(session, source_run_id=source_run_id)
-    if stage == "clue_follow_up_due":
-        return process_due_transitions(session)
     if stage == "store_score_snapshot":
         return refresh_due_store_score_snapshots(session)
     raise ValueError(f"Unsupported materialization stage: {stage}")

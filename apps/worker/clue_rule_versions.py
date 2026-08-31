@@ -330,6 +330,15 @@ def resolve_published_rule_version(
     return _published_match(session, ClueAllocationRule.scope_type == "global")
 
 
+def rule_version_snapshot(
+    session: Session,
+    version: ClueAllocationRuleVersion,
+) -> dict[str, Any]:
+    """Return the immutable configuration payload used for lead binding and preview checks."""
+
+    return _rule_version_snapshot(session, version)
+
+
 def bind_lead_rule_version(
     session: Session,
     *,

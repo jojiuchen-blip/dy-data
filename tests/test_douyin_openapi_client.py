@@ -103,6 +103,71 @@ def test_iter_orders_uses_search_after_cursor_value():
     assert http.calls[3]["params"]["cursor"] == '["c2","2"]'
 
 
+def test_refund_query_uses_window_and_cursor_params():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"refunds": [{"refund_event_id": "r1"}], "has_more": False}}),
+        ]
+    )
+    client = client_with(http)
+    payload = client.query_refunds(
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 2, tzinfo=timezone.utc),
+        cursor="cursor-1",
+        page_size=30,
+    )
+    assert payload["data"]["refunds"] == [{"refund_event_id": "r1"}]
+    assert http.calls[1]["params"]["cursor"] == "cursor-1"
+    assert http.calls[1]["params"]["page_size"] == 30
+    assert http.calls[1]["params"]["refund_done_start_time"] == int(datetime(2026, 8, 1, tzinfo=timezone.utc).timestamp())
+    assert http.calls[1]["params"]["refund_done_end_time"] == int(datetime(2026, 8, 2, tzinfo=timezone.utc).timestamp())
+
+
+def test_iter_refunds_stops_nonadvancing_cursor_with_auditable_error():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"refunds": [{"refund_event_id": "r1"}], "has_more": True, "next_cursor": "same"}}),
+            FakeResponse({"data": {"refunds": [{"refund_event_id": "r2"}], "has_more": True, "next_cursor": "same"}}),
+        ]
+    )
+    client = client_with(http)
+    with pytest.raises(DouyinApiError, match="cursor did not advance"):
+        list(client.iter_refunds(datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)))
+
+
+def test_iter_refunds_reads_after_sale_order_list_and_body_page_info_cursor():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"after_sale_order_list": [{"refund_event_id": "r1"}], "page_info": {"has_more": True, "cursor": "next-1"}}}),
+            FakeResponse({"data": {"after_sale_order_list": [{"refund_event_id": "r2"}], "page_info": {"has_more": False}}}),
+        ]
+    )
+    client = client_with(http)
+    rows = list(client.iter_refunds(datetime(2026, 8, 1, tzinfo=timezone.utc), datetime(2026, 8, 2, tzinfo=timezone.utc)))
+    assert rows == [{"refund_event_id": "r1"}, {"refund_event_id": "r2"}]
+    assert http.calls[2]["params"]["cursor"] == "next-1"
+
+
+def test_iter_refunds_has_more_true_without_cursor_fails_closed():
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse({"data": {"refunds": [], "has_more": "true"}}),
+        ]
+    )
+    client = client_with(http)
+    with pytest.raises(DouyinApiError, match="cursor"):
+        list(
+            client.iter_refunds(
+                datetime(2026, 8, 1, tzinfo=timezone.utc),
+                datetime(2026, 8, 2, tzinfo=timezone.utc),
+            )
+        )
+
+
 def test_verify_and_shop_poi_queries_return_raw_payloads():
     http = FakeHttp(
         [
@@ -382,6 +447,47 @@ def test_get_request_retries_system_busy_api_error():
 
     assert payload["data"]["clue_data"] == [{"clue_id": "c1"}]
     assert [call["method"] for call in http.calls] == ["POST", "GET", "GET"]
+
+
+def test_get_request_retries_rate_limit_with_longer_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            FakeResponse(
+                {
+                    "error_code": 2119003,
+                    "description": "请求太过频繁，请稍后再试",
+                }
+            ),
+            FakeResponse({"data": {"refunds": [], "has_more": False}}),
+        ]
+    )
+    sleeps: list[float] = []
+    monkeypatch.setattr(
+        "src.dy_data.douyin_client.time.sleep",
+        lambda seconds: sleeps.append(seconds),
+    )
+    client = DouyinOpenApiClient(
+        DouyinCredentials(
+            app_id="app-1",
+            app_secret="secret-1",
+            account_id="acct-1",
+        ),
+        http=http,
+        retry_sleep_seconds=1,
+        rate_limit_retry_sleep_seconds=60,
+    )
+
+    payload = client.query_refunds(
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 8, 2, tzinfo=timezone.utc),
+    )
+
+    assert payload["data"]["refunds"] == []
+    assert [call["method"] for call in http.calls] == ["POST", "GET", "GET"]
+    assert sleeps == [60]
 
 
 def test_get_request_refreshes_token_when_access_token_expires():

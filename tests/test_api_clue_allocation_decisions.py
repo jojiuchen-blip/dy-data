@@ -47,6 +47,7 @@ def _seed_users(session: Session) -> None:
                 username="database-admin",
                 display_name="Database Admin",
                 role="admin",
+                store_scope_mode="all",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("database-admin-password"),
