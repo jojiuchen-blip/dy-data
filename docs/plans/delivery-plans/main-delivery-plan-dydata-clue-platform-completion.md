@@ -99,7 +99,7 @@
 | T2.1 | [sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md](sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md) | 已完成（2026-08-31；环境门禁归入 T2.4） |
 | T2.2 | [sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md](sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md) | 已完成（2026-08-31） |
 | T2.3 | [sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md](sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md) | 已完成（2026-08-31） |
-| T2.4 | [sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md](sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md) | 进行中（本地通过；真实 PG/4C8GB 发布门禁阻断） |
+| T2.4 | [sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md](sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md) | 进行中（本地 PG 与 4C/8GB 资源通过；大量 PG 恢复与服务栈探测阻断） |
 
 ## 4. 任务看板
 
@@ -110,9 +110,10 @@
 - [x] T0.1-T2.3 的 Verification 与 Evidence 均闭合；T2.4 本地证据闭合
 - [x] 运行时代码不创建 `execution_mode=legacy` 轮次
 - [x] 自动分配与自动再分配默认关闭，现有正式轮次仍可跟进
-- [ ] Alembic 只有一个 head；本地迁移链通过，真实 PostgreSQL 专项门禁待执行
+- [x] Alembic 只有一个 head；本地迁移链、真实 PostgreSQL 空库与带数据升级通过
 - [x] 全量 pytest、Web production build、Compose 配置和 `git diff --check` 通过
-- [ ] 4C/8GB Linux 三轮资源门禁及 shadow 等价性有真实报告；若环境缺失则不得宣称 DYDATA-58 完成
+- [x] 4C/8GB Linux 三轮资源门禁及 shadow 等价性有真实本地报告
+- [ ] 大量真实 PostgreSQL 恢复验收及 HTTPS/SSH/API/PG 压测同步探测通过
 - [ ] Linear 状态与实际完成证据一致
 
 ## 6. 风险与应对
@@ -122,7 +123,7 @@
 | 旧脏 worktree 含大量未审查差异 | 误合并过时或无关代码 | 分任务抽取，逐文件审查，禁止整体 merge | 主代理 | 受控 |
 | 0030-0036 迁移已在 main、运行时模型缺失 | 迁移链与 ORM 不一致 | 先恢复依赖顺序，再运行空库/升级/降级测试 | 主代理 | 已解决（Alembic 全链 54 passed） |
 | DYDATA-34 原范围要求自动正式分配，但当前产品决策关闭自动分配 | 误将待分配线索自动下发 | 只移除 legacy 创建；正式分配保留显式触发且默认关闭 | 主代理 -> Human Owner | 已确认 |
-| 真实 PostgreSQL 与 4C/8GB Linux 环境不可用 | 无法签发最终资源门禁 | 本地功能证据已闭合；在独立环境完成 PG 与三轮资源验收前保持发布阻断 | Human Owner | 发布阻断 |
+| 大量 PostgreSQL 恢复场景和完整服务栈探测环境未建立 | 无法签发生产可用性门禁 | 本地 PG 与 4C/8GB 资源证据已通过；补齐崩溃恢复、跨日统计及 HTTPS/SSH/API/PG 同步探测前保持发布阻断 | Human Owner | 发布阻断 |
 
 ## 7. AI 执行示例
 

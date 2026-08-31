@@ -3895,6 +3895,12 @@ def test_desktop_detail_pages_keep_pagination_visible_and_scroll_table_region(
         install_api_routes(page)
         page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
         page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+        page.locator(
+            ".content-section--data-workspace .table-wrap--contained-sticky"
+        ).wait_for(timeout=10000)
+        page.locator(
+            ".content-section--data-workspace .table-pagination"
+        ).wait_for(timeout=10000)
 
         metrics = page.evaluate(
             """() => {

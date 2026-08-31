@@ -319,8 +319,39 @@ def test_candidate_database_url_requires_explicit_safe_test_target() -> None:
     assert accepted.port == 55432
 
 
+def test_candidate_session_factory_preserves_internal_database_credentials(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from scripts.ops import run_daily_candidate_acceptance as candidate
+
+    database_url = (
+        "postgresql+psycopg://dydata_t52:local-secret@"
+        "127.0.0.1:55432/dydata_t52"
+    )
+    captured: dict[str, object] = {}
+    monkeypatch.setenv("DYDATA_T52_TEST_DATABASE_URL", database_url)
+    monkeypatch.setattr(
+        candidate,
+        "make_engine",
+        lambda normalized_url: captured.setdefault("engine_url", normalized_url),
+    )
+    monkeypatch.setattr(
+        candidate,
+        "make_session_factory",
+        lambda engine: ("factory", engine),
+    )
+
+    factory, normalized_url = candidate.get_test_session_factory()
+
+    assert normalized_url == database_url
+    assert "***" not in normalized_url
+    assert captured["engine_url"] == database_url
+    assert factory == ("factory", database_url)
+
+
 def test_candidate_acceptance_runs_only_exact_planned_children_and_writes_report(
     tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     from apps.worker.subprocess_supervisor import ChildRunResult, ChildRunStatus
     from scripts.ops.run_daily_candidate_acceptance import run_candidate_acceptance
@@ -363,6 +394,7 @@ def test_candidate_acceptance_runs_only_exact_planned_children_and_writes_report
         )
 
     def fake_run(_factory: object, *, job_id: str) -> ChildRunResult:
+        assert os.environ["DY_WORKER_FAKE_DOUYIN"] == "true"
         executed_job_ids.append(job_id)
         rss = 128 * 1024**2 if job_id.endswith("clue_center") else 256 * 1024**2
         return ChildRunResult(
@@ -375,6 +407,7 @@ def test_candidate_acceptance_runs_only_exact_planned_children_and_writes_report
             lease_seen=True,
         )
 
+    monkeypatch.setenv("DY_WORKER_FAKE_DOUYIN", "existing-value")
     report_path = tmp_path / "candidate.json"
     report = run_candidate_acceptance(
         factory,
@@ -393,6 +426,7 @@ def test_candidate_acceptance_runs_only_exact_planned_children_and_writes_report
     assert report.rss_peak_bytes == 256 * 1024**2
     assert planned_targets == ["clue_center", "settlement"]
     assert executed_job_ids == ["child-clue_center", "child-settlement"]
+    assert os.environ["DY_WORKER_FAKE_DOUYIN"] == "existing-value"
     assert all(session.committed and session.closed for session in sessions)
     assert all(not session.rolled_back for session in sessions)
     persisted = json.loads(report_path.read_text(encoding="utf-8"))

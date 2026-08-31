@@ -157,7 +157,7 @@ def upgrade() -> None:
             UPDATE clue_assignment_rounds
             SET execution_mode = 'formal',
                 auto_expiry_enabled = CASE
-                    WHEN round_status IN ('active_unfollowed', 'active_followed') THEN 0
+                    WHEN round_status IN ('active_unfollowed', 'active_followed') THEN FALSE
                     ELSE auto_expiry_enabled
                 END
             WHERE execution_mode = 'legacy'

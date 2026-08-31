@@ -12,6 +12,7 @@ variables, and it never performs deployment or container control.
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import json
 import os
 import sys
@@ -143,7 +144,7 @@ def get_test_session_factory() -> tuple[Any, str]:
 
     raw_url = get_test_database_url()
     validated_url = validated_test_database_url(raw_url)
-    normalized_url = str(validated_url)
+    normalized_url = validated_url.render_as_string(hide_password=False)
     return make_session_factory(make_engine(normalized_url)), normalized_url
 
 
@@ -161,6 +162,22 @@ def _child_report(result: ChildRunResult) -> CandidateChildReport:
             result.termination_reason.value if result.termination_reason is not None else None
         ),
     )
+
+
+@contextmanager
+def _credential_free_child_environment():
+    """Keep the local acceptance child offline without leaking env changes."""
+
+    name = "DY_WORKER_FAKE_DOUYIN"
+    previous = os.environ.get(name)
+    os.environ[name] = "true"
+    try:
+        yield
+    finally:
+        if previous is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = previous
 
 
 def run_candidate_acceptance(
@@ -225,7 +242,8 @@ def run_candidate_acceptance(
             f"planned child count {len(child_job_ids)} exceeds max_children {max_children}"
         )
 
-    results = tuple(run_fn(factory, job_id=job_id) for job_id in child_job_ids)
+    with _credential_free_child_environment():
+        results = tuple(run_fn(factory, job_id=job_id) for job_id in child_job_ids)
     children = tuple(_child_report(result) for result in results)
     all_success = (
         not incomplete_plans

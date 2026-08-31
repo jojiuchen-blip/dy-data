@@ -192,6 +192,16 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
     assert 'command: ["alembic", "upgrade", "head"]' in compose
 
 
+def test_postgres_release_gates_track_the_current_alembic_head():
+    expected_head = 'EXPECTED_HEAD = "20260831_0046"'
+    for relative_path in (
+        "scripts/verify_postgres_release_gate.py",
+        "scripts/verify_postgres_populated_release_gate.py",
+        "scripts/verify_postgres_target_release.py",
+    ):
+        assert expected_head in (ROOT / relative_path).read_text(encoding="utf-8")
+
+
 def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
     workflows = [
         ROOT / ".github" / "workflows" / "ci-cd.yml",

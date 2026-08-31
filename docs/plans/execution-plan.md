@@ -18,14 +18,14 @@
 
 ## 3. 进行中任务
 
-- `T2.4 / DYDATA-58`：本地代码与功能门禁已完成，状态为 `LOCAL FUNCTIONAL GREEN / RELEASE BLOCKED`。
-- 本地证据包括全量 `2225 passed / 128 skipped`、Web production build、Alembic 单 head、Compose 解析以及 shadow/checkpoint 验收。
+- `T2.4 / DYDATA-58`：本地代码、真实 PostgreSQL 候选子任务和 4C/8GB 三轮资源门禁已完成，状态为 `LOCAL PG + 4C/8GB GREEN / SERVICE-PROBE RELEASE BLOCKED`。
+- 本地证据包括全量 `2227 passed / 128 skipped`、Web production build、Alembic 单 head、真实 PostgreSQL 空库/带数据升级、日任务心跳/租约，以及 155,000 行在 4C/8GB Linux 下的三轮 shadow 与资源报告。
 - 保护未跟踪规格文件、旧隔离 worktree 和 `stash@{0}`；不执行生产部署、重启或数据写入。
 
 ## 4. 下一步任务
 
-- 在独立、可丢弃的真实 PostgreSQL 测试库完成原子领取、租约、fencing、崩溃恢复和跨日统计验证。
-- 在 4C/8GB Linux 环境连续运行三轮资源验收，验证 worker RSS、主机内存、swap/OOM 及 HTTPS、SSH、API、PostgreSQL 可用性。
+- 在已填充大量脱敏数据的真实 PostgreSQL 测试库完成原子领取、租约抢占、epoch fencing、崩溃恢复和跨日统计验证。
+- 在三轮资源运行期间同步探测 HTTPS、SSH、API 和 PostgreSQL 可用性；已完成的本地文件级 4C/8GB benchmark 不替代该服务栈门禁。
 - Linear OAuth 恢复后，将本地完成证据回写对应 issue；`DYDATA-58` 在外部发布门禁通过前不改为完成。
 
 ## 5. 完成标准
