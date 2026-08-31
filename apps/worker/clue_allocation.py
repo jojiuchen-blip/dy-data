@@ -73,6 +73,7 @@ MASTER_STATUS_REPAIR_LOCK = "clue-allocation-master-status-repair"
 MASTER_TERMINAL_SYNC_LOCK = "clue-allocation-master-terminal-sync"
 SCHEDULED_SCORE_REFRESH_LOCK = "clue-allocation-scheduled-score-refresh"
 BUSINESS_EXECUTION_MODE = "formal"
+STATUS_REPAIR_EXECUTION_MODES = ("legacy", BUSINESS_EXECUTION_MODE)
 MATERIALIZATION_QUERY_BATCH_SIZE = 10_000
 CENTER_ORDER_BATCH_SIZE = 64
 ANCHOR_UNAVAILABLE_REASONS = (
@@ -883,6 +884,7 @@ def refresh_unknown_clue_master_statuses(
                         lifecycle_status,
                         close_at,
                         current_assignment_round_id=lead.current_assignment_round_id,
+                        closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
                 if resolution.normalized_status != "unknown" or previous_state[3] != lifecycle_status:
                     _record_status_event(
@@ -977,7 +979,7 @@ def synchronize_non_active_clue_states(
                 for round_row in session.scalars(
                     select(ClueAssignmentRound)
                     .where(ClueAssignmentRound.order_id.in_(order_ids))
-                    .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
+                    .where(ClueAssignmentRound.execution_mode.in_(STATUS_REPAIR_EXECUTION_MODES))
                     .where(ClueAssignmentRound.round_status.in_(active_round_statuses))
                 ).all():
                     rounds_by_order[round_row.order_id].append(round_row)
@@ -1028,6 +1030,7 @@ def synchronize_non_active_clue_states(
                         lifecycle_status,
                         closed_at,
                         current_assignment_round_id=round_row.assignment_round_id,
+                        closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
                 if center_needs_update:
                     _close_current_assignment(
@@ -1035,6 +1038,7 @@ def synchronize_non_active_clue_states(
                         order_id,
                         lifecycle_status,
                         closed_at,
+                        closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
 
             if not dry_run:
@@ -4134,6 +4138,7 @@ def _close_current_assignment(
     current_assignment_round_id: str | None = None,
     center_orders_by_id: dict[str, ClueCenterOrder] | None = None,
     current_rounds_by_id: dict[str, ClueAssignmentRound] | None = None,
+    closable_execution_modes: tuple[str, ...] = (BUSINESS_EXECUTION_MODE,),
 ) -> None:
     center_order = (
         center_orders_by_id.get(order_id)
@@ -4151,7 +4156,7 @@ def _close_current_assignment(
         if round_id and current_rounds_by_id is not None
         else (session.get(ClueAssignmentRound, round_id) if round_id else None)
     )
-    if round_row is not None and round_row.execution_mode == BUSINESS_EXECUTION_MODE:
+    if round_row is not None and round_row.execution_mode in closable_execution_modes:
         round_row.round_status = round_status
         round_row.terminal_reason = terminal_reason
         round_row.matured_at = closed_at
