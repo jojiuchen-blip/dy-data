@@ -93,6 +93,15 @@ const moduleNavItems: ModuleNavItem[] = [
     description: "财务管理",
   },
   {
+    href: "/finance/promotion",
+    pageKey: "D01",
+    pageKeys: ["D01"],
+    icon: "details",
+    label: "财务",
+    section: "finance",
+    description: "财务管理",
+  },
+  {
     href: "/admin",
     pageKey: "D01",
     pageKeys: ["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10"],
