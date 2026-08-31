@@ -209,7 +209,7 @@ services:
       OPS_AGENT_ALLOWED_TARGETS: worker,browser
       OPS_AGENT_ALLOWED_ACTIONS: restart
       OPS_AGENT_COMMAND_TTL_SECONDS: 120
-      OPS_AGENT_COOLDOWN_SECONDS: 300
+      OPS_AGENT_COOLDOWN_SECONDS: ${OPS_AGENT_COOLDOWN_SECONDS:-300}
       OPS_AGENT_DOCKER_SOCKET: /var/run/docker.sock
       BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active
       TZ: Asia/Shanghai

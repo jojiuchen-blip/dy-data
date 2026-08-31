@@ -117,14 +117,17 @@ def _seed_heartbeat(
 
 
 class FakeDocker:
-    def __init__(self, refs, *, on_restart=None):
+    def __init__(self, refs, *, on_restart=None, on_resolve=None):
         self.refs = list(refs)
         self.on_restart = on_restart
+        self.on_resolve = on_resolve
         self.resolve_calls: list[str] = []
         self.restart_calls: list[tuple[str, str, int]] = []
 
     def resolve_target(self, target: str):
         self.resolve_calls.append(target)
+        if self.on_resolve is not None:
+            self.on_resolve(len(self.resolve_calls))
         return list(self.refs)
 
     def restart(self, container, *, grace_seconds: int) -> None:
@@ -140,8 +143,12 @@ def _agent(
     *,
     instance_id: str = "ops-agent-test",
     clock=None,
+    monotonic=None,
+    sleep=None,
     browser_active_file: Path | None = None,
     command_ttl_seconds: int = 120,
+    heartbeat_timeout_seconds: float = 0,
+    heartbeat_poll_seconds: float = 0,
 ):
     from apps.ops_agent.main import OpsAgent
 
@@ -150,9 +157,10 @@ def _agent(
         docker=docker,
         instance_id=instance_id,
         clock=clock or (lambda: now),
-        sleep=lambda _seconds: None,
-        heartbeat_timeout_seconds=0,
-        heartbeat_poll_seconds=0,
+        monotonic=monotonic,
+        sleep=sleep or (lambda _seconds: None),
+        heartbeat_timeout_seconds=heartbeat_timeout_seconds,
+        heartbeat_poll_seconds=heartbeat_poll_seconds,
         browser_active_file=browser_active_file,
         command_ttl_seconds=command_ttl_seconds,
     )
@@ -306,6 +314,7 @@ def test_worker_restart_is_graceful_and_requires_replacement_heartbeat(factory) 
 
     assert result is not None and result.status == "success"
     assert result.result_code == "restart_confirmed"
+    assert docker.resolve_calls == ["worker", "worker"]
     assert docker.restart_calls == [("worker", "worker-1", 300)]
     with factory() as session:
         command = session.get(OpsCommand, command_id)
@@ -332,6 +341,167 @@ def test_restart_without_replacement_heartbeat_is_not_reported_success(factory) 
 
     assert result is not None and result.status == "failed"
     assert result.result_code == "replacement_heartbeat_timeout"
+
+
+def test_claim_lease_sums_all_serial_restart_wait_budgets(factory) -> None:
+    from apps.ops_agent.docker_api import (
+        DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS,
+        RESTART_RESPONSE_PADDING_SECONDS,
+    )
+
+    now = datetime(2026, 8, 9, 1, 26, tzinfo=UTC)
+    agent = _agent(
+        factory,
+        FakeDocker([]),
+        now,
+        command_ttl_seconds=120,
+        heartbeat_timeout_seconds=90,
+        heartbeat_poll_seconds=2,
+    )
+
+    assert agent._claim_lease_seconds("worker") == (
+        120
+        + (2 * DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS)
+        + 300
+        + RESTART_RESPONSE_PADDING_SECONDS
+        + 90
+        + 2
+        + 1
+    )
+
+
+def test_claim_is_extended_when_remaining_restart_budget_outlives_lease(factory) -> None:
+    from apps.ops_agent.main import CommandEnvelope
+
+    now = datetime(2026, 8, 9, 1, 26, 15, tzinfo=UTC)
+    command_id = _seed_command(factory, now=now)
+    clock = [now]
+    agent = _agent(
+        factory,
+        FakeDocker([]),
+        now,
+        clock=lambda: clock[0],
+        command_ttl_seconds=1,
+    )
+    claim = agent._claim_next()
+    assert isinstance(claim, CommandEnvelope)
+    original_expiry = claim.expires_at
+    clock[0] = original_expiry - timedelta(seconds=1)
+
+    renewed = agent._renew_claim(
+        claim,
+        agent._remaining_lease_seconds("worker", include_lookup=False),
+    )
+
+    assert renewed.expires_at > original_expiry
+    with factory() as session:
+        command = session.get(OpsCommand, command_id)
+        assert command is not None
+        expires_at = command.expires_at
+        assert expires_at is not None
+        assert expires_at.replace(tzinfo=UTC) == renewed.expires_at
+
+
+def test_sent_restart_cannot_be_reclaimed_while_waiting_for_heartbeat(factory) -> None:
+    from apps.ops_agent.docker_api import ContainerRef
+
+    now = datetime(2026, 8, 9, 1, 26, 30, tzinfo=UTC)
+    command_id = _seed_command(factory, now=now)
+    _seed_heartbeat(
+        factory,
+        component_type="worker",
+        instance_id="worker-old",
+        now=now,
+        started_at=now - timedelta(hours=1),
+    )
+    wall_clock = [now]
+    monotonic_clock = [0.0]
+    restart_sent = [False]
+    reclaim_attempts = []
+
+    def mark_restart_sent() -> None:
+        restart_sent[0] = True
+        # This is past the old max(grace, heartbeat, ttl) lease of 315 seconds.
+        wall_clock[0] = now + timedelta(seconds=320)
+
+    docker = FakeDocker(
+        [ContainerRef(container_id="worker-1", service="worker")],
+        on_restart=mark_restart_sent,
+    )
+
+    def wait_for_heartbeat(seconds: float) -> None:
+        assert restart_sent[0]
+        contender = _agent(
+            factory,
+            FakeDocker([]),
+            wall_clock[0],
+            instance_id="ops-agent-contender",
+            clock=lambda: wall_clock[0],
+        )
+        reclaim_attempts.append(contender._claim_next())
+        _seed_heartbeat(
+            factory,
+            component_type="worker",
+            instance_id="worker-new",
+            now=wall_clock[0] + timedelta(seconds=1),
+            started_at=wall_clock[0] + timedelta(seconds=1),
+        )
+        monotonic_clock[0] += seconds
+
+    result = _agent(
+        factory,
+        docker,
+        now,
+        clock=lambda: wall_clock[0],
+        monotonic=lambda: monotonic_clock[0],
+        sleep=wait_for_heartbeat,
+        command_ttl_seconds=1,
+        heartbeat_timeout_seconds=90,
+        heartbeat_poll_seconds=30,
+    ).run_once()
+
+    assert result is not None and result.status == "success"
+    assert docker.restart_calls == [("worker", "worker-1", 300)]
+    assert reclaim_attempts == [None]
+    with factory() as session:
+        command = session.get(OpsCommand, command_id)
+        assert command is not None and command.status == "success"
+        assert command.claimed_by == "ops-agent-test"
+        assert command.lease_epoch == 1
+
+
+def test_owner_epoch_and_lease_are_rechecked_immediately_before_restart(factory) -> None:
+    from apps.ops_agent.docker_api import ContainerRef
+
+    now = datetime(2026, 8, 9, 1, 26, 45, tzinfo=UTC)
+    command_id = _seed_command(factory, now=now)
+
+    def fence_old_owner(resolve_count: int) -> None:
+        if resolve_count != 2:
+            return
+        with factory() as session:
+            command = session.get(OpsCommand, command_id)
+            assert command is not None
+            command.claimed_by = "ops-agent-reclaimer"
+            command.lease_epoch = (command.lease_epoch or 0) + 1
+            command.expires_at = now + timedelta(minutes=20)
+            session.commit()
+
+    docker = FakeDocker(
+        [ContainerRef(container_id="worker-1", service="worker")],
+        on_resolve=fence_old_owner,
+    )
+
+    result = _agent(factory, docker, now).run_once()
+
+    assert result is not None and result.result_code == "command_lease_lost"
+    assert docker.resolve_calls == ["worker", "worker"]
+    assert docker.restart_calls == []
+    with factory() as session:
+        command = session.get(OpsCommand, command_id)
+        assert command is not None and command.status == "running"
+        assert command.claimed_by == "ops-agent-reclaimer"
+        assert command.lease_epoch == 2
 
 
 def test_expired_running_command_is_reclaimed_and_old_owner_is_fenced(factory) -> None:
@@ -475,6 +645,54 @@ def test_docker_restart_response_timeout_covers_the_grace_period(grace_seconds: 
     assert timeout is not None
     assert timeout > grace_seconds
     assert timeout <= grace_seconds + 30
+
+
+@pytest.mark.parametrize(
+    ("status", "result_code"),
+    [
+        ("success", "restart_confirmed"),
+        ("failed", "restart_request_failed"),
+        ("rejected", "container_match_count"),
+    ],
+)
+def test_finish_starts_fixed_cooldown_from_completion_time(
+    factory,
+    status: str,
+    result_code: str,
+) -> None:
+    from apps.ops_agent.main import CommandEnvelope
+
+    now = datetime(2026, 8, 9, 1, 29, 30, tzinfo=UTC)
+    command_id = _seed_command(factory, now=now)
+    clock = [now]
+    agent = _agent(factory, FakeDocker([]), now, clock=lambda: clock[0])
+    claim = agent._claim_next()
+    assert isinstance(claim, CommandEnvelope)
+    clock[0] = now + timedelta(seconds=17)
+
+    agent._finish(claim, status, result_code)
+
+    with factory() as session:
+        command = session.get(OpsCommand, command_id)
+        assert command is not None and command.status == status
+        cooldown_until = command.cooldown_until
+        assert cooldown_until is not None
+        assert cooldown_until.replace(tzinfo=UTC) == clock[0] + timedelta(seconds=300)
+
+
+def test_cooldown_environment_is_read_but_cannot_change_fixed_window(monkeypatch) -> None:
+    from apps.ops_agent.main import _cooldown_seconds_from_env
+
+    monkeypatch.setenv("OPS_AGENT_COOLDOWN_SECONDS", "300")
+    assert _cooldown_seconds_from_env() == 300
+
+    monkeypatch.setenv("OPS_AGENT_COOLDOWN_SECONDS", "299")
+    with pytest.raises(RuntimeError, match="fixed at 300"):
+        _cooldown_seconds_from_env()
+
+    monkeypatch.setenv("OPS_AGENT_COOLDOWN_SECONDS", "not-an-integer")
+    with pytest.raises(RuntimeError, match="integer"):
+        _cooldown_seconds_from_env()
 
 
 def test_static_environment_cannot_widen_ops_agent_allowlist(monkeypatch) -> None:

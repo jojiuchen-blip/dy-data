@@ -6,21 +6,23 @@ import math
 import os
 import signal
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import make_engine, make_session_factory
 from apps.api.dy_api.models import ComponentHeartbeat, JobRun, OpsCommand
 from apps.ops_agent.docker_api import (
     ALLOWED_TARGETS,
+    DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS,
     DockerAPI,
     DockerAPIError,
     GuardrailViolation,
+    RESTART_RESPONSE_PADDING_SECONDS,
     UnixSocketDockerTransport,
 )
 
@@ -30,8 +32,8 @@ _ALLOWED_ACTIONS = frozenset({"restart"})
 DEFAULT_COMMAND_TTL_SECONDS = 120
 MIN_COMMAND_TTL_SECONDS = 1
 MAX_COMMAND_TTL_SECONDS = 3600
+DEFAULT_COOLDOWN_SECONDS = 300
 _RESTART_GRACE_SECONDS = {"worker": 300, "browser": 30}
-_RESTART_RESPONSE_PADDING_SECONDS = 15
 
 
 def _handle_stop(_signum: int, _frame: object) -> None:
@@ -93,11 +95,13 @@ class OpsAgent:
         docker: DockerAPI,
         instance_id: str,
         clock: Callable[[], datetime] | None = None,
+        monotonic: Callable[[], float] | None = None,
         sleep: Callable[[float], None] | None = None,
         heartbeat_timeout_seconds: float = 90,
         heartbeat_poll_seconds: float = 2,
         browser_active_file: Path | str | None = None,
         command_ttl_seconds: int = DEFAULT_COMMAND_TTL_SECONDS,
+        cooldown_seconds: int = DEFAULT_COOLDOWN_SECONDS,
     ) -> None:
         if not instance_id.strip():
             raise ValueError("ops agent instance_id is required")
@@ -108,15 +112,19 @@ class OpsAgent:
                 "command_ttl_seconds must be between "
                 f"{MIN_COMMAND_TTL_SECONDS} and {MAX_COMMAND_TTL_SECONDS}"
             )
+        if cooldown_seconds != DEFAULT_COOLDOWN_SECONDS:
+            raise ValueError(f"cooldown_seconds must be fixed at {DEFAULT_COOLDOWN_SECONDS}")
         self.factory = factory
         self.docker = docker
         self.instance_id = instance_id.strip()
         self.clock = clock or (lambda: datetime.now(UTC))
+        self.monotonic = monotonic or time.monotonic
         self.sleep = sleep or time.sleep
         self.heartbeat_timeout_seconds = heartbeat_timeout_seconds
         self.heartbeat_poll_seconds = heartbeat_poll_seconds
         self.browser_active_file = Path(browser_active_file) if browser_active_file else None
         self.command_ttl_seconds = command_ttl_seconds
+        self.cooldown_seconds = cooldown_seconds
 
     def run_once(self) -> CommandExecutionResult | None:
         claimed = self._claim_next()
@@ -140,15 +148,29 @@ class OpsAgent:
         before = self._latest_heartbeat(command.target_component)
         grace_seconds = self._restart_grace_seconds(command.target_component)
         try:
-            # The concrete Docker client resolves again immediately before the
-            # side effect. Test doubles may expose only the lower-level method.
-            if isinstance(self.docker, DockerAPI):
-                self.docker.restart_target(
-                    command.target_component,
-                    grace_seconds=grace_seconds,
-                )
-            else:
-                self.docker.restart(matches[0], grace_seconds=grace_seconds)
+            command = self._renew_claim(
+                command,
+                self._remaining_lease_seconds(command.target_component, include_lookup=True),
+            )
+        except RuntimeError:
+            return CommandExecutionResult(command.command_id, "failed", "command_lease_lost")
+        try:
+            restart_matches = self.docker.resolve_target(command.target_component)
+        except GuardrailViolation:
+            return self._finish(command, "rejected", "restart_guardrail_rejected")
+        except DockerAPIError:
+            return self._finish(command, "failed", "restart_request_failed")
+        if len(restart_matches) != 1:
+            return self._finish(command, "rejected", "restart_guardrail_rejected")
+        try:
+            command = self._renew_claim(
+                command,
+                self._remaining_lease_seconds(command.target_component, include_lookup=False),
+            )
+        except RuntimeError:
+            return CommandExecutionResult(command.command_id, "failed", "command_lease_lost")
+        try:
+            self.docker.restart(restart_matches[0], grace_seconds=grace_seconds)
         except GuardrailViolation:
             return self._finish(command, "rejected", "restart_guardrail_rejected")
         except DockerAPIError:
@@ -164,17 +186,64 @@ class OpsAgent:
             raise GuardrailViolation("target is not allowlisted") from exc
 
     def _claim_lease_seconds(self, target_component: str) -> int:
-        # A lease must outlive the bounded Docker restart request and heartbeat
-        # confirmation; otherwise a healthy worker restart could be reclaimed
-        # while its side effect is still in flight.
-        heartbeat_budget = int(
-            math.ceil(self.heartbeat_timeout_seconds + self.heartbeat_poll_seconds + 1)
+        return int(
+            math.ceil(
+                self.command_ttl_seconds
+                + (2 * DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS)
+                + self._restart_grace_seconds(target_component)
+                + RESTART_RESPONSE_PADDING_SECONDS
+                + self.heartbeat_timeout_seconds
+                + self.heartbeat_poll_seconds
+                + 1
+            )
         )
-        return max(
-            self.command_ttl_seconds,
-            self._restart_grace_seconds(target_component) + _RESTART_RESPONSE_PADDING_SECONDS,
-            heartbeat_budget,
+
+    def _remaining_lease_seconds(self, target_component: str, *, include_lookup: bool) -> int:
+        lookup_budget = DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS if include_lookup else 0
+        return int(
+            math.ceil(
+                lookup_budget
+                + self._restart_grace_seconds(target_component)
+                + RESTART_RESPONSE_PADDING_SECONDS
+                + self.heartbeat_timeout_seconds
+                + self.heartbeat_poll_seconds
+                + 1
+            )
         )
+
+    def _renew_claim(
+        self,
+        command: CommandEnvelope,
+        minimum_remaining_seconds: int,
+    ) -> CommandEnvelope:
+        now = _as_utc(self.clock())
+        assert now is not None
+        renewed_until = now + timedelta(seconds=minimum_remaining_seconds)
+        with self.factory() as session:
+            renewed = session.execute(
+                update(OpsCommand)
+                .where(
+                    OpsCommand.command_id == command.command_id,
+                    OpsCommand.status == "running",
+                    OpsCommand.claimed_by == command.claimed_by,
+                    OpsCommand.lease_epoch == command.lease_epoch,
+                    OpsCommand.expires_at > now,
+                )
+                .values(
+                    expires_at=case(
+                        (OpsCommand.expires_at < renewed_until, renewed_until),
+                        else_=OpsCommand.expires_at,
+                    ),
+                    updated_at=now,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if renewed.rowcount != 1:
+                session.rollback()
+                raise RuntimeError("ops command lease was lost before restart")
+            session.commit()
+        current_expiry = _as_utc(command.expires_at) or renewed_until
+        return replace(command, expires_at=max(current_expiry, renewed_until))
 
     def _claim_next(self) -> CommandEnvelope | CommandExecutionResult | None:
         now = _as_utc(self.clock())
@@ -308,6 +377,7 @@ class OpsAgent:
                 .values(
                     status=status,
                     finished_at=now,
+                    cooldown_until=now + timedelta(seconds=self.cooldown_seconds),
                     result_code=result_code,
                     result_summary=result_code.replace("_", " "),
                     updated_at=now,
@@ -367,7 +437,7 @@ class OpsAgent:
         command: CommandEnvelope,
         before: ComponentHeartbeat | None,
     ) -> bool:
-        deadline = time.monotonic() + self.heartbeat_timeout_seconds
+        deadline = self.monotonic() + self.heartbeat_timeout_seconds
         while True:
             current = self._latest_heartbeat(command.target_component)
             if current is not None:
@@ -390,7 +460,7 @@ class OpsAgent:
                     and (different_instance or restarted_same_instance)
                 ):
                     return True
-            if time.monotonic() >= deadline:
+            if self.monotonic() >= deadline:
                 return False
             self.sleep(self.heartbeat_poll_seconds)
 
@@ -451,6 +521,19 @@ def _command_ttl_from_env() -> int:
     return value
 
 
+def _cooldown_seconds_from_env() -> int:
+    raw = os.getenv("OPS_AGENT_COOLDOWN_SECONDS", str(DEFAULT_COOLDOWN_SECONDS))
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("OPS_AGENT_COOLDOWN_SECONDS must be an integer") from exc
+    if value != DEFAULT_COOLDOWN_SECONDS:
+        raise RuntimeError(
+            f"OPS_AGENT_COOLDOWN_SECONDS must be fixed at {DEFAULT_COOLDOWN_SECONDS}"
+        )
+    return value
+
+
 def _poll_seconds_from_env() -> float:
     raw = os.getenv("OPS_AGENT_POLL_SECONDS", "2")
     try:
@@ -479,6 +562,7 @@ def main() -> None:
             "BROWSER_EXPORT_ACTIVE_FILE", "/run/browser/browser-export.active"
         ),
         command_ttl_seconds=_command_ttl_from_env(),
+        cooldown_seconds=_cooldown_seconds_from_env(),
     )
     health_file = Path(os.getenv("OPS_AGENT_HEALTH_FILE", "/tmp/ops-agent.healthy"))
     poll_seconds = _poll_seconds_from_env()

@@ -1,6 +1,38 @@
 #!/usr/bin/env bash
 set -eu
 
+BROWSER_EXPORT_ACTIVE_FILE="${BROWSER_EXPORT_ACTIVE_FILE:-/run/browser/browser-export.active}"
+if [ "$BROWSER_EXPORT_ACTIVE_FILE" != "/run/browser/browser-export.active" ]; then
+  echo "BROWSER_EXPORT_ACTIVE_FILE is fixed" >&2
+  exit 2
+fi
+BROWSER_EXPORT_ACTIVE_DIR="$(dirname "$BROWSER_EXPORT_ACTIVE_FILE")"
+
+# BEGIN browser export marker guard
+run_browser_export_with_marker() (
+  marker_tmp=""
+
+  cleanup_browser_export_marker() {
+    status="$?"
+    trap - EXIT HUP INT TERM
+    if [ -n "$marker_tmp" ]; then
+      rm -f -- "$marker_tmp"
+    fi
+    rm -f -- "$BROWSER_EXPORT_ACTIVE_FILE"
+    exit "$status"
+  }
+
+  trap cleanup_browser_export_marker EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  marker_tmp="$(mktemp "${BROWSER_EXPORT_ACTIVE_FILE}.tmp.XXXXXX")" || exit 1
+  mv -f -- "$marker_tmp" "$BROWSER_EXPORT_ACTIVE_FILE" || exit 1
+  "$@"
+)
+# END browser export marker guard
+
 if [ "$(id -u)" = "0" ] && [ "${BROWSER_ENTRYPOINT_AS_BROWSER:-}" != "1" ]; then
   export HOME=/home/browser
   mkdir -p \
@@ -8,12 +40,14 @@ if [ "$(id -u)" = "0" ] && [ "${BROWSER_ENTRYPOINT_AS_BROWSER:-}" != "1" ]; then
     "$HOME/.config/chromium" \
     "$HOME/.cache" \
     "$HOME/.vnc" \
+    "$BROWSER_EXPORT_ACTIVE_DIR" \
     /tmp/chromium-crashes
   chown -R browser:browser \
     "$HOME/Downloads" \
     "$HOME/.config" \
     "$HOME/.cache" \
     "$HOME/.vnc" \
+    "$BROWSER_EXPORT_ACTIVE_DIR" \
     /tmp/chromium-crashes
   export BROWSER_ENTRYPOINT_AS_BROWSER=1
   exec gosu browser "$0" "$@"
@@ -25,6 +59,8 @@ if [ -z "${VNC_PASSWORD:-}" ]; then
 fi
 
 NOVNC_PORT="${PORT:-${NOVNC_PORT:-6080}}"
+mkdir -p "$BROWSER_EXPORT_ACTIVE_DIR"
+rm -f -- "$BROWSER_EXPORT_ACTIVE_FILE"
 export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 mkdir -p \
@@ -153,7 +189,8 @@ if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
           echo "chromium_not_running status_unknown"
           tail -n 120 /tmp/chromium.log || true
         fi
-        if BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}" \
+        if run_browser_export_with_marker env \
+          BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}" \
           WORKER_MODE=browser_export_only \
           WORKER_RUN_ONCE=true \
           WORKER_RUN_ON_START=true \

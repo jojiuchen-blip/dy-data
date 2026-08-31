@@ -214,11 +214,25 @@ python scripts/refresh_store_scores.py --lookback-days 30 --min-samples 20 --dry
 
 Ops Agent 是独立的、无 HTTP 端口的运维进程。它只接受数据库中已确认的两类固定命令：`restart(worker)` 和 `restart(browser)`；不提供 shell、exec、stop、remove、scale、镜像或任意参数入口。Docker socket 只挂载到 Ops Agent，API 服务不挂载 Docker socket。目标容器必须通过当前 Compose project/service label 唯一匹配；零个或多个匹配均 fail closed。
 
-命令 claim 使用短 TTL（pending 默认 120 秒）和单目标活动唯一约束。运行中的过期 claim 会回收为 pending，并递增 `lease_epoch`；完成更新必须同时匹配 command、owner、epoch 且仍未过期，因此旧执行者不能完成已被回收的命令。为覆盖 worker 固定 300 秒 Docker grace period，worker 的已领取 lease 会自动延长到 grace 加响应余量，仍受有限 TTL 约束。每个目标还有默认 300 秒冷却配置；实际生产启用前应核对管理侧命令写入与数据库角色权限。
+命令 claim 使用短 TTL（pending 默认 120 秒）和单目标活动唯一约束。运行中的过期 claim 会回收为 pending，并递增 `lease_epoch`；完成更新必须同时匹配 command、owner、epoch 且仍未过期，因此旧执行者不能完成已被回收的命令。已领取 lease 的有限预算按串行链路相加：pending TTL 余量、两次 Docker label 查询、restart grace/响应余量和 replacement heartbeat 等待；restart 副作用前还会原子校验 owner/epoch/lease 并按剩余链路续租。每次命令成功、失败或拒绝完成时，`cooldown_until` 都从完成时间重新起算固定 300 秒。
 
 重启 browser 前，Ops Agent 会拒绝活动导出：检查共享的 `/run/browser/browser-export.active` 标记、browser heartbeat 活动字段，以及 `job_runs` 中 `backend_aweme_export` 的 queued/running 状态。worker 重启使用 300 秒 Docker grace period；Compose 的 `exec` 命令保证 SIGTERM 传递到 scheduler，scheduler 应先停止领取新任务。重启后必须看到新实例或同实例的新 `started_at` heartbeat，才会把命令记为成功。
 
 资源采样读取进程树 RSS、Linux cgroup current/limit、`MemAvailable` 和 swap。默认阈值是主机已用内存告警 6.0 GiB、停止 6.4 GiB、进程树 RSS 2 GiB、cgroup current 3 GiB、swap 使用 0；这些值只是可配置的 benchmark 初值，不代表已通过生产验证。worker 在领取重型子进程前遇到 drain/stop 决策会返回 control error，已有子进程 RSS 护栏仍按自身配置工作。
+
+首次启用或数据库迁移新增表后，由 PostgreSQL 角色管理员重复执行最小权限脚本。脚本不会设置或保存密码；随后在交互式 `psql` 中用 `\password` 设置部署环境密钥，且不要把密钥放进命令行、仓库或日志：
+
+```bash
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec -T postgres \
+  sh -c 'psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+  < scripts/ops/bootstrap_ops_agent_role.sql
+
+docker compose --env-file deploy/.env -f deploy/compose.yaml exec postgres \
+  sh -c 'exec psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+# 在 psql 内执行：\password dy_ops_agent
+```
+
+`dy_ops_agent` 的业务表权限固定为：`ops_commands` 仅 `SELECT/UPDATE`，`component_heartbeats` 仅 `SELECT/INSERT/UPDATE`，`job_runs` 仅 `SELECT`。脚本先撤销该角色在所有非系统 schema 的既有表、序列和 schema 权限及角色成员关系，再授予固定集合，并对任何其他有效业务表权限 fail closed。执行完成后再把独立凭据写入未跟踪的 `OPS_AGENT_DATABASE_URL`。
 
 本地只做配置与专项验证，不执行生产 Docker 操作：
 
@@ -229,4 +243,4 @@ OPS_AGENT_DATABASE_URL=postgresql+psycopg://dy_ops_agent:CHANGE_ME@postgres:5432
 docker compose -f deploy/compose.yaml -f deploy/compose.acceptance.yaml config
 ```
 
-4C/8GB Linux 主机上的三轮 acceptance、Docker socket 的宿主机权限隔离、数据库最小权限角色创建、生产 canary、回滚和真实 worker/browser replacement heartbeat 均是未验证门禁；未完成这些门禁前，不得把阈值或 Ops Agent 标记为生产验证结论。
+4C/8GB Linux 主机上的三轮 acceptance、Docker socket 的宿主机权限隔离、目标 PostgreSQL 上执行并核验最小权限脚本、生产 canary、回滚和真实 worker/browser replacement heartbeat 均是未验证门禁；未完成这些门禁前，不得把阈值或 Ops Agent 标记为生产验证结论。

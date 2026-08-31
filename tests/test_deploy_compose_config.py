@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import re
+import shutil
+import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -305,7 +309,7 @@ def test_ops_agent_isolated_socket_holder_has_fixed_restart_allowlist():
     assert "OPS_AGENT_ALLOWED_TARGETS: worker,browser" in ops_agent
     assert "OPS_AGENT_ALLOWED_ACTIONS: restart" in ops_agent
     assert "OPS_AGENT_COMMAND_TTL_SECONDS: 120" in ops_agent
-    assert "OPS_AGENT_COOLDOWN_SECONDS: 300" in ops_agent
+    assert "OPS_AGENT_COOLDOWN_SECONDS: ${OPS_AGENT_COOLDOWN_SECONDS:-300}" in ops_agent
     assert "docker.sock" not in api
 
 
@@ -349,8 +353,75 @@ def test_browser_activity_marker_and_acceptance_overlay_are_wired():
     assert "cpus: ${ACCEPTANCE_WORKER_CPUS:-2.0}" in acceptance
     assert "cpus: ${ACCEPTANCE_OPS_AGENT_CPUS:-0.25}" in acceptance
     assert "OPS_AGENT_DATABASE_URL=postgresql+psycopg://dy_ops_agent:" in env_example
+    assert "OPS_AGENT_COOLDOWN_SECONDS=300" in env_example
     assert "WORKER_MEMORY_SWAP_LIMIT" not in env_example
     assert "production values require the 4C/8GB acceptance run" in env_example
+
+
+def test_browser_export_marker_is_visible_during_command_and_cleaned_on_failure():
+    bash = shutil.which("bash")
+    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
+    if git_bash.exists():
+        bash = str(git_bash)
+    elif bash is not None and "system32" in bash.lower():
+        bash = None
+    if bash is None:
+        pytest.skip("a native bash runtime is unavailable")
+    entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+    guard = entrypoint.split("# BEGIN browser export marker guard", 1)[1].split(
+        "# END browser export marker guard", 1
+    )[0]
+    harness = f"""
+set -u
+{guard}
+marker_root="$(mktemp -d)"
+BROWSER_EXPORT_ACTIVE_FILE="$marker_root/browser-export.active"
+if run_browser_export_with_marker \
+  bash -c 'test -f "$1"; exit 23' marker-check "$BROWSER_EXPORT_ACTIVE_FILE"; then
+  status=0
+else
+  status="$?"
+fi
+test "$status" -eq 23
+test ! -e "$BROWSER_EXPORT_ACTIVE_FILE"
+rmdir "$marker_root"
+"""
+
+    completed = subprocess.run(
+        [bash, "-c", harness],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert "mktemp" in guard
+    assert 'mv -f -- "$marker_tmp" "$BROWSER_EXPORT_ACTIVE_FILE"' in guard
+    assert "trap cleanup_browser_export_marker EXIT" in guard
+    assert "trap 'exit 143' TERM" in guard
+
+
+def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():
+    sql = (ROOT / "scripts" / "ops" / "bootstrap_ops_agent_role.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "IF NOT EXISTS" in sql
+    assert "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT" in sql
+    assert "NOREPLICATION NOBYPASSRLS" in sql
+    assert "REVOKE %I FROM dy_ops_agent" in sql
+    assert "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I" in sql
+    assert "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I" in sql
+    assert "GRANT SELECT, UPDATE ON TABLE public.ops_commands TO dy_ops_agent;" in sql
+    assert (
+        "GRANT SELECT, INSERT, UPDATE ON TABLE public.component_heartbeats "
+        "TO dy_ops_agent;"
+    ) in sql
+    assert "GRANT SELECT ON TABLE public.job_runs TO dy_ops_agent;" in sql
+    assert "non-allowlisted table" in sql
+    assert re.search(r"\bPASSWORD\b\s+['\"]", sql, flags=re.IGNORECASE) is None
 
 
 def test_worker_image_contains_ops_agent_code():

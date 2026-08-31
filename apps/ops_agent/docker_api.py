@@ -10,8 +10,9 @@ from urllib.parse import quote, urlencode
 
 
 ALLOWED_TARGETS = frozenset({"worker", "browser"})
+DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS = 10
+RESTART_RESPONSE_PADDING_SECONDS = 15
 _CONTAINER_ID = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
-_RESTART_RESPONSE_PADDING_SECONDS = 15
 
 
 class GuardrailViolation(RuntimeError):
@@ -53,7 +54,12 @@ class _UnixSocketConnection(http.client.HTTPConnection):
 class UnixSocketDockerTransport:
     """Minimal Docker Engine transport with no shell or generic action surface."""
 
-    def __init__(self, socket_path: str = "/var/run/docker.sock", *, timeout: float = 10) -> None:
+    def __init__(
+        self,
+        socket_path: str = "/var/run/docker.sock",
+        *,
+        timeout: float = DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS,
+    ) -> None:
         self.socket_path = socket_path
         self.timeout = timeout
 
@@ -159,7 +165,7 @@ class DockerAPI:
         status, _body = self._transport.request(
             "POST",
             path,
-            timeout=grace_seconds + _RESTART_RESPONSE_PADDING_SECONDS,
+            timeout=grace_seconds + RESTART_RESPONSE_PADDING_SECONDS,
         )
         if status not in {204, 304}:
             raise DockerAPIError(f"container restart failed with status {status}")
