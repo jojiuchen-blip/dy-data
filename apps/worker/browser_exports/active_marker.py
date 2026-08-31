@@ -120,10 +120,11 @@ class _BrowserExportMarker:
         raise SystemExit(128 + signum)
 
 
-def _configured_marker_path() -> Path | None:
-    configured_path = os.getenv("BROWSER_EXPORT_ACTIVE_FILE")
-    if not configured_path:
-        return None
+def _configured_marker_path() -> Path:
+    configured_path = os.getenv(
+        "BROWSER_EXPORT_ACTIVE_FILE",
+        str(FIXED_BROWSER_EXPORT_ACTIVE_FILE),
+    )
     path = Path(configured_path)
     if path != FIXED_BROWSER_EXPORT_ACTIVE_FILE:
         raise BrowserExportMarkerConfigurationError(
@@ -133,14 +134,10 @@ def _configured_marker_path() -> Path | None:
 
 
 @contextmanager
-def browser_export_active() -> Iterator[Path | None]:
+def browser_export_active() -> Iterator[Path]:
     """Hold the fixed browser-export marker for the duration of one export."""
 
     marker_path = _configured_marker_path()
-    if marker_path is None:
-        yield None
-        return
-
     marker = _BrowserExportMarker(marker_path)
     marker.acquire()
     try:

@@ -56,13 +56,16 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "browser-profile:/home/browser/.config/chromium" in compose
     assert "browser-downloads:/home/browser/Downloads" in compose
     assert "dockerfile: deploy/browser/Dockerfile" in compose
-    assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
-    assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
+    browser = _compose_service(compose, "browser")
+    assert "DATABASE_URL:" not in browser
+    assert "BROWSER_EXPORT_SCHEDULER_ENABLED" not in browser
+    assert "BROWSER_EXPORT_START_DELAY_SECONDS" not in browser
+    assert "BROWSER_EXPORT_INTERVAL_SECONDS" not in browser
     assert "gosu" in dockerfile
     assert "USER root" in dockerfile
     assert 'exec gosu browser "$0" "$@"' in entrypoint
     assert "chown -R browser:browser" in entrypoint
-    assert 'BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"' in entrypoint
+    assert "python3 -m apps.worker.scheduler" not in entrypoint
     assert 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"' in entrypoint
     assert 'export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"' in entrypoint
     assert '"$XDG_CONFIG_HOME/chromium/Crash Reports"' in entrypoint
@@ -344,7 +347,7 @@ def test_browser_activity_marker_and_acceptance_overlay_are_wired():
 
     assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in worker
     assert "browser-runtime:/run/browser" in worker
-    assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in browser
+    assert "BROWSER_EXPORT_ACTIVE_FILE" not in browser
     assert "browser-runtime:/run/browser" in browser
     assert "browser-runtime:/run/browser:ro" in ops_agent
     assert "x-acceptance-host:" in acceptance
@@ -357,22 +360,21 @@ def test_browser_activity_marker_and_acceptance_overlay_are_wired():
     assert "production values require the 4C/8GB acceptance run" in env_example
 
 
-def test_browser_entrypoint_uses_the_common_python_marker_protocol():
+def test_browser_entrypoint_only_prepares_cdp_and_the_shared_runtime_directory():
     entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(
         encoding="utf-8"
     )
 
-    assert (
-        'BROWSER_EXPORT_ACTIVE_FILE="${BROWSER_EXPORT_ACTIVE_FILE:-/run/browser/browser-export.active}"'
-        in entrypoint
-    )
-    assert "export BROWSER_EXPORT_ACTIVE_FILE" in entrypoint
+    assert 'BROWSER_EXPORT_ACTIVE_DIR="/run/browser"' in entrypoint
     assert 'mkdir -p "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
     assert 'chown browser:browser "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
     assert 'chmod 1777 "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
     assert "run_browser_export_with_marker" not in entrypoint
-    assert 'rm -f -- "$BROWSER_EXPORT_ACTIVE_FILE"' not in entrypoint
-    assert "python3 -m apps.worker.scheduler" in entrypoint
+    assert "BROWSER_EXPORT_SCHEDULER_ENABLED" not in entrypoint
+    assert "BROWSER_EXPORT_START_DELAY_SECONDS" not in entrypoint
+    assert "BROWSER_EXPORT_INTERVAL_SECONDS" not in entrypoint
+    assert "WORKER_MODE=browser_export_only" not in entrypoint
+    assert "python3 -m apps.worker.scheduler" not in entrypoint
 
 
 def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():

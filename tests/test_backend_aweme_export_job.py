@@ -29,7 +29,7 @@ from apps.worker.browser_exports.backend_aweme import (
     upsert_backend_aweme_records,
     workbook_filename,
 )
-from apps.worker.browser_exports import backend_aweme
+from apps.worker.browser_exports import active_marker, backend_aweme
 from scripts.exports import auto_export_backend_aweme_chromium as export_adapter
 
 
@@ -56,6 +56,13 @@ def count(session: Session, model: type) -> int:
     value = session.scalar(select(func.count()).select_from(model))
     assert value is not None
     return value
+
+
+@pytest.fixture(autouse=True)
+def fixed_browser_export_marker(monkeypatch, tmp_path: Path) -> None:
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.delenv("BROWSER_EXPORT_ACTIVE_FILE", raising=False)
 
 
 def test_browser_export_adapter_parses_command_without_enabling_a_shell(monkeypatch):

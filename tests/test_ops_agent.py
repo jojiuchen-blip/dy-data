@@ -343,6 +343,49 @@ def test_restart_without_replacement_heartbeat_is_not_reported_success(factory) 
     assert result.result_code == "replacement_heartbeat_timeout"
 
 
+def test_heartbeat_before_restart_request_does_not_confirm_replacement(factory) -> None:
+    from apps.ops_agent.docker_api import ContainerRef
+
+    now = datetime(2026, 8, 9, 1, 25, 30, tzinfo=UTC)
+    _seed_command(factory, now=now)
+    _seed_heartbeat(
+        factory,
+        component_type="worker",
+        instance_id="worker-old",
+        now=now,
+        started_at=now - timedelta(hours=1),
+    )
+    wall_clock = [now]
+
+    def publish_before_restart(resolve_count: int) -> None:
+        if resolve_count != 2:
+            return
+        _seed_heartbeat(
+            factory,
+            component_type="worker",
+            instance_id="worker-too-early",
+            now=now + timedelta(seconds=1),
+            started_at=now + timedelta(seconds=1),
+        )
+        wall_clock[0] = now + timedelta(seconds=2)
+
+    docker = FakeDocker(
+        [ContainerRef(container_id="worker-1", service="worker")],
+        on_resolve=publish_before_restart,
+    )
+
+    result = _agent(
+        factory,
+        docker,
+        now,
+        clock=lambda: wall_clock[0],
+    ).run_once()
+
+    assert result is not None and result.status == "failed"
+    assert result.result_code == "replacement_heartbeat_timeout"
+    assert docker.restart_calls == [("worker", "worker-1", 300)]
+
+
 def test_claim_lease_sums_all_serial_restart_wait_budgets(factory) -> None:
     from apps.ops_agent.docker_api import (
         DEFAULT_DOCKER_REQUEST_TIMEOUT_SECONDS,
@@ -678,6 +721,140 @@ def test_finish_starts_fixed_cooldown_from_completion_time(
         cooldown_until = command.cooldown_until
         assert cooldown_until is not None
         assert cooldown_until.replace(tzinfo=UTC) == clock[0] + timedelta(seconds=300)
+
+
+def test_same_target_cooldown_blocks_restart_until_window_elapses(factory) -> None:
+    from apps.ops_agent.docker_api import ContainerRef
+    from apps.ops_agent.main import CommandEnvelope
+
+    now = datetime(2026, 8, 9, 1, 29, 45, tzinfo=UTC)
+    clock = [now]
+    first_id = _seed_command(
+        factory,
+        now=now,
+        expires_at=now + timedelta(minutes=10),
+    )
+    finishing_agent = _agent(
+        factory,
+        FakeDocker([]),
+        now,
+        clock=lambda: clock[0],
+    )
+    first_claim = finishing_agent._claim_next()
+    assert isinstance(first_claim, CommandEnvelope)
+    finishing_agent._finish(first_claim, "success", "restart_confirmed")
+
+    second_id = _seed_command(
+        factory,
+        now=now + timedelta(seconds=1),
+        expires_at=now + timedelta(minutes=10),
+    )
+    _seed_heartbeat(
+        factory,
+        component_type="worker",
+        instance_id="worker-old",
+        now=now,
+        started_at=now - timedelta(hours=1),
+    )
+
+    def publish_replacement() -> None:
+        _seed_heartbeat(
+            factory,
+            component_type="worker",
+            instance_id="worker-after-cooldown",
+            now=clock[0] + timedelta(seconds=1),
+            started_at=clock[0] + timedelta(seconds=1),
+        )
+
+    docker = FakeDocker(
+        [ContainerRef(container_id="worker-1", service="worker")],
+        on_restart=publish_replacement,
+    )
+    agent = _agent(factory, docker, now, clock=lambda: clock[0])
+
+    clock[0] = now + timedelta(seconds=1)
+    assert agent.run_once() is None
+    assert docker.restart_calls == []
+    with factory() as session:
+        blocked = session.get(OpsCommand, second_id)
+        assert blocked is not None and blocked.status == "pending"
+
+    clock[0] = now + timedelta(seconds=301)
+    result = agent.run_once()
+
+    assert result is not None and result.status == "success"
+    assert result.command_id == second_id
+    assert docker.restart_calls == [("worker", "worker-1", 300)]
+    with factory() as session:
+        first = session.get(OpsCommand, first_id)
+        second = session.get(OpsCommand, second_id)
+        assert first is not None and first.status == "success"
+        assert second is not None and second.status == "success"
+
+
+def test_target_cooldown_does_not_block_another_component(factory) -> None:
+    from apps.ops_agent.docker_api import ContainerRef
+    from apps.ops_agent.main import CommandEnvelope
+
+    now = datetime(2026, 8, 9, 1, 29, 50, tzinfo=UTC)
+    clock = [now]
+    finishing_agent = _agent(
+        factory,
+        FakeDocker([]),
+        now,
+        clock=lambda: clock[0],
+    )
+    worker_completed_id = _seed_command(factory, now=now)
+    worker_claim = finishing_agent._claim_next()
+    assert isinstance(worker_claim, CommandEnvelope)
+    finishing_agent._finish(worker_claim, "success", "restart_confirmed")
+
+    worker_pending_id = _seed_command(
+        factory,
+        now=now + timedelta(seconds=1),
+        expires_at=now + timedelta(minutes=10),
+    )
+    browser_id = _seed_command(
+        factory,
+        now=now + timedelta(seconds=2),
+        target="browser",
+        expires_at=now + timedelta(minutes=10),
+    )
+    _seed_heartbeat(
+        factory,
+        component_type="browser",
+        instance_id="browser-old",
+        now=now,
+        started_at=now - timedelta(hours=1),
+    )
+    clock[0] = now + timedelta(seconds=3)
+
+    def publish_browser_replacement() -> None:
+        _seed_heartbeat(
+            factory,
+            component_type="browser",
+            instance_id="browser-new",
+            now=clock[0] + timedelta(seconds=1),
+            started_at=clock[0] + timedelta(seconds=1),
+        )
+
+    docker = FakeDocker(
+        [ContainerRef(container_id="browser-1", service="browser")],
+        on_restart=publish_browser_replacement,
+    )
+    result = _agent(factory, docker, now, clock=lambda: clock[0]).run_once()
+
+    assert result is not None and result.status == "success"
+    assert result.command_id == browser_id
+    assert docker.resolve_calls == ["browser", "browser"]
+    assert docker.restart_calls == [("browser", "browser-1", 30)]
+    with factory() as session:
+        completed = session.get(OpsCommand, worker_completed_id)
+        pending = session.get(OpsCommand, worker_pending_id)
+        browser = session.get(OpsCommand, browser_id)
+        assert completed is not None and completed.status == "success"
+        assert pending is not None and pending.status == "pending"
+        assert browser is not None and browser.status == "success"
 
 
 def test_cooldown_environment_is_read_but_cannot_change_fixed_window(monkeypatch) -> None:

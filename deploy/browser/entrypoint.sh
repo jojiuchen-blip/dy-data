@@ -1,13 +1,7 @@
 #!/usr/bin/env bash
 set -eu
 
-BROWSER_EXPORT_ACTIVE_FILE="${BROWSER_EXPORT_ACTIVE_FILE:-/run/browser/browser-export.active}"
-if [ "$BROWSER_EXPORT_ACTIVE_FILE" != "/run/browser/browser-export.active" ]; then
-  echo "BROWSER_EXPORT_ACTIVE_FILE is fixed" >&2
-  exit 2
-fi
-BROWSER_EXPORT_ACTIVE_DIR="$(dirname "$BROWSER_EXPORT_ACTIVE_FILE")"
-export BROWSER_EXPORT_ACTIVE_FILE
+BROWSER_EXPORT_ACTIVE_DIR="/run/browser"
 
 if [ "$(id -u)" = "0" ] && [ "${BROWSER_ENTRYPOINT_AS_BROWSER:-}" != "1" ]; then
   export HOME=/home/browser
@@ -149,41 +143,5 @@ chromium \
   "$CHROMIUM_START_URL" >/tmp/chromium.log 2>&1 &
 chromium_pid="$!"
 echo "chromium_pid=${chromium_pid} cdp_port=${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"
-
-if [ "${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" = "true" ]; then
-  if [ -z "${DATABASE_URL:-${DY_DATABASE_URL:-}}" ]; then
-    echo "BROWSER_EXPORT_SCHEDULER_ENABLED is true, but DATABASE_URL/DY_DATABASE_URL is not set" >&2
-  else
-    (
-      delay="${BROWSER_EXPORT_START_DELAY_SECONDS:-60}"
-      interval="${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}"
-      echo "scheduler_enabled delay=${delay}s interval=${interval}s"
-      sleep "$delay"
-      while true; do
-        echo "run_start $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        if ! kill -0 "$chromium_pid" 2>/dev/null; then
-          echo "chromium_not_running status_unknown"
-          tail -n 120 /tmp/chromium.log || true
-        fi
-        if env \
-          BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}" \
-          WORKER_MODE=browser_export_only \
-          WORKER_RUN_ONCE=true \
-          WORKER_RUN_ON_START=true \
-          python3 -m apps.worker.scheduler; then
-          echo "run_done $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        else
-          status="$?"
-          echo "run_failed status=${status} $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          echo "--- chromium.log tail ---"
-          tail -n 160 /tmp/chromium.log || true
-          echo "--- cdp-proxy.log tail ---"
-          tail -n 160 /tmp/cdp-proxy.log || true
-        fi
-        sleep "$interval"
-      done
-    ) 2>&1 | sed -u 's/^/[browser-export] /' &
-  fi
-fi
 
 exec websockify --web=/usr/share/novnc/ "0.0.0.0:${NOVNC_PORT}" localhost:5900

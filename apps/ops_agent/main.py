@@ -11,8 +11,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
-from sqlalchemy import case, select, update
-from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy import case, exists, select, update
+from sqlalchemy.orm import Session, aliased, sessionmaker
 
 from apps.api.dy_api.db import make_engine, make_session_factory
 from apps.api.dy_api.models import ComponentHeartbeat, JobRun, OpsCommand
@@ -34,6 +34,13 @@ MIN_COMMAND_TTL_SECONDS = 1
 MAX_COMMAND_TTL_SECONDS = 3600
 DEFAULT_COOLDOWN_SECONDS = 300
 _RESTART_GRACE_SECONDS = {"worker": 300, "browser": 30}
+_TERMINAL_COMMAND_STATUSES = (
+    "success",
+    "failed",
+    "rejected",
+    "expired",
+    "cancelled",
+)
 
 
 def _handle_stop(_signum: int, _frame: object) -> None:
@@ -170,12 +177,14 @@ class OpsAgent:
         except RuntimeError:
             return CommandExecutionResult(command.command_id, "failed", "command_lease_lost")
         try:
+            restart_sent_at = _as_utc(self.clock())
+            assert restart_sent_at is not None
             self.docker.restart(restart_matches[0], grace_seconds=grace_seconds)
         except GuardrailViolation:
             return self._finish(command, "rejected", "restart_guardrail_rejected")
         except DockerAPIError:
             return self._finish(command, "failed", "restart_request_failed")
-        if not self._replacement_heartbeat_seen(command, before):
+        if not self._replacement_heartbeat_seen(command, before, restart_sent_at):
             return self._finish(command, "failed", "replacement_heartbeat_timeout")
         return self._finish(command, "success", "restart_confirmed")
 
@@ -297,9 +306,14 @@ class OpsAgent:
                 session.commit()
                 return CommandExecutionResult(command_id, "expired", "command_expired")
 
+            cooldown_elapsed = self._cooldown_elapsed_condition(now)
             query = (
                 select(OpsCommand)
-                .where(OpsCommand.status == "pending", OpsCommand.expires_at > now)
+                .where(
+                    OpsCommand.status == "pending",
+                    OpsCommand.expires_at > now,
+                    cooldown_elapsed,
+                )
                 .order_by(OpsCommand.created_at, OpsCommand.command_id)
                 .limit(1)
             )
@@ -321,6 +335,7 @@ class OpsAgent:
                     OpsCommand.command_id == row.command_id,
                     OpsCommand.status == "pending",
                     OpsCommand.expires_at > now,
+                    self._cooldown_elapsed_condition(now),
                 )
                 .values(
                     status="running",
@@ -353,6 +368,20 @@ class OpsAgent:
             )
             session.commit()
             return envelope
+
+    def _cooldown_elapsed_condition(self, now: datetime):
+        completed = aliased(OpsCommand)
+        return ~exists(
+            select(1)
+            .select_from(completed)
+            .where(
+                completed.target_component == OpsCommand.target_component,
+                completed.status.in_(_TERMINAL_COMMAND_STATUSES),
+                completed.cooldown_until.is_not(None),
+                completed.cooldown_until > now,
+            )
+            .correlate(OpsCommand)
+        )
 
     def _finish(
         self,
@@ -436,6 +465,7 @@ class OpsAgent:
         self,
         command: CommandEnvelope,
         before: ComponentHeartbeat | None,
+        restart_sent_at: datetime,
     ) -> bool:
         deadline = self.monotonic() + self.heartbeat_timeout_seconds
         while True:
@@ -456,7 +486,9 @@ class OpsAgent:
                 )
                 if (
                     heartbeat_at is not None
-                    and heartbeat_at > command.started_at
+                    and heartbeat_at > restart_sent_at
+                    and current_started is not None
+                    and current_started > restart_sent_at
                     and (different_instance or restarted_same_instance)
                 ):
                     return True

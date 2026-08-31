@@ -216,7 +216,9 @@ Ops Agent 是独立的、无 HTTP 端口的运维进程。它只接受数据库�
 
 命令 claim 使用短 TTL（pending 默认 120 秒）和单目标活动唯一约束。运行中的过期 claim 会回收为 pending，并递增 `lease_epoch`；完成更新必须同时匹配 command、owner、epoch 且仍未过期，因此旧执行者不能完成已被回收的命令。已领取 lease 的有限预算按串行链路相加：pending TTL 余量、两次 Docker label 查询、restart grace/响应余量和 replacement heartbeat 等待；restart 副作用前还会原子校验 owner/epoch/lease 并按剩余链路续租。每次命令成功、失败或拒绝完成时，`cooldown_until` 都从完成时间重新起算固定 300 秒。
 
-重启 browser 前，Ops Agent 会拒绝活动导出：检查共享的 `/run/browser/browser-export.active` 标记、browser heartbeat 活动字段，以及 `job_runs` 中 `backend_aweme_export` 的 queued/running 状态。worker 重启使用 300 秒 Docker grace period；Compose 的 `exec` 命令保证 SIGTERM 传递到 scheduler，scheduler 应先停止领取新任务。重启后必须看到新实例或同实例的新 `started_at` heartbeat，才会把命令记为成功。
+重启 browser 前，Ops Agent 会拒绝活动导出：检查共享的 `/run/browser/browser-export.active` 标记、browser heartbeat 活动字段，以及 `job_runs` 中 `backend_aweme_export` 的 queued/running 状态。worker 是 backend aweme 导出的唯一调度来源；browser 容器只提供 Chromium/CDP，不读取数据库，也不包含可启用的内置导出 scheduler。公共 Python 导出层在未设置环境变量时仍默认使用固定 marker 路径，非固定覆盖会 fail closed。
+
+worker 重启使用 300 秒 Docker grace period；Compose 的 `exec` 命令保证 SIGTERM 传递到 scheduler，scheduler 应先停止领取新任务。命令完成后，同一目标在 `cooldown_until` 前不会被领取；不同目标不共享冷却窗口。重启后必须看到 `started_at` 和 heartbeat 观测时间都严格晚于实际 restart 请求基准的新实例或重启实例，才会把命令记为成功。
 
 资源采样读取进程树 RSS、Linux cgroup current/limit、`MemAvailable` 和 swap。默认阈值是主机已用内存告警 6.0 GiB、停止 6.4 GiB、进程树 RSS 2 GiB、cgroup current 3 GiB、swap 使用 0；这些值只是可配置的 benchmark 初值，不代表已通过生产验证。worker 在领取重型子进程前遇到 drain/stop 决策会返回 control error，已有子进程 RSS 护栏仍按自身配置工作。
 

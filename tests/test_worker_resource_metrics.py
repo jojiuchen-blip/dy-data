@@ -18,7 +18,7 @@ def test_backend_aweme_export_holds_shared_marker_during_worker_execution(
 
     marker = tmp_path / "browser-export.active"
     monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
-    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(marker))
+    monkeypatch.delenv("BROWSER_EXPORT_ACTIVE_FILE", raising=False)
     observed_tokens: list[str] = []
 
     def parse_workbook(_path: Path) -> list[dict[str, object]]:
@@ -87,6 +87,24 @@ def test_browser_export_marker_is_atomic_and_does_not_remove_another_owner(
             raise AssertionError("an existing marker must fail closed")
 
     assert marker.read_text(encoding="ascii") == "existing-owner\n"
+
+
+def test_browser_export_marker_rejects_non_fixed_override(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    from apps.worker.browser_exports import active_marker
+
+    marker = tmp_path / "browser-export.active"
+    monkeypatch.setattr(active_marker, "FIXED_BROWSER_EXPORT_ACTIVE_FILE", marker)
+    monkeypatch.setenv("BROWSER_EXPORT_ACTIVE_FILE", str(tmp_path / "other.active"))
+
+    with pytest.raises(
+        active_marker.BrowserExportMarkerConfigurationError,
+        match="must be /run/browser/browser-export.active",
+    ):
+        with active_marker.browser_export_active():
+            raise AssertionError("a non-fixed marker path must fail closed")
 
 
 def test_browser_export_marker_cleans_on_signal_and_restores_handler(
