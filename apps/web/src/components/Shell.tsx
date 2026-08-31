@@ -80,8 +80,8 @@ const moduleNavItems: ModuleNavItem[] = [
   },
   {
     href: "/finance/promotion",
-    pageKey: "D01",
-    pageKeys: ["D01"],
+    pageKey: "FIN01",
+    pageKeys: ["FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"],
     icon: "details",
     label: "财务",
     section: "finance",
@@ -111,12 +111,12 @@ const clueNavItems: NavItem[] = [
 ];
 
 const financeNavItems: NavItem[] = [
-  { href: "/finance/promotion", label: "推广服务费", pageKey: "D01" },
-  { href: "/finance/management", label: "管理服务费", pageKey: "D01" },
-  { href: "/finance/orders/promotion", label: "订单明细", pageKey: "D01" },
-  { href: "/finance/stores", label: "门店基础信息", pageKey: "D01" },
-  { href: "/finance/disputes", label: "账单异议", pageKey: "D01" },
-  { href: "/finance/imports", label: "导入记录", pageKey: "D01" },
+  { href: "/finance/promotion", label: "推广服务费", pageKey: "FIN01" },
+  { href: "/finance/management", label: "管理服务费", pageKey: "FIN02" },
+  { href: "/finance/orders/promotion", label: "订单明细", pageKey: "FIN03" },
+  { href: "/finance/stores", label: "门店基础信息", pageKey: "FIN04" },
+  { href: "/finance/disputes", label: "账单异议", pageKey: "FIN05" },
+  { href: "/finance/imports", label: "导入记录", pageKey: "FIN06" },
 ];
 
 const adminNavItems: NavItem[] = [
@@ -214,6 +214,12 @@ const pageKeyByNavHref: Record<string, string> = {
   "/settlement": "B02",
   "/details": "B03",
   "/sales": "C01",
+  "/finance/promotion": "FIN01",
+  "/finance/management": "FIN02",
+  "/finance/orders/promotion": "FIN03",
+  "/finance/stores": "FIN04",
+  "/finance/disputes": "FIN05",
+  "/finance/imports": "FIN06",
   "/admin": "D01",
   "/admin/accounts": "D02",
   "/admin/rules": "D03",

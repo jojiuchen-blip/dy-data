@@ -2,23 +2,19 @@
 
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代 S3 正式交付计划。
 
-## 0. 当前增量交付：DYDATA-46
+## 0. 当前增量交付：DYDATA-81 G5
 
-- 用户已于 2026-08-27 明确确认：将现有腾讯云入口 `https://dy-business-engine.com` 直接升格为正式生产，不再等待企业内网部署。
-- 当前隔离分支：`codex/dydata-46-production-promotion`；原工作区既有未提交内容保持不变。
-- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)；[任务看板](delivery-plans/task-kanban-dydata-46-production-promotion.md)；当前子计划为 [T1.1 生产环境与凭证隔离](delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T1.1-environment-isolation.md)。
-- T1.1 已完成：CLI、API、MCP、OAuth 和审计已从硬编码 `test` 切换为受控 `production`，旧 test 凭证在 production 失效且客户端使用独立 keyring；当前执行 T1.2 官方入口与兼容策略切换。
-- 后续顺序为 T1.2 官方入口与兼容策略切换、T2.1 PR/CI/腾讯云生产部署与线上 UAT；任一硬门禁失败即停止或回滚上一 production 版本，禁止 fallback 到 test 数据。
-- DYDATA-55 保留为独立企业内网安全基线，不再阻塞本次腾讯云 production 升格；Linear 是范围、验收和状态权威。
+- 用户已于 2026-08-30 明确授权：基于已确认《财务页面合同矩阵》、书面裁决、冻结原型和正式 API/Schema，完成六页实现、测试、隔离 UAT、受控生产部署与部署后验证；任一门禁失败即停止，不自行关闭 DYDATA-81。
+- 当前隔离分支：`codex/dydata-81-finance-contract`；专用 worktree 与其他未提交工作树隔离，不复用旧冲突改动。
+- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
+- G4 一级“财务”导航已由 `df617e7` 生产部署；G5 六页内部合同、推广费 5 卡口径、订单筛选/表头、SAP 财务值生效与版本审计、单条矫正、真实异步检测和三视口隔离 UAT 已完成本地实现与验证，当前停在生产发布硬门禁。
+- 页面内部结构与业务交互以冻结原型逐项验收；视觉继续以 `docs/design-system/tokens.json`、`docs/design-system/README.md`、`apps/web/src/design-tokens.css` 和共享组件为权威。
+- DYDATA-82 证明材料受控上传的发布影响仍需关闭；在其与其他数据正确性、正式 API、CI/迁移/备份/smoke 门禁全部通过前不得生产部署。
 
-## 0.1 当前并行增量交付：DYDATA-80 / DYDATA-81
+## 0.1 并行增量入口：DYDATA-46
 
-- 用户已于 2026-08-26 明确确认 DYDATA-80 v2-clean 页面结构与业务交互基线，并授权继续到生产部署；生产发布由独立子 Issue DYDATA-81 承接。
-- 当前导航调整隔离分支：`codex/dydata-81-finance-nav`；忽略并不复用旧冲突工作树，原工作区既有内容保持不变。
-- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
-- 当前执行 T5.7 G4：独立一级“财务”、六个既有财务页面归属、门店“SAP 建议”和 B02 直达特例收口已完成本地实现与验证；下一步继续 PR/CI、腾讯云生产部署、线上 smoke 与回滚核查。
-- 页面视觉不得复制原型私有样式；视觉权威为 `docs/design-system/tokens.json`、`docs/design-system/README.md`，运行时以 `apps/web/src/design-tokens.css` 和共享组件为准。
-- Linear 是范围与验收权威；本驾驶舱只记录当前执行顺序。下文历史增量仅作历史证据，不覆盖本轮计划。
+- DYDATA-46 的 production 入口升格由其独立计划与工作树继续管理，本驾驶舱当前不编辑其代码或状态，也不把它的未完成项混入 DYDATA-81 验收。
+- 正式计划入口：[DYDATA-46 主交付计划](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)；Linear 仍是其范围、验收与状态权威。
 
 ## 0.2 历史增量交付：DYDATA-45
 
@@ -31,23 +27,23 @@
 
 ## 1. 当前阶段
 
-- 套包阶段：`S4 DYDATA-46 T1.2 官方入口与兼容策略切换进行中`。
-- 当前 Linear issue：`DYDATA-46`；状态为 `In Progress`，当前分支由本任务单一窗口负责，用户已授权在全部硬门禁通过后直接执行腾讯云生产部署。
-- 当前正式计划：[main-delivery-plan-dydata-46-production-promotion.md](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)。
-- 当前正式计划文件组：主计划、[任务看板](delivery-plans/task-kanban-dydata-46-production-promotion.md) 与三个 DYDATA-46 子开发计划。
-- 当前子开发计划：[sub-delivery-plan-dydata-46-production-promotion-T1.2-official-entry-cutover.md](delivery-plans/sub-delivery-plan-dydata-46-production-promotion-T1.2-official-entry-cutover.md)。
-- 当前 Task：T1.1 已完成；T1.2 进行中；T2.1 待开始。任一凭证隔离、测试、CI、部署或线上 smoke 门禁失败必须停止发布或回滚并记录证据。
+- 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。
+- 当前 Linear issue：`DYDATA-81`，状态 `In Progress`；当前分支由本任务单一窗口负责，完成后等待 Owner 验收，不自行关闭。
+- 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
+- 当前正式计划文件组：主计划、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
+- 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
+- 当前 Task：G4 已部署；G5 进行中。任一合同、数据正确性、正式 API、迁移、权限、CI、备份、部署或 smoke 门禁失败必须停止发布并记录证据。
 
 ## 2. 当前目标
 
-- 将现有腾讯云入口受控升格为正式 production，确保 CLI / MCP / OAuth / Agent discovery、凭证隔离、审计、部署和回滚形成完整生产闭环。
+- 在主系统一级“财务”下逐项交付推广服务费、管理服务费、订单明细、门店基础信息、SAP/账单异议和导入记录；内部合同对齐冻结原型，业务事实只来自 Linear 与正式 API/Schema。
+- 以可审计版本实现财务 SAP 导入和单条矫正，以正式异步任务实现异议检测，并在 1440/768/390 隔离 UAT 与受控生产流程中验证。
 
 ## 3. 进行中任务
 
-- T1.1 已完成：311 项 CLI/API/OAuth/MCP/审计组合回归通过；production 为默认环境，test/production keyring 隔离，旧 test token 在 production 被拒绝，无需数据库迁移。
-- T1.2：把 README、Agent guide、Skill、manifest、CLI 版本/升级策略和部署契约全部切换到 production，正式用户入口不再暴露 test。
-- 当前生产域、Web、API、MCP 和 OAuth 同域基地址固定为 `https://dy-business-engine.com`；不允许任意 URL 覆盖或生产故障时返回测试数据。
-- T1.1 通过后顺序推进 T1.2 官方入口切换与 T2.1 PR/CI/生产部署/UAT。
+- 本地实现、完整 pytest、Web build、独立审查和 1440/768/390 隔离 UAT 已完成；证据归档与 Linear 回填进行中。
+- 当前生产发布被 DYDATA-82 受控证明对象合同、GitHub/CI 鉴权、目标 PostgreSQL/备份/部署凭据门禁阻塞，禁止绕过。
+- 门禁恢复后先执行 PR/CI、目标 PostgreSQL 升级/回滚与并发核查，再按既有受控流程部署并完成入口、六页、权限、导入、SAP 审计、筛选/跳转和 worker 线上 smoke。
 
 ## 4. 下一步任务
 
@@ -60,6 +56,7 @@
 - T5.7 G3 已完成：0043 固化账单头与订单明细快照，历史缺失值进入异常清单，查询不再回退可变主数据，部署前强制异常归零；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 均通过，独立复审 Critical/Important/Minor 均为 0、`Ready: yes`。
 - 发布前主线预检：当前隔离分支直接基于 `origin/main@ef547ab4` 建立，已避免旧分支硬合并与历史迁移链冲突。ahead/behind 是随本轮证据提交变化的运行时状态，不在计划中写死；发布前必须重新 `fetch` 并以 `git rev-list --left-right --count origin/main...HEAD` 的新鲜结果为准。后续仍须通过 PR/CI、目标 PostgreSQL 迁移与回滚门禁、部署后 smoke，才可进入生产发布。
 - T5.7 本地全量回归已完成：视觉 229 passed；其余 1182 passed、2 skipped；合计 1411 passed、2 skipped、0 failed。此前视觉失败已确认由 v2-clean 标题基线漂移与 SPA/StrictMode 时序断言导致，并在测试层修正；结算页面另关闭上下文切换期间旧账单误确认与 409 冲突后旧版本残留两个 Important 缺口，线索演示模式恢复 D05-D08 管理分配验收路径且未扩展演示边界。最终独立复审 Critical/Important/Minor 均为 0，Ready: yes。迁移回滚契约仍为：空库可逆；已有不可变事实时拒绝有损降级，生产使用备份恢复或前向修复。PR/CI、目标 PostgreSQL 门禁、目标环境部署与 smoke 尚未完成。
+- T5.7 G5 新鲜全量回归：完整视觉 242 passed；其余 1233 passed、2 skipped；合计 1475 passed、2 skipped、0 failed。高风险组合 167 passed，DYDATA-81 专项浏览器 7 passed，Web build 717 modules。独立复审关闭四项 Important，未发现新的 Critical/Important；DYDATA-82 受控证明对象仍为 Critical 发布阻塞。PR/CI、目标 PostgreSQL、备份、生产部署与线上 smoke 未执行。
 
 ## 5. 完成标准摘要
 

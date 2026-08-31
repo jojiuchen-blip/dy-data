@@ -73,6 +73,7 @@ import type {
   FilterMetaData,
   FeeDirection,
   BillingMetricScope,
+  FinanceDisputeDetection,
   FinanceDisputeListData,
   FinanceDisputeRow,
   FinanceImportBatchDetailData,
@@ -2648,13 +2649,15 @@ export interface FinanceQuery extends QueryParams {
   feeDirection: FeeDirection;
   metricScope?: BillingMetricScope;
   storeId?: string;
+  q?: string;
+  invoiceStatus?: string;
   page?: number;
   pageSize?: number;
 }
 
 export function fetchFinanceSummary(
   query: Required<Pick<FinanceQuery, "month" | "feeDirection">> &
-    Pick<FinanceQuery, "metricScope" | "storeId">,
+    Pick<FinanceQuery, "metricScope" | "storeId" | "q" | "invoiceStatus">,
 ): Promise<ApiLoadResult<FinanceSummaryData>> {
   return requestJson<FinanceSummaryData>("/admin/finance/summary", query).then(
     (response) => ({ ...response, usingMock: false }),
@@ -2662,10 +2665,25 @@ export function fetchFinanceSummary(
 }
 
 export function fetchFinanceInvoices(
-  query: FinanceQuery & { invoiceStatus?: string; includeHistory?: boolean },
+  query: FinanceQuery & { includeHistory?: boolean },
 ): Promise<ApiLoadResult<FinanceInvoiceListData>> {
   return requestJson<FinanceInvoiceListData>("/admin/finance/invoices", query).then(
     (response) => ({ ...response, usingMock: false }),
+  );
+}
+
+export function downloadFinanceInvoices(
+  query: Omit<FinanceQuery, "page" | "pageSize">,
+): Promise<DownloadResult> {
+  return requestDownloadResult(
+    "/admin/finance/invoices/export",
+    query,
+  );
+}
+
+export function downloadFinanceImportTemplate(importType: string): Promise<void> {
+  return requestDownload(
+    `/admin/finance-imports/templates/${encodeURIComponent(importType)}`,
   );
 }
 
@@ -2715,6 +2733,36 @@ export function fetchFinanceStores(
   );
 }
 
+export function downloadFinanceStores(
+  query: FinanceQuery & { q?: string },
+): Promise<DownloadResult> {
+  return requestDownloadResult("/admin/finance/stores/export", query);
+}
+
+export function downloadFinanceSapDiscrepancies(
+  query: FinanceQuery & { q?: string },
+): Promise<DownloadResult> {
+  return requestDownloadResult(
+    "/admin/finance/stores/sap-discrepancies/export",
+    query,
+  );
+}
+
+export function correctFinanceStoreSap(
+  storeId: string,
+  payload: {
+    finalSapCode: string;
+    changeReason: string;
+    readVersion: number;
+  },
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceStoreListData["list"][number]>> {
+  return sendJson<FinanceStoreListData["list"][number]>(
+    `/admin/finance/stores/${encodeURIComponent(storeId)}/sap-corrections`,
+    { body: payload, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
 export function fetchStoreSapSuggestions(
   storeId: string,
 ): Promise<ApiLoadResult<SapSuggestionListData>> {
@@ -2759,6 +2807,31 @@ export function fetchFinanceDisputes(
   );
 }
 
+export function downloadFinanceDisputes(
+  query: QueryParams = {},
+): Promise<DownloadResult> {
+  return requestDownloadResult("/admin/disputes/export", query);
+}
+
+export function startFinanceDisputeDetection(
+  disputeId: string,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<FinanceDisputeDetection>> {
+  return sendJson<FinanceDisputeDetection>(
+    `/admin/disputes/${encodeURIComponent(disputeId)}/detections`,
+    { body: {}, headers: { "Idempotency-Key": idempotencyKey } },
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
+export function fetchFinanceDisputeDetection(
+  disputeId: string,
+  detectionId: string,
+): Promise<ApiLoadResult<FinanceDisputeDetection>> {
+  return requestJson<FinanceDisputeDetection>(
+    `/admin/disputes/${encodeURIComponent(disputeId)}/detections/${encodeURIComponent(detectionId)}`,
+  ).then((response) => ({ ...response, usingMock: false }));
+}
+
 export function transitionFinanceDispute(
   disputeId: string,
   payload: {
@@ -2767,12 +2840,13 @@ export function transitionFinanceDispute(
     readVersion: number;
     adjustmentAmountCent?: number;
   },
+  transitionKey: string,
 ): Promise<ApiLoadResult<FinanceDisputeRow>> {
   return sendJson<FinanceDisputeRow>(
     `/admin/disputes/${encodeURIComponent(disputeId)}/transitions`,
     {
       body: payload,
-      headers: { "Idempotency-Key": crypto.randomUUID() },
+      headers: { "Idempotency-Key": transitionKey },
     },
   ).then((response) => ({ ...response, usingMock: false }));
 }

@@ -122,6 +122,7 @@ jobs:
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
       TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
+      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
       DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
@@ -136,6 +137,7 @@ jobs:
             TENCENT_HOST
             TENCENT_SSH_USER
             DY_WEB_BASE_URL
+            TENCENT_START_WORKER
             TENCENT_SSH_KEY
             TENCENT_KNOWN_HOSTS
           )
@@ -145,6 +147,10 @@ jobs:
               exit 1
             fi
           done
+          if [ "$TENCENT_START_WORKER" != "true" ]; then
+            echo "::error::TENCENT_START_WORKER must be true for recoverable finance detection jobs"
+            exit 1
+          fi
 
       - name: Configure SSH
         run: |
@@ -172,6 +178,7 @@ jobs:
           target_sha="$1"
           archive_path="$2"
           web_base_url="$3"
+          start_worker="$4"
           app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
           log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
           apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
@@ -188,11 +195,11 @@ jobs:
           tar -xzf "$archive_path" -C "$app_dir"
           rm -f "$archive_path"
 
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh "$target_sha"
+          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" bash deploy/tencent/deploy.sh "$target_sha"
           REMOTE
           ssh -i ~/.ssh/tencent_lighthouse \
             -p "$port" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL'" < /tmp/tencent-deploy-bootstrap.sh
+            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/tencent-deploy-bootstrap.sh

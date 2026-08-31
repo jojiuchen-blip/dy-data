@@ -142,7 +142,7 @@ on_error() {
   status=$?
   log "deployment failed with status=$status"
   compose ps -a || true
-  compose logs --tail=80 api web proxy || true
+  compose logs --tail=80 api web proxy worker || true
   exit "$status"
 }
 
@@ -153,6 +153,11 @@ mkdir -p "$LOG_DIR"
 
 if [ ! -f "$ENV_FILE" ]; then
   log "missing env file: $ENV_FILE"
+  exit 1
+fi
+
+if [ "$START_WORKER" != "true" ]; then
+  log "deployment blocked: TENCENT_START_WORKER must be exactly true"
   exit 1
 fi
 
@@ -212,19 +217,27 @@ if [ "$unresolved_snapshot_exceptions" -ne 0 ]; then
   exit 1
 fi
 
+log "starting required worker"
+compose up -d --no-deps --force-recreate worker
+if ! compose ps --status running --services | grep -qx "worker"; then
+  log "worker failed to reach running state"
+  exit 1
+fi
+if ! compose exec -T worker sh -c 'tr "\000" " " </proc/1/cmdline | grep -Fq "apps.worker.scheduler"'; then
+  log "worker scheduler process check failed"
+  exit 1
+fi
+if ! compose exec -T worker python -c 'from sqlalchemy import text; from apps.api.dy_api.db import get_session_factory; from apps.worker.queued_jobs import process_queued_finance_dispute_detections; factory = get_session_factory(); assert factory is not None; session = factory(); assert session.execute(text("SELECT 1")).scalar_one() == 1; session.close(); assert callable(process_queued_finance_dispute_detections)'; then
+  log "worker queue runtime or database connectivity check failed"
+  exit 1
+fi
+log "worker queue runtime smoke passed"
+
 log "starting runtime services without worker"
 compose up -d --no-deps api web browser
 
 log "recreating proxy so nginx resolves fresh upstream container addresses"
 compose up -d --no-deps --force-recreate proxy
-
-if [ "$START_WORKER" = "true" ]; then
-  log "starting worker because TENCENT_START_WORKER=true"
-  compose up -d --no-deps --force-recreate worker
-else
-  log "keeping worker stopped because TENCENT_START_WORKER is not true"
-  compose stop worker >/dev/null 2>&1 || true
-fi
 
 log "running smoke checks"
 expected_mcp_url="${DY_WEB_BASE_URL%/}/mcp"
@@ -261,7 +274,7 @@ else
   deployed_sha="$(git rev-parse HEAD)"
 fi
 sudo tee "$LOG_DIR/last-deploy.json" >/dev/null <<JSON
-{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","environment":"production","worker_started":$([ "$START_WORKER" = "true" ] && echo true || echo false)}
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","sha":"$deployed_sha","environment":"production","worker_started":true}
 JSON
 
 log "deployment complete sha=$deployed_sha"

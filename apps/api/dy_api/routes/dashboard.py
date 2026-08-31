@@ -11,12 +11,13 @@ from urllib.parse import quote
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.responses import Response, StreamingResponse
 from cryptography.fernet import Fernet, InvalidToken
 from openpyxl import load_workbook
-from sqlalchemy import and_, func, select, text, update
+from sqlalchemy import and_, func, not_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
 from dy_api.routes._data import (
@@ -34,6 +35,11 @@ from dy_api.schemas import (
     SalesDashboardData,
     dump_model,
 )
+from apps.api.dy_api.finance_dispute_detection import (
+    FINANCE_DISPUTE_DETECTION_JOB_NAME,
+    finance_dispute_detection_item,
+    run_finance_dispute_detection_job,
+)
 from apps.api.dy_api.models import (
     DimSkuProductRule,
     DimStore,
@@ -42,6 +48,7 @@ from apps.api.dy_api.models import (
     FinanceOperationAudit,
     InvoiceRecord,
     InvoiceStatusEvent,
+    JobRun,
     ManagementCarryforwardApplication,
     PromotionInvoice,
     PromotionInvoiceAllocation,
@@ -136,6 +143,16 @@ FINANCE_IMPORT_TYPE_TO_DB = {
 FINANCE_IMPORT_TYPE_FROM_DB = {
     value: key for key, value in FINANCE_IMPORT_TYPE_TO_DB.items()
 }
+FINANCE_DIRECTION_PAGE_KEYS = {
+    "PROMOTION": "FIN01",
+    "MANAGEMENT": "FIN02",
+}
+FINANCE_IMPORT_TYPE_PAGE_KEYS = {
+    "PROMOTION_FACTORY_RESULT": "FIN01",
+    "MANAGEMENT_FACTORY_RESULT": "FIN02",
+    "BASIC_INFO": "FIN04",
+    "SAP_CONFIRMATION": "FIN04",
+}
 FINANCE_IMPORT_SCENARIO_FROM_STATUS = {
     1: "VALIDATING",
     2: "NO_CHANGE",
@@ -153,6 +170,34 @@ PROMOTION_INVOICE_TAX_RATE_PERCENT = 6
 BEIJING_TIME_ZONE = ZoneInfo("Asia/Shanghai")
 MAX_FINANCE_IMPORT_ROWS = 5000
 MAX_FINANCE_ORDER_EXPORT_ROWS = 100_000
+FINANCE_IMPORT_TEMPLATE_FIELDS = {
+    "BASIC_INFO": ["storeId", "storeName", "sapCode", "importedAt"],
+    "PROMOTION_FACTORY_RESULT": [
+        "invoiceNumber",
+        "reviewResult",
+        "rejectionReason",
+        "settlementDate",
+        "settlementAmountCent",
+    ],
+    "MANAGEMENT_FACTORY_RESULT": [
+        "storeId",
+        "statementMonth",
+        "storeName",
+        "invoiceNumber",
+        "invoiceDate",
+        "deductionDate",
+        "deductionAmountCent",
+    ],
+    "SAP_CONFIRMATION": [
+        "storeId",
+        "storeName",
+        "financeInitialSap",
+        "serviceStoreCode",
+        "finalSapCode",
+        "factoryConfirmationResult",
+        "confirmedAt",
+    ],
+}
 
 FINANCE_ORDER_DETAIL_DEFINITIONS = {
     "storeName": {
@@ -192,6 +237,10 @@ FINANCE_ORDER_DETAIL_DEFINITIONS.update(
         "storeId": {"source": "settlement_statement.store_id", "description": "账单所属门店稳定标识。"},
         "storeName": {"source": "settlement_statement.store_name_snapshot", "description": "账单创建时冻结的门店名称，不读取当前门店主数据。"},
         "sapCode": {"source": "settlement_statement.sap_code_snapshot", "description": "账单创建时冻结的 SAP；墓碑版本的空值不会复活旧 SAP。"},
+        "billingStoreId": {"source": "settlement_statement.store_id", "description": "账单归属门店稳定标识。"},
+        "billingStoreName": {"source": "settlement_statement.store_name_snapshot", "description": "账单创建时冻结的归属门店名称。"},
+        "serviceStoreName": {"source": "settlement_statement.store_name_snapshot", "description": "财务基础信息在账单创建时冻结的服务店名称。"},
+        "effectiveSapCode": {"source": "settlement_statement.sap_code_snapshot", "description": "账单创建时冻结的有效 SAP，不读取当前主数据。"},
         "statementMonth": {"source": "settlement_statement.statement_month", "description": "该行归属的账单账期。"},
         "feeDirection": {"source": "settlement_statement_entry.fee_direction", "description": "费用方向：推广服务费或管理服务费。"},
         "orderId": {"source": "settlement_statement_entry.order_id", "description": "冻结分录关联的订单标识。"},
@@ -199,6 +248,7 @@ FINANCE_ORDER_DETAIL_DEFINITIONS.update(
         "orderStatus": {"source": "settlement_statement_entry.order_status_snapshot", "description": "锁账时冻结的订单状态。"},
         "couponStatus": {"source": "settlement_statement_entry.coupon_status_snapshot", "description": "锁账时冻结的券状态。"},
         "productName": {"source": "settlement_statement_entry.product_name_snapshot", "description": "锁账时冻结的商品名称。"},
+        "productType": {"source": "settlement_statement_entry.product_type", "description": "锁账分录中不可变的商品类型。"},
         "skuId": {"source": "settlement_statement_entry.sku_id_snapshot", "description": "锁账时冻结的 SKU 标识。"},
         "skuName": {"source": "settlement_statement_entry.sku_name_snapshot", "description": "锁账时冻结的 SKU 名称。"},
         "saleChannel": {"source": "settlement_statement_entry.sale_channel_snapshot", "description": "锁账时冻结的销售渠道。"},
@@ -217,11 +267,24 @@ FINANCE_ORDER_DETAIL_DEFINITIONS.update(
         "rowType": {"source": "settlement_statement_entry.source_type", "description": "原费用行或独立调整行。"},
         "invoiceNumber": {"source": "promotion_invoice / invoice_record", "description": "当前有效的发票登记号码。"},
         "submittedAt": {"source": "promotion_invoice.registered_at", "description": "推广服务费发票登记时间。"},
-        "invoiceStatus": {"source": "promotion_invoice.invoice_status", "description": "推广服务费当前厂端处理状态。"},
-        "settledAt": {"source": "invoice_status_event.business_date / invoice_record.factory_deduction_date", "description": "推广结算日期或管理服务费厂家扣款日期。"},
+        "invoiceStatus": {
+            "source": "promotion_invoice.invoice_status / current invoice_record existence",
+            "description": "推广服务费为厂端处理状态；管理服务费为待开票或已开票。",
+        },
+        "settledAt": {
+            "source": "invoice_status_event.business_date / full-matched invoice_record.factory_deduction_date",
+            "description": "推广结算日期；管理服务费仅在厂家扣减金额全额匹配时展示结算日期。",
+        },
+        "settlementDate": {
+            "source": "invoice_status_event.business_date / full-matched invoice_record.factory_deduction_date",
+            "description": "推广审核通过结算日；管理服务费为全额厂家扣款日期。",
+        },
         "rejectionReason": {"source": "invoice_status_event.result_reason", "description": "推广服务费厂端不通过原因。"},
         "importedAt": {"source": "invoice_record.registered_at", "description": "管理服务费结果导入系统的时间。"},
-        "settlementStatus": {"source": "invoice_record.invoice_status", "description": "管理服务费当前结算状态。"},
+        "settlementStatus": {
+            "source": "settlement_statement_confirmation.confirmed_amount_cent + invoice_record.factory_deduction_amount_cent",
+            "description": "管理服务费仅在厂家扣减金额与已确认应扣金额全额匹配时为已结算。",
+        },
         "factoryDeductionDate": {"source": "invoice_record.factory_deduction_date", "description": "管理服务费厂家扣款日期。"},
         "factoryDeductionAmountCent": {"source": "invoice_record.factory_deduction_amount_cent", "description": "管理服务费厂家扣款金额，单位为分。"},
     }
@@ -885,11 +948,18 @@ def list_admin_disputes(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN05")
     session = _billing_session(store, request)
     conditions = []
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    if scope_store_ids is not None:
+        conditions.append(SettlementDispute.store_id.in_(scope_store_ids))
     if store_id:
-        conditions.append(SettlementDispute.store_id == store_id.strip())
+        normalized_store_id = store_id.strip()
+        _require_finance_store_scope(
+            current_user, normalized_store_id, request
+        )
+        conditions.append(SettlementDispute.store_id == normalized_store_id)
     if month:
         _validate_month(month, "month", request)
         conditions.append(SettlementDispute.statement_month == month)
@@ -913,10 +983,10 @@ def list_admin_disputes(
     if submitted_to:
         conditions.append(SettlementDispute.submitted_at <= submitted_to)
 
-    total = int(
-        session.scalar(select(func.count()).select_from(SettlementDispute).where(*conditions))
-        or 0
+    metric_disputes = list(
+        session.scalars(select(SettlementDispute).where(*conditions))
     )
+    total = len(metric_disputes)
     disputes = list(
         session.scalars(
             select(SettlementDispute)
@@ -933,8 +1003,293 @@ def list_admin_disputes(
             "total": total,
             "page": page,
             "page_size": page_size,
+            "metrics": _admin_dispute_metrics(session, metric_disputes),
         },
     )
+
+
+@router.get("/admin/disputes/export")
+def export_admin_disputes(
+    request: Request,
+    store_id: str | None = Query(default=None, alias="storeId"),
+    month: str | None = Query(default=None),
+    fee_direction: str | None = Query(default=None, alias="feeDirection"),
+    dispute_status: str | None = Query(default=None, alias="status"),
+    dispute_type: str | None = Query(default=None, alias="disputeType"),
+    submitted_from: datetime | None = Query(default=None, alias="submittedFrom"),
+    submitted_to: datetime | None = Query(default=None, alias="submittedTo"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Export dispute facts without inventing an evidence upload contract."""
+
+    _require_finance_admin(current_user, request, page_key="FIN05")
+    session = _billing_session(store, request)
+    conditions = []
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    if scope_store_ids is not None:
+        conditions.append(SettlementDispute.store_id.in_(scope_store_ids))
+    if store_id:
+        normalized_store_id = store_id.strip()
+        _require_finance_store_scope(
+            current_user, normalized_store_id, request
+        )
+        conditions.append(SettlementDispute.store_id == normalized_store_id)
+    if month:
+        _validate_month(month, "month", request)
+        conditions.append(SettlementDispute.statement_month == month)
+    if fee_direction:
+        direction = _normalize_billing_direction(fee_direction, request)
+        conditions.append(
+            SettlementDispute.fee_direction
+            == CONFIRMATION_DIRECTION_TO_DB[direction]
+        )
+    if dispute_status:
+        normalized_status = dispute_status.strip().upper()
+        _validate_enum(
+            normalized_status, set(DISPUTE_STATUS_TO_DB), "status", request
+        )
+        conditions.append(
+            SettlementDispute.status == DISPUTE_STATUS_TO_DB[normalized_status]
+        )
+    if dispute_type:
+        normalized_type = dispute_type.strip().upper()
+        _validate_enum(
+            normalized_type, set(DISPUTE_TYPE_TO_DB), "disputeType", request
+        )
+        conditions.append(
+            SettlementDispute.dispute_type
+            == DISPUTE_TYPE_TO_DB[normalized_type]
+        )
+    if submitted_from:
+        conditions.append(SettlementDispute.submitted_at >= submitted_from)
+    if submitted_to:
+        conditions.append(SettlementDispute.submitted_at <= submitted_to)
+    disputes = list(
+        session.scalars(
+            select(SettlementDispute)
+            .where(*conditions)
+            .order_by(
+                SettlementDispute.submitted_at.desc(),
+                SettlementDispute.dispute_id,
+            )
+            .limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
+        )
+    )
+    if len(disputes) > MAX_FINANCE_ORDER_EXPORT_ROWS:
+        _raise_reporting_error(
+            request,
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "EXPORT_LIMIT_EXCEEDED",
+            f"命中记录超过 {MAX_FINANCE_ORDER_EXPORT_ROWS} 行，请缩小筛选范围",
+        )
+    items = []
+    for dispute in disputes:
+        item = _dispute_item(session, dispute, request)
+        items.append(
+            {
+                **item,
+                "linked_order_count": len(item["orders"]),
+                "linked_order_ids": "|".join(
+                    order["order_id"] for order in item["orders"]
+                ),
+            }
+        )
+    return _finance_csv_download(
+        request=request,
+        filename_prefix="finance-disputes",
+        fieldnames=[
+            "dispute_id",
+            "statement_id",
+            "store_id",
+            "statement_month",
+            "fee_direction",
+            "dispute_type",
+            "status",
+            "disputed_amount_cent",
+            "description",
+            "contact_name",
+            "contact_phone_masked",
+            "linked_order_count",
+            "linked_order_ids",
+            "submitted_at",
+            "resolution_note",
+            "result_statement_id",
+        ],
+        rows=items,
+    )
+
+
+@router.post("/admin/disputes/{dispute_id}/detections")
+def create_admin_dispute_detection(
+    dispute_id: str,
+    background_tasks: BackgroundTasks,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Queue a persisted consistency check without changing dispute status."""
+
+    _require_finance_admin(current_user, request, page_key="FIN05")
+    session = _billing_session(store, request)
+    dispute = session.scalar(
+        select(SettlementDispute).where(
+            SettlementDispute.dispute_id == dispute_id
+        )
+    )
+    if dispute is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "异议不存在",
+        )
+    _require_finance_store_scope(current_user, dispute.store_id, request)
+    key_hash = _billing_idempotency_key_hash(idempotency_key, request)
+    request_hash = _canonical_billing_sha256({"disputeId": dispute_id})
+    existing = session.scalar(
+        select(JobRun)
+        .where(
+            JobRun.job_name == FINANCE_DISPUTE_DETECTION_JOB_NAME,
+            JobRun.idempotency_key_hash == key_hash,
+        )
+        .execution_options(populate_existing=True)
+    )
+    if existing is not None:
+        metadata = existing.metadata_json or {}
+        if (
+            metadata.get("disputeId") != dispute_id
+            or metadata.get("requestPayloadSha256") != request_hash
+        ):
+            _raise_reporting_error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key 已用于不同的检测请求",
+            )
+        return _reporting_success(
+            request, finance_dispute_detection_item(existing)
+        )
+
+    job_id = f"finance-dispute-detection-{uuid4().hex}"
+    queued_at = utcnow()
+    queued = JobRun(
+        job_id=job_id,
+        job_name=FINANCE_DISPUTE_DETECTION_JOB_NAME,
+        status="queued",
+        started_at=queued_at,
+        state_updated_at=queued_at,
+        success_count=0,
+        failed_count=0,
+        error_message=None,
+        idempotency_key_hash=key_hash,
+        metadata_json={
+            "disputeId": dispute_id,
+            "requestedBy": current_user.username,
+            "requestPayloadSha256": request_hash,
+            "progress": 0,
+            "stage": "QUEUED",
+            "result": None,
+            "failureReason": None,
+            "attemptCount": 0,
+            "claimId": None,
+            "claimedAt": None,
+        },
+    )
+    session.add(queued)
+    try:
+        session.commit()
+    except IntegrityError as exc:
+        session.rollback()
+        concurrent = session.scalar(
+            select(JobRun).where(
+                JobRun.job_name == FINANCE_DISPUTE_DETECTION_JOB_NAME,
+                JobRun.idempotency_key_hash == key_hash,
+            )
+        )
+        if concurrent is None:
+            raise exc
+        metadata = concurrent.metadata_json or {}
+        if (
+            metadata.get("disputeId") != dispute_id
+            or metadata.get("requestPayloadSha256") != request_hash
+        ):
+            _raise_reporting_error(
+                request,
+                status.HTTP_409_CONFLICT,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key 已用于不同的检测请求",
+            )
+        return _reporting_success(
+            request, finance_dispute_detection_item(concurrent)
+        )
+
+    factory = sessionmaker(
+        bind=session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+    background_tasks.add_task(
+        run_finance_dispute_detection_job,
+        job_id=job_id,
+        session_factory=factory,
+    )
+    return _reporting_success(
+        request, finance_dispute_detection_item(queued)
+    )
+
+
+@router.get("/admin/disputes/{dispute_id}/detections/{job_id_or_latest}")
+def get_admin_dispute_detection(
+    dispute_id: str,
+    job_id_or_latest: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Read one persisted detection result, including the latest alias."""
+
+    _require_finance_admin(current_user, request, page_key="FIN05")
+    session = _billing_session(store, request)
+    session.expire_all()
+    if job_id_or_latest == "latest":
+        job = _latest_finance_dispute_detection(session, dispute_id)
+    else:
+        job = session.scalar(
+            select(JobRun)
+            .where(
+                JobRun.job_name == FINANCE_DISPUTE_DETECTION_JOB_NAME,
+                JobRun.job_id == job_id_or_latest,
+            )
+            .execution_options(populate_existing=True)
+        )
+        if job is not None and (job.metadata_json or {}).get(
+            "disputeId"
+        ) != dispute_id:
+            job = None
+    if job is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "异议检测任务不存在",
+        )
+    dispute = session.scalar(
+        select(SettlementDispute).where(
+            SettlementDispute.dispute_id == dispute_id
+        )
+    )
+    if dispute is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "异议不存在",
+        )
+    _require_finance_store_scope(current_user, dispute.store_id, request)
+    return _reporting_success(request, finance_dispute_detection_item(job))
 
 
 @router.post("/admin/disputes/{dispute_id}/transitions")
@@ -946,7 +1301,7 @@ def transition_admin_dispute(
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN05")
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     session = _billing_session(store, request)
     dispute = session.scalar(
@@ -960,6 +1315,7 @@ def transition_admin_dispute(
             "异议不存在",
             field="disputeId",
         )
+    _require_finance_store_scope(current_user, dispute.store_id, request)
 
     target_status = payload.get("targetStatus")
     resolution_note = payload.get("resolutionNote")
@@ -1104,6 +1460,45 @@ def transition_admin_dispute(
     return _reporting_success(request, data)
 
 
+@router.get("/admin/finance-imports/templates/{import_type}")
+def download_admin_finance_import_template(
+    import_type: str,
+    request: Request,
+    current_user: AuthContext = Depends(get_current_user),
+):
+    """Return the formal import header only; never include demonstration rows."""
+
+    _require_finance_admin(current_user, request)
+    normalized_type = import_type.strip().upper()
+    if normalized_type not in FINANCE_IMPORT_TEMPLATE_FIELDS:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "importType 不是受支持的财务导入类型",
+            field="importType",
+        )
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(normalized_type),
+    )
+    buffer = StringIO(newline="")
+    writer = DictWriter(
+        buffer, fieldnames=FINANCE_IMPORT_TEMPLATE_FIELDS[normalized_type]
+    )
+    writer.writeheader()
+    filename = quote(f"finance-import-{normalized_type.lower()}-template.csv")
+    return Response(
+        content=with_utf8_bom(buffer.getvalue()),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "X-Request-ID": request_id(request),
+        },
+    )
+
+
 @router.post("/admin/finance-imports")
 def create_finance_import(
     request: Request,
@@ -1118,6 +1513,11 @@ def create_finance_import(
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     normalized_type = import_type.strip().upper()
     _validate_enum(normalized_type, set(FINANCE_IMPORT_TYPE_TO_DB), "importType", request)
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(normalized_type),
+    )
     _validate_month(statement_month, "statementMonth", request)
     filename = (file.filename or "").strip()
     if not filename.lower().endswith((".csv", ".xlsx")):
@@ -1164,6 +1564,9 @@ def create_finance_import(
                 "IDEMPOTENCY_KEY_REUSED",
                 "Idempotency-Key 已用于不同的导入文件或参数",
             )
+        _require_finance_import_batch_scope(
+            session, replay, current_user, request
+        )
         return _reporting_success(
             request, _finance_import_upload_item(session, replay)
         )
@@ -1218,6 +1621,19 @@ def create_finance_import(
             row_number=row_number,
             raw_row=raw_row,
         )
+        scope_store_ids = _finance_scope_store_ids(current_user)
+        row_store_id = str(normalized_payload.get("storeId") or "")
+        if scope_store_ids is not None and row_store_id not in scope_store_ids:
+            errors.append(
+                _finance_import_error(
+                    row_number,
+                    business_key,
+                    "storeId",
+                    row_store_id,
+                    "门店不在当前账号授权范围内",
+                    "仅保留当前账号可管理的门店",
+                )
+            )
         if business_key in seen_business_keys:
             errors.append(
                 _finance_import_error(
@@ -1309,9 +1725,24 @@ def list_finance_imports(
     store=Depends(get_data_store),
 ):
     """List finance-import batches for administrators."""
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN06")
     session = _billing_session(store, request)
     conditions = []
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    if scope_store_ids is not None:
+        row_store_id = FinanceImportRow.normalized_payload[
+            "storeId"
+        ].as_string()
+        scoped_batch_ids = select(FinanceImportRow.batch_id).where(
+            row_store_id.in_(scope_store_ids)
+        )
+        out_of_scope_batch_ids = select(FinanceImportRow.batch_id).where(
+            (row_store_id.is_(None)) | (~row_store_id.in_(scope_store_ids))
+        )
+        conditions.append(FinanceImportBatch.batch_id.in_(scoped_batch_ids))
+        conditions.append(
+            ~FinanceImportBatch.batch_id.in_(out_of_scope_batch_ids)
+        )
     if import_type is not None:
         normalized_type = import_type.strip().upper()
         _validate_enum(
@@ -1392,6 +1823,12 @@ def download_finance_import_errors(
             "财务导入批次不存在",
             field="batchId",
         )
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(batch.import_type),
+    )
+    _require_finance_import_batch_scope(session, batch, current_user, request)
     filename = quote(f"finance-import-errors-{batch_id}.csv")
     return StreamingResponse(
         _finance_import_error_csv(session, batch_id),
@@ -1429,6 +1866,12 @@ def get_finance_import(
             "财务导入批次不存在",
             field="batchId",
         )
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(batch.import_type),
+    )
+    _require_finance_import_batch_scope(session, batch, current_user, request)
     error_rows = list(
         session.scalars(
             select(FinanceImportRow)
@@ -1796,6 +2239,26 @@ def reverse_finance_import(
     """Append one atomic reversal batch and one business version per original row."""
     _require_finance_admin(current_user, request)
     session = _billing_session(store, request)
+    scope_batch = session.scalar(
+        select(FinanceImportBatch).where(
+            FinanceImportBatch.batch_id == batch_id
+        )
+    )
+    if scope_batch is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "财务导入批次不存在",
+        )
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(scope_batch.import_type),
+    )
+    _require_finance_import_batch_scope(
+        session, scope_batch, current_user, request
+    )
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     payload_hash = _canonical_billing_sha256(payload)
     replay = session.scalar(
@@ -2122,6 +2585,12 @@ def _execute_finance_import_commit(
             "财务导入批次不存在",
             field="batchId",
         )
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=_finance_import_page_key(batch.import_type),
+    )
+    _require_finance_import_batch_scope(session, batch, current_user, request)
 
     _lock_finance_import_version_slot(
         session,
@@ -3148,17 +3617,38 @@ def get_admin_finance_summary(
     fee_direction: str = Query(alias="feeDirection"),
     metric_scope: str = Query(alias="metricScope"),
     store_id: str | None = Query(default=None, alias="storeId"),
+    q: str | None = Query(default=None),
+    invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
     _validate_month(month, "month", request)
     direction = _normalize_billing_direction(fee_direction, request)
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=FINANCE_DIRECTION_PAGE_KEYS[direction],
+    )
+    scope_store_ids = _finance_scope_store_ids(current_user)
     normalized_scope = metric_scope.upper()
     _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
     if store_id is not None:
         _require_billing_store(session, store_id, request)
+        _require_finance_store_scope(current_user, store_id, request)
+    status_code = _normalize_invoice_status(
+        invoice_status, request, fee_direction=direction
+    )
+    statement_ids = _finance_summary_filtered_statement_ids(
+        session,
+        month=month,
+        fee_direction=direction,
+        metric_scope=normalized_scope,
+        store_id=store_id,
+        q=q,
+        invoice_status=status_code,
+        scope_store_ids=scope_store_ids,
+    )
 
     return _reporting_success(
         request,
@@ -3173,6 +3663,7 @@ def get_admin_finance_summary(
                 fee_direction=direction,
                 metric_scope=normalized_scope,
                 store_id=store_id,
+                statement_ids=statement_ids,
             ),
         },
     )
@@ -3183,7 +3674,9 @@ def list_admin_finance_invoices(
     request: Request,
     month: str = Query(),
     fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(default="MONTH", alias="metricScope"),
     store_id: str | None = Query(default=None, alias="storeId"),
+    q: str | None = Query(default=None),
     invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
     include_history: bool = Query(default=False, alias="includeHistory"),
     page: int = Query(default=1, ge=1),
@@ -3192,16 +3685,30 @@ def list_admin_finance_invoices(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
     _validate_month(month, "month", request)
     direction = _normalize_billing_direction(fee_direction, request)
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=FINANCE_DIRECTION_PAGE_KEYS[direction],
+    )
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
     if store_id is not None:
         _require_billing_store(session, store_id, request)
-    status_code = _normalize_invoice_status(invoice_status, request)
+        _require_finance_store_scope(current_user, store_id, request)
+    status_code = _normalize_invoice_status(
+        invoice_status, request, fee_direction=direction
+    )
 
     if direction == "PROMOTION":
         conditions = [
-            PromotionInvoiceAllocation.statement_month == month,
+            _finance_invoice_period_condition(
+                PromotionInvoiceAllocation.statement_month,
+                month=month,
+                metric_scope=normalized_scope,
+            ),
             PromotionInvoiceAllocation.is_current.is_(True),
             PromotionInvoice.is_current.is_(True),
             PromotionInvoice.is_tombstone.is_(False),
@@ -3209,10 +3716,24 @@ def list_admin_finance_invoices(
         ]
         if store_id is not None:
             conditions.append(PromotionInvoiceAllocation.store_id == store_id)
+        if scope_store_ids is not None:
+            conditions.append(
+                PromotionInvoiceAllocation.store_id.in_(scope_store_ids)
+            )
         if status_code is not None:
             conditions.append(PromotionInvoice.invoice_status == status_code)
+        if q and q.strip():
+            conditions.append(
+                _finance_invoice_search_condition(
+                    q.strip(), PromotionInvoice.invoice_number
+                )
+            )
         query = (
-            select(PromotionInvoice, PromotionInvoiceAllocation)
+            select(
+                PromotionInvoice,
+                PromotionInvoiceAllocation,
+                SettlementStatement,
+            )
             .join(
                 PromotionInvoiceAllocation,
                 PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
@@ -3226,36 +3747,170 @@ def list_admin_finance_invoices(
         )
         total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
-        items = [_promotion_invoice_item(invoice, allocation) for invoice, allocation in rows]
-    else:
-        conditions = [
-            InvoiceRecord.statement_month == month,
-            InvoiceRecord.fee_direction == CONFIRMATION_DIRECTION_TO_DB[direction],
-            InvoiceRecord.is_tombstone.is_(False),
-            SettlementStatement.is_current.is_(True),
-        ]
-        if not include_history:
-            conditions.append(InvoiceRecord.is_current.is_(True))
-        if store_id is not None:
-            conditions.append(InvoiceRecord.store_id == store_id)
-        if status_code is not None:
-            conditions.append(InvoiceRecord.invoice_status == status_code)
-        query = (
-            select(InvoiceRecord)
-            .join(
-                SettlementStatement,
-                SettlementStatement.statement_id == InvoiceRecord.statement_id,
+        items = [
+            _admin_promotion_invoice_item(
+                session, invoice, allocation, statement
             )
-            .where(*conditions)
-            .order_by(InvoiceRecord.registered_at.desc(), InvoiceRecord.invoice_id)
+            for invoice, allocation, statement in rows
+        ]
+    else:
+        query = _management_invoice_collection_query(
+            month=month,
+            metric_scope=normalized_scope,
+            store_id=store_id,
+            q=q,
+            invoice_status=status_code,
+            include_history=include_history,
+            scope_store_ids=scope_store_ids,
         )
         total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        invoices = list(session.scalars(query.offset((page - 1) * page_size).limit(page_size)))
-        items = [_management_invoice_item(invoice) for invoice in invoices]
+        rows = session.execute(
+            query.offset((page - 1) * page_size).limit(page_size)
+        ).all()
+        items = [
+            _admin_management_invoice_item(session, invoice, statement)
+            for invoice, statement in rows
+        ]
 
     return _reporting_success(
         request,
         {"list": items, "total": total, "page": page, "page_size": page_size},
+    )
+
+
+@router.get("/admin/finance/invoices/export")
+def export_admin_finance_invoices(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(default="MONTH", alias="metricScope"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    q: str | None = Query(default=None),
+    invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
+    include_history: bool = Query(default=False, alias="includeHistory"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Export the same official invoice facts as the finance invoice list."""
+
+    session = _billing_session(store, request)
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    _require_finance_admin(
+        current_user,
+        request,
+        page_key=FINANCE_DIRECTION_PAGE_KEYS[direction],
+    )
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
+    if store_id is not None:
+        _require_billing_store(session, store_id, request)
+        _require_finance_store_scope(current_user, store_id, request)
+    status_code = _normalize_invoice_status(
+        invoice_status, request, fee_direction=direction
+    )
+    if direction == "PROMOTION":
+        conditions = [
+            _finance_invoice_period_condition(
+                PromotionInvoiceAllocation.statement_month,
+                month=month,
+                metric_scope=normalized_scope,
+            ),
+            PromotionInvoiceAllocation.is_current.is_(True),
+            PromotionInvoice.is_current.is_(True),
+            PromotionInvoice.is_tombstone.is_(False),
+            SettlementStatement.is_current.is_(True),
+        ]
+        if store_id is not None:
+            conditions.append(PromotionInvoiceAllocation.store_id == store_id)
+        if scope_store_ids is not None:
+            conditions.append(
+                PromotionInvoiceAllocation.store_id.in_(scope_store_ids)
+            )
+        if status_code is not None:
+            conditions.append(PromotionInvoice.invoice_status == status_code)
+        if q and q.strip():
+            conditions.append(
+                _finance_invoice_search_condition(
+                    q.strip(), PromotionInvoice.invoice_number
+                )
+            )
+        rows = session.execute(
+            select(
+                PromotionInvoice,
+                PromotionInvoiceAllocation,
+                SettlementStatement,
+            )
+            .join(
+                PromotionInvoiceAllocation,
+                PromotionInvoiceAllocation.invoice_id
+                == PromotionInvoice.invoice_id,
+            )
+            .join(
+                SettlementStatement,
+                SettlementStatement.statement_id
+                == PromotionInvoiceAllocation.statement_id,
+            )
+            .where(*conditions)
+            .order_by(
+                PromotionInvoice.registered_at.desc(),
+                PromotionInvoice.invoice_id,
+            )
+            .limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
+        ).all()
+        items = [
+            _admin_promotion_invoice_item(
+                session, invoice, allocation, statement
+            )
+            for invoice, allocation, statement in rows
+        ]
+    else:
+        rows = session.execute(
+            _management_invoice_collection_query(
+                month=month,
+                metric_scope=normalized_scope,
+                store_id=store_id,
+                q=q,
+                invoice_status=status_code,
+                include_history=include_history,
+                scope_store_ids=scope_store_ids,
+            ).limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
+        ).all()
+        items = [
+            _admin_management_invoice_item(session, invoice, statement)
+            for invoice, statement in rows
+        ]
+    if len(items) > MAX_FINANCE_ORDER_EXPORT_ROWS:
+        _raise_reporting_error(
+            request,
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "EXPORT_LIMIT_EXCEEDED",
+            f"命中记录超过 {MAX_FINANCE_ORDER_EXPORT_ROWS} 行，请缩小筛选范围",
+        )
+    return _finance_csv_download(
+        request=request,
+        filename_prefix=f"finance-{direction.lower()}-invoices",
+        fieldnames=[
+            "invoice_id",
+            "store_id",
+            "store_name",
+            "effective_sap_code",
+            "statement_id",
+            "statement_month",
+            "settlement_batch_month",
+            "statement_amount_cent",
+            "confirmed_amount_cent",
+            "invoice_number",
+            "invoice_date",
+            "invoice_amount_cent",
+            "status",
+            "rejection_reason",
+            "registered_at",
+            "factory_deduction_date",
+            "factory_deduction_amount_cent",
+        ],
+        rows=items,
     )
 
 
@@ -3273,10 +3928,11 @@ def correct_management_invoice(
 ):
     """Append one administrator correction to a management invoice slot."""
 
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN02")
     _validate_month(statement_month, "statementMonth", request)
     session = _billing_session(store, request)
     _require_billing_store(session, store_id, request)
+    _require_finance_store_scope(current_user, store_id, request)
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     payload_hash = _canonical_billing_sha256(
         {
@@ -3577,7 +4233,9 @@ def list_admin_finance_order_details(
     order_id: str | None = Query(default=None, alias="orderId"),
     sku_id: str | None = Query(default=None, alias="skuId"),
     sale_channel: str | None = Query(default=None, alias="saleChannel"),
+    q: str | None = Query(default=None),
     invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
+    settlement_status: str | None = Query(default=None, alias="settlementStatus"),
     submitted_from: datetime | None = Query(default=None, alias="submittedFrom"),
     submitted_to: datetime | None = Query(default=None, alias="submittedTo"),
     verify_from: datetime | None = Query(default=None, alias="verifyFrom"),
@@ -3588,19 +4246,24 @@ def list_admin_finance_order_details(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN03")
     _validate_month(month, "month", request)
     direction = _normalize_billing_direction(fee_direction, request)
+    scope_store_ids = _finance_scope_store_ids(current_user)
     if store_id is not None:
         _require_billing_store(session, store_id, request)
+        _require_finance_store_scope(current_user, store_id, request)
     filters = _normalize_finance_order_detail_filters(
         request=request, month=month, fee_direction=direction, store_id=store_id,
         store_name=store_name,
         sap_code=sap_code, invoice_number=invoice_number, order_id=order_id,
-        sku_id=sku_id, sale_channel=sale_channel, invoice_status=invoice_status,
+        sku_id=sku_id, sale_channel=sale_channel, q=q,
+        invoice_status=invoice_status, settlement_status=settlement_status,
         submitted_from=submitted_from, submitted_to=submitted_to,
         verify_from=verify_from, verify_to=verify_to,
     )
+    if scope_store_ids is not None:
+        filters["scopeStoreIds"] = scope_store_ids
     query = _finance_order_details_query(filters)
     total = session.scalar(select(func.count()).select_from(query.order_by(None).subquery())) or 0
     rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
@@ -3628,7 +4291,9 @@ def export_admin_finance_order_details(
     order_id: str | None = Query(default=None, alias="orderId"),
     sku_id: str | None = Query(default=None, alias="skuId"),
     sale_channel: str | None = Query(default=None, alias="saleChannel"),
+    q: str | None = Query(default=None),
     invoice_status: str | None = Query(default=None, alias="invoiceStatus"),
+    settlement_status: str | None = Query(default=None, alias="settlementStatus"),
     submitted_from: datetime | None = Query(default=None, alias="submittedFrom"),
     submitted_to: datetime | None = Query(default=None, alias="submittedTo"),
     verify_from: datetime | None = Query(default=None, alias="verifyFrom"),
@@ -3637,19 +4302,24 @@ def export_admin_finance_order_details(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN03")
     _validate_month(month, "month", request)
     direction = _normalize_billing_direction(fee_direction, request)
+    scope_store_ids = _finance_scope_store_ids(current_user)
     if store_id is not None:
         _require_billing_store(session, store_id, request)
+        _require_finance_store_scope(current_user, store_id, request)
     filters = _normalize_finance_order_detail_filters(
         request=request, month=month, fee_direction=direction, store_id=store_id,
         store_name=store_name,
         sap_code=sap_code, invoice_number=invoice_number, order_id=order_id,
-        sku_id=sku_id, sale_channel=sale_channel, invoice_status=invoice_status,
+        sku_id=sku_id, sale_channel=sale_channel, q=q,
+        invoice_status=invoice_status, settlement_status=settlement_status,
         submitted_from=submitted_from, submitted_to=submitted_to,
         verify_from=verify_from, verify_to=verify_to,
     )
+    if scope_store_ids is not None:
+        filters["scopeStoreIds"] = scope_store_ids
     audit_filters = _finance_order_detail_audit_filters(filters)
     try:
         rows = session.execute(
@@ -4013,7 +4683,22 @@ def decide_sap_suggestion(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN04")
+    scope_suggestion = session.scalar(
+        select(SapSuggestion).where(
+            SapSuggestion.suggestion_id == suggestion_id
+        )
+    )
+    if scope_suggestion is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_404_NOT_FOUND,
+            "RESOURCE_NOT_FOUND",
+            "SAP 建议不存在",
+        )
+    _require_finance_store_scope(
+        current_user, scope_suggestion.store_id, request
+    )
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     payload_hash = _canonical_billing_sha256(payload)
     replay_suggestion = session.scalar(
@@ -4306,22 +4991,27 @@ def list_admin_finance_stores(
     fee_direction: str = Query(alias="feeDirection"),
     metric_scope: str = Query(alias="metricScope"),
     q: str | None = Query(default=None),
+    sap_discrepancies_only: bool = Query(
+        default=False, alias="sapDiscrepanciesOnly"
+    ),
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50, alias="pageSize"),
     current_user: AuthContext = Depends(get_current_user),
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    _require_finance_admin(current_user, request)
+    _require_finance_admin(current_user, request, page_key="FIN04")
+    scope_store_ids = _finance_scope_store_ids(current_user)
     _validate_month(month, "month", request)
     direction = _normalize_billing_direction(fee_direction, request)
     normalized_scope = metric_scope.upper()
     _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
     conditions = [DimStore.is_active.is_(True)]
+    if scope_store_ids is not None:
+        conditions.append(DimStore.store_id.in_(scope_store_ids))
     normalized_query = (q or "").strip()
     if normalized_query:
         matching_profile_store_ids = select(StoreFinanceProfile.store_id).where(
-            StoreFinanceProfile.profile_type == 2,
             StoreFinanceProfile.is_current.is_(True),
             StoreFinanceProfile.is_tombstone.is_(False),
             StoreFinanceProfile.sap_code.contains(normalized_query),
@@ -4336,99 +5026,508 @@ def list_admin_finance_stores(
             | (DimStore.store_id.in_(matching_profile_store_ids))
             | (DimStore.store_id.in_(matching_suggestion_store_ids))
         )
-    store_ids_query = (
-        select(DimStore.store_id)
-        .where(*conditions)
-        .distinct()
-        .order_by(DimStore.store_id)
+    store_rows = list(
+        session.scalars(
+            select(DimStore)
+            .where(*conditions)
+            .distinct()
+            .order_by(DimStore.store_id)
+        )
     )
-    total = session.scalar(select(func.count()).select_from(store_ids_query.subquery())) or 0
-    store_ids = list(
-        session.scalars(store_ids_query.offset((page - 1) * page_size).limit(page_size))
+    sap_items = _finance_store_sap_items(session, store_rows)
+    sap_metrics = _finance_store_sap_metrics(sap_items)
+    filtered_items = (
+        [
+            item
+            for item in sap_items
+            if item["sap_status"] == "FINANCE_ACTION_REQUIRED"
+        ]
+        if sap_discrepancies_only
+        else sap_items
     )
-    stores = {
-        store_row.store_id: store_row
-        for store_row in session.scalars(select(DimStore).where(DimStore.store_id.in_(store_ids)))
+    total = len(filtered_items)
+    page_items = filtered_items[
+        (page - 1) * page_size : page * page_size
+    ]
+    page_store_ids = tuple(item["store_id"] for item in page_items)
+    metrics_by_store = _finance_summary_metrics_by_store(
+        session,
+        month=month,
+        fee_direction=direction,
+        metric_scope=normalized_scope,
+        store_ids=page_store_ids,
+    )
+    items = [
+        {**item, **metrics_by_store[item["store_id"]]}
+        for item in page_items
+    ]
+    return _reporting_success(
+        request,
+        {
+            "list": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "sap_metrics": sap_metrics,
+        },
+    )
+
+
+def _admin_finance_store_export_items(
+    session,
+    *,
+    month: str,
+    fee_direction: str,
+    metric_scope: str,
+    q: str | None,
+    scope_store_ids: tuple[str, ...] | None = None,
+) -> list[dict]:
+    conditions = [DimStore.is_active.is_(True)]
+    if scope_store_ids is not None:
+        conditions.append(DimStore.store_id.in_(scope_store_ids))
+    normalized_query = (q or "").strip()
+    if normalized_query:
+        matching_profile_store_ids = select(StoreFinanceProfile.store_id).where(
+            StoreFinanceProfile.is_current.is_(True),
+            StoreFinanceProfile.is_tombstone.is_(False),
+            StoreFinanceProfile.sap_code.contains(normalized_query),
+        )
+        matching_suggestion_store_ids = select(SapSuggestion.store_id).where(
+            SapSuggestion.is_current.is_(True),
+            SapSuggestion.suggested_sap_code.contains(normalized_query),
+        )
+        conditions.append(
+            (DimStore.store_id.contains(normalized_query))
+            | (DimStore.store_name.contains(normalized_query))
+            | (DimStore.store_id.in_(matching_profile_store_ids))
+            | (DimStore.store_id.in_(matching_suggestion_store_ids))
+        )
+    stores = list(
+        session.scalars(
+            select(DimStore)
+            .where(*conditions)
+            .order_by(DimStore.store_id)
+            .limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
+        )
+    )
+    store_ids = tuple(store_row.store_id for store_row in stores)
+    metrics_by_store = _finance_summary_metrics_by_store(
+        session,
+        month=month,
+        fee_direction=fee_direction,
+        metric_scope=metric_scope,
+        store_ids=store_ids,
+    )
+    sap_by_store = {
+        item["store_id"]: item
+        for item in _finance_store_sap_items(session, stores)
     }
-    current_profiles = {
-        profile.store_id: profile
-        for profile in session.scalars(
-            select(StoreFinanceProfile).where(
-                StoreFinanceProfile.store_id.in_(store_ids),
-                StoreFinanceProfile.profile_type == 2,
+    return [
+        {
+            **sap_by_store[store_row.store_id],
+            **metrics_by_store[store_row.store_id],
+        }
+        for store_row in stores
+    ]
+
+
+@router.get("/admin/finance/stores/export")
+def export_admin_finance_stores(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(alias="metricScope"),
+    q: str | None = Query(default=None),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request, page_key="FIN04")
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
+    items = _admin_finance_store_export_items(
+        session,
+        month=month,
+        fee_direction=direction,
+        metric_scope=normalized_scope,
+        q=q,
+        scope_store_ids=_finance_scope_store_ids(current_user),
+    )
+    if len(items) > MAX_FINANCE_ORDER_EXPORT_ROWS:
+        _raise_reporting_error(
+            request,
+            status.HTTP_413_CONTENT_TOO_LARGE,
+            "EXPORT_LIMIT_EXCEEDED",
+            f"命中记录超过 {MAX_FINANCE_ORDER_EXPORT_ROWS} 行，请缩小筛选范围",
+        )
+    return _finance_csv_download(
+        request=request,
+        filename_prefix="finance-stores",
+        fieldnames=[
+            "store_id",
+            "store_name",
+            "store_maintained_sap_code",
+            "finance_imported_sap_code",
+            "effective_sap_code",
+            "effective_sap_version",
+            "effective_sap_updated_by",
+            "effective_sap_updated_at",
+            "sap_status",
+            "statement_total_cent",
+            "confirmed_amount_cent",
+            "pending_invoice_amount_cent",
+            "issued_amount_cent",
+            "settled_or_deducted_amount_cent",
+        ],
+        rows=items,
+    )
+
+
+@router.get("/admin/finance/stores/sap-discrepancies/export")
+def export_admin_finance_sap_discrepancies(
+    request: Request,
+    month: str = Query(),
+    fee_direction: str = Query(alias="feeDirection"),
+    metric_scope: str = Query(alias="metricScope"),
+    q: str | None = Query(default=None),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Export only formal store-maintained versus effective SAP differences."""
+
+    session = _billing_session(store, request)
+    _require_finance_admin(current_user, request, page_key="FIN04")
+    _validate_month(month, "month", request)
+    direction = _normalize_billing_direction(fee_direction, request)
+    normalized_scope = metric_scope.upper()
+    _validate_enum(normalized_scope, METRIC_SCOPES, "metricScope", request)
+    all_items = _admin_finance_store_export_items(
+        session,
+        month=month,
+        fee_direction=direction,
+        metric_scope=normalized_scope,
+        q=q,
+        scope_store_ids=_finance_scope_store_ids(current_user),
+    )
+    items = [
+        item
+        for item in all_items
+        if item["sap_status"] == "FINANCE_ACTION_REQUIRED"
+    ]
+    return _finance_csv_download(
+        request=request,
+        filename_prefix="finance-sap-discrepancies",
+        fieldnames=[
+            "discrepancy_id",
+            "store_id",
+            "store_name",
+            "store_maintained_sap_code",
+            "finance_imported_sap_code",
+            "effective_sap_code",
+            "effective_sap_version",
+            "effective_sap_updated_by",
+            "effective_sap_updated_at",
+            "sap_status",
+            "discrepancy_detected_at",
+        ],
+        rows=items,
+    )
+
+
+def _sap_correction_response_item(
+    session,
+    store_id: str,
+    *,
+    change_reason: str | None,
+) -> dict:
+    store_row = session.get(DimStore, store_id)
+    if store_row is None:
+        return {"store_id": store_id, "change_reason": change_reason}
+    return {
+        **_finance_store_sap_item(session, store_row),
+        "change_reason": change_reason,
+    }
+
+
+@router.post("/admin/finance/stores/{store_id}/sap-corrections")
+def correct_admin_finance_store_sap(
+    store_id: str,
+    payload: dict,
+    request: Request,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: AuthContext = Depends(get_current_user),
+    store=Depends(get_data_store),
+):
+    """Append one finance-controlled SAP correction without rewriting history."""
+
+    _require_finance_admin(current_user, request, page_key="FIN04")
+    session = _billing_session(store, request)
+    _require_billing_store(session, store_id, request)
+    _require_finance_store_scope(current_user, store_id, request)
+    key_hash = _billing_idempotency_key_hash(idempotency_key, request)
+    payload_hash = _canonical_billing_sha256({"storeId": store_id, **payload})
+    replay = session.scalar(
+        select(FinanceOperationAudit).where(
+            FinanceOperationAudit.idempotency_key_hash == key_hash
+        )
+    )
+    if replay is not None:
+        if (
+            replay.operation_type != "SAP_SINGLE_CORRECTION"
+            or replay.request_payload_sha256 != payload_hash
+        ):
+            _raise_finance_conflict(
+                session,
+                request=request,
+                current_user=current_user,
+                operation_type="SAP_SINGLE_CORRECTION",
+                target_type="STORE_FINANCE_PROFILE",
+                target_id=store_id,
+                conflict_code="IDEMPOTENCY_KEY_REUSED",
+                message="Idempotency-Key 已用于不同请求",
+                idempotency_key_hash=key_hash,
+                request_payload_sha256=payload_hash,
+            )
+        replay_response = (replay.after_snapshot or {}).get("response")
+        if not isinstance(replay_response, dict):
+            profile = session.scalar(
+                select(StoreFinanceProfile).where(
+                    StoreFinanceProfile.profile_id == replay.target_id
+                )
+            )
+            if profile is None:
+                _raise_finance_conflict(
+                    session,
+                    request=request,
+                    current_user=current_user,
+                    operation_type="SAP_SINGLE_CORRECTION",
+                    target_type="STORE_FINANCE_PROFILE",
+                    target_id=replay.target_id,
+                    conflict_code="IDEMPOTENCY_REPLAY_TARGET_MISSING",
+                    message="幂等重放目标不存在，请核对审计记录",
+                    idempotency_key_hash=key_hash,
+                    request_payload_sha256=payload_hash,
+                )
+        return _reporting_success(
+            request,
+            replay_response
+            if isinstance(replay_response, dict)
+            else _sap_correction_response_item(
+                session,
+                store_id,
+                change_reason=(replay.after_snapshot or {}).get(
+                    "changeReason"
+                ),
+            ),
+        )
+
+    final_sap_code = str(payload.get("finalSapCode") or "").strip()
+    change_reason = str(payload.get("changeReason") or "").strip()
+    read_version = payload.get("readVersion")
+    if not final_sap_code or len(final_sap_code) > 128:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "finalSapCode 必填且不得超过 128 字符",
+            field="finalSapCode",
+        )
+    if not change_reason or len(change_reason) > 1000:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "changeReason 必填且不得超过 1000 字",
+            field="changeReason",
+        )
+    if (
+        isinstance(read_version, bool)
+        or not isinstance(read_version, int)
+        or read_version < 0
+    ):
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "VALIDATION_FAILED",
+            "readVersion 必须为非负整数",
+            field="readVersion",
+        )
+
+    locked_profiles = list(
+        session.scalars(
+            select(StoreFinanceProfile)
+            .where(
+                StoreFinanceProfile.store_id == store_id,
                 StoreFinanceProfile.is_current.is_(True),
             )
+            .with_for_update()
         )
+    )
+    finance_profile = next(
+        (profile for profile in locked_profiles if profile.profile_type == 1),
+        None,
+    )
+    legacy_profile = next(
+        (profile for profile in locked_profiles if profile.profile_type == 2),
+        None,
+    )
+    base_profile = finance_profile or legacy_profile
+    current_version = base_profile.version_no if base_profile is not None else 0
+    if current_version != read_version:
+        _raise_finance_conflict(
+            session,
+            request=request,
+            current_user=current_user,
+            operation_type="SAP_SINGLE_CORRECTION",
+            target_type="STORE_FINANCE_PROFILE",
+            target_id=store_id,
+            conflict_code="SAP_VERSION_CONFLICT",
+            message="有效 SAP 已被其他操作更新，请刷新后重试",
+            idempotency_key_hash=key_hash,
+            request_payload_sha256=payload_hash,
+            field="readVersion",
+            data={
+                "read_version": read_version,
+                "current_version": current_version,
+                "current_profile_id": (
+                    base_profile.profile_id if base_profile is not None else None
+                ),
+            },
+        )
+
+    current_slot = finance_profile
+    before_state = _finance_sap_state(session, store_id)
+    before_snapshot = {
+        key: value.isoformat() if isinstance(value, datetime) else value
+        for key, value in before_state.items()
     }
-    current_suggestions = {
-        suggestion.store_id: suggestion
-        for suggestion in session.scalars(
-            select(SapSuggestion).where(
-                SapSuggestion.store_id.in_(store_ids),
-                SapSuggestion.is_current.is_(True),
+    if current_slot is not None:
+        current_slot.is_current = False
+        session.flush()
+    now = utcnow()
+    store_row = session.get(DimStore, store_id)
+    corrected = StoreFinanceProfile(
+        profile_id=f"store-finance-profile-{uuid4().hex}",
+        store_id=store_id,
+        profile_type=1,
+        source_type=3,
+        version_no=(current_slot.version_no + 1 if current_slot is not None else 1),
+        is_current=True,
+        is_tombstone=False,
+        store_name_snapshot=(
+            store_row.store_name
+            if store_row is not None
+            else base_profile.store_name_snapshot
+        ),
+        sap_code=final_sap_code,
+        initial_sap_code=(
+            base_profile.initial_sap_code if base_profile is not None else None
+        ),
+        service_store_code=(
+            base_profile.service_store_code if base_profile is not None else None
+        ),
+        factory_confirmed=(
+            base_profile.factory_confirmed if base_profile is not None else None
+        ),
+        confirmed_at=(base_profile.confirmed_at if base_profile is not None else None),
+        import_batch_id=None,
+        created_at=now,
+        updated_at=now,
+    )
+    session.add(corrected)
+    session.flush()
+    correction_response = _sap_correction_response_item(
+        session, store_id, change_reason=change_reason
+    )
+    correction_response["effective_sap_updated_by"] = current_user.username
+    correction_response["effective_sap_updated_at"] = now
+    correction_response["sap_status"] = "CONFIRMED"
+    correction_response["discrepancy_id"] = None
+    correction_response["discrepancy_detected_at"] = None
+    correction_response["updated_at"] = now
+    correction_response_snapshot = {
+        key: value.isoformat() if isinstance(value, datetime) else value
+        for key, value in correction_response.items()
+    }
+    after_state = {
+        **before_snapshot,
+        "storeMaintainedSapCode": before_state[
+            "store_maintained_sap_code"
+        ],
+        "financeImportedSapCode": final_sap_code,
+        "effectiveSapCode": final_sap_code,
+        "effectiveProfileId": corrected.profile_id,
+        "effectiveSapVersion": corrected.version_no,
+        "effectiveSapUpdatedBy": current_user.username,
+        "effectiveSapUpdatedAt": now.isoformat(),
+        "changeReason": change_reason,
+        "response": correction_response_snapshot,
+    }
+    session.add(
+        FinanceOperationAudit(
+            audit_id=f"audit-{uuid4().hex}",
+            operation_type="SAP_SINGLE_CORRECTION",
+            target_type="STORE_FINANCE_PROFILE",
+            target_id=corrected.profile_id,
+            operator_id=current_user.username,
+            operator_role=_finance_operator_role(current_user),
+            before_snapshot=before_snapshot,
+            after_snapshot=after_state,
+            result_status=1,
+            request_id=request_id(request),
+            idempotency_key_hash=key_hash,
+            request_payload_sha256=payload_hash,
+            occurred_at=now,
+        )
+    )
+    try:
+        session.commit()
+    except IntegrityError:
+        session.rollback()
+        concurrent = session.scalar(
+            select(FinanceOperationAudit).where(
+                FinanceOperationAudit.idempotency_key_hash == key_hash
             )
         )
-    }
-    items = []
-    for current_store_id in store_ids:
-        store_row = stores[current_store_id]
-        confirmed_profile = current_profiles.get(current_store_id)
-        current_suggestion = current_suggestions.get(current_store_id)
-        metrics = _finance_summary_metrics(
+        if (
+            concurrent is not None
+            and concurrent.operation_type == "SAP_SINGLE_CORRECTION"
+            and concurrent.request_payload_sha256 == payload_hash
+        ):
+            concurrent_response = (concurrent.after_snapshot or {}).get(
+                "response"
+            )
+            return _reporting_success(
+                request,
+                concurrent_response
+                if isinstance(concurrent_response, dict)
+                else _sap_correction_response_item(
+                    session,
+                    store_id,
+                    change_reason=(concurrent.after_snapshot or {}).get(
+                        "changeReason"
+                    ),
+                ),
+            )
+        _raise_finance_conflict(
             session,
-            month=month,
-            fee_direction=direction,
-            metric_scope=normalized_scope,
-            store_id=current_store_id,
-        )
-        items.append(
-            {
-                "store_id": store_row.store_id,
-                "store_name": store_row.store_name,
-                "sap_code": (
-                    confirmed_profile.sap_code
-                    if confirmed_profile is not None and not confirmed_profile.is_tombstone
-                    else None
-                ),
-                "confirmed_version": (
-                    confirmed_profile.version_no if confirmed_profile is not None else 0
-                ),
-                "confirmed_source_type": (
-                    confirmed_profile.source_type if confirmed_profile is not None else None
-                ),
-                "suggestion_id": (
-                    current_suggestion.suggestion_id if current_suggestion is not None else None
-                ),
-                "suggested_sap_code": (
-                    current_suggestion.suggested_sap_code if current_suggestion is not None else None
-                ),
-                "suggestion_note": (
-                    current_suggestion.suggestion_note if current_suggestion is not None else None
-                ),
-                "suggestion_status": (
-                    SAP_SUGGESTION_STATUS_NAMES[current_suggestion.suggestion_status]
-                    if current_suggestion is not None
-                    else None
-                ),
-                "suggestion_version": (
-                    current_suggestion.version_no if current_suggestion is not None else 0
-                ),
-                "suggestion_updated_at": (
-                    current_suggestion.handled_at or current_suggestion.submitted_at
-                    if current_suggestion is not None
-                    else None
-                ),
-                "updated_at": (
-                    confirmed_profile.updated_at
-                    if confirmed_profile is not None
-                    else store_row.updated_at
-                ),
-                **metrics,
-            }
+            request=request,
+            current_user=current_user,
+            operation_type="SAP_SINGLE_CORRECTION",
+            target_type="STORE_FINANCE_PROFILE",
+            target_id=store_id,
+            conflict_code="SAP_VERSION_CONFLICT",
+            message="有效 SAP 已被其他操作更新，请刷新后重试",
+            idempotency_key_hash=key_hash,
+            request_payload_sha256=payload_hash,
         )
     return _reporting_success(
         request,
-        {"list": items, "total": total, "page": page, "page_size": page_size},
+        _sap_correction_response_item(
+            session, store_id, change_reason=change_reason
+        ),
     )
 
 
@@ -4805,6 +5904,8 @@ def _promotion_invoice_carryforward_projection(
     session,
     *,
     store_id: str | None = None,
+    store_ids: tuple[str, ...] | None = None,
+    statement_ids: set[str] | None = None,
 ) -> tuple[dict[str, dict], list[dict]]:
     """Project deterministic promotion-invoice groups from current facts."""
 
@@ -4821,6 +5922,7 @@ def _promotion_invoice_carryforward_projection(
             PromotionInvoiceAllocation.is_current.is_(True),
             PromotionInvoice.is_current.is_(True),
             PromotionInvoice.is_tombstone.is_(False),
+            PromotionInvoice.invoice_status.in_((2, 3)),
         )
         .exists()
     )
@@ -4833,6 +5935,10 @@ def _promotion_invoice_carryforward_projection(
     ]
     if store_id is not None:
         conditions.append(SettlementStatement.store_id == store_id)
+    if store_ids is not None:
+        conditions.append(SettlementStatement.store_id.in_(store_ids))
+    if statement_ids is not None:
+        conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     rows = list(
         session.execute(
             select(SettlementStatement, SettlementStatementConfirmation)
@@ -5045,13 +6151,74 @@ def _statement_metrics(session, store_id: str, month: str, metric_scope: str) ->
     return data
 
 
-def _require_finance_admin(current_user: AuthContext, request: Request) -> None:
+def _require_finance_admin(
+    current_user: AuthContext,
+    request: Request,
+    *,
+    page_key: str | None = None,
+) -> None:
     if not current_user.is_admin:
         _raise_reporting_error(
             request,
             status.HTTP_403_FORBIDDEN,
             "DATA_SCOPE_FORBIDDEN",
             "仅管理员和最高管理员可以查询财务汇总",
+        )
+    if page_key is not None and page_key not in current_user.page_keys:
+        _raise_reporting_error(
+            request,
+            status.HTTP_403_FORBIDDEN,
+            "PAGE_ACCESS_FORBIDDEN",
+            f"Page access denied: {page_key}",
+        )
+
+
+def _finance_scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
+    return None if current_user.has_global_data_access else current_user.store_ids
+
+
+def _require_finance_store_scope(
+    current_user: AuthContext,
+    store_id: str,
+    request: Request,
+) -> None:
+    _require_billing_store_scope(current_user, store_id, request)
+
+
+def _finance_import_page_key(import_type: str | int) -> str:
+    normalized = (
+        FINANCE_IMPORT_TYPE_FROM_DB[import_type]
+        if isinstance(import_type, int)
+        else import_type
+    )
+    return FINANCE_IMPORT_TYPE_PAGE_KEYS[normalized]
+
+
+def _require_finance_import_batch_scope(
+    session,
+    batch: FinanceImportBatch,
+    current_user: AuthContext,
+    request: Request,
+) -> None:
+    scope_store_ids = _finance_scope_store_ids(current_user)
+    if scope_store_ids is None:
+        return
+    allowed = set(scope_store_ids)
+    row_store_ids = {
+        str((payload or {}).get("storeId") or "")
+        for payload in session.scalars(
+            select(FinanceImportRow.normalized_payload).where(
+                FinanceImportRow.batch_id == batch.batch_id
+            )
+        )
+    }
+    if not row_store_ids or "" in row_store_ids or not row_store_ids.issubset(allowed):
+        _raise_reporting_error(
+            request,
+            status.HTTP_403_FORBIDDEN,
+            "DATA_SCOPE_FORBIDDEN",
+            "导入批次包含当前账号数据范围外的门店",
+            field="batchId",
         )
 
 
@@ -5321,6 +6488,7 @@ def _validate_final_finance_import_row(
         exact_store()
         initial_sap = _finance_import_cell_text(raw_row.get("financeInitialSap"))
         service_store_code = _finance_import_cell_text(raw_row.get("serviceStoreCode"))
+        final_sap_code = _finance_import_cell_text(raw_row.get("finalSapCode"))
         result = _finance_import_cell_text(raw_row.get("factoryConfirmationResult")).upper()
         if not initial_sap:
             add_error(
@@ -5329,6 +6497,20 @@ def _validate_final_finance_import_row(
         if not service_store_code:
             add_error(
                 "serviceStoreCode", service_store_code, "服务门店编码必填", "填写服务门店编码"
+            )
+        if not final_sap_code:
+            add_error(
+                "finalSapCode",
+                final_sap_code,
+                "最终有效 SAP 必填",
+                "填写厂家确认后的最终有效 SAP 编码",
+            )
+        elif len(final_sap_code) > 128:
+            add_error(
+                "finalSapCode",
+                final_sap_code,
+                "最终有效 SAP 不得超过 128 字符",
+                "填写有效 SAP 编码",
             )
         if result not in {"CONFIRMED", "REJECTED"}:
             add_error(
@@ -5344,6 +6526,7 @@ def _validate_final_finance_import_row(
                 "storeName": store_name,
                 "financeInitialSap": initial_sap,
                 "serviceStoreCode": service_store_code,
+                "finalSapCode": final_sap_code,
                 "factoryConfirmationResult": result,
                 "confirmedAt": confirmed_at,
             }
@@ -6105,9 +7288,9 @@ def _commit_store_finance_profile_row(
     row: FinanceImportRow,
     committed_at: datetime,
 ) -> None:
-    """Append a basic-information or SAP-confirmation profile version."""
+    """Append a version on the formal type-1 finance-controlled SAP chain."""
     payload = row.normalized_payload
-    profile_type = 1 if batch.import_type == 1 else 2
+    profile_type = 1
     current = session.scalar(
         select(StoreFinanceProfile).where(
             StoreFinanceProfile.store_id == payload["storeId"],
@@ -6126,20 +7309,25 @@ def _commit_store_finance_profile_row(
             profile_id=profile_id,
             store_id=payload["storeId"],
             profile_type=profile_type,
+            source_type=1,
             version_no=next_version,
             is_current=True,
             store_name_snapshot=payload["storeName"],
-            sap_code=payload.get("sapCode"),
+            sap_code=(
+                payload.get("finalSapCode")
+                if batch.import_type == 4
+                else payload.get("sapCode")
+            ),
             initial_sap_code=payload.get("financeInitialSap"),
             service_store_code=payload.get("serviceStoreCode"),
             factory_confirmed=(
                 payload.get("factoryConfirmationResult") == "CONFIRMED"
-                if profile_type == 2
+                if batch.import_type == 4
                 else None
             ),
             confirmed_at=(
                 datetime.fromisoformat(payload["confirmedAt"])
-                if profile_type == 2
+                if batch.import_type == 4
                 else None
             ),
             import_batch_id=batch.batch_id,
@@ -6558,8 +7746,225 @@ def _commit_management_import_row(
     row.target_record_id = next_invoice_id
 
 
+def _finance_invoice_period_condition(column, *, month: str, metric_scope: str):
+    if metric_scope == "CUMULATIVE":
+        return and_(column >= FORMAL_PERIOD_START_MONTH, column <= month)
+    return column == month
+
+
+def _finance_invoice_search_condition(q: str, invoice_number_column):
+    """Build the shared search contract from official immutable/current facts."""
+
+    normalized = q.strip().lower()
+    matching_profile_store_ids = select(StoreFinanceProfile.store_id).where(
+        StoreFinanceProfile.is_current.is_(True),
+        StoreFinanceProfile.is_tombstone.is_(False),
+        func.lower(func.coalesce(StoreFinanceProfile.sap_code, "")).contains(
+            normalized
+        ),
+    )
+    matching_store_ids = select(DimStore.store_id).where(
+        or_(
+            func.lower(DimStore.store_id).contains(normalized),
+            func.lower(DimStore.store_name).contains(normalized),
+        )
+    )
+    return or_(
+        func.lower(func.coalesce(SettlementStatement.store_id, "")).contains(
+            normalized
+        ),
+        func.lower(
+            func.coalesce(SettlementStatement.store_name_snapshot, "")
+        ).contains(normalized),
+        func.lower(
+            func.coalesce(SettlementStatement.sap_code_snapshot, "")
+        ).contains(normalized),
+        func.lower(func.coalesce(invoice_number_column, "")).contains(normalized),
+        SettlementStatement.store_id.in_(matching_profile_store_ids),
+        SettlementStatement.store_id.in_(matching_store_ids),
+    )
+
+
+def _management_invoice_collection_query(
+    *,
+    month: str,
+    metric_scope: str,
+    store_id: str | None,
+    q: str | None,
+    invoice_status: int | None,
+    include_history: bool,
+    scope_store_ids: tuple[str, ...] | None = None,
+):
+    """Select confirmed management statements with an optional invoice fact.
+
+    The frozen management contract is statement-based: a confirmed statement
+    remains visible while it is waiting for the finance invoice import.  Keep
+    invoice predicates in the LEFT JOIN so the absence of an InvoiceRecord is
+    represented as PENDING_INVOICE instead of dropping the statement.
+    """
+
+    invoice_join = [
+        InvoiceRecord.statement_id == SettlementStatement.statement_id,
+        InvoiceRecord.fee_direction == CONFIRMATION_DIRECTION_TO_DB["MANAGEMENT"],
+        InvoiceRecord.is_tombstone.is_(False),
+    ]
+    if not include_history:
+        invoice_join.append(InvoiceRecord.is_current.is_(True))
+    conditions = [
+        SettlementStatement.is_current.is_(True),
+        _finance_invoice_period_condition(
+            SettlementStatement.statement_month,
+            month=month,
+            metric_scope=metric_scope,
+        ),
+        SettlementStatementConfirmation.fee_direction
+        == CONFIRMATION_DIRECTION_TO_DB["MANAGEMENT"],
+        SettlementStatementConfirmation.confirmation_status == 1,
+    ]
+    if store_id is not None:
+        conditions.append(SettlementStatement.store_id == store_id)
+    if scope_store_ids is not None:
+        conditions.append(SettlementStatement.store_id.in_(scope_store_ids))
+    if invoice_status == 1:
+        conditions.append(InvoiceRecord.invoice_id.is_(None))
+    elif invoice_status is not None:
+        conditions.append(InvoiceRecord.invoice_id.is_not(None))
+    normalized_q = (q or "").strip()
+    if normalized_q:
+        conditions.append(
+            _finance_invoice_search_condition(
+                normalized_q, InvoiceRecord.invoice_number
+            )
+        )
+    return (
+        select(InvoiceRecord, SettlementStatement)
+        .join(
+            SettlementStatementConfirmation,
+            SettlementStatementConfirmation.statement_id
+            == SettlementStatement.statement_id,
+        )
+        .outerjoin(InvoiceRecord, and_(*invoice_join))
+        .where(*conditions)
+        .order_by(
+            func.coalesce(
+                InvoiceRecord.registered_at,
+                SettlementStatementConfirmation.confirmed_at,
+            ).desc(),
+            SettlementStatement.statement_id,
+            InvoiceRecord.invoice_id,
+        )
+    )
+
+
+def _finance_summary_filtered_statement_ids(
+    session,
+    *,
+    month: str,
+    fee_direction: str,
+    metric_scope: str,
+    store_id: str | None,
+    q: str | None,
+    invoice_status: int | None,
+    scope_store_ids: tuple[str, ...] | None = None,
+) -> set[str] | None:
+    """Resolve summary scope from the exact invoice search/status contract."""
+
+    normalized_q = (q or "").strip()
+    if (
+        fee_direction == "PROMOTION"
+        and not normalized_q
+        and invoice_status is None
+        and scope_store_ids is None
+    ):
+        return None
+    conditions = [
+        SettlementStatement.is_current.is_(True),
+        _finance_invoice_period_condition(
+            SettlementStatement.statement_month,
+            month=month,
+            metric_scope=metric_scope,
+        ),
+    ]
+    if store_id is not None:
+        conditions.append(SettlementStatement.store_id == store_id)
+    if scope_store_ids is not None:
+        conditions.append(SettlementStatement.store_id.in_(scope_store_ids))
+    if fee_direction == "PROMOTION":
+        query = (
+            select(SettlementStatement.statement_id)
+            .outerjoin(
+                PromotionInvoiceAllocation,
+                and_(
+                    PromotionInvoiceAllocation.statement_id
+                    == SettlementStatement.statement_id,
+                    PromotionInvoiceAllocation.is_current.is_(True),
+                ),
+            )
+            .outerjoin(
+                PromotionInvoice,
+                and_(
+                    PromotionInvoice.invoice_id
+                    == PromotionInvoiceAllocation.invoice_id,
+                    PromotionInvoice.is_current.is_(True),
+                    PromotionInvoice.is_tombstone.is_(False),
+                ),
+            )
+        )
+        if normalized_q:
+            conditions.append(
+                _finance_invoice_search_condition(
+                    normalized_q, PromotionInvoice.invoice_number
+                )
+            )
+        if invoice_status == 1:
+            conditions.append(
+                (PromotionInvoice.invoice_id.is_(None))
+                | (PromotionInvoice.invoice_status == 4)
+            )
+        elif invoice_status is not None:
+            conditions.append(PromotionInvoice.invoice_status == invoice_status)
+    else:
+        query = (
+            select(SettlementStatement.statement_id)
+            .join(
+                SettlementStatementConfirmation,
+                and_(
+                    SettlementStatementConfirmation.statement_id
+                    == SettlementStatement.statement_id,
+                    SettlementStatementConfirmation.fee_direction == 2,
+                    SettlementStatementConfirmation.confirmation_status == 1,
+                ),
+            )
+            .outerjoin(
+                InvoiceRecord,
+                and_(
+                    InvoiceRecord.statement_id
+                    == SettlementStatement.statement_id,
+                    InvoiceRecord.fee_direction == 2,
+                    InvoiceRecord.is_current.is_(True),
+                    InvoiceRecord.is_tombstone.is_(False),
+                ),
+            )
+        )
+        if normalized_q:
+            conditions.append(
+                _finance_invoice_search_condition(
+                    normalized_q, InvoiceRecord.invoice_number
+                )
+            )
+        if invoice_status == 1:
+            conditions.append(InvoiceRecord.invoice_id.is_(None))
+        elif invoice_status is not None:
+            conditions.append(InvoiceRecord.invoice_id.is_not(None))
+    return set(session.scalars(query.where(*conditions).distinct()))
+
+
 def _finance_statement_conditions(
-    *, month: str, metric_scope: str, store_id: str | None
+    *,
+    month: str,
+    metric_scope: str,
+    store_id: str | None,
+    statement_ids: set[str] | None = None,
 ) -> list:
     conditions = [SettlementStatement.is_current.is_(True)]
     if metric_scope == "CUMULATIVE":
@@ -6573,6 +7978,8 @@ def _finance_statement_conditions(
         conditions.append(SettlementStatement.statement_month == month)
     if store_id is not None:
         conditions.append(SettlementStatement.store_id == store_id)
+    if statement_ids is not None:
+        conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     return conditions
 
 
@@ -6580,8 +7987,10 @@ def _management_invoiceable_projection(
     session,
     *,
     store_id: str | None = None,
+    store_ids: tuple[str, ...] | None = None,
     through_month: str | None = None,
     excluded_invoice_ids: set[str] | None = None,
+    statement_ids: set[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Project management invoiceable periods and signed carry-forward applications.
 
@@ -6599,8 +8008,12 @@ def _management_invoiceable_projection(
     ]
     if store_id is not None:
         conditions.append(SettlementStatement.store_id == store_id)
+    if store_ids is not None:
+        conditions.append(SettlementStatement.store_id.in_(store_ids))
     if through_month is not None:
         conditions.append(SettlementStatement.statement_month <= through_month)
+    if statement_ids is not None:
+        conditions.append(SettlementStatement.statement_id.in_(statement_ids))
     statement_rows = list(
         session.execute(
             select(SettlementStatement, SettlementStatementConfirmation)
@@ -6875,9 +8288,13 @@ def _finance_summary_metrics(
     fee_direction: str,
     metric_scope: str,
     store_id: str | None,
+    statement_ids: set[str] | None = None,
 ) -> dict:
     statement_conditions = _finance_statement_conditions(
-        month=month, metric_scope=metric_scope, store_id=store_id
+        month=month,
+        metric_scope=metric_scope,
+        store_id=store_id,
+        statement_ids=statement_ids,
     )
     direction_code = CONFIRMATION_DIRECTION_TO_DB[fee_direction]
     fee_column = (
@@ -6891,7 +8308,10 @@ def _finance_summary_metrics(
     monthly_confirmation_total = _finance_confirmation_total(
         session,
         statement_conditions=_finance_statement_conditions(
-            month=month, metric_scope="MONTH", store_id=store_id
+            month=month,
+            metric_scope="MONTH",
+            store_id=store_id,
+            statement_ids=statement_ids,
         ),
         direction_code=direction_code,
     )
@@ -6908,6 +8328,7 @@ def _finance_summary_metrics(
         _, promotion_groups = _promotion_invoice_carryforward_projection(
             session,
             store_id=store_id,
+            statement_ids=statement_ids,
         )
         if metric_scope == "MONTH":
             pending_invoice_amount = sum(
@@ -6943,6 +8364,10 @@ def _finance_summary_metrics(
             allocation_conditions.append(
                 PromotionInvoiceAllocation.store_id == store_id
             )
+        if statement_ids is not None:
+            allocation_conditions.append(
+                PromotionInvoiceAllocation.statement_id.in_(statement_ids)
+            )
         issued_total = session.scalar(
             select(func.coalesce(func.sum(PromotionInvoiceAllocation.allocated_amount_cent), 0))
             .join(
@@ -6970,6 +8395,7 @@ def _finance_summary_metrics(
             session,
             store_id=store_id,
             through_month=month,
+            statement_ids=statement_ids,
         )
         if metric_scope == "MONTH":
             pending_invoice_amount = sum(
@@ -7026,6 +8452,202 @@ def _finance_summary_metrics(
         "issued_amount_cent": issued_amount,
         "settled_or_deducted_amount_cent": int(settled_total or 0),
     }
+
+
+def _finance_summary_metrics_by_store(
+    session,
+    *,
+    month: str,
+    fee_direction: str,
+    metric_scope: str,
+    store_ids: tuple[str, ...],
+) -> dict[str, dict]:
+    """Resolve store-list metrics in bounded grouped queries.
+
+    The single-store helper remains the canonical summary implementation. This
+    batch projection applies the same formulas while avoiding one complete
+    summary query graph per row in finance-store lists and exports.
+    """
+
+    if not store_ids:
+        return {}
+    metrics = {
+        store_id: {
+            "statement_total_cent": 0,
+            "confirmed_amount_cent": 0,
+            "pending_invoice_amount_cent": 0,
+            "issued_amount_cent": 0,
+            "settled_or_deducted_amount_cent": 0,
+        }
+        for store_id in store_ids
+    }
+    direction_code = CONFIRMATION_DIRECTION_TO_DB[fee_direction]
+    fee_column = (
+        SettlementStatement.promotion_net_fee_cent
+        if fee_direction == "PROMOTION"
+        else SettlementStatement.management_net_fee_cent
+    )
+    statement_conditions = _finance_statement_conditions(
+        month=month,
+        metric_scope=metric_scope,
+        store_id=None,
+    )
+    statement_conditions.append(SettlementStatement.store_id.in_(store_ids))
+    statement_totals = {
+        store_id: int(amount or 0)
+        for store_id, amount in session.execute(
+            select(
+                SettlementStatement.store_id,
+                func.coalesce(func.sum(fee_column), 0),
+            )
+            .where(*statement_conditions)
+            .group_by(SettlementStatement.store_id)
+        )
+    }
+    monthly_conditions = _finance_statement_conditions(
+        month=month,
+        metric_scope="MONTH",
+        store_id=None,
+    )
+    monthly_conditions.append(SettlementStatement.store_id.in_(store_ids))
+    confirmed_totals = {
+        store_id: int(amount or 0)
+        for store_id, amount in session.execute(
+            select(
+                SettlementStatement.store_id,
+                func.coalesce(
+                    func.sum(
+                        SettlementStatementConfirmation.confirmed_amount_cent
+                    ),
+                    0,
+                ),
+            )
+            .join(
+                SettlementStatementConfirmation,
+                SettlementStatementConfirmation.statement_id
+                == SettlementStatement.statement_id,
+            )
+            .where(
+                *monthly_conditions,
+                SettlementStatementConfirmation.fee_direction
+                == direction_code,
+                SettlementStatementConfirmation.confirmation_status == 1,
+            )
+            .group_by(SettlementStatement.store_id)
+        )
+    }
+    for store_id in store_ids:
+        metrics[store_id]["statement_total_cent"] = statement_totals.get(
+            store_id, 0
+        )
+        metrics[store_id]["confirmed_amount_cent"] = confirmed_totals.get(
+            store_id, 0
+        )
+
+    if fee_direction == "PROMOTION":
+        _, groups = _promotion_invoice_carryforward_projection(
+            session, store_ids=store_ids
+        )
+        for group in groups:
+            closing_month = group["closing_month"]
+            if closing_month is None:
+                continue
+            if (
+                closing_month == month
+                if metric_scope == "MONTH"
+                else closing_month <= month
+            ):
+                metrics[group["store_id"]][
+                    "pending_invoice_amount_cent"
+                ] += int(group["invoiceable_amount_cent"])
+        allocation_conditions = [
+            PromotionInvoiceAllocation.store_id.in_(store_ids),
+            PromotionInvoiceAllocation.is_current.is_(True),
+            PromotionInvoice.is_current.is_(True),
+            PromotionInvoice.is_tombstone.is_(False),
+            PromotionInvoice.invoice_status.in_((2, 3)),
+        ]
+        if metric_scope == "CUMULATIVE":
+            allocation_conditions.extend(
+                [
+                    PromotionInvoiceAllocation.statement_month
+                    >= FORMAL_PERIOD_START_MONTH,
+                    PromotionInvoiceAllocation.statement_month <= month,
+                ]
+            )
+        else:
+            allocation_conditions.append(
+                PromotionInvoiceAllocation.statement_month == month
+            )
+        allocation_totals = session.execute(
+            select(
+                PromotionInvoiceAllocation.store_id,
+                PromotionInvoice.invoice_status,
+                func.coalesce(
+                    func.sum(
+                        PromotionInvoiceAllocation.allocated_amount_cent
+                    ),
+                    0,
+                ),
+            )
+            .join(
+                PromotionInvoice,
+                PromotionInvoice.invoice_id
+                == PromotionInvoiceAllocation.invoice_id,
+            )
+            .where(*allocation_conditions)
+            .group_by(
+                PromotionInvoiceAllocation.store_id,
+                PromotionInvoice.invoice_status,
+            )
+        )
+        for store_id, invoice_status, amount in allocation_totals:
+            metrics[store_id]["issued_amount_cent"] += int(amount or 0)
+            if invoice_status == 3:
+                metrics[store_id][
+                    "settled_or_deducted_amount_cent"
+                ] += int(amount or 0)
+    else:
+        periods, _ = _management_invoiceable_projection(
+            session,
+            store_ids=store_ids,
+            through_month=month,
+        )
+        for period in periods:
+            if (
+                period["statement_month"] == month
+                if metric_scope == "MONTH"
+                else period["statement_month"] <= month
+            ):
+                metrics[period["store_id"]][
+                    "pending_invoice_amount_cent"
+                ] += max(int(period["invoiceable_amount_cent"]), 0)
+        invoice_totals = {
+            store_id: int(amount or 0)
+            for store_id, amount in session.execute(
+                select(
+                    SettlementStatement.store_id,
+                    func.coalesce(func.sum(InvoiceRecord.invoice_amount_cent), 0),
+                )
+                .join(
+                    InvoiceRecord,
+                    InvoiceRecord.statement_id
+                    == SettlementStatement.statement_id,
+                )
+                .where(
+                    *statement_conditions,
+                    InvoiceRecord.is_current.is_(True),
+                    InvoiceRecord.is_tombstone.is_(False),
+                    InvoiceRecord.fee_direction == direction_code,
+                    InvoiceRecord.invoice_status == 3,
+                )
+                .group_by(SettlementStatement.store_id)
+            )
+        }
+        for store_id, amount in invoice_totals.items():
+            metrics[store_id]["issued_amount_cent"] = amount
+            metrics[store_id]["settled_or_deducted_amount_cent"] = amount
+    return metrics
 
 
 def _finance_confirmation_total(session, *, statement_conditions: list, direction_code: int) -> int:
@@ -7382,16 +9004,18 @@ def _parse_dispute_payload(payload: dict, request: Request) -> dict:
     parsed_evidence = []
     for item in evidence:
         object_key = item.get("objectKey") if isinstance(item, dict) else None
+        normalized_object_key = (
+            object_key.strip() if isinstance(object_key, str) else None
+        )
         if (
-            not isinstance(object_key, str)
-            or not object_key.strip()
-            or object_key.startswith(("http://", "https://"))
-            or ".." in object_key
+            not normalized_object_key
+            or normalized_object_key.lower().startswith(("http://", "https://"))
+            or ".." in normalized_object_key
         ):
             _raise_dispute_validation(
                 request, "evidence", "evidence 仅接受受控 objectKey"
             )
-        parsed_evidence.append({"objectKey": object_key.strip()})
+        parsed_evidence.append({"objectKey": normalized_object_key})
 
     return {
         "fee_direction": normalized_direction,
@@ -7456,6 +9080,24 @@ def _mask_dispute_phone(phone: str) -> str:
     return f"{phone[:3]}****{phone[-4:]}"
 
 
+def _latest_finance_dispute_detection(
+    session, dispute_id: str
+) -> JobRun | None:
+    jobs = session.scalars(
+        select(JobRun)
+        .where(JobRun.job_name == FINANCE_DISPUTE_DETECTION_JOB_NAME)
+        .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+    )
+    return next(
+        (
+            job
+            for job in jobs
+            if (job.metadata_json or {}).get("disputeId") == dispute_id
+        ),
+        None,
+    )
+
+
 def _dispute_item(session, dispute: SettlementDispute, request: Request) -> dict:
     orders = list(
         session.scalars(
@@ -7464,10 +9106,17 @@ def _dispute_item(session, dispute: SettlementDispute, request: Request) -> dict
             .order_by(SettlementDisputeOrder.order_id, SettlementDisputeOrder.coupon_id)
         )
     )
+    store_row = session.get(DimStore, dispute.store_id)
+    latest_detection = _latest_finance_dispute_detection(
+        session, dispute.dispute_id
+    )
     return {
         "dispute_id": dispute.dispute_id,
         "statement_id": dispute.statement_id,
         "store_id": dispute.store_id,
+        "store_name": (
+            store_row.store_name if store_row is not None else dispute.store_id
+        ),
         "statement_month": dispute.statement_month,
         "fee_direction": CONFIRMATION_DIRECTION_FROM_DB[dispute.fee_direction],
         "dispute_type": DISPUTE_TYPE_FROM_DB[dispute.dispute_type],
@@ -7490,6 +9139,49 @@ def _dispute_item(session, dispute: SettlementDispute, request: Request) -> dict
         "submitted_at": dispute.submitted_at,
         "resolution_note": dispute.resolution_note,
         "result_statement_id": dispute.result_statement_id,
+        "latest_detection": (
+            finance_dispute_detection_item(latest_detection)
+            if latest_detection is not None
+            else None
+        ),
+    }
+
+
+def _admin_dispute_metrics(
+    session, disputes: list[SettlementDispute]
+) -> dict[str, int]:
+    today = utcnow().astimezone(BEIJING_TIME_ZONE).date()
+    latest_detections = {
+        dispute.dispute_id: _latest_finance_dispute_detection(
+            session, dispute.dispute_id
+        )
+        for dispute in disputes
+    }
+
+    def completed_today(dispute: SettlementDispute) -> bool:
+        processed_at = _finance_datetime(dispute.processed_at)
+        return (
+            dispute.status in (4, 5)
+            and processed_at is not None
+            and processed_at.astimezone(BEIJING_TIME_ZONE).date() == today
+        )
+
+    return {
+        "amount_dispute_count": sum(
+            dispute.dispute_type == DISPUTE_TYPE_TO_DB["AMOUNT_ERROR"]
+            for dispute in disputes
+        ),
+        "detecting_count": sum(
+            latest is not None
+            and latest.status.upper() in {"QUEUED", "RUNNING"}
+            for latest in latest_detections.values()
+        ),
+        "pending_admin_count": sum(
+            dispute.status in (1, 2, 3) for dispute in disputes
+        ),
+        "completed_today_count": sum(
+            completed_today(dispute) for dispute in disputes
+        ),
     }
 
 
@@ -7916,6 +9608,579 @@ def _promotion_invoice_item(
     }
 
 
+def _current_finance_sap_profile(
+    session, store_id: str
+) -> StoreFinanceProfile | None:
+    """Return the current finance-import/correction value for one store."""
+
+    return session.scalar(
+        select(StoreFinanceProfile).where(
+            StoreFinanceProfile.store_id == store_id,
+            StoreFinanceProfile.profile_type == 1,
+            StoreFinanceProfile.is_current.is_(True),
+        )
+    )
+
+
+def _effective_sap_profile(
+    session, store_id: str
+) -> StoreFinanceProfile | None:
+    """Resolve effective SAP from the formal type-1 finance control chain.
+
+    Type 2 is retained only as a compatibility fallback for stores that have
+    never received a formal type-1 import. Once type 1 exists, an older or
+    newer legacy suggestion decision cannot supersede the finance chain.
+    """
+
+    finance_profile = _current_finance_sap_profile(session, store_id)
+    if finance_profile is not None:
+        return (
+            finance_profile
+            if not finance_profile.is_tombstone
+            and finance_profile.sap_code is not None
+            else None
+        )
+    return session.scalar(
+        select(StoreFinanceProfile)
+        .where(
+            StoreFinanceProfile.store_id == store_id,
+            StoreFinanceProfile.profile_type == 2,
+            StoreFinanceProfile.is_current.is_(True),
+            StoreFinanceProfile.is_tombstone.is_(False),
+            StoreFinanceProfile.sap_code.is_not(None),
+        )
+        .order_by(
+            StoreFinanceProfile.version_no.desc(),
+            StoreFinanceProfile.updated_at.desc(),
+        )
+        .limit(1)
+    )
+
+
+def _current_store_sap_suggestion(session, store_id: str) -> SapSuggestion | None:
+    return session.scalar(
+        select(SapSuggestion).where(
+            SapSuggestion.store_id == store_id,
+            SapSuggestion.is_current.is_(True),
+        )
+    )
+
+
+def _finance_profile_operator(
+    session, profile: StoreFinanceProfile | None
+) -> str | None:
+    if profile is None:
+        return None
+    if profile.import_batch_id:
+        batch = session.scalar(
+            select(FinanceImportBatch).where(
+                FinanceImportBatch.batch_id == profile.import_batch_id
+            )
+        )
+        if batch is not None:
+            return batch.committed_by or batch.submitted_by
+    audit = session.scalar(
+        select(FinanceOperationAudit)
+        .where(
+            FinanceOperationAudit.operation_type == "SAP_SINGLE_CORRECTION",
+            FinanceOperationAudit.target_id == profile.profile_id,
+            FinanceOperationAudit.result_status == 1,
+        )
+        .order_by(FinanceOperationAudit.occurred_at.desc())
+    )
+    if audit is not None:
+        return audit.operator_id
+    suggestion = session.scalar(
+        select(SapSuggestion)
+        .where(SapSuggestion.confirmed_profile_id == profile.profile_id)
+        .order_by(SapSuggestion.handled_at.desc())
+    )
+    return suggestion.handled_by if suggestion is not None else None
+
+
+def _finance_sap_state(session, store_id: str) -> dict:
+    finance_profile = _current_finance_sap_profile(session, store_id)
+    effective_profile = _effective_sap_profile(session, store_id)
+    control_profile = finance_profile or effective_profile
+    suggestion = _current_store_sap_suggestion(session, store_id)
+    correction_audit = (
+        session.scalar(
+            select(FinanceOperationAudit).where(
+                FinanceOperationAudit.operation_type == "SAP_SINGLE_CORRECTION",
+                FinanceOperationAudit.target_id == effective_profile.profile_id,
+                FinanceOperationAudit.result_status == 1,
+            )
+        )
+        if effective_profile is not None
+        else None
+    )
+    import_batch = (
+        session.scalar(
+            select(FinanceImportBatch).where(
+                FinanceImportBatch.batch_id == effective_profile.import_batch_id
+            )
+        )
+        if effective_profile is not None and effective_profile.import_batch_id
+        else None
+    )
+    resolution_times: list[datetime] = []
+    if correction_audit is not None:
+        occurred_at = _finance_datetime(correction_audit.occurred_at)
+        if occurred_at is not None:
+            resolution_times.append(occurred_at)
+    if import_batch is not None and import_batch.import_type == 4:
+        for value in (
+            effective_profile.confirmed_at,
+            import_batch.committed_at,
+            effective_profile.updated_at,
+        ):
+            normalized = _finance_datetime(value)
+            if normalized is not None:
+                resolution_times.append(normalized)
+    return {
+        "store_maintained_sap_code": (
+            suggestion.suggested_sap_code if suggestion is not None else None
+        ),
+        "finance_imported_sap_code": (
+            finance_profile.sap_code
+            if finance_profile is not None and not finance_profile.is_tombstone
+            else None
+        ),
+        "effective_sap_code": (
+            effective_profile.sap_code if effective_profile is not None else None
+        ),
+        "effective_profile_id": (
+            control_profile.profile_id if control_profile is not None else None
+        ),
+        "effective_sap_version": (
+            control_profile.version_no if control_profile is not None else 0
+        ),
+        "effective_source_type": (
+            control_profile.source_type if control_profile is not None else None
+        ),
+        "effective_sap_updated_by": _finance_profile_operator(
+            session, control_profile
+        ),
+        "effective_sap_updated_at": _finance_datetime(
+            control_profile.updated_at if control_profile is not None else None
+        ),
+        "effective_resolution_at": (
+            max(resolution_times) if resolution_times else None
+        ),
+    }
+
+
+def _finance_store_sap_items(
+    session, store_rows: list[DimStore]
+) -> list[dict]:
+    """Build SAP contracts for many stores without per-row database reads."""
+
+    if not store_rows:
+        return []
+    store_ids = tuple(store_row.store_id for store_row in store_rows)
+    profiles = list(
+        session.scalars(
+            select(StoreFinanceProfile)
+            .where(
+                StoreFinanceProfile.store_id.in_(store_ids),
+                StoreFinanceProfile.is_current.is_(True),
+            )
+            .order_by(
+                StoreFinanceProfile.store_id,
+                StoreFinanceProfile.profile_type,
+                StoreFinanceProfile.version_no.desc(),
+                StoreFinanceProfile.updated_at.desc(),
+            )
+        )
+    )
+    profiles_by_slot: dict[tuple[str, int], StoreFinanceProfile] = {}
+    for profile in profiles:
+        profiles_by_slot.setdefault(
+            (profile.store_id, profile.profile_type), profile
+        )
+    current_suggestions = list(
+        session.scalars(
+            select(SapSuggestion)
+            .where(
+                SapSuggestion.store_id.in_(store_ids),
+                SapSuggestion.is_current.is_(True),
+            )
+            .order_by(
+                SapSuggestion.store_id,
+                SapSuggestion.version_no.desc(),
+            )
+        )
+    )
+    suggestion_by_store: dict[str, SapSuggestion] = {}
+    for suggestion in current_suggestions:
+        suggestion_by_store.setdefault(suggestion.store_id, suggestion)
+
+    effective_by_store: dict[str, StoreFinanceProfile | None] = {}
+    control_by_store: dict[str, StoreFinanceProfile | None] = {}
+    for store_id in store_ids:
+        finance_profile = profiles_by_slot.get((store_id, 1))
+        legacy_profile = profiles_by_slot.get((store_id, 2))
+        if finance_profile is not None:
+            effective_profile = (
+                finance_profile
+                if not finance_profile.is_tombstone
+                and finance_profile.sap_code is not None
+                else None
+            )
+            control_profile = finance_profile
+        else:
+            effective_profile = (
+                legacy_profile
+                if legacy_profile is not None
+                and not legacy_profile.is_tombstone
+                and legacy_profile.sap_code is not None
+                else None
+            )
+            control_profile = effective_profile
+        effective_by_store[store_id] = effective_profile
+        control_by_store[store_id] = control_profile
+    tracked_profiles = [
+        profile
+        for profile in control_by_store.values()
+        if profile is not None
+    ]
+    tracked_profile_ids = tuple(
+        profile.profile_id for profile in tracked_profiles
+    )
+    correction_audit_by_profile: dict[str, FinanceOperationAudit] = {}
+    handled_suggestion_by_profile: dict[str, SapSuggestion] = {}
+    if tracked_profile_ids:
+        for audit in session.scalars(
+            select(FinanceOperationAudit)
+            .where(
+                FinanceOperationAudit.operation_type
+                == "SAP_SINGLE_CORRECTION",
+                FinanceOperationAudit.target_id.in_(tracked_profile_ids),
+                FinanceOperationAudit.result_status == 1,
+            )
+            .order_by(FinanceOperationAudit.occurred_at.desc())
+        ):
+            correction_audit_by_profile.setdefault(audit.target_id, audit)
+        for suggestion in session.scalars(
+            select(SapSuggestion)
+            .where(
+                SapSuggestion.confirmed_profile_id.in_(
+                    tracked_profile_ids
+                )
+            )
+            .order_by(SapSuggestion.handled_at.desc())
+        ):
+            if suggestion.confirmed_profile_id is not None:
+                handled_suggestion_by_profile.setdefault(
+                    suggestion.confirmed_profile_id, suggestion
+                )
+    import_batch_ids = tuple(
+        {
+            profile.import_batch_id
+            for profile in tracked_profiles
+            if profile.import_batch_id
+        }
+    )
+    batch_by_id = (
+        {
+            batch.batch_id: batch
+            for batch in session.scalars(
+                select(FinanceImportBatch).where(
+                    FinanceImportBatch.batch_id.in_(import_batch_ids)
+                )
+            )
+        }
+        if import_batch_ids
+        else {}
+    )
+
+    items: list[dict] = []
+    for store_row in store_rows:
+        finance_profile = profiles_by_slot.get((store_row.store_id, 1))
+        effective_profile = effective_by_store[store_row.store_id]
+        control_profile = control_by_store[store_row.store_id]
+        suggestion = suggestion_by_store.get(store_row.store_id)
+        audit = (
+            correction_audit_by_profile.get(control_profile.profile_id)
+            if control_profile is not None
+            else None
+        )
+        import_batch = (
+            batch_by_id.get(control_profile.import_batch_id)
+            if control_profile is not None
+            and control_profile.import_batch_id
+            else None
+        )
+        handled_suggestion = (
+            handled_suggestion_by_profile.get(control_profile.profile_id)
+            if control_profile is not None
+            else None
+        )
+        effective_updated_at = _finance_datetime(
+            control_profile.updated_at
+            if control_profile is not None
+            else None
+        )
+        effective_updated_by = None
+        if import_batch is not None:
+            effective_updated_by = (
+                import_batch.committed_by or import_batch.submitted_by
+            )
+        elif audit is not None:
+            effective_updated_by = audit.operator_id
+        elif handled_suggestion is not None:
+            effective_updated_by = handled_suggestion.handled_by
+        resolution_times: list[datetime] = []
+        if audit is not None:
+            occurred_at = _finance_datetime(audit.occurred_at)
+            if occurred_at is not None:
+                resolution_times.append(occurred_at)
+        if (
+            effective_profile is not None
+            and import_batch is not None
+            and import_batch.import_type == 4
+        ):
+            for value in (
+                effective_profile.confirmed_at,
+                import_batch.committed_at,
+                effective_profile.updated_at,
+            ):
+                normalized = _finance_datetime(value)
+                if normalized is not None:
+                    resolution_times.append(normalized)
+        resolution_at = max(resolution_times) if resolution_times else None
+        suggestion_submitted_at = _finance_datetime(
+            suggestion.submitted_at if suggestion is not None else None
+        )
+        store_sap = (
+            suggestion.suggested_sap_code
+            if suggestion is not None
+            else None
+        )
+        effective_sap = (
+            effective_profile.sap_code
+            if effective_profile is not None
+            else None
+        )
+        if (
+            suggestion_submitted_at is not None
+            and resolution_at is not None
+            and suggestion_submitted_at > resolution_at
+        ):
+            sap_status = "FINANCE_ACTION_REQUIRED"
+        elif resolution_at is not None:
+            sap_status = "CONFIRMED"
+        elif store_sap is None:
+            sap_status = "PENDING_STORE_CONFIRMATION"
+        elif store_sap != effective_sap:
+            sap_status = "FINANCE_ACTION_REQUIRED"
+        else:
+            sap_status = "CONFIRMED"
+        has_discrepancy = sap_status == "FINANCE_ACTION_REQUIRED"
+        suggestion_updated_at = _finance_datetime(
+            (suggestion.handled_at or suggestion.submitted_at)
+            if suggestion is not None
+            else None
+        )
+        items.append(
+            {
+                "store_id": store_row.store_id,
+                "store_name": store_row.store_name,
+                "sap_code": effective_sap,
+                "discrepancy_id": (
+                    suggestion.suggestion_id
+                    if has_discrepancy and suggestion is not None
+                    else None
+                ),
+                "store_maintained_sap_code": store_sap,
+                "finance_imported_sap_code": (
+                    finance_profile.sap_code
+                    if finance_profile is not None
+                    and not finance_profile.is_tombstone
+                    else None
+                ),
+                "effective_sap_code": effective_sap,
+                "effective_sap_version": (
+                    control_profile.version_no
+                    if control_profile is not None
+                    else 0
+                ),
+                "effective_sap_updated_by": effective_updated_by,
+                "effective_sap_updated_at": effective_updated_at,
+                "sap_status": sap_status,
+                "discrepancy_detected_at": (
+                    suggestion_submitted_at if has_discrepancy else None
+                ),
+                "confirmed_version": (
+                    control_profile.version_no
+                    if control_profile is not None
+                    else 0
+                ),
+                "confirmed_source_type": (
+                    control_profile.source_type
+                    if control_profile is not None
+                    else None
+                ),
+                "suggestion_id": (
+                    suggestion.suggestion_id
+                    if suggestion is not None
+                    else None
+                ),
+                "suggested_sap_code": (
+                    suggestion.suggested_sap_code
+                    if suggestion is not None
+                    else None
+                ),
+                "suggestion_note": (
+                    suggestion.suggestion_note
+                    if suggestion is not None
+                    else None
+                ),
+                "suggestion_status": (
+                    SAP_SUGGESTION_STATUS_NAMES[
+                        suggestion.suggestion_status
+                    ]
+                    if suggestion is not None
+                    else None
+                ),
+                "suggestion_version": (
+                    suggestion.version_no if suggestion is not None else 0
+                ),
+                "suggestion_updated_at": suggestion_updated_at,
+                "updated_at": effective_updated_at
+                or _finance_datetime(store_row.updated_at),
+            }
+        )
+    return items
+
+
+def _finance_store_sap_item(session, store_row: DimStore) -> dict:
+    """Build the explicit store/SAP response contract from persisted facts."""
+
+    return _finance_store_sap_items(session, [store_row])[0]
+
+
+def _finance_store_sap_metrics(items: list[dict]) -> dict[str, int]:
+    today = utcnow().astimezone(BEIJING_TIME_ZONE).date()
+
+    def updated_today(item: dict) -> bool:
+        value = _finance_datetime(
+            item["suggestion_updated_at"]
+            or item["effective_sap_updated_at"]
+        )
+        return (
+            value is not None
+            and value.astimezone(BEIJING_TIME_ZONE).date() == today
+        )
+
+    return {
+        "discrepancy_count": sum(
+            item["sap_status"] == "FINANCE_ACTION_REQUIRED" for item in items
+        ),
+        "pending_store_confirmation_count": sum(
+            item["sap_status"] == "PENDING_STORE_CONFIRMATION"
+            for item in items
+        ),
+        "finance_actionable_count": sum(
+            item["sap_status"] == "FINANCE_ACTION_REQUIRED" for item in items
+        ),
+        "confirmed_today_count": sum(
+            item["sap_status"] == "CONFIRMED" and updated_today(item)
+            for item in items
+        ),
+    }
+
+
+def _latest_invoice_rejection_reason(session, invoice_id: str) -> str | None:
+    return session.scalar(
+        select(InvoiceStatusEvent.result_reason)
+        .where(
+            InvoiceStatusEvent.invoice_id == invoice_id,
+            InvoiceStatusEvent.to_status == 4,
+        )
+        .order_by(
+            InvoiceStatusEvent.occurred_at.desc(),
+            InvoiceStatusEvent.event_id.desc(),
+        )
+        .limit(1)
+    )
+
+
+def _statement_confirmation(
+    session, statement_id: str, fee_direction: int
+) -> SettlementStatementConfirmation | None:
+    return session.scalar(
+        select(SettlementStatementConfirmation).where(
+            SettlementStatementConfirmation.statement_id == statement_id,
+            SettlementStatementConfirmation.fee_direction == fee_direction,
+            SettlementStatementConfirmation.confirmation_status == 1,
+        )
+    )
+
+
+def _admin_promotion_invoice_item(
+    session,
+    invoice: PromotionInvoice,
+    allocation: PromotionInvoiceAllocation,
+    statement: SettlementStatement,
+) -> dict:
+    confirmation = _statement_confirmation(session, statement.statement_id, 1)
+    sap_state = _finance_sap_state(session, statement.store_id)
+    return {
+        **_promotion_invoice_item(invoice, allocation),
+        "store_name": statement.store_name_snapshot,
+        "effective_sap_code": sap_state["effective_sap_code"],
+        "statement_amount_cent": statement.promotion_net_fee_cent,
+        "confirmed_amount_cent": (
+            confirmation.confirmed_amount_cent if confirmation is not None else None
+        ),
+        "rejection_reason": _latest_invoice_rejection_reason(
+            session, invoice.invoice_id
+        ),
+    }
+
+
+def _admin_management_invoice_item(
+    session,
+    invoice: InvoiceRecord | None,
+    statement: SettlementStatement,
+) -> dict:
+    confirmation = _statement_confirmation(session, statement.statement_id, 2)
+    sap_state = _finance_sap_state(session, statement.store_id)
+    invoice_item = (
+        {**_management_invoice_item(invoice), "status": "APPROVED_SETTLED"}
+        if invoice is not None
+        else {
+            "invoice_id": None,
+            "store_id": statement.store_id,
+            "statement_id": statement.statement_id,
+            "statement_month": statement.statement_month,
+            "fee_direction": "MANAGEMENT",
+            "version_no": None,
+            "is_current": None,
+            "invoice_number": None,
+            "invoice_date": None,
+            "invoice_amount_cent": None,
+            "status": "PENDING_INVOICE",
+            "source_type": None,
+            "import_batch_id": None,
+            "registered_at": None,
+            "factory_deduction_date": None,
+            "factory_deduction_amount_cent": None,
+            "settled_at": None,
+        }
+    )
+    return {
+        **invoice_item,
+        "store_name": statement.store_name_snapshot,
+        "effective_sap_code": sap_state["effective_sap_code"],
+        "statement_amount_cent": statement.management_net_fee_cent,
+        "confirmed_amount_cent": (
+            confirmation.confirmed_amount_cent if confirmation is not None else None
+        ),
+    }
+
+
 def _promotion_invoice_header_item(session, invoice: PromotionInvoice) -> dict:
     allocations = list(session.scalars(select(PromotionInvoiceAllocation).where(
         PromotionInvoiceAllocation.invoice_id == invoice.invoice_id,
@@ -8149,7 +10414,7 @@ def _finance_adjustment_type(value: int | None) -> str | None:
 def _finance_order_detail_definitions() -> list[dict]:
     """Describe immutable field sources for the finance order-detail UI."""
     return [
-        {"group": "账单冻结", "fields": ["storeName", "sapCode", "statementMonth", "feeDirection"], "source": "current settlement statement version snapshot"},
+        {"group": "账单冻结", "fields": ["billingStoreId", "billingStoreName", "serviceStoreName", "effectiveSapCode", "statementMonth", "feeDirection"], "source": "current settlement statement version snapshot"},
         {"group": "订单冻结", "fields": ["orderStatus", "productName", "skuId", "skuName", "saleChannel", "saleTime", "verifyTime", "receivedAmountCent", "feeRate"], "source": "statement entry snapshot"},
         {"group": "发票事实", "fields": ["invoiceNumber", "submittedAt", "invoiceStatus", "settledAt"], "source": "current valid invoice fact"},
     ]
@@ -8167,7 +10432,9 @@ def _normalize_finance_order_detail_filters(
     order_id: str | None,
     sku_id: str | None,
     sale_channel: str | None,
+    q: str | None,
     invoice_status: str | None,
+    settlement_status: str | None,
     submitted_from: datetime | None,
     submitted_to: datetime | None,
     verify_from: datetime | None,
@@ -8178,10 +10445,20 @@ def _normalize_finance_order_detail_filters(
     allowed_statuses = (
         set(INVOICE_STATUS_NAMES.values())
         if fee_direction == "PROMOTION"
-        else {"SETTLED", "UNSETTLED"}
+        else {"PENDING_INVOICE", "APPROVED_SETTLED"}
     )
     if status_name is not None:
         _validate_enum(status_name, allowed_statuses, "invoiceStatus", request)
+    settlement_status_name = (
+        settlement_status.strip().upper() if settlement_status else None
+    )
+    if settlement_status_name is not None:
+        _validate_enum(
+            settlement_status_name,
+            {"SETTLED", "UNSETTLED"},
+            "settlementStatus",
+            request,
+        )
     if submitted_from and submitted_to and submitted_from > submitted_to:
         _raise_reporting_error(
             request, status.HTTP_422_UNPROCESSABLE_ENTITY, "VALIDATION_FAILED",
@@ -8202,7 +10479,9 @@ def _normalize_finance_order_detail_filters(
         "orderId": order_id.strip() if order_id else None,
         "skuId": sku_id.strip() if sku_id else None,
         "saleChannel": sale_channel.strip().lower() if sale_channel else None,
+        "q": q.strip() if q and q.strip() else None,
         "invoiceStatus": status_name,
+        "settlementStatus": settlement_status_name,
         "submittedFrom": submitted_from,
         "submittedTo": submitted_to,
         "verifyFrom": verify_from,
@@ -8213,7 +10492,13 @@ def _normalize_finance_order_detail_filters(
 
 def _finance_order_detail_audit_filters(filters: dict) -> dict:
     return {
-        key: value.isoformat() if isinstance(value, datetime) else value
+        key: (
+            value.isoformat()
+            if isinstance(value, datetime)
+            else list(value)
+            if isinstance(value, tuple)
+            else value
+        )
         for key, value in filters.items()
     }
 
@@ -8244,14 +10529,37 @@ def _finance_order_details_query(filters: dict):
         .correlate(PromotionInvoice)
         .scalar_subquery()
     )
+    management_confirmed_amount = (
+        select(SettlementStatementConfirmation.confirmed_amount_cent)
+        .where(
+            SettlementStatementConfirmation.statement_id
+            == SettlementStatement.statement_id,
+            SettlementStatementConfirmation.fee_direction
+            == CONFIRMATION_DIRECTION_TO_DB["MANAGEMENT"],
+            SettlementStatementConfirmation.confirmation_status == 1,
+        )
+        .correlate(SettlementStatement)
+        .scalar_subquery()
+    )
+    management_fully_deducted = and_(
+        management_confirmed_amount.is_not(None),
+        InvoiceRecord.factory_deduction_amount_cent.is_not(None),
+        InvoiceRecord.factory_deduction_amount_cent
+        == management_confirmed_amount,
+    )
     sku_expr = SettlementStatementEntry.sku_id_snapshot
     sale_channel_expr = SettlementStatementEntry.sale_channel_snapshot
     verify_time_expr = SettlementStatementEntry.verify_time_snapshot
+    active_invoice = PromotionInvoice if direction == "PROMOTION" else InvoiceRecord
     conditions = [
         SettlementStatement.statement_month == filters["month"],
         SettlementStatement.is_current.is_(True),
         SettlementStatementEntry.fee_direction == direction_code,
     ]
+    if filters.get("scopeStoreIds") is not None:
+        conditions.append(
+            SettlementStatement.store_id.in_(filters["scopeStoreIds"])
+        )
     if filters.get("storeId"):
         conditions.append(SettlementStatement.store_id == filters["storeId"])
     if filters.get("storeName"):
@@ -8264,11 +10572,25 @@ def _finance_order_details_query(filters: dict):
         conditions.append(sku_expr == filters["skuId"])
     if filters.get("saleChannel"):
         conditions.append(func.lower(sale_channel_expr) == filters["saleChannel"])
+    if filters.get("q"):
+        query_text = filters["q"].lower()
+        conditions.append(
+            or_(
+                func.lower(func.coalesce(SettlementStatement.store_id, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatement.store_name_snapshot, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatement.sap_code_snapshot, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatementEntry.order_id, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatementEntry.coupon_id, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatementEntry.product_name_snapshot, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatementEntry.sku_id_snapshot, "")).contains(query_text),
+                func.lower(func.coalesce(SettlementStatementEntry.sku_name_snapshot, "")).contains(query_text),
+                func.lower(func.coalesce(active_invoice.invoice_number, "")).contains(query_text),
+            )
+        )
     if filters.get("verifyFrom"):
         conditions.append(verify_time_expr >= filters["verifyFrom"])
     if filters.get("verifyTo"):
         conditions.append(verify_time_expr <= filters["verifyTo"])
-    active_invoice = PromotionInvoice if direction == "PROMOTION" else InvoiceRecord
     if filters.get("invoiceNumber"):
         conditions.append(active_invoice.invoice_number == filters["invoiceNumber"])
     if filters.get("submittedFrom"):
@@ -8281,10 +10603,25 @@ def _finance_order_details_query(filters: dict):
                 PromotionInvoice.invoice_status
                 == next(key for key, value in INVOICE_STATUS_NAMES.items() if value == filters["invoiceStatus"])
             )
-        elif filters["invoiceStatus"] == "SETTLED":
-            conditions.append(InvoiceRecord.invoice_status == 3)
+        elif filters["invoiceStatus"] == "APPROVED_SETTLED":
+            conditions.append(InvoiceRecord.invoice_id.is_not(None))
         else:
-            conditions.append((InvoiceRecord.invoice_id.is_(None)) | (InvoiceRecord.invoice_status != 3))
+            conditions.append(InvoiceRecord.invoice_id.is_(None))
+    if filters.get("settlementStatus") == "SETTLED":
+        conditions.append(
+            active_invoice.invoice_status == 3
+            if direction == "PROMOTION"
+            else management_fully_deducted
+        )
+    elif filters.get("settlementStatus") == "UNSETTLED":
+        conditions.append(
+            (
+                (active_invoice.invoice_id.is_(None))
+                | (active_invoice.invoice_status != 3)
+            )
+            if direction == "PROMOTION"
+            else not_(management_fully_deducted)
+        )
     return (
         select(
             SettlementStatementEntry.statement_entry_id.label("statement_entry_id"),
@@ -8299,6 +10636,7 @@ def _finance_order_details_query(filters: dict):
             SettlementStatementEntry.order_status_snapshot.label("order_status"),
             SettlementStatementEntry.coupon_status_snapshot.label("coupon_status"),
             SettlementStatementEntry.product_name_snapshot.label("product_name"),
+            SettlementStatementEntry.product_type.label("product_type"),
             sku_expr.label("sku_id"),
             SettlementStatementEntry.sku_name_snapshot.label("sku_name"),
             sale_channel_expr.label("sale_channel"),
@@ -8322,6 +10660,7 @@ def _finance_order_details_query(filters: dict):
             InvoiceRecord.invoice_number.label("management_invoice_number"),
             InvoiceRecord.registered_at.label("management_imported_at"),
             InvoiceRecord.invoice_status.label("management_invoice_status"),
+            management_confirmed_amount.label("management_confirmed_amount_cent"),
             InvoiceRecord.factory_deduction_date.label("factory_deduction_date"),
             InvoiceRecord.factory_deduction_amount_cent.label("factory_deduction_amount_cent"),
         )
@@ -8341,12 +10680,32 @@ def _finance_order_detail_item(row, direction: str) -> dict:
     rate = values["actual_fee_rate"]
     promotion_status = values["promotion_invoice_status"]
     management_status = values["management_invoice_status"]
+    management_confirmed_amount = values["management_confirmed_amount_cent"]
+    management_deduction_amount = values["factory_deduction_amount_cent"]
+    management_is_settled = (
+        management_confirmed_amount is not None
+        and management_deduction_amount is not None
+        and management_confirmed_amount == management_deduction_amount
+    )
+    settlement_date = (
+        as_date(values["promotion_settled_date"])
+        if direction == "PROMOTION"
+        else (
+            as_date(values["factory_deduction_date"])
+            if management_is_settled
+            else None
+        )
+    )
     return {
         "statement_entry_id": values["statement_entry_id"],
         "statement_id": values["statement_id"],
         "store_id": values["store_id"],
         "store_name": values["store_name"],
         "sap_code": values["sap_code"],
+        "billing_store_id": values["store_id"],
+        "billing_store_name": values["store_name"],
+        "service_store_name": values["store_name"],
+        "effective_sap_code": values["sap_code"],
         "statement_month": values["statement_month"],
         "fee_direction": direction,
         "order_id": values["order_id"],
@@ -8354,6 +10713,7 @@ def _finance_order_detail_item(row, direction: str) -> dict:
         "order_status": values["order_status"],
         "coupon_status": values["coupon_status"],
         "product_name": values["product_name"],
+        "product_type": values["product_type"],
         "sku_id": values["sku_id"],
         "sku_name": values["sku_name"],
         "sale_channel": values["sale_channel"],
@@ -8372,11 +10732,28 @@ def _finance_order_detail_item(row, direction: str) -> dict:
         "row_type": "ADJUSTMENT" if values["source_type"] == 2 else "ORIGINAL",
         "invoice_number": values["promotion_invoice_number"] if direction == "PROMOTION" else values["management_invoice_number"],
         "submitted_at": as_datetime(values["promotion_submitted_at"]) if direction == "PROMOTION" else None,
-        "invoice_status": INVOICE_STATUS_NAMES.get(promotion_status) if direction == "PROMOTION" else None,
-        "settled_at": as_date(values["promotion_settled_date"]) if direction == "PROMOTION" else as_date(values["factory_deduction_date"]),
+        "invoice_status": (
+            INVOICE_STATUS_NAMES.get(promotion_status)
+            if direction == "PROMOTION"
+            else (
+                "APPROVED_SETTLED"
+                if management_status is not None
+                else "PENDING_INVOICE"
+            )
+        ),
+        "settled_at": settlement_date,
+        "settlement_date": settlement_date,
         "rejection_reason": values["promotion_rejection_reason"] if direction == "PROMOTION" else None,
         "imported_at": as_datetime(values["management_imported_at"]) if direction == "MANAGEMENT" else None,
-        "settlement_status": ("SETTLED" if management_status == 3 else "UNSETTLED") if direction == "MANAGEMENT" else None,
+        "settlement_status": (
+            "SETTLED"
+            if (
+                promotion_status == 3
+                if direction == "PROMOTION"
+                else management_is_settled
+            )
+            else "UNSETTLED"
+        ),
         "factory_deduction_date": as_date(values["factory_deduction_date"]) if direction == "MANAGEMENT" else None,
         "factory_deduction_amount_cent": values["factory_deduction_amount_cent"] if direction == "MANAGEMENT" else None,
     }
@@ -8413,12 +10790,13 @@ def _persist_finance_order_export_audit(
 def _finance_order_detail_csv(rows: list[dict]) -> str:
     fieldnames = [
         "statement_entry_id", "statement_id", "store_id", "store_name", "sap_code",
+        "billing_store_id", "billing_store_name", "service_store_name", "effective_sap_code",
         "statement_month", "fee_direction", "order_id", "coupon_id", "order_status",
-        "coupon_status", "product_name", "sku_id", "sku_name", "sale_channel",
+        "coupon_status", "product_name", "product_type", "sku_id", "sku_name", "sale_channel",
         "sale_store_id", "sale_store_name", "verify_store_id", "verify_store_name",
         "sale_time", "verify_time", "received_amount_cent", "frozen_fee_base_cent",
         "actual_fee_rate", "frozen_fee_amount_cent", "refund_time", "adjustment_type",
-        "row_type", "invoice_number", "submitted_at", "invoice_status", "settled_at",
+        "row_type", "invoice_number", "submitted_at", "invoice_status", "settled_at", "settlement_date",
         "rejection_reason", "imported_at", "settlement_status", "factory_deduction_date",
         "factory_deduction_amount_cent",
     ]
@@ -8429,11 +10807,50 @@ def _finance_order_detail_csv(rows: list[dict]) -> str:
     return buffer.getvalue()
 
 
-def _normalize_invoice_status(value: str | None, request: Request) -> int | None:
+def _finance_csv_download(
+    *,
+    request: Request,
+    filename_prefix: str,
+    fieldnames: list[str],
+    rows: list[dict],
+) -> Response:
+    """Build a real CSV export whose empty state is exactly one header row."""
+
+    buffer = StringIO(newline="")
+    writer = DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    filename = quote(f"{filename_prefix}-{generated_at().date().isoformat()}.csv")
+    return Response(
+        content=with_utf8_bom(buffer.getvalue()),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{filename}",
+            "X-Export-Result": "SUCCESS" if rows else "EMPTY",
+            "X-Request-ID": request_id(request),
+        },
+    )
+
+
+def _normalize_invoice_status(
+    value: str | None,
+    request: Request,
+    *,
+    fee_direction: str,
+) -> int | None:
     if value is None:
         return None
     normalized = value.upper()
-    _validate_enum(normalized, set(INVOICE_STATUS_NAMES.values()), "invoiceStatus", request)
+    allowed = (
+        {
+            "SUBMITTED_PENDING_FACTORY_REVIEW",
+            "APPROVED_SETTLED",
+            "REJECTED_REUPLOAD",
+        }
+        if fee_direction == "PROMOTION"
+        else {"PENDING_INVOICE", "APPROVED_SETTLED"}
+    )
+    _validate_enum(normalized, allowed, "invoiceStatus", request)
     return _invoice_status_db(normalized)
 
 

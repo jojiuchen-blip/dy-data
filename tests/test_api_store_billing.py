@@ -7,6 +7,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from sqlalchemy import func, select
@@ -2064,6 +2065,7 @@ def test_admin_finance_queries_reject_store_role(client: TestClient) -> None:
         store_ids=(),
         auth_type="user",
         store_scope_mode="all",
+        page_keys=("FIN01",),
     )
     admin_response = client.get(
         "/api/v1/admin/finance/summary",
@@ -2225,11 +2227,43 @@ def test_store_submits_and_reads_a_direction_scoped_dispute(
             FinanceOperationAudit.operation_type == "DISPUTE_SUBMIT",
         )
     ) is not None
-
     listed = client.get("/api/v1/store-settlements/statement-1-v2/disputes")
     assert listed.status_code == 200
     assert listed.json()["data"]["list"][0]["disputeId"] == submitted.json()["data"]["disputeId"]
 
+
+def test_dispute_evidence_security_checks_use_the_normalized_object_key() -> None:
+    request = Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/v1/store-settlements/statement/disputes",
+            "headers": [],
+        }
+    )
+    payload = {
+        "feeDirection": "PROMOTION",
+        "disputeType": "AMOUNT_ERROR",
+        "description": "金额不一致",
+        "contactName": "门店联系人",
+        "contactPhone": "13812345678",
+        "disputedAmountCent": 100,
+        "orders": [
+            {
+                "orderId": "order-security-check",
+                "couponId": "coupon-security-check",
+                "disputedAmountCent": 100,
+            }
+        ],
+        "evidence": [{"objectKey": "  https://attacker.invalid/evidence.pdf  "}],
+        "readVersion": 1,
+    }
+
+    with pytest.raises(HTTPException) as exc_info:
+        dashboard_routes._parse_dispute_payload(payload, request)
+
+    assert exc_info.value.status_code == 422
+    assert exc_info.value.detail["errors"][0]["field"] == "evidence"
 
 def test_store_withdraws_dispute_before_result_without_changing_statement(
     client: TestClient, db_session: Session
@@ -3233,6 +3267,15 @@ def _seed_finance_query_facts(db_session: Session) -> None:
                 registered_by="system-admin",
                 registered_at=settled_at,
             ),
+            SettlementStatementConfirmation(
+                confirmation_id="management-query-confirmation",
+                statement_id="statement-1-v2",
+                fee_direction=2,
+                confirmation_status=1,
+                confirmed_amount_cent=2200,
+                confirmed_by="store-user",
+                confirmed_at=datetime(2026, 8, 22, tzinfo=timezone.utc),
+            ),
             SettlementStatementEntry(
                 statement_entry_id="entry-promotion-current",
                 statement_id="statement-1-v2",
@@ -3707,13 +3750,14 @@ def test_admin_finance_order_details_use_one_complete_projection_for_list_and_ex
         "/api/v1/admin/finance/order-details",
         params={
             "month": "2026-08", "feeDirection": "MANAGEMENT",
-            "invoiceNumber": "12345678901234567891", "invoiceStatus": "SETTLED",
+            "invoiceNumber": "12345678901234567891",
+            "invoiceStatus": "APPROVED_SETTLED",
         },
     )
     assert management.status_code == 200
     management_row = management.json()["data"]["list"][0]
     assert management_row["settlementStatus"] == "SETTLED"
-    assert management_row["invoiceStatus"] is None
+    assert management_row["invoiceStatus"] == "APPROVED_SETTLED"
     assert management_row["importedAt"] == "2026-10-05T00:00:00+00:00"
 
 

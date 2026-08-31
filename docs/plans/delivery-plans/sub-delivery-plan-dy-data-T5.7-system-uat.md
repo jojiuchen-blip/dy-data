@@ -16,6 +16,8 @@
 - Linear DYDATA-19、DYDATA-80、DYDATA-81 验收标准
 - `docs/uat/dydata-80-ui-baseline-v2-clean.md`
 - `docs/superpowers/specs/2026-08-28-dydata-81-finance-primary-navigation-design.md`
+- `docs/plans/2026-08-30-dydata-81-finance-contract-controller-spec.md`
+- 冻结原型 `codex/dydata-19-finance-mock@9a574fa` 与 `docs/prototypes/dydata-19-finance-flow-dashboard/`
 - `docs/design-system/tokens.json`、`docs/design-system/README.md`
 
 **核心逻辑**：
@@ -27,6 +29,10 @@
 - 正式页面不得显示 Mock、会议演示、F01-F10、演示数据、本地角色切换或未接真实 API 的假动作；开发模式 fixture 必须显式隔离且生产构建不可启用。
 - DYDATA-81 在 PR/CI 与全部硬门禁通过后执行腾讯云生产部署，并完成页面、静态资源、健康接口、权限、回滚入口的线上 smoke。
 - G4 按 DYDATA-81 最终裁决把六个既有财务页面从“后台”拆为独立一级“财务”，桌面与移动端均位于“后台”之前；移除门店结算“SAP 建议”和 B02 访问 `/finance/stores` 的前端特例，不改变 API、业务与数据模型。
+- G5 按已确认《财务页面合同矩阵》逐项实现六页内部结构、模块顺序、筛选、表头、状态、按钮、空错态与跳转；主应用只提供 Shell、导航、视觉 token、共享组件、响应式和权限骨架。
+- G5 固定推广费 5 卡口径；待开票金额为审核未通过金额与账期未开票金额之和，页面、明细与导出必须同源。
+- G5 以财务导入 SAP 为当前有效值；批量导入和单条矫正均生成新版本并保留门店原值、财务值、操作人、时间和审计，历史账单/订单快照不回写。
+- G5 将“系统检测中 / 查看检测进度”实现为正式、可恢复的异步检测流程；持久化状态、进度、结果和失败原因，但自动检测只报告正式事实一致性，不自动作出异议业务裁决。
 
 **核心文件**：
 - `tests/`
@@ -39,6 +45,11 @@
 - `apps/web/src/App.tsx`
 - `tests/test_frontend_user_facing_contracts.py`
 - `tests/test_visual_smoke.py`
+- `tests/test_api_admin_finance.py`
+- `tests/test_api_store_billing.py`
+- `tests/test_frontend_finance_contracts.py`
+- `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md`
+- `docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md`
 
 **完成标准**：
 - 最低验收矩阵覆盖系统外开票边界、推广费四态、管理费当期导入上期、两个方向互不阻断、成立异议新账单版本、四类导入五结果和版本冲突。
@@ -49,20 +60,26 @@
 - 390px、768px、1440px 浏览器证据确认无全局横向溢出，正式界面没有演示专用文案和控件。
 - 管理员的“财务”一级入口紧邻且位于“后台”之前，六个财务二级入口沿用既有路由；财务与后台激活态互斥。
 - 门店账号看不到“财务”和“SAP 建议”，直接访问 `/finance/stores` 进入现有无权限页；`/finance` 仍只兼容跳转 `/finance/promotion`。
+- 六页合同矩阵不存在未记录偏差；所有真实字段均可追到正式 API/Schema，演示金额、日期、状态与假动作未进入生产构建。
+- 推广费 5 卡、订单结算状态、管理费全额扣减状态、SAP 当前值/版本审计和异步检测刷新恢复均通过 API、页面和导出一致性回归。
+- DYDATA-82 若被判定为本轮正式异议提交的必需能力，则其受控上传必须先完成安全、存储、留存、权限和审计门禁；未裁决前不得生产发布。
 
 **Verification Method**：
 - 执行 `git diff --check`、`python -m pytest`、`npm --prefix apps/web run build`、治理门禁、计划一致性和目标环境 smoke。
 - 按 UAT 脚本分别以门店账号和管理员角色完成端到端操作并核对审计记录。
 - 扫描生产构建与财务路由可见文本，验证演示模式未启用；逐页对照 v2-clean 结构/交互基线与 V0.2 运行时组件。
 - 对 G4 先运行前端契约与浏览器失败测试，再实现最小导航/权限调整；在 390/768/1440 视口分别核对管理员财务页、后台页和门店直达拒绝场景。
+- 对 G5 先运行后端 API/模型与前端合同失败测试，再做最小实现；以正式接口在隔离 UAT 完成六页 1440/768/390 截图和逐动作 Given/When/Then 记录。
+- 在目标 PostgreSQL 执行升级/降级边界、SAP 并发版本、异步任务恢复、导入原子性和审计核对；任一差异、孤儿、空审计或版本覆盖均阻断发布。
 
 **Evidence**：
-- `docs/uat/dydata-19-uat-checklist.md`、`docs/uat/dydata-80-ui-baseline-v2-clean.md`、产品一致性追踪矩阵、`docs/devlog/` 最终系统测试记录、`pwScreenShot/` 最终截图、Linear DYDATA-19/80/81 验证评论及 PR/CI/部署链接。
+- `docs/uat/dydata-19-uat-checklist.md`、`docs/uat/dydata-80-ui-baseline-v2-clean.md`、`docs/uat/dydata-81-finance-contract-g5.md`、产品一致性追踪矩阵、`docs/devlog/` 最终系统测试记录、`pwScreenShot/` 最终截图、Linear DYDATA-19/80/81 验证评论及 PR/CI/部署链接。
 
 **Failure Handling**：
 - 任一数据正确性、权限、迁移、并发或原子性场景失败即阻断发布与关闭。
 - 无目标环境或业务样例时只报告本地完成，不把缺失证据写成已验收。
 - 发现原型与 V0.2 冲突时以 V0.2 为视觉权威；发现基线与 DYDATA-19/PRD/Foundation 冲突时停止对应实现并记录偏差，不以原型覆盖业务真相。
+- 发现合同字段无正式来源、业务裁决冲突、异步检测需要外部能力或 DYDATA-82 仍影响闭环时，将对应项标记 BLOCKED，停止生产发布并集中报告，不自行补规则。
 - 生产凭据、分支保护、CI、备份、目标 PostgreSQL 或线上 smoke 任一硬门禁失败时停止发布，不绕过、不泄露秘密。
 - 新发现问题按是否阻断拆分 Linear follow-up，并保留主 Issue 风险记录。
 
@@ -73,6 +90,6 @@
 
 **前置**：T5.1～T5.6
 
-**状态**：进行中（2026-08-26；Owner 已确认 v2-clean 页面结构与业务交互基线，并授权在全部硬门禁通过后无需二次确认，直接执行生产部署；任一硬门禁失败仍停止发布）
+**状态**：进行中（2026-08-30；G4 已生产部署，G5 获 Owner 明确授权完成实现、测试、隔离 UAT 和受控生产发布；任一合同、数据正确性、DYDATA-82 裁决或发布硬门禁失败仍停止发布，完成后等待 Owner 验收，不自行关闭 DYDATA-81）
 
-**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G3 已关闭账单 Vn+1 明细快照继承、历史明细快照回填/异常清单和部署前异常归零门禁；最终完整相关回归 `152 passed, 170 warnings`，Web build、Alembic 单头 `20260824_0043` 和 `git diff --check` 通过，定向复审为 Critical 0、Important 0、Minor 0、`Ready: yes`。2026-08-28 G4 已在 `codex/dydata-81-finance-nav` 完成本地实现和产品一致性核对：前端契约 15 passed、聚焦视觉回归 6 passed、完整回归 `1418 passed, 2 skipped, 263 warnings`，Web build 通过，390/768/1440 及 949×466 参考视口验证通过；PR、CI、目标 PostgreSQL 真实升级、两会话并发、生产部署与线上 smoke 仍为最终发布门禁。
+**最新验证**：G1a、G0、G1b/G1c、G2 与 G3 已完成并通过独立代码审查。G4 一级财务导航已由 `df617e7` 经既有受控流程部署生产并完成 smoke。G5 已完成六页合同、SAP 有效值/审计、单条矫正、真实异步检测和三视口隔离 UAT；新鲜完整回归为视觉 242 passed、其余 1233 passed/2 skipped，合计 1475 passed、2 skipped、0 failed，Web build 717 modules，独立复审无新增 Critical/Important。生产放行仍被 DYDATA-82、GitHub/CI 鉴权与目标 PostgreSQL/备份/部署门禁阻塞。

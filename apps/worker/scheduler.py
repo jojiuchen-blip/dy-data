@@ -20,7 +20,10 @@ from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.materialize_once import MATERIALIZATION_STAGES
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
-from apps.worker.queued_jobs import process_queued_settlement_rebuilds
+from apps.worker.queued_jobs import (
+    process_queued_finance_dispute_detections,
+    process_queued_settlement_rebuilds,
+)
 from apps.worker.repositories import finish_job_run, queue_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DAYS, load_sync_config
@@ -86,7 +89,7 @@ def run_once() -> None:
     factory = get_session_factory()
     if factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker scheduler.")
-    process_queued_settlement_rebuilds(factory)
+    _process_queued_jobs(factory)
     if mode == "backfill":
         with session_scope(factory) as session:
             config = load_sync_config(session)
@@ -96,7 +99,7 @@ def run_once() -> None:
             end=config.history_end or None,
             chunk_days=config.history_chunk_days,
             skip_completed=config.backfill_skip_completed,
-            queued_job_runner=lambda: process_queued_settlement_rebuilds(factory),
+            queued_job_runner=lambda: _process_queued_jobs(factory),
         )
         return
     if mode == "browser_export_only":
@@ -185,7 +188,7 @@ def run_incremental_collection_chunks(factory, config) -> None:
             _log(f"incremental_chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
             continue
 
-        process_queued_settlement_rebuilds(factory)
+        _process_queued_jobs(factory)
         job_id = _chunk_job_id("collect", index, chunk)
         _log(f"incremental_chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
         stats = None
@@ -366,12 +369,19 @@ def main() -> None:
 
     while not _STOP:
         if not _auto_sync_enabled(factory):
+            if factory is not None:
+                process_queued_finance_dispute_detections(factory)
             _sleep_until_stop(DISABLED_POLL_SECONDS)
             continue
         interval_seconds = _configured_interval_seconds(factory)
         _sleep_until_stop(interval_seconds)
         if not _STOP and _auto_sync_enabled(factory):
             run_once()
+
+
+def _process_queued_jobs(factory) -> None:
+    process_queued_settlement_rebuilds(factory)
+    process_queued_finance_dispute_detections(factory)
 
 
 def _configured_interval_seconds(factory) -> int:

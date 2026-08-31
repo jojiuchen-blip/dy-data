@@ -2628,6 +2628,20 @@ class JobRun(Base):
                 "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
             ),
         ),
+        Index(
+            "uq_job_runs_finance_dispute_detection_idempotency_key",
+            "job_name",
+            "idempotency_key_hash",
+            unique=True,
+            sqlite_where=text(
+                "job_name = 'finance_dispute_detection' "
+                "AND idempotency_key_hash IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "job_name = 'finance_dispute_detection' "
+                "AND idempotency_key_hash IS NOT NULL"
+            ),
+        ),
     )
 
     job_id: Mapped[str] = mapped_column(Text, primary_key=True)
@@ -2639,6 +2653,13 @@ class JobRun(Base):
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
     idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    claim_token: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    state_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
 
 

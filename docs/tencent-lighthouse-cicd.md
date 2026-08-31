@@ -23,6 +23,9 @@ change a self-managed production server.
 - `TENCENT_SSH_PORT`: SSH port, usually `22`.
 - `TENCENT_SSH_USER`: SSH user, usually `ubuntu`.
 - `DY_WEB_BASE_URL`: public HTTPS dashboard base URL used by CLI browser authorization.
+- `TENCENT_START_WORKER`: must be `true` for this production workflow. The
+  workflow fails before SSH when it is absent or false, because persisted
+  finance detection jobs require a running worker for restart recovery.
 - `TENCENT_DEPLOY_ON_PUSH`: set to `true` only after automatic deploys on every
   `main` push are desired.
 
@@ -48,24 +51,31 @@ The server script is `deploy/tencent/deploy.sh`.
 It performs:
 
 1. Save any server-side dirty diff to `/opt/dy-dashboard/logs`.
-2. Fetch and reset to the target Git commit.
-3. Validate Docker Compose configuration.
-4. Build `api`, `web`, and `browser` images.
-5. Start PostgreSQL.
-6. Read the production `alembic_version` and verify that the target API image
+2. Require `TENCENT_START_WORKER=true` in the server script itself; a direct or
+   non-GitHub invocation fails before build, backup, or migration when it is
+   absent or false.
+3. Fetch and reset to the target Git commit.
+4. Back up the production environment file and validate Docker Compose
+   configuration.
+5. Build `api`, `web`, `browser`, and `worker` images.
+6. Start PostgreSQL.
+7. Read the production `alembic_version` and verify that the target API image
    can resolve it. If the revision is missing, print matching migration source
    from the currently running API container between `migration-source-begin`
    and `migration-source-end`, then stop before `alembic upgrade`.
-7. Run Alembic migrations.
-8. Start `api`, `web`, `browser`, and `proxy`.
-9. Keep `worker` stopped unless `TENCENT_START_WORKER=true` is present in the
-   workflow/server environment.
-10. Smoke test `/`, `/api/v1/auth/me`, and CLI device authorization startup.
+8. Back up PostgreSQL, then run Alembic migrations and reject unresolved
+   statement-snapshot migration exceptions.
+9. Start `api`, `web`, `browser`, and `proxy`.
+10. Start the required `worker`, verify the scheduler is PID 1, and verify that
+    the queue handler imports and can query the production database. Failures
+    include worker logs in the deployment diagnostic output.
+11. Smoke test `/`, `/api/v1/auth/me`, and CLI device authorization startup.
 
 The lineage preflight is read-only. It never changes `alembic_version` and does
 not use `alembic stamp`; a missing production revision always blocks deployment
 until its migration source and parent chain are restored in the repository.
 
 Set `TENCENT_START_WORKER=true` only when this deployment is intentionally the
-active collector. Leave it unset when another environment owns collection, so
-two workers cannot ingest or refresh the same data independently.
+active collector and finance-detection worker. If another environment owns
+collection, do not run this production workflow: it now fails closed rather
+than deploying an API that cannot recover persisted detection jobs.
