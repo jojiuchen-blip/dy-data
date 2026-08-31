@@ -693,7 +693,7 @@ def test_repeating_same_first_allocation_is_idempotent(db_session: Session) -> N
     assert decisions[0].attempt_key.startswith("clue-allocation:")
 
 
-def test_round_namespace_allows_legacy_and_formal_round_one_for_one_order(db_session: Session) -> None:
+def test_round_namespace_allows_trial_and_formal_round_one_for_one_order(db_session: Session) -> None:
     lead = _lead()
     db_session.add(lead)
     db_session.add_all(
@@ -702,8 +702,8 @@ def test_round_namespace_allows_legacy_and_formal_round_one_for_one_order(db_ses
                 assignment_round_id="order-1-1",
                 lead_key=lead.lead_key,
                 order_id="order-1",
-                store_id="legacy-store",
-                execution_mode="legacy",
+                store_id="trial-store",
+                execution_mode="trial",
             ),
             _active_round(
                 assignment_round_id="formal-order-1-1",

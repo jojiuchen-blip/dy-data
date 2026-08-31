@@ -17,7 +17,6 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import _data as data_module  # noqa: E402
-from dy_api.routes import admin as admin_module  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
     ClueAssignmentRound,
@@ -83,6 +82,40 @@ def _seed_clue_center(session: Session) -> None:
                 certified_subject_name="Subject Two",
                 is_active=True,
             ),
+            ClueMasterLead(
+                lead_key="lead-order-1",
+                source_clue_row_key="raw-order-1",
+                source_identity_key="identity-order-1",
+                canonical_clue_id="clue-1",
+                order_id="order-1",
+                normalized_order_status="verified",
+                status_source="test",
+                lifecycle_status="closed_verified",
+                allocation_state="completed",
+                current_assignment_round_id="order-1-1",
+                first_seen_at=_dt(1),
+                last_seen_at=_dt(2),
+                created_at=_dt(1),
+                updated_at=_dt(2),
+            ),
+            ClueMasterLead(
+                lead_key="lead-order-2",
+                source_clue_row_key="raw-order-2",
+                source_identity_key="identity-order-2",
+                canonical_clue_id="clue-2",
+                order_id="order-2",
+                raw_order_status="履约中",
+                normalized_order_status="active",
+                status_source="test",
+                lifecycle_status="active",
+                pool_location="store_follow_up_pool",
+                allocation_state="assigned",
+                current_assignment_round_id="order-2-1",
+                first_seen_at=_dt(1),
+                last_seen_at=_dt(1),
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
             ClueCenterOrder(
                 order_id="order-1",
                 source_clue_ids=["clue-1"],
@@ -118,6 +151,7 @@ def _seed_clue_center(session: Session) -> None:
             ClueAssignmentRound(
                 assignment_round_id="order-1-1",
                 order_id="order-1",
+                lead_key="lead-order-1",
                 round_no=1,
                 assigned_at=_dt(1),
                 assigned_at_source="clue_create_time_detail",
@@ -128,6 +162,7 @@ def _seed_clue_center(session: Session) -> None:
                 is_followed=True,
                 is_follow_success=True,
                 round_status="active_followed",
+                execution_mode="formal",
                 verified_store_id="store-1",
                 verified_store_name="Store One",
                 verified_at=_dt(2),
@@ -166,6 +201,7 @@ def _seed_clue_center(session: Session) -> None:
             ClueAssignmentRound(
                 assignment_round_id="order-2-1",
                 order_id="order-2",
+                lead_key="lead-order-2",
                 round_no=1,
                 assigned_at=_dt(1),
                 assigned_at_source="clue_create_time_detail",
@@ -175,6 +211,7 @@ def _seed_clue_center(session: Session) -> None:
                 is_followed=False,
                 is_follow_success=False,
                 round_status="active_unfollowed",
+                execution_mode="formal",
                 is_self_store_verified=False,
                 created_at=_dt(1),
                 updated_at=_dt(1),
@@ -242,32 +279,33 @@ def _promote_order_two_to_self_owned_round(session: Session) -> None:
     round_row = session.get(ClueAssignmentRound, "order-2-1")
     assert order is not None
     assert round_row is not None
-    lead = ClueMasterLead(
-        lead_key="lead-order-2",
-        source_clue_row_key="raw-order-2",
-        source_identity_key="identity-order-2",
-        canonical_clue_id="clue-2",
-        order_id="order-2",
-        raw_order_status="履约中",
-        normalized_order_status="active",
-        status_source="test",
-        lifecycle_status="active",
-        pool_location="store_follow_up_pool",
-        allocation_state="assigned",
-        current_assignment_round_id="order-2-1",
-        first_seen_at=_dt(1),
-        last_seen_at=_dt(1),
-        created_at=_dt(1),
-        updated_at=_dt(1),
-    )
+    lead = session.get(ClueMasterLead, "lead-order-2")
+    assert lead is not None
+    lead.normalized_order_status = "active"
+    lead.lifecycle_status = "active"
+    lead.pool_location = "store_follow_up_pool"
+    lead.allocation_state = "assigned"
+    lead.current_assignment_round_id = "order-2-1"
     round_row.lead_key = lead.lead_key
     round_row.execution_mode = "formal"
     round_row.strategy_type = "city_fallback"
     round_row.auto_expiry_enabled = True
     round_row.first_follow_up_sla_hours = 24
     round_row.protection_days = 7
-    session.add(lead)
     session.commit()
+
+
+def _activate_order_one(session: Session) -> None:
+    order = session.get(ClueCenterOrder, "order-1")
+    lead = session.get(ClueMasterLead, "lead-order-1")
+    assert order is not None
+    assert lead is not None
+    order.lead_status = "active"
+    lead.normalized_order_status = "active"
+    lead.lifecycle_status = "active"
+    lead.pool_location = "store_follow_up_pool"
+    lead.allocation_state = "assigned"
+    lead.current_assignment_round_id = "order-1-1"
 
 
 def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> None:
@@ -300,6 +338,64 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["store_display_status"] in {"待跟进", "已核销"}
     assert "telephone" not in row
     assert row["remaining_reassign_seconds"] is None
+
+
+def test_trial_round_is_excluded_from_business_surfaces(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    trial_round = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert trial_round is not None
+    trial_round.execution_mode = "trial"
+    db_session.add(
+        ClueFollowUpRecord(
+            follow_up_record_id="trial-follow-up-record",
+            order_id="order-2",
+            assignment_round_id="order-2-1",
+            round_no=1,
+            assigned_store_id="store-1",
+            follow_result="appointment",
+            note="trial evidence",
+            operator_user_id="trial-user",
+            operator_username="trial-user",
+            created_at=_dt(1, 11),
+        )
+    )
+    db_session.commit()
+    _login(client)
+
+    overview = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
+    filters = client.get("/api/v1/clues/filters")
+    rounds = client.get("/api/v1/clues/assignment-rounds?assigned_store_id=store-1")
+    exported = client.get(
+        "/api/v1/clues/assignment-rounds/export",
+        params={"assigned_store_id": "store-1"},
+    )
+    detail = client.get("/api/v1/clues/orders/order-2")
+    phone = client.get("/api/v1/clues/orders/order-2/phone")
+    follow_up = client.post(
+        "/api/v1/clues/orders/order-2/follow-up",
+        json={
+            "assignment_round_id": "order-2-1",
+            "follow_result": "appointment",
+            "note": "must remain trial evidence only",
+        },
+    )
+
+    assert overview.status_code == 200
+    assert overview.json()["data"]["total_clues"] == 1
+    assert filters.status_code == 200
+    assert filters.json()["data"]["lead_statuses"] == ["converted"]
+    assert rounds.status_code == 200
+    assert [row["order_id"] for row in rounds.json()["data"]["rows"]] == ["order-1"]
+    assert exported.status_code == 200
+    export_rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
+    assert [row["order_id"] for row in export_rows] == ["order-1"]
+    assert detail.status_code == 200
+    assert detail.json()["data"]["rounds"] == []
+    assert detail.json()["data"]["follow_up_records"] == []
+    assert phone.status_code == 404
+    assert follow_up.status_code == 409
 
 
 def test_clue_filters_can_exclude_large_assigned_store_payload(
@@ -1012,9 +1108,9 @@ def test_lost_follow_up_moves_order_to_pending_reassign_and_blocks_phone_reveal(
     assert order.follow_result == "lost"
     assert order.is_followed is True
     assert order.is_follow_success is False
-    assert order.current_round_status == "headquarters"
+    assert order.current_round_status == "closed_reassigned"
     assert order.lead_status == "pending_reassign"
-    assert order.reassign_reason == "headquarters_pool"
+    assert order.reassign_reason == "follow_lost"
     assert round_row.round_status == "closed_reassigned"
     assert round_row.reassign_reason == "follow_lost"
 
@@ -1026,6 +1122,10 @@ def test_legacy_round_rejects_follow_up_without_mutating_state(
     db_session: Session,
 ) -> None:
     _seed_clue_center(db_session)
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert round_row is not None
+    round_row.execution_mode = "legacy"
+    db_session.commit()
     store = data_module.DashboardDataStore(db_session)
 
     result_status, record = store.save_clue_follow_up(
@@ -1059,6 +1159,21 @@ def test_legacy_round_rejects_follow_up_without_mutating_state(
     assert order.follow_result == "pending"
     assert round_row.round_status == "active_unfollowed"
     assert round_row.follow_result == "pending"
+
+
+def test_legacy_round_cannot_reveal_phone(client: TestClient, db_session: Session) -> None:
+    _seed_clue_center(db_session)
+    round_row = db_session.get(ClueAssignmentRound, "order-2-1")
+    assert round_row is not None
+    round_row.execution_mode = "legacy"
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/clues/orders/order-2/phone")
+
+    assert response.status_code == 404
+
+
 def test_store_can_record_current_scoped_follow_up(
     client: TestClient, db_session: Session
 ) -> None:
@@ -1155,12 +1270,12 @@ def test_store_change_request_closes_self_owned_round_for_reassignment(
     assert round_row is not None
     assert order.is_follow_success is False
     assert order.lead_status == "pending_reassign"
-    assert order.reassign_reason == "headquarters_pool"
+    assert order.reassign_reason == "request_store_change"
     assert round_row.round_status == "closed_reassigned"
     assert round_row.reassign_reason == "request_store_change"
 
 
-def test_legacy_viewer_is_mapped_to_admin_before_follow_up_authorization(
+def test_legacy_viewer_is_mapped_to_admin_for_follow_up_authorization(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
@@ -1184,11 +1299,11 @@ def test_legacy_viewer_is_mapped_to_admin_before_follow_up_authorization(
         json={
             "assignment_round_id": "order-2-1",
             "follow_result": "appointment",
-            "note": "Viewer should not save.",
+            "note": "Legacy viewer follows the current admin policy.",
         },
     )
 
-    assert response.status_code == 409
+    assert response.status_code == 200
 
 
 def test_clue_assignment_rounds_fall_back_to_raw_masked_phone(
@@ -1320,9 +1435,7 @@ def test_clue_phone_reveal_returns_full_phone_on_demand(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    order.lead_status = "active"
+    _activate_order_one(db_session)
     db_session.add(
         RawDouyinClue(
             clue_row_key="raw-phone-1",
@@ -1366,7 +1479,7 @@ def test_clue_phone_reveal_uses_cached_plain_phone_without_decrypting(
     _seed_clue_center(db_session)
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
-    order.lead_status = "active"
+    _activate_order_one(db_session)
     order.phone_plain = "13812345678"
     order.phone_masked = "138****5678"
     db_session.commit()
@@ -1524,151 +1637,5 @@ def test_legacy_clue_rule_and_rebuild_routes_are_absent(client: TestClient) -> N
     assert client.get("/api/v1/admin/clue-reassign-rule").status_code == 404
     assert client.put("/api/v1/admin/clue-reassign-rule", json={"reassign_sla_hours": None}).status_code == 404
     assert client.post("/api/v1/admin/clues/rebuild").status_code == 404
-
-
-def test_clue_center_maintenance_rebuild_requires_highest_administrator(
-    client: TestClient,
-    db_session: Session,
-) -> None:
-    maintenance_path = "/api/v1/admin/sync/clue-center/rebuild"
-    assert client.post(maintenance_path).status_code == 401
-
-    db_session.add_all(
-        [
-            User(
-                user_id="store-user",
-                username="store-user",
-                external_account_id="store-1",
-                display_name="Store User",
-                role="store",
-                status="active",
-                is_initialized=True,
-                password_hash=hash_password_pbkdf2("secret"),
-            ),
-            User(
-                user_id="normal-admin-user",
-                username="normal-admin-user",
-                external_account_id="normal-admin-user",
-                display_name="Normal Admin User",
-                role="admin",
-                status="active",
-                is_initialized=True,
-                password_hash=hash_password_pbkdf2("secret"),
-            ),
-        ]
-    )
-    db_session.commit()
-    _login_user(client, "store-user", "secret")
-
-    assert client.post(maintenance_path).status_code == 403
-    _login_user(client, "normal-admin-user", "secret")
-
-    assert client.post(maintenance_path).status_code == 403
-
-
-def test_highest_admin_can_rebuild_clues(client: TestClient, db_session: Session) -> None:
-    db_session.add(
-        RawDouyinClue(
-            clue_row_key="raw-1",
-            clue_id="clue-1",
-            create_time_detail=_dt(1),
-            telephone="13812345678",
-            product_id="sku-1",
-            product_name="Service Product",
-            order_id="order-1",
-            order_status="履约中",
-            follow_life_account_id="store-1",
-            follow_life_account_name="Store One",
-            raw_payload={"clue_id": "clue-1"},
-            imported_at=_dt(1),
-            updated_at=_dt(1),
-        )
-    )
-    db_session.commit()
-
     _login(client)
-    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
-
-    assert response.status_code == 200
-    assert response.json()["data"]["rebuilt_order_count"] == 1
-    assert db_session.get(ClueCenterOrder, "order-1") is not None
-    master_lead = db_session.scalar(select(ClueMasterLead).where(ClueMasterLead.order_id == "order-1"))
-    assert master_lead is not None
-    assert master_lead.source_clue_row_key == "raw-1"
-
-
-def test_clue_center_maintenance_rebuild_stops_when_master_materialization_is_locked(
-    client: TestClient,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    rebuild_calls: list[str] = []
-
-    monkeypatch.setattr(
-        admin_module,
-        "materialize_clue_master_leads",
-        lambda _session: {
-            "master_leads": 0,
-            "closed_leads": 0,
-            "headquarters_pool": 0,
-            "skipped": "locked",
-        },
-    )
-    monkeypatch.setattr(
-        admin_module,
-        "rebuild_clue_center",
-        lambda *_args, **_kwargs: rebuild_calls.append("clue_center") or {"eligible_orders": 0},
-    )
-
-    _login(client)
-    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
-
-    assert response.status_code == 409
-    assert rebuild_calls == []
-
-
-def test_admin_maintenance_rebuild_decrypts_encrypted_clue_phone(
-    client: TestClient,
-    db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    db_session.add(
-        RawDouyinClue(
-            clue_row_key="raw-enc-1",
-            clue_id="clue-enc-1",
-            create_time_detail=_dt(1),
-            telephone="",
-            enc_telephone="Enc.phone-1",
-            product_id="sku-1",
-            product_name="Service Product",
-            order_id="order-1",
-            order_status="履约中",
-            follow_life_account_id="store-1",
-            follow_life_account_name="Store One",
-            raw_payload={"clue_id": "clue-enc-1"},
-            imported_at=_dt(1),
-            updated_at=_dt(1),
-        )
-    )
-    db_session.commit()
-    calls: list[list[str]] = []
-
-    class FakeDouyinClient:
-        def decrypt_cipher_texts(self, cipher_texts: list[str]) -> dict[str, str]:
-            calls.append(cipher_texts)
-            return {"Enc.phone-1": "13812345678"}
-
-    monkeypatch.setattr(
-        admin_module,
-        "build_douyin_client_from_env",
-        lambda: FakeDouyinClient(),
-    )
-
-    _login(client)
-    response = client.post("/api/v1/admin/sync/clue-center/rebuild")
-
-    assert response.status_code == 200
-    assert calls == [["Enc.phone-1"]]
-    order = db_session.get(ClueCenterOrder, "order-1")
-    assert order is not None
-    assert order.phone_plain == "13812345678"
-    assert order.phone_masked == "138****5678"
+    assert client.post("/api/v1/admin/sync/clue-center/rebuild").status_code in {404, 405}

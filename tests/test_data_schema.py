@@ -36,6 +36,8 @@ def test_production_mvp_tables_are_declared() -> None:
         "clue_center_orders",
         "clue_assignment_rounds",
         "clue_follow_up_records",
+        "clue_master_leads",
+        "clue_source_record_links",
         "agg_store_ranking",
         "agg_store_monthly_settlement",
         "job_runs",
@@ -44,6 +46,78 @@ def test_production_mvp_tables_are_declared() -> None:
 
     assert expected_tables.issubset(set(Base.metadata.tables))
     assert "clue_reassign_rule_settings" not in Base.metadata.tables
+
+
+def test_clue_center_foundation_schema_tracks_source_links_and_state() -> None:
+    tables = Base.metadata.tables
+    master = tables["clue_master_leads"]
+    assert {
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
+    }.issubset(master.columns.keys())
+    assert master.columns["master_kind"].nullable is False
+    assert master.columns["is_complete_pool"].nullable is False
+    assert master.columns["state_version"].nullable is False
+    assert master.columns["master_kind"].default.arg == 1
+    assert master.columns["is_complete_pool"].default.arg is False
+    assert master.columns["state_version"].default.arg == 1
+
+    links = tables["clue_source_record_links"]
+    assert [column.name for column in links.primary_key] == ["id"]
+    assert {
+        "source_system",
+        "source_table",
+        "source_record_key",
+        "source_clue_id",
+        "source_order_id",
+        "lead_key",
+        "order_id",
+        "link_status",
+        "link_method",
+        "link_version",
+        "linked_at",
+        "source_observed_at",
+        "source_run_id",
+        "source_payload_hash",
+        "conflict_reason",
+        "created_at",
+        "updated_at",
+    }.issubset(links.columns.keys())
+    assert links.columns["source_table"].type.length == 64
+    assert links.columns["source_record_key"].type.length == 128
+    assert links.columns["source_clue_id"].type.length == 64
+    assert links.columns["source_order_id"].type.length == 64
+    assert links.columns["order_id"].type.length == 64
+    assert links.columns["source_payload_hash"].type.length == 64
+    assert links.columns["conflict_reason"].type.length == 255
+    assert links.columns["lead_key"].nullable is False
+    assert links.columns["linked_at"].nullable is False
+    assert links.columns["created_at"].nullable is False
+    assert links.columns["updated_at"].nullable is False
+
+    assert ("source_table", "source_record_key") in {
+        tuple(constraint.columns.keys())
+        for constraint in links.constraints
+        if constraint.__class__.__name__ == "UniqueConstraint"
+    }
+    assert {
+        ("lead_key",),
+        ("order_id",),
+        ("link_status", "updated_at"),
+    }.issubset({tuple(index.columns.keys()) for index in links.indexes})
+    foreign_keys = [
+        constraint
+        for constraint in links.constraints
+        if constraint.__class__.__name__ == "ForeignKeyConstraint"
+    ]
+    assert len(foreign_keys) == 1
+    assert tuple(foreign_keys[0].columns.keys()) == ("lead_key",)
+    assert foreign_keys[0].elements[0].target_fullname == (
+        "clue_master_leads.lead_key"
+    )
+    assert foreign_keys[0].ondelete == "RESTRICT"
 
 
 def test_schema_has_natural_keys_for_idempotent_loads() -> None:
@@ -307,6 +381,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
     assert {
         ("fee_result_id",),
         ("coupon_id", "fee_direction", "result_version"),
+        ("coupon_id", "fee_direction", "calculation_run_id"),
     }.issubset(
         {
             tuple(constraint.columns.keys())
@@ -332,6 +407,7 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
         "scope_rule_version",
         "result_status",
         "calculation_run_id",
+        "input_fingerprint",
         "calculated_at",
     }.issubset(fee_result.columns.keys())
 
@@ -349,6 +425,16 @@ def test_schema_has_natural_keys_for_idempotent_loads() -> None:
 
     adjustment = tables["settlement_fee_adjustment"]
     assert [column.name for column in adjustment.primary_key] == ["id"]
+    assert {
+        ("adjustment_id",),
+        ("refund_event_id", "original_fee_result_id", "fee_direction"),
+    }.issubset(
+        {
+            tuple(constraint.columns.keys())
+            for constraint in adjustment.constraints
+            if constraint.__class__.__name__ == "UniqueConstraint"
+        }
+    )
     assert {
         "adjustment_id",
         "original_fee_result_id",

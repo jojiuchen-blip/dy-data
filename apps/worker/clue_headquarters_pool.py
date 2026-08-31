@@ -15,6 +15,60 @@ from apps.api.dy_api.models import (
 )
 
 
+HEADQUARTERS_POOL_REASON_CODES = (
+    "missing_follow_poi",
+    "anchor_store_unmapped",
+    "anchor_geo_invalid",
+    "no_published_rule",
+    "all_strategies_disabled",
+    "no_eligible_candidate",
+    "all_strategies_exhausted",
+    "data_inconsistency",
+)
+
+_HEADQUARTERS_POOL_REASON_ALIASES = {
+    "missing_follow_poi": "missing_follow_poi",
+    "follow_poi_missing": "missing_follow_poi",
+    "anchor_store_unmapped": "anchor_store_unmapped",
+    "follow_poi_unmapped": "anchor_store_unmapped",
+    "follow_poi_store_missing": "anchor_store_unmapped",
+    "anchor_geo_invalid": "anchor_geo_invalid",
+    "anchor_coordinates_invalid": "anchor_geo_invalid",
+    "anchor_province_missing": "anchor_geo_invalid",
+    "anchor_city_missing": "anchor_geo_invalid",
+    "anchor_city_code_missing": "anchor_geo_invalid",
+    "no_published_rule": "no_published_rule",
+    "rule_version_unavailable": "no_published_rule",
+    "all_strategies_disabled": "all_strategies_disabled",
+    "strategy_disabled": "all_strategies_disabled",
+    "no_eligible_candidate": "no_eligible_candidate",
+    "no_candidate": "no_eligible_candidate",
+    "sale_store_unmapped": "no_eligible_candidate",
+    "all_strategies_exhausted": "all_strategies_exhausted",
+    "strategies_exhausted": "all_strategies_exhausted",
+    "data_inconsistency": "data_inconsistency",
+    "headquarters_pool_retained": "data_inconsistency",
+    "order_id_missing": "data_inconsistency",
+    "headquarters": "data_inconsistency",
+}
+
+
+def canonical_headquarters_pool_reason(value: str | None) -> str:
+    normalized = str(value or "").strip()
+    return _HEADQUARTERS_POOL_REASON_ALIASES.get(normalized, "data_inconsistency")
+
+
+def headquarters_pool_reason_storage_values(reason_code: str) -> tuple[str, ...]:
+    canonical = canonical_headquarters_pool_reason(reason_code)
+    return tuple(
+        sorted(
+            value
+            for value, mapped in _HEADQUARTERS_POOL_REASON_ALIASES.items()
+            if mapped == canonical
+        )
+    )
+
+
 def get_active_headquarters_pool_entry(session: Session, lead_key: str) -> ClueHeadquartersPoolEntry | None:
     return session.scalar(
         select(ClueHeadquartersPoolEntry)
@@ -42,6 +96,8 @@ def enter_headquarters_pool(
     _flush: bool = True,
 ) -> ClueHeadquartersPoolEntry:
     occurred_at = _aware(entered_at or utcnow())
+    original_reason = str(reason or "").strip()
+    canonical_reason = canonical_headquarters_pool_reason(original_reason)
     if _flush:
         # A new master lead can enter the headquarters pool during the same materialization pass.
         session.flush([lead])
@@ -64,11 +120,13 @@ def enter_headquarters_pool(
         )
 
     decision_snapshot = dict(source_decision.decision_snapshot or {}) if source_decision is not None else dict(source_snapshot or {})
+    if original_reason and original_reason != canonical_reason:
+        decision_snapshot.setdefault("original_reason_code", original_reason)
     entry_key = "|".join(
         (
             lead.lead_key,
             decision_id or "",
-            reason,
+            canonical_reason,
             allocation_cycle_id or "",
             occurred_at.isoformat(),
         )
@@ -77,7 +135,7 @@ def enter_headquarters_pool(
         headquarters_pool_entry_id=f"headquarters-pool-{sha256(entry_key.encode('utf-8')).hexdigest()[:24]}",
         lead_key=lead.lead_key,
         status="active",
-        reason=reason,
+        reason=canonical_reason,
         entered_at=occurred_at,
         source_assignment_round_id=(
             source_assignment_round_id

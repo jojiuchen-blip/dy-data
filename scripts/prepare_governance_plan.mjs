@@ -7,7 +7,7 @@ const hostRoot = path.resolve(process.argv[2] || process.cwd());
 const executionPlanPath = path.join(hostRoot, 'docs', 'plans', 'execution-plan.md');
 const executionPlan = fs.readFileSync(executionPlanPath, 'utf8');
 const currentPlanMatch = executionPlan.match(
-  /^- 当前正式计划：.*?\]\((delivery-plans\/main-delivery-plan-[^)]+\.md)\)/mu,
+  /^- 当前正式计划(?:文件组)?：.*?\]\((delivery-plans\/main-delivery-plan-[^)]+\.md)\)/mu,
 );
 
 if (!currentPlanMatch) {

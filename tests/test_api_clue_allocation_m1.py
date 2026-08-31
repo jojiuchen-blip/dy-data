@@ -254,6 +254,7 @@ def test_database_admin_can_read_store_scores_but_cannot_change_highest_admin_co
             username="database-admin",
             display_name="Database Admin",
             role="admin",
+            store_scope_mode="all",
             status="active",
             is_initialized=True,
             password_hash=hash_password_pbkdf2("database-admin-password"),
@@ -263,7 +264,7 @@ def test_database_admin_can_read_store_scores_but_cannot_change_highest_admin_co
 
     _login_user(client, "database-admin", "database-admin-password")
 
-    assert client.get("/api/v1/admin/clue-allocation/master-leads").status_code == 403
+    assert client.get("/api/v1/admin/clue-allocation/master-leads").status_code == 200
     scores = client.get("/api/v1/admin/clue-allocation/store-scores")
     assert scores.status_code == 200
     assert scores.json()["data"]["run"]["snapshot_run_id"] == "score-run-test"

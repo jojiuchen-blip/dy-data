@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from apps.api.dy_api.models import Base
-from apps.api.dy_api.models import ClueCenterOrder, DimNonCommissionOwnerAccount, JobRun, SettlementOrderDetail
+from apps.api.dy_api.models import (
+    ClueCenterOrder,
+    DimNonCommissionOwnerAccount,
+    JobRun,
+    JobStageRun,
+    SettlementOrderDetail,
+)
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
@@ -92,6 +98,10 @@ class FakeDefaultCollectionClient:
     def iter_orders(self, start: datetime, end: datetime):
         return iter(())
 
+    def iter_refunds(self, start: datetime, end: datetime, *, page_size: int = 100):
+        _ = (start, end, page_size)
+        return iter(())
+
     def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None):
         return {"data": {"pois": [], "has_more": False}}
 
@@ -138,7 +148,7 @@ class FakeDefaultCollectionClient:
         }
 
 
-def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
+def test_default_collect_and_settle_collects_clues_and_refreshes_projection(
     db_session: Session,
 ):
     def settlement_runner(session: Session, source_run_id: str) -> PhaseStats:
@@ -176,14 +186,13 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
 
     phase_names = [phase.name for phase in stats.phases]
     assert "clues" in phase_names
-    assert "clue_center_rebuild" in phase_names
+    assert "clue_projection_rebuild" in phase_names
     assert "clue_master_rebuild" in phase_names
     assert "store_score_snapshot" in phase_names
-    assert phase_names.index("clue_master_rebuild") < phase_names.index("clue_center_rebuild")
+    assert phase_names.index("clue_master_rebuild") < phase_names.index("clue_projection_rebuild")
     assert phase_names.index("settlement") < phase_names.index("clue_master_refresh")
-    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_center_refresh")
-    assert phase_names.index("clue_center_refresh") < phase_names.index("clue_follow_up_due")
-    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_follow_up_due")
+    assert phase_names.index("clue_master_refresh") < phase_names.index("clue_projection_refresh")
+    assert "clue_follow_up_due" not in phase_names
 
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
@@ -195,7 +204,7 @@ def test_default_collect_and_settle_collects_clues_and_rebuilds_clue_center(
     job = db_session.get(JobRun, "collect-clues")
     assert job is not None
     assert job.metadata_json["phases"]["clues"]["upserted"] == 1
-    assert job.metadata_json["phases"]["clue_center_rebuild"]["upserted"] == 1
+    assert job.metadata_json["phases"]["clue_projection_rebuild"]["upserted"] == 1
     assert job.metadata_json["phases"]["clue_master_rebuild"]["upserted"] == 1
 
 
@@ -221,13 +230,8 @@ def test_collect_pipeline_skips_dependent_clue_phases_when_master_materializatio
     monkeypatch.setattr(pipeline, "materialize_clue_master_leads", locked_materialization)
     monkeypatch.setattr(
         pipeline,
-        "rebuild_clue_center",
-        lambda *_args, **_kwargs: calls.append("clue_center") or {"eligible_orders": 0},
-    )
-    monkeypatch.setattr(
-        pipeline,
-        "process_due_transitions",
-        lambda _session: calls.append("due") or {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0},
+        "refresh_clue_center_projection",
+        lambda *_args, **_kwargs: calls.append("projection") or {"projected_orders": 0},
     )
     monkeypatch.setattr(
         pipeline,
@@ -248,10 +252,9 @@ def test_collect_pipeline_skips_dependent_clue_phases_when_master_materializatio
     phases = {phase.name: phase for phase in stats.phases}
     assert calls == ["master", "settlement", "master"]
     assert phases["clue_master_rebuild"].skipped == 1
-    assert phases["clue_center_rebuild"].skipped == 1
+    assert phases["clue_projection_rebuild"].skipped == 1
     assert phases["clue_master_refresh"].skipped == 1
-    assert phases["clue_center_refresh"].skipped == 1
-    assert phases["clue_follow_up_due"].skipped == 1
+    assert phases["clue_projection_refresh"].skipped == 1
     assert phases["store_score_snapshot"].skipped == 1
 
 
@@ -520,7 +523,7 @@ def test_incremental_chunks_prioritize_latest_window():
     ]
 
 
-def test_backfill_skips_successful_completed_windows(db_session: Session):
+def test_backfill_compatibility_runner_is_not_an_old_pipeline_fallback(db_session: Session):
     completed = CollectionWindow(
         start=datetime.fromisoformat("2026-01-01T00:00:00+08:00"),
         end=datetime.fromisoformat("2026-01-02T00:00:00+08:00"),
@@ -546,7 +549,7 @@ def test_backfill_skips_successful_completed_windows(db_session: Session):
         stats.add_phase(PhaseStats(name="orders", upserted=1))
         return stats
 
-    run_backfill(
+    result = run_backfill(
         factory=sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True),
         start="2026-01-01",
         end="2026-01-03",
@@ -554,10 +557,11 @@ def test_backfill_skips_successful_completed_windows(db_session: Session):
         runner=runner,
     )
 
-    assert calls == ["2026-01-02T00:00:00+08:00"]
+    assert calls == []
+    assert len(result.daily_jobs) == 2
 
 
-def test_backfill_runs_queued_job_runner_before_each_executed_chunk(db_session: Session):
+def test_backfill_compatibility_queue_callback_is_not_executed_in_planning(db_session: Session):
     calls: list[str] = []
 
     def queued_job_runner() -> None:
@@ -569,7 +573,7 @@ def test_backfill_runs_queued_job_runner_before_each_executed_chunk(db_session: 
         stats.add_phase(PhaseStats(name="orders", upserted=1))
         return stats
 
-    run_backfill(
+    result = run_backfill(
         factory=sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True),
         start="2026-01-01",
         end="2026-01-03",
@@ -578,12 +582,8 @@ def test_backfill_runs_queued_job_runner_before_each_executed_chunk(db_session: 
         queued_job_runner=queued_job_runner,
     )
 
-    assert calls == [
-        "queued",
-        "2026-01-01T00:00:00+08:00",
-        "queued",
-        "2026-01-02T00:00:00+08:00",
-    ]
+    assert calls == []
+    assert len(result.daily_jobs) == 2
 
 
 def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypatch):
@@ -617,7 +617,7 @@ def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypat
     assert calls == ["queued", "backfill", "queued"]
 
 
-def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeypatch):
+def test_run_once_plans_natural_daily_jobs_without_executing_the_pipeline(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -642,7 +642,6 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, str, bool]] = []
-    materialization_calls: list[tuple[str, str, str]] = []
 
     def fake_runner(
         session: Session,
@@ -664,37 +663,42 @@ def test_run_once_chunks_incremental_collection_by_configured_chunk_days(monkeyp
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
-    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
-    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
-    monkeypatch.setattr(
-        scheduler,
-        "run_isolated_materialization",
-        lambda *, window, job_id: materialization_calls.append(
-            (job_id, window.start.isoformat(), window.end.isoformat())
-        ),
-        raising=False,
-    )
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner, raising=False)
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
 
-    assert [(start, end, materialize) for _job_id, start, end, materialize in calls] == [
-        ("2026-06-02T00:00:00+08:00", "2026-06-03T00:00:00+08:00", False),
-        ("2026-06-01T00:00:00+08:00", "2026-06-02T00:00:00+08:00", False),
-    ]
-    assert calls[0][0].startswith("collect_0001_")
-    assert calls[1][0].startswith("collect_0002_")
-    assert len(materialization_calls) == 1
-    assert materialization_calls[0][0].startswith("collect_materialize_")
-    assert materialization_calls[0][1:] == (
-        "2026-06-01T00:00:00+08:00",
-        "2026-06-03T00:00:00+08:00",
-    )
+    assert calls == []
+    with factory() as session:
+        parents = list(
+            session.scalars(select(JobRun).where(JobRun.job_kind == "range_sync"))
+        )
+        children = list(
+            session.scalars(
+                select(JobRun)
+                .where(JobRun.job_kind == "date_sync")
+                .order_by(JobRun.business_date)
+            )
+        )
+        stages = list(
+            session.scalars(
+                select(JobStageRun).where(
+                    JobStageRun.stage_name == "collect_dimensions"
+                )
+            )
+        )
+        assert len(parents) == 1
+        assert [child.business_date.isoformat() for child in children] == [
+            "2026-06-01",
+            "2026-06-02",
+        ]
+        assert all(child.status == "pending" for child in children)
+        assert len(stages) == 1
 
 
-def test_run_once_skips_successful_incremental_chunks(monkeypatch):
+def test_run_once_replay_preserves_successful_daily_child(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -729,7 +733,6 @@ def test_run_once_skips_successful_incremental_chunks(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, bool]] = []
-    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -746,27 +749,36 @@ def test_run_once_skips_successful_incremental_chunks(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
-    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
-    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
-    monkeypatch.setattr(
-        scheduler,
-        "run_isolated_materialization",
-        lambda *, window, job_id: materialization_calls.append(job_id),
-        raising=False,
-    )
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner, raising=False)
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
+    with factory.begin() as session:
+        first_child = session.scalar(
+            select(JobRun)
+            .where(JobRun.job_kind == "date_sync")
+            .order_by(JobRun.business_date)
+            .limit(1)
+        )
+        assert first_child is not None
+        first_child.status = "success"
+        first_child.attempt_count = 1
+        successful_job_id = first_child.job_id
 
-    assert [(start, materialize) for _job_id, start, materialize in calls] == [
-        ("2026-06-02T00:00:00+08:00", False),
-    ]
-    assert len(materialization_calls) == 1
+    run_once()
+
+    assert calls == []
+    with factory() as session:
+        assert session.query(JobRun).where(JobRun.job_kind == "range_sync").count() == 1
+        assert session.query(JobRun).where(JobRun.job_kind == "date_sync").count() == 2
+        preserved = session.get(JobRun, successful_job_id)
+        assert preserved is not None
+        assert (preserved.status, preserved.attempt_count) == ("success", 1)
 
 
-def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
+def test_run_once_does_not_fall_back_to_old_chunk_failure_path(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -785,7 +797,6 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     calls: list[tuple[str, str, bool]] = []
-    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -804,39 +815,20 @@ def test_run_once_continues_after_failed_incremental_chunk(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
-    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
-    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
-    monkeypatch.setattr(
-        scheduler,
-        "run_isolated_materialization",
-        lambda *, window, job_id: materialization_calls.append(job_id),
-        raising=False,
-    )
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner, raising=False)
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
 
-    assert [(start, materialize) for _job_id, start, materialize in calls] == [
-        ("2026-06-03T00:00:00+08:00", False),
-        ("2026-06-02T00:00:00+08:00", False),
-        ("2026-06-02T00:00:00+08:00", False),
-        ("2026-06-01T00:00:00+08:00", False),
-    ]
-    assert len(materialization_calls) == 1
+    assert calls == []
     with factory() as session:
-        failed = session.scalar(
-            select(JobRun).where(
-                JobRun.status == "failed",
-                JobRun.error_message == "temporary Douyin API error",
-            )
-        )
-        assert failed is not None
-        assert failed.metadata_json["source_window"]["start"] == "2026-06-02T00:00:00+08:00"
+        assert session.query(JobRun).where(JobRun.status == "failed").count() == 0
+        assert session.query(JobRun).where(JobRun.job_kind == "date_sync").count() == 3
 
 
-def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
+def test_run_once_replay_does_not_execute_or_duplicate_pending_chunks(monkeypatch):
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -855,7 +847,6 @@ def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
         timezone_name="Asia/Shanghai",
     )
     attempts_by_call: dict[tuple[str, bool], int] = {}
-    materialization_calls: list[str] = []
 
     def fake_runner(
         session: Session,
@@ -880,26 +871,20 @@ def test_run_once_retries_transient_incremental_chunk_failure(monkeypatch):
         return stats
 
     monkeypatch.setenv("WORKER_MODE", "collect_and_settle")
-    monkeypatch.setenv("DOUYIN_PRODUCT_SYNC_ENABLED", "false")
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "resolve_incremental_collection_window", lambda env=None: source_window)
-    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner)
-    monkeypatch.setattr(
-        scheduler,
-        "run_isolated_materialization",
-        lambda *, window, job_id: materialization_calls.append(job_id),
-        raising=False,
-    )
+    monkeypatch.setattr(scheduler, "run_collect_and_settle", fake_runner, raising=False)
     monkeypatch.setattr(scheduler, "process_queued_settlement_rebuilds", lambda factory_arg: None)
 
     run_once()
+    run_once()
 
-    assert attempts_by_call[("2026-06-01T00:00:00+08:00", False)] == 1
-    assert attempts_by_call[("2026-06-02T00:00:00+08:00", False)] == 2
-    assert len(materialization_calls) == 1
+    assert attempts_by_call == {}
     with factory() as session:
         failed_count = session.query(JobRun).where(JobRun.status == "failed").count()
         assert failed_count == 0
+        assert session.query(JobRun).where(JobRun.job_kind == "range_sync").count() == 1
+        assert session.query(JobRun).where(JobRun.job_kind == "date_sync").count() == 2
 
 
 def test_incremental_collection_window_defaults_to_recent_30_days():
@@ -912,7 +897,7 @@ def test_incremental_collection_window_defaults_to_recent_30_days():
     )
 
     assert window.start.isoformat() == "2026-05-17T00:00:00+08:00"
-    assert window.end.isoformat() == "2026-06-16T15:30:00+08:00"
+    assert window.end.isoformat() == "2026-06-16T00:00:00+08:00"
 
 
 def test_scheduled_product_sync_runs_once_per_interval(monkeypatch):

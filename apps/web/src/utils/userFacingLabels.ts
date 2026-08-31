@@ -65,9 +65,23 @@ const clueReasonLabels: LabelMap = {
   lead_not_active: "线索当前不可分配",
   current_self_owned_round_exists: "已存在当前门店跟进轮次",
   selected: "已选中门店",
-  no_candidate: "无可分配门店",
-  follow_poi_missing: "缺少锚点门店",
-  strategies_exhausted: "轮次候选已耗尽",
+  missing_follow_poi: "缺少位置锚点",
+  anchor_store_unmapped: "锚点门店无法匹配",
+  anchor_geo_invalid: "锚点城市或经纬度不可用",
+  no_published_rule: "未匹配可用分配规则",
+  all_strategies_disabled: "当前规则未启用分配策略",
+  no_eligible_candidate: "所有启用策略均无可用门店",
+  all_strategies_exhausted: "所有启用策略均已结束",
+  data_inconsistency: "关键事实不一致，待总部治理",
+  follow_poi_missing: "缺少位置锚点",
+  follow_poi_unmapped: "锚点门店无法匹配",
+  follow_poi_store_missing: "锚点门店无法匹配",
+  anchor_coordinates_invalid: "锚点城市或经纬度不可用",
+  anchor_province_missing: "锚点城市或经纬度不可用",
+  anchor_city_missing: "锚点城市或经纬度不可用",
+  anchor_city_code_missing: "锚点城市或经纬度不可用",
+  no_candidate: "所有启用策略均无可用门店",
+  strategies_exhausted: "所有启用策略均已结束",
   "核销保护期内": "核销保护期内",
   "线索战败": "线索战败",
 };
@@ -351,7 +365,12 @@ export function displayFollowUpTimingState(value: string | null | undefined): st
 }
 
 export function displayClueReason(value: string | null | undefined): string {
-  return displayEnumLabel(value, clueReasonLabels, "未知原因", "clue reason");
+  return displayEnumLabel(
+    value,
+    clueReasonLabels,
+    "关键事实不一致，待总部治理",
+    "clue reason",
+  );
 }
 
 export function displaySyncJobName(value: string | null | undefined): string {

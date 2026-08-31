@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -11,9 +11,16 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.models import JobRun
 from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.worker.daily_windows import (
+    DEFAULT_CONFIG_VERSION,
+    DEFAULT_DATA_SOURCE,
+    SHANGHAI_TIMEZONE,
+    SHANGHAI_TIMEZONE_NAME,
+    DailySyncPlan,
+    plan_daily_sync,
+)
 from apps.worker.collectors.types import CollectionStats, CollectionWindow
 from apps.worker.collectors.windows import resolve_collection_window
-from apps.worker.pipeline import run_collect_and_settle
 
 
 Runner = Callable[..., CollectionStats]
@@ -59,63 +66,63 @@ def run_backfill(
     timezone_name: str | None = None,
     include_browser_export: bool | None = None,
     skip_completed: bool | None = None,
-    runner: Runner = run_collect_and_settle,
+    runner: Runner | None = None,
     queued_job_runner: Callable[[], object] | None = None,
     now: datetime | None = None,
-) -> BackfillResult:
+    target: str = "all",
+    data_source: str = DEFAULT_DATA_SOURCE,
+    config_version: str = DEFAULT_CONFIG_VERSION,
+) -> DailySyncPlan:
     session_factory = factory or get_session_factory()
     if session_factory is None:
         raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before running worker backfill.")
 
+    reference_now = now or datetime.now(SHANGHAI_TIMEZONE)
     source_window = resolve_collection_window(
-        now=now,
+        now=reference_now,
         start=start,
         end=end,
         timezone_name=timezone_name,
     )
-    days = chunk_days if chunk_days is not None else int(os.getenv("WORKER_BACKFILL_CHUNK_DAYS", str(DEFAULT_CHUNK_DAYS)))
-    should_skip_completed = (
-        _truthy(os.getenv("WORKER_BACKFILL_SKIP_COMPLETED", "true"))
-        if skip_completed is None
-        else skip_completed
-    )
-    result = BackfillResult()
-    completed_windows: set[tuple[str, str, str]] = set()
-    if should_skip_completed:
-        with session_scope(session_factory) as session:
-            completed_windows = successful_window_keys(session)
-
-    for index, chunk in enumerate(iter_backfill_windows(source_window, chunk_days=days), start=1):
-        if should_skip_completed and _window_key(chunk) in completed_windows:
-            result.skipped_windows.append(chunk)
-            _log(f"chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-            continue
-
-        if queued_job_runner is not None:
-            queued_job_runner()
-
-        job_id = _chunk_job_id(index, chunk)
-        _log(f"chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-        with session_scope(session_factory) as session:
-            stats = runner(
-                session,
-                window=chunk,
-                job_id=job_id,
-                include_browser_export=include_browser_export,
-            )
-        result.chunks.append(stats)
-        _log(
-            "chunk_done "
-            f"index={index} job_id={job_id} "
-            f"success={stats.success_count} failed={stats.failed_count}"
+    if source_window.timezone_name != SHANGHAI_TIMEZONE_NAME:
+        raise ValueError(
+            "DOUYIN_COLLECT_TIMEZONE must be Asia/Shanghai for daily planning."
         )
-
-    _log(
-        "backfill_done "
-        f"chunks={len(result.chunks)} skipped={result.skipped_count} "
-        f"success={result.success_count} failed={result.failed_count}"
+    # Keep legacy arguments source-compatible, but never use them to re-enter
+    # the old in-process historical pipeline.
+    _ = (
+        chunk_days,
+        include_browser_export,
+        skip_completed,
+        runner,
+        queued_job_runner,
     )
-    return result
+    plan_start, plan_end = _covering_business_dates(source_window)
+    local_reference_now = (
+        reference_now.astimezone(SHANGHAI_TIMEZONE)
+        if reference_now.tzinfo is not None
+        else reference_now.replace(tzinfo=SHANGHAI_TIMEZONE)
+    )
+    plan_end = min(plan_end, local_reference_now.date())
+    if plan_end <= plan_start:
+        raise ValueError("Backfill range contains no closed Shanghai business day.")
+    with session_scope(session_factory) as session:
+        plan = plan_daily_sync(
+            session,
+            start=plan_start,
+            end=plan_end,
+            target=target,
+            requested_by="worker-backfill",
+            trigger_source="backfill",
+            data_source=data_source,
+            config_version=config_version,
+        )
+    _log(
+        "backfill_planned "
+        f"parent_job_id={plan.parent_job_id} dates={len(plan.daily_jobs)} "
+        f"start={plan.window_start.isoformat()} end={plan.window_end.isoformat()}"
+    )
+    return plan
 
 
 def successful_window_keys(session: Session, *, job_name: str = "collect_and_settle") -> set[tuple[str, str, str]]:
@@ -151,6 +158,10 @@ def _window_key(window: CollectionWindow) -> tuple[str, str, str]:
 
 def _truthy(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _covering_business_dates(window: CollectionWindow) -> tuple[date, date]:
+    return window.start.date(), window.end.date()
 
 
 def _chunk_job_id(index: int, window: CollectionWindow) -> str:

@@ -20,6 +20,7 @@ from apps.api.dy_api.models import (
     ClueMasterLead,
     ClueOrderStatusEvent,
     ClueSourceIdentifierHistory,
+    ClueSourceRecordLink,
     DataQualityIssue,
     DimStore,
     DimStorePoiMapping,
@@ -41,7 +42,7 @@ def _raw_clue(
     key: str,
     *,
     clue_id: str | None,
-    order_id: str,
+    order_id: str | None,
     order_status: str = "履约中",
     telephone: str | None = None,
     follow_poi_id: str | None = "poi-anchor",
@@ -128,6 +129,7 @@ def test_m1_clue_master_and_anchor_schema_is_declared() -> None:
         "clue_master_leads",
         "clue_order_status_events",
         "clue_source_identifier_history",
+        "clue_source_record_links",
     }.issubset(tables)
     assert {"follow_poi_id", "intention_poi_id"}.issubset(tables["raw_douyin_clues"].columns.keys())
     assert {
@@ -157,7 +159,25 @@ def test_m1_clue_master_and_anchor_schema_is_declared() -> None:
         "anchor_store_id",
         "anchor_source",
         "anchor_unavailable_reason",
+        "master_kind",
+        "order_status_observed_at",
+        "is_complete_pool",
+        "state_version",
     }.issubset(tables["clue_master_leads"].columns.keys())
+    assert {
+        "source_table",
+        "source_record_key",
+        "source_clue_id",
+        "source_order_id",
+        "lead_key",
+        "order_id",
+        "link_status",
+        "link_method",
+        "link_version",
+        "source_observed_at",
+        "source_payload_hash",
+        "conflict_reason",
+    }.issubset(tables["clue_source_record_links"].columns.keys())
     assert {
         "identifier_history_id",
         "lead_key",
@@ -306,6 +326,96 @@ def test_materialize_master_leads_keeps_terminal_clues_without_assignment_rounds
 
     clue_allocation.materialize_clue_master_leads(db_session, now=_dt(3))
     assert db_session.scalar(select(func.count()).select_from(ClueOrderStatusEvent)) == 3
+
+
+def test_materialization_links_every_source_row_and_isolates_missing_order(
+    db_session: Session,
+) -> None:
+    db_session.add_all(
+        [
+            _store("store-anchor", city_code="上海"),
+            DimStorePoiMapping(store_id="store-anchor", poi_id="poi-anchor", mapping_source="test"),
+            _raw_clue("shared-source-1", clue_id="shared-clue-1", order_id="shared-order"),
+            _raw_clue("shared-source-2", clue_id="shared-clue-2", order_id="shared-order"),
+            _raw_clue("missing-order-source", clue_id="missing-order-clue", order_id=None),
+        ]
+    )
+    db_session.commit()
+
+    stats = clue_allocation.materialize_clue_master_leads(db_session, now=_dt(2))
+
+    assert stats["master_leads"] == 2
+    links = db_session.scalars(
+        select(ClueSourceRecordLink).order_by(ClueSourceRecordLink.source_record_key)
+    ).all()
+    assert [row.source_record_key for row in links] == [
+        "missing-order-source",
+        "shared-source-1",
+        "shared-source-2",
+    ]
+    assert len({row.id for row in links}) == 3
+    shared_links = [row for row in links if row.source_record_key.startswith("shared-source")]
+    assert {row.link_status for row in shared_links} == {1}
+    assert len({row.lead_key for row in shared_links}) == 1
+    isolated_link = next(row for row in links if row.source_record_key == "missing-order-source")
+    assert isolated_link.link_status == 2
+    assert isolated_link.order_id is None
+    assert isolated_link.conflict_reason == "missing_order_id"
+    isolated = db_session.get(ClueMasterLead, isolated_link.lead_key)
+    assert isolated is not None
+    assert isolated.master_kind == 2
+    assert isolated.is_complete_pool is False
+    assert isolated.lifecycle_status == "isolated"
+    assert isolated.pool_location is None
+    assert isolated.allocation_state == "isolated"
+    assert db_session.scalar(select(func.count()).select_from(ClueAssignmentRound)) == 0
+
+    versions_before = {
+        row.lead_key: row.state_version
+        for row in db_session.scalars(select(ClueMasterLead)).all()
+    }
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(3))
+
+    assert db_session.scalar(select(func.count()).select_from(ClueSourceRecordLink)) == 3
+    assert {
+        row.lead_key: row.state_version
+        for row in db_session.scalars(select(ClueMasterLead)).all()
+    } == versions_before
+
+
+def test_older_non_terminal_evidence_does_not_reopen_terminal_master(
+    db_session: Session,
+) -> None:
+    raw_clue = _raw_clue(
+        "terminal-evidence-source",
+        clue_id="terminal-evidence-clue",
+        order_id="terminal-evidence-order",
+        order_status="已核销",
+    )
+    raw_clue.modify_time = _dt(5)
+    db_session.add(raw_clue)
+    db_session.commit()
+
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(6))
+    master = _master_by_clue_id(db_session, "terminal-evidence-clue")
+    assert master is not None
+    assert master.normalized_order_status == "verified"
+    assert master.lifecycle_status == "closed_verified"
+    assert master.pool_location == "closed"
+    original_state_version = master.state_version
+
+    raw_clue.order_status = "履约中"
+    raw_clue.modify_time = _dt(4)
+    raw_clue.raw_payload = {"order_status": "履约中"}
+    db_session.commit()
+    clue_allocation.materialize_clue_master_leads(db_session, now=_dt(7))
+
+    db_session.refresh(master)
+    assert master.normalized_order_status == "verified"
+    assert master.lifecycle_status == "closed_verified"
+    assert master.pool_location == "closed"
+    assert clue_allocation._aware(master.order_status_observed_at) == _dt(5)
+    assert master.state_version == original_state_version
 
 
 def test_master_lead_uses_follow_poi_only_and_routes_invalid_anchor_to_headquarters(
@@ -471,7 +581,8 @@ def test_materialization_batches_headquarters_pool_lookups(db_session: Session) 
         event.remove(engine, "before_cursor_execute", count_selects)
 
     assert stats == {"master_leads": 25, "closed_leads": 0, "headquarters_pool": 25}
-    assert select_count <= 12
+    # Source-record traceability adds one bounded indexed lookup for the page.
+    assert select_count <= 13
 
 
 def test_master_lead_merges_missing_clue_id_when_contact_and_order_are_later_available(
@@ -653,9 +764,18 @@ def test_source_row_order_change_is_quarantined_as_a_data_quality_conflict(
     assert issue is not None
     assert issue.order_id == "replacement-order"
     assert issue.raw_context_json["reason"] == "source_record_order_changed"
+    link = db_session.scalar(
+        select(ClueSourceRecordLink).where(
+            ClueSourceRecordLink.source_record_key == "order-conflict-source"
+        )
+    )
+    assert link is not None
+    assert link.link_status == 3
+    assert link.order_id == "original-order"
+    assert link.conflict_reason == "source_record_order_changed"
 
 
-def test_terminal_master_status_closes_legacy_current_round(db_session: Session) -> None:
+def test_terminal_master_status_closes_formal_current_round(db_session: Session) -> None:
     db_session.add_all(
         [
             _raw_clue("terminal-row", clue_id="terminal-clue", order_id="terminal-order", order_status="已核销"),
@@ -673,7 +793,16 @@ def test_terminal_master_status_closes_legacy_current_round(db_session: Session)
                 order_id="terminal-order",
                 round_no=1,
                 round_status="active_unfollowed",
-                execution_mode="legacy",
+                execution_mode="formal",
+                created_at=_dt(1),
+                updated_at=_dt(1),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="terminal-order-trial-1",
+                order_id="terminal-order",
+                round_no=1,
+                round_status="active_unfollowed",
+                execution_mode="trial",
                 created_at=_dt(1),
                 updated_at=_dt(1),
             ),
@@ -691,6 +820,10 @@ def test_terminal_master_status_closes_legacy_current_round(db_session: Session)
     assert order is not None
     assert order.lead_status == "converted"
     assert order.current_round_status == "closed_order_verified"
+    trial_round = db_session.get(ClueAssignmentRound, "terminal-order-trial-1")
+    assert trial_round is not None
+    assert trial_round.round_status == "active_unfollowed"
+    assert trial_round.terminal_reason is None
 
 
 def test_imported_store_locations_use_poi_mapping_and_candidate_eligibility(
@@ -878,13 +1011,13 @@ def test_score_snapshots_use_formal_mature_rounds_and_city_global_fallbacks(
                 updated_at=assigned_at + timedelta(hours=1),
             ),
             ClueAssignmentRound(
-                assignment_round_id="legacy-ignored",
-                order_id="legacy-order",
+                assignment_round_id="trial-ignored",
+                order_id="trial-order",
                 round_no=1,
                 assigned_store_id="store-c",
                 assigned_at=assigned_at,
                 round_status="closed_order_verified",
-                execution_mode="legacy",
+                execution_mode="trial",
                 matured_at=_dt(2),
                 created_at=assigned_at,
                 updated_at=_dt(2),

@@ -9355,7 +9355,9 @@ def _create_dispute_statement_version(
             SettlementFeeAdjustment(
                 adjustment_id=copied_adjustment_id,
                 original_fee_result_id=original_adjustment.original_fee_result_id,
-                refund_event_id=original_adjustment.refund_event_id,
+                # The carryforward source owns the refund event identity. A
+                # new application version must not claim the same event key.
+                refund_event_id=None,
                 coupon_id=original_adjustment.coupon_id,
                 order_id=original_adjustment.order_id,
                 fee_direction=original_adjustment.fee_direction,

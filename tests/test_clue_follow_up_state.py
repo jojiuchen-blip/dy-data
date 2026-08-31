@@ -2,9 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, ClueMasterLead, DimStore
+from apps.api.dy_api.models import (
+    ClueAssignmentRound,
+    ClueCenterOrder,
+    ClueFollowUpRecord,
+    ClueMasterLead,
+    DimStore,
+)
 from apps.worker.clue_allocation_engine import allocate_lead
 from apps.worker.clue_follow_up_state import (
     apply_follow_up_action,
@@ -224,6 +231,60 @@ def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(d
     assert lead.current_assignment_round_id is None
 
 
+def test_soft_delete_rejects_trial_evidence_without_mutating_round_or_projection(
+    db_session: Session,
+) -> None:
+    lead, round_row = _active_formal_round()
+    round_row.execution_mode = "trial"
+    round_row.follow_result = "unreachable"
+    round_row.is_followed = True
+    round_row.is_follow_success = True
+    round_row.round_status = "active_followed"
+    center = ClueCenterOrder(
+        order_id=round_row.order_id,
+        lead_status="active",
+        current_assignment_round_id=round_row.assignment_round_id,
+        current_round_no=round_row.round_no,
+        current_round_status=round_row.round_status,
+        follow_result=round_row.follow_result,
+        is_followed=True,
+        is_follow_success=True,
+        created_at=_dt(1),
+        updated_at=_dt(1),
+    )
+    record = ClueFollowUpRecord(
+        follow_up_record_id="trial-evidence",
+        order_id=round_row.order_id,
+        assignment_round_id=round_row.assignment_round_id,
+        round_no=round_row.round_no,
+        assigned_store_id=round_row.assigned_store_id,
+        follow_result="unreachable",
+        created_at=_dt(2),
+    )
+    db_session.add_all([lead, round_row, center, record])
+    db_session.commit()
+
+    result = soft_delete_follow_up_record(
+        db_session,
+        follow_up_record_id=record.follow_up_record_id,
+        actor={
+            "username": "system-admin",
+            "role": "admin",
+            "auth_type": "env_admin",
+            "is_highest_admin": True,
+        },
+        reason="correction",
+        now=_dt(3),
+    )
+
+    assert result.status == "conflict"
+    assert record.deleted_at is None
+    assert round_row.follow_result == "unreachable"
+    assert round_row.round_status == "active_followed"
+    assert center.follow_result == "unreachable"
+    assert center.current_round_status == "active_followed"
+
+
 def test_shared_order_follow_up_isolated_by_assignment_round_and_lead_key(db_session: Session) -> None:
     lead_a, round_a = _active_formal_round()
     lead_b = ClueMasterLead(
@@ -286,7 +347,7 @@ def test_shared_order_follow_up_isolated_by_assignment_round_and_lead_key(db_ses
     assert projection.follow_result == "pending"
 
 
-def test_lost_closes_round_and_allocates_only_the_next_strategy(db_session: Session) -> None:
+def test_lost_closes_round_and_waits_for_explicit_reassignment(db_session: Session) -> None:
     round_row = _allocate_engine_round(db_session)
     assert round_row.strategy_type == "nearby_city_optimization"
 
@@ -304,10 +365,13 @@ def test_lost_closes_round_and_allocates_only_the_next_strategy(db_session: Sess
     assert round_row.terminal_reason == "follow_lost"
     lead = db_session.get(ClueMasterLead, "engine-lead")
     assert lead is not None
-    next_round = db_session.get(ClueAssignmentRound, lead.current_assignment_round_id)
-    assert next_round is not None
-    assert next_round.strategy_type == "city_fallback"
-    assert next_round.assigned_store_id == "store-b"
+    assert lead.current_assignment_round_id is None
+    assert lead.allocation_state == "pending_reassign"
+    assert db_session.scalar(
+        select(func.count()).select_from(ClueAssignmentRound).where(
+            ClueAssignmentRound.lead_key == lead.lead_key
+        )
+    ) == 1
 
 
 def test_due_transition_respects_auto_expiry_but_terminal_order_still_wins(db_session: Session) -> None:
@@ -352,6 +416,10 @@ def test_due_transition_respects_auto_expiry_but_terminal_order_still_wins(db_se
 
     assert stats["sla_expired"] == 1
     assert due_round.round_status == "closed_reassigned"
+    due_lead = db_session.get(ClueMasterLead, "engine-lead")
+    assert due_lead is not None
+    assert due_lead.current_assignment_round_id is None
+    assert due_lead.allocation_state == "pending_reassign"
     assert disabled_round.round_status == "active_unfollowed"
 
     disabled_lead.normalized_order_status = "verified"

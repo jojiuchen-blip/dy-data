@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.api.dy_api.models import DimStorePoiMapping
+from apps.worker.browser_exports.active_marker import browser_export_active
 from apps.worker.browser_exports.backend_aweme_parser import parse_backend_aweme_workbook
 from apps.worker.collectors.types import PhaseStats
 from apps.worker.repositories import (
@@ -58,15 +59,16 @@ def run_backend_aweme_export(
     export_url: str | None = None,
     run_dir: str | Path | None = None,
 ) -> PhaseStats:
-    if workbook_path:
-        records = parse_backend_aweme_workbook(Path(workbook_path))
-    else:
-        records = export_backend_aweme_records_via_browser(
-            cdp_url=cdp_url,
-            export_url=export_url,
-            run_dir=run_dir,
-        )
-    return upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
+    with browser_export_active():
+        if workbook_path:
+            records = parse_backend_aweme_workbook(Path(workbook_path))
+        else:
+            records = export_backend_aweme_records_via_browser(
+                cdp_url=cdp_url,
+                export_url=export_url,
+                run_dir=run_dir,
+            )
+        return upsert_backend_aweme_records(session, records, source_run_id=source_run_id)
 
 
 def export_backend_aweme_records_via_browser(

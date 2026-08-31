@@ -52,12 +52,14 @@ class DouyinOpenApiClient:
         timeout_seconds: int = 30,
         retry_attempts: int = 3,
         retry_sleep_seconds: float = 1.0,
+        rate_limit_retry_sleep_seconds: float = 60.0,
     ) -> None:
         self.credentials = credentials
         self.http = http or requests.Session()
         self.timeout_seconds = timeout_seconds
         self.retry_attempts = retry_attempts
         self.retry_sleep_seconds = retry_sleep_seconds
+        self.rate_limit_retry_sleep_seconds = rate_limit_retry_sleep_seconds
         self._token: str | None = None
 
     def get_client_token(self) -> str:
@@ -89,6 +91,30 @@ class DouyinOpenApiClient:
             "create_order_end_time": int(end.timestamp()),
         }
         return self._get_json(ORDER_QUERY_URL, params)
+
+    def query_refunds(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        page_size: int = 100,
+        cursor: str | int | None = None,
+        time_field: str = "refund_done",
+    ) -> dict[str, Any]:
+        """Query one bounded after-sale/refund page."""
+
+        if page_size < 1 or page_size > 100:
+            raise ValueError("Refund query page_size must be between 1 and 100")
+        if time_field not in {"refund_done", "create_order"}:
+            raise ValueError("Refund time_field must be refund_done or create_order")
+        params = {
+            "account_id": self.credentials.account_id,
+            "cursor": _cursor_param(cursor),
+            "page_size": page_size,
+            f"{time_field}_start_time": int(start.timestamp()),
+            f"{time_field}_end_time": int(end.timestamp()),
+        }
+        return self._get_json(REFUND_QUERY_URL, params)
 
     def query_product_page(
         self,
@@ -181,6 +207,60 @@ class DouyinOpenApiClient:
             if len(orders) < page_size:
                 break
             cursor = _order_next_cursor(data)
+
+    def iter_refunds(
+        self,
+        start: datetime,
+        end: datetime,
+        *,
+        page_size: int = 100,
+        time_field: str = "refund_done",
+    ):
+        """Yield refund rows while guarding cursor loops and non-advancing pages."""
+
+        cursor: str | None = None
+        seen_cursors: set[str] = set()
+        while True:
+            payload = self.query_refunds(
+                start,
+                end,
+                page_size=page_size,
+                cursor=cursor,
+                time_field=time_field,
+            )
+            data = payload.get("data", {})
+            rows = (
+                data.get("refunds")
+                or data.get("after_sales")
+                or data.get("after_sale_orders")
+                or data.get("after_sale_order_list")
+                or data.get("records")
+                or data.get("list")
+                or []
+            )
+            if not isinstance(rows, list):
+                rows = []
+            for row in rows:
+                if isinstance(row, dict):
+                    yield row
+            page_info = data.get("page_info") if isinstance(data.get("page_info"), dict) else {}
+            raw_has_more = (
+                data.get("has_more")
+                if data.get("has_more") is not None
+                else page_info.get("has_more")
+            )
+            has_more = _explicit_bool(raw_has_more)
+            if has_more is False:
+                break
+            if has_more is None:
+                raise DouyinApiError("refund has_more must be explicit true or false")
+            next_cursor = _refund_next_cursor(data, rows)
+            if not next_cursor:
+                raise DouyinApiError("refund cursor missing while has_more is true")
+            if next_cursor == cursor or next_cursor in seen_cursors:
+                raise DouyinApiError(f"refund cursor did not advance: {next_cursor}")
+            seen_cursors.add(next_cursor)
+            cursor = next_cursor
 
     def query_verify_records(
         self,
@@ -303,7 +383,12 @@ class DouyinOpenApiClient:
                     continue
                 if not _is_transient_api_error(str(exc)) or attempt >= attempts:
                     raise
-                time.sleep(self.retry_sleep_seconds * attempt)
+                delay_seconds = (
+                    self.rate_limit_retry_sleep_seconds * (2 ** (attempt - 1))
+                    if _is_rate_limit_api_error(str(exc))
+                    else self.retry_sleep_seconds * attempt
+                )
+                time.sleep(delay_seconds)
         raise last_error or DouyinApiError("Douyin API request failed.")
 
     def _request_with_retries(self, method: str, url: str, **kwargs: Any) -> Any:
@@ -390,7 +475,16 @@ def _safe_int(value: Any) -> int | None:
 
 
 def _is_transient_api_error(message: str) -> bool:
-    return "5000001" in message or "2100004" in message or "系统繁忙" in message
+    return (
+        "5000001" in message
+        or "2100004" in message
+        or "系统繁忙" in message
+        or _is_rate_limit_api_error(message)
+    )
+
+
+def _is_rate_limit_api_error(message: str) -> bool:
+    return "2119003" in message or "请求太过频繁" in message
 
 
 def _is_token_expired_api_error(message: str) -> bool:
@@ -483,3 +577,30 @@ def _order_next_cursor(data: dict[str, Any]) -> str | None:
     if not cursor_value:
         return None
     return _cursor_param(cursor_value)
+
+
+def _refund_next_cursor(data: dict[str, Any], rows: list[Any]) -> str | None:
+    page_info = data.get("page_info") if isinstance(data.get("page_info"), dict) else {}
+    for key in ("next_cursor", "cursor", "next_page_token"):
+        value = data.get(key) if data.get(key) not in (None, "") else page_info.get(key)
+        if value not in (None, "", "0", 0, "-1", -1):
+            return _cursor_param(value)
+    if rows and isinstance(rows[-1], dict):
+        value = rows[-1].get("cursor") or rows[-1].get("next_cursor")
+        if value not in (None, "", "0", 0, "-1", -1):
+            return _cursor_param(value)
+    return None
+
+
+def _explicit_bool(value: Any) -> bool | None:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in {0, 1}:
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+    return None

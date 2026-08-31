@@ -17,7 +17,7 @@ from apps.api.dy_api.models import DimAwemeAccount, DimStorePoiMapping, User, Us
 from apps.api.dy_api.access_control import (
     ALL_PAGE_KEYS,
     effective_page_keys,
-    required_page_key_for_api_path,
+    required_page_keys_for_api_path,
 )
 from dy_api.routes._data import get_session_dependency
 
@@ -539,17 +539,22 @@ def get_current_user(
 
 
 def _enforce_page_permission(request: Request, auth: AuthContext) -> None:
-    page_key = required_page_key_for_api_path(request.url.path, request.method)
-    if page_key is not None and page_key not in auth.page_keys:
+    page_keys = required_page_keys_for_api_path(request.url.path, request.method)
+    if page_keys is not None and not any(page_key in auth.page_keys for page_key in page_keys):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Page access denied: {page_key}",
+            detail=f"Page access denied: {' or '.join(page_keys)}",
         )
 
 
 def get_current_admin(
     current_user: AuthContext = Depends(get_current_user),
 ) -> str:
+    if not current_user.is_admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Administrator access required",
+        )
     return current_user.username
 
 

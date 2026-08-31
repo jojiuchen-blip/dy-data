@@ -162,6 +162,24 @@ def test_governance_authority_files_define_distinct_roles() -> None:
     assert "docs/design-system.md" not in project_profile
 
 
+def test_current_formal_delivery_plan_selector_accepts_authority_marker() -> None:
+    result = subprocess.run(
+        [
+            "node",
+            str(REPO_ROOT / "scripts" / "prepare_governance_plan.mjs"),
+            str(REPO_ROOT),
+        ],
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+    )
+
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "main-delivery-plan-dydata-clue-platform-completion.md" in result.stdout
+
+
 def test_host_rules_match_the_real_stack_and_configured_devlog() -> None:
     rules_dir = REPO_ROOT / "docs" / "rules"
     for file_name in HOST_RULE_FILES:

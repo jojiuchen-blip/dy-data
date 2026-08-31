@@ -1,9 +1,19 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _compose_service(compose: str, name: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [a-z0-9_-]+:\n|^networks:\n|\Z)",
+        compose,
+    )
+    assert match is not None, f"compose service {name!r} is missing"
+    return match.group(0)
 
 
 def test_nginx_compresses_text_responses_without_caching_private_api_data():
@@ -24,8 +34,9 @@ def test_compose_wires_worker_collection_defaults():
 
     assert "${WORKER_COMMAND:-python -m apps.worker.scheduler}" in compose
     assert "WORKER_MODE: ${WORKER_MODE:-collect_and_settle}" in compose
-    assert "mem_limit: ${WORKER_MEMORY_LIMIT:-5g}" in compose
-    assert "memswap_limit: ${WORKER_MEMORY_SWAP_LIMIT:-7g}" in compose
+    assert "command: [\"sh\", \"-c\", \"exec ${WORKER_COMMAND:-python -m apps.worker.scheduler}\"]" in compose
+    assert "mem_limit: ${WORKER_MEMORY_LIMIT:-3g}" in compose
+    assert "memswap_limit:" not in compose
     assert "DOUYIN_COLLECT_START: ${DOUYIN_COLLECT_START:-2026-01-01}" in compose
     assert "DOUYIN_COLLECT_OVERLAP_DAYS: ${DOUYIN_COLLECT_OVERLAP_DAYS:-7}" in compose
     assert "DOUYIN_VERIFY_CHUNK_DAYS: ${DOUYIN_VERIFY_CHUNK_DAYS:-7}" in compose
@@ -45,13 +56,16 @@ def test_browser_profile_and_downloads_are_private_volumes():
     assert "browser-profile:/home/browser/.config/chromium" in compose
     assert "browser-downloads:/home/browser/Downloads" in compose
     assert "dockerfile: deploy/browser/Dockerfile" in compose
-    assert "BROWSER_EXPORT_SCHEDULER_ENABLED: ${BROWSER_EXPORT_SCHEDULER_ENABLED:-false}" in compose
-    assert "BROWSER_EXPORT_INTERVAL_SECONDS: ${BROWSER_EXPORT_INTERVAL_SECONDS:-86400}" in compose
+    browser = _compose_service(compose, "browser")
+    assert "DATABASE_URL:" not in browser
+    assert "BROWSER_EXPORT_SCHEDULER_ENABLED" not in browser
+    assert "BROWSER_EXPORT_START_DELAY_SECONDS" not in browser
+    assert "BROWSER_EXPORT_INTERVAL_SECONDS" not in browser
     assert "gosu" in dockerfile
     assert "USER root" in dockerfile
     assert 'exec gosu browser "$0" "$@"' in entrypoint
     assert "chown -R browser:browser" in entrypoint
-    assert 'BROWSER_CDP_URL="http://127.0.0.1:${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"' in entrypoint
+    assert "python3 -m apps.worker.scheduler" not in entrypoint
     assert 'export XDG_CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"' in entrypoint
     assert 'export XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"' in entrypoint
     assert '"$XDG_CONFIG_HOME/chromium/Crash Reports"' in entrypoint
@@ -200,6 +214,16 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
     assert 'command: ["alembic", "upgrade", "head"]' in compose
 
 
+def test_postgres_release_gates_track_the_current_alembic_head():
+    expected_head = 'EXPECTED_HEAD = "20260831_0046"'
+    for relative_path in (
+        "scripts/verify_postgres_release_gate.py",
+        "scripts/verify_postgres_populated_release_gate.py",
+        "scripts/verify_postgres_target_release.py",
+    ):
+        assert expected_head in (ROOT / relative_path).read_text(encoding="utf-8")
+
+
 def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
     workflows = [
         ROOT / ".github" / "workflows" / "ci-cd.yml",
@@ -306,3 +330,135 @@ def test_tencent_deploy_blocks_unresolved_statement_snapshot_migration_exception
     assert 'if [ "$unresolved_snapshot_exceptions" -ne 0 ]' in deploy_script
     assert "snapshot exception gate returned an invalid count" in deploy_script
     assert "deployment blocked by unresolved statement snapshot migration exceptions" in deploy_script
+
+
+def test_ops_agent_isolated_socket_holder_has_fixed_restart_allowlist():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    ops_agent = _compose_service(compose, "ops-agent")
+    api = _compose_service(compose, "api")
+
+    assert "dockerfile: apps/ops_agent/Dockerfile" in ops_agent
+    assert "/var/run/docker.sock:/var/run/docker.sock" in ops_agent
+    assert "ports:" not in ops_agent
+    assert "expose:" not in ops_agent
+    assert "OPS_AGENT_ALLOWED_TARGETS: worker,browser" in ops_agent
+    assert "OPS_AGENT_ALLOWED_ACTIONS: restart" in ops_agent
+    assert "OPS_AGENT_COMMAND_TTL_SECONDS: 120" in ops_agent
+    assert "OPS_AGENT_COOLDOWN_SECONDS: ${OPS_AGENT_COOLDOWN_SECONDS:-300}" in ops_agent
+    assert "docker.sock" not in api
+
+
+def test_ops_components_have_health_resource_and_log_guardrails():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+
+    expected_limits = {
+        "api": "mem_limit: ${API_MEMORY_LIMIT:-768m}",
+        "worker": "mem_limit: ${WORKER_MEMORY_LIMIT:-3g}",
+        "browser": "mem_limit: ${BROWSER_MEMORY_LIMIT:-2g}",
+        "ops-agent": "mem_limit: ${OPS_AGENT_MEMORY_LIMIT:-256m}",
+    }
+    for service, memory_limit in expected_limits.items():
+        block = _compose_service(compose, service)
+        assert memory_limit in block
+        assert "no-new-privileges:true" in block
+        assert "healthcheck:" in block
+        assert "driver: json-file" in block
+        assert "max-size: ${LOG_MAX_SIZE:-10m}" in block
+        assert 'max-file: "${LOG_MAX_FILE:-3}"' in block
+
+    worker = _compose_service(compose, "worker")
+    assert "dockerfile: apps/worker/Dockerfile" in worker
+    assert "WORKER_RESOURCE_GUARD_ENABLED: ${WORKER_RESOURCE_GUARD_ENABLED:-true}" in worker
+    assert "WORKER_RESOURCE_MAX_SWAP_USED_BYTES: ${WORKER_RESOURCE_MAX_SWAP_USED_BYTES:-0}" in worker
+    assert "stop_grace_period: ${WORKER_STOP_GRACE_PERIOD:-5m}" in worker
+
+
+def test_browser_activity_marker_and_acceptance_overlay_are_wired():
+    compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    worker = _compose_service(compose, "worker")
+    browser = _compose_service(compose, "browser")
+    ops_agent = _compose_service(compose, "ops-agent")
+    acceptance = (ROOT / "deploy" / "compose.acceptance.yaml").read_text(encoding="utf-8")
+    env_example = (ROOT / "deploy" / ".env.example").read_text(encoding="utf-8")
+
+    assert "BROWSER_EXPORT_ACTIVE_FILE: /run/browser/browser-export.active" in worker
+    assert "browser-runtime:/run/browser" in worker
+    assert "BROWSER_EXPORT_ACTIVE_FILE" not in browser
+    assert "browser-runtime:/run/browser" in browser
+    assert "browser-runtime:/run/browser:ro" in ops_agent
+    assert "x-acceptance-host:" in acceptance
+    assert "mem_limit: 8g" in acceptance
+    assert "cpus: ${ACCEPTANCE_WORKER_CPUS:-2.0}" in acceptance
+    assert "cpus: ${ACCEPTANCE_OPS_AGENT_CPUS:-0.25}" in acceptance
+    assert "OPS_AGENT_DATABASE_URL=postgresql+psycopg://dy_ops_agent:" in env_example
+    assert "OPS_AGENT_COOLDOWN_SECONDS=300" in env_example
+    assert "WORKER_MEMORY_SWAP_LIMIT" not in env_example
+    assert "production values require the 4C/8GB acceptance run" in env_example
+
+
+def test_browser_entrypoint_only_prepares_cdp_and_the_shared_runtime_directory():
+    entrypoint = (ROOT / "deploy" / "browser" / "entrypoint.sh").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'BROWSER_EXPORT_ACTIVE_DIR="/run/browser"' in entrypoint
+    assert 'mkdir -p "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert 'chown browser:browser "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert 'chmod 1777 "$BROWSER_EXPORT_ACTIVE_DIR"' in entrypoint
+    assert "run_browser_export_with_marker" not in entrypoint
+    assert "BROWSER_EXPORT_SCHEDULER_ENABLED" not in entrypoint
+    assert "BROWSER_EXPORT_START_DELAY_SECONDS" not in entrypoint
+    assert "BROWSER_EXPORT_INTERVAL_SECONDS" not in entrypoint
+    assert "WORKER_MODE=browser_export_only" not in entrypoint
+    assert "python3 -m apps.worker.scheduler" not in entrypoint
+
+
+def test_ops_agent_role_bootstrap_has_only_the_fixed_table_grants():
+    sql = (ROOT / "scripts" / "ops" / "bootstrap_ops_agent_role.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "IF NOT EXISTS" in sql
+    assert "BEGIN;" in sql
+    assert sql.rstrip().endswith("COMMIT;")
+    assert "LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT" in sql
+    assert "NOREPLICATION NOBYPASSRLS" in sql
+    assert "REVOKE %I FROM dy_ops_agent" in sql
+    assert "REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA %I" in sql
+    assert "REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA %I" in sql
+    assert "GRANT SELECT, UPDATE ON TABLE public.ops_commands TO dy_ops_agent;" in sql
+    assert (
+        "GRANT SELECT, INSERT, UPDATE ON TABLE public.component_heartbeats "
+        "TO dy_ops_agent;"
+    ) in sql
+    assert "GRANT SELECT ON TABLE public.job_runs TO dy_ops_agent;" in sql
+    assert sql.count(
+        "has_database_privilege('dy_ops_agent', current_database(), 'CREATE')"
+    ) >= 2
+    assert sql.count(
+        "has_database_privilege('dy_ops_agent', current_database(), 'TEMP')"
+    ) >= 2
+    assert sql.count(
+        "has_schema_privilege('dy_ops_agent', 'public', 'CREATE')"
+    ) >= 2
+    assert "FROM PUBLIC;" not in sql.upper()
+    assert "TO PUBLIC;" not in sql.upper()
+    assert "non-allowlisted table" in sql
+    assert re.search(r"\bPASSWORD\b\s+['\"]", sql, flags=re.IGNORECASE) is None
+
+
+def test_ops_agent_role_runbook_requires_audited_public_acl_prerequisite():
+    runbook = (ROOT / "docs" / "runbook.md").read_text(encoding="utf-8")
+
+    assert "脚本不会设置或保存密码，也不会自动修改 PUBLIC ACL" in runbook
+    assert "aclexplode" in runbook
+    assert "WHERE rolcanlogin" in runbook
+    assert 'GRANT TEMPORARY ON DATABASE :"DBNAME" TO :"required_temp_role";' in runbook
+    assert 'REVOKE CREATE, TEMPORARY ON DATABASE :"DBNAME" FROM PUBLIC;' in runbook
+    assert "REVOKE CREATE ON SCHEMA public FROM PUBLIC;" in runbook
+    assert "bootstrap 会在事务内 fail closed 并回滚" in runbook
+
+
+def test_worker_image_contains_ops_agent_code():
+    dockerfile = (ROOT / "apps" / "worker" / "Dockerfile").read_text(encoding="utf-8")
+    assert "COPY apps/ops_agent ./apps/ops_agent" in dockerfile

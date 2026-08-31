@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import os
+import math
 import signal
 import subprocess
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
 
@@ -17,6 +18,12 @@ from apps.api.dy_api.db import get_session_factory, session_scope
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.collectors.windows import resolve_collection_window
+from apps.worker.daily_windows import (
+    SHANGHAI_TIMEZONE,
+    SHANGHAI_TIMEZONE_NAME,
+    DailySyncPlan,
+    plan_daily_sync,
+)
 from apps.worker.materialize_once import MATERIALIZATION_STAGES
 from apps.worker.pipeline import run_collect_and_settle, sanitize_error_message
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
@@ -27,11 +34,19 @@ from apps.worker.queued_jobs import (
 from apps.worker.repositories import finish_job_run, queue_job_run, start_job_run
 from apps.worker.settlement import run_settlement_job
 from apps.worker.sync_config import DEFAULT_INTERVAL_SECONDS, DEFAULT_ROLLING_DAYS, load_sync_config
+from apps.worker.subprocess_supervisor import (
+    DEFAULT_LEASE_SECONDS,
+    ChildRunResult,
+    ChildRunStatus,
+    SubprocessSupervisor,
+)
 from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret
 
 
 _STOP = False
 DISABLED_POLL_SECONDS = 60
+DEFAULT_DAILY_QUEUE_POLL_SECONDS = 5
+DEFAULT_DAILY_CHILD_TIMEOUT_SECONDS = 6 * 60 * 60
 DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS = 2
 DEFAULT_MATERIALIZATION_STAGE_TIMEOUT_SECONDS = 7200
 DEFAULT_PRODUCT_SYNC_INTERVAL_SECONDS = 86400
@@ -74,11 +89,33 @@ def resolve_incremental_collection_window(
     days = int(source.get("WORKER_ROLLING_DAYS", str(DEFAULT_ROLLING_DAYS)))
     if days <= 0:
         raise ValueError("WORKER_ROLLING_DAYS must be greater than 0.")
-    return resolve_collection_window(
-        now=now,
-        overlap_days=days,
-        timezone_name=source.get("DOUYIN_COLLECT_TIMEZONE"),
-        env={},
+    configured_timezone = (
+        source.get("DOUYIN_COLLECT_TIMEZONE") or SHANGHAI_TIMEZONE_NAME
+    ).strip()
+    if configured_timezone != SHANGHAI_TIMEZONE_NAME:
+        raise ValueError(
+            "DOUYIN_COLLECT_TIMEZONE must be Asia/Shanghai for daily planning."
+        )
+    current = now or datetime.now(SHANGHAI_TIMEZONE)
+    local_current = (
+        current.astimezone(SHANGHAI_TIMEZONE)
+        if current.tzinfo is not None
+        else current.replace(tzinfo=SHANGHAI_TIMEZONE)
+    )
+    range_end_date = local_current.date()
+    range_start_date = range_end_date - timedelta(days=days)
+    return CollectionWindow(
+        start=datetime.combine(
+            range_start_date,
+            datetime_time.min,
+            tzinfo=SHANGHAI_TIMEZONE,
+        ),
+        end=datetime.combine(
+            range_end_date,
+            datetime_time.min,
+            tzinfo=SHANGHAI_TIMEZONE,
+        ),
+        timezone_name=SHANGHAI_TIMEZONE_NAME,
     )
 
 
@@ -101,6 +138,7 @@ def run_once() -> None:
             skip_completed=config.backfill_skip_completed,
             queued_job_runner=lambda: _process_queued_jobs(factory),
         )
+        drain_ready_daily_children(factory)
         return
     if mode == "browser_export_only":
         run_browser_export_once(factory)
@@ -165,86 +203,147 @@ def run_scheduled_product_sync(factory, *, now: datetime | None = None) -> str |
     return job_id
 
 
-def run_incremental_collection_chunks(factory, config) -> None:
+def run_incremental_collection_chunks(factory, config) -> DailySyncPlan:
     source_window = resolve_incremental_collection_window(
-        env={"WORKER_ROLLING_DAYS": str(config.rolling_days)}
+        env={
+            **os.environ,
+            "WORKER_ROLLING_DAYS": str(config.rolling_days),
+        }
     )
-    chunks = _incremental_chunks_latest_first(
-        source_window,
-        chunk_days=config.history_chunk_days,
-    )
-    day_start = _window_day_start(source_window)
     with session_scope(factory) as session:
-        completed_windows = _successful_collect_window_keys(session, since=day_start)
+        plan = plan_daily_sync(
+            session,
+            start=source_window.start,
+            end=source_window.end,
+            target="all",
+            requested_by="worker-scheduler",
+            trigger_source="scheduler",
+        )
     _log(
-        "incremental_start "
-        f"chunks={len(chunks)} chunk_days={config.history_chunk_days} "
-        f"start={source_window.start.isoformat()} end={source_window.end.isoformat()}"
+        "incremental_planned "
+        f"parent_job_id={plan.parent_job_id} dates={len(plan.daily_jobs)} "
+        f"start={plan.window_start.isoformat()} end={plan.window_end.isoformat()}"
     )
-    failed_chunks = 0
-    max_attempts = _configured_chunk_max_attempts()
-    for index, chunk in enumerate(chunks, start=1):
-        if _window_key(chunk) in completed_windows:
-            _log(f"incremental_chunk_skip index={index} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-            continue
+    execute_ready_daily_child(factory, plan)
+    return plan
 
-        _process_queued_jobs(factory)
-        job_id = _chunk_job_id("collect", index, chunk)
-        _log(f"incremental_chunk_start index={index} job_id={job_id} start={chunk.start.isoformat()} end={chunk.end.isoformat()}")
-        stats = None
-        last_error: Exception | None = None
-        for attempt in range(1, max_attempts + 1):
-            try:
-                with session_scope(factory) as session:
-                    stats = run_collect_and_settle(
-                        session,
-                        job_id=job_id,
-                        window=chunk,
-                        include_browser_export=False,
-                        include_materialization=False,
-                    )
-                break
-            except Exception as exc:
-                last_error = exc
-                if attempt < max_attempts:
-                    _log(
-                        f"incremental_chunk_retry index={index} job_id={job_id} "
-                        f"attempt={attempt + 1}/{max_attempts}"
-                    )
-                    continue
-        if stats is None:
-            assert last_error is not None
-            _record_failed_collect_chunk(factory, job_id=job_id, window=chunk, error=last_error)
-            _log(f"incremental_chunk_failed index={index} job_id={job_id} attempts={max_attempts}")
-            failed_chunks += 1
-            continue
-        completed_windows.add(_window_key(chunk))
+def run_daily_child(
+    factory,
+    job_id: str | None = None,
+    *,
+    supervisor: SubprocessSupervisor | None = None,
+    max_attempts: int | None = None,
+    timeout_seconds: float | None = None,
+) -> ChildRunResult:
+    configured_lease_seconds = _configured_daily_lease_seconds()
+    effective_timeout_seconds = (
+        _configured_daily_child_timeout_seconds()
+        if timeout_seconds is None
+        else _validate_daily_child_timeout_seconds(timeout_seconds)
+    )
+    active_supervisor = supervisor or SubprocessSupervisor(
+        control_session_factory=factory,
+        lease_seconds=configured_lease_seconds,
+        heartbeat_interval_seconds=_configured_daily_heartbeat_seconds(
+            configured_lease_seconds
+        ),
+    )
+    command = [sys.executable, "-m", "apps.worker.daily_task"]
+    if job_id is not None:
+        command.extend(("--job-id", job_id))
+    return active_supervisor.run(
+        job_id=job_id,
+        command=command,
+        max_attempts=max_attempts or _configured_chunk_max_attempts(),
+        timeout_seconds=effective_timeout_seconds,
+    )
+
+
+def drain_ready_daily_children(
+    factory,
+    *,
+    max_children: int | None = None,
+) -> tuple[ChildRunResult, ...]:
+    if not _truthy(os.getenv("WORKER_EXECUTE_DAILY_CHILD")):
+        return ()
+    if max_children is not None and max_children <= 0:
+        raise ValueError("max_children must be positive when provided")
+
+    results: list[ChildRunResult] = []
+    yield_statuses = {
+        ChildRunStatus.RETRY_WAIT,
+        ChildRunStatus.BUSY,
+        ChildRunStatus.CONTROL_ERROR,
+    }
+    while not _STOP and (
+        max_children is None or len(results) < max_children
+    ):
+        result = run_daily_child(factory)
+        results.append(result)
         _log(
-            f"incremental_chunk_done index={index} job_id={job_id} "
-            f"success={stats.success_count} failed={stats.failed_count}"
+            "daily_child_finished "
+            f"job_id={result.job_id} status={result.status.value} "
+            f"attempts={result.attempts} exit_code={result.exit_code} "
+            f"rss_peak_bytes={result.rss_peak_bytes}"
         )
-    materialize_job_id = _job_id("collect_materialize")
-    _log(f"incremental_materialize_start job_id={materialize_job_id}")
+        if result.status in yield_statuses:
+            break
+    return tuple(results)
+
+
+def execute_ready_daily_child(
+    factory,
+    plan: DailySyncPlan,
+) -> ChildRunResult | None:
+    _ = plan
+    results = drain_ready_daily_children(factory)
+    return results[-1] if results else None
+
+
+def _configured_daily_lease_seconds() -> int:
+    raw = os.getenv("WORKER_DAILY_LEASE_SECONDS")
+    return DEFAULT_LEASE_SECONDS if raw is None else int(raw)
+
+
+def _validate_daily_child_timeout_seconds(value: float | int) -> float:
     try:
-        completed_stages = run_isolated_materialization(
-            window=source_window,
-            job_id=materialize_job_id,
+        timeout_seconds = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "WORKER_DAILY_CHILD_TIMEOUT_SECONDS must be a finite positive number"
+        ) from exc
+    if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
+        raise ValueError(
+            "WORKER_DAILY_CHILD_TIMEOUT_SECONDS must be a finite positive number"
         )
-        _record_successful_materialization(
-            factory,
-            job_id=materialize_job_id,
-            window=source_window,
-            completed_stages=completed_stages or MATERIALIZATION_STAGES,
-        )
-    except Exception as exc:
-        _record_failed_collect_chunk(factory, job_id=materialize_job_id, window=source_window, error=exc)
-        _log(
-            f"incremental_materialize_failed job_id={materialize_job_id} "
-            f"error={sanitize_error_message(str(exc))}"
-        )
-        return
-    _log(f"incremental_materialize_done job_id={materialize_job_id}")
-    _log(f"incremental_done failed_chunks={failed_chunks}")
+    return timeout_seconds
+
+
+def _configured_daily_child_timeout_seconds() -> float:
+    raw = os.getenv("WORKER_DAILY_CHILD_TIMEOUT_SECONDS")
+    if raw is None:
+        return float(DEFAULT_DAILY_CHILD_TIMEOUT_SECONDS)
+    return _validate_daily_child_timeout_seconds(raw)
+
+
+def _configured_daily_heartbeat_seconds(lease_seconds: int) -> float:
+    raw = os.getenv("WORKER_DAILY_HEARTBEAT_INTERVAL_SECONDS")
+    if raw is None:
+        return min(5.0, max(0.1, lease_seconds / 2))
+    return float(raw)
+
+
+def _configured_daily_queue_poll_seconds() -> float:
+    raw = os.getenv("WORKER_DAILY_QUEUE_POLL_SECONDS")
+    if raw is None:
+        return float(DEFAULT_DAILY_QUEUE_POLL_SECONDS)
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ValueError(
+            "WORKER_DAILY_QUEUE_POLL_SECONDS must be a number"
+        ) from exc
+    return min(60.0, max(0.1, value))
 
 
 def run_isolated_materialization(
@@ -364,19 +463,41 @@ def main() -> None:
     if run_once_only:
         run_once()
         return
-    if run_on_start and _auto_sync_enabled(factory):
+    auto_enabled = _auto_sync_enabled(factory)
+    if run_on_start and auto_enabled:
         run_once()
+        next_plan_at = time.monotonic() + _configured_interval_seconds(factory)
+    elif auto_enabled:
+        next_plan_at = time.monotonic() + _configured_interval_seconds(factory)
+    else:
+        next_plan_at = None
 
     while not _STOP:
-        if not _auto_sync_enabled(factory):
-            if factory is not None:
-                process_queued_finance_dispute_detections(factory)
-            _sleep_until_stop(DISABLED_POLL_SECONDS)
-            continue
-        interval_seconds = _configured_interval_seconds(factory)
-        _sleep_until_stop(interval_seconds)
-        if not _STOP and _auto_sync_enabled(factory):
-            run_once()
+        if not _auto_sync_enabled(factory) and factory is not None:
+            process_queued_finance_dispute_detections(factory)
+        drain_ready_daily_children(factory)
+        if _STOP:
+            break
+
+        auto_enabled = _auto_sync_enabled(factory)
+        now = time.monotonic()
+        if auto_enabled:
+            if next_plan_at is None or now >= next_plan_at:
+                run_once()
+                next_plan_at = (
+                    time.monotonic()
+                    + _configured_interval_seconds(factory)
+                )
+            sleep_seconds = _configured_daily_queue_poll_seconds()
+            if next_plan_at is not None:
+                sleep_seconds = min(
+                    sleep_seconds,
+                    max(0.1, next_plan_at - time.monotonic()),
+                )
+        else:
+            next_plan_at = None
+            sleep_seconds = _configured_daily_queue_poll_seconds()
+        _sleep_until_stop(sleep_seconds)
 
 
 def _process_queued_jobs(factory) -> None:
@@ -403,7 +524,7 @@ def _configured_chunk_max_attempts() -> int:
         attempts = int(os.getenv("WORKER_CHUNK_MAX_ATTEMPTS", str(DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS)))
     except ValueError:
         attempts = DEFAULT_INCREMENTAL_CHUNK_MAX_ATTEMPTS
-    return max(1, min(5, attempts))
+    return max(1, min(3, attempts))
 
 
 def _configured_materialization_stage_timeout() -> int:

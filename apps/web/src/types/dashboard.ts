@@ -240,7 +240,15 @@ export interface AccountPasswordResetPayload
 export interface JobRun {
   job_id: string;
   job_name: string;
-  status: "running" | "success" | "failed" | "queued";
+  status:
+    | "pending"
+    | "queued"
+    | "running"
+    | "retry_wait"
+    | "success"
+    | "partial"
+    | "failed"
+    | "cancelled";
   started_at: string | null;
   finished_at: string | null;
   success_count: number;
@@ -291,6 +299,119 @@ export interface SyncAdminData {
   schedule: SyncScheduleData;
   worker_status: SyncWorkerStatusData;
   jobs: JobRun[];
+}
+
+export type AdminObservedStatus =
+  | "starting"
+  | "healthy"
+  | "degraded"
+  | "draining"
+  | "unhealthy"
+  | "stopped"
+  | "lost"
+  | "unknown";
+
+export interface AdminOperationResources {
+  cpu_percent?: number | null;
+  rss_bytes?: number | null;
+  rss_peak_bytes?: number | null;
+  memory_limit_bytes?: number | null;
+  queue_depth?: number | null;
+}
+
+export interface AdminOperationComponent {
+  component_type: "api" | "postgres" | "worker" | "browser" | "proxy" | "ops_agent";
+  component_instance_id: string | null;
+  declared_status: string | null;
+  observed_status: AdminObservedStatus;
+  last_heartbeat_at: string | null;
+  allow_restart: boolean;
+  current_job_id?: string | null;
+  current_attempt_id?: string | null;
+  activity: Record<string, unknown>;
+  queue_summary: Record<string, unknown>;
+  resources: AdminOperationResources;
+}
+
+export interface AdminOperationJob {
+  job_id: string;
+  parent_job_id: string | null;
+  job_name: string;
+  job_kind: string | null;
+  business_date: string | null;
+  status: JobRun["status"];
+  current_stage: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  started_at: string | null;
+  finished_at: string | null;
+  heartbeat_at: string | null;
+  next_retry_at: string | null;
+  progress_current: number;
+  progress_total: number;
+  progress_percent: number | null;
+  rows_read: number;
+  rows_written: number;
+  rows_affected: number;
+  rss_peak_bytes: number;
+  error_code: string | null;
+  error_summary: string | null;
+  cancel_requested: boolean;
+  pause_requested: boolean;
+}
+
+export interface AdminOperationsOverview {
+  components: AdminOperationComponent[];
+  jobs: AdminOperationJob[];
+  active_count: number;
+  queued_count: number;
+}
+
+export interface AdminOperationJobDetail {
+  job: AdminOperationJob;
+  eta: {
+    state: "available" | "estimating";
+    remaining_seconds: number | null;
+    confidence: string;
+  };
+  children: AdminOperationJob[];
+  stages: Array<Record<string, unknown>>;
+  attempts: Array<Record<string, unknown>>;
+  events: Array<Record<string, unknown>>;
+}
+
+export type AdminJobControlAction = "pause" | "resume" | "cancel" | "retry";
+
+export type AdminOpsCommandStatus =
+  | "pending"
+  | "running"
+  | "success"
+  | "failed"
+  | "rejected"
+  | "expired"
+  | "cancelled";
+
+export interface AdminOpsCommand {
+  command_id: string;
+  command_type: "restart";
+  target_component: "worker" | "browser";
+  requested_by: string;
+  request_reason: string;
+  confirmed_at: string;
+  status: AdminOpsCommandStatus;
+  related_job_id: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  expires_at: string;
+  cooldown_until: string | null;
+  result_code: string | null;
+  result_summary: string | null;
+  replayed?: boolean;
+}
+
+export interface AdminOpsCommandListData {
+  rows: AdminOpsCommand[];
 }
 
 export interface SyncConfigUpdate {
@@ -1220,9 +1341,12 @@ export interface ClueHeadquartersPoolEntry {
   canonical_clue_id: string | null;
   order_id: string | null;
   order_status: string;
+  normalized_order_status: string;
   raw_order_status: string | null;
   status: string;
   reason: string;
+  reason_code: string;
+  reason_label: string;
   entered_at: string;
   closed_at: string | null;
   close_reason: string | null;
@@ -1241,9 +1365,13 @@ export interface ClueHeadquartersPoolSummary {
 }
 
 export interface ClueHeadquartersPoolFilterOptions {
-  pool_statuses: string[];
-  reasons: string[];
-  order_statuses: string[];
+  entry_statuses: string[];
+  reason_codes: string[];
+  normalized_order_statuses: string[];
+  city_codes: string[];
+  pool_statuses?: string[];
+  reasons?: string[];
+  order_statuses?: string[];
 }
 
 export interface ClueHeadquartersPoolData {
@@ -1254,25 +1382,63 @@ export interface ClueHeadquartersPoolData {
 }
 
 export interface ClueAllocationCycle {
+  cycle_id: string;
   allocation_cycle_id: string;
+  cycle_mode: string;
   cycle_type: string;
   execution_mode: string;
+  cycle_status: string;
   status: string;
+  trigger_type: string;
   parent_cycle_id: string | null;
+  source_cycle_id: string | null;
   selected_lead_keys: string[];
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
+  assigned_lead_count: number;
+  headquarters_pool_count: number;
+  skipped_lead_count: number;
+  failed_lead_count: number;
   planned_impact: Record<string, unknown>;
   actual_impact: Record<string, unknown>;
   actor: string | null;
+  actor_user_id: string | null;
+  actor_username: string | null;
   privileged_confirmation: boolean;
+  requested_at: string;
   created_at: string;
   executed_at: string | null;
   completed_at: string | null;
+  error_summary: Record<string, unknown>;
 }
 
 export interface ClueAllocationCycleData {
   rows: ClueAllocationCycle[];
+  pagination: Pagination;
+}
+
+export interface ClueAllocationCycleItem {
+  cycle_item_id: string;
+  sequence_no: number;
+  lead_key: string;
+  order_id: string | null;
+  item_status: string;
+  initial_pool_location: string | null;
+  outcome_reason: string | null;
+  rule_binding_id: string | null;
+  decision_id: string | null;
+  assignment_round_id: string | null;
+  headquarters_pool_entry_id: string | null;
+  attempt_count: number;
+  started_at: string | null;
+  completed_at: string | null;
+  error_code: string | null;
+}
+
+export interface ClueAllocationCycleDetailData {
+  cycle: ClueAllocationCycle;
+  items: ClueAllocationCycleItem[];
   pagination: Pagination;
 }
 
@@ -1281,6 +1447,13 @@ export interface ClueAllocationAuditLog {
   event_type: string;
   allocation_cycle_id: string | null;
   actor: string | null;
+  actor_user_id: string | null;
+  actor_username_snapshot: string | null;
+  actor_role_snapshot: string | null;
+  actor_scope_snapshot: Record<string, unknown>;
+  request_id: string | null;
+  result_status: string;
+  reason_code: string | null;
   privileged_confirmation: boolean;
   before_snapshot: Record<string, unknown>;
   after_snapshot: Record<string, unknown>;
@@ -1296,44 +1469,56 @@ export interface ClueAllocationAuditLogData {
 export interface ClueAllocationCycleRequest {
   lead_keys: string[];
   preview_token?: string;
-  confirm?: boolean;
+  confirmation_text: string;
   privileged_confirmation?: boolean;
 }
 
 export interface ClueAllocationCyclePreviewRequest {
-  operation?: "trial" | "rebuild";
+  operation: "trial" | "trial_rebuild";
   lead_keys?: string[];
   source_cycle_id?: string;
   privileged_confirmation?: boolean;
+  rebind_rule_version?: boolean;
 }
 
 export interface ClueAllocationCycleRebuildRequest {
   source_cycle_id: string;
   preview_token: string;
-  confirm?: boolean;
+  confirmation_text: string;
   privileged_confirmation?: boolean;
 }
 
 export interface ClueAllocationCyclePreview {
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
   lead_keys: string[];
   summary: Record<string, number>;
-  operation: string;
+  changed_leads: Array<Record<string, unknown>>;
+  operation: "trial" | "trial_rebuild";
   source_cycle_id: string | null;
   preview_token: string;
   preview_expires_at: string;
 }
 
 export interface ClueAllocationCycleExecution {
+  cycle_id: string;
   allocation_cycle_id: string;
+  cycle_mode: string;
   cycle_type: string;
   execution_mode: string;
+  cycle_status: string;
   status: string;
   requested_lead_count: number;
+  eligible_lead_count: number;
   active_lead_count: number;
+  assigned_lead_count: number;
+  headquarters_pool_count: number;
+  skipped_lead_count: number;
+  failed_lead_count: number;
   privileged_confirmation: boolean;
   parent_cycle_id: string | null;
+  source_cycle_id: string | null;
   summary: Record<string, number>;
 }
 
@@ -1415,6 +1600,7 @@ export interface ClueAllocationRuleVersionWrite {
 
 export interface ClueAllocationDecision {
   decision_id: string;
+  cycle_id?: string | null;
   lead_key: string;
   order_id: string | null;
   rule_id: string | null;
@@ -1424,6 +1610,7 @@ export interface ClueAllocationDecision {
   strategy_type: string;
   execution_order: number | null;
   allocation_cycle_id: string | null;
+  dataset_kind?: string;
   execution_mode: string;
   assignment_round_id: string | null;
   round_no: number | null;
@@ -1431,6 +1618,9 @@ export interface ClueAllocationDecision {
   selected_store_name: string | null;
   decision_status: string;
   reason: string | null;
+  composite_score?: number | null;
+  distance_km?: number | null;
+  candidate_count?: number;
   payload: Record<string, unknown>;
   actor: string | null;
   executed_at: string;
@@ -1472,13 +1662,6 @@ export interface StoreScoreSnapshotData {
   run: StoreScoreSnapshotRun | null;
   rows: StoreScoreSnapshot[];
   pagination: Pagination;
-}
-
-export interface ClueCenterMaterializationResult {
-  job_id?: string | null;
-  status?: "queued" | "running" | "success" | "failed";
-  rebuilt_order_count?: number | null;
-  rebuilt_round_count?: number | null;
 }
 
 export interface ProductTypeVisibilityData {
