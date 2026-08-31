@@ -68,6 +68,7 @@ def test_confirmation_replaces_drawer_so_escape_only_closes_the_top_layer() -> N
 
 def test_control_request_keeps_one_idempotency_key_across_same_dialog_retries() -> None:
     room = read_source("components/admin-sync/ComponentRoom.tsx")
+    dialog = read_source("components/admin-sync/SyncControlConfirmDialog.tsx")
     control_definition = room.split("type ControlRequest =", 1)[1].split(
         "const actionLabels", 1
     )[0]
@@ -84,6 +85,9 @@ def test_control_request_keeps_one_idempotency_key_across_same_dialog_retries() 
     assert "nextIdempotencyKey" not in submit_control
     assert "setControl(null)" not in catch_block
     assert "setControlError(message)" in catch_block
+    assert "setReasonLocked(true)" in dialog
+    assert "disabled={reasonLocked}" in dialog
+    assert "同一请求可安全重试" in dialog
 
 
 def test_ops_command_history_is_polled_and_renders_server_fact_statuses() -> None:

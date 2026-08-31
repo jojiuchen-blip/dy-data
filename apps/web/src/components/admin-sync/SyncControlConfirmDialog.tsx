@@ -27,9 +27,13 @@ export function SyncControlConfirmDialog({
   targetLabel,
 }: SyncControlConfirmDialogProps) {
   const [reason, setReason] = useState("");
+  const [reasonLocked, setReasonLocked] = useState(false);
 
   useEffect(() => {
-    if (open) setReason("");
+    if (open) {
+      setReason("");
+      setReasonLocked(false);
+    }
   }, [open]);
 
   return (
@@ -42,7 +46,10 @@ export function SyncControlConfirmDialog({
           <Button
             disabled={!reason.trim()}
             loading={busy}
-            onClick={() => onConfirm(reason.trim())}
+            onClick={() => {
+              setReasonLocked(true);
+              onConfirm(reason.trim());
+            }}
             type="button"
             variant={
               actionLabel.includes("取消") || actionLabel.includes("重启")
@@ -78,10 +85,14 @@ export function SyncControlConfirmDialog({
           <span>操作原因</span>
           <FieldInput
             autoFocus
+            disabled={reasonLocked}
             onChange={(event) => setReason(event.target.value)}
             placeholder="说明为什么需要执行此操作"
             value={reason}
           />
+          {reasonLocked && error ? (
+            <small>为确保同一请求可安全重试，操作原因已锁定；取消后可重新发起。</small>
+          ) : null}
         </label>
       </div>
     </Dialog>
