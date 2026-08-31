@@ -230,7 +230,7 @@ def test_legacy_round_retirement_migration_preserves_identity_and_follow_history
         }
 
 
-def test_legacy_round_retirement_aborts_on_formal_namespace_collision(
+def test_legacy_round_retirement_deduplicates_unreferenced_formal_namespace_collision(
     tmp_path: Path,
 ) -> None:
     repo_root = Path(__file__).resolve().parents[1]
@@ -271,7 +271,116 @@ def test_legacy_round_retirement_aborts_on_formal_namespace_collision(
                 },
             )
 
-    with pytest.raises(RuntimeError, match="formal namespace collisions"):
+    command.upgrade(config, "20260831_0046")
+
+    with engine.connect() as connection:
+        assert connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar_one() == "20260831_0046"
+        assert connection.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM clue_assignment_rounds
+                WHERE lead_key = 'lead-collision'
+                """
+            )
+        ).scalar_one() == 1
+        assert connection.execute(
+            text(
+                """
+                SELECT assignment_round_id
+                FROM clue_assignment_rounds
+                WHERE lead_key = 'lead-collision'
+                """
+            )
+        ).scalar_one() == "formal-collision"
+        assert connection.execute(
+            text(
+                """
+                SELECT retained_assignment_round_id
+                FROM clue_legacy_round_retirement_log
+                WHERE assignment_round_id = 'legacy-collision'
+                """
+            )
+        ).scalar_one() == "formal-collision"
+
+    command.downgrade(config, "20260831_0045")
+    with engine.connect() as connection:
+        restored = connection.execute(
+            text(
+                """
+                SELECT assignment_round_id, execution_mode
+                FROM clue_assignment_rounds
+                WHERE lead_key = 'lead-collision'
+                ORDER BY assignment_round_id
+                """
+            )
+        ).all()
+        assert restored == [
+            ("formal-collision", "formal"),
+            ("legacy-collision", "legacy"),
+        ]
+        assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
+
+
+def test_legacy_round_retirement_aborts_on_referenced_namespace_collision(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "retire-legacy-rounds-referenced-collision.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260831_0045")
+    engine = create_engine(database_url)
+    observed_at = datetime(2026, 8, 31, 12, tzinfo=timezone.utc)
+
+    with engine.begin() as connection:
+        for round_id, execution_mode in (
+            ("legacy-referenced", "legacy"),
+            ("formal-referenced", "formal"),
+        ):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO clue_assignment_rounds (
+                        assignment_round_id, order_id, lead_key, round_no,
+                        assigned_at_source, assigned_store_id, follow_result,
+                        is_followed, is_follow_success, round_status,
+                        execution_mode, auto_expiry_enabled,
+                        is_self_store_verified, created_at, updated_at
+                    ) VALUES (
+                        :round_id, 'order-referenced', 'lead-referenced', 1,
+                        'test', 'store-1', 'pending', 0, 0,
+                        'closed_reassigned', :execution_mode, 1, 0,
+                        :observed_at, :observed_at
+                    )
+                    """
+                ),
+                {
+                    "round_id": round_id,
+                    "execution_mode": execution_mode,
+                    "observed_at": observed_at,
+                },
+            )
+        connection.execute(
+            text(
+                """
+                INSERT INTO clue_follow_up_records (
+                    follow_up_record_id, order_id, assignment_round_id,
+                    round_no, assigned_store_id, follow_result, created_at
+                ) VALUES (
+                    'follow-referenced', 'order-referenced', 'legacy-referenced',
+                    1, 'store-1', 'unreachable', :observed_at
+                )
+                """
+            ),
+            {"observed_at": observed_at},
+        )
+
+    with pytest.raises(RuntimeError, match="referenced formal namespace collisions"):
         command.upgrade(config, "20260831_0046")
 
     with engine.connect() as connection:
@@ -279,14 +388,8 @@ def test_legacy_round_retirement_aborts_on_formal_namespace_collision(
             text("SELECT version_num FROM alembic_version")
         ).scalar_one() == "20260831_0045"
         assert connection.execute(
-            text(
-                """
-                SELECT COUNT(*)
-                FROM clue_assignment_rounds
-                WHERE execution_mode = 'legacy'
-                """
-            )
-        ).scalar_one() == 1
+            text("SELECT COUNT(*) FROM clue_assignment_rounds")
+        ).scalar_one() == 2
         assert "clue_legacy_round_retirement_log" not in inspect(connection).get_table_names()
 
 
