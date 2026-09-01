@@ -56,16 +56,29 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
     assert 'role={confirmationState === "error" ? "alert" : "status"}' in page
 
 
-def test_store_settlement_page_submits_reason_only_disputes_without_file_upload() -> None:
+def test_store_settlement_page_exposes_collapsed_dispute_intake_without_fake_submission() -> None:
     client = read_source("api/client.ts")
+    types = read_source("types/dashboard.ts")
     page = read_source("pages/StoreSettlementPage.tsx")
 
-    assert "createStoreSettlementDispute" in client
-    assert "TextareaField" in page
-    assert "具体原因" in page
-    assert "提交异议并开始检测" in page
-    assert "证据上传能力尚未接入" not in page
     assert "DYDATA-82" not in page
-    assert "type=\"file\"" not in page
+    assert "fetchStoreBillingDisputes" in page
+    assert "submitStoreBillingDispute" not in page
+    assert "账单异议" in page
+    assert "发起账单异议" in page
+    assert "异议类型" in page
+    assert "RATE_ERROR" in page
+    assert "DATA_MISSING" in page
+    assert "AMOUNT_ERROR" in page
+    assert "OTHER" in page
+    assert "StoreBillingDisputePayload" in types
+    assert "/disputes" in client
+    assert 'className="store-finance-dispute-entry"' in page
+    assert 'open={disputeOpen}' in page
+    assert 'form="store-dispute-form"' not in page
+    assert "受控证明对象键" not in page
+    assert 'type="file"' in page
+    assert "证明材料受控上传尚未开放，当前不能提交异议。" in page
+    assert "disabled" in page
     assert "window.confirm" not in page
     assert "window.alert" not in page

@@ -1,55 +1,54 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   ApiRequestError,
   confirmStoreBillingStatement,
-  createStoreSettlementDispute,
-  fetchStoreBillingStatements,
-  fetchStoreSettlementDisputes,
+  fetchOrderFeeDetails,
   fetchSettlementFilterMeta,
   fetchSettlementMonthly,
+  fetchStoreBillingDisputes,
+  fetchStoreBillingStatements,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
-import { SelectField, TextareaField, TextField } from "../components/FormControls";
+import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
+  AdminUser,
   BillingConfirmationSummary,
   FeeDirection,
-  SettlementStatementLine,
-  StoreSettlementDisputeType,
+  OrderFeeDetailRow,
+  StoreDisputeType,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime, formatInteger } from "../utils/format";
 import { apiErrorText } from "../utils/apiErrors";
 import { userFacingError } from "../utils/userFacingError";
+import { displayFinanceSaleChannel } from "../utils/userFacingLabels";
 
 interface StoreSettlementPageProps {
+  currentUser: AdminUser;
   searchParams: URLSearchParams;
 }
 
-function rateLabel(line: SettlementStatementLine): string {
-  if (!line.feeRates.length) return "费率不可用";
-  const formatted = line.feeRates.map((rate) => `${(Number(rate) * 100).toFixed(2).replace(/\.00$/, "")}%`);
-  if (line.feeRates.length > 1) {
-    const minimum = line.minFeeRate ? `${(Number(line.minFeeRate) * 100).toFixed(2).replace(/\.00$/, "")}%` : formatted[0];
-    const maximum = line.maxFeeRate ? `${(Number(line.maxFeeRate) * 100).toFixed(2).replace(/\.00$/, "")}%` : formatted[formatted.length - 1];
-    return `${minimum}–${maximum}；集合 ${formatted.join("、")}（共 ${line.feeRates.length} 种）`;
-  }
-  return formatted[0];
-}
+const FEE_DIRECTIONS: readonly FeeDirection[] = ["PROMOTION", "MANAGEMENT"];
+const DISPUTE_TYPES: Array<{ value: StoreDisputeType; label: string }> = [
+  { value: "RATE_ERROR", label: "费率错误" },
+  { value: "DATA_MISSING", label: "订单/数据遗漏" },
+  { value: "AMOUNT_ERROR", label: "金额错误" },
+  { value: "OTHER", label: "其他" },
+];
 
-function isLineTraceable(line: SettlementStatementLine): boolean {
-  return line.originalEntryCount + line.adjustmentEntryCount > 0
-    && line.feeRates.length > 0
-    && line.ruleVersions.length > 0;
-}
+const displayMetricCurrency = (value: number | undefined) =>
+  value === undefined ? "暂无数据" : formatCurrency(value);
+const displayMetricCount = (value: number | undefined, unit: string) =>
+  value === undefined ? "暂无数据" : `${formatInteger(value)} ${unit}`;
 
-function statementStatusLabel(status: string): string {
-  return ({ GENERATING: "生成中", PENDING_CONFIRMATION: "待确认", CONFIRMED: "已确认", LOCKED: "已锁账" } as Record<string, string>)[status] ?? "未知状态";
+function feeDirectionLabel(direction: FeeDirection): string {
+  return direction === "PROMOTION" ? "推广服务费" : "管理服务费";
 }
 
 function confirmationLabel(confirmation: BillingConfirmationSummary | null): string {
@@ -59,111 +58,45 @@ function confirmationLabel(confirmation: BillingConfirmationSummary | null): str
     : "已确认";
 }
 
-function feeDirectionLabel(direction: FeeDirection): string {
-  return direction === "PROMOTION" ? "推广服务费" : "管理服务费";
-}
-
-function disputeStatusLabel(status: string): string {
-  return ({
-    PENDING: "待处理",
-    IN_REVIEW: "审核中",
-    PENDING_ADMIN_APPROVAL: "待管理员审批",
-    ACCEPTED_WITH_ADJUSTMENT: "成立并调整",
-    REJECTED: "不成立",
-    WITHDRAWN: "已撤回",
-  } as Record<string, string>)[status] ?? status;
-}
-
-function yuanToCent(value: string): number | null {
-  const normalized = value.trim();
-  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
-  const [yuan, fraction = ""] = normalized.split(".");
-  const amount = Number(yuan) * 100 + Number(fraction.padEnd(2, "0"));
-  return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
-}
-
-function centToYuan(value: number): string {
-  return (value / 100).toFixed(2);
-}
-
-interface DisputeOrderDraft {
-  orderId: string;
-  couponId: string;
-  disputedAmountYuan: string;
-}
-
-function emptyDisputeOrder(): DisputeOrderDraft {
-  return { orderId: "", couponId: "", disputedAmountYuan: "" };
-}
-
-function lineDetailsHref(
-  line: SettlementStatementLine,
-  context: {
-    statementId?: string;
-    storeId: string;
-    month: string;
-    productScope: string;
-    productType: string;
-  },
-): string {
-  if (!isLineTraceable(line)) return "";
-  const search = new URLSearchParams({ feeDirection: line.feeDirection, focus: "workbench" });
-  line.feeRates.forEach((value) => search.append("feeRates", value));
-  line.ruleVersions.forEach((value) => search.append("ruleVersions", value));
-  if (context.statementId) {
-    if (!line.statementLineId) return "";
-    search.set("statementId", context.statementId);
-    search.set("statementLineId", line.statementLineId);
-  } else {
-    search.set("storeId", context.storeId);
-    search.set("month", context.month);
-    search.set("productScope", line.productScope || context.productScope);
-    search.set("productType", line.productType || context.productType);
-  }
-  return `/details?${search.toString()}`;
-}
-
-export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) {
+export function StoreSettlementPage({ currentUser, searchParams }: StoreSettlementPageProps) {
   const [month, setMonth] = useState(searchParams.get("month") ?? "");
-  const [storeId, setStoreId] = useState(
-    searchParams.get("storeId") ?? searchParams.get("store_id") ?? "",
-  );
-  const [productScope, setProductScope] = useState(
-    searchParams.get("productScope") ?? searchParams.get("product_scope") ?? "all",
-  );
-  const [productType, setProductType] = useState(
-    searchParams.get("productType") ?? searchParams.get("product_type") ?? "",
-  );
+  const requestedStoreId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? "";
+  const [storeId, setStoreId] = useState(requestedStoreId);
+  const [activeFeeDirection, setActiveFeeDirection] = useState<FeeDirection>("PROMOTION");
   const [confirmationDirection, setConfirmationDirection] = useState<FeeDirection | null>(null);
   const [pendingDirection, setPendingDirection] = useState<FeeDirection | null>(null);
   const [confirmationMessage, setConfirmationMessage] = useState("");
   const [confirmationState, setConfirmationState] = useState<"idle" | "success" | "error">("idle");
   const [invalidatedStatementKey, setInvalidatedStatementKey] = useState<string | null>(null);
-  const [disputeDirection, setDisputeDirection] = useState<FeeDirection | null>(null);
-  const [disputeType, setDisputeType] = useState<StoreSettlementDisputeType>("AMOUNT_ERROR");
-  const [disputeOrders, setDisputeOrders] = useState<DisputeOrderDraft[]>([emptyDisputeOrder()]);
-  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeConfirmationOpen, setDisputeConfirmationOpen] = useState(false);
+  const [disputeOpen, setDisputeOpen] = useState(false);
+  const [disputeType, setDisputeType] = useState<StoreDisputeType>("RATE_ERROR");
+  const [disputeAmount, setDisputeAmount] = useState("");
+  const [disputeOrders, setDisputeOrders] = useState("");
   const [disputeContactName, setDisputeContactName] = useState("");
   const [disputeContactPhone, setDisputeContactPhone] = useState("");
-  const [pendingDispute, setPendingDispute] = useState(false);
-  const [disputeMessage, setDisputeMessage] = useState("");
-  const [disputeState, setDisputeState] = useState<"idle" | "success" | "error">("idle");
+  const [disputeDescription, setDisputeDescription] = useState("");
+
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.statementMonths[0] || "";
-  const activeStoreId = storeId || meta?.stores[0]?.storeId || "";
-  const activeProductType = productType || meta?.defaultProductType || "all";
-  const productTypes = useMemo(() => {
-    const scoped = meta?.productScopeTypeMap[productScope];
-    return ["all", ...(scoped ?? meta?.productTypes ?? []).filter((item) => item !== "all")];
-  }, [meta, productScope]);
+  const accountStoreIds = new Set(currentUser.store_ids);
+  const storeOptions = (meta?.stores ?? []).filter(
+    (store) => currentUser.role !== "store" || accountStoreIds.has(store.storeId),
+  );
+  const activeStoreId = currentUser.role === "store"
+    ? (accountStoreIds.has(storeId) ? storeId : currentUser.store_ids[0] ?? "")
+    : storeId || storeOptions[0]?.storeId || "";
+  const productScope = searchParams.get("productScope") ?? "all";
+  const activeProductType = searchParams.get("productType") ?? meta?.defaultProductType ?? "all";
+
   const settlementResource = useApiResource(
     () => fetchSettlementMonthly({
-            storeId: activeStoreId,
-            month: activeMonth,
-            productScope,
-            productType: activeProductType,
-          }),
+      storeId: activeStoreId,
+      month: activeMonth,
+      productScope,
+      productType: activeProductType,
+    }),
     [activeStoreId, activeMonth, productScope, activeProductType],
     { enabled: Boolean(meta && activeStoreId && activeMonth) },
   );
@@ -178,11 +111,64 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     [activeStoreId, activeMonth],
     { enabled: Boolean(meta && activeStoreId && activeMonth) },
   );
+  const cumulativeBillingResource = useApiResource(
+    () => fetchStoreBillingStatements({
+      storeId: activeStoreId,
+      month: activeMonth,
+      metricScope: "CUMULATIVE",
+      page: 1,
+      pageSize: 1,
+    }),
+    [activeStoreId, activeMonth],
+    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+  );
+  const promotionOrderResource = useApiResource(
+    () => fetchOrderFeeDetails({
+      storeId: activeStoreId,
+      month: activeMonth,
+      feeDirection: "PROMOTION",
+      productScope,
+      productType: activeProductType,
+      page: 1,
+      pageSize: 50,
+    }),
+    [activeStoreId, activeMonth, productScope, activeProductType],
+    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+  );
+  const managementOrderResource = useApiResource(
+    () => fetchOrderFeeDetails({
+      storeId: activeStoreId,
+      month: activeMonth,
+      feeDirection: "MANAGEMENT",
+      productScope,
+      productType: activeProductType,
+      page: 1,
+      pageSize: 50,
+    }),
+    [activeStoreId, activeMonth, productScope, activeProductType],
+    { enabled: Boolean(meta && activeStoreId && activeMonth) },
+  );
+
   const view = settlementResource.data?.data;
   const metrics = view?.metrics;
-  const metaError = metaResource.rawError ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。") : metaResource.error;
-  const settlementError = settlementResource.rawError ? apiErrorText(settlementResource.rawError, "门店分账暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店分账的权限。", 404: "未找到该门店或账期。", 422: "门店分账筛选条件不合法，请重新选择。" }) : settlementResource.error;
-  const billingError = billingResource.rawError ? apiErrorText(billingResource.rawError, "当前账单暂不可用，请稍后重试。", { 403: "当前账号没有查看该门店账单的权限。", 404: "未找到该门店或账期。", 422: "账单筛选条件不合法，请重新选择。" }) : billingResource.error;
+  const billingMetrics = cumulativeBillingResource.data?.data.metrics;
+  const metaError = metaResource.rawError
+    ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。")
+    : metaResource.error;
+  const settlementError = settlementResource.rawError
+    ? apiErrorText(settlementResource.rawError, "门店分账暂不可用，请稍后重试。", {
+      403: "当前账号没有查看该门店分账的权限。",
+      404: "未找到该门店或账期。",
+      422: "门店分账筛选条件不合法，请重新选择。",
+    })
+    : settlementResource.error;
+  const billingError = billingResource.rawError
+    ? apiErrorText(billingResource.rawError, "当前账单暂不可用，请稍后重试。", {
+      403: "当前账号没有查看该门店账单的权限。",
+      404: "未找到该门店或账期。",
+      422: "账单筛选条件不合法，请重新选择。",
+    })
+    : billingResource.error;
   const statementCandidate = billingResource.data?.data.list[0];
   const statementCandidateKey = statementCandidate
     ? `${statementCandidate.statementId}:${statementCandidate.versionNo}`
@@ -196,8 +182,8 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     && !billingError
     ? statementCandidate
     : undefined;
-  const disputesResource = useApiResource(
-    () => fetchStoreSettlementDisputes(statement?.statementId ?? ""),
+  const disputeResource = useApiResource(
+    () => fetchStoreBillingDisputes(statement?.statementId ?? ""),
     [statement?.statementId],
     { enabled: Boolean(statement?.statementId) },
   );
@@ -208,18 +194,13 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     const amount = direction === "PROMOTION"
       ? statement.promotionConfirmableAmountCent
       : statement.managementConfirmableAmountCent;
-
     setPendingDirection(direction);
     setConfirmationMessage("");
     setConfirmationState("idle");
     try {
       await confirmStoreBillingStatement(
         statement.statementId,
-        {
-          feeDirection: direction,
-          confirmedAmountCent: amount,
-          readVersion: statement.versionNo,
-        },
+        { feeDirection: direction, confirmedAmountCent: amount, readVersion: statement.versionNo },
         crypto.randomUUID(),
       );
       setConfirmationMessage(`${feeDirectionLabel(direction)}已确认，正在读取最新账单。`);
@@ -227,11 +208,10 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       setConfirmationDirection(null);
       await billingResource.reload();
     } catch (error) {
-      const conflict = error instanceof ApiRequestError && error.status === 409;
-      if (conflict) {
+      if (error instanceof ApiRequestError && error.status === 409) {
         setInvalidatedStatementKey(`${statement.statementId}:${statement.versionNo}`);
         setConfirmationDirection(null);
-        billingResource.reload();
+        void billingResource.reload();
       }
       setConfirmationMessage(userFacingError(error, "确认失败，请刷新当前账单后重试。"));
       setConfirmationState("error");
@@ -240,237 +220,152 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     }
   };
 
-  const openDispute = (direction: FeeDirection) => {
-    setDisputeDirection(direction);
-    setDisputeType("AMOUNT_ERROR");
-    setDisputeOrders([emptyDisputeOrder()]);
-    setDisputeReason("");
-    setDisputeContactName("");
-    setDisputeContactPhone("");
-    setDisputeMessage("");
-    setDisputeState("idle");
-  };
-
-  const updateDisputeOrder = (
-    index: number,
-    field: keyof DisputeOrderDraft,
-    value: string,
-  ) => {
-    setDisputeOrders((current) => current.map((order, orderIndex) => (
-      orderIndex === index ? { ...order, [field]: value } : order
-    )));
-  };
-
-  const submitDispute = async () => {
-    const direction = disputeDirection;
-    if (!direction || !statement?.isCurrent) return;
-    const normalizedReason = disputeReason.trim();
-    const normalizedContactName = disputeContactName.trim();
-    const normalizedContactPhone = disputeContactPhone.trim();
-    const orderPayload = disputeOrders.map((order) => ({
-      orderId: order.orderId.trim(),
-      couponId: order.couponId.trim() || undefined,
-      disputedAmountCent: yuanToCent(order.disputedAmountYuan),
-    }));
-    if (!normalizedReason) {
-      setDisputeMessage("请填写具体原因后再提交。");
-      setDisputeState("error");
-      return;
-    }
-    if (!normalizedContactName) {
-      setDisputeMessage("请填写联系人后再提交。");
-      setDisputeState("error");
-      return;
-    }
-    if (!/^\d{11}$/.test(normalizedContactPhone)) {
-      setDisputeMessage("请填写 11 位联系电话后再提交。");
-      setDisputeState("error");
-      return;
-    }
-    if (orderPayload.some((order) => !order.orderId || order.disputedAmountCent === null)) {
-      setDisputeMessage("请完整填写每个争议订单及金额（元，最多两位小数）。");
-      setDisputeState("error");
-      return;
-    }
-    const disputedAmountCent = orderPayload.reduce(
-      (total, order) => total + (order.disputedAmountCent as number),
-      0,
-    );
-    if (disputedAmountCent <= 0) {
-      setDisputeMessage("争议金额必须大于 0。");
-      setDisputeState("error");
-      return;
-    }
-
-    setPendingDispute(true);
-    setDisputeMessage("");
-    setDisputeState("idle");
-    try {
-      await createStoreSettlementDispute(
-        statement.statementId,
-        {
-          feeDirection: direction,
-          disputeType,
-          description: normalizedReason,
-          contactName: normalizedContactName,
-          contactPhone: normalizedContactPhone,
-          disputedAmountCent,
-          orders: orderPayload.map((order) => ({
-            orderId: order.orderId,
-            ...(order.couponId ? { couponId: order.couponId } : {}),
-            disputedAmountCent: order.disputedAmountCent as number,
-          })),
-          readVersion: statement.versionNo,
-        },
-        crypto.randomUUID(),
-      );
-      setDisputeMessage(`${feeDirectionLabel(direction)}异议已提交，系统将按正式流程开始检测。`);
-      setDisputeState("success");
-      setDisputeDirection(null);
-      disputesResource.reload();
-    } catch (error) {
-      setDisputeMessage(userFacingError(error, "异议提交失败，请刷新当前账单后重试。"));
-      setDisputeState("error");
-    } finally {
-      setPendingDispute(false);
-    }
-  };
-
-  const disputeAmountCent = disputeOrders.reduce(
-    (total, order) => total + (yuanToCent(order.disputedAmountYuan) ?? 0),
-    0,
-  );
-
-  const columns: Column<SettlementStatementLine>[] = [
-    { key: "product", title: "商品", minWidth: 160, render: (line) => `${line.productScope} / ${line.productType}` },
-    { key: "count", title: "原始 / 调整", align: "right", render: (line) => `${formatInteger(line.originalEntryCount)} / ${formatInteger(line.adjustmentEntryCount)}` },
-    { key: "originalBase", title: "原始基数", align: "right", render: (line) => formatCurrency(line.originalBaseCent) },
-    { key: "adjustmentBase", title: "调整基数", align: "right", render: (line) => formatCurrency(line.adjustmentBaseCent) },
-    { key: "netBase", title: "基数净额", align: "right", render: (line) => formatCurrency(line.netBaseCent) },
-    { key: "rate", title: "实际费率范围 / 集合", align: "right", minWidth: 240, render: (line) => rateLabel(line) },
-    { key: "original", title: "原始费用", align: "right", render: (line) => formatCurrency(line.originalFeeCent) },
-    { key: "adjustment", title: "调整费用", align: "right", render: (line) => formatCurrency(line.adjustmentFeeCent) },
-    { key: "net", title: "调整后净额", align: "right", render: (line) => formatCurrency(line.netFeeCent) },
-    { key: "versions", title: "规则版本", minWidth: 170, render: (line) => line.ruleVersions.length > 1 ? `${line.ruleVersions.join("、")}（共 ${line.ruleVersionCount} 个）` : (line.ruleVersions[0] ?? "版本不可用") },
-    { key: "traceability", title: "追溯状态", minWidth: 150, render: (line) => isLineTraceable(line) && (!view?.statement || Boolean(line.statementLineId)) ? "可下钻订单" : "缺少来源、费率、版本或账单行" },
+  const orderColumns: Column<OrderFeeDetailRow>[] = [
+    { key: "order", title: "订单号", minWidth: 170, render: (row) => row.orderId },
+    { key: "product", title: "商品", minWidth: 180, render: (row) => row.productName || row.skuName || row.skuId },
+    { key: "channel", title: "销售渠道", render: (row) => displayFinanceSaleChannel(row.saleChannel) },
+    { key: "verifiedAt", title: "核销时间", minWidth: 170, render: (row) => row.verifyTime ? formatDateTime(row.verifyTime) : "尚未核销" },
+    { key: "sourceAmount", title: "实收金额", align: "right", render: (row) => formatCurrency(row.sourceAmountCent) },
+    { key: "rate", title: "实际费率", align: "right", render: (row) => `${(Number(row.feeRate) * 100).toFixed(2).replace(/\.00$/, "")}%` },
+    { key: "fee", title: "服务费", align: "right", render: (row) => formatCurrency(row.adjustedNetFeeCent) },
   ];
+  const activeOrderResource = activeFeeDirection === "PROMOTION"
+    ? promotionOrderResource
+    : managementOrderResource;
+  const activeOrders = activeOrderResource.data?.data.list ?? [];
 
   return (
-    <div className="page-stack">
-      <section className="page-heading">
-        <div><p className="eyebrow">门店结算</p><h1>单店分账</h1><p>经营、推广服务费与管理服务费使用同一账期上下文。</p></div>
+    <div className="page-stack finance-page">
+      <section className="page-heading finance-heading">
+        <div>
+          <p className="eyebrow">门店结算</p>
+          <h1>单店分账</h1>
+          <p>推广服务费与管理服务费按同一门店、账期分别确认。</p>
+        </div>
       </section>
-      <ResourceNotice loading={metaResource.loading || settlementResource.loading || billingResource.loading} error={metaError ?? settlementError ?? billingError} />
+      <ResourceNotice
+        loading={metaResource.loading || settlementResource.loading || billingResource.loading || cumulativeBillingResource.loading}
+        error={metaError ?? settlementError ?? billingError}
+      />
       <FilterBar>
-        <SelectField disabled={!meta} label="账期" value={activeMonth} onChange={setMonth} options={(meta?.statementMonths ?? []).map((value) => ({ value, label: value }))} />
-        <FilterField label="门店"><SearchableStoreSelect disabled={!meta} value={activeStoreId} onChange={setStoreId} options={(meta?.stores ?? []).map((store) => ({ value: store.storeId, label: store.storeName }))} /></FilterField>
-        <SelectField disabled={!meta} label="产品范围" value={productScope} onChange={(value) => { setProductScope(value); setProductType("all"); }} options={(meta?.productScopes ?? []).map((value) => ({ value, label: value === "all" ? "全部产品" : value }))} />
-        <SelectField disabled={!meta} label="商品类型" value={activeProductType} onChange={setProductType} options={productTypes.map((value) => ({ value, label: value === "all" ? "全部类型" : value }))} />
+        <SelectField
+          disabled={!meta}
+          label="账期"
+          value={activeMonth}
+          onChange={(value) => { setMonth(value); setInvalidatedStatementKey(null); }}
+          options={(meta?.statementMonths ?? []).map((value) => ({ value, label: value }))}
+        />
+        <FilterField label="门店">
+          <SearchableStoreSelect
+            disabled={!meta || currentUser.role === "store"}
+            value={activeStoreId}
+            onChange={(value) => { setStoreId(value); setInvalidatedStatementKey(null); }}
+            options={storeOptions.map((store) => ({ value: store.storeId, label: store.storeName }))}
+          />
+        </FilterField>
       </FilterBar>
-      {!view && settlementResource.loading ? <ResourcePanel>正在加载门店分账…</ResourcePanel> : !view ? <ResourcePanel tone="error">门店分账暂不可用，请检查权限或账期。</ResourcePanel> : (
-        <>
-          <section className="settlement-context-banner" aria-label="账单状态">
-            <div><strong>{view.store.storeName}</strong><span>{view.month} · {view.isFormalPeriod ? "正式账期" : "测试账期"}</span></div>
-            <span className="source-pill">{view.statement?.statementStatus === "LOCKED" ? "已锁账 · 冻结账单口径" : view.statement ? `${statementStatusLabel(view.statement.statementStatus)} · 已生成账单口径` : "未生成账单 · 预览口径"}</span>
-          </section>
-          <section className="metric-grid metric-grid--three">
-            <MetricCard label="销售金额" value={formatCurrency(metrics?.salesAmountCent ?? 0)} meta={`${formatInteger(metrics?.salesOrderCount ?? 0)} 笔订单`} />
-            <MetricCard label="核销金额" value={formatCurrency(metrics?.verifiedAmountCent ?? 0)} meta={`${formatInteger(metrics?.verifiedOrderCount ?? 0)} 笔核销`} />
-            <MetricCard label="推广服务费净额" value={formatCurrency(metrics?.promotionNetFeeCent ?? 0)} meta={`原始 ${formatCurrency(metrics?.promotionOriginalFeeCent ?? 0)} · 调整 ${formatCurrency(metrics?.promotionAdjustmentFeeCent ?? 0)}`} />
-            <MetricCard label="管理服务费净额" value={formatCurrency(metrics?.managementNetFeeCent ?? 0)} meta={`原始 ${formatCurrency(metrics?.managementOriginalFeeCent ?? 0)} · 调整 ${formatCurrency(metrics?.managementAdjustmentFeeCent ?? 0)}`} />
-            <MetricCard label="结算参考净额" value={formatCurrency(metrics?.netSettlementReferenceCent ?? 0)} meta="推广费减管理费" />
-          </section>
-          <section className="content-section" aria-label="账单确认与异议">
+
+      <section className="metric-grid store-summary-metrics" aria-label="分账指标">
+            <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
+            <MetricCard label="核销金额" value={displayMetricCurrency(metrics?.verifiedAmountCent)} meta={displayMetricCount(metrics?.verifiedOrderCount, "笔核销")} />
+            <MetricCard label="当期推广服务费" value={displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : "暂无数据"} />
+            <MetricCard label="累计推广服务费" value={displayMetricCurrency(billingMetrics?.cumulative?.promotionAmountCent)} meta={billingMetrics?.cumulative ? "正式账期累计" : "暂无数据"} />
+            <MetricCard label="当期管理服务费" value={displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : "暂无数据"} />
+            <MetricCard label="累计管理服务费" value={displayMetricCurrency(billingMetrics?.cumulative?.managementAmountCent)} meta={billingMetrics?.cumulative ? "正式账期累计" : "暂无数据"} />
+      </section>
+
+      <section className="content-section" aria-label="账单确认与异议">
             <div className="section-title">
               <div>
                 <h2>当前账单确认</h2>
-                <p>按费用方向分别确认；金额和版本始终以当前账单为准。</p>
+                <p>推广服务费和管理服务费分别确认；金额与版本以正式账单接口为准。</p>
               </div>
             </div>
-            {statement?.isCurrent ? (
-              <>
-                {(["PROMOTION", "MANAGEMENT"] as const).map((direction) => {
-                  const confirmation = direction === "PROMOTION"
-                    ? statement.promotionConfirmation
-                    : statement.managementConfirmation;
-                  const amount = direction === "PROMOTION"
-                    ? statement.promotionConfirmableAmountCent
-                    : statement.managementConfirmableAmountCent;
-                  return (
-                    <div className="section-title" key={direction}>
-                      <div>
-                        <h3>{feeDirectionLabel(direction)}</h3>
-                        <p>{confirmationLabel(confirmation)} · 当前金额 {formatCurrency(amount)}</p>
-                      </div>
-                      {confirmation ? <span role="status">已确认</span> : (
+            <div className="store-finance-confirmation-grid">
+              {FEE_DIRECTIONS.map((direction) => {
+                const confirmation = direction === "PROMOTION" ? statement?.promotionConfirmation : statement?.managementConfirmation;
+                const amount = direction === "PROMOTION" ? statement?.promotionConfirmableAmountCent : statement?.managementConfirmableAmountCent;
+                const canConfirm = Boolean(statement?.isCurrent && amount !== undefined && !confirmation);
+                return (
+                  <article className="store-finance-direction-card" key={direction}>
+                    <div>
+                      <p className="eyebrow">费用方向</p>
+                      <h3>{feeDirectionLabel(direction)}确认</h3>
+                      <p className="store-finance-direction-card__status">{statement ? confirmationLabel(confirmation ?? null) : "尚未生成"}</p>
+                      <strong>{amount === undefined ? "尚未生成" : formatCurrency(amount)}</strong>
+                    </div>
+                    <div className="store-finance-direction-card__actions">
+                      {confirmation ? <span className="status-badge status-badge--success">已确认</span> : (
                         <Button
-                          disabled={pendingDirection !== null}
+                          disabled={!canConfirm || pendingDirection !== null}
                           loading={pendingDirection === direction}
-                          onClick={() => {
-                            setConfirmationMessage("");
-                            setConfirmationState("idle");
-                            setConfirmationDirection(direction);
-                          }}
+                          onClick={() => { setConfirmationMessage(""); setConfirmationState("idle"); setConfirmationDirection(direction); }}
                           size="sm"
                           variant="primary"
                         >
-                          确认{feeDirectionLabel(direction)}
+                          {statement ? `确认${feeDirectionLabel(direction)}` : "尚未生成"}
                         </Button>
                       )}
+                      {direction === "PROMOTION" && confirmation && statement ? (
+                        <a className="ui-button ui-button--secondary ui-button--sm" href={`/settlement/invoice?storeId=${encodeURIComponent(activeStoreId)}&month=${encodeURIComponent(activeMonth)}`}>
+                          进入推广费开票
+                        </a>
+                      ) : null}
                     </div>
-                  );
-                })}
-                {confirmationMessage ? <p role={confirmationState === "error" ? "alert" : "status"}>{confirmationMessage}</p> : null}
-                <div className="section-title">
-                  <div>
-                    <h3>账单异议</h3>
-                    <p>填写具体原因、争议订单和金额；提交后按当前账单版本进入正式检测流程。</p>
-                  </div>
-                </div>
-                {(["PROMOTION", "MANAGEMENT"] as const).map((direction) => (
-                  <div className="section-title" key={`dispute-${direction}`}>
-                    <div>
-                      <h3>{feeDirectionLabel(direction)}</h3>
-                      <p>{disputesResource.data?.data.list.filter((item) => item.feeDirection === direction).length ?? 0} 条历史异议</p>
-                    </div>
-                    <Button onClick={() => openDispute(direction)} size="sm" variant="secondary">
-                      发起{feeDirectionLabel(direction)}异议
-                    </Button>
-                  </div>
-                ))}
-                {disputesResource.rawError ? <ResourcePanel tone="error">{apiErrorText(disputesResource.rawError, "历史异议暂不可用，请稍后重试。")}</ResourcePanel> : null}
-                {disputesResource.data?.data.list.length ? (
-                  <div className="admin-history-block" aria-label="历史账单异议">
-                    {disputesResource.data.data.list.map((dispute) => (
-                      <div className="admin-dispute-history-item" key={dispute.disputeId}>
-                        <strong>{feeDirectionLabel(dispute.feeDirection)} · {dispute.description}</strong>
-                        <span>{disputeStatusLabel(dispute.status)} · {formatDateTime(dispute.submittedAt)}</span>
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {disputeMessage ? <p role={disputeState === "error" ? "alert" : "status"}>{disputeMessage}</p> : null}
-              </>
-            ) : (
-              <ResourcePanel>当前未生成可确认账单，页面保留预览数据；生成当前账单后才能确认费用方向。</ResourcePanel>
-            )}
-          </section>
-          {(["PROMOTION", "MANAGEMENT"] as const).map((direction) => {
-            const directionLines = view.lines.filter((line) => line.feeDirection === direction);
-            return (
-              <section className="content-section" key={direction}>
-                <div className="section-title"><div><h2>{direction === "PROMOTION" ? "推广服务费" : "管理服务费"}</h2><p>展示原始、调整与净额；多费率按实际集合展示，不计算平均费率。</p></div></div>
-                {directionLines.length ? <DataTable columns={columns} rows={directionLines} rowHref={(line) => lineDetailsHref(line, { statementId: view.statement?.statementId, storeId: view.store.storeId, month: view.month, productScope: view.productScope, productType: view.productType }) || undefined} /> : <ResourcePanel>当前筛选下没有{direction === "PROMOTION" ? "推广服务费" : "管理服务费"}汇总行。</ResourcePanel>}
-              </section>
-            );
-          })}
-          <Dialog
-            actions={
-              <>
-                <Button disabled={pendingDirection !== null} onClick={() => setConfirmationDirection(null)} variant="secondary">返回查看</Button>
-                <Button loading={pendingDirection === confirmationDirection} onClick={() => void submitConfirmation()} variant="primary">确认提交</Button>
-              </>
-            }
+                  </article>
+                );
+              })}
+            </div>
+            {confirmationMessage ? <p className="store-finance-action-message" role={confirmationState === "error" ? "alert" : "status"}>{confirmationMessage}</p> : null}
+      </section>
+
+      <section className="content-section store-finance-fee-details" aria-label="费用明细">
+            <div className="section-title">
+              <div><h2>费用明细</h2><p>推广费明细和管理费明细均来自正式订单费用接口。</p></div>
+            </div>
+            <div className="store-finance-fee-tabs" role="tablist" aria-label="费用明细类型">
+              {FEE_DIRECTIONS.map((direction) => (
+                <Button
+                  aria-selected={activeFeeDirection === direction}
+                  className={activeFeeDirection === direction ? "is-active" : ""}
+                  key={direction}
+                  onClick={() => setActiveFeeDirection(direction)}
+                  role="tab"
+                  size="sm"
+                  type="button"
+                  variant={activeFeeDirection === direction ? "primary" : "secondary"}
+                >
+                  {direction === "PROMOTION" ? "推广费明细" : "管理费明细"}
+                </Button>
+              ))}
+            </div>
+            <div className="store-finance-fee-tabpanel" role="tabpanel">
+              <ResourceNotice loading={activeOrderResource.loading} error={activeOrderResource.error} />
+              {activeOrders.length ? <DataTable columns={orderColumns} rows={activeOrders} /> : <ResourcePanel>暂无数据</ResourcePanel>}
+            </div>
+      </section>
+
+      <section className="store-finance-dispute-entry" aria-label="账单异议">
+            <span className="store-finance-dispute-entry__label">账单异议</span>
+            <span className="store-finance-dispute-entry__empty">
+              {statement?.isCurrent ? "如需核对账单，可发起异议" : "暂无可发起的账单异议"}
+            </span>
+            <Button className="store-finance-dispute-entry__trigger" onClick={() => setDisputeConfirmationOpen(true)} size="sm" variant="text">
+              发起账单异议
+            </Button>
+      </section>
+
+          {disputeResource.data?.data.list.length ? (
+            <section className="content-section store-finance-dispute-list" aria-label="已提交账单异议">
+              <div className="section-title"><div><h2>已提交账单异议</h2><p>仅展示当前账单的真实提交记录。</p></div></div>
+              <ul>
+                {disputeResource.data.data.list.map((item) => <li key={item.disputeId}>{item.statementMonth} · {feeDirectionLabel(item.feeDirection)} · {item.status} · {formatCurrency(item.disputedAmountCent)}</li>)}
+              </ul>
+            </section>
+          ) : null}
+
+      <Dialog
+            actions={<><Button disabled={pendingDirection !== null} onClick={() => setConfirmationDirection(null)} variant="secondary">返回查看</Button><Button loading={pendingDirection === confirmationDirection} onClick={() => void submitConfirmation()} variant="primary">确认提交</Button></>}
             closeDisabled={pendingDirection !== null}
             description="提交后将按当前账单版本确认对应费用方向，并立即刷新账单状态。"
             onClose={() => setConfirmationDirection(null)}
@@ -479,62 +374,47 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
           >
             <p>请确认当前账单金额与费用方向无误后再提交。</p>
           </Dialog>
-          <Dialog
-            actions={
-              <>
-                <Button disabled={pendingDispute} onClick={() => setDisputeDirection(null)} variant="secondary">返回账单</Button>
-                <Button loading={pendingDispute} onClick={() => void submitDispute()} variant="primary">提交异议并开始检测</Button>
-              </>
-            }
-            closeDisabled={pendingDispute}
-            description="不上传文件；具体原因、订单和金额将绑定当前账单版本并写入正式异议记录。"
-            onClose={() => setDisputeDirection(null)}
-            open={disputeDirection !== null}
-            panelClassName="store-dispute-dialog"
-            title={`发起${disputeDirection ? feeDirectionLabel(disputeDirection) : "账单"}异议`}
+
+      <Dialog
+            actions={<><Button onClick={() => setDisputeConfirmationOpen(false)} variant="secondary">取消</Button><Button onClick={() => { setDisputeConfirmationOpen(false); setDisputeOpen(true); }} variant="primary">确认发起</Button></>}
+            description="异议入口默认收起，确认后再填写异议资料。"
+            onClose={() => setDisputeConfirmationOpen(false)}
+            open={disputeConfirmationOpen}
+            title="确认发起账单异议"
           >
-            <div className="admin-form-grid">
-              <SelectField
-                label="异议类型"
-                onChange={(value) => setDisputeType(value as StoreSettlementDisputeType)}
-                options={[
-                  { value: "RATE_ERROR", label: "费率错误" },
-                  { value: "DATA_MISSING", label: "订单 / 数据遗漏" },
-                  { value: "AMOUNT_ERROR", label: "金额错误" },
-                  { value: "OTHER", label: "其他" },
-                ]}
-                value={disputeType}
-              />
-              <TextField label="联系人" onChange={(event) => setDisputeContactName(event.target.value)} value={disputeContactName} />
-              <TextField label="联系电话" inputMode="numeric" onChange={(event) => setDisputeContactPhone(event.target.value)} value={disputeContactPhone} />
-              <TextField label="争议总金额（元）" readOnly value={centToYuan(disputeAmountCent)} />
-            </div>
-            <div className="admin-history-block">
-              <div className="section-title">
-                <div>
-                  <h3>争议订单</h3>
-                  <p>每个订单填写对应争议金额，系统按正式 API 校验订单归属和金额合计。</p>
-                </div>
-                <Button onClick={() => setDisputeOrders((current) => [...current, emptyDisputeOrder()])} size="sm" variant="text">添加订单</Button>
-              </div>
-              {disputeOrders.map((order, index) => (
-                <div className="admin-form-grid" key={`dispute-order-${index}`}>
-                  <TextField label={`订单号 ${index + 1}`} onChange={(event) => updateDisputeOrder(index, "orderId", event.target.value)} value={order.orderId} />
-                  <TextField label="券 ID（可选）" onChange={(event) => updateDisputeOrder(index, "couponId", event.target.value)} value={order.couponId} />
-                  <TextField label="订单争议金额（元）" inputMode="decimal" onChange={(event) => updateDisputeOrder(index, "disputedAmountYuan", event.target.value)} value={order.disputedAmountYuan} />
-                  {disputeOrders.length > 1 ? <Button onClick={() => setDisputeOrders((current) => current.filter((_, orderIndex) => orderIndex !== index))} size="sm" variant="text">移除</Button> : null}
-                </div>
-              ))}
-            </div>
-            <TextareaField
-              helperText="请写明具体差异、涉及订单或金额；异议不再上传文件。"
-              label="具体原因"
-              onChange={(event) => setDisputeReason(event.target.value)}
-              value={disputeReason}
-            />
+            <p>发起异议前请准备充分资料，是否发起？</p>
           </Dialog>
-        </>
-      )}
+
+      <Dialog
+            actions={<><Button onClick={() => setDisputeOpen(false)} variant="secondary">取消</Button><Button disabled variant="primary">提交异议并开始检测</Button></>}
+            description="金额和订单将按当前账单版本校验；证明材料受控上传开放后方可提交。"
+            onClose={() => setDisputeOpen(false)}
+            open={disputeOpen}
+            panelClassName="store-finance-dispute-dialog"
+            title="发起账单异议"
+          >
+            <div className="store-finance-dispute-form">
+              <SelectField label="异议类型" onChange={(value) => setDisputeType(value as StoreDisputeType)} options={DISPUTE_TYPES} value={disputeType} />
+              <div className="finance-form-grid">
+                <SelectField
+                  label="费用方向"
+                  onChange={(value) => setActiveFeeDirection(value as FeeDirection)}
+                  options={FEE_DIRECTIONS.map((value) => ({
+                    label: feeDirectionLabel(value),
+                    value,
+                  }))}
+                  value={activeFeeDirection}
+                />
+                <label className="ui-field"><span className="ui-field__label">争议金额（元）</span><FieldInput inputMode="decimal" value={disputeAmount} onChange={(event) => setDisputeAmount(event.target.value)} placeholder="最多三位小数" /></label>
+                <label className="ui-field"><span className="ui-field__label">联系人</span><FieldInput value={disputeContactName} onChange={(event) => setDisputeContactName(event.target.value)} /></label>
+                <label className="ui-field"><span className="ui-field__label">手机号</span><FieldInput inputMode="numeric" maxLength={11} value={disputeContactPhone} onChange={(event) => setDisputeContactPhone(event.target.value.replace(/\D/g, ""))} /></label>
+              </div>
+              <label className="ui-field"><span className="ui-field__label">争议订单</span><FieldTextarea value={disputeOrders} onChange={(event) => setDisputeOrders(event.target.value)} placeholder="每行填写：订单号,争议金额(元)；仅一条时可只填订单号" /></label>
+              <label className="ui-field"><span className="ui-field__label">问题说明</span><FieldTextarea value={disputeDescription} onChange={(event) => setDisputeDescription(event.target.value)} /></label>
+              <label className="ui-field"><span className="ui-field__label">证明材料</span><FieldInput aria-describedby="store-dispute-upload-status" disabled type="file" /></label>
+              <p className="store-finance-action-message" id="store-dispute-upload-status" role="status">证明材料受控上传尚未开放，当前不能提交异议。</p>
+            </div>
+          </Dialog>
     </div>
   );
 }

@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：725
-- 文件关系：802
+- 文件节点：736
+- 文件关系：822
 - 诊断问题：29
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -16,6 +16,7 @@
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
+| page-2026-08-28T05-09-50-002Z.yml | config | host-project | [[.playwright-cli/page-2026-08-28T05-09-50-002Z.yml|page-2026-08-28T05-09-50-002Z.yml]] | [page-2026-08-28T05-09-50-002Z.yml](../../.playwright-cli/page-2026-08-28T05-09-50-002Z.yml) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
 | env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
 | 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
@@ -93,7 +94,6 @@
 | mcp_server.py | source_code | coding-standards | [[apps/api/dy_api/mcp_server.py|mcp_server.py]] | [mcp_server.py](../../apps/api/dy_api/mcp_server.py) |
 | models.py | source_code | coding-standards | [[apps/api/dy_api/models.py|models.py]] | [models.py](../../apps/api/dy_api/models.py) |
 | _data.py | source_code | coding-standards | [[apps/api/dy_api/routes/_data.py|_data.py]] | [_data.py](../../apps/api/dy_api/routes/_data.py) |
-| admin.py | source_code | coding-standards | [[apps/api/dy_api/routes/admin.py|admin.py]] | [admin.py](../../apps/api/dy_api/routes/admin.py) |
 
 ## 3. 关系
 
@@ -187,6 +187,7 @@
 | docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | docs/uat/dydata-19-uat-checklist.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:176 |
 | docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:75 |
 | docs/devlog/20260824_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260824_refactor_log_jojiuchen-blip.md:69 |
+| docs/devlog/20260828_dydata-81-store-finance.md | links_to | design-qa.md | docs/devlog/20260828_dydata-81-store-finance.md:34 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -218,7 +219,6 @@
 | docs/plans/2026-06-12-automatic-collection-production-closure.md | links_to | docs/runbook.md | docs/plans/2026-06-12-automatic-collection-production-closure.md:522 |
 | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md | links_to | docs/api-contract.md | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md:21 |
 | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md | links_to | docs/data-model.md | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md:20 |
-| docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md | links_to | docs/api-contract.md | docs/plans/2026-06-16-clue-allocation-center-mvp-plan.md:974 |
 
 ## 4. 诊断问题
 

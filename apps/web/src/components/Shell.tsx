@@ -9,7 +9,13 @@ import { SolarIcon, type SolarIconName } from "./SolarIcon";
 import { BrandAttribution } from "./BrandAttribution";
 import { ThemePicker } from "./ThemePicker";
 
-const settlementPaths = new Set(["/ranking", "/settlement", "/details", "/settlement/invoice"]);
+const settlementPaths = new Set([
+  "/ranking",
+  "/settlement",
+  "/details",
+  "/settlement/invoice",
+  "/settlement/invoice/status",
+]);
 const verificationPaths = new Set(["/sales"]);
 const dataWorkspacePaths = new Set(["/clues/details", "/details"]);
 const financePaths = new Set([
@@ -75,8 +81,7 @@ const moduleNavItems: ModuleNavItem[] = [
     icon: "chart",
     label: "订单分佣",
     section: "settlement",
-    description: "试运行",
-    badge: "试运行",
+    description: "分账结算",
   },
   {
     href: "/finance/promotion",
@@ -101,8 +106,8 @@ const moduleNavItems: ModuleNavItem[] = [
 const settlementNavItems: NavItem[] = [
   { href: "/ranking", label: "全国门店榜单", pageKey: "B01" },
   { href: "/settlement", label: "单店分账", pageKey: "B02" },
-  { href: "/details", label: "订单费用明细", pageKey: "B03" },
   { href: "/settlement/invoice", label: "开票确认", pageKey: "B02" },
+  { href: "/settlement/invoice/status", label: "发票状态查看", pageKey: "B02" },
 ];
 
 const clueNavItems: NavItem[] = [
@@ -145,9 +150,6 @@ const sectionLabels: Record<NavSection, string> = {
   finance: "财务中心",
   admin: "管理后台",
 };
-
-const settlementTrialNotice =
-  "提示：预计分佣比例、金额仅为试运行参考，不代表最终规则或最终到账金额。";
 
 const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
   { label: "使用体验", value: "experience" },
@@ -472,15 +474,6 @@ export function Shell({
       <div className="workspace-shell">
         <header className="workspace-topbar">
           {renderSecondaryNav("workspace-subnav--desktop")}
-          {section === "settlement" ? (
-            <div
-              aria-label={settlementTrialNotice}
-              className="settlement-trial-notice"
-              role="note"
-            >
-              {settlementTrialNotice}
-            </div>
-          ) : null}
           <div className="workspace-actions">
             {section === "settlement" ? <CommissionRulesButton /> : null}
             {currentUser ? (
@@ -516,11 +509,6 @@ export function Shell({
         </header>
 
         {renderSecondaryNav("workspace-subnav--mobile")}
-        {section === "settlement" ? (
-          <div className="settlement-trial-notice settlement-trial-notice--mobile">
-            {settlementTrialNotice}
-          </div>
-        ) : null}
 
         {isDemoMode ? (
           <div className="demo-mode-notice" role="note">
