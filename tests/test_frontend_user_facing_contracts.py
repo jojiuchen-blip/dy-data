@@ -684,8 +684,8 @@ def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
     assert '<TertiaryNav' in order_details
     assert 'label="订单明细费用方向"' in order_details
     for item in [
-        '{ href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" }',
-        '{ href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" }',
+        '`/finance/orders/promotion?month=${encodeURIComponent(draft.month)}`',
+        '`/finance/orders/management?month=${encodeURIComponent(draft.month)}`',
     ]:
         assert item in order_details
     assert '<TertiaryNav' in order_details.split('<section className="page-heading', 1)[0]

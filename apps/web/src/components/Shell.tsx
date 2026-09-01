@@ -361,7 +361,7 @@ export function Shell({
       >
         {sectionNavItems.map((item) => {
           const active = item.href === activeSecondaryHref;
-          const href = section === "finance"
+          const href = section === "finance" && item.href !== "/finance/imports"
             ? withMonth(item.href, currentMonth)
             : item.href;
           return (
