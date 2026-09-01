@@ -168,7 +168,7 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert "keeping worker stopped" not in deploy_script
     assert 'compose exec -T worker python -c' in deploy_script
     assert "apps.worker.queued_jobs" in deploy_script
-    assert "compose logs --tail=80 api web proxy worker" in deploy_script
+    assert "compose logs --tail=80 api web proxy ops-agent worker" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
