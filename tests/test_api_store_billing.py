@@ -2798,8 +2798,13 @@ def test_store_withdraws_dispute_before_result_without_changing_statement(
 
 
 def test_admin_accepts_dispute_by_creating_a_new_immutable_statement_version(
-    client: TestClient, db_session: Session
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    monkeypatch.setattr(
+        dashboard_routes,
+        "utcnow",
+        lambda: datetime(2026, 9, 7, 12, tzinfo=timezone.utc),
+    )
     _login(client)
     db_session.add_all(
         [
