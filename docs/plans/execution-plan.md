@@ -6,7 +6,7 @@
 
 - 用户已于 2026-08-30 明确授权：基于已确认《财务页面合同矩阵》、书面裁决、冻结原型和正式 API/Schema，完成六页实现、测试、隔离 UAT、受控生产部署与部署后验证；任一门禁失败即停止，不自行关闭 DYDATA-81。
 - 当前隔离分支：`codex/dydata-81-finance-contract`；专用 worktree 与其他未提交工作树隔离，不复用旧冲突改动。
-- 正式计划入口：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
+- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
 - G4 一级“财务”导航已由 `df617e7` 生产部署；G5 六页内部合同、推广费 5 卡口径、订单筛选/表头、SAP 财务值生效与版本审计、单条矫正、真实异步检测和三视口隔离 UAT 已完成本地实现与验证，当前停在生产发布硬门禁。
 - 页面内部结构与业务交互以冻结原型逐项验收；视觉继续以 `docs/design-system/tokens.json`、`docs/design-system/README.md`、`apps/web/src/design-tokens.css` 和共享组件为权威。
 - 2026-08-31 用户已裁决取消账单异议文件上传，改为填写具体原因；reason-only API/UI、三档 UAT 与截图证据已补齐。对象存储不再是 DYDATA-81 发布依赖。
@@ -29,8 +29,8 @@
 
 - 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。
 - 当前 Linear issue：`DYDATA-81`，状态 `In Progress`；当前分支由本任务单一窗口负责，完成后等待 Owner 验收，不自行关闭。
-- 当前正式计划：[main-delivery-plan-dy-data.md](delivery-plans/main-delivery-plan-dy-data.md)。
-- 当前正式计划文件组：主计划、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
+- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。
+- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
 - 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
 - 当前 Task：G4 已部署；G5 进行中。任一合同、数据正确性、正式 API、迁移、权限、CI、备份、部署或 smoke 门禁失败必须停止发布并记录证据。
 
@@ -57,6 +57,26 @@
 - 发布前主线预检：当前隔离分支直接基于 `origin/main@ef547ab4` 建立，已避免旧分支硬合并与历史迁移链冲突。ahead/behind 是随本轮证据提交变化的运行时状态，不在计划中写死；发布前必须重新 `fetch` 并以 `git rev-list --left-right --count origin/main...HEAD` 的新鲜结果为准。后续仍须通过 PR/CI、目标 PostgreSQL 迁移与回滚门禁、部署后 smoke，才可进入生产发布。
 - T5.7 本地全量回归已完成：视觉 229 passed；其余 1182 passed、2 skipped；合计 1411 passed、2 skipped、0 failed。此前视觉失败已确认由 v2-clean 标题基线漂移与 SPA/StrictMode 时序断言导致，并在测试层修正；结算页面另关闭上下文切换期间旧账单误确认与 409 冲突后旧版本残留两个 Important 缺口，线索演示模式恢复 D05-D08 管理分配验收路径且未扩展演示边界。最终独立复审 Critical/Important/Minor 均为 0，Ready: yes。迁移回滚契约仍为：空库可逆；已有不可变事实时拒绝有损降级，生产使用备份恢复或前向修复。PR/CI、目标 PostgreSQL 门禁、目标环境部署与 smoke 尚未完成。
 - T5.7 G5 reason-only 增量：API/前端回归 `62 passed`；三档真实 FastAPI UAT `3 passed`；DYDATA-81 专项视觉/真实 API 回归 `10 passed`；全量视觉回归 `245 passed`。全量 pytest 已在清理后的环境重跑通过：`1480 passed, 2 skipped, 271 warnings`（36:12）；此前通用 ranking 768 视觉导航的 Windows `ERR_NO_BUFFER_SPACE` 未复现，技术门禁已收口。DYDATA-82 对象存储门禁已由 2026-08-31 用户裁决解除；PR/CI、目标 PostgreSQL、备份、生产部署与线上 smoke 仍未执行。
+
+## 5. 完成标准
+
+- 8 张目标表、20 个接口与 8 条生产路由可追溯到 PRD、验证方法和证据。
+- 系统不创建开票申请、不执行真实开票或厂端审核；只登记信息、导入结果、回传状态、查询、导出与审计。
+- 四类导入全量校验且整批原子；发票、异议、账单和导入更正只生成新版本，不删除历史。
+- 全量 pytest、Web build、真实浏览器、迁移、并发、权限、系统测试及用户验收通过。
+- DYDATA-81 的六个财务页面、一级财务入口、导入入口、SAP 有效值/单条矫正/版本审计、账单异议异步检测、三档响应式 UAT 和部署后 smoke 均有可复现证据；任一生产数据、权限、备份、迁移或部署门禁未通过时不得发布。
+
+## 6. 状态与权威边界
+
+- Issue 范围、优先级、负责人、状态和验收以 Linear 为准。
+- 业务规则以 `docs/prd/` 与 Foundation 为准；页面文件不复制服务端财务计算或权限真相。
+- 正式任务状态以主开发计划、任务看板和当前子计划三处一致为准；DYDATA-81 未经 Owner 验收不关闭。
+
+## 7. 本轮验证证据
+
+- DYDATA-81 本地实现、真实 FastAPI 三档 UAT、页面截图、专项回归和 Web build 已完成；PR/CI、目标 PostgreSQL、备份、生产部署和线上 smoke 仍须以受控环境证据为准。
+- 并行线索主线的历史验证事实保留在其正式交付计划和开发日志中，不作为 DYDATA-81 生产部署证据。
+
 > 以下并行主线的历史交付事实保留在各自正式交付计划和开发日志中。
 
 ## 8. 并行主线：DYDATA-58

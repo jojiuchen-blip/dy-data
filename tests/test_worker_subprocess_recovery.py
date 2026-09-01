@@ -340,6 +340,7 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
 ) -> None:
     factory = object()
     calls: list[object] = []
+    finance_calls: list[object] = []
 
     monkeypatch.setenv("WORKER_RUN_ON_START", "false")
     monkeypatch.setenv("WORKER_EXECUTE_DAILY_CHILD", "true")
@@ -350,6 +351,11 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
         scheduler,
         "drain_ready_daily_children",
         lambda passed_factory: (calls.append(passed_factory) or ()),
+    )
+    monkeypatch.setattr(
+        scheduler,
+        "process_queued_finance_dispute_detections",
+        lambda passed_factory: (finance_calls.append(passed_factory) or ()),
     )
     monkeypatch.setattr(
         scheduler,
@@ -365,6 +371,7 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
     scheduler.main()
 
     assert calls == [factory]
+    assert finance_calls == [factory]
 
 
 def test_scheduler_queue_poll_is_independent_of_long_auto_plan_interval(
