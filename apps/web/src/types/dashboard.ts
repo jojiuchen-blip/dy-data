@@ -1711,6 +1711,33 @@ export interface StoreBillingConfirmationResult extends BillingConfirmationSumma
   isCurrent: boolean;
 }
 
+export type StoreSettlementDisputeType =
+  | "RATE_ERROR"
+  | "DATA_MISSING"
+  | "AMOUNT_ERROR"
+  | "OTHER";
+
+export interface StoreSettlementDisputeOrderPayload {
+  orderId: string;
+  couponId?: string;
+  disputedAmountCent: number;
+}
+
+export interface StoreSettlementDisputePayload {
+  feeDirection: FeeDirection;
+  disputeType: StoreSettlementDisputeType;
+  description: string;
+  contactName: string;
+  contactPhone: string;
+  disputedAmountCent: number;
+  orders: StoreSettlementDisputeOrderPayload[];
+  readVersion: number;
+}
+
+export interface StoreSettlementDisputeListData {
+  list: FinanceDisputeRow[];
+}
+
 export interface StoreBillingStatement {
   statementId: string;
   storeId: string;
@@ -1902,20 +1929,26 @@ export interface FinanceSummaryData {
 }
 
 export interface FinanceInvoiceRow {
-  invoiceId: string;
+  invoiceId: string | null;
   storeId: string;
+  storeName: string | null;
+  effectiveSapCode: string | null;
   statementId: string;
   statementMonth: string;
+  statementAmountCent: number;
+  confirmedAmountCent: number | null;
   feeDirection: FeeDirection;
-  versionNo: number;
-  isCurrent: boolean;
-  invoiceNumber: string;
-  invoiceDate: string;
-  invoiceAmountCent: number;
+  versionNo: number | null;
+  isCurrent: boolean | null;
+  invoiceNumber: string | null;
+  invoiceDate: string | null;
+  invoiceAmountCent: number | null;
   status: string;
-  sourceType: number;
+  sourceType: number | null;
   importBatchId: string | null;
-  registeredAt: string;
+  registeredAt: string | null;
+  settlementBatchMonth: string | null;
+  rejectionReason: string | null;
   factoryDeductionDate?: string | null;
   factoryDeductionAmountCent?: number | null;
   settledAt?: string | null;
@@ -1935,6 +1968,10 @@ export interface FinanceOrderDetailRow {
   storeId: string;
   storeName: string | null;
   sapCode: string | null;
+  billingStoreId: string;
+  billingStoreName: string | null;
+  serviceStoreName: string | null;
+  effectiveSapCode: string | null;
   statementMonth: string;
   feeDirection: FeeDirection;
   orderId: string;
@@ -1944,6 +1981,7 @@ export interface FinanceOrderDetailRow {
   productName: string | null;
   skuId: string | null;
   skuName: string | null;
+  productType: string | null;
   saleChannel: string | null;
   saleStoreId: string | null;
   saleStoreName: string | null;
@@ -1962,6 +2000,7 @@ export interface FinanceOrderDetailRow {
   submittedAt: string | null;
   invoiceStatus: string | null;
   settledAt: string | null;
+  settlementDate: string | null;
   rejectionReason: string | null;
   importedAt: string | null;
   settlementStatus: "SETTLED" | "UNSETTLED" | null;
@@ -1983,6 +2022,7 @@ export interface FinanceOrderDetailsQuery {
   [key: string]: string | number | undefined;
   month: string;
   feeDirection: FeeDirection;
+  q?: string;
   storeId?: string;
   storeName?: string;
   sapCode?: string;
@@ -1991,6 +2031,7 @@ export interface FinanceOrderDetailsQuery {
   skuId?: string;
   saleChannel?: string;
   invoiceStatus?: string;
+  settlementStatus?: string;
   submittedFrom?: string;
   submittedTo?: string;
   verifyFrom?: string;
@@ -2011,6 +2052,15 @@ export interface FinanceStoreRow {
   storeId: string;
   storeName: string;
   sapCode: string | null;
+  discrepancyId: string | null;
+  storeMaintainedSapCode: string | null;
+  financeImportedSapCode: string | null;
+  effectiveSapCode: string | null;
+  effectiveSapVersion: number;
+  effectiveSapUpdatedBy: string | null;
+  effectiveSapUpdatedAt: string | null;
+  sapStatus: string;
+  discrepancyDetectedAt: string | null;
   confirmedVersion: number;
   confirmedSourceType: number | null;
   suggestionId: string | null;
@@ -2032,12 +2082,40 @@ export interface FinanceStoreListData {
   total: number;
   page: number;
   pageSize: number;
+  sapMetrics: {
+    discrepancyCount: number;
+    pendingStoreConfirmationCount: number;
+    financeActionableCount: number;
+    confirmedTodayCount: number;
+  };
+}
+
+export type FinanceDisputeDetectionStatus =
+  | "QUEUED"
+  | "RUNNING"
+  | "SUCCEEDED"
+  | "FAILED";
+
+export interface FinanceDisputeDetection {
+  detectionId: string;
+  disputeId: string;
+  status: FinanceDisputeDetectionStatus;
+  stage: string;
+  progressPercent: number;
+  resultSummary: string | null;
+  checks: Record<string, boolean>;
+  evidence: Array<Record<string, unknown>>;
+  failureReason: string | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  updatedAt: string;
 }
 
 export interface FinanceDisputeRow {
   disputeId: string;
   statementId: string;
   storeId: string;
+  storeName: string;
   statementMonth: string;
   feeDirection: FeeDirection;
   disputeType: string;
@@ -2051,6 +2129,7 @@ export interface FinanceDisputeRow {
   submittedAt: string;
   resolutionNote: string | null;
   resultStatementId: string | null;
+  latestDetection: FinanceDisputeDetection | null;
 }
 
 export interface FinanceDisputeListData {
@@ -2058,6 +2137,12 @@ export interface FinanceDisputeListData {
   total: number;
   page: number;
   pageSize: number;
+  metrics: {
+    amountDisputeCount: number;
+    detectingCount: number;
+    pendingAdminCount: number;
+    completedTodayCount: number;
+  };
 }
 
 export interface FinanceImportErrorRow {
@@ -2087,6 +2172,7 @@ export interface FinanceImportBatchRow {
   totalRows: number;
   successRows: number;
   errorRows: number;
+  resultSummary: string;
   submittedBy: string;
   submittedAt: string;
   committedBy: string | null;

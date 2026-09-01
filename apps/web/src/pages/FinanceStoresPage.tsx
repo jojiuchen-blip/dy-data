@@ -1,17 +1,19 @@
 import { useState } from "react";
 import {
   ApiRequestError,
-  decideSapSuggestion,
+  correctFinanceStoreSap,
+  downloadFinanceImportTemplate,
+  downloadFinanceSapDiscrepancies,
+  downloadFinanceStores,
   fetchFinanceStores,
-  fetchStoreSapSuggestions,
-  submitSapSuggestion,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { FinanceImportActionPanel } from "../components/FinanceImportActionPanel";
-import { FieldInput, SelectField } from "../components/FormControls";
-import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
-import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { SelectField, TextField } from "../components/FormControls";
+import { MetricCard } from "../components/MetricCard";
+import { ResourceNotice } from "../components/ResourceState";
+import { Tabs } from "../components/SelectionControls";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   AdminUser,
@@ -21,9 +23,9 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
-import { displaySapSuggestionStatus } from "../utils/userFacingLabels";
+import { displayFinanceSapStatus } from "../utils/userFacingLabels";
 
-type SapDecisionAction = "CONFIRM" | "CORRECT" | "REJECT";
+type StoreTab = "base" | "sap";
 type ActionState = "idle" | "loading" | "success" | "error" | "conflict";
 
 function defaultStatementMonth(): string {
@@ -31,11 +33,8 @@ function defaultStatementMonth(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function actionErrorMessage(error: unknown): { state: ActionState; message: string } {
-  const message = userFacingError(error, "操作失败，请稍后重试。");
-  return error instanceof ApiRequestError && error.status === 409
-    ? { state: "conflict", message: "数据版本已变化，请刷新后重新处理。" }
-    : { state: "error", message };
+function countMetric(value: number | undefined): string {
+  return typeof value === "number" ? `${value} 家` : "—";
 }
 
 interface FinanceStoresPageProps {
@@ -44,168 +43,240 @@ interface FinanceStoresPageProps {
 }
 
 export function FinanceStoresPage({ currentUser, searchParams }: FinanceStoresPageProps) {
-  const isStore = currentUser.role === "store";
+  const [tab, setTab] = useState<StoreTab>(searchParams.get("tab") === "sap" ? "sap" : "base");
   const [month, setMonth] = useState(searchParams.get("month") ?? defaultStatementMonth());
   const [query, setQuery] = useState(searchParams.get("q") ?? "");
-  const [storeId, setStoreId] = useState(
-    searchParams.get("storeId") ?? currentUser.store_ids[0] ?? "",
-  );
   const [feeDirection, setFeeDirection] = useState<FeeDirection>("PROMOTION");
   const [metricScope, setMetricScope] = useState<BillingMetricScope>("MONTH");
-  const [suggestedSapCode, setSuggestedSapCode] = useState("");
-  const [suggestionNote, setSuggestionNote] = useState("");
-  const [selectedSuggestion, setSelectedSuggestion] = useState<FinanceStoreRow | null>(null);
-  const [decisionAction, setDecisionAction] = useState<SapDecisionAction>("CONFIRM");
-  const [confirmedSapCode, setConfirmedSapCode] = useState("");
-  const [handlingReason, setHandlingReason] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [selectedRow, setSelectedRow] = useState<FinanceStoreRow | null>(null);
+  const [finalSapCode, setFinalSapCode] = useState("");
+  const [changeReason, setChangeReason] = useState("");
   const [actionState, setActionState] = useState<ActionState>("idle");
-  const [actionMessage, setActionMessage] = useState("");
+  const [notice, setNotice] = useState("");
+  const [noticeIsError, setNoticeIsError] = useState(false);
+  const [downloadBusy, setDownloadBusy] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
 
+  const financeQuery = {
+    month,
+    feeDirection,
+    metricScope,
+    q: query.trim() || undefined,
+    sapDiscrepanciesOnly: tab === "sap",
+    pageSize: 50,
+  };
   const financeResource = useApiResource(
-    () => fetchFinanceStores({ month, feeDirection, metricScope, q: query || undefined, pageSize: 50 }),
-    [month, feeDirection, metricScope, query],
-    { enabled: !isStore },
+    () => fetchFinanceStores(financeQuery),
+    [month, feeDirection, metricScope, query, tab],
   );
-  const storeSuggestionResource = useApiResource(
-    () => fetchStoreSapSuggestions(storeId),
-    [storeId],
-    { enabled: isStore && Boolean(storeId) },
-  );
+  const resourceBusy = financeResource.loading || financeResource.refreshing;
+  const rows = financeResource.data?.data.list ?? [];
+  const sapMetrics = financeResource.data?.data.sapMetrics;
+  const roleContext = currentUser.role === "highest_admin" ? "最高管理员" : "财务管理员";
+  const expectedConfirmedVersion = selectedRow?.confirmedVersion ?? 0;
 
-  const resetAction = () => {
+  const baseColumns: Column<FinanceStoreRow>[] = [
+    { key: "storeId", title: "门店ID（所属账户关联poi-id）", minWidth: 230, sticky: true, render: (row) => row.storeId },
+    { key: "storeName", title: "服务店名称", minWidth: 220, render: (row) => row.storeName },
+    { key: "effectiveSap", title: "有效SAP编码", minWidth: 150, render: (row) => row.effectiveSapCode ?? "—" },
+    { key: "updatedAt", title: "最近导入时间", minWidth: 170, render: (row) => formatDateTime(row.effectiveSapUpdatedAt ?? row.updatedAt) },
+    { key: "sapStatus", title: "SAP确认状态", minWidth: 150, render: (row) => displayFinanceSapStatus(row.sapStatus) },
+  ];
+
+  const sapColumns: Column<FinanceStoreRow>[] = [
+    { key: "dispute", title: "异议编号", minWidth: 180, sticky: true, render: (row) => row.discrepancyId ?? "—" },
+    { key: "store", title: "门店", minWidth: 220, render: (row) => <span><strong>{row.storeName}</strong><br /><small>{row.storeId}</small></span> },
+    { key: "effectiveSap", title: "有效 SAP", minWidth: 150, render: (row) => row.effectiveSapCode ?? "—" },
+    { key: "status", title: "当前状态", minWidth: 150, render: (row) => displayFinanceSapStatus(row.sapStatus) },
+    { key: "detected", title: "检测时间", minWidth: 170, render: (row) => formatDateTime(row.discrepancyDetectedAt) },
+    { key: "action", title: "操作", minWidth: 120, render: (row) => <Button onClick={() => openCorrection(row)} size="sm" variant="text">查看详情</Button> },
+  ];
+
+  const openCorrection = (row: FinanceStoreRow) => {
+    setSelectedRow(row);
+    setFinalSapCode(row.effectiveSapCode ?? row.financeImportedSapCode ?? "");
+    setChangeReason("");
     setActionState("idle");
-    setActionMessage("");
+    setNotice("");
+    setNoticeIsError(false);
     setIdempotencyKey(crypto.randomUUID());
   };
 
-  const submitStoreSuggestion = async () => {
-    if (!storeId || !suggestedSapCode.trim() || !suggestionNote.trim()) return;
-    setActionState("loading");
-    setActionMessage("");
+  const handleTabChange = (nextTab: StoreTab) => {
+    setTab(nextTab);
+    setShowImport(false);
+    setSelectedRow(null);
+    setNotice("");
+    setNoticeIsError(false);
+  };
+
+  const handleTemplateDownload = async (importType: "BASIC_INFO" | "SAP_CONFIRMATION") => {
+    setDownloadBusy(true);
+    setNotice("");
+    setNoticeIsError(false);
     try {
-      await submitSapSuggestion(
-        storeId,
-        {
-          suggestedSapCode: suggestedSapCode.trim(),
-          suggestionNote: suggestionNote.trim(),
-          readVersion: storeSuggestionResource.data?.data.currentVersion ?? 0,
-        },
-        idempotencyKey,
-      );
-      setSuggestedSapCode("");
-      setSuggestionNote("");
-      setActionState("success");
-      setActionMessage("SAP 建议已提交，等待内部管理员处理；不会阻断账单或开票。");
-      setIdempotencyKey(crypto.randomUUID());
-      storeSuggestionResource.reload();
+      await downloadFinanceImportTemplate(importType);
+      setNotice("模板已下载，文件仅包含正式字段和填写说明。");
     } catch (error) {
-      const result = actionErrorMessage(error);
-      setActionState(result.state);
-      setActionMessage(result.message);
+      setNoticeIsError(true);
+      setNotice(userFacingError(error, "模板下载失败，请稍后重试。"));
+    } finally {
+      setDownloadBusy(false);
     }
   };
 
-  const openDecision = (row: FinanceStoreRow) => {
-    setSelectedSuggestion(row);
-    setDecisionAction("CONFIRM");
-    setConfirmedSapCode(row.suggestedSapCode ?? "");
-    setHandlingReason("");
-    resetAction();
+  const handleBaseExport = async () => {
+    setDownloadBusy(true);
+    setNotice("");
+    setNoticeIsError(false);
+    try {
+      const result = await downloadFinanceStores(financeQuery);
+      setNotice(result.result === "EMPTY" ? "当前筛选无门店，已下载仅含表头的文件。" : `已导出门店基础信息：${result.fileName}`);
+    } catch (error) {
+      setNoticeIsError(true);
+      setNotice(userFacingError(error, "门店基础信息导出失败，请稍后重试。"));
+    } finally {
+      setDownloadBusy(false);
+    }
   };
 
-  const submitDecision = async () => {
-    if (!selectedSuggestion?.suggestionId || !handlingReason.trim()) return;
-    if (decisionAction !== "REJECT" && !confirmedSapCode.trim()) return;
-    setActionState("loading");
-    setActionMessage("");
+  const handleSapExport = async () => {
+    setDownloadBusy(true);
+    setNotice("");
+    setNoticeIsError(false);
     try {
-      await decideSapSuggestion(
-        selectedSuggestion.suggestionId,
+      const result = await downloadFinanceSapDiscrepancies(financeQuery);
+      setNotice(result.result === "EMPTY" ? "当前筛选无 SAP 差异，已下载仅含表头的文件。" : `已导出 SAP 差异清单：${result.fileName}`);
+    } catch (error) {
+      setNoticeIsError(true);
+      setNotice(userFacingError(error, "SAP 差异清单导出失败，请稍后重试。"));
+    } finally {
+      setDownloadBusy(false);
+    }
+  };
+
+  const submitCorrection = async () => {
+    if (!selectedRow || !finalSapCode.trim() || !changeReason.trim()) return;
+    setActionState("loading");
+    setNotice("");
+    setNoticeIsError(false);
+    try {
+      await correctFinanceStoreSap(
+        selectedRow.storeId,
         {
-          action: decisionAction,
-          ...(decisionAction === "REJECT" ? {} : { confirmedSapCode: confirmedSapCode.trim() }),
-          handlingReason: handlingReason.trim(),
-          suggestionVersion: selectedSuggestion.suggestionVersion,
-          expectedConfirmedVersion: selectedSuggestion.confirmedVersion,
+          finalSapCode: finalSapCode.trim(),
+          changeReason: changeReason.trim(),
+          readVersion: selectedRow.effectiveSapVersion,
         },
         idempotencyKey,
       );
       setActionState("success");
-      setActionMessage("SAP 建议处理成功，当前有效版本已刷新。");
+      setNotice("有效 SAP 已生成新版本；门店原值、财务导入值、操作人和时间继续保留。历史账单与订单快照不回写。");
+      setSelectedRow(null);
       setIdempotencyKey(crypto.randomUUID());
       financeResource.reload();
     } catch (error) {
-      const result = actionErrorMessage(error);
-      setActionState(result.state);
-      setActionMessage(result.message);
+      const conflict = error instanceof ApiRequestError && error.status === 409;
+      setActionState(conflict ? "conflict" : "error");
+      setNoticeIsError(true);
+      setNotice(conflict ? "有效 SAP 版本已变化，请刷新后重新核对。" : userFacingError(error, "SAP 矫正失败，请稍后重试。"));
     }
   };
 
-  const columns: Column<FinanceStoreRow>[] = [
-    { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName}</strong><br /><small>{row.storeId}</small></span> },
-    { key: "sap", title: "SAP 编码", render: (row) => row.sapCode ?? "-" },
-    { key: "suggestion", title: "SAP 建议", minWidth: 190, render: (row) => <span>{row.suggestedSapCode ?? "-"}<br /><small>{displaySapSuggestionStatus(row.suggestionStatus)} · V{row.suggestionVersion}</small></span> },
-    { key: "total", title: "账单总额", align: "right", render: (row) => formatCurrency(row.statementTotalCent) },
-    { key: "confirmed", title: "已确认金额", align: "right", render: (row) => formatCurrency(row.confirmedAmountCent) },
-    { key: "pending", title: "待开票金额", align: "right", render: (row) => formatCurrency(row.pendingInvoiceAmountCent) },
-    { key: "issued", title: "已开票/扣款金额", align: "right", render: (row) => formatCurrency(row.issuedAmountCent) },
-    { key: "updated", title: "更新时间", minWidth: 170, render: (row) => formatDateTime(row.suggestionUpdatedAt ?? row.updatedAt) },
-    { key: "action", title: "操作", render: (row) => row.suggestionId && row.suggestionStatus === "PENDING" ? <Button onClick={() => openDecision(row)} size="sm" variant="text">处理建议</Button> : null },
-  ];
-
-  if (isStore) {
-    const suggestions = storeSuggestionResource.data?.data.list ?? [];
-    return (
-      <div className="page-stack finance-page">
-        <section className="page-heading finance-heading"><div><p className="eyebrow">门店账号</p><h1>SAP 编码建议</h1><p>门店 ID 是唯一匹配键；SAP 建议由内部管理员处理，不阻断账单确认、开票或结算。</p></div></section>
-        <section className="finance-filter-bar" aria-label="SAP 建议门店">
-          <label><span>门店</span><SearchableStoreSelect emptyMessage="没有可用门店" onChange={(value) => { setStoreId(value); resetAction(); }} options={currentUser.store_ids.map((value) => ({ value, label: value }))} placeholder="选择门店" value={storeId} /></label>
-        </section>
-        <ResourceNotice loading={storeSuggestionResource.loading} error={storeSuggestionResource.error} />
-        <section className="content-section finance-registration-card">
-          <div className="section-title"><div><h2>提交 SAP 建议</h2><p>当前建议版本 V{storeSuggestionResource.data?.data.currentVersion ?? 0}；当前确认版本 V{storeSuggestionResource.data?.data.confirmedVersion ?? 0}。</p></div></div>
-          <div className="finance-form-grid">
-            <label><span>建议 SAP 编码</span><FieldInput required value={suggestedSapCode} onChange={(event) => setSuggestedSapCode(event.target.value)} /></label>
-            <label><span>说明</span><FieldInput required value={suggestionNote} onChange={(event) => setSuggestionNote(event.target.value)} /></label>
-            <div className="finance-form-actions"><Button disabled={!suggestedSapCode.trim() || !suggestionNote.trim()} loading={actionState === "loading"} onClick={submitStoreSuggestion} variant="primary">提交建议</Button></div>
-          </div>
-          {actionMessage ? <p role={actionState === "error" || actionState === "conflict" ? "alert" : "status"}>{actionMessage}</p> : null}
-        </section>
-        <section className="content-section"><div className="section-title"><div><h2>建议历史</h2><p>历史版本永久保留。</p></div></div><DataTable columns={[
-          { key: "sap", title: "建议 SAP", render: (row) => row.suggestedSapCode },
-          { key: "status", title: "状态", render: (row) => displaySapSuggestionStatus(row.status) },
-          { key: "version", title: "建议版本", render: (row) => `V${row.versionNo}` },
-          { key: "submitted", title: "提交时间", render: (row) => formatDateTime(row.submittedAt) },
-          { key: "reason", title: "处理原因", render: (row) => row.handlingReason ?? "-" },
-        ]} rows={suggestions} state={storeSuggestionResource.loading ? "loading" : storeSuggestionResource.error ? "error" : "ready"} /></section>
-      </div>
-    );
-  }
-
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>门店基础信息</h1><p>门店 ID 是唯一匹配键；SAP 编码仅作为展示信息，不参与数据匹配。</p></div></section>
-      <section className="finance-filter-bar" aria-label="门店财务筛选条件">
-        <label><span>账期</span><FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} /></label>
-        <label><span>费用方向</span><SearchableStoreSelect emptyMessage="未找到费用方向" onChange={(value) => setFeeDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} placeholder="选择费用方向" value={feeDirection} /></label>
-        <label><span>指标口径</span><SearchableStoreSelect emptyMessage="未找到指标口径" onChange={(value) => setMetricScope(value as BillingMetricScope)} options={[{ value: "MONTH", label: "单月" }, { value: "CUMULATIVE", label: "累计" }]} placeholder="选择指标口径" value={metricScope} /></label>
-        <label><span>搜索门店</span><FieldInput placeholder="门店 ID、名称或 SAP" value={query} onChange={(event) => setQuery(event.target.value)} /></label>
-      </section>
-      <ResourceNotice loading={financeResource.loading} error={financeResource.error} />
-      <section className="content-section"><div className="section-title"><div><h2>门店汇总</h2><p>共 {financeResource.data?.data.total ?? 0} 家门店。</p></div></div><DataTable columns={columns} rows={financeResource.data?.data.list ?? []} state={financeResource.loading ? "loading" : financeResource.error ? "error" : "ready"} /></section>
-      {selectedSuggestion ? <section className="content-section finance-registration-card">
-        <div className="section-title"><div><h2>处理 SAP 建议</h2><p>{selectedSuggestion.storeName} · 建议 V{selectedSuggestion.suggestionVersion} · 确认 V{selectedSuggestion.confirmedVersion}</p></div><Button onClick={() => setSelectedSuggestion(null)} variant="text">关闭</Button></div>
-        <ResourcePanel>门店建议：{selectedSuggestion.suggestedSapCode}；说明：{selectedSuggestion.suggestionNote ?? "-"}</ResourcePanel>
-        <div className="finance-form-grid">
-          <SelectField label="处理动作" onChange={(value) => { const action = value as SapDecisionAction; setDecisionAction(action); if (action === "CONFIRM") setConfirmedSapCode(selectedSuggestion.suggestedSapCode ?? ""); resetAction(); }} options={[{ value: "CONFIRM", label: "确认建议值" }, { value: "CORRECT", label: "修正后确认" }, { value: "REJECT", label: "驳回" }]} value={decisionAction} />
-          {decisionAction !== "REJECT" ? <label><span>确认 SAP 编码</span><FieldInput required value={confirmedSapCode} onChange={(event) => setConfirmedSapCode(event.target.value)} /></label> : null}
-          <label><span>处理原因</span><FieldInput required value={handlingReason} onChange={(event) => setHandlingReason(event.target.value)} /></label>
-          <div className="finance-form-actions"><Button disabled={!handlingReason.trim() || (decisionAction !== "REJECT" && !confirmedSapCode.trim())} loading={actionState === "loading"} onClick={submitDecision} variant="primary">提交处理结果</Button></div>
+      <section className="page-heading finance-heading">
+        <div>
+          <p className="eyebrow">{roleContext}</p>
+          <h1>门店基础信息</h1>
+          <p>门店 ID 是唯一匹配键；财务导入值是当前有效 SAP 来源，门店原值和每次财务版本永久保留。</p>
         </div>
-        {actionMessage ? <p role={actionState === "error" || actionState === "conflict" ? "alert" : "status"}>{actionMessage}</p> : null}
-      </section> : null}
-      <FinanceImportActionPanel scope="STORE" month={month} onCommitted={() => financeResource.reload()} />
+        {tab === "base" ? (
+          <div className="finance-heading__actions">
+            <Button loading={downloadBusy} onClick={() => handleTemplateDownload("BASIC_INFO")} variant="secondary">下载基础信息导入模板</Button>
+            <Button loading={downloadBusy} onClick={handleBaseExport} variant="secondary">导出门店基础信息</Button>
+            <Button onClick={() => setShowImport((current) => !current)} variant="primary">导入门店基础信息</Button>
+          </div>
+        ) : null}
+      </section>
+
+      <Tabs
+        ariaLabel="门店基础信息页面"
+        className="finance-page-tabs"
+        onChange={handleTabChange}
+        options={[{ value: "base", label: "基础信息" }, { value: "sap", label: "SAP异议处理" }]}
+        value={tab}
+      />
+
+      {tab === "base" ? (
+        <>
+          <div className="finance-policy-banner" role="note">
+            <strong>历史账期保留当时快照</strong>
+            <span>重新导入的服务店名称和有效 SAP 仅影响后续新账期，不刷新历史账单与订单明细。</span>
+          </div>
+          {showImport ? <FinanceImportActionPanel fixedImportType="BASIC_INFO" month={month} onCommitted={() => financeResource.reload()} scope="STORE" /> : null}
+        </>
+      ) : (
+        <>
+          <div className="finance-sap-actions" role="group" aria-label="SAP异议操作">
+            <Button loading={downloadBusy} onClick={handleSapExport} variant="secondary">导出 SAP 编码差异清单</Button>
+            <Button loading={downloadBusy} onClick={() => handleTemplateDownload("SAP_CONFIRMATION")} variant="secondary">下载 SAP 编码确认模板</Button>
+            <Button onClick={() => setShowImport((current) => !current)} variant="primary">导入最终确认 SAP 编码</Button>
+          </div>
+          {showImport ? <FinanceImportActionPanel fixedImportType="SAP_CONFIRMATION" month={month} onCommitted={() => financeResource.reload()} scope="STORE" /> : null}
+          <section className="metric-grid finance-metric-grid finance-metric-grid--four">
+            <MetricCard label="SAP 差异" value={countMetric(sapMetrics?.discrepancyCount)} />
+            <MetricCard label="待门店确认" value={countMetric(sapMetrics?.pendingStoreConfirmationCount)} />
+            <MetricCard label="财务可代确认" value={countMetric(sapMetrics?.financeActionableCount)} />
+            <MetricCard label="今日已确认" value={countMetric(sapMetrics?.confirmedTodayCount)} />
+          </section>
+        </>
+      )}
+
+      <section className="finance-filter-bar" aria-label="门店财务筛选条件">
+        <TextField label="账期" onChange={(event) => setMonth(event.target.value)} type="month" value={month} />
+        <SelectField label="费用方向" onChange={(value) => setFeeDirection(value as FeeDirection)} options={[{ value: "PROMOTION", label: "推广服务费" }, { value: "MANAGEMENT", label: "管理服务费" }]} value={feeDirection} />
+        <SelectField label="指标口径" onChange={(value) => setMetricScope(value as BillingMetricScope)} options={[{ value: "MONTH", label: "单月" }, { value: "CUMULATIVE", label: "累计" }]} value={metricScope} />
+        <TextField label="搜索门店" onChange={(event) => setQuery(event.target.value)} placeholder="门店 ID、名称或 SAP" type="search" value={query} />
+      </section>
+      <ResourceNotice loading={resourceBusy} error={financeResource.error} />
+      {notice ? <p role={noticeIsError ? "alert" : "status"}>{notice}</p> : null}
+
+      {tab === "base" ? (
+        <section className="content-section">
+          <div className="section-title"><div><h2>门店基础信息</h2><p>共 {financeResource.data?.data.total ?? 0} 家门店；金额和 SAP 均由正式接口返回。</p></div></div>
+          <DataTable columns={baseColumns} emptyText="当前筛选下暂无门店" rows={rows} state={resourceBusy ? "loading" : financeResource.error ? "error" : "ready"} tableClassName="finance-store-table" />
+        </section>
+      ) : (
+        <section className="content-section">
+          <div className="section-title"><div><h2>SAP 编码差异</h2><p>财务可重新导入最终 SAP，也可逐条矫正；每次写入均生成版本审计。</p></div></div>
+          <DataTable columns={sapColumns} emptyText="当前筛选下暂无 SAP 差异" rows={rows} state={resourceBusy ? "loading" : financeResource.error ? "error" : "ready"} tableClassName="finance-sap-table" />
+        </section>
+      )}
+
+      {selectedRow ? (
+        <aside className="finance-detail-drawer" aria-label="SAP 差异详情">
+          <header><div><p className="eyebrow">SAP 差异详情</p><h2>{selectedRow.storeName}</h2></div><Button onClick={() => setSelectedRow(null)} variant="text">关闭</Button></header>
+          <dl className="finance-audit-facts">
+            <div><dt>门店维护值</dt><dd>{selectedRow.storeMaintainedSapCode ?? "—"}</dd></div>
+            <div><dt>财务导入值</dt><dd>{selectedRow.financeImportedSapCode ?? "—"}</dd></div>
+            <div><dt>当前有效 SAP</dt><dd>{selectedRow.effectiveSapCode ?? "—"}</dd></div>
+            <div><dt>有效版本</dt><dd>V{selectedRow.effectiveSapVersion}</dd></div>
+            <div><dt>操作人</dt><dd>{selectedRow.effectiveSapUpdatedBy ?? "—"}</dd></div>
+            <div><dt>更新时间</dt><dd>{formatDateTime(selectedRow.effectiveSapUpdatedAt)}</dd></div>
+            <div><dt>门店建议版本</dt><dd>V{selectedRow.suggestionVersion} / 确认 V{expectedConfirmedVersion}</dd></div>
+            <div><dt>账单总额</dt><dd>{formatCurrency(selectedRow.statementTotalCent)}</dd></div>
+          </dl>
+          <section className="finance-sap-correction">
+            <h3>单条矫正有效 SAP</h3>
+            <p>提交后财务值直接成为当前有效值，并保留旧版本；历史账单和订单快照不回写。</p>
+            <TextField label="最终有效 SAP" onChange={(event) => setFinalSapCode(event.target.value)} value={finalSapCode} />
+            <TextField label="矫正原因" onChange={(event) => setChangeReason(event.target.value)} value={changeReason} />
+            <Button disabled={!finalSapCode.trim() || !changeReason.trim()} loading={actionState === "loading"} onClick={submitCorrection} variant="primary">确认矫正并生成新版本</Button>
+          </section>
+        </aside>
+      ) : null}
     </div>
   );
 }

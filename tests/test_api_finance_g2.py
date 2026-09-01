@@ -809,10 +809,13 @@ def test_finance_import_reversal_locks_version_slot_before_business_targets(
     )
 
     with pytest.raises(RuntimeError, match="stop after observing lock order"):
-        client.post(
+        response = client.post(
             "/api/v1/admin/finance-imports/reversal-lock-order-batch/reversals",
             json={"readVersion": 1, "changeReason": "验证统一锁顺序"},
             headers={"Idempotency-Key": "reversal-lock-order-0001"},
+        )
+        pytest.fail(
+            f"expected reversal plan to run, got {response.status_code}: {response.text}"
         )
 
     assert lock_order == ["version-slot", "business-targets"]

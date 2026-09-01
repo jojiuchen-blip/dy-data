@@ -564,10 +564,11 @@ def test_dydata_19_g2_frontend_exposes_correction_sap_and_reversal_actions() -> 
     assert "deductionAmountCent: string" in management_page
     assert 'type="number"' in management_page
     assert "<input disabled" not in management_page
-    assert "submitSapSuggestion" in client + stores_page
-    assert "decideSapSuggestion" in client + stores_page
-    assert "suggestionVersion" in stores_page
-    assert "expectedConfirmedVersion" in stores_page
+    assert "correctFinanceStoreSap" in client + stores_page
+    assert "submitSapSuggestion" not in stores_page
+    assert "decideSapSuggestion" not in stores_page
+    assert "effectiveSapVersion" in stores_page
+    assert "财务导入值" in stores_page
     assert "currentUser={user}" in app
     assert "reverseFinanceImport" in client + imports_page
 
@@ -683,8 +684,8 @@ def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
     assert '<TertiaryNav' in order_details
     assert 'label="订单明细费用方向"' in order_details
     for item in [
-        '{ href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" }',
-        '{ href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" }',
+        '`/finance/orders/promotion?month=${encodeURIComponent(draft.month)}`',
+        '`/finance/orders/management?month=${encodeURIComponent(draft.month)}`',
     ]:
         assert item in order_details
     assert '<TertiaryNav' in order_details.split('<section className="page-heading', 1)[0]
@@ -692,7 +693,7 @@ def test_finance_navigation_and_headings_match_the_v2_clean_contract() -> None:
 
     assert 'const title = feeDirection === "PROMOTION" ? "推广服务费" : "管理服务费";' in fee_page
     assert '<h1>门店基础信息</h1>' in stores_page
-    assert '<h1>SAP 编码建议</h1>' in stores_page
+    assert 'label: "SAP异议处理"' in stores_page
     assert '<h1>账单异议</h1>' in disputes_page
     assert '<h1>导入记录</h1>' in imports_page
 
@@ -705,7 +706,7 @@ def test_dydata_81_finance_is_an_independent_primary_module_before_admin() -> No
     assert 'const financePaths = new Set([' in shell
     assert 'section: "finance"' in shell
     assert 'href: "/finance/promotion"' in shell
-    assert 'pageKeys: ["D01"]' in shell
+    assert 'pageKeys: ["FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"]' in shell
     assert 'icon: "details"' in shell
     assert 'label: "财务"' in shell
     assert shell.index('label: "财务"') < shell.index('label: "后台"')

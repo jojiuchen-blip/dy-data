@@ -90,7 +90,7 @@
 | 锁定账单明细 | 费用方向、产品维度、逐笔订单/券、原始或调整金额、规则版本 | `settlement_statement_line` + `settlement_statement_entry` + `settlement_fee_result` + `settlement_fee_adjustment` |
 | 订单费用明细 | 订单/券、方向、规则匹配日、原始月、调整月、基数、费率、金额、规则版本 | `settlement_fee_result_current` + `settlement_fee_result` + `settlement_fee_adjustment` |
 | 门店账单确认 | 账单版本、费用方向、确认金额和服务器确认时间 | `settlement_statement` + `settlement_statement_confirmation` |
-| 门店异议 | 类型、说明、订单、金额、联系人、手机号、证明资料和处理状态 | `settlement_dispute` + `settlement_dispute_order` |
+| 门店异议 | 类型、具体原因、订单、金额、联系人、手机号和处理状态；新建记录不保存附件 | `settlement_dispute` + `settlement_dispute_order` |
 | 推广费发票登记 | 门店、一个或多个完整账期及各自账单版本、20 位发票号、日期、总金额、分配金额、四节点状态 | `promotion_invoice` + `promotion_invoice_allocation` + `invoice_status_event` |
 | 管理服务费发票 | 门店、账期、发票/扣款金额、导入时间和版本 | `invoice_record` + `finance_import_batch` |
 | 财务导入 | 模板类型、文件摘要、读取/当前版本、整批状态、全部错误行 | `finance_import_batch` + `finance_import_row` |

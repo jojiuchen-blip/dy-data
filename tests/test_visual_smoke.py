@@ -12,7 +12,8 @@ import time
 import urllib.request
 from collections import deque
 from collections.abc import Generator
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from threading import Thread
@@ -90,7 +91,24 @@ from dy_api.access_control import ALL_PAGE_KEYS, STORE_DEFAULT_PAGE_KEYS  # noqa
 from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes._data import get_data_store, get_session_dependency  # noqa: E402
-from apps.api.dy_api.models import Base, DimSkuProductRule, JobRun  # noqa: E402
+from apps.api.dy_api.models import (  # noqa: E402
+    Base,
+    DimSkuProductRule,
+    DimStore,
+    FinanceImportBatch,
+    InvoiceRecord,
+    InvoiceStatusEvent,
+    JobRun,
+    PromotionInvoice,
+    PromotionInvoiceAllocation,
+    SapSuggestion,
+    SettlementDispute,
+    SettlementDisputeOrder,
+    SettlementStatement,
+    SettlementStatementConfirmation,
+    SettlementStatementEntry,
+    StoreFinanceProfile,
+)
 
 
 class LiveSettlementStore:
@@ -566,7 +584,9 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
 def live_admin_fastapi_base_url() -> Generator[str]:
     port = find_free_port()
     previous_cors = os.environ.get("DY_API_CORS_ORIGINS")
+    previous_test_mode = os.environ.get("DY_API_TEST_MODE")
     os.environ["DY_API_CORS_ORIGINS"] = "*"
+    os.environ["DY_API_TEST_MODE"] = "true"
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -595,6 +615,335 @@ def live_admin_fastapi_base_url() -> Generator[str]:
             )
             for index in range(1, 6)
         ])
+        session.add_all(
+            [
+                DimStore(
+                    store_id="store-1",
+                    store_name="深圳临港认证服务店",
+                    is_active=True,
+                ),
+                DimStore(
+                    store_id="store-2",
+                    store_name="杭州滨江直营服务店",
+                    is_active=True,
+                ),
+                FinanceImportBatch(
+                    batch_id="uat-basic-info-import",
+                    import_type=1,
+                    statement_month="2026-08",
+                    file_name="finance-basic-info-uat.csv",
+                    file_sha256="a" * 64,
+                    normalized_sha256="b" * 64,
+                    read_version=0,
+                    current_version=1,
+                    batch_status=5,
+                    total_rows=2,
+                    success_rows=2,
+                    error_rows=0,
+                    content_changed=True,
+                    submitted_by="uat-finance-admin",
+                    committed_by="uat-finance-admin",
+                    submitted_at=datetime(2026, 8, 8, 8, tzinfo=timezone.utc),
+                    committed_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                ),
+                StoreFinanceProfile(
+                    profile_id="uat-store-1-finance-v1",
+                    store_id="store-1",
+                    profile_type=1,
+                    source_type=1,
+                    version_no=1,
+                    is_current=True,
+                    store_name_snapshot="深圳临港认证服务店",
+                    sap_code="S1002846",
+                    initial_sap_code="S1002846",
+                    service_store_code="STORE-02846",
+                    factory_confirmed=True,
+                    confirmed_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                    import_batch_id="uat-basic-info-import",
+                    created_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                    updated_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                ),
+                StoreFinanceProfile(
+                    profile_id="uat-store-2-finance-v1",
+                    store_id="store-2",
+                    profile_type=1,
+                    source_type=1,
+                    version_no=1,
+                    is_current=True,
+                    store_name_snapshot="杭州滨江直营服务店",
+                    sap_code="S1003178",
+                    initial_sap_code="S1003178",
+                    service_store_code="STORE-03178",
+                    factory_confirmed=True,
+                    confirmed_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                    import_batch_id="uat-basic-info-import",
+                    created_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                    updated_at=datetime(2026, 8, 8, 8, 5, tzinfo=timezone.utc),
+                ),
+                SapSuggestion(
+                    suggestion_id="uat-store-1-sap-suggestion",
+                    store_id="store-1",
+                    version_no=1,
+                    is_current=True,
+                    suggested_sap_code="S1002999",
+                    suggestion_note="门店维护值与财务导入值不一致",
+                    suggestion_status=1,
+                    submitted_by="uat-store-user",
+                    submitted_at=datetime(2026, 8, 9, 8, tzinfo=timezone.utc),
+                ),
+                SettlementStatement(
+                    statement_id="uat-statement-store-1",
+                    store_id="store-1",
+                    statement_month="2026-08",
+                    version_no=1,
+                    is_current=True,
+                    statement_status=4,
+                    promotion_original_fee_cent=12_864_050,
+                    promotion_adjustment_fee_cent=0,
+                    promotion_net_fee_cent=12_864_050,
+                    management_original_fee_cent=320_000,
+                    management_adjustment_fee_cent=0,
+                    management_net_fee_cent=320_000,
+                    store_name_snapshot="深圳临港认证服务店",
+                    sap_code_snapshot="S1002846",
+                    store_snapshot_status="LIVE_CAPTURED",
+                    store_snapshot_profile_id="uat-store-1-finance-v1",
+                    created_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+                ),
+                SettlementStatement(
+                    statement_id="uat-statement-store-2",
+                    store_id="store-2",
+                    statement_month="2026-08",
+                    version_no=1,
+                    is_current=True,
+                    statement_status=4,
+                    promotion_original_fee_cent=7_642_000,
+                    promotion_adjustment_fee_cent=0,
+                    promotion_net_fee_cent=7_642_000,
+                    management_original_fee_cent=230_000,
+                    management_adjustment_fee_cent=0,
+                    management_net_fee_cent=230_000,
+                    store_name_snapshot="杭州滨江直营服务店",
+                    sap_code_snapshot="S1003178",
+                    store_snapshot_status="LIVE_CAPTURED",
+                    store_snapshot_profile_id="uat-store-2-finance-v1",
+                    created_at=datetime(2026, 8, 5, tzinfo=timezone.utc),
+                ),
+                SettlementStatementConfirmation(
+                    confirmation_id="uat-store-1-promotion-confirmation",
+                    statement_id="uat-statement-store-1",
+                    fee_direction=1,
+                    confirmation_status=1,
+                    confirmed_amount_cent=12_864_050,
+                    confirmed_by="uat-store-1-user",
+                    confirmed_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+                ),
+                SettlementStatementConfirmation(
+                    confirmation_id="uat-store-1-management-confirmation",
+                    statement_id="uat-statement-store-1",
+                    fee_direction=2,
+                    confirmation_status=1,
+                    confirmed_amount_cent=320_000,
+                    confirmed_by="uat-store-1-user",
+                    confirmed_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+                ),
+                SettlementStatementConfirmation(
+                    confirmation_id="uat-store-2-promotion-confirmation",
+                    statement_id="uat-statement-store-2",
+                    fee_direction=1,
+                    confirmation_status=1,
+                    confirmed_amount_cent=7_642_000,
+                    confirmed_by="uat-store-2-user",
+                    confirmed_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+                ),
+                SettlementStatementConfirmation(
+                    confirmation_id="uat-store-2-management-confirmation",
+                    statement_id="uat-statement-store-2",
+                    fee_direction=2,
+                    confirmation_status=1,
+                    confirmed_amount_cent=230_000,
+                    confirmed_by="uat-store-2-user",
+                    confirmed_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+                ),
+                PromotionInvoice(
+                    invoice_id="uat-promotion-invoice-approved",
+                    physical_invoice_id="uat-promotion-physical-approved",
+                    store_id="store-1",
+                    version_no=1,
+                    version_kind=1,
+                    is_current=True,
+                    invoice_number="25322000001784352160",
+                    invoice_date=date(2026, 8, 8),
+                    invoice_amount_cent=12_864_050,
+                    buyer_name="比亚迪汽车销售有限公司",
+                    tax_rate_percent=6,
+                    invoice_status=3,
+                    registered_by="uat-store-1-user",
+                    registered_at=datetime(2026, 8, 8, 8, 42, tzinfo=timezone.utc),
+                ),
+                PromotionInvoiceAllocation(
+                    allocation_id="uat-promotion-allocation-approved",
+                    invoice_id="uat-promotion-invoice-approved",
+                    store_id="store-1",
+                    statement_id="uat-statement-store-1",
+                    statement_month="2026-08",
+                    settlement_batch_month="2026-08",
+                    allocated_amount_cent=12_864_050,
+                    is_current=True,
+                ),
+                PromotionInvoice(
+                    invoice_id="uat-promotion-invoice-rejected",
+                    physical_invoice_id="uat-promotion-physical-rejected",
+                    store_id="store-2",
+                    version_no=1,
+                    version_kind=1,
+                    is_current=True,
+                    invoice_number="25322000001784352171",
+                    invoice_date=date(2026, 8, 9),
+                    invoice_amount_cent=7_642_000,
+                    buyer_name="比亚迪汽车销售有限公司",
+                    tax_rate_percent=6,
+                    invoice_status=4,
+                    registered_by="uat-store-2-user",
+                    registered_at=datetime(2026, 8, 9, 9, 5, tzinfo=timezone.utc),
+                ),
+                PromotionInvoiceAllocation(
+                    allocation_id="uat-promotion-allocation-rejected",
+                    invoice_id="uat-promotion-invoice-rejected",
+                    store_id="store-2",
+                    statement_id="uat-statement-store-2",
+                    statement_month="2026-08",
+                    settlement_batch_month="2026-09",
+                    allocated_amount_cent=7_642_000,
+                    is_current=True,
+                ),
+                InvoiceStatusEvent(
+                    event_id="uat-promotion-approved-event",
+                    invoice_id="uat-promotion-invoice-approved",
+                    event_type=3,
+                    from_status=2,
+                    to_status=3,
+                    operator_id="uat-finance-admin",
+                    business_date=date(2026, 8, 12),
+                    business_amount_cent=12_864_050,
+                    occurred_at=datetime(2026, 8, 12, 1, tzinfo=timezone.utc),
+                ),
+                InvoiceStatusEvent(
+                    event_id="uat-promotion-rejection-event",
+                    invoice_id="uat-promotion-invoice-rejected",
+                    event_type=4,
+                    from_status=2,
+                    to_status=4,
+                    operator_id="uat-finance-admin",
+                    result_reason="发票项目名称不符合开票要求",
+                    occurred_at=datetime(2026, 8, 10, 1, tzinfo=timezone.utc),
+                ),
+                InvoiceRecord(
+                    invoice_id="uat-management-invoice",
+                    store_id="store-1",
+                    statement_month="2026-08",
+                    statement_id="uat-statement-store-1",
+                    fee_direction=2,
+                    version_no=1,
+                    is_current=True,
+                    invoice_number="12345678901234567891",
+                    invoice_date=date(2026, 8, 10),
+                    invoice_amount_cent=320_000,
+                    invoice_status=3,
+                    source_type=2,
+                    factory_deduction_date=date(2026, 8, 21),
+                    factory_deduction_amount_cent=320_000,
+                    registered_by="uat-finance-admin",
+                    registered_at=datetime(2026, 8, 12, 8, tzinfo=timezone.utc),
+                ),
+                SettlementStatementEntry(
+                    statement_entry_id="uat-entry-promotion",
+                    statement_id="uat-statement-store-1",
+                    statement_line_id="uat-line-promotion",
+                    source_type=1,
+                    source_record_id="uat-source-promotion",
+                    original_fee_result_id="uat-fee-promotion",
+                    coupon_id="uat-coupon-promotion",
+                    order_id="DY2026071900842",
+                    fee_direction=1,
+                    original_business_month="2026-08",
+                    statement_posting_month="2026-08",
+                    product_scope="精诚养车",
+                    product_type="养车服务",
+                    base_amount_cent=1_286_405,
+                    fee_amount_cent=128_641,
+                    rule_version="uat-rule-v1",
+                    order_status_snapshot="COMPLETED",
+                    coupon_status_snapshot="USED",
+                    product_name_snapshot="精诚养车国家级养护",
+                    sku_id_snapshot="SKU-AC-008",
+                    sku_name_snapshot="基础保养套餐",
+                    sale_channel_snapshot="live",
+                    sale_store_id_snapshot="store-1",
+                    sale_store_snapshot="深圳临港认证服务店",
+                    verify_store_id_snapshot="store-1",
+                    verify_store_snapshot="深圳临港认证服务店",
+                    sale_time_snapshot=datetime(2026, 8, 2, 8, tzinfo=timezone.utc),
+                    verify_time_snapshot=datetime(2026, 8, 3, 9, tzinfo=timezone.utc),
+                    received_amount_cent_snapshot=1_286_405,
+                    fee_rate_snapshot=Decimal("0.100000"),
+                ),
+                SettlementStatementEntry(
+                    statement_entry_id="uat-entry-management",
+                    statement_id="uat-statement-store-1",
+                    statement_line_id="uat-line-management",
+                    source_type=1,
+                    source_record_id="uat-source-management",
+                    original_fee_result_id="uat-fee-management",
+                    coupon_id="uat-coupon-management",
+                    order_id="DY20260622001935",
+                    fee_direction=2,
+                    original_business_month="2026-08",
+                    statement_posting_month="2026-08",
+                    product_scope="精诚养车",
+                    product_type="养车服务",
+                    base_amount_cent=320_000,
+                    fee_amount_cent=32_000,
+                    rule_version="uat-rule-v1",
+                    order_status_snapshot="COMPLETED",
+                    coupon_status_snapshot="USED",
+                    product_name_snapshot="暑期轮胎焕新套餐",
+                    sku_id_snapshot="SKU-TYRE-006",
+                    sku_name_snapshot="暑期轮胎焕新套餐",
+                    sale_channel_snapshot="short_video",
+                    sale_store_id_snapshot="store-1",
+                    sale_store_snapshot="深圳临港认证服务店",
+                    verify_store_id_snapshot="store-1",
+                    verify_store_snapshot="深圳临港认证服务店",
+                    sale_time_snapshot=datetime(2026, 8, 4, 8, tzinfo=timezone.utc),
+                    verify_time_snapshot=datetime(2026, 8, 5, 9, tzinfo=timezone.utc),
+                    received_amount_cent_snapshot=320_000,
+                    fee_rate_snapshot=Decimal("0.100000"),
+                ),
+                SettlementDispute(
+                    dispute_id="uat-dispute-001",
+                    statement_id="uat-statement-store-1",
+                    store_id="store-1",
+                    statement_month="2026-08",
+                    fee_direction=1,
+                    dispute_type=3,
+                    status=1,
+                    disputed_amount_cent=64_050,
+                    description="门店申请核验账单金额与冻结订单范围",
+                    contact_name="UAT 门店联系人",
+                    contact_phone_ciphertext="invalid-uat-ciphertext",
+                    evidence_json=[],
+                    submitted_by="uat-store-1-user",
+                    submitted_at=datetime(2026, 8, 20, tzinfo=timezone.utc),
+                ),
+                SettlementDisputeOrder(
+                    dispute_id="uat-dispute-001",
+                    order_id="DY2026071900842",
+                    coupon_id="uat-coupon-promotion",
+                    disputed_amount_cent=64_050,
+                ),
+            ]
+        )
         session.commit()
 
     original_product_sync_job = admin_routes.run_product_sync_job
@@ -689,6 +1038,10 @@ def live_admin_fastapi_base_url() -> Generator[str]:
             os.environ.pop("DY_API_CORS_ORIGINS", None)
         else:
             os.environ["DY_API_CORS_ORIGINS"] = previous_cors
+        if previous_test_mode is None:
+            os.environ.pop("DY_API_TEST_MODE", None)
+        else:
+            os.environ["DY_API_TEST_MODE"] = previous_test_mode
 
 
 @pytest.fixture(scope="session")
@@ -801,6 +1154,7 @@ def install_api_routes(page: Page) -> None:
         "page_keys": [
             "A01", "A02", "B01", "B02", "B03", "C01",
             "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
+            "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06",
         ],
     }
     empty_pagination = {
@@ -1561,9 +1915,11 @@ def test_key_ui_surfaces_render_without_layout_smoke_failures(
         url = url_path if url_path.startswith("file:") else f"{vite_base_url}{url_path}"
         page.goto(url, wait_until="domcontentloaded")
         if ready_target == "heading":
-            page.get_by_role("heading", name=expected_text, exact=True).wait_for(timeout=10000)
+            page.get_by_role(
+                "heading", level=1, name=expected_text, exact=True
+            ).wait_for(timeout=30000)
         else:
-            page.get_by_text(expected_text, exact=False).first.wait_for(timeout=10000)
+            page.get_by_text(expected_text, exact=False).first.wait_for(timeout=30000)
         page.screenshot(path=tmp_path / f"{name}-{width}.png", full_page=True)
 
         text_length = page.evaluate("() => document.body.innerText.trim().length")
@@ -1824,6 +2180,7 @@ def test_sales_charts_keep_keyboard_accessible_names_and_readable_type(
         page.goto(f"{vite_base_url}/sales", wait_until="domcontentloaded")
         page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
         figures = page.locator(".sales-echart")
+        expect(figures).to_have_count(2, timeout=10000)
         figures.nth(1).wait_for(timeout=10000)
         assert figures.count() == 2
 
@@ -3800,7 +4157,7 @@ def test_sales_metric_cards_share_one_white_card_treatment(
         page.get_by_role("heading", name="核销表现", exact=True).wait_for(timeout=10000)
 
         cards = page.locator(".metric-card")
-        assert cards.count() == 6
+        expect(cards).to_have_count(6, timeout=30000)
         treatments = cards.evaluate_all(
             """(nodes) => nodes.map((node) => {
               const style = getComputedStyle(node);
@@ -3943,7 +4300,7 @@ def test_desktop_detail_pages_keep_pagination_visible_and_scroll_table_region(
         context.close()
 
 
-def test_finance_pages_use_live_fastapi_for_admin_empty_and_store_forbidden(
+def test_finance_pages_use_live_fastapi_for_admin_formal_data_and_store_forbidden(
     browser: Browser,
     vite_live_admin_api_base_url: str,
     live_admin_fastapi_base_url: str,
@@ -3963,7 +4320,7 @@ def test_finance_pages_use_live_fastapi_for_admin_empty_and_store_forbidden(
             wait_until="domcontentloaded",
         )
         admin_page.get_by_role("heading", name="推广服务费", exact=True).wait_for(timeout=10000)
-        admin_page.get_by_text("¥0.00", exact=True).first.wait_for(timeout=10000)
+        admin_page.get_by_text("深圳临港认证服务店", exact=True).first.wait_for(timeout=10000)
         assert finance_responses and all(status == 200 for status in finance_responses)
         assert admin_page.locator(".resource-notice--error").count() == 0
     finally:
@@ -3990,6 +4347,519 @@ def test_finance_pages_use_live_fastapi_for_admin_empty_and_store_forbidden(
         assert forbidden.json()["detail"]["code"] == "DATA_SCOPE_FORBIDDEN"
     finally:
         store_context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_dydata_81_finance_uat_uses_real_fastapi_at_three_viewports(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    page = context.new_page()
+    console_errors: list[str] = []
+    page_errors: list[str] = []
+    api_failures: list[str] = []
+    page.on("console", lambda message: record_console_error(message, console_errors))
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    page.on(
+        "response",
+        lambda response: api_failures.append(f"{response.status} {response.url}")
+        if "/api/v1/admin/" in response.url and response.status >= 400
+        else None,
+    )
+    surfaces = [
+        (
+            "promotion",
+            "/finance/promotion?month=2026-08",
+            "推广服务费",
+            "深圳临港认证服务店",
+            None,
+        ),
+        (
+            "management",
+            "/finance/management?month=2026-08",
+            "管理服务费",
+            "杭州滨江直营服务店",
+            None,
+        ),
+        (
+            "orders-promotion",
+            "/finance/orders/promotion?month=2026-08",
+            "推广服务费订单明细",
+            "DY2026071900842",
+            None,
+        ),
+        (
+            "orders-management",
+            "/finance/orders/management?month=2026-08",
+            "管理服务费订单明细",
+            "DY20260622001935",
+            None,
+        ),
+        (
+            "stores",
+            "/finance/stores?month=2026-08",
+            "门店基础信息",
+            "深圳临港认证服务店",
+            None,
+        ),
+        (
+            "stores-sap",
+            "/finance/stores?month=2026-08",
+            "门店基础信息",
+            "uat-store-1-sap-suggestion",
+            "SAP异议处理",
+        ),
+        (
+            "disputes",
+            "/finance/disputes?month=2026-08",
+            "账单异议",
+            "uat-dispute-001",
+            None,
+        ),
+        (
+            "imports",
+            "/finance/imports",
+            "导入记录",
+            "uat-basic-info-import",
+            None,
+        ),
+    ]
+    output_dir = (
+        REPO_ROOT
+        / "output"
+        / "playwright"
+        / "dydata-81-g5"
+        / f"{width}x{height}"
+    )
+    output_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        for name, path, heading, ready_text, tab_name in surfaces:
+            page.goto(
+                f"{vite_live_admin_api_base_url}{path}",
+                wait_until="domcontentloaded",
+            )
+            page.get_by_role("heading", name=heading, exact=True, level=1).wait_for(
+                timeout=15000
+            )
+            if tab_name is not None:
+                page.get_by_role("tab", name=tab_name, exact=True).click()
+            ready_locator = page.get_by_text(ready_text, exact=True)
+            (ready_locator.last if width <= 920 else ready_locator.first).wait_for(
+                timeout=15000
+            )
+            assert page.locator(".resource-notice--error").count() == 0
+            horizontal_overflow = page.evaluate(
+                "() => Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - window.innerWidth"
+            )
+            assert horizontal_overflow <= 2, f"{name} overflowed by {horizontal_overflow}px"
+            if name.startswith("orders-"):
+                layout = page.locator(".finance-order-filters").evaluate(
+                    """(root) => {
+                      const nodes = Array.from(
+                        root.querySelectorAll('.finance-order-filters__row > *'),
+                      ).filter((node) => {
+                        const style = getComputedStyle(node);
+                        const rect = node.getBoundingClientRect();
+                        return style.display !== 'none' && rect.width > 0 && rect.height > 0;
+                      });
+                      const boxes = nodes.map((node) => node.getBoundingClientRect());
+                      const overlaps = [];
+                      for (let left = 0; left < boxes.length; left += 1) {
+                        for (let right = left + 1; right < boxes.length; right += 1) {
+                          const a = boxes[left];
+                          const b = boxes[right];
+                          const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left);
+                          const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+                          if (overlapX > 1 && overlapY > 1) overlaps.push([left, right]);
+                        }
+                      }
+                      const actions = root.querySelector('.finance-order-filter-actions')?.getBoundingClientRect();
+                      const rootRect = root.getBoundingClientRect();
+                      return {
+                        overlaps,
+                        actionsInside:
+                          !!actions &&
+                          actions.left >= rootRect.left - 1 &&
+                          actions.right <= rootRect.right + 1,
+                      };
+                    }"""
+                )
+                assert layout["overlaps"] == []
+                assert layout["actionsInside"] is True
+            page.screenshot(path=output_dir / f"{name}.png", full_page=True)
+            if name in {"promotion", "management"}:
+                import_label = (
+                    "导入推广服务费厂家信息"
+                    if name == "promotion"
+                    else "导入管理服务费厂家信息"
+                )
+                page.get_by_role("button", name=import_label, exact=True).click()
+                page.get_by_role(
+                    "heading", name="导入财务数据", exact=True, level=2
+                ).wait_for(timeout=10000)
+                module_order = page.evaluate(
+                    """() => {
+                      const metrics = document.querySelector('.finance-metric-grid');
+                      const panel = Array.from(document.querySelectorAll('h2')).find(
+                        (node) => node.textContent?.trim() === '导入财务数据',
+                      )?.closest('section');
+                      if (!metrics || !panel) return null;
+                      return {
+                        metricBottom: metrics.getBoundingClientRect().bottom + window.scrollY,
+                        panelTop: panel.getBoundingClientRect().top + window.scrollY,
+                      };
+                    }"""
+                )
+                assert module_order is not None
+                assert module_order["metricBottom"] <= module_order["panelTop"] + 1
+                page.screenshot(
+                    path=output_dir / f"{name}-import-open.png",
+                    full_page=True,
+                )
+        assert console_errors == []
+        assert page_errors == []
+        assert api_failures == []
+    finally:
+        context.close()
+
+
+def test_dydata_81_dispute_detection_persists_through_real_api_and_refresh(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/finance/disputes?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_text("uat-dispute-001", exact=True).first.wait_for(timeout=15000)
+        page.get_by_role("button", name="处理", exact=True).click()
+        page.get_by_role("button", name="启动系统检测", exact=True).click()
+        page.get_by_text("系统检测完成", exact=True).wait_for(timeout=15000)
+        page.get_by_text("正式数据库一致性检查通过", exact=True).first.wait_for(
+            timeout=15000
+        )
+
+        latest = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/admin/disputes/uat-dispute-001/detections/latest"
+        )
+        assert latest.status == 200
+        detection = latest.json()["data"]
+        assert detection["status"] == "SUCCEEDED"
+        assert detection["progressPercent"] == 100
+        assert detection["resultSummary"] == "正式数据库一致性检查通过"
+
+        page.reload(wait_until="domcontentloaded")
+        page.get_by_text("uat-dispute-001", exact=True).first.wait_for(timeout=15000)
+        page.get_by_role("button", name="处理", exact=True).click()
+        page.get_by_text("系统检测完成", exact=True).wait_for(timeout=10000)
+        page.get_by_text("正式数据库一致性检查通过", exact=True).first.wait_for(
+            timeout=10000
+        )
+        output_dir = REPO_ROOT / "output" / "playwright" / "dydata-81-g5" / "1440x900"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        page.screenshot(
+            path=output_dir / "dispute-detection-persisted.png",
+            full_page=True,
+        )
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width,height", VIEWPORTS)
+def test_dydata_81_store_dispute_reason_only_flow_has_no_file_upload(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
+    width: int,
+    height: int,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    context.add_cookies(
+        [{"name": "dy_e2e_role", "value": "store", "url": live_admin_fastapi_base_url}]
+    )
+    page = context.new_page()
+    reason = f"UAT reason-only {width}x{height}"
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/settlement?storeId=store-1&month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="单店分账", exact=True, level=1).wait_for(
+            timeout=15000
+        )
+        page.get_by_role("button", name="发起推广服务费异议", exact=True).click()
+        dialog = page.get_by_role("dialog")
+        dialog.get_by_label("联系人", exact=True).fill("UAT 门店联系人")
+        dialog.get_by_label("联系电话", exact=True).fill("13812345678")
+        dialog.get_by_label("订单号 1", exact=True).fill("DY2026071900842")
+        dialog.get_by_label("券 ID（可选）", exact=True).fill("uat-coupon-promotion")
+        dialog.get_by_label("订单争议金额（元）", exact=True).fill("640.50")
+        dialog.get_by_label("具体原因", exact=True).fill(reason)
+        expect(dialog.get_by_label("争议总金额（元）", exact=True)).to_have_value("640.50")
+        expect(dialog.get_by_role("button", name="提交异议并开始检测", exact=True)).to_be_enabled()
+        dialog.get_by_role("button", name="提交异议并开始检测", exact=True).click()
+        page.get_by_text("推广服务费异议已提交，系统将按正式流程开始检测。", exact=True).wait_for(
+            timeout=15000
+        )
+        page.get_by_text(f"推广服务费 · {reason}", exact=True).wait_for(timeout=15000)
+        assert page.locator('input[type="file"]').count() == 0
+        assert "证据上传能力尚未接入" not in page.locator("body").inner_text()
+
+        disputes = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/store-settlements/uat-statement-store-1/disputes"
+        )
+        assert disputes.status == 200
+        matching = [
+            item
+            for item in disputes.json()["data"]["list"]
+            if item["description"] == reason
+        ]
+        assert len(matching) == 1
+        assert matching[0]["feeDirection"] == "PROMOTION"
+        assert matching[0]["evidence"] == []
+
+        page.reload(wait_until="domcontentloaded")
+        page.get_by_text(f"推广服务费 · {reason}", exact=True).wait_for(timeout=15000)
+        output_dir = (
+            REPO_ROOT
+            / "output"
+            / "playwright"
+            / "dydata-81-g5"
+            / "reason-only"
+            / f"{width}x{height}"
+        )
+        output_dir.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=output_dir / "store-settlement.png", full_page=True)
+    finally:
+        context.close()
+
+
+def test_dydata_81_finance_sibling_navigation_resets_direction_state(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/finance/promotion?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="推广服务费", exact=True, level=1).wait_for(
+            timeout=15000
+        )
+        page.get_by_role(
+            "button", name="导入推广服务费厂家信息", exact=True
+        ).click()
+        page.get_by_role("heading", name="导入财务数据", exact=True, level=2).wait_for(
+            timeout=10000
+        )
+
+        page.get_by_role("link", name="管理服务费", exact=True).click()
+        page.get_by_role("heading", name="管理服务费", exact=True, level=1).wait_for(
+            timeout=15000
+        )
+        assert page.get_by_role(
+            "heading", name="导入财务数据", exact=True, level=2
+        ).count() == 0
+        page.get_by_role(
+            "button", name="导入管理服务费厂家信息", exact=True
+        ).click()
+        management_import_panel = page.get_by_role(
+            "heading", name="导入财务数据", exact=True, level=2
+        ).locator("xpath=ancestor::section[1]")
+        expect(management_import_panel.get_by_role("combobox")).to_have_value(
+            "管理服务费厂家结果"
+        )
+
+        page.get_by_role("button", name="查看管理服务费订单明细", exact=True).click()
+        page.get_by_role(
+            "heading", name="管理服务费订单明细", exact=True, level=1
+        ).wait_for(timeout=15000)
+        page.get_by_text("DY20260622001935", exact=True).first.wait_for(timeout=15000)
+        page.get_by_role("link", name="推广服务费明细", exact=True).click()
+        page.get_by_role(
+            "heading", name="推广服务费订单明细", exact=True, level=1
+        ).wait_for(timeout=15000)
+        page.get_by_text("DY2026071900842", exact=True).first.wait_for(timeout=15000)
+        assert page.get_by_text("DY20260622001935", exact=True).count() == 0
+    finally:
+        context.close()
+
+
+def test_dydata_81_imports_same_path_navigation_resets_query_bound_state(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/finance/promotion?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("button", name="导入推广服务费厂家信息", exact=True).click()
+        page.get_by_role("link", name="查看导入记录", exact=True).click()
+        page.get_by_role("heading", name="导入记录", exact=True, level=1).wait_for(
+            timeout=15000
+        )
+        expect(page).to_have_url(
+            re.compile(
+                r"/finance/imports\?importType=PROMOTION_FACTORY_RESULT&month=2026-08$"
+            )
+        )
+        expect(page.get_by_role("combobox").first).to_have_value(
+            "推广服务费厂家结果"
+        )
+
+        page.get_by_role("link", name="导入记录", exact=True).click()
+
+        expect(page).to_have_url(re.compile(r"/finance/imports$"))
+        expect(page.get_by_role("combobox").first).to_have_value("全部类型")
+        assert page.get_by_role("heading", name="批次详情", exact=True).count() == 0
+    finally:
+        context.close()
+
+
+def test_dydata_81_single_sap_correction_updates_effective_value_via_real_api(
+    browser: Browser,
+    vite_live_admin_api_base_url: str,
+    live_admin_fastapi_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    try:
+        page.goto(
+            f"{vite_live_admin_api_base_url}/finance/stores?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("tab", name="SAP异议处理", exact=True).click()
+        page.get_by_text("uat-store-1-sap-suggestion", exact=True).first.wait_for(
+            timeout=15000
+        )
+        page.get_by_role("button", name="查看详情", exact=True).click()
+        page.get_by_role("heading", name="单条矫正有效 SAP", exact=True).wait_for(
+            timeout=10000
+        )
+        page.get_by_label("最终有效 SAP", exact=True).fill("S1002888")
+        page.get_by_label("矫正原因", exact=True).fill("UAT 单条矫正验证")
+        output_dir = REPO_ROOT / "output" / "playwright" / "dydata-81-g5" / "1440x900"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        page.screenshot(path=output_dir / "sap-single-correction.png", full_page=True)
+        page.get_by_role(
+            "button", name="确认矫正并生成新版本", exact=True
+        ).click()
+        page.get_by_text(
+            "有效 SAP 已生成新版本；门店原值、财务导入值、操作人和时间继续保留。历史账单与订单快照不回写。",
+            exact=True,
+        ).wait_for(timeout=15000)
+
+        refreshed = context.request.get(
+            f"{live_admin_fastapi_base_url}/api/v1/admin/finance/stores",
+            params={
+                "month": "2026-08",
+                "feeDirection": "PROMOTION",
+                "metricScope": "MONTH",
+                "q": "store-1",
+            },
+        )
+        assert refreshed.status == 200
+        row = refreshed.json()["data"]["list"][0]
+        assert row["storeMaintainedSapCode"] == "S1002999"
+        assert row["financeImportedSapCode"] == "S1002888"
+        assert row["effectiveSapCode"] == "S1002888"
+        assert row["effectiveSapVersion"] == 2
+        assert row["effectiveSapUpdatedBy"] == "live-admin"
+    finally:
+        context.close()
+
+
+def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    install_api_routes(page)
+    pending_row = {
+        "invoiceId": None,
+        "storeId": "store-pending-001",
+        "storeName": "财务待开票门店",
+        "effectiveSapCode": "SAP-PENDING-001",
+        "statementId": "statement-pending-001",
+        "statementMonth": "2026-08",
+        "statementAmountCent": 2300,
+        "confirmedAmountCent": 2300,
+        "feeDirection": "MANAGEMENT",
+        "versionNo": None,
+        "isCurrent": None,
+        "invoiceNumber": None,
+        "invoiceDate": None,
+        "invoiceAmountCent": None,
+        "status": "PENDING_INVOICE",
+        "sourceType": None,
+        "importBatchId": None,
+        "registeredAt": None,
+        "settlementBatchMonth": None,
+        "rejectionReason": None,
+        "factoryDeductionDate": None,
+        "factoryDeductionAmountCent": None,
+        "settledAt": None,
+    }
+    page.route(
+        "**/api/v1/admin/finance/summary?*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "month": "2026-08",
+                "storeId": None,
+                "feeDirection": "MANAGEMENT",
+                "metricScope": "MONTH",
+                "metrics": {
+                    "statementTotalCent": 2300,
+                    "confirmedAmountCent": 2300,
+                    "pendingInvoiceAmountCent": 2300,
+                    "issuedAmountCent": 0,
+                    "settledOrDeductedAmountCent": 0,
+                },
+            }),
+        ),
+    )
+    page.route(
+        "**/api/v1/admin/finance/invoices?*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "list": [pending_row],
+                "total": 1,
+                "page": 1,
+                "pageSize": 50,
+            }),
+        ),
+    )
+    try:
+        page.goto(
+            f"{vite_base_url}/finance/management?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        pending_store = page.get_by_text("财务待开票门店", exact=True).first
+        pending_store.wait_for(timeout=10000)
+        expect(page.get_by_text("SAP-PENDING-001", exact=True).first).to_be_visible()
+        expect(page.locator("table").get_by_text("待开票", exact=True)).to_be_visible()
+        assert page.get_by_role("button", name="更正", exact=True).count() == 0
+        pending_store.dblclick()
+        assert page.get_by_role("heading", name="更正管理服务费记录").count() == 0
+    finally:
+        context.close()
 
 
 def test_store_invoice_preserves_422_input_then_reads_back_success(
@@ -4326,6 +5196,9 @@ def test_finance_import_clears_stale_preview_after_409(
             f"{vite_base_url}/finance/promotion?month=2026-08",
             wait_until="domcontentloaded",
         )
+        page.get_by_role(
+            "button", name="导入推广服务费厂家信息", exact=True
+        ).click()
         file_input = page.get_by_label("文件")
         file_input.wait_for(state="visible", timeout=10000)
         file_input.set_input_files({

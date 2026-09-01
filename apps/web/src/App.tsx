@@ -160,13 +160,13 @@ const pageKeyByPath: Array<[string, string]> = [
   ["/admin/sync", "D10"],
   ["/sync-admin", "D10"],
   ["/admin", "D01"],
-  ["/finance/promotion", "D01"],
-  ["/finance/management", "D01"],
-  ["/finance/orders/promotion", "D01"],
-  ["/finance/orders/management", "D01"],
-  ["/finance/stores", "D01"],
-  ["/finance/disputes", "D01"],
-  ["/finance/imports", "D01"],
+  ["/finance/promotion", "FIN01"],
+  ["/finance/management", "FIN02"],
+  ["/finance/orders/promotion", "FIN03"],
+  ["/finance/orders/management", "FIN03"],
+  ["/finance/stores", "FIN04"],
+  ["/finance/disputes", "FIN05"],
+  ["/finance/imports", "FIN06"],
   ["/clues/details", "A02"],
   ["/clues", "A01"],
   ["/ranking", "B01"],
@@ -178,7 +178,7 @@ const pageKeyByPath: Array<[string, string]> = [
 ];
 
 function firstAccessiblePath(user: AdminUser): string {
-  const preferred = ["/ranking", "/clues", "/settlement", "/details", "/sales", "/admin"];
+  const preferred = ["/ranking", "/clues", "/settlement", "/details", "/sales", "/finance/promotion", "/finance/management", "/finance/orders/promotion", "/finance/stores", "/finance/disputes", "/finance/imports", "/admin"];
   return preferred.find((path) => hasPageAccess(user, path)) ?? "/login";
 }
 
@@ -387,6 +387,7 @@ export function App() {
           return (
             <Shell
               currentPath={location.pathname}
+              currentSearch={location.search}
               currentUser={user}
               isDemoMode={isDemoMode}
               onLogout={isDemoMode ? undefined : onLogout}
@@ -410,19 +411,22 @@ export function App() {
           ) : location.pathname === "/settlement/invoice" ? (
             <StoreInvoicePage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/promotion" ? (
-            <FinanceFeePage feeDirection="PROMOTION" searchParams={searchParams} />
+            <FinanceFeePage key="finance-fee-promotion" feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/management" ? (
-            <FinanceFeePage feeDirection="MANAGEMENT" searchParams={searchParams} />
+            <FinanceFeePage key="finance-fee-management" feeDirection="MANAGEMENT" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/promotion" ? (
-            <FinanceOrderDetailsPage feeDirection="PROMOTION" searchParams={searchParams} />
+            <FinanceOrderDetailsPage key="finance-orders-promotion" feeDirection="PROMOTION" searchParams={searchParams} />
           ) : location.pathname === "/finance/orders/management" ? (
-            <FinanceOrderDetailsPage feeDirection="MANAGEMENT" searchParams={searchParams} />
+            <FinanceOrderDetailsPage key="finance-orders-management" feeDirection="MANAGEMENT" searchParams={searchParams} />
           ) : location.pathname === "/finance/stores" ? (
             <FinanceStoresPage currentUser={user} searchParams={searchParams} />
           ) : location.pathname === "/finance/disputes" ? (
             <FinanceDisputesPage searchParams={searchParams} />
           ) : location.pathname === "/finance/imports" ? (
-            <FinanceImportsPage searchParams={searchParams} />
+            <FinanceImportsPage
+              key={`finance-imports:${searchParams.toString()}`}
+              searchParams={searchParams}
+            />
           ) : location.pathname === "/clues" ? (
             <ClueCenterPage
               currentUser={user}
@@ -446,6 +450,7 @@ export function App() {
         return (
           <Shell
             currentPath={location.pathname}
+            currentSearch={location.search}
             currentUser={user}
             isDemoMode={isDemoMode}
             onLogout={isDemoMode ? undefined : onLogout}

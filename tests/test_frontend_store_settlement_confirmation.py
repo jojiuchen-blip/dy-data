@@ -56,11 +56,16 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
     assert 'role={confirmationState === "error" ? "alert" : "status"}' in page
 
 
-def test_store_settlement_page_keeps_dispute_submission_unavailable_pending_dydata_82() -> None:
+def test_store_settlement_page_submits_reason_only_disputes_without_file_upload() -> None:
+    client = read_source("api/client.ts")
     page = read_source("pages/StoreSettlementPage.tsx")
 
-    assert "DYDATA-82" in page
-    assert "证据上传能力尚未接入" in page
-    assert "disabled" in page
+    assert "createStoreSettlementDispute" in client
+    assert "TextareaField" in page
+    assert "具体原因" in page
+    assert "提交异议并开始检测" in page
+    assert "证据上传能力尚未接入" not in page
+    assert "DYDATA-82" not in page
+    assert "type=\"file\"" not in page
     assert "window.confirm" not in page
     assert "window.alert" not in page

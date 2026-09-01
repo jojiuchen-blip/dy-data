@@ -36,7 +36,7 @@
 | description | text | NO | | — | 说明 |
 | contact_name | varchar(128) | NO | | — | 联系人 |
 | contact_phone_ciphertext | text | NO | | — | 加密手机号 |
-| evidence_json | jsonb | NO | | [] | 证明资料对象键和摘要 |
+| evidence_json | jsonb | NO | | [] | 历史证明资料兼容字段；新建异议固定为空列表，不接受附件输入 |
 | resolution_note | text | YES | | NULL | 管理员处理说明 |
 | result_statement_id | varchar(128) | YES | IDX | NULL | 新账单版本 |
 | submitted_by | varchar(128) | NO | IDX | — | 提交人 |

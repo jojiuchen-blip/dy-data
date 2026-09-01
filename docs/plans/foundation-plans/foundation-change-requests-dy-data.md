@@ -2,7 +2,79 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
-## S4-FCR-006：旧轮次原地转为正式轮次并保留历史身份
+## S4-FCR-009：财务页面模板下载与筛选导出缺少正式接口合同
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-009` |
+| 来源 Task | `T5.7 G5 六页财务合同实现与生产放行` |
+| 分类 | `GAP` |
+| 改动项 | 为推广厂家、管理厂家、基础信息、SAP 确认四类模板以及基础信息、SAP 差异、账单异议导出补充正式下载路径、文件名、表头、鉴权、筛选继承和空结果规则。 |
+| 原因 | 冻结页面合同已确认页头下载/导出动作，但 Foundation 只冻结上传/提交与部分 CSV 导出，没有覆盖全部入口；前端不得用浏览器内生成或原型示例行代替正式接口。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py:1107`；`apps/web/src/components/FinanceImportActionPanel.tsx:1`；`tests/test_frontend_finance_contracts.py:1`（G5 新增） |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §5～§6` |
+| 严重度 | `高（阻断对应按钮验收与下载安全证明）` |
+| 状态 | `待评审` |
+
+## S4-FCR-008：财务订单列表与导出筛选/快照字段合同不完整
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-008` |
+| 来源 Task | `T5.7 G5 六页财务合同实现与生产放行` |
+| 分类 | `GAP` |
+| 改动项 | 在管理员订单列表与导出统一补充全文搜索、独立发票状态、独立结算状态、发票提交日期范围、核销日期范围，并返回不可变 `productType` 及冻结合同表头所需正式字段。 |
+| 原因 | 当前列表接口把部分管理费结算语义复用到 `invoiceStatus`，缺少 `q`、`settlementStatus` 与 `productType`；页面与导出无法在不复制规则的情况下做到同筛选、同口径。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py:3568`；`apps/api/dy_api/routes/dashboard.py:3619`；`apps/api/dy_api/models.py:1590` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §3`；`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 的订单/账单快照章节 |
+| 严重度 | `阻断（订单明细列表、汇总与导出不可一致）` |
+| 状态 | `待评审` |
+
+## S4-FCR-007：账单异议缺少可恢复的异步检测任务合同
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-007` |
+| 来源 Task | `T5.7 G5 六页财务合同实现与生产放行` |
+| 分类 | `GAP` |
+| 改动项 | 定义异议检测任务的持久化模型与创建/查询/重试 API，包括 `jobId/status/progress/stage/result/failureReason/startedAt/completedAt/updatedAt/readVersion`；明确自动检测只输出正式事实一致性证据，不自动受理或驳回异议。 |
+| 原因 | Owner 已确认“系统检测中 / 查看检测进度”必须是真实异步流程并在刷新后追溯；当前 `settlement_dispute` 只有业务状态和处理结果，没有任务、进度或失败事实。 |
+| 指向代码块 | `apps/api/dy_api/models.py:1711`；`apps/api/dy_api/routes/dashboard.py:873`；`apps/web/src/pages/FinanceDisputesPage.tsx:1` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 的异议章节；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §3` |
+| 严重度 | `阻断（禁止以前端计时器或不可恢复后台任务冒充正式检测）` |
+| 状态 | `待评审` |
+
+> `S4-FCR-006` 在并行主线中存在两个业务域来源，以下按业务域保留原始编号与完整内容，避免合并时丢失任何门禁记录。
+
+## S4-FCR-006（财务）：有效 SAP 生效来源与单条财务矫正合同冲突
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-006` |
+| 来源 Task | `T5.7 G5 六页财务合同实现与生产放行` |
+| 分类 | `DRIFT` |
+| 改动项 | 明确财务导入 SAP 值及后续单条财务矫正是当前有效 SAP 的唯一财务来源；读接口同时返回门店原值、财务值、当前有效值、操作人、时间、版本和审计；批量与单条写入均采用不可变新版本、乐观锁和幂等。 |
+| 原因 | Owner 已书面确认财务导入值成功后直接生效，并允许财务处理单条差异；当前 SAP_CONFIRMATION 校验仍接收 `CONFIRMED/REJECTED` 枚举，而提交代码按 `sapCode` 写入，可能生成空有效 SAP，且门店列表只返回当前 profile type 2。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py:4302`；`apps/api/dy_api/routes/dashboard.py:5223`；`apps/api/dy_api/routes/dashboard.py:6101`；`apps/api/dy_api/models.py:2300` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 的 `store_finance_profile`；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md §5` |
+| 严重度 | `阻断（有效 SAP 可能为空、来源不唯一或历史不可追溯）` |
+| 状态 | `待评审` |
+
+## S4-FCR-010：推广费待开票金额需包含审核不通过金额
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-010` |
+| 来源 Task | `T5.7 G5 六页财务合同实现与生产放行` |
+| 分类 | `DRIFT` |
+| 改动项 | 将推广费 5 卡固定为推广费总额、已确认金额、待开票金额、已开票金额、审核通过已结算金额，并明确 `待开票金额 = 审核未通过金额 + 账期未开票金额`。 |
+| 原因 | Owner 书面裁决覆盖冻结原型旧的“审核未通过金额”独立卡；当前 carry-forward 投影把任一发票分配都视为占用账期，审核不通过后仍可能从待开票中排除。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py:4804`；`apps/web/src/types/dashboard.ts:1556`；`apps/web/src/pages/FinanceFeePage.tsx:1` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md` 的财务指标与发票投影章节 |
+| 严重度 | `阻断（推广费指标与明细口径不一致）` |
+| 状态 | `待评审` |
+
+## S4-FCR-006（线索，DYDATA-34）：旧轮次原地转为正式轮次并保留历史身份
 
 | 字段 | 内容 |
 |---|---|
@@ -12,7 +84,7 @@
 | 改动项 | 旧 `execution_mode=legacy` 轮次不删除、不生成替代 ID，而是在迁移门禁通过后原地改为 `formal`；保留轮次 ID、门店归属、轮次序号、状态、时间及跟进记录引用。现有活动轮次同时关闭自动过期，正式自动分配和自动再分配继续保持关闭。 |
 | 原因 | 当前系统尚未正式投入门店生产使用，用户明确不存在需要保留为独立语义的“历史旧轮次”；原地转换可以恢复现有有效线索的可操作性，并避免重建造成归属和跟进历史断链。 |
 | 指向代码块 | `alembic/versions/20260831_0046_retire_legacy_clue_rounds.py`；`apps/worker/clue_center.py`；`apps/worker/clue_operability_recovery.py`；`apps/api/dy_api/routes/_data.py` |
-| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-delivery-clue-center.md` 交付边界；`foundation-api-clue-center/jobs-security-and-migration.md` 正式重建与迁移章节；`foundation-schema-clue-center/clue_assignment_round.md` |
+| 目标 foundation 文件:章节 | `foundation-delivery-clue-center.md` 交付边界；`foundation-api-clue-center/jobs-security-and-migration.md` 正式重建与迁移章节；`foundation-schema-clue-center/clue_assignment_round.md` |
 | 严重度 | `高（直接影响既有线索是否可跟进及历史引用是否连续）` |
 | 状态 | `产品裁决已确认；运行实现、可逆迁移与本地门禁已完成，待 Foundation 正文同步` |
 

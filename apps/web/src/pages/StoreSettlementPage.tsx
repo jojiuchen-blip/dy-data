@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import {
   ApiRequestError,
   confirmStoreBillingStatement,
+  createStoreSettlementDispute,
   fetchStoreBillingStatements,
+  fetchStoreSettlementDisputes,
   fetchSettlementFilterMeta,
   fetchSettlementMonthly,
 } from "../api/client";
@@ -10,12 +12,17 @@ import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
-import { SelectField } from "../components/FormControls";
+import { SelectField, TextareaField, TextField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { useApiResource } from "../hooks/useApiResource";
-import type { BillingConfirmationSummary, FeeDirection, SettlementStatementLine } from "../types/dashboard";
+import type {
+  BillingConfirmationSummary,
+  FeeDirection,
+  SettlementStatementLine,
+  StoreSettlementDisputeType,
+} from "../types/dashboard";
 import { formatCurrency, formatDateTime, formatInteger } from "../utils/format";
 import { apiErrorText } from "../utils/apiErrors";
 import { userFacingError } from "../utils/userFacingError";
@@ -54,6 +61,39 @@ function confirmationLabel(confirmation: BillingConfirmationSummary | null): str
 
 function feeDirectionLabel(direction: FeeDirection): string {
   return direction === "PROMOTION" ? "推广服务费" : "管理服务费";
+}
+
+function disputeStatusLabel(status: string): string {
+  return ({
+    PENDING: "待处理",
+    IN_REVIEW: "审核中",
+    PENDING_ADMIN_APPROVAL: "待管理员审批",
+    ACCEPTED_WITH_ADJUSTMENT: "成立并调整",
+    REJECTED: "不成立",
+    WITHDRAWN: "已撤回",
+  } as Record<string, string>)[status] ?? status;
+}
+
+function yuanToCent(value: string): number | null {
+  const normalized = value.trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null;
+  const [yuan, fraction = ""] = normalized.split(".");
+  const amount = Number(yuan) * 100 + Number(fraction.padEnd(2, "0"));
+  return Number.isSafeInteger(amount) && amount > 0 ? amount : null;
+}
+
+function centToYuan(value: number): string {
+  return (value / 100).toFixed(2);
+}
+
+interface DisputeOrderDraft {
+  orderId: string;
+  couponId: string;
+  disputedAmountYuan: string;
+}
+
+function emptyDisputeOrder(): DisputeOrderDraft {
+  return { orderId: "", couponId: "", disputedAmountYuan: "" };
 }
 
 function lineDetailsHref(
@@ -99,6 +139,15 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
   const [confirmationMessage, setConfirmationMessage] = useState("");
   const [confirmationState, setConfirmationState] = useState<"idle" | "success" | "error">("idle");
   const [invalidatedStatementKey, setInvalidatedStatementKey] = useState<string | null>(null);
+  const [disputeDirection, setDisputeDirection] = useState<FeeDirection | null>(null);
+  const [disputeType, setDisputeType] = useState<StoreSettlementDisputeType>("AMOUNT_ERROR");
+  const [disputeOrders, setDisputeOrders] = useState<DisputeOrderDraft[]>([emptyDisputeOrder()]);
+  const [disputeReason, setDisputeReason] = useState("");
+  const [disputeContactName, setDisputeContactName] = useState("");
+  const [disputeContactPhone, setDisputeContactPhone] = useState("");
+  const [pendingDispute, setPendingDispute] = useState(false);
+  const [disputeMessage, setDisputeMessage] = useState("");
+  const [disputeState, setDisputeState] = useState<"idle" | "success" | "error">("idle");
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
   const activeMonth = month || meta?.statementMonths[0] || "";
@@ -147,6 +196,11 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
     && !billingError
     ? statementCandidate
     : undefined;
+  const disputesResource = useApiResource(
+    () => fetchStoreSettlementDisputes(statement?.statementId ?? ""),
+    [statement?.statementId],
+    { enabled: Boolean(statement?.statementId) },
+  );
 
   const submitConfirmation = async () => {
     const direction = confirmationDirection;
@@ -185,6 +239,107 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
       setPendingDirection(null);
     }
   };
+
+  const openDispute = (direction: FeeDirection) => {
+    setDisputeDirection(direction);
+    setDisputeType("AMOUNT_ERROR");
+    setDisputeOrders([emptyDisputeOrder()]);
+    setDisputeReason("");
+    setDisputeContactName("");
+    setDisputeContactPhone("");
+    setDisputeMessage("");
+    setDisputeState("idle");
+  };
+
+  const updateDisputeOrder = (
+    index: number,
+    field: keyof DisputeOrderDraft,
+    value: string,
+  ) => {
+    setDisputeOrders((current) => current.map((order, orderIndex) => (
+      orderIndex === index ? { ...order, [field]: value } : order
+    )));
+  };
+
+  const submitDispute = async () => {
+    const direction = disputeDirection;
+    if (!direction || !statement?.isCurrent) return;
+    const normalizedReason = disputeReason.trim();
+    const normalizedContactName = disputeContactName.trim();
+    const normalizedContactPhone = disputeContactPhone.trim();
+    const orderPayload = disputeOrders.map((order) => ({
+      orderId: order.orderId.trim(),
+      couponId: order.couponId.trim() || undefined,
+      disputedAmountCent: yuanToCent(order.disputedAmountYuan),
+    }));
+    if (!normalizedReason) {
+      setDisputeMessage("请填写具体原因后再提交。");
+      setDisputeState("error");
+      return;
+    }
+    if (!normalizedContactName) {
+      setDisputeMessage("请填写联系人后再提交。");
+      setDisputeState("error");
+      return;
+    }
+    if (!/^\d{11}$/.test(normalizedContactPhone)) {
+      setDisputeMessage("请填写 11 位联系电话后再提交。");
+      setDisputeState("error");
+      return;
+    }
+    if (orderPayload.some((order) => !order.orderId || order.disputedAmountCent === null)) {
+      setDisputeMessage("请完整填写每个争议订单及金额（元，最多两位小数）。");
+      setDisputeState("error");
+      return;
+    }
+    const disputedAmountCent = orderPayload.reduce(
+      (total, order) => total + (order.disputedAmountCent as number),
+      0,
+    );
+    if (disputedAmountCent <= 0) {
+      setDisputeMessage("争议金额必须大于 0。");
+      setDisputeState("error");
+      return;
+    }
+
+    setPendingDispute(true);
+    setDisputeMessage("");
+    setDisputeState("idle");
+    try {
+      await createStoreSettlementDispute(
+        statement.statementId,
+        {
+          feeDirection: direction,
+          disputeType,
+          description: normalizedReason,
+          contactName: normalizedContactName,
+          contactPhone: normalizedContactPhone,
+          disputedAmountCent,
+          orders: orderPayload.map((order) => ({
+            orderId: order.orderId,
+            ...(order.couponId ? { couponId: order.couponId } : {}),
+            disputedAmountCent: order.disputedAmountCent as number,
+          })),
+          readVersion: statement.versionNo,
+        },
+        crypto.randomUUID(),
+      );
+      setDisputeMessage(`${feeDirectionLabel(direction)}异议已提交，系统将按正式流程开始检测。`);
+      setDisputeState("success");
+      setDisputeDirection(null);
+      disputesResource.reload();
+    } catch (error) {
+      setDisputeMessage(userFacingError(error, "异议提交失败，请刷新当前账单后重试。"));
+      setDisputeState("error");
+    } finally {
+      setPendingDispute(false);
+    }
+  };
+
+  const disputeAmountCent = disputeOrders.reduce(
+    (total, order) => total + (yuanToCent(order.disputedAmountYuan) ?? 0),
+    0,
+  );
 
   const columns: Column<SettlementStatementLine>[] = [
     { key: "product", title: "商品", minWidth: 160, render: (line) => `${line.productScope} / ${line.productType}` },
@@ -269,10 +424,32 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
                 <div className="section-title">
                   <div>
                     <h3>账单异议</h3>
-                    <p>证据上传能力尚未接入（DYDATA-82），暂不能提交账单异议。</p>
+                    <p>填写具体原因、争议订单和金额；提交后按当前账单版本进入正式检测流程。</p>
                   </div>
-                  <Button disabled size="sm">异议提交暂不可用</Button>
                 </div>
+                {(["PROMOTION", "MANAGEMENT"] as const).map((direction) => (
+                  <div className="section-title" key={`dispute-${direction}`}>
+                    <div>
+                      <h3>{feeDirectionLabel(direction)}</h3>
+                      <p>{disputesResource.data?.data.list.filter((item) => item.feeDirection === direction).length ?? 0} 条历史异议</p>
+                    </div>
+                    <Button onClick={() => openDispute(direction)} size="sm" variant="secondary">
+                      发起{feeDirectionLabel(direction)}异议
+                    </Button>
+                  </div>
+                ))}
+                {disputesResource.rawError ? <ResourcePanel tone="error">{apiErrorText(disputesResource.rawError, "历史异议暂不可用，请稍后重试。")}</ResourcePanel> : null}
+                {disputesResource.data?.data.list.length ? (
+                  <div className="admin-history-block" aria-label="历史账单异议">
+                    {disputesResource.data.data.list.map((dispute) => (
+                      <div className="admin-dispute-history-item" key={dispute.disputeId}>
+                        <strong>{feeDirectionLabel(dispute.feeDirection)} · {dispute.description}</strong>
+                        <span>{disputeStatusLabel(dispute.status)} · {formatDateTime(dispute.submittedAt)}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {disputeMessage ? <p role={disputeState === "error" ? "alert" : "status"}>{disputeMessage}</p> : null}
               </>
             ) : (
               <ResourcePanel>当前未生成可确认账单，页面保留预览数据；生成当前账单后才能确认费用方向。</ResourcePanel>
@@ -301,6 +478,60 @@ export function StoreSettlementPage({ searchParams }: StoreSettlementPageProps) 
             title={`确认${confirmationDirection ? feeDirectionLabel(confirmationDirection) : "账单"}`}
           >
             <p>请确认当前账单金额与费用方向无误后再提交。</p>
+          </Dialog>
+          <Dialog
+            actions={
+              <>
+                <Button disabled={pendingDispute} onClick={() => setDisputeDirection(null)} variant="secondary">返回账单</Button>
+                <Button loading={pendingDispute} onClick={() => void submitDispute()} variant="primary">提交异议并开始检测</Button>
+              </>
+            }
+            closeDisabled={pendingDispute}
+            description="不上传文件；具体原因、订单和金额将绑定当前账单版本并写入正式异议记录。"
+            onClose={() => setDisputeDirection(null)}
+            open={disputeDirection !== null}
+            panelClassName="store-dispute-dialog"
+            title={`发起${disputeDirection ? feeDirectionLabel(disputeDirection) : "账单"}异议`}
+          >
+            <div className="admin-form-grid">
+              <SelectField
+                label="异议类型"
+                onChange={(value) => setDisputeType(value as StoreSettlementDisputeType)}
+                options={[
+                  { value: "RATE_ERROR", label: "费率错误" },
+                  { value: "DATA_MISSING", label: "订单 / 数据遗漏" },
+                  { value: "AMOUNT_ERROR", label: "金额错误" },
+                  { value: "OTHER", label: "其他" },
+                ]}
+                value={disputeType}
+              />
+              <TextField label="联系人" onChange={(event) => setDisputeContactName(event.target.value)} value={disputeContactName} />
+              <TextField label="联系电话" inputMode="numeric" onChange={(event) => setDisputeContactPhone(event.target.value)} value={disputeContactPhone} />
+              <TextField label="争议总金额（元）" readOnly value={centToYuan(disputeAmountCent)} />
+            </div>
+            <div className="admin-history-block">
+              <div className="section-title">
+                <div>
+                  <h3>争议订单</h3>
+                  <p>每个订单填写对应争议金额，系统按正式 API 校验订单归属和金额合计。</p>
+                </div>
+                <Button onClick={() => setDisputeOrders((current) => [...current, emptyDisputeOrder()])} size="sm" variant="text">添加订单</Button>
+              </div>
+              {disputeOrders.map((order, index) => (
+                <div className="admin-form-grid" key={`dispute-order-${index}`}>
+                  <TextField label={`订单号 ${index + 1}`} onChange={(event) => updateDisputeOrder(index, "orderId", event.target.value)} value={order.orderId} />
+                  <TextField label="券 ID（可选）" onChange={(event) => updateDisputeOrder(index, "couponId", event.target.value)} value={order.couponId} />
+                  <TextField label="订单争议金额（元）" inputMode="decimal" onChange={(event) => updateDisputeOrder(index, "disputedAmountYuan", event.target.value)} value={order.disputedAmountYuan} />
+                  {disputeOrders.length > 1 ? <Button onClick={() => setDisputeOrders((current) => current.filter((_, orderIndex) => orderIndex !== index))} size="sm" variant="text">移除</Button> : null}
+                </div>
+              ))}
+            </div>
+            <TextareaField
+              helperText="请写明具体差异、涉及订单或金额；异议不再上传文件。"
+              label="具体原因"
+              onChange={(event) => setDisputeReason(event.target.value)}
+              value={disputeReason}
+            />
           </Dialog>
         </>
       )}

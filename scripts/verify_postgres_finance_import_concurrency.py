@@ -77,6 +77,7 @@ def _commit_one(session_factory, batch_id: str, key: str) -> tuple[str, int]:
         store_ids=(),
         auth_type="user",
         store_scope_mode="all",
+        page_keys=("FIN04",),
     )
     with session_factory() as session:
         try:

@@ -18,7 +18,9 @@ interface DataTableProps<T> {
   errorText?: string;
   loadingText?: string;
   mobileCard?: ((row: T, index: number) => ReactNode) | false;
+  onRowAction?: (row: T) => void;
   onRowDoubleClick?: (row: T, event: MouseEvent<HTMLTableRowElement>) => void;
+  rowActionLabel?: (row: T) => string | undefined;
   rowHref?: (row: T) => string | undefined;
   state?: "ready" | "loading" | "error";
   stickyHeader?: "container";
@@ -89,7 +91,9 @@ export function DataTable<T>({
   errorText = "数据暂不可用",
   loadingText = "正在加载数据...",
   mobileCard,
+  onRowAction,
   onRowDoubleClick,
+  rowActionLabel,
   rowHref,
   state = "ready",
   stickyHeader,
@@ -107,6 +111,7 @@ export function DataTable<T>({
     }
 
     const href = rowHref?.(row);
+    const actionLabel = rowActionLabel?.(row);
     return (
       <>
         <dl className="data-table-mobile-card__fields">
@@ -125,6 +130,16 @@ export function DataTable<T>({
             variant="primary"
           >
             查看详情
+          </Button>
+        ) : null}
+        {actionLabel && onRowAction ? (
+          <Button
+            className="data-table-mobile-card__action"
+            onClick={() => onRowAction(row)}
+            type="button"
+            variant="primary"
+          >
+            {actionLabel}
           </Button>
         ) : null}
       </>
@@ -173,10 +188,11 @@ export function DataTable<T>({
             ) : (
               rows.map((row, rowIndex) => {
                 const href = rowHref?.(row);
+                const actionLabel = rowActionLabel?.(row);
                 return (
                   <tr
                     className={
-                      href || onRowDoubleClick ? "clickable-row" : undefined
+                      href || onRowDoubleClick || actionLabel ? "clickable-row" : undefined
                     }
                     key={rowIndex}
                     onClick={href ? () => openInternalHref(href) : undefined}
@@ -186,17 +202,21 @@ export function DataTable<T>({
                         : undefined
                     }
                     onKeyDown={
-                      href
+                      href || (actionLabel && onRowAction)
                         ? (event) => {
                             if (event.key === "Enter" || event.key === " ") {
                               event.preventDefault();
-                              openInternalHref(href);
+                              if (href) {
+                                openInternalHref(href);
+                              } else {
+                                onRowAction?.(row);
+                              }
                             }
                           }
                         : undefined
                     }
-                    role={href ? "link" : undefined}
-                    tabIndex={href ? 0 : undefined}
+                    role={href ? "link" : actionLabel ? "button" : undefined}
+                    tabIndex={href || actionLabel ? 0 : undefined}
                   >
                     {preparedColumns.map((column) => (
                       <td

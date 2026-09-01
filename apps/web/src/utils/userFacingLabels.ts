@@ -277,10 +277,24 @@ const financeDisputeTypeLabels: LabelMap = {
   OTHER: "其他",
 };
 
+const financeDisputeDetectionStatusLabels: LabelMap = {
+  QUEUED: "等待系统检测",
+  RUNNING: "系统检测中",
+  SUCCEEDED: "系统检测完成",
+  FAILED: "系统检测失败",
+};
+
+const financeSapStatusLabels: LabelMap = {
+  PENDING_STORE_CONFIRMATION: "待门店确认",
+  FINANCE_ACTION_REQUIRED: "待财务处理",
+  CONFIRMED: "已确认",
+};
+
 const financeOrderStatusLabels: LabelMap = {
   PENDING: "待处理",
   PAID: "已支付",
   VERIFIED: "已核销",
+  USED: "已核销",
   COMPLETED: "已完成",
   REFUNDED: "已退款",
   CANCELLED: "已取消",
@@ -535,6 +549,28 @@ export function displayFinanceDisputeType(
     financeDisputeTypeLabels,
     "未知异议类型",
     "finance dispute type",
+  );
+}
+
+export function displayFinanceDisputeDetectionStatus(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeDisputeDetectionStatusLabels,
+    "未知检测状态",
+    "finance dispute detection status",
+  );
+}
+
+export function displayFinanceSapStatus(
+  value: string | null | undefined,
+): string {
+  return displayEnumLabel(
+    value,
+    financeSapStatusLabels,
+    "未知 SAP 状态",
+    "finance SAP status",
   );
 }
 

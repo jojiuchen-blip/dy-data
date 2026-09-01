@@ -83,11 +83,12 @@ def test_finance_enum_tokens_are_presented_by_shared_labels() -> None:
         "displayFinanceAdjustmentType",
         "displayFinanceSaleChannel",
         "displaySapSuggestionStatus",
+        "displayFinanceSapStatus",
         "displayFinanceImportReversalEffect",
     ):
         assert f"export function {presenter}" in labels
     assert "displayFinanceOrderStatus(row.orderStatus)" in order_details
-    assert "displaySapSuggestionStatus(row.status)" in stores
+    assert "displayFinanceSapStatus(row.sapStatus)" in stores
     assert "displayFinanceImportReversalEffect(row.effectType)" in imports
 
 

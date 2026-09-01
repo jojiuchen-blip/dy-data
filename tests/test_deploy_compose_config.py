@@ -126,10 +126,16 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'git archive --format=tar "$GITHUB_SHA"' in workflow
     assert 'scp -i ~/.ssh/tencent_lighthouse' in workflow
     assert "TENCENT_APT_MIRROR" in workflow
+    assert "TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}" in workflow
     assert "http://mirrors.tencentyun.com" in workflow
+    required = workflow.split("required=(", 1)[1].split(")", 1)[0]
+    assert "TENCENT_START_WORKER" in required
+    assert 'if [ "$TENCENT_START_WORKER" != "true" ]; then' in workflow
+    assert 'start_worker="$4"' in workflow
     assert (
         'SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" '
-        'DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh'
+        'DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" '
+        'bash deploy/tencent/deploy.sh'
         in workflow
     )
     assert "fetch_origin" not in deploy_step
@@ -147,6 +153,22 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert 'wait_for_healthy_service ops-agent' in deploy_script
     assert 'compose logs --tail=80 api web proxy ops-agent' in deploy_script
     assert "compose up -d --no-deps --force-recreate worker" in deploy_script
+    assert "compose ps --status running --services" in deploy_script
+    assert 'grep -qx "worker"' in deploy_script
+    worker_gate = deploy_script.index('if [ "$START_WORKER" != "true" ]; then')
+    migration = deploy_script.index('log "running migrations"')
+    assert worker_gate < migration
+    worker_start = deploy_script.index('log "starting required worker"')
+    worker_smoke = deploy_script.index('log "worker queue runtime smoke passed"')
+    runtime_start = deploy_script.index('log "starting runtime services without worker"')
+    proxy_cutover = deploy_script.index(
+        'log "recreating proxy so nginx resolves fresh upstream container addresses"'
+    )
+    assert worker_start < worker_smoke < runtime_start < proxy_cutover
+    assert "keeping worker stopped" not in deploy_script
+    assert 'compose exec -T worker python -c' in deploy_script
+    assert "apps.worker.queued_jobs" in deploy_script
+    assert "compose logs --tail=80 api web proxy ops-agent worker" in deploy_script
     assert 'if [ "$SKIP_GIT_SYNC" = "true" ]; then' in deploy_script
     assert 'deployed_sha="$TARGET_SHA"' in deploy_script
 
@@ -197,7 +219,7 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
 
 
 def test_postgres_release_gates_track_the_current_alembic_head():
-    expected_head = 'EXPECTED_HEAD = "20260831_0046"'
+    expected_head = 'EXPECTED_HEAD = "20260831_0048"'
     for relative_path in (
         "scripts/verify_postgres_release_gate.py",
         "scripts/verify_postgres_populated_release_gate.py",
@@ -263,7 +285,11 @@ def test_tencent_deploy_requires_and_smoke_tests_cli_web_authorization_base():
     assert "DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}" in workflow
     assert "DY_WEB_BASE_URL" in workflow.split("required=(", 1)[1].split(")", 1)[0]
     assert 'web_base_url="$3"' in workflow
-    assert 'DY_WEB_BASE_URL="$web_base_url" bash deploy/tencent/deploy.sh' in workflow
+    assert (
+        'DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" '
+        'bash deploy/tencent/deploy.sh'
+        in workflow
+    )
     assert 'DY_WEB_BASE_URL="${DY_WEB_BASE_URL:-}"' in deploy_script
     assert 'DY_WEB_BASE_URL="$DY_WEB_BASE_URL" docker compose' in deploy_script
     assert '"$HEALTH_URL/api/v1/auth/cli/device/start"' in deploy_script

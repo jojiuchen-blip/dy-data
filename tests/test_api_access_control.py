@@ -75,9 +75,13 @@ def test_highest_admin_can_read_page_registry_and_role_defaults(client: TestClie
     assert [row["page_key"] for row in data["pages"]] == [
         "A01", "A02", "B01", "B02", "B03", "C01",
         "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
+        "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06",
     ]
     assert data["role_permissions"]["highest_admin"] == [row["page_key"] for row in data["pages"]]
     assert "D02" in data["role_permissions"]["admin"]
+    assert data["role_permissions"]["admin"][-6:] == [
+        "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"
+    ]
     assert data["role_permissions"]["store"] == ["A01", "A02", "B01", "B02", "B03", "C01"]
 
 

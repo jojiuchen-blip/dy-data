@@ -41,6 +41,17 @@ PAGE_DEFINITIONS = (
     PageDefinition("D08", "总部线索池", "管理后台", ("/admin/clue-allocation/headquarters",)),
     PageDefinition("D09", "用户建议", "管理后台", ("/admin/feedback",)),
     PageDefinition("D10", "数据同步", "管理后台", ("/admin/sync", "/sync-admin")),
+    PageDefinition("FIN01", "推广服务费", "财务", ("/finance/promotion",)),
+    PageDefinition("FIN02", "管理服务费", "财务", ("/finance/management",)),
+    PageDefinition(
+        "FIN03",
+        "财务订单明细",
+        "财务",
+        ("/finance/orders/promotion", "/finance/orders/management"),
+    ),
+    PageDefinition("FIN04", "门店基础信息", "财务", ("/finance/stores",)),
+    PageDefinition("FIN05", "账单异议", "财务", ("/finance/disputes",)),
+    PageDefinition("FIN06", "财务导入记录", "财务", ("/finance/imports",)),
 )
 ALL_PAGE_KEYS = tuple(page.page_key for page in PAGE_DEFINITIONS)
 ALL_PAGE_KEY_SET = frozenset(ALL_PAGE_KEYS)
@@ -341,6 +352,27 @@ def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str
         or path.startswith("/api/v1/jobs")
     ):
         return ("D10",)
+    if path.startswith("/api/v1/admin/finance/order-details"):
+        return ("FIN03",)
+    if (
+        path.startswith("/api/v1/admin/finance/stores")
+        or path.startswith("/api/v1/admin/finance/sap-suggestions")
+    ):
+        return ("FIN04",)
+    if path.startswith("/api/v1/admin/disputes"):
+        return ("FIN05",)
+    if path == "/api/v1/admin/finance-imports" and method.upper() == "GET":
+        return ("FIN06",)
+    if path.startswith("/api/v1/admin/finance-imports"):
+        # Import templates, uploads and batch mutations are authorized from
+        # their business-page import type after the route has parsed it.
+        return None
+    if path.startswith("/api/v1/admin/finance/management-invoices"):
+        return ("FIN02",)
+    if path.startswith("/api/v1/admin/finance"):
+        # Promotion and management share summary/invoice endpoints; the route
+        # enforces FIN01/FIN02 after normalizing feeDirection.
+        return None
     if path.startswith("/api/v1/admin"):
         return ("D01",)
     if path.startswith("/api/v1/clues/filters") or path.startswith("/api/v1/clues/overview"):

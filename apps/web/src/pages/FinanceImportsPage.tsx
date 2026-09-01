@@ -69,15 +69,7 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
   };
 
   const columns: Column<FinanceImportBatchRow>[] = [
-    { key: "file", title: "文件", minWidth: 210, sticky: true, render: (row) => row.fileName },
-    { key: "type", title: "导入类型", minWidth: 180, render: (row) => displayFinanceImportType(row.importType) },
-    { key: "month", title: "账期", render: (row) => row.statementMonth },
-    { key: "scenario", title: "处理结果", minWidth: 180, render: (row) => displayFinanceImportScenario(row.scenario) },
-    { key: "version", title: "读取 / 当前版本", render: (row) => `V${row.readVersion} / V${row.currentVersion}` },
-    { key: "rows", title: "成功 / 错误 / 总行", align: "right", render: (row) => `${formatInteger(row.successRows)} / ${formatInteger(row.errorRows)} / ${formatInteger(row.totalRows)}` },
-    { key: "submitted", title: "导入时间", minWidth: 170, render: (row) => formatDateTime(row.submittedAt) },
-    { key: "operator", title: "操作人", render: (row) => row.committedBy ?? row.submittedBy },
-    { key: "action", title: "操作", render: (row) => <Button onClick={() => {
+    { key: "id", title: "导入编号", minWidth: 190, sticky: true, render: (row) => <Button onClick={() => {
       setSelectedBatchId(row.batchId);
       setErrorPage(1);
       setReversalPage(1);
@@ -85,7 +77,14 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
       setReversalKey(crypto.randomUUID());
       setReversalState("idle");
       setReversalMessage("");
-    }} size="sm" variant="text">查看</Button> },
+    }} size="sm" variant="text">{row.batchId}</Button> },
+    { key: "type", title: "导入类型", minWidth: 180, render: (row) => displayFinanceImportType(row.importType) },
+    { key: "file", title: "源文件名称（仅日志）", minWidth: 230, render: (row) => row.fileName },
+    { key: "rows", title: "记录数", align: "right", render: (row) => formatInteger(row.totalRows) },
+    { key: "status", title: "状态", minWidth: 180, render: (row) => displayFinanceImportScenario(row.scenario) },
+    { key: "operator", title: "操作人", minWidth: 140, render: (row) => row.committedBy ?? row.submittedBy },
+    { key: "submitted", title: "导入时间", minWidth: 170, render: (row) => formatDateTime(row.submittedAt) },
+    { key: "summary", title: "结果摘要", minWidth: 260, render: (row) => row.resultSummary },
   ];
   const errorColumns: Column<FinanceImportErrorRow>[] = [
     { key: "row", title: "原文件行号", render: (row) => row.rowNumber },
@@ -130,37 +129,48 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
 
   return (
     <div className="page-stack finance-page">
-      <section className="page-heading finance-heading"><div><p className="eyebrow">财务管理员</p><h1>导入记录</h1><p>本页用于查询批次、错误、差异、版本覆盖关系和操作审计；具备授权的管理员可对符合条件的批次发起撤销。导入操作从推广费或管理服务费页面发起。</p></div></section>
-      <section className="finance-filter-bar" aria-label="导入记录筛选条件">
-        <label>
-          <span>导入类型</span>
-          <SearchableStoreSelect
-            allowEmpty
-            emptyLabel="全部类型"
-            emptyMessage="未找到导入类型"
-            onChange={(value) => { setImportType(value); setPage(1); clearSelectedBatch(); }}
-            options={importTypes
-              .filter(([value]) => Boolean(value))
-              .map(([value, label]) => ({ value, label }))}
-            placeholder="选择导入类型"
-            value={importType}
-          />
-        </label>
-        <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); clearSelectedBatch(); }} /></label>
+      <section className="page-heading finance-heading">
+        <div><p className="eyebrow">财务管理员</p><h1>导入记录</h1><p>四类数据均从对应业务页面发起导入；本页用于查询批次、错误、覆盖关系和操作审计，并可对符合条件的批次发起撤销。</p></div>
+        <span className="finance-scope-note">整批成功或整批失败</span>
       </section>
-      <ResourceNotice loading={listResource.loading} error={listResource.error} />
-      <section className="content-section"><div className="section-title"><div><h2>导入批次</h2><p>当前有效版本和历史更正记录均永久保留。</p></div></div><DataTable columns={columns} rows={listResource.data?.data.list ?? []} state={listBusy ? "loading" : listResource.error ? "error" : "ready"} /></section>
-      <TablePagination
-        loading={listBusy}
-        onPageChange={(nextPage) => { setPage(nextPage); clearSelectedBatch(); }}
-        onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); clearSelectedBatch(); }}
-        page={listResource.data?.data.page ?? page}
-        pageSize={listResource.data?.data.pageSize ?? pageSize}
-        pageSizeOptions={[20, 50]}
-        rowsOnPage={listResource.data?.data.list.length ?? 0}
-        total={listResource.data?.data.total ?? 0}
-        totalPages={Math.max(1, Math.ceil((listResource.data?.data.total ?? 0) / (listResource.data?.data.pageSize ?? pageSize)))}
-      />
+      <div className="finance-policy-banner finance-import-policy" role="note">
+        <strong>仅保存导入日志，不保存原始上传文件。</strong>
+        <span>日志记录导入类型、源文件名称、数据行数、校验结果、操作人、导入时间和覆盖摘要。</span>
+      </div>
+
+      <section className="records-section">
+        <div className="section-title"><div><p className="eyebrow">操作追溯</p><h2>历史导入日志</h2><p>最新导入生效，覆盖前必须确认；当前有效版本和历史更正永久保留。</p></div></div>
+        <div className="finance-filter-bar" aria-label="导入记录筛选条件">
+          <label>
+            <span>导入类型</span>
+            <SearchableStoreSelect
+              allowEmpty
+              emptyLabel="全部类型"
+              emptyMessage="未找到导入类型"
+              onChange={(value) => { setImportType(value); setPage(1); clearSelectedBatch(); }}
+              options={importTypes
+                .filter(([value]) => Boolean(value))
+                .map(([value, label]) => ({ value, label }))}
+              placeholder="选择导入类型"
+              value={importType}
+            />
+          </label>
+          <label><span>业务账期</span><FieldInput type="month" value={month} onChange={(event) => { setMonth(event.target.value); setPage(1); clearSelectedBatch(); }} /></label>
+        </div>
+        <ResourceNotice loading={listResource.loading} error={listResource.error} />
+        <DataTable columns={columns} emptyText="当前筛选下暂无导入记录" rows={listResource.data?.data.list ?? []} state={listBusy ? "loading" : listResource.error ? "error" : "ready"} tableClassName="finance-import-log-table" />
+        <TablePagination
+          loading={listBusy}
+          onPageChange={(nextPage) => { setPage(nextPage); clearSelectedBatch(); }}
+          onPageSizeChange={(nextPageSize) => { setPageSize(nextPageSize); setPage(1); clearSelectedBatch(); }}
+          page={listResource.data?.data.page ?? page}
+          pageSize={listResource.data?.data.pageSize ?? pageSize}
+          pageSizeOptions={[20, 50]}
+          rowsOnPage={listResource.data?.data.list.length ?? 0}
+          total={listResource.data?.data.total ?? 0}
+          totalPages={Math.max(1, Math.ceil((listResource.data?.data.total ?? 0) / (listResource.data?.data.pageSize ?? pageSize)))}
+        />
+      </section>
       {selectedBatchId ? (
         <section className="content-section finance-import-detail">
           <div className="section-title"><div><h2>批次详情</h2><p>{detail?.fileName ?? selectedBatchId}</p></div><Button onClick={clearSelectedBatch} variant="text">关闭</Button></div>

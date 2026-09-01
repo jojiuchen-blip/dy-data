@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
   commitFinanceImport,
@@ -28,22 +28,38 @@ const importOptions = {
 } as const;
 
 export function FinanceImportActionPanel({
+  fixedImportType,
   scope,
   month,
   onCommitted,
 }: {
+  fixedImportType?: string;
   scope: FeeDirection | "STORE";
   month: string;
   onCommitted: () => void;
 }) {
-  const options = importOptions[scope];
-  const [importType, setImportType] = useState<string>(options[0][0]);
+  const options = importOptions[scope].filter(
+    ([value]) => !fixedImportType || value === fixedImportType,
+  );
+  const [importType, setImportType] = useState<string>(
+    fixedImportType ?? options[0][0],
+  );
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<FinanceImportBatchRow | null>(null);
   const [changeReason, setChangeReason] = useState("导入系统外已完成的财务结果");
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [commitKey, setCommitKey] = useState(() => crypto.randomUUID());
+  const [fileInputVersion, setFileInputVersion] = useState(0);
+
+  useEffect(() => {
+    setFile(null);
+    setPreview(null);
+    setMessage("");
+    setCommitKey(crypto.randomUUID());
+    setFileInputVersion((current) => current + 1);
+  }, [fixedImportType, month]);
 
   const handleUpload = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,6 +70,7 @@ export function FinanceImportActionPanel({
     try {
       const response = await uploadFinanceImport({ importType, statementMonth: month, file });
       setPreview(response.data);
+      setCommitKey(crypto.randomUUID());
       setMessage(
         response.data.errorRows > 0
           ? "整批校验未通过，请下载错误明细后修正文件。"
@@ -78,26 +95,30 @@ export function FinanceImportActionPanel({
         changeReason: changeReason.trim(),
       };
       if (preview.scenario === "DIFF_CONFIRMATION_REQUIRED") {
-        await correctFinanceImport(preview.batchId, payload, crypto.randomUUID());
+        await correctFinanceImport(preview.batchId, payload, commitKey);
       } else {
-        await commitFinanceImport(preview.batchId, payload, crypto.randomUUID());
+        await commitFinanceImport(preview.batchId, payload, commitKey);
       }
       setMessage("导入结果已生效；导入时间作为审核通过或结算完成时间。");
       setPreview(null);
       setFile(null);
+      setCommitKey(crypto.randomUUID());
+      setFileInputVersion((current) => current + 1);
       onCommitted();
     } catch (error) {
       const conflict = error instanceof ApiRequestError && error.status === 409;
       if (conflict) {
         setPreview(null);
         setFile(null);
+        setCommitKey(crypto.randomUUID());
+        setFileInputVersion((current) => current + 1);
       }
       setMessage(
         userFacingError(
           error,
           conflict
             ? "版本已发生变化，请重新上传并预览。"
-            : "提交失败，请刷新后重新预览。",
+            : "提交失败，请稍后重试；本次重试将沿用同一请求标识。",
         ),
       );
     } finally {
@@ -126,10 +147,15 @@ export function FinanceImportActionPanel({
         <label>
           <span>导入模板</span>
           <SearchableStoreSelect
+            disabled={Boolean(fixedImportType)}
             emptyMessage="未找到导入模板"
             onChange={(value) => {
               setImportType(value);
+              setFile(null);
               setPreview(null);
+              setMessage("");
+              setCommitKey(crypto.randomUUID());
+              setFileInputVersion((current) => current + 1);
             }}
             options={options.map(([value, label]) => ({ value, label }))}
             placeholder="选择导入模板"
@@ -137,7 +163,19 @@ export function FinanceImportActionPanel({
           />
         </label>
         <TextField disabled label="业务账期" value={month} />
-        <TextField accept=".csv,.xlsx" label="文件" required type="file" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+        <TextField
+          accept=".csv,.xlsx"
+          key={`finance-import-file-${fileInputVersion}`}
+          label="文件"
+          required
+          type="file"
+          onChange={(event) => {
+            setFile(event.target.files?.[0] ?? null);
+            setPreview(null);
+            setMessage("");
+            setCommitKey(crypto.randomUUID());
+          }}
+        />
         <div className="finance-form-actions"><Button disabled={!file} loading={uploading} type="submit" variant="primary">上传并预览</Button>{message ? <span role="status">{message}</span> : null}</div>
       </form>
       {preview ? (

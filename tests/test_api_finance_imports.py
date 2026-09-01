@@ -196,17 +196,18 @@ def test_sap_confirmation_import_appends_profile_history(
     uploaded = _upload(
         client,
         "SAP_CONFIRMATION",
-        "storeId,storeName,financeInitialSap,serviceStoreCode,factoryConfirmationResult,confirmedAt\n"
-        "store-1,Store One,SAP-OLD,SVC-001,CONFIRMED,2026-08-21T11:00:00+08:00\n",
+        "storeId,storeName,financeInitialSap,serviceStoreCode,finalSapCode,factoryConfirmationResult,confirmedAt\n"
+        "store-1,Store One,SAP-OLD,SVC-001,SAP-FINAL,CONFIRMED,2026-08-21T11:00:00+08:00\n",
     )
     assert uploaded.status_code == 200
     batch = uploaded.json()["data"]
     committed = _commit(client, batch, "finance-sap-commit-0001")
     assert committed.status_code == 200
     profile = db_session.scalar(
-        select(StoreFinanceProfile).where(StoreFinanceProfile.profile_type == 2)
+        select(StoreFinanceProfile).where(StoreFinanceProfile.profile_type == 1)
     )
     assert profile is not None
+    assert profile.sap_code == "SAP-FINAL"
     assert profile.initial_sap_code == "SAP-OLD"
     assert profile.service_store_code == "SVC-001"
     assert profile.factory_confirmed is True

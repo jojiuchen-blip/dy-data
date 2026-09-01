@@ -3388,7 +3388,7 @@ class JobRun(Base):
         ),
         CheckConstraint(
             "status IN ('pending', 'queued', 'running', 'retry_wait', "
-            "'success', 'partial', 'failed', 'cancelled')",
+            "'success', 'succeeded', 'partial', 'failed', 'cancelled')",
             name="ck_job_runs_status_allowlist",
         ),
         CheckConstraint(
@@ -3419,6 +3419,20 @@ class JobRun(Base):
             ),
             postgresql_where=text(
                 "job_name = 'product_sync' AND idempotency_key_hash IS NOT NULL"
+            ),
+        ),
+        Index(
+            "uq_job_runs_finance_dispute_detection_idempotency_key",
+            "job_name",
+            "idempotency_key_hash",
+            unique=True,
+            sqlite_where=text(
+                "job_name = 'finance_dispute_detection' "
+                "AND idempotency_key_hash IS NOT NULL"
+            ),
+            postgresql_where=text(
+                "job_name = 'finance_dispute_detection' "
+                "AND idempotency_key_hash IS NOT NULL"
             ),
         ),
         Index(
@@ -3468,6 +3482,13 @@ class JobRun(Base):
     failed_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
     idempotency_key_hash: Mapped[str | None] = mapped_column(String(64))
+    claim_token: Mapped[str | None] = mapped_column(String(128))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    state_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON_TYPE, default=dict)
     parent_job_id: Mapped[str | None] = mapped_column(
         Text,
