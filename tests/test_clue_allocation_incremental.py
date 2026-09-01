@@ -3044,7 +3044,10 @@ def test_incremental_raw_pages_commit_cursor_and_resume_after_short_lease_crash(
             batch_size=1,
             raw_batch_size=1,
             lease_token="attempt-page-crash",
-            lease_seconds=1,
+            # The test expires the persisted lease explicitly below. Keep the
+            # initial lease long enough that a loaded CI runner can commit the
+            # first page before the injected second-page crash.
+            lease_seconds=30,
             now=_dt(4),
         )
 

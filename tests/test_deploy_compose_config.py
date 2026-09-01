@@ -34,6 +34,7 @@ def test_compose_wires_worker_collection_defaults():
 
     assert "${WORKER_COMMAND:-python -m apps.worker.scheduler}" in compose
     assert "WORKER_MODE: ${WORKER_MODE:-collect_and_settle}" in compose
+    assert "WORKER_EXECUTE_DAILY_CHILD: ${WORKER_EXECUTE_DAILY_CHILD:-false}" in compose
     assert "command: [\"sh\", \"-c\", \"exec ${WORKER_COMMAND:-python -m apps.worker.scheduler}\"]" in compose
     assert "mem_limit: ${WORKER_MEMORY_LIMIT:-3g}" in compose
     assert "memswap_limit:" not in compose
@@ -147,7 +148,10 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
         'docker compose'
         in deploy_script
     )
-    assert "compose build --progress=plain api web browser worker" in deploy_script
+    assert "compose build --progress=plain api web browser worker ops-agent" in deploy_script
+    assert "compose up -d --no-deps api web browser ops-agent" in deploy_script
+    assert 'wait_for_healthy_service ops-agent' in deploy_script
+    assert 'compose logs --tail=80 api web proxy ops-agent' in deploy_script
     assert "compose up -d --no-deps --force-recreate worker" in deploy_script
     assert "compose ps --status running --services" in deploy_script
     assert 'grep -qx "worker"' in deploy_script
