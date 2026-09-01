@@ -2398,8 +2398,16 @@ def test_store_withdraws_dispute_before_result_without_changing_statement(
 
 
 def test_admin_accepts_dispute_by_creating_a_new_immutable_statement_version(
-    client: TestClient, db_session: Session
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Keep the test on the confirmed post-cutoff branch instead of depending
+    # on the calendar day when the suite happens to run.
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 8, 10, 16, 0, 0, tzinfo=timezone.utc),
+    )
     _login(client)
     db_session.add_all(
         [

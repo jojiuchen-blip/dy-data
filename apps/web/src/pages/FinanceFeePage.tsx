@@ -337,7 +337,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
           <SelectField label="指标口径" onChange={(value) => setMetricScope(value as BillingMetricScope)} options={[{ value: "MONTH", label: "单月" }, { value: "CUMULATIVE", label: "累计" }]} value={metricScope} />
         </div>
         <div className="finance-workbench__actions">
-          <Button onClick={() => navigateTo(feeDirection === "PROMOTION" ? "/finance/orders/promotion" : "/finance/orders/management")} variant="secondary">查看{title}订单明细</Button>
+          <Button onClick={() => navigateTo(`${feeDirection === "PROMOTION" ? "/finance/orders/promotion" : "/finance/orders/management"}?month=${encodeURIComponent(month)}`)} variant="secondary">查看{title}订单明细</Button>
           <Button loading={exportBusy} onClick={handleExport} variant="secondary">导出当前筛选结果</Button>
           <Button onClick={resetFilters} variant="text">重置筛选</Button>
           {feeDirection === "MANAGEMENT" ? <Button onClick={() => setShowHistory((value) => !value)} variant="text">{showHistory ? "仅看当前版本" : "查看历史版本"}</Button> : null}

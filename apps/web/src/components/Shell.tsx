@@ -158,10 +158,20 @@ const feedbackCategories: Array<{ label: string; value: FeedbackCategory }> = [
 
 interface ShellProps {
   currentPath: string;
+  currentSearch?: string;
   currentUser?: AdminUser | null;
   isDemoMode?: boolean;
   onLogout?: () => void;
   children: ReactNode;
+}
+
+function withMonth(href: string, month: string | null): string {
+  if (!month) {
+    return href;
+  }
+  const url = new URL(href, "http://localhost");
+  url.searchParams.set("month", month);
+  return `${url.pathname}${url.search}`;
 }
 
 function activeSection(currentPath: string): NavSection {
@@ -267,6 +277,7 @@ function roleLabel(user: AdminUser): string {
 
 export function Shell({
   currentPath,
+  currentSearch = "",
   currentUser,
   isDemoMode = false,
   onLogout,
@@ -297,6 +308,10 @@ export function Shell({
     sectionNavItems,
     currentPath,
   );
+  const currentMonth =
+    section === "finance"
+      ? new URLSearchParams(currentSearch).get("month")
+      : null;
   const pageFrameClassName = [
     "page-frame",
     dataWorkspacePaths.has(currentPath) ? "page-frame--data-workspace" : "",
@@ -346,11 +361,14 @@ export function Shell({
       >
         {sectionNavItems.map((item) => {
           const active = item.href === activeSecondaryHref;
+          const href = section === "finance"
+            ? withMonth(item.href, currentMonth)
+            : item.href;
           return (
             <a
               aria-current={active ? "page" : undefined}
-              href={item.href}
-              key={item.href}
+              href={href}
+              key={href}
             >
               {item.label}
             </a>

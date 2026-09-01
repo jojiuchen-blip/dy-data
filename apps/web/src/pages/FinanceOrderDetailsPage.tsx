@@ -271,8 +271,8 @@ export function FinanceOrderDetailsPage({ feeDirection, searchParams }: FinanceO
       <TertiaryNav
         label="订单明细费用方向"
         items={[
-          { href: "/finance/orders/promotion", label: "推广服务费明细", current: feeDirection === "PROMOTION" },
-          { href: "/finance/orders/management", label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
+          { href: `/finance/orders/promotion?month=${encodeURIComponent(draft.month)}`, label: "推广服务费明细", current: feeDirection === "PROMOTION" },
+          { href: `/finance/orders/management?month=${encodeURIComponent(draft.month)}`, label: "管理服务费明细", current: feeDirection === "MANAGEMENT" },
         ]}
       />
       <section className="page-heading finance-heading">

@@ -387,6 +387,7 @@ export function App() {
           return (
             <Shell
               currentPath={location.pathname}
+              currentSearch={location.search}
               currentUser={user}
               isDemoMode={isDemoMode}
               onLogout={isDemoMode ? undefined : onLogout}
@@ -449,6 +450,7 @@ export function App() {
         return (
           <Shell
             currentPath={location.pathname}
+            currentSearch={location.search}
             currentUser={user}
             isDemoMode={isDemoMode}
             onLogout={isDemoMode ? undefined : onLogout}
