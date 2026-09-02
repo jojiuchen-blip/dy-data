@@ -130,3 +130,25 @@ def test_rules_enabled_and_disabled_tabs_have_strong_status_styles() -> None:
     assert "border: 2px solid var(--brand-orange)" in catalog_styles
     assert "background: var(--brand-orange)" in catalog_styles
     assert "color: var(--surface)" in catalog_styles
+
+
+def test_rules_refreshes_enabled_catalog_for_fee_rule_skus_outside_initial_page() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+
+    assert "const loadFeeData = async (): Promise<SkuFeeRuleItem[]> =>" in page
+    assert "const loadSkuRows = async (requiredSkuIds: string[] = [])" in page
+    assert "const missingSkuIds = requiredSkuIds.filter" in page
+    assert "const lookupResponse = await lookupSkuRules(missingSkuIds)" in page
+    assert "const refreshFeeDataAndRows = async () =>" in page
+    assert "await loadSkuRows(Array.from(latestEffectiveRules(rules).keys()))" in page
+
+
+def test_rules_publish_dialog_shows_progress_and_failure_inside_modal() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+
+    assert "publishProgress" in page
+    assert "publishFeedback" in page
+    assert "已完成 {publishProgress.completed} / {publishProgress.total} 个 SKU" in page
+    assert 'role="alert"' in page[page.index('title="分佣规则发布确认"') :]
+    assert "可检查错误后重试" in page
+    assert "SKU ID" in page[page.index("const historyColumns") : page.index("const handleLogin")]
