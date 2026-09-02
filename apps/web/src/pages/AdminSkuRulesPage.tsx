@@ -52,6 +52,7 @@ interface HistoryRow {
   operator: string;
   publishedAt: string;
   rates: string;
+  skuId: string | null;
   skuCount: number;
   source: "manual" | "import";
   status: string;
@@ -82,6 +83,12 @@ function normalizeRule(row: SkuProductCommissionRule): SkuRow {
     order_count: row.order_count ?? 0,
     verified_coupon_count: row.verified_coupon_count ?? 0,
   };
+}
+
+function mergeSkuRows(...rowGroups: SkuRow[][]): SkuRow[] {
+  const rowsBySku = new Map<string, SkuRow>();
+  rowGroups.forEach((rows) => rows.forEach((row) => rowsBySku.set(row.sku_id, row)));
+  return Array.from(rowsBySku.values());
 }
 
 function parseSkuInput(value: string): string[] {
@@ -161,6 +168,8 @@ export function AdminSkuRulesPage() {
   const [working, setWorking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState("");
+  const [publishProgress, setPublishProgress] = useState<{ completed: number; total: number } | null>(null);
+  const [publishFeedback, setPublishFeedback] = useState("");
 
   const handleAuthError = (error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
@@ -171,29 +180,47 @@ export function AdminSkuRulesPage() {
     return false;
   };
 
-  const loadFeeData = async () => {
+  const loadFeeData = async (): Promise<SkuFeeRuleItem[]> => {
     const [rulesResponse, batchesResponse] = await Promise.all([
       fetchSkuFeeRules({ page: 1, pageSize: 200 }),
       fetchSkuFeeRuleImports({ page: 1, pageSize: 200 }),
     ]);
     setFeeRules(rulesResponse.data.list);
     setBatches(batchesResponse.data.list);
+    return rulesResponse.data.list;
   };
 
-  const loadSkuRows = async () => {
+  const loadSkuRows = async (requiredSkuIds: string[] = []) => {
     setLoading(true);
     try {
       const response = await fetchSkuRules({
         page: 1,
         pageSize: PAGE_SIZE,
       });
-      setRows(response.data.rows.map(normalizeRule));
+      const baseRows = response.data.rows.map(normalizeRule);
+      const baseSkuIds = new Set(baseRows.map((row) => row.sku_id));
+      const missingSkuIds = requiredSkuIds.filter((skuId) => !baseSkuIds.has(skuId)).slice(0, MAX_LOOKUP_SKUS);
+      let nextRows = baseRows;
+      if (missingSkuIds.length) {
+        try {
+          const lookupResponse = await lookupSkuRules(missingSkuIds);
+          nextRows = mergeSkuRows(baseRows, lookupResponse.data.rows.map(normalizeRule));
+        } catch (error) {
+          if (!handleAuthError(error)) setNotice("部分已启用 SKU 商品信息暂时无法读取。");
+        }
+      }
+      setRows(nextRows);
       setCheckedIds(new Set());
     } catch (error) {
       if (!handleAuthError(error)) setNotice("SKU 商品列表暂时无法读取。");
     } finally {
       setLoading(false);
     }
+  };
+
+  const refreshFeeDataAndRows = async () => {
+    const rules = await loadFeeData();
+    await loadSkuRows(Array.from(latestEffectiveRules(rules).keys()));
   };
 
   const loadExceptions = async () => {
@@ -214,7 +241,7 @@ export function AdminSkuRulesPage() {
 
   useEffect(() => {
     if (!authenticated) return;
-    Promise.all([loadSkuRows(), loadFeeData(), loadExceptions()]).catch((error) => {
+    Promise.all([refreshFeeDataAndRows(), loadExceptions()]).catch((error) => {
       if (!handleAuthError(error)) setNotice("分佣规则数据暂时无法读取。");
     });
   }, [authenticated]);
@@ -256,6 +283,7 @@ export function AdminSkuRulesPage() {
       operator: rule.createdBy,
       publishedAt: rule.publishedAt,
       rates: `推广 ${formatRate(rule.promotionServiceFeeRate)} / 管理 ${formatRate(rule.managementServiceFeeRate)}`,
+      skuId: rule.skuId,
       skuCount: 1,
       source: "manual" as const,
       status: rule.ruleStatus,
@@ -266,6 +294,7 @@ export function AdminSkuRulesPage() {
       operator: batch.uploadedBy,
       publishedAt: batch.committedAt ?? batch.validatedAt ?? "",
       rates: "-",
+      skuId: null,
       skuCount: batch.totalCount,
       source: "import" as const,
       status: batch.batchStatus,
@@ -311,11 +340,24 @@ export function AdminSkuRulesPage() {
     window.requestAnimationFrame(() => previewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
   };
 
+  const openPublishConfirmation = () => {
+    setPublishFeedback("");
+    setPublishProgress(null);
+    setConfirmOpen(true);
+  };
+
+  const closePublishConfirmation = () => {
+    setConfirmOpen(false);
+    if (publishFeedback) setNotice(publishFeedback);
+  };
+
   const publishSelectedRules = async () => {
     const promotion = percentInputToRate(promotionRate);
     const management = percentInputToRate(managementRate);
     if (!promotion || !management || !selectedRows.length) return;
     setWorking(true);
+    setPublishFeedback("");
+    setPublishProgress({ completed: 0, total: selectedRows.length });
     let completed = 0;
     try {
       for (const row of selectedRows) {
@@ -332,19 +374,23 @@ export function AdminSkuRulesPage() {
         publishIntent.current.set(fingerprint, idempotencyKey);
         await publishSkuFeeRule(payload, idempotencyKey);
         completed += 1;
+        setPublishProgress({ completed, total: selectedRows.length });
       }
       publishIntent.current.clear();
       setConfirmOpen(false);
       setSelectedSkuMap(new Map());
       setRateApplied(false);
       setChangeReason("");
-      await loadFeeData();
+      await refreshFeeDataAndRows();
+      setPublishProgress(null);
       setNotice(`已发布 ${completed} 个 SKU 的双费率版本。`);
     } catch (error) {
-      setNotice(apiErrorText(error, `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`, {
+      const feedback = apiErrorText(error, `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`, {
         403: "当前账号不是最高管理员，不能发布费率版本。",
         409: "所选 SKU 在该生效日期已存在版本。",
-      }));
+      });
+      setPublishProgress({ completed, total: selectedRows.length });
+      setPublishFeedback(feedback);
     } finally {
       setWorking(false);
     }
@@ -378,6 +424,7 @@ export function AdminSkuRulesPage() {
   ];
 
   const historyColumns: Column<HistoryRow>[] = [
+    { key: "sku", title: "SKU ID", align: "left", render: (row) => row.skuId ? <span className="mono-cell">{row.skuId}</span> : "批量导入批次明细" },
     { key: "id", title: "版本 / 批次", align: "left", render: (row) => <span className="mono-cell">{row.id}</span> },
     { key: "source", title: "发布来源", render: (row) => row.source === "manual" ? "手工发布" : "批量导入" },
     { key: "count", title: "SKU 数量", align: "right", render: (row) => formatInteger(row.skuCount) },
@@ -456,7 +503,7 @@ export function AdminSkuRulesPage() {
               </section>
 
               <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
-                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><Button disabled={!rateApplied || working} onClick={() => setConfirmOpen(true)} type="button" variant="primary">确认发布</Button></div>
+                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div>
               </section>
             </main>
             <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>
@@ -482,10 +529,12 @@ export function AdminSkuRulesPage() {
         <section className="content-section non-commission-rule-panel"><div className="section-title"><div><h2>订单归属账号不分佣</h2><p>每行填写一个订单归属账号，保存后会触发后台重建结算结果。</p></div><StatusChip tone="neutral">当前 {nonCommissionAccountCount} 个</StatusChip></div><label className="filter-field"><span>不分佣账号列表</span><FieldTextarea onChange={(event) => setNonCommissionAccountText(event.target.value)} rows={8} value={nonCommissionAccountText} /></label><div className="commission-card-actions"><Button disabled={working} onClick={() => void saveExceptions()} type="button" variant="primary">保存账号规则并重建</Button></div></section>
       ) : null}
 
-      <Dialog actions={<><Button disabled={working} onClick={() => setConfirmOpen(false)} type="button">返回修改</Button><Button disabled={working} onClick={() => void publishSelectedRules()} type="button" variant="primary">{working ? "正在发布..." : "确认发布"}</Button></>} closeDisabled={working} description="确认后将为每个选中 SKU 创建新的不可变规则版本。" onClose={() => setConfirmOpen(false)} open={confirmOpen} title="分佣规则发布确认">
+      <Dialog actions={<><Button disabled={working} onClick={closePublishConfirmation} type="button">返回修改</Button><Button disabled={working} onClick={() => void publishSelectedRules()} type="button" variant="primary">{working ? "正在发布..." : "确认发布"}</Button></>} closeDisabled={working} description="确认后将为每个选中 SKU 创建新的不可变规则版本。" onClose={closePublishConfirmation} open={confirmOpen} title="分佣规则发布确认">
+        {publishProgress ? <p aria-live="polite" className="resource-notice" role="status">{working ? "正在发布：" : "本次发布结束："}已完成 {publishProgress.completed} / {publishProgress.total} 个 SKU{!working && publishFeedback ? "，可检查错误后重试。" : "。"}</p> : null}
+        {publishFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{publishFeedback}</p> : null}
         <dl className="commission-confirmation-list"><div><dt>SKU 数量</dt><dd>{selectedRows.length} 个</dd></div><div><dt>推广服务费比例</dt><dd>{promotionRate}%</dd></div><div><dt>管理服务费比例</dt><dd>{managementRate}%</dd></div><div><dt>生效日期</dt><dd>{effectiveDate}</dd></div><div><dt>规则状态</dt><dd>{ruleStatus === "ACTIVE" ? "启用" : "停用"}</dd></div><div><dt>变更原因</dt><dd>{changeReason}</dd></div></dl>
       </Dialog>
-      <AdminSkuRuleImportDrawer batches={batches} initialBatch={null} onChanged={loadFeeData} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
+      <AdminSkuRuleImportDrawer batches={batches} initialBatch={null} onChanged={() => refreshFeeDataAndRows().then(() => undefined)} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
     </div>
   );
 }

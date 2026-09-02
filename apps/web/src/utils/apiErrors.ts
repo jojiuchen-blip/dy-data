@@ -19,6 +19,7 @@ export function apiErrorText(
       .join("；");
     if (fieldSummary) parts.push(fieldSummary);
   }
+  if (error.code) parts.push(`错误码：${error.code}`);
   if (error.requestId) parts.push(`请求编号：${error.requestId}`);
   return parts.join(" ");
 }
