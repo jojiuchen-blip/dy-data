@@ -412,6 +412,18 @@ def test_store_user_permissions_are_enforced(client: TestClient) -> None:
     other_store = client.get("/api/v1/stores/store-2/monthly-settlement?month=2026-05")
     assert other_store.status_code == 403
 
+    own_invoice_status = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-1", "month": "2026-05"},
+    )
+    assert own_invoice_status.status_code == 200
+
+    other_invoice_status = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-2", "month": "2026-05"},
+    )
+    assert other_invoice_status.status_code == 403
+
     sales_without_store = client.get("/api/v1/dashboard/sales?month=2026-05")
     assert sales_without_store.status_code == 403
 

@@ -307,29 +307,28 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert 'requestJson<OrderFeeDetailsData>("/order-fee-details"' in client
     assert 'requestDownload("/order-fee-details/export"' in client
     assert "fallbackOnError: false" in client
-    assert "promotionNetFeeCent" in ranking
-    assert "managementNetFeeCent" in ranking
-    assert 'useState<RankingSortBy>("NET_SETTLEMENT_REFERENCE")' in ranking
-    assert 'useState<SortOrder>("DESC")' in ranking
+    assert "promotionMonthFeeCent" in ranking
+    assert "promotionCumulativeFeeCent" in ranking
+    assert "managementNetFeeCent" not in ranking
+    assert "RankingBasis" in ranking
+    assert 'sortOrder: SortOrder = "DESC"' in ranking
     assert "meta?.saleMonths[0]" in ranking
     assert 'ranking.scopeMode === "AUTHORIZED" ? (row)' in ranking
     for enum_value in [
         "SALES_AMOUNT",
         "VERIFIED_AMOUNT",
         "PROMOTION_FEE",
-        "MANAGEMENT_FEE",
-        "NET_SETTLEMENT_REFERENCE",
     ]:
         assert enum_value in ranking
     assert 'sortOrder?: SortOrder' in client
     assert 'sortBy?: RankingSortBy' in client
-    assert "statementLineId" in settlement
-    assert 'focus: "workbench"' in settlement
-    assert "view.statement?.statementId" in settlement
-    assert 'if (!line.statementLineId) return ""' in settlement
-    assert "storeId: view.store.storeId" in settlement
+    assert "statementId" in settlement
+    assert "fetchStoreBillingStatements" in settlement
+    assert "fetchOrderFeeDetails" in settlement
+    assert "view?.metrics" in settlement
+    assert "statement?.statementId" in settlement
     assert "disabled={!meta}" in settlement
-    assert "feeRates" in settlement and "ruleVersions" in settlement
+    assert "promotionOrderResource" in settlement and "managementOrderResource" in settlement
     assert "feeDirection" in details
     assert "adjustedNetFeeCent" in details
     assert 'searchParams.get("month") ?? undefined' in details
@@ -393,6 +392,7 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
     client = read_source("api/client.ts")
     types = read_source("types/dashboard.ts")
     invoice_page = read_source("pages/StoreInvoicePage.tsx")
+    status_page = read_source("pages/StoreInvoiceStatusPage.tsx")
     finance_page = read_source("pages/FinanceFeePage.tsx")
     disputes_page = read_source("pages/FinanceDisputesPage.tsx")
     imports_page = read_source("pages/FinanceImportsPage.tsx")
@@ -443,11 +443,11 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
     assert "commitFinanceImport" not in imports_page
     assert "processSteps" not in invoice_page
     assert "发票提交财务审核" not in invoice_page
-    assert "系统不创建开票申请单" in invoice_page
+    assert "registerPromotionInvoice" in invoice_page
     assert "比亚迪汽车销售有限公司" in invoice_page
     assert "914403007604674476" in invoice_page
     assert "const PROMOTION_INVOICE_TAX_RATE_PERCENT = 6" in invoice_page
-    assert "taxRatePercent: PROMOTION_INVOICE_TAX_RATE_PERCENT" in invoice_page
+    assert "taxRatePercent: Number(taxRatePercent" in invoice_page
     for promotion_invoice_field in [
         "buyerName",
         "taxRatePercent",
@@ -459,13 +459,17 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
     ]:
         assert promotion_invoice_field in types
     assert "promotionInvoiceGroupId: statement.promotionInvoiceGroupId" in invoice_page
-    assert "toggleInvoiceGroup" in invoice_page
-    assert "positiveOriginalAmountCent" in invoice_page
-    assert "negativeOffsetAmountCent" in invoice_page
-    assert "结转抵扣中" in invoice_page
-    assert "正数原费用" in invoice_page
-    assert "负数抵扣" in invoice_page
-    assert "净开票金额" in invoice_page
+    assert "toggleInvoiceGroup" not in invoice_page
+    assert "loadSystemSelectedInvoiceGroup" in invoice_page
+    assert "selectAllRegisterableInvoiceStatements" in invoice_page
+    assert "selectSystemInvoiceAnchor" not in invoice_page
+    assert "selectedGroupStatements" in invoice_page
+    assert "positiveOriginalAmountCent" not in invoice_page
+    assert "negativeOffsetAmountCent" not in invoice_page
+    assert "已释放账期仍在结转抵扣中" in invoice_page
+    assert "正数原费用" not in invoice_page
+    assert "负数抵扣" not in invoice_page
+    assert '<dt>净开票金额' not in invoice_page
     assert "PromotionInvoiceRegistrationResult" in types
     assert "ApiLoadResult<PromotionInvoiceRegistrationResult>" in client
     for lifecycle_contract in [
@@ -482,22 +486,22 @@ def test_dydata_19_production_finance_routes_use_live_api_contract() -> None:
         "createPromotionInvoiceLifecycleEvent",
         "releasedStatementMonths",
     ]:
-        assert lifecycle_client in client + invoice_page
+        assert lifecycle_client in client + invoice_page + status_page
     for lifecycle_copy in [
         "登记红冲",
         "登记作废",
         "系统只登记事实并释放全部账期",
         "必须使用新发票号码覆盖账期",
     ]:
-        assert lifecycle_copy in invoice_page
+        assert lifecycle_copy in invoice_page + status_page
     for recovery_contract in [
         "待替换发票",
         "恢复替换",
         "replacementCandidateResource",
-        "fetchPromotionInvoiceDetail(replacedInvoiceId)",
+        "fetchPromotionInvoiceDetail(selectedInvoiceId ?? \"\")",
         "replacementChain",
     ]:
-        assert recovery_contract in invoice_page + client
+        assert recovery_contract in invoice_page + status_page + client + types
     assert "SUBMITTED_PENDING_REVIEW" not in invoice_page
     assert "SUBMITTED_PENDING_FACTORY_REVIEW" in labels
     for presenter, source in [

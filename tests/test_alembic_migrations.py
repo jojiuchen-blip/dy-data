@@ -19,7 +19,44 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260831_0048"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260901_0049"]
+
+
+def test_promotion_invoice_manual_fields_migration_is_reversible_when_unused(
+    tmp_path: Path,
+) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_path = tmp_path / "promotion-invoice-manual-fields.sqlite"
+    database_url = f"sqlite:///{database_path.as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+
+    command.upgrade(config, "20260824_0043")
+    command.upgrade(config, "20260901_0049")
+
+    engine = create_engine(database_url)
+    upgraded = inspect(engine)
+    assert {
+        "filler_phone_ciphertext",
+        "net_amount_cent",
+        "tax_amount_cent",
+    }.issubset(
+        {column["name"] for column in upgraded.get_columns("promotion_invoice")}
+    )
+    check_names = {
+        constraint["name"]
+        for constraint in upgraded.get_check_constraints("promotion_invoice")
+    }
+    assert "ck_promotion_invoice_net_amount" in check_names
+    assert "ck_promotion_invoice_tax_amount" in check_names
+    assert "ck_promotion_invoice_amount_identity" in check_names
+
+    command.downgrade(config, "20260831_0048")
+    downgraded = inspect(engine)
+    assert "filler_phone_ciphertext" not in {
+        column["name"] for column in downgraded.get_columns("promotion_invoice")
+    }
 
 
 def test_production_revision_chain_resolves_orphaned_0036() -> None:
@@ -38,6 +75,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
     config.set_main_option("sqlalchemy.url", f"sqlite:///{database_path.as_posix()}")
+    script = ScriptDirectory.from_config(config)
 
     command.upgrade(config, "20260806_0036")
     command.upgrade(config, "head")
@@ -48,7 +86,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260831_0048"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260901_0049"
 
     with engine.begin() as connection:
         connection.execute(

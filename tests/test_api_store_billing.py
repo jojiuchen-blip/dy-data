@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sys
 from datetime import date, datetime, timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
 from pathlib import Path
 
@@ -158,6 +158,20 @@ def _act_as_store(client: TestClient, store_id: str = "store-1") -> None:
     )
 
 
+def _manual_invoice_fields(invoice_amount_cent: int) -> dict[str, object]:
+    tax_amount_cent = int(
+        (Decimal(invoice_amount_cent) * Decimal(6) / Decimal(106)).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+    return {
+        "fillerPhone": "13812345678",
+        "netAmountCent": invoice_amount_cent - tax_amount_cent,
+        "taxAmountCent": tax_amount_cent,
+    }
+
+
 def _seed_current_promotion_invoice(
     db_session: Session,
     *,
@@ -207,6 +221,150 @@ def _seed_current_promotion_invoice(
         ]
     )
     db_session.commit()
+
+
+def test_store_invoice_status_uses_exact_cross_period_search_and_combined_metrics(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    _act_as_store(client)
+    _seed_current_promotion_invoice(
+        db_session,
+        invoice_id="status-invoice-aug",
+        physical_invoice_id="status-physical-aug",
+        invoice_number="12345678901234567890",
+        invoice_status=2,
+    )
+    response = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-1", "month": "2026-09", "invoiceNumber": "12345678901234567890"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["promotionTotal"] == 1
+    assert data["promotionInvoices"][0]["invoiceNumber"] == "12345678901234567890"
+    assert data["metrics"]["hasData"] is True
+    assert "approvedAmountCent" in data["metrics"]
+    assert "pendingInvoiceAmountCent" in data["metrics"]
+    # The five status cards are the promotion-fee summary; management fee
+    # records remain a separate read-only section below.
+    assert data["metrics"]["statementTotalCent"] == 2400
+    assert data["metrics"]["confirmedAmountCent"] == 0
+
+    partial = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-1", "invoiceNumber": "1234567890"},
+    )
+    assert partial.status_code == 200
+    assert partial.json()["data"]["promotionTotal"] == 0
+
+    forbidden = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-2"},
+    )
+    assert forbidden.status_code == 403
+
+
+def test_store_invoice_status_validation_uses_the_structured_api_contract(
+    client: TestClient,
+) -> None:
+    _login(client)
+    _act_as_store(client)
+
+    response = client.get("/api/v1/store-invoice-status")
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "VALIDATION_FAILED"
+
+
+def test_store_invoice_status_excludes_management_pending_rows_from_status_page(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    _act_as_store(client)
+    db_session.add(
+        InvoiceRecord(
+            invoice_id="management-pending-status",
+            store_id="store-1",
+            statement_month="2026-08",
+            statement_id="statement-1-v2",
+            fee_direction=2,
+            version_no=1,
+            is_current=True,
+            is_tombstone=False,
+            invoice_number="22345678901234567890",
+            invoice_date=date(2026, 8, 10),
+            invoice_amount_cent=2200,
+            invoice_status=1,
+            source_type=2,
+            registered_by="store-1-user",
+            registered_at=datetime(2026, 8, 10, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-1", "month": "2026-08"},
+    )
+
+    assert response.status_code == 200
+    management_rows = response.json()["data"]["managementInvoices"]
+    assert management_rows == []
+
+
+def test_store_invoice_status_exposes_rejection_reason_and_released_amount_as_pending(
+    client: TestClient, db_session: Session
+) -> None:
+    _login(client)
+    _act_as_store(client)
+    db_session.add(
+        SettlementStatementConfirmation(
+            confirmation_id="confirmation-rejected-status",
+            statement_id="statement-1-v2",
+            fee_direction=1,
+            confirmation_status=1,
+            confirmed_amount_cent=1100,
+            confirmed_by="store-1-user",
+            confirmed_at=datetime(2026, 8, 6, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+    _seed_current_promotion_invoice(
+        db_session,
+        invoice_id="status-invoice-rejected",
+        physical_invoice_id="status-physical-rejected",
+        invoice_number="92345678901234567890",
+        invoice_status=4,
+    )
+    db_session.add(
+        InvoiceStatusEvent(
+            event_id="status-event-rejected",
+            invoice_id="status-invoice-rejected",
+            event_type=2,
+            from_status=2,
+            to_status=4,
+            operator_id="factory-import",
+            result_reason="税率不正确，请按基准资料重新开具。",
+            occurred_at=datetime(2026, 8, 12, tzinfo=timezone.utc),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/api/v1/store-invoice-status",
+        params={"storeId": "store-1", "month": "2026-08"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    row = next(
+        item
+        for item in data["promotionInvoices"]
+        if item["invoiceNumber"] == "92345678901234567890"
+    )
+    assert row["rejectionReason"] == "税率不正确，请按基准资料重新开具。"
+    assert data["metrics"]["pendingInvoiceAmountCent"] == 1100
 
 
 def _seed_confirmed_promotion_periods(
@@ -436,9 +594,12 @@ def test_promotion_invoice_registers_multiple_complete_period_allocations(
         json={
             "storeId": "store-1",
             "buyerName": "比亚迪汽车销售有限公司",
+            "fillerPhone": "13812345678",
             "taxRatePercent": 6,
             "invoiceNumber": "12345678901234567890",
-            "invoiceDate": "2026-10-05",
+            "invoiceDate": "2026-10-10",
+            "netAmountCent": 2264,
+            "taxAmountCent": 136,
             "invoiceAmountCent": 2400,
             "allocations": _with_current_promotion_group_ids(
                 client,
@@ -466,6 +627,8 @@ def test_promotion_invoice_registers_multiple_complete_period_allocations(
     assert registered_data["status"] == "SUBMITTED_PENDING_FACTORY_REVIEW"
     assert registered_data["buyerName"] == "比亚迪汽车销售有限公司"
     assert registered_data["taxRatePercent"] == 6
+    assert registered_data["netAmountCent"] == 2264
+    assert registered_data["taxAmountCent"] == 136
     assert registered_data["registeredAt"] == "2026-10-10T23:59:59+08:00"
     assert len(registered_data["allocations"]) == 2
     assert {
@@ -477,6 +640,9 @@ def test_promotion_invoice_registers_multiple_complete_period_allocations(
     assert persisted_invoice is not None
     assert persisted_invoice.buyer_name == "比亚迪汽车销售有限公司"
     assert persisted_invoice.tax_rate_percent == 6
+    assert persisted_invoice.filler_phone_ciphertext != "13812345678"
+    assert persisted_invoice.net_amount_cent == 2264
+    assert persisted_invoice.tax_amount_cent == 136
     persisted_allocations = list(db_session.scalars(select(PromotionInvoiceAllocation)))
     assert {allocation.settlement_batch_month for allocation in persisted_allocations} == {
         "2026-09"
@@ -491,6 +657,8 @@ def test_promotion_invoice_registers_multiple_complete_period_allocations(
     assert listed_row["invoiceNumber"] == "12345678901234567890"
     assert listed_row["buyerName"] == "比亚迪汽车销售有限公司"
     assert listed_row["taxRatePercent"] == 6
+    assert listed_row["netAmountCent"] == 2264
+    assert listed_row["taxAmountCent"] == 136
     assert listed_row["settlementBatchMonth"] == "2026-09"
 
 
@@ -524,6 +692,7 @@ def test_promotion_invoice_uses_current_settlement_batch_from_beijing_day_11(
             "invoiceNumber": "22345678901234567890",
             "invoiceDate": "2026-10-11",
             "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "allocations": _with_current_promotion_group_ids(
                 client,
                 store_id="store-1",
@@ -575,9 +744,12 @@ def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
     payload = {
         "storeId": "store-1",
         "buyerName": "比亚迪汽车销售有限公司",
+        "fillerPhone": "13812345678",
         "taxRatePercent": 6,
         "invoiceNumber": "32345678901234567890",
         "invoiceDate": "2026-10-11",
+        "netAmountCent": 1038,
+        "taxAmountCent": 62,
         "invoiceAmountCent": 1100,
         "allocations": [
             {
@@ -602,6 +774,122 @@ def test_promotion_invoice_rejects_missing_or_incorrect_fixed_billing_facts(
 
     assert response.status_code == 422
     assert response.json()["detail"]["errors"][0]["field"] == field
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("fillerPhone", None),
+        ("fillerPhone", ""),
+        ("netAmountCent", None),
+        ("taxAmountCent", None),
+    ],
+)
+def test_promotion_invoice_requires_manual_registration_fields(
+    client: TestClient,
+    field: str,
+    value: object,
+) -> None:
+    _login(client)
+    confirmation = client.post(
+        "/api/v1/store-settlements/statement-1-v2/confirmations",
+        json={
+            "feeDirection": "PROMOTION",
+            "confirmedAmountCent": 1100,
+            "readVersion": 2,
+        },
+        headers={"Idempotency-Key": f"invoice-manual-field-confirm-{field}-{value}"},
+    )
+    assert confirmation.status_code == 200
+    payload = {
+        "storeId": "store-1",
+        "buyerName": "比亚迪汽车销售有限公司",
+        "fillerPhone": "13812345678",
+        "taxRatePercent": 6,
+        "invoiceNumber": "33345678901234567890",
+        "invoiceDate": "2026-10-11",
+        "netAmountCent": 1038,
+        "taxAmountCent": 62,
+        "invoiceAmountCent": 1100,
+        "allocations": [{
+            "statementId": "statement-1-v2",
+            "statementMonth": "2026-08",
+            "allocatedAmountCent": 1100,
+            "readVersion": 2,
+        }],
+    }
+    if value is None:
+        payload.pop(field)
+    else:
+        payload[field] = value
+    _act_as_store(client)
+
+    response = client.post(
+        "/api/v1/promotion-invoices",
+        json=payload,
+        headers={"Idempotency-Key": f"invoice-manual-field-register-{field}-{value}"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"][0]["field"] == field
+
+
+def test_promotion_invoice_allows_one_cent_identity_tolerance_but_rejects_two(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 10, 11, 4, 0, 0, tzinfo=timezone.utc),
+    )
+    _login(client)
+    confirmation = client.post(
+        "/api/v1/store-settlements/statement-1-v2/confirmations",
+        json={
+            "feeDirection": "PROMOTION",
+            "confirmedAmountCent": 1100,
+            "readVersion": 2,
+        },
+        headers={"Idempotency-Key": "invoice-identity-confirm"},
+    )
+    assert confirmation.status_code == 200
+    allocations = _with_current_promotion_group_ids(
+        client,
+        store_id="store-1",
+        allocations=[{
+            "statementId": "statement-1-v2",
+            "statementMonth": "2026-08",
+            "allocatedAmountCent": 1100,
+            "readVersion": 2,
+        }],
+    )
+    base_payload = {
+        "storeId": "store-1",
+        "buyerName": "比亚迪汽车销售有限公司",
+        "fillerPhone": "13812345678",
+        "taxRatePercent": 6,
+        "invoiceDate": "2026-10-11",
+        "netAmountCent": 1037,
+        "taxAmountCent": 62,
+        "invoiceAmountCent": 1100,
+        "allocations": allocations,
+    }
+    _act_as_store(client)
+    accepted = client.post(
+        "/api/v1/promotion-invoices",
+        json={**base_payload, "invoiceNumber": "34345678901234567890"},
+        headers={"Idempotency-Key": "invoice-identity-one-cent"},
+    )
+    assert accepted.status_code == 200
+
+    base_payload["netAmountCent"] = 1036
+    rejected = client.post(
+        "/api/v1/promotion-invoices",
+        json={**base_payload, "invoiceNumber": "34345678901234567891"},
+        headers={"Idempotency-Key": "invoice-identity-two-cent"},
+    )
+    assert rejected.status_code == 422
+    assert rejected.json()["detail"]["errors"][0]["field"] == "invoiceAmountCent"
 
 
 def test_promotion_confirmation_preserves_signed_negative_amount(
@@ -845,6 +1133,10 @@ def test_promotion_registration_reprojects_after_locking_selected_group(
     db_session: Session,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2027, 4, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
     _seed_confirmed_promotion_periods(
         db_session,
         store_id="store-1",
@@ -894,6 +1186,7 @@ def test_promotion_registration_reprojects_after_locking_selected_group(
             "invoiceNumber": "82345678901234567890",
             "invoiceDate": "2027-04-20",
             "invoiceAmountCent": 100,
+            **_manual_invoice_fields(100),
             "allocations": [
                 {
                     "statementId": "statement-reproject-lock",
@@ -917,7 +1210,12 @@ def test_promotion_registration_reprojects_after_locking_selected_group(
 def test_promotion_invoice_registration_requires_complete_current_group(
     client: TestClient,
     db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 12, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
     periods = [
         ("statement-group-negative", "2026-10", -150),
         ("statement-group-positive-1", "2026-11", 100),
@@ -950,6 +1248,7 @@ def test_promotion_invoice_registration_requires_complete_current_group(
             "invoiceNumber": "42345678901234567890",
             "invoiceDate": "2026-12-20",
             "invoiceAmountCent": 100,
+            **_manual_invoice_fields(100),
             "allocations": [
                 {
                     "statementId": "statement-group-positive-2",
@@ -971,6 +1270,7 @@ def test_promotion_invoice_registration_requires_complete_current_group(
             "invoiceNumber": "42345678901234567891",
             "invoiceDate": "2026-12-20",
             "invoiceAmountCent": 50,
+            **_manual_invoice_fields(50),
             "allocations": [
                 {
                     "statementId": statement_id,
@@ -991,10 +1291,70 @@ def test_promotion_invoice_registration_requires_complete_current_group(
     assert stale.json()["detail"]["code"] == "PROMOTION_INVOICE_GROUP_CHANGED"
 
 
+def test_promotion_invoice_registration_requires_all_current_invoiceable_groups(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A store cannot omit another invoiceable period from the single invoice."""
+
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 12, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
+    _seed_confirmed_promotion_periods(
+        db_session,
+        store_id="store-1",
+        periods=[
+            ("statement-all-periods-1", "2026-11", 100),
+            ("statement-all-periods-2", "2026-12", 100),
+        ],
+    )
+    _login(client)
+    allocations = _with_current_promotion_group_ids(
+        client,
+        store_id="store-1",
+        allocations=[
+            {
+                "statementId": "statement-all-periods-1",
+                "statementMonth": "2026-11",
+                "allocatedAmountCent": 100,
+                "readVersion": 1,
+            }
+        ],
+    )
+
+    _act_as_store(client)
+    response = client.post(
+        "/api/v1/promotion-invoices",
+        json={
+            "storeId": "store-1",
+            "buyerName": "比亚迪汽车销售有限公司",
+            "taxRatePercent": 6,
+            "invoiceNumber": "43345678901234567890",
+            "invoiceDate": "2026-12-20",
+            "invoiceAmountCent": 100,
+            **_manual_invoice_fields(100),
+            "allocations": allocations,
+        },
+        headers={"Idempotency-Key": "promotion-all-groups-required-0001"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == (
+        "PROMOTION_INVOICE_SELECTION_INCOMPLETE"
+    )
+
+
 def test_promotion_invoice_registration_accepts_signed_complete_group(
     client: TestClient,
     db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 12, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
     periods = [
         ("statement-register-negative", "2026-10", -150),
         ("statement-register-positive-1", "2026-11", 100),
@@ -1027,6 +1387,7 @@ def test_promotion_invoice_registration_accepts_signed_complete_group(
             "invoiceNumber": "52345678901234567890",
             "invoiceDate": "2026-12-20",
             "invoiceAmountCent": 50,
+            **_manual_invoice_fields(50),
             "allocations": [
                 {
                     "statementId": statement_id,
@@ -1057,7 +1418,12 @@ def test_promotion_invoice_registration_accepts_signed_complete_group(
 def test_replacement_includes_released_period_and_complete_new_carryforward_group(
     client: TestClient,
     db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 12, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
     periods = [
         ("statement-released-positive", "2026-10", 100),
         ("statement-after-negative", "2026-11", -150),
@@ -1146,6 +1512,7 @@ def test_replacement_includes_released_period_and_complete_new_carryforward_grou
             "invoiceNumber": "62345678901234567891",
             "invoiceDate": "2026-12-20",
             "invoiceAmountCent": 50,
+            **_manual_invoice_fields(50),
             "replacesInvoiceId": old_invoice_id,
             "allocations": allocations,
         },
@@ -1158,7 +1525,12 @@ def test_replacement_includes_released_period_and_complete_new_carryforward_grou
 def test_one_replacement_can_cover_multiple_terminated_invoices_in_one_group(
     client: TestClient,
     db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 12, 21, 4, 0, 0, tzinfo=timezone.utc),
+    )
     periods = [
         ("statement-multi-source-oct", "2026-10", 100),
         ("statement-multi-source-nov", "2026-11", -150),
@@ -1259,6 +1631,7 @@ def test_one_replacement_can_cover_multiple_terminated_invoices_in_one_group(
             "invoiceNumber": "71345678901234567892",
             "invoiceDate": "2026-12-20",
             "invoiceAmountCent": 50,
+            **_manual_invoice_fields(50),
             "replacesInvoiceId": source_rows[0][0],
             "allocations": allocations,
         },
@@ -1293,8 +1666,14 @@ def test_one_replacement_can_cover_multiple_terminated_invoices_in_one_group(
 
 
 def test_rejected_promotion_invoice_can_be_terminated_then_replaced(
-    client: TestClient, db_session: Session
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 10, 10, 4, 0, 0, tzinfo=timezone.utc),
+    )
     _login(client)
     allocations = [
         {
@@ -1338,8 +1717,9 @@ def test_rejected_promotion_invoice_can_be_terminated_then_replaced(
             "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6,
             "invoiceNumber": "12345678901234567890",
-            "invoiceDate": "2026-10-05",
+            "invoiceDate": "2026-10-10",
             "invoiceAmountCent": 2400,
+            **_manual_invoice_fields(2400),
             "allocations": allocations,
         },
         headers={"Idempotency-Key": "reupload-invoice-register-0001"},
@@ -1386,16 +1766,17 @@ def test_rejected_promotion_invoice_can_be_terminated_then_replaced(
             "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6,
             "invoiceNumber": "08876543210987654321",
-            "invoiceDate": "2026-10-06",
+            "invoiceDate": "2026-10-10",
             "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "replacesInvoiceId": previous.invoice_id,
             "allocations": allocations[:1],
         },
         headers={"Idempotency-Key": "reupload-invoice-incomplete-0001"},
     )
-    assert incomplete_replacement.status_code == 409
+    assert incomplete_replacement.status_code == 422
     assert incomplete_replacement.json()["detail"]["code"] == (
-        "PROMOTION_INVOICE_REPLACEMENT_PERIOD_MISMATCH"
+        "PROMOTION_INVOICE_SELECTION_INCOMPLETE"
     )
 
     reused_number = client.post(
@@ -1405,8 +1786,9 @@ def test_rejected_promotion_invoice_can_be_terminated_then_replaced(
             "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6,
             "invoiceNumber": "12345678901234567890",
-            "invoiceDate": "2026-10-06",
+            "invoiceDate": "2026-10-10",
             "invoiceAmountCent": 2400,
+            **_manual_invoice_fields(2400),
             "replacesInvoiceId": previous.invoice_id,
             "allocations": allocations,
         },
@@ -1422,8 +1804,9 @@ def test_rejected_promotion_invoice_can_be_terminated_then_replaced(
             "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6,
             "invoiceNumber": "09876543210987654321",
-            "invoiceDate": "2026-10-06",
+            "invoiceDate": "2026-10-10",
             "invoiceAmountCent": 2400,
+            **_manual_invoice_fields(2400),
             "replacesInvoiceId": previous.invoice_id,
             "allocations": allocations,
         },
@@ -1530,6 +1913,7 @@ def test_store_records_external_void_and_replaces_all_released_periods(
             "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6, "invoiceNumber": "71345678901234567899",
             "invoiceDate": "2026-08-20", "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "allocations": _with_current_promotion_group_ids(
                 client,
                 store_id="store-1",
@@ -1551,6 +1935,7 @@ def test_store_records_external_void_and_replaces_all_released_periods(
             "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6, "invoiceNumber": new_number,
             "invoiceDate": "2026-08-20", "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "replacesInvoiceId": old_invoice_id,
             "allocations": _with_current_promotion_group_ids(
                 client,
@@ -1592,6 +1977,7 @@ def test_store_records_external_void_and_replaces_all_released_periods(
             "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6, "invoiceNumber": "71345678901234567892",
             "invoiceDate": "2026-08-21", "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "replacesInvoiceId": old_invoice_id,
             "allocations": released_allocations,
         },
@@ -1605,6 +1991,7 @@ def test_store_records_external_void_and_replaces_all_released_periods(
             "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6, "invoiceNumber": "71345678901234567893",
             "invoiceDate": "2026-08-21", "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "replacesInvoiceId": data["invoiceId"],
             "allocations": released_allocations,
         },
@@ -1621,18 +2008,24 @@ def test_store_records_external_void_and_replaces_all_released_periods(
         user_id="admin-user", username="admin-user", display_name="Admin User",
         role="admin", store_ids=(), auth_type="user", store_scope_mode="all",
     )
-    denied = client.post(
+    allowed = client.post(
         f"/api/v1/promotion-invoices/{data['invoiceId']}/lifecycle-events",
         json={"eventType": "VOIDED", "reason": "管理员代操作", "readVersion": 1},
         headers={"Idempotency-Key": "promotion-admin-lifecycle-0001"},
     )
-    assert denied.status_code == 403
-    assert db_session.scalar(select(func.count()).select_from(PromotionInvoiceLifecycleEvent)) == 2
+    assert allowed.status_code == 200
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoiceLifecycleEvent)) == 3
 
 
-def test_admin_cannot_register_or_replace_promotion_invoice(
+def test_admin_with_global_scope_can_register_promotion_invoice(
     client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        dashboard_routes,
+        "utcnow",
+        lambda: datetime(2026, 8, 28, tzinfo=timezone.utc),
+    )
     _login(client)
     confirmed = client.post(
         "/api/v1/store-settlements/statement-1-v2/confirmations",
@@ -1655,22 +2048,128 @@ def test_admin_cannot_register_or_replace_promotion_invoice(
         }],
     )
 
-    denied = client.post(
+    allowed = client.post(
         "/api/v1/promotion-invoices",
         json={
             "storeId": "store-1",
             "buyerName": "比亚迪汽车销售有限公司",
             "taxRatePercent": 6,
             "invoiceNumber": "73345678901234567890",
-            "invoiceDate": "2026-08-20",
+            "invoiceDate": "2026-08-28",
             "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
             "allocations": allocations,
         },
         headers={"Idempotency-Key": "admin-register-denied-0001"},
     )
 
-    assert denied.status_code == 403
-    assert denied.json()["detail"]["code"] == "DATA_SCOPE_FORBIDDEN"
+    assert allowed.status_code == 200
+    assert allowed.json()["data"]["invoiceNumber"] == "73345678901234567890"
+
+
+def test_promotion_invoice_number_filter_is_exact_and_applied_before_pagination(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    _seed_current_promotion_invoice(
+        db_session,
+        invoice_id="exact-search-invoice",
+        physical_invoice_id="exact-search-physical",
+        invoice_number="74345678901234567891",
+    )
+    _act_as_store(client)
+
+    exact = client.get(
+        "/api/v1/promotion-invoices",
+        params={
+            "storeId": "store-1",
+            "month": "2026-08",
+            "invoiceNumber": "74345678901234567891",
+            "page": 1,
+            "pageSize": 1,
+        },
+    )
+    partial = client.get(
+        "/api/v1/promotion-invoices",
+        params={
+            "storeId": "store-1",
+            "month": "2026-08",
+            "invoiceNumber": "7434567890123456789",
+            "page": 1,
+            "pageSize": 1,
+        },
+    )
+
+    assert exact.status_code == 200
+    assert exact.json()["data"]["total"] == 1
+    assert exact.json()["data"]["list"][0]["invoiceNumber"] == (
+        "74345678901234567891"
+    )
+    assert partial.status_code == 200
+    assert partial.json()["data"]["total"] == 0
+
+
+@pytest.mark.parametrize(
+    ("invoice_date", "expected_message"),
+    [
+        ("2026-08-27", "不得早于账单确认或锁账日期"),
+        ("2026-08-29", "不得晚于服务器当前日期"),
+    ],
+)
+def test_promotion_invoice_date_respects_statement_and_server_date_boundaries(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    invoice_date: str,
+    expected_message: str,
+) -> None:
+    monkeypatch.setattr(
+        "dy_api.routes.dashboard.utcnow",
+        lambda: datetime(2026, 8, 28, 4, 0, tzinfo=timezone.utc),
+    )
+    _login(client)
+    confirmed = client.post(
+        "/api/v1/store-settlements/statement-1-v2/confirmations",
+        json={
+            "feeDirection": "PROMOTION",
+            "confirmedAmountCent": 1100,
+            "readVersion": 2,
+        },
+        headers={"Idempotency-Key": f"invoice-date-confirm-{invoice_date}"},
+    )
+    assert confirmed.status_code == 200
+    allocations = _with_current_promotion_group_ids(
+        client,
+        store_id="store-1",
+        allocations=[{
+            "statementId": "statement-1-v2",
+            "statementMonth": "2026-08",
+            "allocatedAmountCent": 1100,
+            "readVersion": 2,
+        }],
+    )
+    _act_as_store(client)
+
+    response = client.post(
+        "/api/v1/promotion-invoices",
+        json={
+            "storeId": "store-1",
+            "buyerName": "比亚迪汽车销售有限公司",
+            "taxRatePercent": 6,
+            "invoiceNumber": (
+                "75345678901234567890"
+                if invoice_date.endswith("27")
+                else "75345678901234567891"
+            ),
+            "invoiceDate": invoice_date,
+            "invoiceAmountCent": 1100,
+            **_manual_invoice_fields(1100),
+            "allocations": allocations,
+        },
+        headers={"Idempotency-Key": f"invoice-date-register-{invoice_date}"},
+    )
+
+    assert response.status_code == 422
+    assert expected_message in response.json()["detail"]["message"]
 
 
 def test_lifecycle_replay_checks_store_scope_before_returning_original_result(

@@ -523,6 +523,24 @@ def test_settlement_reporting_target_contracts_are_camel_case(client: TestClient
     assert "order_001" in export.content.decode("utf-8-sig")
 
 
+def test_store_ranking_rejects_an_unknown_store_finance_ranking_basis(
+    client: TestClient,
+) -> None:
+    _login(client)
+
+    response = client.get(
+        "/api/v1/dashboard/store-ranking",
+        params={
+            "periodType": "MONTHLY",
+            "periodKey": "2026-08",
+            "rankingBasis": "UNCONFIRMED_METRIC",
+        },
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"]["errors"][0]["field"] == "rankingBasis"
+
+
 def test_order_fee_details_allows_direct_access_without_source_context(
     client: TestClient,
 ):
@@ -857,6 +875,86 @@ def test_target_store_ranking_totals_and_rank_are_stable_across_pages(
     )
     assert early_cumulative["list"] == []
     assert early_cumulative["totals"]["sales_amount_cent"] == 0
+
+
+def test_store_finance_ranking_uses_one_combined_server_set_before_pagination(
+    db_session: Session,
+) -> None:
+    timestamp = datetime(2026, 8, 1, 8, tzinfo=timezone.utc)
+    rows = [
+        (1, "store-a", "Store A", 2, 20000, 1, 10000, 100),
+        (2, "store-a", "Store A", 8, 80000, 6, 60000, 1000),
+        (1, "store-b", "Store B", 3, 30000, 2, 20000, 200),
+        (2, "store-b", "Store B", 9, 90000, 7, 70000, 500),
+    ]
+    db_session.add_all(
+        [
+            AggStoreRanking(
+                period_type=period_type,
+                period_key="2026-08",
+                month="2026-08",
+                store_id=store_id,
+                store_name=store_name,
+                product_scope="all",
+                product_type="all",
+                sales_order_count=sales_order_count,
+                sales_amount_cent=sales_amount_cent,
+                verified_order_count=verified_order_count,
+                verified_amount_cent=verified_amount_cent,
+                promotion_net_fee_cent=promotion_fee_cent,
+                management_net_fee_cent=0,
+                net_settlement_reference_cent=promotion_fee_cent,
+                projection_run_id=f"run-{period_type}-{store_id}",
+                updated_at=timestamp,
+            )
+            for (
+                period_type,
+                store_id,
+                store_name,
+                sales_order_count,
+                sales_amount_cent,
+                verified_order_count,
+                verified_amount_cent,
+                promotion_fee_cent,
+            ) in rows
+        ]
+    )
+    db_session.commit()
+    store = DashboardDataStore(db_session)
+    base_filters = {
+        "period_type": "CUMULATIVE",
+        "period_key": "2026-08",
+        "product_scope": "all",
+        "product_type": "all",
+        "q": None,
+        "sort_order": "DESC",
+        "page": 1,
+        "page_size": 1,
+        "scope_mode": "AUTHORIZED",
+        "scope_store_ids": None,
+    }
+
+    cumulative = store.store_ranking_report(
+        {**base_filters, "ranking_basis": "PROMOTION_FEE_CUMULATIVE"}
+    )
+    monthly = store.store_ranking_report(
+        {
+            **base_filters,
+            "period_type": "MONTHLY",
+            "ranking_basis": "PROMOTION_FEE_MONTH",
+        }
+    )
+
+    assert cumulative["list"][0]["store_id"] == "store-a"
+    assert cumulative["list"][0]["promotion_month_fee_cent"] == 100
+    assert cumulative["list"][0]["promotion_cumulative_fee_cent"] == 1000
+    assert cumulative["list"][0]["sales_amount_cumulative_cent"] == 80000
+    assert cumulative["total"] == 2
+    assert cumulative["totals"]["promotion_month_fee_cent"] == 300
+    assert cumulative["totals"]["promotion_cumulative_fee_cent"] == 1500
+    assert monthly["list"][0]["store_id"] == "store-b"
+    assert monthly["list"][0]["promotion_month_fee_cent"] == 200
+    assert monthly["list"][0]["promotion_cumulative_fee_cent"] == 500
 
 
 def test_product_scope_filters_ranking_settlement_and_details(db_session: Session):

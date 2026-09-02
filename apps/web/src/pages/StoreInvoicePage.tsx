@@ -1,32 +1,28 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
-  createPromotionInvoiceLifecycleEvent,
-  fetchPromotionInvoiceDetail,
   fetchPromotionInvoiceReplacementCandidates,
   fetchPromotionInvoices,
+  fetchSettlementFilterMeta,
   fetchStoreBillingStatement,
   fetchStoreBillingStatements,
   registerPromotionInvoice,
+  type ApiLoadResult,
 } from "../api/client";
 import { Button } from "../components/Button";
-import { DataTable, type Column } from "../components/DataTable";
 import { FieldInput } from "../components/FormControls";
-import { MetricCard } from "../components/MetricCard";
 import { ResourceNotice, ResourcePanel } from "../components/ResourceState";
-import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
+import { StoreFinanceTimeline } from "../components/StoreFinanceTimeline";
 import { useApiResource } from "../hooks/useApiResource";
 import type {
   AdminUser,
   BillingMetricScope,
-  PromotionInvoiceDetail,
   PromotionInvoiceLifecycleEventType,
   PromotionInvoiceReplacementCandidate,
-  PromotionInvoiceRow,
   StoreBillingStatement,
+  StoreBillingStatementListData,
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
-import { displayFinanceInvoiceStatus } from "../utils/userFacingLabels";
 
 interface StoreInvoicePageProps {
   currentUser: AdminUser;
@@ -60,60 +56,381 @@ function loadReplacementContext(storageKey: string): ReplacementContext | null {
 const PROMOTION_INVOICE_BUYER_NAME = "比亚迪汽车销售有限公司";
 const PROMOTION_INVOICE_BUYER_TAXPAYER_ID = "914403007604674476";
 const PROMOTION_INVOICE_TAX_RATE_PERCENT = 6;
+const PROMOTION_INVOICE_BUYER_ADDRESS = "深圳市坪山新区坪山街道比亚迪路3005号";
+const PROMOTION_INVOICE_BUYER_PHONE = "0755-89888888";
+const PROMOTION_INVOICE_BUYER_BANK = "农行龙岗支行 41022900040008463";
+const PROMOTION_INVOICE_PROJECT_NAME = "推广服务费";
+const PROMOTION_INVOICE_TAX_CLASSIFICATION = "3079900000000000000";
 
-function defaultStatementMonth(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  return `${now.getFullYear()}-${month}`;
+interface InvoiceRegistrationValidationInput {
+  buyerName: string;
+  fillerPhone: string;
+  taxAmount: string;
+  taxRatePercent: string;
+  netAmount: string;
+  totalAmount: string;
+  invoiceDate: string;
+  invoiceNumber: string;
+  invoiceNumbers: string[];
+  selectedAmountCent: number;
+  selectedStatementCount: number;
+}
+
+interface InvoiceValidationItem {
+  key: string;
+  label: string;
+  passed: boolean;
+}
+
+const INVOICE_BUYER_NAME_ERROR =
+  "本项应该填写“比亚迪汽车销售有限公司”，请检查您开具的发票购买方名称是否正确。";
+const INVOICE_TAX_RATE_ERROR =
+  "本项应该填写6%，请检查您开具的发票税率是否为6%。";
+
+export function parseInvoiceAmountCent(value: string): number | null {
+  const normalized = value.trim();
+  if (!/^(?:0|[1-9]\d*)(?:\.\d{1,3})?$/.test(normalized)) {
+    return null;
+  }
+  const [wholePart, decimalPart = ""] = normalized.split(".");
+  const amountMill =
+    Number(wholePart) * 1000 + Number(decimalPart.padEnd(3, "0"));
+  const amountCent = Math.round(amountMill / 10);
+  return Number.isSafeInteger(amountCent) ? amountCent : null;
+}
+
+export function validateInvoiceRegistration({
+  buyerName,
+  fillerPhone,
+  taxAmount,
+  taxRatePercent,
+  netAmount,
+  totalAmount,
+  invoiceDate,
+  invoiceNumber,
+  invoiceNumbers,
+  selectedAmountCent,
+  selectedStatementCount,
+}: InvoiceRegistrationValidationInput): InvoiceValidationItem[] {
+  const normalizedNumber = invoiceNumber.trim();
+  const netAmountCent = parseInvoiceAmountCent(netAmount) ?? -1;
+  const taxAmountCent = parseInvoiceAmountCent(taxAmount) ?? -1;
+  const invoiceAmountCent = parseInvoiceAmountCent(totalAmount) ?? -1;
+  const normalizedTaxRate = taxRatePercent.trim().replace(/%$/, "");
+  const amountFieldsAreValid =
+    netAmountCent >= 0 && taxAmountCent >= 0 && invoiceAmountCent >= 0;
+  const amountIdentityIsValid =
+    amountFieldsAreValid &&
+    Math.abs(netAmountCent + taxAmountCent - invoiceAmountCent) <= 1;
+
+  return [
+    {
+      key: "selected-statements",
+      label: "系统已确定可开票的完整账期",
+      passed: selectedStatementCount > 0 && selectedAmountCent > 0,
+    },
+    {
+      key: "invoice-number",
+      label: "数电专票号码必须为20位纯数字且不得重复",
+      passed:
+        /^\d{20}$/.test(normalizedNumber) &&
+        !invoiceNumbers.includes(normalizedNumber),
+    },
+    {
+      key: "invoice-date",
+      label: "开票日期必须填写，日期边界由服务器最终校验",
+      passed: Boolean(invoiceDate),
+    },
+    {
+      key: "buyer-name",
+      label:
+        buyerName.trim() === PROMOTION_INVOICE_BUYER_NAME
+          ? "购买方名称已匹配"
+          : INVOICE_BUYER_NAME_ERROR,
+      passed: buyerName.trim() === PROMOTION_INVOICE_BUYER_NAME,
+    },
+    {
+      key: "filler-phone",
+      label: fillerPhone.trim()
+        ? "填写人电话已填写"
+        : "请填写开票信息填写人电话",
+      passed: Boolean(fillerPhone.trim()),
+    },
+    {
+      key: "tax-rate",
+      label:
+        Number(normalizedTaxRate) === PROMOTION_INVOICE_TAX_RATE_PERCENT
+          ? "税率已匹配"
+          : INVOICE_TAX_RATE_ERROR,
+      passed: Number(normalizedTaxRate) === PROMOTION_INVOICE_TAX_RATE_PERCENT,
+    },
+    {
+      key: "net-amount",
+      label: netAmountCent < 0
+        ? "不含税金额必须填写有效金额，最多三位小数"
+        : "不含税金额格式正确",
+      passed: netAmountCent >= 0,
+    },
+    {
+      key: "tax-amount",
+      label: taxAmountCent < 0
+        ? "税额必须填写有效金额，最多三位小数"
+        : "税额格式正确",
+      passed: taxAmountCent >= 0,
+    },
+    {
+      key: "total-amount",
+      label: invoiceAmountCent < 0
+        ? "价税合计必须填写有效金额，最多三位小数"
+        : "价税合计格式正确",
+      passed: invoiceAmountCent >= 0,
+    },
+    {
+      key: "amount-identity",
+      label: amountIdentityIsValid
+        ? "不含税金额 + 税额必须等于开票金额（已通过）"
+        : "不含税金额 + 税额必须等于开票金额",
+      passed: amountIdentityIsValid,
+    },
+    {
+      key: "total-amount-match",
+      label: "价税合计必须等于系统确定账期的推广服务费",
+      passed:
+        selectedStatementCount > 0 &&
+        invoiceAmountCent >= 0 &&
+        invoiceAmountCent === selectedAmountCent,
+      },
+  ];
+}
+
+function isRegisterablePromotionStatement(statement: StoreBillingStatement): boolean {
+  return Boolean(
+    statement.isCurrent &&
+      statement.promotionConfirmation &&
+      statement.promotionInvoiceGroupId &&
+      statement.promotionInvoiceableAmountCent > 0 &&
+      ["PENDING_INVOICE", "REJECTED_REUPLOAD"].includes(
+        statement.promotionInvoiceStatus,
+      ),
+  );
+}
+
+export function selectAllRegisterableInvoiceStatements(
+  statements: StoreBillingStatement[],
+  currentMonth: string,
+): StoreBillingStatement[] {
+  const visibleById = new Map(
+    statements.map((statement) => [statement.statementId, statement]),
+  );
+  const registerable = statements
+    .filter(
+      (statement) =>
+        statement.month <= currentMonth &&
+        isRegisterablePromotionStatement(statement),
+    );
+  const registerableGroupIds = new Set(
+    registerable.map((statement) => statement.promotionInvoiceGroupId),
+  );
+  const selectedStatementIds = new Set<string>();
+  registerable.forEach((statement) => {
+    if (!registerableGroupIds.has(statement.promotionInvoiceGroupId)) return;
+    selectedStatementIds.add(statement.statementId);
+    statement.promotionRequiredStatementIds.forEach((statementId) =>
+      selectedStatementIds.add(statementId),
+    );
+  });
+  return [...selectedStatementIds]
+    .map((statementId) => visibleById.get(statementId))
+    .filter((statement): statement is StoreBillingStatement => Boolean(statement))
+    .sort(
+      (left, right) =>
+        left.month.localeCompare(right.month) ||
+        left.statementId.localeCompare(right.statementId),
+    );
+}
+
+interface SystemSelectedInvoiceGroupData extends StoreBillingStatementListData {
+  selectedMonth: string;
+  selectedGroupStatements: StoreBillingStatement[];
+}
+
+async function loadSystemSelectedInvoiceGroup({
+  currentMonth,
+  formalPeriodStartMonth,
+  metricScope,
+  statementMonths,
+  storeId,
+}: {
+  currentMonth: string;
+  formalPeriodStartMonth: string;
+  metricScope: BillingMetricScope;
+  statementMonths: string[];
+  storeId: string;
+}): Promise<ApiLoadResult<SystemSelectedInvoiceGroupData>> {
+  const eligibleMonths = [
+    ...new Set([...statementMonths, currentMonth]),
+  ]
+    .filter(
+      (statementMonth) =>
+        statementMonth >= formalPeriodStartMonth && statementMonth <= currentMonth,
+    )
+    .sort((left, right) => left.localeCompare(right));
+  const responses = await Promise.all(
+    eligibleMonths.map((statementMonth) =>
+      fetchStoreBillingStatements({
+        storeId,
+        month: statementMonth,
+        metricScope,
+        feeDirection: "PROMOTION",
+        pageSize: 50,
+      }),
+    ),
+  );
+  const allStatements = responses.flatMap((response) => response.data.list);
+  const registerableStatements = allStatements.filter(
+    (statement) =>
+      statement.month <= currentMonth &&
+      isRegisterablePromotionStatement(statement),
+  );
+  const requiredGroupByStatementId = new Map<string, string>();
+  registerableStatements.forEach((statement) => {
+    const groupId = statement.promotionInvoiceGroupId;
+    if (!groupId) return;
+    const requiredStatementIds = statement.promotionRequiredStatementIds.length
+      ? statement.promotionRequiredStatementIds
+      : [statement.statementId];
+    requiredStatementIds.forEach((statementId) => {
+      const previousGroupId = requiredGroupByStatementId.get(statementId);
+      if (previousGroupId && previousGroupId !== groupId) {
+        throw new Error("同一账期被分配到多个抵扣组，请刷新后重试。");
+      }
+      requiredGroupByStatementId.set(statementId, groupId);
+    });
+  });
+  const selectedMonth = currentMonth;
+  const selectedResponse =
+    responses.find((response) =>
+      response.data.list.some((statement) => statement.month === selectedMonth),
+    ) ?? responses[responses.length - 1];
+  if (!selectedResponse) {
+    throw new Error("系统未返回可用的正式账期。");
+  }
+
+  const visibleStatements = new Map(
+    allStatements.map((statement) => [statement.statementId, statement]),
+  );
+  const selectedGroupStatements = await Promise.all(
+    [...requiredGroupByStatementId.entries()].map(
+      async ([statementId, groupId]) => {
+        const statement =
+          visibleStatements.get(statementId) ??
+          (await fetchStoreBillingStatement(statementId)).data;
+        if (
+          statement.storeId !== storeId ||
+          !statement.isCurrent ||
+          statement.month < formalPeriodStartMonth ||
+          statement.month > currentMonth ||
+          statement.promotionInvoiceGroupId !== groupId
+        ) {
+          throw new Error("抵扣组已变化，请刷新后重试。");
+        }
+        return statement;
+      },
+    ),
+  );
+  selectedGroupStatements.sort(
+    (left, right) =>
+      left.month.localeCompare(right.month) ||
+      left.statementId.localeCompare(right.statementId),
+  );
+
+  return {
+    ...selectedResponse,
+    data: {
+      ...selectedResponse.data,
+      list: selectedGroupStatements,
+      total: selectedGroupStatements.length,
+      selectedMonth,
+      selectedGroupStatements,
+    },
+  };
 }
 
 export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePageProps) {
   const replacementContextStorageKey = `${REPLACEMENT_CONTEXT_STORAGE_PREFIX}:${
     currentUser.user_id ?? currentUser.username
   }`;
-  const [month, setMonth] = useState(
-    searchParams.get("month") ?? defaultStatementMonth(),
+  const restoredReplacementContext = loadReplacementContext(
+    replacementContextStorageKey,
   );
+  const requestedStoreId =
+    searchParams.get("storeId") ?? searchParams.get("store_id") ?? "";
+  const initialStoreId =
+    currentUser.role === "store"
+      ? restoredReplacementContext &&
+        currentUser.store_ids.includes(restoredReplacementContext.storeId)
+        ? restoredReplacementContext.storeId
+        : currentUser.store_ids.includes(requestedStoreId)
+          ? requestedStoreId
+          : currentUser.store_ids[0] ?? ""
+      : requestedStoreId || restoredReplacementContext?.storeId || currentUser.store_ids[0] || "";
+  const [month, setMonth] = useState("");
   const [storeId, setStoreId] = useState(
-    searchParams.get("storeId") ??
-      loadReplacementContext(replacementContextStorageKey)?.storeId ??
-      currentUser.store_ids[0] ??
-      "",
+    initialStoreId,
   );
-  const [metricScope, setMetricScope] =
-    useState<BillingMetricScope>("MONTH");
+  const [metricScope] = useState<BillingMetricScope>("MONTH");
+  const [buyerName, setBuyerName] = useState("");
+  const [fillerPhone, setFillerPhone] = useState("");
+  const [taxRatePercent, setTaxRatePercent] = useState("");
   const [invoiceNumber, setInvoiceNumber] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
+  const [netAmount, setNetAmount] = useState("");
+  const [taxAmount, setTaxAmount] = useState("");
+  const [totalAmount, setTotalAmount] = useState("");
   const [selectedStatements, setSelectedStatements] = useState<StoreBillingStatement[]>([]);
   const [submitMessage, setSubmitMessage] = useState("");
+  const [showValidationFeedback, setShowValidationFeedback] = useState(false);
+  const [copyMessage, setCopyMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [lifecycleInvoiceId, setLifecycleInvoiceId] = useState<string | null>(null);
   const [replacementContext, setReplacementContext] =
     useState<ReplacementContext | null>(() => {
-      const restored = loadReplacementContext(replacementContextStorageKey);
-      return currentUser.role === "store" &&
-        restored?.storeId === storeId &&
-        currentUser.store_ids.includes(restored.storeId)
-        ? restored
-        : null;
+      const restored = restoredReplacementContext;
+      if (
+        restored &&
+        restored.storeId === storeId &&
+        (currentUser.role !== "store" || currentUser.store_ids.includes(restored.storeId))
+      ) {
+        return restored;
+      }
+      return null;
     });
   const restoredReplacementInvoiceId = useRef(
     replacementContext?.invoiceId ?? null,
   );
-  const [invoiceDetail, setInvoiceDetail] = useState<PromotionInvoiceDetail | null>(null);
+  const invoiceFormRef = useRef<HTMLFormElement | null>(null);
 
   const enabled = Boolean(storeId && month);
+  const metaResource = useApiResource(fetchSettlementFilterMeta, []);
+  const filterMeta = metaResource.data?.data;
+  const currentPeriodMonth = filterMeta?.statementMonths[0] ?? "";
   const statementResource = useApiResource(
     () =>
-      fetchStoreBillingStatements({
+      loadSystemSelectedInvoiceGroup({
+        currentMonth: currentPeriodMonth,
+        formalPeriodStartMonth: filterMeta?.formalPeriodStartMonth ?? currentPeriodMonth,
+        statementMonths: filterMeta?.statementMonths ?? [],
         storeId,
-        month,
         metricScope,
-        feeDirection: "PROMOTION",
-        pageSize: 50,
       }),
-    [storeId, month, metricScope],
-    { enabled },
+    [
+      storeId,
+      metricScope,
+      currentPeriodMonth,
+      filterMeta?.formalPeriodStartMonth,
+      filterMeta?.statementMonths.join("|"),
+      replacementContext?.invoiceId,
+    ],
+    { enabled: Boolean(storeId && filterMeta && currentPeriodMonth && !replacementContext) },
   );
   const invoiceResource = useApiResource(
     () => fetchPromotionInvoices({ storeId, month, pageSize: 50 }),
@@ -123,91 +440,64 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   const replacementCandidateResource = useApiResource(
     () => fetchPromotionInvoiceReplacementCandidates(storeId),
     [storeId],
-    { enabled: enabled && currentUser.role === "store" },
+    { enabled },
   );
 
-  const statements = statementResource.data?.data.list ?? [];
+  useEffect(() => {
+    if (storeId) return;
+    const accountStoreId = currentUser.store_ids[0] || filterMeta?.stores[0]?.storeId || "";
+    if (accountStoreId) setStoreId(accountStoreId);
+  }, [currentUser.store_ids, filterMeta?.stores, storeId]);
+
+  useEffect(() => {
+    if (!replacementContext && month !== currentPeriodMonth) {
+      setMonth(currentPeriodMonth);
+    }
+  }, [currentPeriodMonth, month, replacementContext]);
+
   const invoices = invoiceResource.data?.data.list ?? [];
-  const metrics = statementResource.data?.data.metrics;
   const replacementCandidates =
     replacementCandidateResource.data?.data.list ?? [];
-  const registerableStatements = useMemo(
-    () =>
-      statements.filter(
-        (statement) =>
-          statement.isCurrent &&
-          statement.promotionConfirmation &&
-          statement.promotionInvoiceGroupId &&
-          statement.promotionInvoiceableAmountCent > 0 &&
-          ["PENDING_INVOICE", "REJECTED_REUPLOAD"].includes(
-            statement.promotionInvoiceStatus,
-          ),
-      ),
-    [statements],
-  );
   const selectedAmountCent = selectedStatements.reduce(
     (total, statement) =>
       total + (statement.promotionConfirmation?.confirmedAmountCent ?? 0),
     0,
   );
-  const positiveOriginalAmountCent = selectedStatements.reduce(
-    (total, statement) =>
-      total + Math.max(statement.promotionConfirmation?.confirmedAmountCent ?? 0, 0),
-    0,
-  );
-  const negativeOffsetAmountCent = selectedStatements.reduce(
-    (total, statement) =>
-      total + Math.min(statement.promotionConfirmation?.confirmedAmountCent ?? 0, 0),
-    0,
+  const invoiceValidationItems = validateInvoiceRegistration({
+    buyerName,
+    fillerPhone,
+    taxAmount,
+    taxRatePercent,
+    netAmount,
+    totalAmount,
+    invoiceDate,
+    invoiceNumber,
+    invoiceNumbers: invoices.map((invoice) => invoice.invoiceNumber),
+    selectedAmountCent,
+    selectedStatementCount: selectedStatements.length,
+  });
+  const failedInvoiceValidationItems = invoiceValidationItems.filter(
+    (item) => !item.passed,
   );
 
-  const toggleInvoiceGroup = async (statement: StoreBillingStatement) => {
-    if (replacementContext) {
-      return;
-    }
-    const groupId = statement.promotionInvoiceGroupId;
-    if (!groupId || statement.promotionInvoiceableAmountCent <= 0) {
-      return;
-    }
-    if (selectedStatements.some((item) => item.promotionInvoiceGroupId === groupId)) {
-      setSelectedStatements((current) =>
-        current.filter((item) => item.promotionInvoiceGroupId !== groupId),
-      );
-      return;
-    }
-    setSubmitMessage("");
+  const copyInvoiceInfo = async () => {
+    const lines = [
+      `名称：${PROMOTION_INVOICE_BUYER_NAME}`,
+      `纳税人识别号：${PROMOTION_INVOICE_BUYER_TAXPAYER_ID}`,
+      `地址：${PROMOTION_INVOICE_BUYER_ADDRESS}`,
+      `电话：${PROMOTION_INVOICE_BUYER_PHONE}`,
+      `开户行及账号：${PROMOTION_INVOICE_BUYER_BANK}`,
+      `项目名称：${PROMOTION_INVOICE_PROJECT_NAME}`,
+      `税收分类编码：${PROMOTION_INVOICE_TAX_CLASSIFICATION}`,
+      `税率：${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`,
+      `价税合计：${formatCurrency(selectedAmountCent)}`,
+    ];
     try {
-      const visibleStatements = new Map(
-        statements.map((item) => [item.statementId, item]),
-      );
-      const groupStatements = await Promise.all(
-        statement.promotionRequiredStatementIds.map(async (statementId) => {
-          const visible = visibleStatements.get(statementId);
-          if (visible) {
-            return visible;
-          }
-          return (await fetchStoreBillingStatement(statementId)).data;
-        }),
-      );
-      if (
-        groupStatements.some(
-          (item) =>
-            item.promotionInvoiceGroupId !== groupId ||
-            item.promotionInvoiceableAmountCent !==
-              statement.promotionInvoiceableAmountCent,
-        )
-      ) {
-        throw new Error("抵扣组已变化，请刷新后重新选择。");
-      }
-      setSelectedStatements((current) => {
-        const next = new Map(current.map((item) => [item.statementId, item]));
-        groupStatements.forEach((item) => next.set(item.statementId, item));
-        return [...next.values()].sort((left, right) =>
-          left.month.localeCompare(right.month),
-        );
-      });
-    } catch (error) {
-      setSubmitMessage(userFacingError(error, "抵扣组加载失败。"));
+      await navigator.clipboard.writeText(lines.join("\n"));
+      setCopyMessage("开票信息已复制。");
+      invoiceFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    } catch {
+      setCopyMessage("复制失败，请手动选择下方开票信息。");
     }
   };
 
@@ -283,6 +573,15 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
   };
 
   useEffect(() => {
+    const automaticSelection = statementResource.data?.data;
+    if (!automaticSelection || replacementContext) {
+      return;
+    }
+    setMonth(automaticSelection.selectedMonth);
+    setSelectedStatements(automaticSelection.selectedGroupStatements);
+  }, [statementResource.data, replacementContext]);
+
+  useEffect(() => {
     if (
       !replacementContext ||
       restoredReplacementInvoiceId.current !== replacementContext.invoiceId
@@ -332,213 +631,50 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
     }
   };
 
-  const handleInvoiceHistory = async (invoiceId: string) => {
-    setSubmitMessage("");
-    try {
-      const result = await fetchPromotionInvoiceDetail(invoiceId);
-      setInvoiceDetail(result.data);
-    } catch (error) {
-      setSubmitMessage(userFacingError(error, "发票历史加载失败。"));
-    }
-  };
-
-  const handleLifecycleEvent = async (
-    row: PromotionInvoiceRow,
-    eventType: PromotionInvoiceLifecycleEventType,
-  ) => {
-    const actionLabel = eventType === "RED_FLUSHED" ? "红冲" : "作废";
-    const reason = window.prompt(`请输入系统外${actionLabel}原因`);
-    if (!reason?.trim()) {
-      return;
-    }
-    if (!window.confirm(`确认该发票已在系统外完成${actionLabel}？系统只登记事实并释放全部账期。`)) {
-      return;
-    }
-    setLifecycleInvoiceId(row.invoiceId);
-    setSubmitMessage("");
-    let lifecycleRecorded = false;
-    try {
-      const result = await createPromotionInvoiceLifecycleEvent(
-        row.invoiceId,
-        { eventType, reason: reason.trim(), readVersion: row.versionNo },
-        crypto.randomUUID(),
-      );
-      const releasedMonths = result.data.releasedStatementMonths;
-      lifecycleRecorded = true;
-      const nextReplacementContext: ReplacementContext = {
-        storeId: row.storeId,
-        invoiceId: row.invoiceId,
-        invoiceNumber: row.invoiceNumber,
-        eventType,
-        reason: reason.trim(),
-        releasedStatementMonths: releasedMonths,
-      };
-      setReplacementContext(nextReplacementContext);
-      window.sessionStorage.setItem(
-        replacementContextStorageKey,
-        JSON.stringify(nextReplacementContext),
-      );
-      setInvoiceDetail(null);
-      statementResource.reload();
-      invoiceResource.reload();
-      replacementCandidateResource.reload();
-      await loadReleasedStatements(nextReplacementContext);
-      setSubmitMessage(`已登记系统外${actionLabel}事实；请使用新发票号码覆盖全部释放账期。`);
-    } catch (error) {
-      const message = userFacingError(error, `${actionLabel}登记失败。`);
-      setSubmitMessage(
-        lifecycleRecorded
-          ? `系统外${actionLabel}事实已登记，但释放账期自动加载失败：${message}`
-          : message,
-      );
-    } finally {
-      setLifecycleInvoiceId(null);
-    }
-  };
-
-  const statementColumns: Column<StoreBillingStatement>[] = [
-    { key: "month", title: "账期", render: (row) => row.month },
-    { key: "version", title: "账单版本", render: (row) => `V${row.versionNo}` },
-    {
-      key: "amount",
-      title: "推广服务费",
-      align: "right",
-      render: (row) => formatCurrency(row.promotionAmountCent),
-    },
-    {
-      key: "confirmed",
-      title: "已确认金额",
-      align: "right",
-      render: (row) =>
-        formatCurrency(row.promotionConfirmation?.confirmedAmountCent ?? 0),
-    },
-    {
-      key: "invoiceable",
-      title: "抵扣与可开票",
-      minWidth: 260,
-      render: (row) => {
-        const confirmedAmount =
-          row.promotionConfirmation?.confirmedAmountCent ?? 0;
-        if (confirmedAmount < 0) {
-          return `结转抵扣中 · 当前结转余额 ${formatCurrency(row.promotionCarryforwardBalanceCent)}`;
-        }
-        if (!row.promotionInvoiceGroupId) {
-          return "-";
-        }
-        return `抵扣前 ${formatCurrency(row.promotionPositiveAmountCent)} · 负数抵扣 ${formatCurrency(row.promotionNegativeAmountCent)} · 可开票净额 ${formatCurrency(row.promotionInvoiceableAmountCent)}`;
-      },
-    },
-    {
-      key: "status",
-      title: "发票状态",
-      render: (row) => displayFinanceInvoiceStatus(row.promotionInvoiceStatus),
-    },
-    {
-      key: "management",
-      title: "管理服务费 / 状态",
-      align: "right",
-      render: (row) => `${formatCurrency(row.managementAmountCent)} · ${displayFinanceInvoiceStatus(row.managementInvoiceStatus)}`,
-    },
-    {
-      key: "allocation",
-      title: "抵扣组",
-      render: (row) => {
-        const eligible = registerableStatements.some(
-          (item) => item.statementId === row.statementId,
-        );
-        const selected = selectedStatements.some(
-          (item) =>
-            item.promotionInvoiceGroupId === row.promotionInvoiceGroupId,
-        );
-        if ((row.promotionConfirmation?.confirmedAmountCent ?? 0) < 0 && !eligible) {
-          return "结转抵扣中";
-        }
-        return eligible ? (
-          <Button
-            disabled={Boolean(replacementContext)}
-            onClick={() => void toggleInvoiceGroup(row)}
-            size="sm"
-            variant={selected ? "secondary" : "text"}
-          >
-            {selected ? "移除整组" : "选择抵扣组"}
-          </Button>
-        ) : "-";
-      },
-    },
-  ];
-
-  const invoiceColumns: Column<PromotionInvoiceRow>[] = [
-    { key: "number", title: "发票号码", minWidth: 210, render: (row) => row.invoiceNumber },
-    { key: "month", title: "账期", render: (row) => row.statementMonth },
-    { key: "batch", title: "结算批次", render: (row) => row.settlementBatchMonth },
-    { key: "date", title: "开票日期", render: (row) => row.invoiceDate },
-    {
-      key: "amount",
-      title: "已开票金额",
-      align: "right",
-      render: (row) => formatCurrency(row.allocatedAmountCent),
-    },
-    { key: "status", title: "状态", render: (row) => displayFinanceInvoiceStatus(row.status) },
-    { key: "time", title: "系统登记时间", render: (row) => formatDateTime(row.registeredAt) },
-    {
-      key: "actions",
-      title: "操作",
-      minWidth: 250,
-      render: (row) => (
-        <div className="table-actions">
-          <Button onClick={() => handleInvoiceHistory(row.invoiceId)} size="sm" variant="text">
-            历史
-          </Button>
-          {currentUser.role === "store" && row.isCurrent ? (
-            <>
-              <Button
-                loading={lifecycleInvoiceId === row.invoiceId}
-                onClick={() => handleLifecycleEvent(row, "RED_FLUSHED")}
-                size="sm"
-                variant="text"
-              >
-                登记红冲
-              </Button>
-              <Button
-                loading={lifecycleInvoiceId === row.invoiceId}
-                onClick={() => handleLifecycleEvent(row, "VOIDED")}
-                size="sm"
-                variant="danger"
-              >
-                登记作废
-              </Button>
-            </>
-          ) : null}
-        </div>
-      ),
-    },
-  ];
-
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setShowValidationFeedback(true);
+    const failedValidation = invoiceValidationItems.find((item) => !item.passed);
+    if (failedValidation) {
+      setSubmitMessage(`核验未通过：${failedValidation.label}。`);
+      return;
+    }
     if (selectedStatements.length === 0) {
-      setSubmitMessage("请至少选择一个可登记的已确认推广费账期。");
+      setSubmitMessage("当前系统账期尚无可登记的已确认推广服务费。");
       return;
     }
     if (
       selectedAmountCent <= 0 ||
       selectedStatements.some((statement) => !statement.promotionInvoiceGroupId)
     ) {
-      setSubmitMessage("所选抵扣组尚未形成正数净开票金额，请刷新后重新选择。");
+      setSubmitMessage("系统确定的抵扣组尚未形成正数净开票金额，请刷新后重试。");
+      return;
+    }
+    const enteredTotalAmountCent = parseInvoiceAmountCent(totalAmount);
+    const enteredNetAmountCent = parseInvoiceAmountCent(netAmount);
+    const enteredTaxAmountCent = parseInvoiceAmountCent(taxAmount);
+    if (
+      enteredTotalAmountCent === null ||
+      enteredNetAmountCent === null ||
+      enteredTaxAmountCent === null
+    ) {
+      setSubmitMessage("核验未通过：金额必须有效，最多输入三位小数并四舍五入到分。");
       return;
     }
     setSubmitting(true);
     setSubmitMessage("");
-    const replacedInvoiceId = replacementContext?.invoiceId ?? null;
     try {
       await registerPromotionInvoice(
         {
           storeId,
-          buyerName: PROMOTION_INVOICE_BUYER_NAME,
-          taxRatePercent: PROMOTION_INVOICE_TAX_RATE_PERCENT,
+          buyerName: buyerName.trim(),
+          fillerPhone: fillerPhone.trim(),
+          taxRatePercent: Number(taxRatePercent.trim().replace(/%$/, "")),
           invoiceNumber: invoiceNumber.trim(),
           invoiceDate,
-          invoiceAmountCent: selectedAmountCent,
+          netAmountCent: enteredNetAmountCent,
+          taxAmountCent: enteredTaxAmountCent,
+          invoiceAmountCent: enteredTotalAmountCent,
           ...(replacementContext
             ? { replacesInvoiceId: replacementContext.invoiceId }
             : {}),
@@ -553,14 +689,17 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
         },
         crypto.randomUUID(),
       );
-      if (replacedInvoiceId) {
-        const refreshedDetail = await fetchPromotionInvoiceDetail(replacedInvoiceId);
-        setInvoiceDetail(refreshedDetail.data);
-      }
       setInvoiceNumber("");
       setInvoiceDate("");
+      setBuyerName("");
+      setFillerPhone("");
+      setTaxRatePercent("");
+      setNetAmount("");
+      setTaxAmount("");
+      setTotalAmount("");
       setSelectedStatements([]);
       setReplacementContext(null);
+      setShowValidationFeedback(false);
       window.sessionStorage.removeItem(replacementContextStorageKey);
       setSubmitMessage("发票信息已登记，状态已更新。");
       statementResource.reload();
@@ -579,65 +718,26 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
         <div>
           <p className="eyebrow">门店结算</p>
           <h1>开票确认</h1>
-          <p>开票在系统外完成；系统不创建开票申请单，也不负责真正开票，只登记信息和回传状态。</p>
         </div>
-      </section>
-
-      <section className="finance-filter-bar" aria-label="开票筛选条件">
-        <label>
-          <span>门店 ID</span>
-          <FieldInput
-            value={storeId}
-            onChange={(event) => {
-              setStoreId(event.target.value);
-              setSelectedStatements([]);
-              setReplacementContext(null);
-              window.sessionStorage.removeItem(replacementContextStorageKey);
-              setInvoiceDetail(null);
-            }}
-          />
-        </label>
-        <label>
-          <span>账期</span>
-          <FieldInput type="month" value={month} onChange={(event) => setMonth(event.target.value)} />
-        </label>
-        <label>
-          <span>指标口径</span>
-          <SearchableStoreSelect
-            emptyMessage="未找到指标口径"
-            onChange={(value) => setMetricScope(value as BillingMetricScope)}
-            options={[
-              { value: "MONTH", label: "单月" },
-              { value: "CUMULATIVE", label: "累计" },
-            ]}
-            placeholder="选择指标口径"
-            value={metricScope}
-          />
-        </label>
       </section>
 
       <ResourceNotice
-        loading={statementResource.loading || invoiceResource.loading || replacementCandidateResource.loading}
-        error={statementResource.error ?? invoiceResource.error ?? replacementCandidateResource.error}
+        loading={metaResource.loading || statementResource.loading || invoiceResource.loading}
+        error={metaResource.error ?? statementResource.error ?? invoiceResource.error}
       />
 
-      <section className="metric-grid metric-grid--three">
-        <MetricCard label="推广服务费账单" value={formatCurrency((metricScope === "CUMULATIVE" ? metrics?.cumulative : metrics?.month)?.promotionAmountCent ?? 0)} />
-        <MetricCard label="管理服务费账单" value={formatCurrency((metricScope === "CUMULATIVE" ? metrics?.cumulative : metrics?.month)?.managementAmountCent ?? 0)} />
-        <MetricCard label="本张发票已选金额" value={formatCurrency(selectedAmountCent)} />
+      <section className="store-finance-invoice-reminders" aria-label="开票提醒">
+        <p>门店前往开票系统开具数电专票，再将发票信息上传系统，否则将无法收款。</p>
+        <p>当月10号前开票提交，当月结算；10号后开票提交将在下月结算。</p>
       </section>
 
-      <section className="content-section">
-        <div className="section-title">
-          <div><h2>推广费账单</h2><p>逐月筛选并把一个或多个完整账期加入同一张发票；已选账期会跨筛选月份保留。</p></div>
-        </div>
-        <DataTable columns={statementColumns} rows={statements} state={statementResource.loading ? "loading" : statementResource.error ? "error" : "ready"} />
-      </section>
+      <StoreFinanceTimeline
+        activeStage="invoice"
+        statusText="当月10日前登记成功进入当月结算批次；10日后登记进入下月结算批次。"
+        statusTitle="当前环节：发票提交"
+      />
 
-      <section className="content-section finance-registration-card">
-        <div className="section-title">
-          <div><h2>登记发票信息</h2><p>系统校验提交内容无误的服务器时间作为成功登记时间。</p></div>
-        </div>
+      <section className="store-finance-registration">
         {!replacementContext && replacementCandidates.length > 0 ? (
           <ResourcePanel>
             <strong>有 {replacementCandidates.length} 张发票等待继续替换</strong>
@@ -676,81 +776,135 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
             </Button>
           </ResourcePanel>
         ) : null}
-        {selectedStatements.length === 0 ? (
-          <ResourcePanel>请从推广费账单中加入至少一个可登记账期。</ResourcePanel>
-        ) : (
-          <form className="finance-form-grid" onSubmit={handleSubmit}>
-            <div className="finance-selected-periods">
-              <span>已选账期</span>
-              <strong>{selectedStatements.map((statement) => statement.month).join("、")}</strong>
+        <div className="store-finance-invoice-workspace">
+          <section className="store-finance-invoice-panel store-finance-invoice-info" aria-label="购买方开票信息">
+            <div className="store-finance-invoice-panel__heading">
+              <div>
+                <p className="eyebrow">收票方资料</p>
+                <h3>购买方开票信息</h3>
+              </div>
+              <Button icon="copy" onClick={() => void copyInvoiceInfo()} size="sm" variant="secondary">
+                一键复制全部开票信息
+              </Button>
             </div>
-            <div className="finance-selected-periods">
-              <span>正数原费用</span>
-              <strong>{formatCurrency(positiveOriginalAmountCent)}</strong>
+            <dl>
+              <div><dt>名称</dt><dd>{PROMOTION_INVOICE_BUYER_NAME}</dd></div>
+              <div><dt>纳税人识别号</dt><dd>{PROMOTION_INVOICE_BUYER_TAXPAYER_ID}</dd></div>
+              <div><dt>地址</dt><dd>{PROMOTION_INVOICE_BUYER_ADDRESS}</dd></div>
+              <div><dt>电话</dt><dd>{PROMOTION_INVOICE_BUYER_PHONE}</dd></div>
+              <div><dt>开户行及账号</dt><dd>{PROMOTION_INVOICE_BUYER_BANK}</dd></div>
+              <div><dt>项目名称</dt><dd>{PROMOTION_INVOICE_PROJECT_NAME}</dd></div>
+              <div><dt>税收分类编码</dt><dd>{PROMOTION_INVOICE_TAX_CLASSIFICATION}</dd></div>
+              <div><dt>税率</dt><dd>{PROMOTION_INVOICE_TAX_RATE_PERCENT}%</dd></div>
+              <div><dt>价税合计</dt><dd>{selectedStatements.length ? formatCurrency(selectedAmountCent) : "尚未生成"}</dd></div>
+            </dl>
+            {copyMessage ? <p role="status">{copyMessage}</p> : null}
+          </section>
+
+          <section className="store-finance-invoice-panel store-finance-invoice-panel--registration" aria-label="填写数电专票信息">
+            <div className="store-finance-invoice-panel__heading">
+              <div>
+                <p className="eyebrow">发票登记</p>
+                <h3>填写数电专票信息</h3>
+              </div>
             </div>
-            <div className="finance-selected-periods">
-              <span>负数抵扣</span>
-              <strong>{formatCurrency(negativeOffsetAmountCent)}</strong>
-            </div>
-            <div className="finance-selected-periods">
-              <span>净开票金额</span>
-              <strong>{formatCurrency(selectedAmountCent)}</strong>
-            </div>
-            <label>
-              <span>购买方名称</span>
-              <FieldInput disabled value={PROMOTION_INVOICE_BUYER_NAME} />
-            </label>
-            <label>
-              <span>购买方纳税人识别号</span>
-              <FieldInput disabled value={PROMOTION_INVOICE_BUYER_TAXPAYER_ID} />
-            </label>
-            <label>
-              <span>税率</span>
-              <FieldInput disabled value={`${PROMOTION_INVOICE_TAX_RATE_PERCENT}%`} />
-            </label>
-            <label>
-              <span>20 位数电专票号码</span>
-              <FieldInput inputMode="numeric" maxLength={20} minLength={20} pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value)} />
-            </label>
-            <label>
-              <span>开票日期</span>
-              <FieldInput type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
-            </label>
-            <label>
-              <span>发票金额</span>
-              <FieldInput disabled value={formatCurrency(selectedAmountCent)} />
-            </label>
-            <div className="finance-form-actions">
-              <Button loading={submitting} type="submit" variant="primary">登记并提交</Button>
-            </div>
-          </form>
-        )}
+            <form ref={invoiceFormRef} className="finance-form-grid" noValidate onSubmit={handleSubmit}>
+              <label>
+                <span>购买方名称</span>
+                <FieldInput
+                  aria-label="购买方名称"
+                  required
+                  value={buyerName}
+                  onChange={(event) => setBuyerName(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>填写人电话</span>
+                <FieldInput
+                  aria-label="填写人电话"
+                  inputMode="tel"
+                  required
+                  value={fillerPhone}
+                  onChange={(event) => setFillerPhone(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>税率</span>
+                <FieldInput
+                  aria-label="税率"
+                  inputMode="decimal"
+                  required
+                  value={taxRatePercent}
+                  onChange={(event) => setTaxRatePercent(event.target.value.replace(/[^\d.]/g, ""))}
+                />
+              </label>
+              <label>
+                <span>开票日期</span>
+                <FieldInput type="date" required value={invoiceDate} onChange={(event) => setInvoiceDate(event.target.value)} />
+              </label>
+              <label>
+                <span>20 位数电专票号码</span>
+                <FieldInput inputMode="numeric" maxLength={20} minLength={20} pattern="[0-9]{20}" required value={invoiceNumber} onChange={(event) => setInvoiceNumber(event.target.value.replace(/\D/g, ""))} />
+              </label>
+              <label>
+                <span>不含税金额</span>
+                <FieldInput
+                  aria-label="不含税金额"
+                  inputMode="decimal"
+                  required
+                  value={netAmount}
+                  onChange={(event) => setNetAmount(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>税额</span>
+                <FieldInput
+                  aria-label="税额"
+                  inputMode="decimal"
+                  required
+                  value={taxAmount}
+                  onChange={(event) => setTaxAmount(event.target.value)}
+                />
+              </label>
+              <label>
+                <span>价税合计</span>
+                <FieldInput
+                  aria-label="价税合计"
+                  inputMode="decimal"
+                  required
+                  value={totalAmount}
+                  onChange={(event) => setTotalAmount(event.target.value)}
+                />
+              </label>
+
+              <div className="finance-form-actions finance-form-grid__wide">
+                <Button disabled={submitting} loading={submitting} type="submit" variant="primary">
+                  核验并登记发票
+                </Button>
+              </div>
+            </form>
+            {showValidationFeedback ? (
+              <section className="store-finance-validation-response" aria-live="polite">
+                <strong>系统校验结果</strong>
+                {failedInvoiceValidationItems.length > 0 ? (
+                  <ul className="store-finance-verification-list">
+                    {failedInvoiceValidationItems.map((item) => (
+                      <li className="is-error" key={item.key}>
+                        <span aria-hidden="true">!</span>
+                        {item.label}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>基础信息校验通过，正在提交服务器登记。</p>
+                )}
+              </section>
+            ) : null}
+          </section>
+        </div>
         {submitMessage ? <p role="status">{submitMessage}</p> : null}
       </section>
 
-      <section className="content-section">
-        <div className="section-title"><div><h2>开票记录</h2><p>只展示当前有效记录及管理员导入后的状态。</p></div></div>
-        <DataTable columns={invoiceColumns} rows={invoices} state={invoiceResource.loading ? "loading" : invoiceResource.error ? "error" : "ready"} />
-        {invoiceDetail ? (
-          <ResourcePanel>
-            <strong>发票 {invoiceDetail.invoiceNumber} 历史</strong>
-            <p>物理发票版本：{invoiceDetail.versions.length}；厂家状态事件：{invoiceDetail.statusEvents.length}。</p>
-            {invoiceDetail.lifecycleEvents.length > 0 ? (
-              <p>
-                生命周期事件：{invoiceDetail.lifecycleEvents.map((event) =>
-                  `${event.eventType === "RED_FLUSHED" ? "红冲" : "作废"}（${event.reason}）`,
-                ).join("、")}
-              </p>
-            ) : <p>暂无红冲或作废记录。</p>}
-            {invoiceDetail.replacements.length > 0 ? (
-              <p>替换发票：{invoiceDetail.replacements.map((item) => item.invoiceNumber).join("、")}</p>
-            ) : null}
-            {invoiceDetail.replacementChain.length > 1 ? (
-              <p>替换链：{invoiceDetail.replacementChain.map((item) => item.invoiceNumber).join(" → ")}</p>
-            ) : null}
-          </ResourcePanel>
-        ) : null}
-      </section>
     </div>
   );
 }

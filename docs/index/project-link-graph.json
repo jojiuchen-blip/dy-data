@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-08-27T08:30:09.908Z",
+  "generatedAt": "2026-08-28T08:36:29.115Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,21 +9,21 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 725,
-    "edges": 802,
+    "nodes": 736,
+    "edges": 822,
     "issues": 29,
     "errors": 29,
     "warnings": 0,
     "nodesByKind": {
-      "config": 26,
-      "doc": 120,
-      "source_code": 429,
+      "config": 27,
+      "doc": 123,
+      "source_code": 433,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
       "brd_ledger": 2,
       "project_index": 2,
-      "delivery_plan": 69,
+      "delivery_plan": 72,
       "foundation": 46,
       "mainprd": 2,
       "prd_feature_list": 2,
@@ -35,8 +35,8 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 481,
-      "depends_on": 312,
+      "links_to": 491,
+      "depends_on": 322,
       "indexes": 9
     }
   },
@@ -58,6 +58,15 @@
       "authority": true,
       "slug": null,
       "title": "tencent-lighthouse-deploy.yml"
+    },
+    {
+      "id": ".playwright-cli/page-2026-08-28T05-09-50-002Z.yml",
+      "path": ".playwright-cli/page-2026-08-28T05-09-50-002Z.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "page-2026-08-28T05-09-50-002Z.yml"
     },
     {
       "id": "AGENTS.md",
@@ -1338,6 +1347,15 @@
       "title": "SolarIcon.tsx"
     },
     {
+      "id": "apps/web/src/components/StoreFinanceTimeline.tsx",
+      "path": "apps/web/src/components/StoreFinanceTimeline.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "StoreFinanceTimeline.tsx"
+    },
+    {
       "id": "apps/web/src/components/TablePagination.tsx",
       "path": "apps/web/src/components/TablePagination.tsx",
       "kind": "source_code",
@@ -1732,6 +1750,15 @@
       "authority": true,
       "slug": null,
       "title": "StoreInvoicePage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/StoreInvoiceStatusPage.tsx",
+      "path": "apps/web/src/pages/StoreInvoiceStatusPage.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "StoreInvoiceStatusPage.tsx"
     },
     {
       "id": "apps/web/src/pages/StoreRankingPage.tsx",
@@ -2218,6 +2245,15 @@
       "authority": true,
       "slug": null,
       "title": "compose.yaml"
+    },
+    {
+      "id": "design-qa.md",
+      "path": "design-qa.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-81 开票确认视觉对齐 QA"
     },
     {
       "id": "design-system/dy-data/MASTER.md",
@@ -2787,6 +2823,15 @@
       "title": "DYDATA-46 腾讯云正式生产升格开发日志"
     },
     {
+      "id": "docs/devlog/20260828_dydata-81-store-finance.md",
+      "path": "docs/devlog/20260828_dydata-81-store-finance.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-81 门店端财务页面开发记录"
+    },
+    {
       "id": "docs/github-cicd.md",
       "path": "docs/github-cicd.md",
       "kind": "doc",
@@ -3019,6 +3064,15 @@
       "authority": true,
       "slug": "dydata-72-product-types",
       "title": "DYDATA-72 商品口径页面重构主交付计划"
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-81-store-finance",
+      "title": "DYDATA-81 门店端财务页面主交付计划"
     },
     {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md",
@@ -3462,6 +3516,15 @@
       "title": "T3.1 集成验证与交付回写子交付计划"
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-81-store-finance",
+      "title": "T1.1 门店端三页一致性子交付计划"
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dy-data.md",
       "path": "docs/plans/delivery-plans/task-kanban-dy-data.md",
       "kind": "delivery_plan",
@@ -3550,6 +3613,15 @@
       "authority": true,
       "slug": "dydata-72-product-types",
       "title": "DYDATA-72 商品口径任务看板"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "path": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-81-store-finance",
+      "title": "DYDATA-81 门店端财务页面任务看板"
     },
     {
       "id": "docs/plans/dydata-19-task-g0-carryforward-source-brief.md",
@@ -4855,6 +4927,15 @@
       "authority": false,
       "slug": null,
       "title": "DYDATA-80 页面结构与业务交互验收基线 v2-clean"
+    },
+    {
+      "id": "docs/uat/dydata-81-store-finance-baseline.md",
+      "path": "docs/uat/dydata-81-store-finance-baseline.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-81 门店端财务页面基线与一致性矩阵"
     },
     {
       "id": "mock/page1_store_ranking.json",
@@ -6369,6 +6450,15 @@
       "title": "test_frontend_settlement_privacy.py"
     },
     {
+      "id": "tests/test_frontend_store_finance_pages.py",
+      "path": "tests/test_frontend_store_finance_pages.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_frontend_store_finance_pages.py"
+    },
+    {
       "id": "tests/test_frontend_store_select.py",
       "path": "tests/test_frontend_store_select.py",
       "kind": "source_code",
@@ -6457,6 +6547,15 @@
       "authority": true,
       "slug": null,
       "title": "test_visual_smoke.py"
+    },
+    {
+      "id": "tests/test_visual_store_finance_pages.py",
+      "path": "tests/test_visual_store_finance_pages.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_visual_store_finance_pages.py"
     },
     {
       "id": "tests/test_web_mcp_authorize_contract.py",
@@ -8298,6 +8397,23 @@
           "path": "docs/devlog/20260824_refactor_log_jojiuchen-blip.md",
           "line": 69,
           "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260828_dydata-81-store-finance.md->design-qa.md:links_to",
+      "from": "docs/devlog/20260828_dydata-81-store-finance.md",
+      "to": "design-qa.md",
+      "target": "design-qa.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260828_dydata-81-store-finance.md",
+          "line": 34,
+          "text": "- `design-qa.md`：源参考与 1440 浏览器实现完成同次视觉对照，最终结果 `passed`。",
           "syntax": "backtick"
         }
       ]
@@ -10777,6 +10893,177 @@
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-72-product-types.md",
           "line": 19,
           "text": "- 全局地图：`docs/prd/mainprd-dy-data.md`、`docs/prd/prd-feature-list-dy-data.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/design-system/README.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 21,
+          "text": "- 页面视觉读取 `docs/design-system/README.md`、`docs/design-system/tokens.json`、`apps/web/src/design-tokens.css`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/plans/delivery-plans/main-delivery-plan-dy-data.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dy-data.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dy-data.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 5,
+          "text": "> **前序版本**：DYDATA-80 v2-clean 与 `main-delivery-plan-dy-data.md` T5.7",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 76,
+          "text": "| T1.1 | [门店端单店分账、开票确认与发票状态查看](sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md) | 进行中 |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 109,
+          "text": "| PRD 2 §2—§3；账单发票 API §2 | DYDATA-81-STORE-SETTLEMENT | T1.1 | [T1.1](sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 110,
+          "text": "| PRD 4 §2—§4；账单发票 API §4 | DYDATA-81-STORE-INVOICE | T1.1 | [T1.1](sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 111,
+          "text": "| DYDATA-81 本轮范围锁；4181 发票状态页基线 | DYDATA-81-INVOICE-STATUS | T1.1 | [T1.1](sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 80,
+          "text": "- 看板入口：[task-kanban-dydata-81-store-finance.md](task-kanban-dydata-81-store-finance.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/prd/foundation/foundation-api-dy-data/billing-invoice.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/prd/foundation/foundation-api-dy-data/billing-invoice.md",
+      "target": "docs/prd/foundation/foundation-api-dy-data/billing-invoice.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 20,
+          "text": "- API 与数据口径以 `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md`、`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md",
+      "target": "docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 20,
+          "text": "- API 与数据口径以 `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md`、`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 为准。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 19,
+          "text": "- 先读 `docs/prd/mainprd-dy-data.md`，再读 `docs/prd/subprd/02-subprd-store-settlement.md` 与 `docs/prd/subprd/04-subprd-invoice-registration.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/prd/subprd/02-subprd-store-settlement.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/prd/subprd/02-subprd-store-settlement.md",
+      "target": "docs/prd/subprd/02-subprd-store-settlement.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 19,
+          "text": "- 先读 `docs/prd/mainprd-dy-data.md`，再读 `docs/prd/subprd/02-subprd-store-settlement.md` 与 `docs/prd/subprd/04-subprd-invoice-registration.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md->docs/prd/subprd/04-subprd-invoice-registration.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "to": "docs/prd/subprd/04-subprd-invoice-registration.md",
+      "target": "docs/prd/subprd/04-subprd-invoice-registration.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+          "line": 19,
+          "text": "- 先读 `docs/prd/mainprd-dy-data.md`，再读 `docs/prd/subprd/02-subprd-store-settlement.md` 与 `docs/prd/subprd/04-subprd-invoice-registration.md`。",
           "syntax": "backtick"
         }
       ]
@@ -14534,6 +14821,165 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/devlog/20260828_dydata-81-store-finance.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/devlog/20260828_dydata-81-store-finance.md",
+      "target": "docs/devlog/20260828_dydata-81-store-finance.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 59,
+          "text": "- `docs/devlog/20260828_dydata-81-store-finance.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 5,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-81-store-finance.md](main-delivery-plan-dydata-81-store-finance.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 6,
+          "text": "- 任务看板：[task-kanban-dydata-81-store-finance.md](task-kanban-dydata-81-store-finance.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/prd/foundation/foundation-api-dy-data/billing-invoice.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/prd/foundation/foundation-api-dy-data/billing-invoice.md",
+      "target": "docs/prd/foundation/foundation-api-dy-data/billing-invoice.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 16,
+          "text": "- `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md` §0、§2、§4、§6",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md",
+      "target": "docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 17,
+          "text": "- `docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` §1、§4.1—§5",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 13,
+          "text": "- `docs/prd/mainprd-dy-data.md` 全局设计规则",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/prd/subprd/02-subprd-store-settlement.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/prd/subprd/02-subprd-store-settlement.md",
+      "target": "docs/prd/subprd/02-subprd-store-settlement.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 14,
+          "text": "- `docs/prd/subprd/02-subprd-store-settlement.md` §2—§4",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/prd/subprd/04-subprd-invoice-registration.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/prd/subprd/04-subprd-invoice-registration.md",
+      "target": "docs/prd/subprd/04-subprd-invoice-registration.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 15,
+          "text": "- `docs/prd/subprd/04-subprd-invoice-registration.md` §2—§4",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md->docs/uat/dydata-81-store-finance-baseline.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "to": "docs/uat/dydata-81-store-finance-baseline.md",
+      "target": "docs/uat/dydata-81-store-finance-baseline.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 38,
+          "text": "- `docs/uat/dydata-81-store-finance-baseline.md`",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+          "line": 56,
+          "text": "- `docs/uat/dydata-81-store-finance-baseline.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dy-data.md->docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md:links_to",
       "from": "docs/plans/delivery-plans/task-kanban-dy-data.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md",
@@ -15362,6 +15808,23 @@
           "path": "docs/plans/delivery-plans/task-kanban-dydata-72-product-types.md",
           "line": 8,
           "text": "| T3.1 | [集成验证与交付回写](sub-delivery-plan-dydata-72-product-types-T3.1-verification.md) | AI 执行 -> 人审 | T2.1 | 已完成（2026-08-14） | 2026-08-14 | 1181 passed、2 skipped；Web build、迁移、视觉 smoke、Linear 回写通过 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-81-store-finance.md",
+          "line": 5,
+          "text": "| T1.1 | [门店端单店分账、开票确认与发票状态查看](sub-delivery-plan-dydata-81-store-finance-T1.1-store-pages.md) | AI 执行 -> 人审核 | Linear 范围锁、4181 基线、PRD/Foundation/API、独立工作树 | 进行中 | - | 实现与自动验证完成，等待 4181 逐页验收；财务端全量受保护，用户验收前不标记完成 |",
           "syntax": "markdown"
         }
       ]

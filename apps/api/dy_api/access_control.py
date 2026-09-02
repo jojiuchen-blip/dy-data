@@ -386,14 +386,20 @@ def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str
     if path.startswith("/api/v1/dashboard/store-ranking"):
         return ("B01",)
     if path.startswith(
-        ("/api/v1/store-settlements", "/api/v1/promotion-invoices", "/api/v1/disputes")
+        (
+            "/api/v1/store-settlements",
+            "/api/v1/store-invoice-status",
+            "/api/v1/promotion-invoices",
+            "/api/v1/disputes",
+            "/api/v1/order-fee-details",
+        )
     ):
         return ("B02",)
     if path.startswith("/api/v1/stores/") and (
         "monthly-settlement" in path or "sap-suggestions" in path
     ):
         return ("B02",)
-    if path.startswith("/api/v1/order-details") or path.startswith("/api/v1/order-fee-details"):
+    if path.startswith("/api/v1/order-details"):
         return ("B03",)
     if path.startswith("/api/v1/dashboard/sales"):
         return ("C01",)
