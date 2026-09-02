@@ -28,11 +28,12 @@ def test_completed_order_uses_certificate_evidence_for_refund() -> None:
     assert resolve_clue_order_status("1", transaction_closed) == "closed"
 
 
-def test_clue_status_only_treats_waiting_use_as_active() -> None:
+def test_clue_status_treats_paid_and_waiting_use_as_active() -> None:
     assert resolve_clue_order_status("201") == "active"
     assert resolve_clue_order_status("履约中") == "active"
+    assert resolve_clue_order_status("200") == "active"
+    assert resolve_clue_order_status("支付成功") == "active"
     assert resolve_clue_order_status("100") == "unknown"
-    assert resolve_clue_order_status("200") == "unknown"
     assert resolve_clue_order_status("101") == "closed"
     assert resolve_clue_order_status("1") == "unknown"
     assert resolve_clue_order_status("交易成功") == "verified"

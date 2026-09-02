@@ -325,6 +325,31 @@ def test_projection_resolves_encrypted_phone_once(db_session: Session) -> None:
     assert center.phone_masked == "139****5678"
 
 
+def test_projection_includes_paid_clue_and_resolves_encrypted_phone(
+    db_session: Session,
+) -> None:
+    raw = _raw_clue("raw-paid", telephone="", status="支付成功")
+    raw.enc_telephone = "Enc.paid-phone"
+    lead = _lead(raw)
+    db_session.add_all([raw, lead])
+    db_session.commit()
+
+    result = refresh_clue_center_projection(
+        db_session,
+        now=_dt(2),
+        phone_plain_resolver=lambda values: {
+            value: "13712345678" for value in values
+        },
+    )
+
+    assert result == {"eligible_orders": 1, "projected_orders": 1}
+    center = db_session.get(ClueCenterOrder, raw.order_id)
+    assert center is not None
+    assert center.lead_status == "pending_allocation"
+    assert center.phone_plain == "13712345678"
+    assert center.phone_masked == "137****5678"
+
+
 def test_projection_updates_verification_on_formal_round(db_session: Session) -> None:
     raw = _raw_clue("raw-1")
     lead = _lead(raw, current_round_id="formal-round")

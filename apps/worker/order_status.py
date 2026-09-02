@@ -70,9 +70,10 @@ def resolve_clue_order_status(
 ) -> str:
     """Resolve the business status used by the clue master.
 
-    Only 201/履约中/待使用 is allocatable. Numeric 1 is terminal but needs
-    certificate evidence to distinguish completed履约 from all-refunded.
-    Missing evidence remains unknown and is quarantined by materialization.
+    Paid and waiting-use orders can enter the clue pool. Numeric 1 is terminal
+    but needs certificate evidence to distinguish completed履约 from
+    all-refunded. Missing evidence remains unknown and is quarantined by
+    materialization.
     """
 
     status = _status_text(value)
@@ -103,7 +104,7 @@ def resolve_clue_order_status(
         and not normalized_coupons & ACTIVE_COUPON_STATUSES
     ):
         return "verified"
-    if status in ACTIVE_ORDER_STATUSES:
+    if status in ACTIVE_ORDER_STATUSES or status in PAID_ORDER_STATUSES:
         if _all_certificates_closed(certificates):
             return "closed"
         if _has_verified_certificate(certificates) and not _has_active_certificate(certificates):

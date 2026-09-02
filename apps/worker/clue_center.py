@@ -18,8 +18,13 @@ from apps.api.dy_api.models import (
     SettlementOrderDetail,
     utcnow,
 )
+from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
+
 BUSINESS_EXECUTION_MODE = "formal"
 ACTIVE_ROUND_STATUSES = ("active_unfollowed", "active_followed")
+CLUE_SOURCE_ACTIVE_ORDER_STATUSES = tuple(
+    sorted(ACTIVE_ORDER_STATUSES | PAID_ORDER_STATUSES)
+)
 PHONE_PAYLOAD_KEYS = (
     "telephone",
     "tel_addr",
@@ -68,7 +73,7 @@ def refresh_clue_center_projection(
 
     raw_stmt = (
         select(RawDouyinClue)
-        .where(RawDouyinClue.order_status == "履约中")
+        .where(RawDouyinClue.order_status.in_(CLUE_SOURCE_ACTIVE_ORDER_STATUSES))
         .where(RawDouyinClue.order_id.is_not(None))
         .where(RawDouyinClue.order_id != "")
         .where(RawDouyinClue.order_id != "0")
