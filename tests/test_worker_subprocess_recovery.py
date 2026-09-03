@@ -340,6 +340,7 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
 ) -> None:
     factory = object()
     calls: list[object] = []
+    settlement_calls: list[object] = []
     finance_calls: list[object] = []
 
     monkeypatch.setenv("WORKER_RUN_ON_START", "false")
@@ -347,6 +348,11 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
     monkeypatch.setattr(scheduler, "_STOP", False)
     monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
     monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda _factory: False)
+    monkeypatch.setattr(
+        scheduler,
+        "process_queued_settlement_rebuilds",
+        lambda passed_factory: settlement_calls.append(passed_factory),
+    )
     monkeypatch.setattr(
         scheduler,
         "drain_ready_daily_children",
@@ -371,6 +377,7 @@ def test_scheduler_main_polls_queued_manual_jobs_when_auto_sync_is_disabled(
     scheduler.main()
 
     assert calls == [factory]
+    assert settlement_calls == [factory]
     assert finance_calls == [factory]
 
 
