@@ -10,7 +10,7 @@ from threading import Event
 from sqlalchemy import create_engine, text
 
 
-EXPECTED_HEAD = "20260901_0049"
+EXPECTED_HEAD = "20260903_0050"
 LOCK_KEY = "dydata-release-gate:finance-import-version:3:2026-08"
 
 

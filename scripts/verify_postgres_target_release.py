@@ -11,7 +11,7 @@ from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import make_url
 
 
-EXPECTED_HEAD = "20260901_0049"
+EXPECTED_HEAD = "20260903_0050"
 SNAPSHOT_EXCEPTION_TABLES = (
     "settlement_statement_snapshot_migration_exception",
     "settlement_statement_entry_snapshot_migration_exception",

@@ -223,7 +223,7 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
 
 
 def test_postgres_release_gates_track_the_current_alembic_head():
-    expected_head = 'EXPECTED_HEAD = "20260901_0049"'
+    expected_head = 'EXPECTED_HEAD = "20260903_0050"'
     for relative_path in (
         "scripts/verify_postgres_release_gate.py",
         "scripts/verify_postgres_populated_release_gate.py",
