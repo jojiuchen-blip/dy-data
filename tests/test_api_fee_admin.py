@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT / "apps" / "api"))
 
 from apps.api.dy_api.models import (  # noqa: E402
     DimSkuProductRule,
+    JobRun,
     SettlementScopeRule,
     SkuFeeRule,
     SkuFeeRuleImportBatch,
@@ -804,6 +805,56 @@ def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
     assert before_formal_period.json()["detail"]["code"] == "VALIDATION_FAILED"
 
 
+def test_fee_rule_rebuild_trigger_is_durable_and_idempotent(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _login(client)
+    calls: list[str] = []
+    monkeypatch.setattr(
+        fee_admin_routes,
+        "run_sku_fee_rule_rebuild_job",
+        lambda *, job_id: calls.append(job_id),
+        raising=False,
+    )
+    headers = {"Idempotency-Key": "fee-rebuild-key-0001"}
+    payload = {"updatedRuleCount": 10}
+
+    first = client.post(
+        "/api/v1/admin/sku-fee-rules/rebuild",
+        headers=headers,
+        json=payload,
+    )
+    retried = client.post(
+        "/api/v1/admin/sku-fee-rules/rebuild",
+        headers=headers,
+        json=payload,
+    )
+
+    assert first.status_code == 200
+    assert retried.status_code == 200
+    assert first.json()["data"] == retried.json()["data"]
+    rebuild = first.json()["data"]
+    assert rebuild["rebuildStatus"] == "queued"
+    assert calls == [rebuild["jobId"]]
+    job = db_session.get(JobRun, rebuild["jobId"])
+    assert job is not None
+    assert job.job_name == "settlement_rebuild"
+    assert job.status == "queued"
+    assert job.metadata_json["trigger"] == "admin_sku_fee_rules"
+    assert job.metadata_json["updated_rule_count"] == 10
+    assert job.metadata_json["request_payload_sha256"]
+
+    reused = client.post(
+        "/api/v1/admin/sku-fee-rules/rebuild",
+        headers=headers,
+        json={"updatedRuleCount": 9},
+    )
+    assert reused.status_code == 409
+    assert reused.json()["detail"]["code"] == "IDEMPOTENCY_KEY_REUSED"
+
+
 def test_settlement_scope_publish_is_channel_scoped_and_idempotent(
     client: TestClient,
     db_session: Session,
@@ -969,6 +1020,11 @@ def test_valid_csv_and_xlsx_imports_commit_atomically_and_idempotently(
     assert committed.json()["data"] == retried.json()["data"]
     assert committed.json()["data"]["batch"]["batchStatus"] == "COMPLETED"
     assert len(committed.json()["data"]["createdRuleVersions"]) == 2
+    rebuild = committed.json()["data"]["settlementRebuild"]
+    assert rebuild["rebuildStatus"] == "queued"
+    job = db_session.get(JobRun, rebuild["jobId"])
+    assert job is not None
+    assert job.job_name == "settlement_rebuild"
     assert db_session.scalar(select(func.count()).select_from(SkuFeeRule)) == 2
     assert db_session.scalar(
         select(func.count())
@@ -1039,6 +1095,11 @@ def test_import_commit_conflict_keeps_batch_atomic_with_zero_new_rules(
     )
     assert batch is not None
     assert batch.success_count == 0
+    assert db_session.scalar(
+        select(func.count())
+        .select_from(JobRun)
+        .where(JobRun.job_name == "settlement_rebuild")
+    ) == 0
 
 
 def test_import_flush_failure_rolls_back_every_new_rule(

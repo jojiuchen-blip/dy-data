@@ -692,6 +692,17 @@ class SkuFeeRuleImportCommitRequest(BaseModel):
         return normalized
 
 
+class SkuFeeRuleRebuildRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True, extra="forbid")
+
+    updated_rule_count: int = Field(
+        default=0,
+        alias="updatedRuleCount",
+        ge=0,
+        le=5000,
+    )
+
+
 class SettlementScopeRuleCreateRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 

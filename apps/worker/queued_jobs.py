@@ -18,6 +18,7 @@ from apps.api.dy_api.finance_dispute_detection import (
 from apps.api.dy_api.models import JobRun, utcnow
 from apps.worker.pipeline import sanitize_error_message
 from apps.worker.repositories import finish_job_run
+from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
 from apps.worker.settlement import run_settlement_job
 
 
@@ -327,6 +328,7 @@ def process_queued_settlement_rebuilds(factory: sessionmaker) -> QueuedSettlemen
             job = session.get(JobRun, selected_job_id)
             source_run_id = _source_run_id(job.metadata_json if job else None, fallback=selected_job_id)
             run_settlement_job(session, job_id=selected_job_id, source_run_id=source_run_id)
+        refresh_active_settlement_lineage(factory, job_id=selected_job_id)
     except Exception as exc:
         with session_scope(factory) as session:
             if session.get(JobRun, selected_job_id) is not None:

@@ -55,7 +55,7 @@ from apps.api.dy_api.access_control import (
     user_override_sets,
     validate_page_keys,
 )
-from apps.api.dy_api.db import get_session_factory, session_scope
+from apps.api.dy_api.db import get_session_factory
 from apps.api.dy_api.user_auth_state import replace_user_store_scopes
 from apps.worker.backfill import iter_backfill_windows, successful_window_keys
 from apps.worker.collectors.types import CollectionWindow
@@ -96,8 +96,8 @@ from apps.worker.projection_lineage import (
     canonical_score_partition_key,
     resolve_projection_partitions,
 )
-from apps.worker.repositories import finish_job_run, queue_job_run
-from apps.worker.settlement import run_settlement_job
+from apps.worker.repositories import queue_job_run
+from dy_api.routes._settlement_jobs import run_settlement_rebuild_job
 from apps.worker.sync_config import load_sync_config, save_sync_config
 from dy_api.auth import (
     AuthContext,
@@ -3894,24 +3894,7 @@ def _truthy_env(value: str | None) -> bool:
 
 
 def run_admin_sku_rule_rebuild_job(*, job_id: str) -> None:
-    factory = get_session_factory()
-    if factory is None:
-        return
-    with session_scope(factory) as session:
-        try:
-            run_settlement_job(session, job_id=job_id, source_run_id=job_id)
-        except Exception as exc:
-            try:
-                finish_job_run(
-                    session,
-                    job_id,
-                    status="failed",
-                    failed_count=1,
-                    error_message=str(exc),
-                )
-            except ValueError:
-                pass
-            raise
+    run_settlement_rebuild_job(job_id=job_id, factory=get_session_factory())
 
 
 def _pagination(page: int, page_size: int, total: int) -> Pagination:
