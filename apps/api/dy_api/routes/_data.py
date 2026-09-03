@@ -2010,10 +2010,12 @@ class DashboardDataStore:
         return [self._clean_job(row) for row in rows]
 
     def store_ranking_report(self, filters: dict[str, Any]) -> dict[str, Any]:
+        if self._pinned_aggregate_generation() is not None:
+            if _to_str(filters.get("ranking_basis")).strip():
+                return self._store_finance_ranking_report_pinned(filters)
+            return self._store_ranking_report_pinned(filters)
         if _to_str(filters.get("ranking_basis")).strip():
             return self._store_finance_ranking_report(filters)
-        if self._pinned_aggregate_generation() is not None:
-            return self._store_ranking_report_pinned(filters)
         period_type = _to_str(filters.get("period_type"), "MONTHLY")
         period_key = _to_str(filters.get("period_key"))
         page = _to_int(filters.get("page"), 1)
@@ -2155,6 +2157,268 @@ class DashboardDataStore:
                 for row in rows
             ],
             "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def _store_finance_ranking_report_pinned(
+        self, filters: dict[str, Any]
+    ) -> dict[str, Any]:
+        period_type = _to_str(filters.get("period_type"), "MONTHLY")
+        period_key = _to_str(filters.get("period_key"))
+        ranking_basis = _to_str(filters.get("ranking_basis"))
+        page = _to_int(filters.get("page"), 1)
+        page_size = _to_int(filters.get("page_size"), 20)
+        product_scope = _normalize_product_scope_value(filters.get("product_scope"))
+        product_type = _normalize_product_type_value(filters.get("product_type"))
+        metric_keys = (
+            "sales_order_count_cumulative",
+            "sales_amount_cumulative_cent",
+            "verified_order_count_cumulative",
+            "verified_amount_cumulative_cent",
+            "promotion_month_fee_cent",
+            "promotion_cumulative_fee_cent",
+            "management_month_fee_cent",
+            "management_cumulative_fee_cent",
+            "net_settlement_reference_month_cent",
+            "net_settlement_reference_cumulative_cent",
+        )
+        empty_metrics = {key: 0 for key in metric_keys}
+        if period_key < "2026-08":
+            return {
+                "period_type": period_type,
+                "period_key": period_key,
+                "ranking_basis": ranking_basis,
+                "product_scope": product_scope,
+                "product_type": product_type,
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+                "totals": {
+                    "sales_order_count": 0,
+                    "sales_amount_cent": 0,
+                    "verified_order_count": 0,
+                    "verified_amount_cent": 0,
+                    "promotion_net_fee_cent": 0,
+                    "management_net_fee_cent": 0,
+                    "net_settlement_reference_cent": 0,
+                    **empty_metrics,
+                },
+                "list": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+            }
+
+        params: dict[str, Any] = {}
+        product_condition = self._reporting_projection_product_condition(
+            params,
+            product_scope=product_scope,
+            product_type=product_type,
+            prefix="finance_ranking_filter",
+        )
+        source_clauses = [
+            product_condition.replace("product_scope", "source.product_scope")
+            .replace("product_type", "source.product_type")
+        ]
+        keyword = _to_str(filters.get("q")).strip()
+        if keyword:
+            params["finance_ranking_keyword"] = f"%{keyword.lower()}%"
+            source_clauses.append("LOWER(source.store_name) LIKE :finance_ranking_keyword")
+        scope_store_ids = filters.get("scope_store_ids")
+        if filters.get("scope_mode") == "AUTHORIZED" and scope_store_ids is not None:
+            placeholders, scope_params = _in_clause_params(
+                "finance_ranking_scope", scope_store_ids
+            )
+            if not placeholders:
+                source_clauses.append("1 = 0")
+            else:
+                params.update(scope_params)
+                source_clauses.append(f"source.store_id IN ({placeholders})")
+
+        source_selects: list[str] = []
+        for period_type_db, source_name in ((1, "monthly"), (2, "cumulative")):
+            source_table, source_where, source_params = self._ranking_source_spec(
+                period_type=period_type_db,
+                period_key=period_key,
+            )
+            if source_table is None:
+                continue
+            namespaced_where = source_where
+            for name, value in source_params.items():
+                namespaced_name = f"finance_{source_name}_{name}"
+                namespaced_where = namespaced_where.replace(
+                    f":{name}", f":{namespaced_name}"
+                )
+                params[namespaced_name] = value
+            period_param = f"finance_{source_name}_period_type"
+            params[period_param] = period_type_db
+            source_selects.append(
+                f"""
+                SELECT source.store_id,
+                       source.store_name,
+                       source.product_scope,
+                       source.product_type,
+                       source.sales_order_count,
+                       source.sales_amount_cent,
+                       source.verified_order_count,
+                       source.verified_amount_cent,
+                       source.promotion_net_fee_cent,
+                       source.management_net_fee_cent,
+                       source.net_settlement_reference_cent,
+                       :{period_param} AS row_period_type
+                FROM {source_table}
+                WHERE {namespaced_where}
+                  AND {' AND '.join(source_clauses)}
+                """
+            )
+
+        if not source_selects:
+            return {
+                "period_type": period_type,
+                "period_key": period_key,
+                "ranking_basis": ranking_basis,
+                "product_scope": product_scope,
+                "product_type": product_type,
+                "formal_period_start_month": "2026-08",
+                "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+                "totals": {
+                    "sales_order_count": 0,
+                    "sales_amount_cent": 0,
+                    "verified_order_count": 0,
+                    "verified_amount_cent": 0,
+                    "promotion_net_fee_cent": 0,
+                    "management_net_fee_cent": 0,
+                    "net_settlement_reference_cent": 0,
+                    **empty_metrics,
+                },
+                "list": [],
+                "total": 0,
+                "page": page,
+                "page_size": page_size,
+            }
+
+        source_sql = "\nUNION ALL\n".join(source_selects)
+        monthly_period_param = "finance_monthly_period_type"
+        cumulative_period_param = "finance_cumulative_period_type"
+        params[monthly_period_param] = 1
+        params[cumulative_period_param] = 2
+        grouped_sql = f"""
+            SELECT ranked_source.store_id,
+                   COALESCE(
+                       MAX(NULLIF(ranked_source.store_name, '')),
+                       ranked_source.store_id
+                   ) AS store_name,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.sales_order_count ELSE 0 END), 0)
+                       AS sales_order_count_cumulative,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.sales_amount_cent ELSE 0 END), 0)
+                       AS sales_amount_cumulative_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.verified_order_count ELSE 0 END), 0)
+                       AS verified_order_count_cumulative,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.verified_amount_cent ELSE 0 END), 0)
+                       AS verified_amount_cumulative_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{monthly_period_param}
+                                     THEN ranked_source.promotion_net_fee_cent ELSE 0 END), 0)
+                       AS promotion_month_fee_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.promotion_net_fee_cent ELSE 0 END), 0)
+                       AS promotion_cumulative_fee_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{monthly_period_param}
+                                     THEN ranked_source.management_net_fee_cent ELSE 0 END), 0)
+                       AS management_month_fee_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.management_net_fee_cent ELSE 0 END), 0)
+                       AS management_cumulative_fee_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{monthly_period_param}
+                                     THEN ranked_source.net_settlement_reference_cent ELSE 0 END), 0)
+                       AS net_settlement_reference_month_cent,
+                   COALESCE(SUM(CASE WHEN ranked_source.row_period_type = :{cumulative_period_param}
+                                     THEN ranked_source.net_settlement_reference_cent ELSE 0 END), 0)
+                       AS net_settlement_reference_cumulative_cent
+            FROM ({source_sql}) ranked_source
+            GROUP BY ranked_source.store_id
+        """
+        aggregate_rows = self._execute_lineage(
+            f"""
+            SELECT COUNT(*) AS total,
+                   {', '.join(f'COALESCE(SUM({key}), 0) AS {key}' for key in metric_keys)}
+            FROM ({grouped_sql}) grouped
+            """,
+            params,
+        )
+        aggregate_row = aggregate_rows[0] if aggregate_rows else {}
+        sort_column = {
+            "SALES_AMOUNT_CUMULATIVE": "sales_amount_cumulative_cent",
+            "VERIFIED_AMOUNT_CUMULATIVE": "verified_amount_cumulative_cent",
+            "PROMOTION_FEE_MONTH": "promotion_month_fee_cent",
+            "PROMOTION_FEE_CUMULATIVE": "promotion_cumulative_fee_cent",
+        }[ranking_basis]
+        sort_order = (
+            "ASC" if _to_str(filters.get("sort_order"), "DESC") == "ASC" else "DESC"
+        )
+        rows = self._execute_lineage(
+            f"""
+            SELECT ranked.*
+            FROM ({grouped_sql}) ranked
+            ORDER BY {sort_column} {sort_order}, store_id ASC
+            LIMIT :finance_ranking_limit OFFSET :finance_ranking_offset
+            """,
+            {
+                **params,
+                "finance_ranking_limit": page_size,
+                "finance_ranking_offset": (page - 1) * page_size,
+            },
+        )
+
+        use_cumulative = period_type == "CUMULATIVE"
+
+        def projection(values: dict[str, Any]) -> dict[str, Any]:
+            metrics = {key: _to_int(values.get(key)) for key in metric_keys}
+            return {
+                "sales_order_count": metrics["sales_order_count_cumulative"],
+                "sales_amount_cent": metrics["sales_amount_cumulative_cent"],
+                "verified_order_count": metrics["verified_order_count_cumulative"],
+                "verified_amount_cent": metrics["verified_amount_cumulative_cent"],
+                "promotion_net_fee_cent": metrics[
+                    "promotion_cumulative_fee_cent"
+                    if use_cumulative
+                    else "promotion_month_fee_cent"
+                ],
+                "management_net_fee_cent": metrics[
+                    "management_cumulative_fee_cent"
+                    if use_cumulative
+                    else "management_month_fee_cent"
+                ],
+                "net_settlement_reference_cent": metrics[
+                    "net_settlement_reference_cumulative_cent"
+                    if use_cumulative
+                    else "net_settlement_reference_month_cent"
+                ],
+                **metrics,
+            }
+
+        return {
+            "period_type": period_type,
+            "period_key": period_key,
+            "ranking_basis": ranking_basis,
+            "product_scope": product_scope,
+            "product_type": product_type,
+            "formal_period_start_month": "2026-08",
+            "scope_mode": filters.get("scope_mode", "AUTHORIZED"),
+            "totals": projection(aggregate_row),
+            "list": [
+                {
+                    "rank": (page - 1) * page_size + index + 1,
+                    "store_id": _to_str(row.get("store_id")),
+                    "store_name": _to_str(row.get("store_name")),
+                    **projection(row),
+                }
+                for index, row in enumerate(rows)
+            ],
+            "total": _to_int(aggregate_row.get("total")),
             "page": page,
             "page_size": page_size,
         }

@@ -1409,6 +1409,108 @@ def _sparse_finalize_generation(
         )
 
 
+def mark_settlement_sparse_overlay_ready(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    input_fingerprint: str,
+) -> ProjectionManifestSet:
+    """Certify a settlement-only sparse build before pointer publication.
+
+    The shared sparse builder intentionally leaves a generation in ``staging``
+    because the finalize state machine may append score partitions before the
+    complete generation becomes ready.  Admin settlement rebuilds contain no
+    score artifact, so they use this smaller certification step explicitly.
+    """
+
+    with session_factory() as session:
+        statement = (
+            select(SettlementProjectionGeneration)
+            .where(SettlementProjectionGeneration.generation_id == generation_id)
+        )
+        if session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        generation = session.scalar(statement)
+        if generation is None:
+            raise ValueError("sparse settlement generation disappeared before ready")
+        if (
+            generation.projection_name != "settlement"
+            or generation.generation_kind != "lineage"
+            or generation.base_generation_id != base_generation_id
+            or generation.input_fingerprint != input_fingerprint
+            or generation.state not in {"staging", "ready", "published"}
+        ):
+            raise ValueError("sparse settlement generation metadata conflicts before ready")
+        active = session.get(SettlementProjectionActive, "settlement")
+        if active is None or active.generation_id != base_generation_id:
+            raise ValueError("active settlement pointer changed before sparse ready")
+
+        if generation.state in {"ready", "published"}:
+            return _sparse_result(
+                session,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                resumed=True,
+            )
+
+        manifest_rows = [
+            dict(row)
+            for row in session.execute(
+                select(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                    SettlementProjectionPartitionManifest.owner_state,
+                    SettlementProjectionPartitionManifest.source_kind,
+                    SettlementProjectionPartitionManifest.data_generation_id,
+                    SettlementProjectionPartitionManifest.base_generation_id,
+                    SettlementProjectionPartitionManifest.row_count,
+                    SettlementProjectionPartitionManifest.amount_total_cent,
+                    SettlementProjectionPartitionManifest.status_counts_json,
+                    SettlementProjectionPartitionManifest.checksum,
+                    SettlementProjectionPartitionManifest.last_key,
+                )
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id
+                    == generation_id,
+                    SettlementProjectionPartitionManifest.artifact.in_(
+                        ("monthly", "ranking")
+                    ),
+                )
+                .order_by(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                )
+            ).mappings()
+        ]
+        manifest_checksum = _sparse_generation_manifest_checksum(manifest_rows)
+        row_count = sum(int(row["row_count"]) for row in manifest_rows)
+        write_rows = 1 + len(manifest_rows) + row_count
+        write_bytes = 16_384 + 4_096 * (len(manifest_rows) + row_count)
+        generation.state = "ready"
+        generation.manifest_checksum = manifest_checksum
+        generation.last_key = manifest_rows[-1]["last_key"] if manifest_rows else None
+        generation.estimated_write_rows = write_rows
+        generation.estimated_write_bytes = write_bytes
+        generation.estimated_wal_bytes = 2 * write_bytes
+        generation.estimated_disk_headroom_bytes = 0
+        generation.checkpoint_json = {
+            **(generation.checkpoint_json or {}),
+            "phase": "settlement_ready",
+            "expected_active_pointer": base_generation_id,
+            "manifest_count": len(manifest_rows),
+            "row_count": row_count,
+            "last_key": generation.last_key,
+        }
+        session.commit()
+        return _sparse_result(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            resumed=False,
+        )
+
+
 def build_settlement_sparse_overlay(
     session_factory: Callable[[], Session],
     *,
@@ -1417,6 +1519,7 @@ def build_settlement_sparse_overlay(
     affected_months: Iterable[str],
     batch_size: int,
     input_fingerprint: str,
+    source_job_id: str | None = None,
 ) -> ProjectionManifestSet:
     """Build only claimed monthly/ranking partitions over a pinned base.
 
@@ -1495,6 +1598,7 @@ def build_settlement_sparse_overlay(
                     },
                     last_key=None,
                     manifest_checksum=None,
+                    source_job_id=source_job_id,
                     source_input_json=source_input,
                 )
             )

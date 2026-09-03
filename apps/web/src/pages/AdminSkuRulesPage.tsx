@@ -11,6 +11,7 @@ import {
   lookupSkuRules,
   publishSkuFeeRule,
   saveNonCommissionOwnerAccounts,
+  triggerSkuFeeRuleRebuild,
 } from "../api/client";
 import { AdminSkuRuleImportDrawer } from "../components/AdminSkuRuleImportDrawer";
 import { Button } from "../components/Button";
@@ -139,6 +140,8 @@ function latestEffectiveRules(rules: SkuFeeRuleItem[]): Map<string, SkuFeeRuleIt
 
 export function AdminSkuRulesPage() {
   const publishIntent = useRef<Map<string, string>>(new Map());
+  const publishRebuildIntent = useRef<{ fingerprint: string; key: string } | null>(null);
+  const manualRebuildIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const previewRef = useRef<HTMLElement | null>(null);
   const stepRefs = useRef<Array<HTMLElement | null>>([]);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -162,6 +165,7 @@ export function AdminSkuRulesPage() {
   const [changeReason, setChangeReason] = useState("");
   const [rateApplied, setRateApplied] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [rebuildConfirmOpen, setRebuildConfirmOpen] = useState(false);
   const [importDrawerOpen, setImportDrawerOpen] = useState(false);
   const [nonCommissionAccountText, setNonCommissionAccountText] = useState("");
   const [nonCommissionAccountCount, setNonCommissionAccountCount] = useState(0);
@@ -170,6 +174,7 @@ export function AdminSkuRulesPage() {
   const [notice, setNotice] = useState("");
   const [publishProgress, setPublishProgress] = useState<{ completed: number; total: number } | null>(null);
   const [publishFeedback, setPublishFeedback] = useState("");
+  const [rebuildFeedback, setRebuildFeedback] = useState("");
 
   const handleAuthError = (error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
@@ -351,6 +356,58 @@ export function AdminSkuRulesPage() {
     if (publishFeedback) setNotice(publishFeedback);
   };
 
+  const openRebuildConfirmation = () => {
+    if (!effectiveRuleMap.size) {
+      setNotice("当前没有已生效的分佣规则可供重建。");
+      return;
+    }
+    setRebuildFeedback("");
+    setRebuildConfirmOpen(true);
+  };
+
+  const closeRebuildConfirmation = () => {
+    setRebuildConfirmOpen(false);
+    if (rebuildFeedback) setNotice(rebuildFeedback);
+  };
+
+  const rebuildSettlementProjection = async () => {
+    const updatedRuleCount = effectiveRuleMap.size;
+    if (!updatedRuleCount) return;
+    const fingerprint = JSON.stringify(
+      Array.from(effectiveRuleMap.values()).map((rule) => rule.ruleVersion),
+    );
+    let rebuildIntent = manualRebuildIntent.current;
+    if (!rebuildIntent || rebuildIntent.fingerprint !== fingerprint) {
+      rebuildIntent = {
+        fingerprint,
+        key: createIdempotencyKey("sku-fee-rule-manual-rebuild"),
+      };
+      manualRebuildIntent.current = rebuildIntent;
+    }
+    setWorking(true);
+    setRebuildFeedback("");
+    try {
+      const response = await triggerSkuFeeRuleRebuild(
+        updatedRuleCount,
+        rebuildIntent.key,
+      );
+      manualRebuildIntent.current = null;
+      setRebuildConfirmOpen(false);
+      setNotice(
+        `已提交 ${updatedRuleCount} 个已生效 SKU 的结算重算任务（任务编号：${response.data.jobId}）。`,
+      );
+    } catch (error) {
+      if (handleAuthError(error)) return;
+      setRebuildFeedback(
+        apiErrorText(error, "结算重算任务提交失败，请保持当前页面重试。", {
+          403: "当前账号不是最高管理员，不能提交结算重算。",
+        }),
+      );
+    } finally {
+      setWorking(false);
+    }
+  };
+
   const publishSelectedRules = async () => {
     const promotion = percentInputToRate(promotionRate);
     const management = percentInputToRate(managementRate);
@@ -359,6 +416,23 @@ export function AdminSkuRulesPage() {
     setPublishFeedback("");
     setPublishProgress({ completed: 0, total: selectedRows.length });
     let completed = 0;
+    let rebuildJobId: string | null = null;
+    const rebuildFingerprint = JSON.stringify({
+      skuIds: selectedRows.map((row) => row.sku_id),
+      promotion,
+      management,
+      effectiveDate,
+      ruleStatus,
+      changeReason: changeReason.trim(),
+    });
+    let rebuildIntent = publishRebuildIntent.current;
+    if (!rebuildIntent || rebuildIntent.fingerprint !== rebuildFingerprint) {
+      rebuildIntent = {
+        fingerprint: rebuildFingerprint,
+        key: createIdempotencyKey("sku-fee-rule-rebuild"),
+      };
+      publishRebuildIntent.current = rebuildIntent;
+    }
     try {
       for (const row of selectedRows) {
         const payload = {
@@ -376,16 +450,29 @@ export function AdminSkuRulesPage() {
         completed += 1;
         setPublishProgress({ completed, total: selectedRows.length });
       }
-      publishIntent.current.clear();
+      const rebuildResponse = await triggerSkuFeeRuleRebuild(
+        completed,
+        rebuildIntent.key,
+      );
+      rebuildJobId = rebuildResponse.data.jobId;
+      await refreshFeeDataAndRows();
       setConfirmOpen(false);
       setSelectedSkuMap(new Map());
       setRateApplied(false);
       setChangeReason("");
-      await refreshFeeDataAndRows();
+      publishIntent.current.clear();
+      publishRebuildIntent.current = null;
       setPublishProgress(null);
-      setNotice(`已发布 ${completed} 个 SKU 的双费率版本。`);
+      setNotice(
+        `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已排队（任务编号：${rebuildJobId}）。`,
+      );
     } catch (error) {
-      const feedback = apiErrorText(error, `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`, {
+      const fallback = rebuildJobId
+        ? `已发布 ${completed} 个 SKU，结算重算任务 ${rebuildJobId} 已排队，但页面刷新失败，请稍后刷新。`
+        : completed === selectedRows.length
+          ? `规则已保存 ${completed} 个 SKU，但结算重算任务未排队；请保持当前内容重试。`
+          : `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`;
+      const feedback = apiErrorText(error, fallback, {
         403: "当前账号不是最高管理员，不能发布费率版本。",
         409: "所选 SKU 在该生效日期已存在版本。",
       });
@@ -503,7 +590,7 @@ export function AdminSkuRulesPage() {
               </section>
 
               <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
-                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div>
+                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><div className="section-title-actions"><Button disabled={!effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重建结算投影</Button><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
               </section>
             </main>
             <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>
@@ -533,6 +620,10 @@ export function AdminSkuRulesPage() {
         {publishProgress ? <p aria-live="polite" className="resource-notice" role="status">{working ? "正在发布：" : "本次发布结束："}已完成 {publishProgress.completed} / {publishProgress.total} 个 SKU{!working && publishFeedback ? "，可检查错误后重试。" : "。"}</p> : null}
         {publishFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{publishFeedback}</p> : null}
         <dl className="commission-confirmation-list"><div><dt>SKU 数量</dt><dd>{selectedRows.length} 个</dd></div><div><dt>推广服务费比例</dt><dd>{promotionRate}%</dd></div><div><dt>管理服务费比例</dt><dd>{managementRate}%</dd></div><div><dt>生效日期</dt><dd>{effectiveDate}</dd></div><div><dt>规则状态</dt><dd>{ruleStatus === "ACTIVE" ? "启用" : "停用"}</dd></div><div><dt>变更原因</dt><dd>{changeReason}</dd></div></dl>
+      </Dialog>
+      <Dialog actions={<><Button disabled={working} onClick={closeRebuildConfirmation} type="button">返回</Button><Button disabled={working} onClick={() => void rebuildSettlementProjection()} type="button" variant="primary">{working ? "正在提交..." : "确认重建"}</Button></>} closeDisabled={working} description="仅重算当前已生效分佣规则对应的结算投影，不创建或修改规则版本。" onClose={closeRebuildConfirmation} open={rebuildConfirmOpen} title="结算投影重建确认">
+        <p>当前将重算 {effectiveRuleMap.size} 个已生效 SKU。重算完成后，符合正式订单资格的数据才会进入门店榜单和结算页面。</p>
+        {rebuildFeedback ? <p aria-live="assertive" className="resource-notice resource-notice--error" role="alert">{rebuildFeedback}</p> : null}
       </Dialog>
       <AdminSkuRuleImportDrawer batches={batches} initialBatch={null} onChanged={() => refreshFeeDataAndRows().then(() => undefined)} onClose={() => setImportDrawerOpen(false)} open={importDrawerOpen} />
     </div>

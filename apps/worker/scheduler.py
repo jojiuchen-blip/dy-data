@@ -474,6 +474,7 @@ def main() -> None:
 
     while not _STOP:
         if not _auto_sync_enabled(factory) and factory is not None:
+            process_queued_settlement_rebuilds(factory)
             process_queued_finance_dispute_detections(factory)
         drain_ready_daily_children(factory)
         if _STOP:

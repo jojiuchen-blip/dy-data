@@ -15,14 +15,26 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from openpyxl import Workbook, load_workbook
 from pydantic import BaseModel, ValidationError
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
     DimSkuProductRule,
+    JobRun,
     SettlementScopeRule,
     SkuFeeRule,
     SkuFeeRuleImportBatch,
@@ -31,12 +43,17 @@ from apps.api.dy_api.models import (
     SkuProductImportRow,
     utcnow,
 )
+from apps.worker.repositories import queue_job_run
 from dy_api.auth import get_current_admin, get_current_super_admin
 from dy_api.routes._data import generated_at, get_data_store
+from dy_api.routes._settlement_jobs import (
+    run_settlement_rebuild_job as run_sku_fee_rule_rebuild_job,
+)
 from dy_api.schemas import (
     SettlementScopeRuleCreateRequest,
     SkuFeeRuleCreateRequest,
     SkuFeeRuleImportCommitRequest,
+    SkuFeeRuleRebuildRequest,
     SkuProductBulkUpdateRequest,
     SkuProductManualUpdateRequest,
 )
@@ -54,6 +71,9 @@ PRODUCT_IMPORT_HEADERS = ("skuId", "productScope", "productType")
 MAX_IMPORT_BYTES = 10 * 1024 * 1024
 MAX_IMPORT_ROWS = 5000
 FORMAL_EFFECTIVE_START_DATE = date(2026, 8, 1)
+SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
+MANUAL_REBUILD_TRIGGER = "admin_sku_fee_rules"
+IMPORT_REBUILD_TRIGGER = "admin_sku_fee_rule_import"
 BATCH_STATUS_NAMES = {
     1: "UPLOADED",
     2: "VALIDATION_FAILED",
@@ -710,6 +730,39 @@ def create_sku_fee_rule(
     return _success(request, _sku_fee_rule_item(row))
 
 
+@router.post("/sku-fee-rules/rebuild")
+def trigger_sku_fee_rule_rebuild(
+    payload: dict[str, Any],
+    request: Request,
+    background_tasks: BackgroundTasks,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    username: str = Depends(get_current_super_admin),
+    store=Depends(get_data_store),
+):
+    store = _require_store(store, request)
+    parsed = _validate_model(SkuFeeRuleRebuildRequest, payload, request)
+    key_hash = _idempotency_key_hash(idempotency_key, request)
+    request_hash = _canonical_sha256(
+        {"updatedRuleCount": parsed.updated_rule_count}
+    )
+    job_id, rebuild_status, created = _queue_settlement_rebuild(
+        store.session,
+        request,
+        idempotency_key_hash=key_hash,
+        request_hash=request_hash,
+        updated_rule_count=parsed.updated_rule_count,
+        trigger=MANUAL_REBUILD_TRIGGER,
+        requested_by=username,
+    )
+    store.session.commit()
+    if created:
+        background_tasks.add_task(run_sku_fee_rule_rebuild_job, job_id=job_id)
+    return _success(
+        request,
+        {"jobId": job_id, "rebuildStatus": rebuild_status},
+    )
+
+
 @router.get("/settlement-scope-rules")
 def list_settlement_scope_rules(
     request: Request,
@@ -1138,6 +1191,7 @@ def commit_sku_fee_rule_import(
     batch_id: str,
     payload: dict[str, Any],
     request: Request,
+    background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
@@ -1170,11 +1224,30 @@ def commit_sku_fee_rule_import(
                     .order_by(SkuFeeRuleImportRow.row_number)
                 )
             )
+            rebuild_job_id, rebuild_status, rebuild_created = _queue_settlement_rebuild(
+                store.session,
+                request,
+                idempotency_key_hash=key_hash,
+                request_hash=request_hash,
+                updated_rule_count=batch.success_count,
+                trigger=IMPORT_REBUILD_TRIGGER,
+                requested_by=username,
+            )
+            store.session.commit()
+            if rebuild_created:
+                background_tasks.add_task(
+                    run_sku_fee_rule_rebuild_job,
+                    job_id=rebuild_job_id,
+                )
             return _success(
                 request,
                 {
                     "batch": _import_batch_item(batch),
                     "createdRuleVersions": [version for version in versions if version],
+                    "settlementRebuild": {
+                        "jobId": rebuild_job_id,
+                        "rebuildStatus": rebuild_status,
+                    },
                 },
             )
     if batch.batch_status != 3:
@@ -1322,12 +1395,30 @@ def commit_sku_fee_rule_import(
     batch.success_count = len(rows)
     batch.failed_count = 0
     batch.committed_at = now
+    rebuild_job_id, rebuild_status, rebuild_created = _queue_settlement_rebuild(
+        store.session,
+        request,
+        idempotency_key_hash=key_hash,
+        request_hash=request_hash,
+        updated_rule_count=batch.success_count,
+        trigger=IMPORT_REBUILD_TRIGGER,
+        requested_by=username,
+    )
     store.session.commit()
+    if rebuild_created:
+        background_tasks.add_task(
+            run_sku_fee_rule_rebuild_job,
+            job_id=rebuild_job_id,
+        )
     return _success(
         request,
         {
             "batch": _import_batch_item(batch),
             "createdRuleVersions": created_versions,
+            "settlementRebuild": {
+                "jobId": rebuild_job_id,
+                "rebuildStatus": rebuild_status,
+            },
         },
     )
 
@@ -1361,6 +1452,67 @@ def download_sku_fee_rule_import_result(
             "X-Request-ID": _request_id(request),
         },
     )
+
+
+def _queue_settlement_rebuild(
+    session: Session,
+    request: Request,
+    *,
+    idempotency_key_hash: str,
+    request_hash: str,
+    updated_rule_count: int,
+    trigger: str,
+    requested_by: str,
+) -> tuple[str, str, bool]:
+    job_id = f"{trigger}-{idempotency_key_hash[:24]}"
+    existing = session.get(JobRun, job_id)
+    if existing is not None:
+        metadata = existing.metadata_json if isinstance(existing.metadata_json, dict) else {}
+        if (
+            existing.idempotency_key_hash != idempotency_key_hash
+            or metadata.get("request_payload_sha256") != request_hash
+        ):
+            raise _error(
+                request,
+                409,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key 已用于不同重算请求",
+            )
+        return existing.job_id, existing.status, False
+
+    try:
+        with session.begin_nested():
+            job = queue_job_run(
+                session,
+                job_id,
+                SETTLEMENT_REBUILD_JOB_NAME,
+                metadata_json={
+                    "trigger": trigger,
+                    "requested_by": requested_by,
+                    "updated_rule_count": updated_rule_count,
+                    "request_payload_sha256": request_hash,
+                    "source_run_id": job_id,
+                },
+            )
+            job.idempotency_key_hash = idempotency_key_hash
+            session.flush()
+    except IntegrityError:
+        existing = session.get(JobRun, job_id)
+        if existing is None:
+            raise
+        metadata = existing.metadata_json if isinstance(existing.metadata_json, dict) else {}
+        if (
+            existing.idempotency_key_hash != idempotency_key_hash
+            or metadata.get("request_payload_sha256") != request_hash
+        ):
+            raise _error(
+                request,
+                409,
+                "IDEMPOTENCY_KEY_REUSED",
+                "Idempotency-Key 已用于不同重算请求",
+            )
+        return existing.job_id, existing.status, False
+    return job_id, "queued", True
 
 
 def _require_store(store, request: Request):

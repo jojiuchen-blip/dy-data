@@ -152,3 +152,15 @@ def test_rules_publish_dialog_shows_progress_and_failure_inside_modal() -> None:
     assert 'role="alert"' in page[page.index('title="分佣规则发布确认"') :]
     assert "可检查错误后重试" in page
     assert "SKU ID" in page[page.index("const historyColumns") : page.index("const handleLogin")]
+
+
+def test_rules_publish_and_import_report_settlement_rebuild_job() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+    drawer = read_source("components/AdminSkuRuleImportDrawer.tsx")
+
+    assert "triggerSkuFeeRuleRebuild" in page
+    assert "结算重算任务已排队" in page
+    assert "重建结算投影" in page
+    assert 'title="结算投影重建确认"' in page
+    assert "settlementRebuild" in drawer
+    assert "任务编号" in drawer
