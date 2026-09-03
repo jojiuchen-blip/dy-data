@@ -19,7 +19,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260901_0049"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260903_0050"]
 
 
 def test_promotion_invoice_manual_fields_migration_is_reversible_when_unused(
@@ -86,7 +86,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260901_0049"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260903_0050"
 
     with engine.begin() as connection:
         connection.execute(

@@ -41,6 +41,7 @@ from apps.worker.repositories import (
     upsert_verify_record,
 )
 from apps.worker.settlement import run_settlement_job
+from src.dy_data import config as data_config
 
 
 def window() -> CollectionWindow:
@@ -945,6 +946,56 @@ def test_fake_douyin_client_allows_offline_worker_smoke(monkeypatch):
     assert client.query_shop_pois()["data"]["pois"] == []
     assert client.query_verify_records(window().start, window().end)["data"]["verify_records"] == []
     assert client.query_craftsman_bind_info()["data"]["openapi_merchat_craftsman_info"] == []
+
+
+def test_real_douyin_client_builds_app_profile_with_durable_daily_ledger(monkeypatch):
+    monkeypatch.delenv("DY_WORKER_FAKE_DOUYIN", raising=False)
+    monkeypatch.setattr(pipeline, "douyin_app_id", lambda: "aws9nunf0av2egfw")
+    monkeypatch.setattr(pipeline, "douyin_app_secret", lambda: "secret")
+    monkeypatch.setattr(pipeline, "douyin_account_id", lambda: "account")
+    monkeypatch.setattr(pipeline, "douyin_rate_limit_environment", lambda: "test")
+    monkeypatch.setattr(pipeline, "douyin_request_sleep_seconds", lambda: 0.25)
+    monkeypatch.setattr(pipeline, "douyin_api_limits", lambda: {})
+    monkeypatch.setattr(pipeline, "get_session_factory", lambda: lambda: object())
+
+    client = build_douyin_client_from_env()
+
+    governor = client.request_governor
+    assert governor.environment == "test"
+    assert governor.profile.default_interval_seconds == 0.25
+    assert governor.profile.limit_for("refunds").daily_quota == 90
+    assert governor.quota_store.session_factory() is not None
+
+
+def test_worker_rejects_app_without_reviewed_quota_profile(monkeypatch):
+    monkeypatch.delenv("DY_WORKER_FAKE_DOUYIN", raising=False)
+    monkeypatch.setattr(pipeline, "douyin_app_id", lambda: "unreviewed-app")
+    monkeypatch.setattr(pipeline, "douyin_app_secret", lambda: "secret")
+    monkeypatch.setattr(pipeline, "douyin_account_id", lambda: "account")
+
+    with pytest.raises(RuntimeError, match="no reviewed quota profile"):
+        build_douyin_client_from_env()
+
+
+def test_empty_limits_env_falls_back_to_file_config(monkeypatch):
+    monkeypatch.setenv("DOUYIN_API_LIMITS_JSON", "")
+    monkeypatch.setitem(
+        data_config.CONFIG["douyin"],
+        "api_limits",
+        {"orders": {"requests_per_window": 10}},
+    )
+
+    assert data_config.douyin_api_limits() == {
+        "orders": {"requests_per_window": 10}
+    }
+
+
+def test_quota_environment_must_match_agent_environment(monkeypatch):
+    monkeypatch.setenv("DOUYIN_RATE_LIMIT_ENVIRONMENT", "production")
+    monkeypatch.setenv("DY_AGENT_ENVIRONMENT", "test")
+
+    with pytest.raises(ValueError, match="must match"):
+        data_config.douyin_rate_limit_environment()
 
 
 def test_run_collect_and_settle_runs_browser_export_before_settlement(db_session: Session):

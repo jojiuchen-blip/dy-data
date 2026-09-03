@@ -41,6 +41,10 @@ def test_compose_wires_worker_collection_defaults():
     assert "DOUYIN_COLLECT_START: ${DOUYIN_COLLECT_START:-2026-01-01}" in compose
     assert "DOUYIN_COLLECT_OVERLAP_DAYS: ${DOUYIN_COLLECT_OVERLAP_DAYS:-7}" in compose
     assert "DOUYIN_VERIFY_CHUNK_DAYS: ${DOUYIN_VERIFY_CHUNK_DAYS:-7}" in compose
+    assert "DOUYIN_REQUEST_SLEEP_SECONDS: ${DOUYIN_REQUEST_SLEEP_SECONDS:-0.5}" in compose
+    assert "DOUYIN_RATE_LIMIT_ENVIRONMENT: ${DOUYIN_RATE_LIMIT_ENVIRONMENT:-production}" in compose
+    assert "DOUYIN_API_LIMITS_JSON: ${DOUYIN_API_LIMITS_JSON:-}" in compose
+    assert "DY_AGENT_ENVIRONMENT: ${DY_AGENT_ENVIRONMENT:-production}" in compose
     assert (
         "BROWSER_EXPORT_COMMAND: ${BROWSER_EXPORT_COMMAND:-python -m apps.worker.browser_exports.backend_aweme}"
         in compose

@@ -25,7 +25,7 @@ from apps.worker import subprocess_supervisor as supervisor_module
 from apps.worker.subprocess_supervisor import ChildRunStatus, SubprocessSupervisor
 from apps.worker.stage_runner import _record_stage_failure, run_daily_stages
 from apps.worker.scheduler import run_daily_child
-from apps.worker.task_control import FailureKind, claim_job, fail_job, heartbeat_job
+from apps.worker.task_control import FailureKind, claim_job, fail_job, heartbeat_job, retry_policy
 
 
 def _seed_job(
@@ -213,6 +213,39 @@ def test_douyin_rate_limit_process_exit_uses_durable_global_cooldown() -> None:
         rss_limit_bytes=None,
     ) == "douyin_rate_limited"
     assert supervisor_module._failure_retry_base_delay_seconds(summary) == 1800
+
+
+def test_proactive_douyin_daily_quota_wait_uses_reported_reset_delay() -> None:
+    summary = (
+        "douyin_api_quota_exhausted endpoint=refunds "
+        "retry_after_seconds=43123"
+    )
+
+    assert supervisor_module._failure_kind(
+        1,
+        error_summary=summary,
+        rss_peak_bytes=None,
+        rss_limit_bytes=None,
+    ) is FailureKind.TRANSIENT
+    assert supervisor_module._failure_error_code(
+        1,
+        error_summary=summary,
+        rss_peak_bytes=None,
+        rss_limit_bytes=None,
+    ) == "douyin_rate_limited"
+    assert supervisor_module._failure_retry_base_delay_seconds(summary) == 43123
+
+
+def test_fixed_quota_retry_delay_is_not_exponentially_increased() -> None:
+    decision = retry_policy(
+        FailureKind.TRANSIENT,
+        attempt_number=2,
+        max_attempts=3,
+        base_delay_seconds=43123,
+        fixed_delay_seconds=43123,
+    )
+
+    assert decision.delay_seconds == 43123
 
 
 def test_only_one_heavy_child_can_run_at_once(db_session: Session) -> None:

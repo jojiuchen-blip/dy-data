@@ -12,7 +12,9 @@
     "poi_ids": [],
     "poi_name_map": {},
     "page_size": 100,
-    "request_sleep_seconds": 0.5
+    "request_sleep_seconds": 0.5,
+    "api_limits": {},
+    "rate_limit_environment": "production"
   },
   "sku": {
     "type_map": {

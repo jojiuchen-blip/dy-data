@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 import json
@@ -7,6 +8,8 @@ import time
 from typing import Any
 
 import requests
+
+from .douyin_rate_limits import DouyinApiError, endpoint_key_for_url
 
 
 TOKEN_URL = "https://open.douyin.com/oauth/client_token/"
@@ -39,10 +42,6 @@ class DouyinCredentials:
     account_id: str
 
 
-class DouyinApiError(RuntimeError):
-    pass
-
-
 class DouyinOpenApiClient:
     def __init__(
         self,
@@ -53,13 +52,22 @@ class DouyinOpenApiClient:
         retry_attempts: int = 3,
         retry_sleep_seconds: float = 1.0,
         rate_limit_retry_sleep_seconds: float = 60.0,
+        request_governor: Any | None = None,
+        governor: Any | None = None,
+        clock: Callable[[], float] | None = None,
+        sleep: Callable[[float], None] | None = None,
     ) -> None:
+        if request_governor is not None and governor is not None:
+            raise ValueError("Pass only one of request_governor or governor")
         self.credentials = credentials
         self.http = http or requests.Session()
         self.timeout_seconds = timeout_seconds
         self.retry_attempts = retry_attempts
         self.retry_sleep_seconds = retry_sleep_seconds
         self.rate_limit_retry_sleep_seconds = rate_limit_retry_sleep_seconds
+        self.request_governor = request_governor if request_governor is not None else governor
+        self.clock = clock or time.monotonic
+        self._sleep = sleep or time.sleep
         self._token: str | None = None
 
     def get_client_token(self) -> str:
@@ -388,7 +396,7 @@ class DouyinOpenApiClient:
                     if _is_rate_limit_api_error(str(exc))
                     else self.retry_sleep_seconds * attempt
                 )
-                time.sleep(delay_seconds)
+                self._sleep(delay_seconds)
         raise last_error or DouyinApiError("Douyin API request failed.")
 
     def _request_with_retries(self, method: str, url: str, **kwargs: Any) -> Any:
@@ -396,14 +404,23 @@ class DouyinOpenApiClient:
         last_error: requests.RequestException | None = None
         for attempt in range(1, attempts + 1):
             try:
+                self._acquire_request(url, method)
                 request = getattr(self.http, method)
                 return request(url, **kwargs)
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt >= attempts:
                     break
-                time.sleep(self.retry_sleep_seconds * attempt)
+                self._sleep(self.retry_sleep_seconds * attempt)
         raise DouyinApiError(self._sanitize(f"Douyin API transport error: {last_error}")) from last_error
+
+    def _acquire_request(self, url: str, method: str) -> None:
+        if self.request_governor is None:
+            return
+        acquire = getattr(self.request_governor, "acquire", None)
+        if not callable(acquire):
+            raise TypeError("request_governor must provide acquire(endpoint_key)")
+        acquire(endpoint_key_for_url(url, method))
 
     def _handle_response(self, response: Any) -> dict[str, Any]:
         try:

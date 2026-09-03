@@ -38,11 +38,44 @@ class FakeHttp:
         return self._next_response()
 
 
+class RecordingGovernor:
+    def __init__(self) -> None:
+        self.endpoint_keys: list[str] = []
+
+    def acquire(self, endpoint_key: str) -> None:
+        self.endpoint_keys.append(endpoint_key)
+
+
 def client_with(http: FakeHttp) -> DouyinOpenApiClient:
     return DouyinOpenApiClient(
         DouyinCredentials(app_id="app-1", app_secret="secret-1", account_id="acct-1"),
         http=http,
     )
+
+
+def test_request_governor_acquires_before_each_transport_attempt() -> None:
+    http = FakeHttp(
+        [
+            FakeResponse({"data": {"access_token": "token-1"}}),
+            requests.ConnectionError("read timed out"),
+            FakeResponse({"data": {"orders": [{"order_id": "o1"}]}}),
+        ]
+    )
+    governor = RecordingGovernor()
+    client = DouyinOpenApiClient(
+        DouyinCredentials(app_id="app-1", app_secret="secret-1", account_id="acct-1"),
+        http=http,
+        request_governor=governor,
+        retry_sleep_seconds=0,
+        sleep=lambda _seconds: None,
+    )
+
+    client.query_orders(
+        datetime(2026, 1, 1, tzinfo=timezone.utc),
+        datetime(2026, 1, 2, tzinfo=timezone.utc),
+    )
+
+    assert governor.endpoint_keys == ["oauth_client_token", "orders", "orders"]
 
 
 def test_client_token_request_uses_client_credentials():

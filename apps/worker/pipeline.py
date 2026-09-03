@@ -8,6 +8,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from apps.api.dy_api.db import get_session_factory
 from apps.worker.clue_allocation import materialize_clue_master_leads, refresh_due_store_score_snapshots
 from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.collectors.aweme_bindings import collect_aweme_bindings
@@ -18,9 +19,18 @@ from apps.worker.collectors.types import CollectionStats, CollectionWindow, Phas
 from apps.worker.collectors.verify_records import collect_shop_pois, collect_verify_records
 from apps.worker.collectors.windows import resolve_collection_window
 from apps.worker.repositories import finish_job_run, start_job_run
+from apps.worker.douyin_api_quota import DouyinApiQuotaLedger
 from apps.worker.settlement import rebuild_settlement
-from src.dy_data.config import douyin_account_id, douyin_app_id, douyin_app_secret
+from src.dy_data.config import (
+    douyin_account_id,
+    douyin_api_limits,
+    douyin_app_id,
+    douyin_app_secret,
+    douyin_rate_limit_environment,
+    douyin_request_sleep_seconds,
+)
 from src.dy_data.douyin_client import DouyinCredentials, DouyinOpenApiClient
+from src.dy_data.douyin_rate_limits import PRODUCTION_APP_ID, build_request_governor
 
 
 Collector = Callable[[Session, Any, CollectionWindow, str], PhaseStats]
@@ -47,7 +57,30 @@ def build_douyin_client_from_env() -> DouyinOpenApiClient:
     ]
     if missing:
         raise RuntimeError(f"Set required Douyin collection environment variables: {', '.join(missing)}")
-    return DouyinOpenApiClient(DouyinCredentials(app_id=str(app_id), app_secret=str(app_secret), account_id=str(account_id)))
+    if str(app_id) != PRODUCTION_APP_ID:
+        raise RuntimeError(
+            "DOUYIN_APP_ID has no reviewed quota profile; update the built-in profile before collecting."
+        )
+    session_factory = get_session_factory()
+    if session_factory is None:
+        raise RuntimeError("Set DY_DATABASE_URL or DATABASE_URL before building the Douyin API quota ledger.")
+    quota_ledger = DouyinApiQuotaLedger(session_factory)
+    governor = build_request_governor(
+        app_id=str(app_id),
+        account_id=str(account_id),
+        environment=douyin_rate_limit_environment(),
+        quota_store=quota_ledger,
+        default_interval_seconds=douyin_request_sleep_seconds(),
+        limits_json=douyin_api_limits(),
+    )
+    return DouyinOpenApiClient(
+        DouyinCredentials(
+            app_id=str(app_id),
+            app_secret=str(app_secret),
+            account_id=str(account_id),
+        ),
+        request_governor=governor,
+    )
 
 
 def run_collection_job(

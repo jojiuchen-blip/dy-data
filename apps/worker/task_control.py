@@ -74,6 +74,7 @@ def retry_policy(
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
     previous_exit_type: str | None = None,
     base_delay_seconds: int = DEFAULT_RETRY_BASE_DELAY_SECONDS,
+    fixed_delay_seconds: int | None = None,
 ) -> RetryDecision:
     """Classify a failure into bounded exponential retry or terminal failure."""
 
@@ -83,6 +84,8 @@ def retry_policy(
         raise ValueError("max_attempts must be between 1 and 3")
     if base_delay_seconds <= 0:
         raise ValueError("base_delay_seconds must be positive")
+    if fixed_delay_seconds is not None and fixed_delay_seconds <= 0:
+        raise ValueError("fixed_delay_seconds must be positive")
 
     is_fatal = failure_kind is FailureKind.DATA_INTEGRITY
     if failure_kind is FailureKind.MEMORY_GUARD:
@@ -91,7 +94,11 @@ def retry_policy(
         is_fatal = True
     if is_fatal:
         return RetryDecision(status="failed", delay_seconds=None)
-    delay_seconds = base_delay_seconds * (2 ** (attempt_number - 1))
+    delay_seconds = (
+        fixed_delay_seconds
+        if fixed_delay_seconds is not None
+        else base_delay_seconds * (2 ** (attempt_number - 1))
+    )
     return RetryDecision(status="retry_wait", delay_seconds=delay_seconds)
 
 
@@ -436,6 +443,7 @@ def fail_job(
     error_code: str,
     error_summary: str,
     base_delay_seconds: int = DEFAULT_RETRY_BASE_DELAY_SECONDS,
+    fixed_delay_seconds: int | None = None,
 ) -> RetryDecision | None:
     """Fail a valid lease with bounded retry classification and audit history."""
 
@@ -465,6 +473,7 @@ def fail_job(
             max_attempts=retry_state.max_attempts,
             previous_exit_type=previous_exit_type,
             base_delay_seconds=base_delay_seconds,
+            fixed_delay_seconds=fixed_delay_seconds,
         )
         attempt_exit_type = _attempt_exit_type(failure_kind, decision)
         updated = repositories.fail_claim(
@@ -488,6 +497,7 @@ def fail_job(
         error_code=error_code.strip(),
         error_summary=error_summary.strip(),
         base_delay_seconds=base_delay_seconds,
+        fixed_delay_seconds=fixed_delay_seconds,
     )
 
 
@@ -589,6 +599,7 @@ def _fail_job_sqlite(
     error_code: str,
     error_summary: str,
     base_delay_seconds: int,
+    fixed_delay_seconds: int | None,
 ) -> RetryDecision | None:
     active = _sqlite_active_execution(session, token)
     if active is None:
@@ -606,6 +617,7 @@ def _fail_job_sqlite(
         max_attempts=int(job.max_attempts or DEFAULT_MAX_ATTEMPTS),
         previous_exit_type=previous_exit_type,
         base_delay_seconds=base_delay_seconds,
+        fixed_delay_seconds=fixed_delay_seconds,
     )
     now = datetime.now(UTC)
     job.status = decision.status

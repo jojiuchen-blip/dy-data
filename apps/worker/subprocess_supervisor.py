@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import socket
 import subprocess
 import threading
@@ -812,6 +813,7 @@ class SubprocessSupervisor:
                 error_code=error_code,
                 error_summary=summary,
                 base_delay_seconds=_failure_retry_base_delay_seconds(summary),
+                fixed_delay_seconds=_quota_retry_after_seconds(summary),
             )
             if decision is None:
                 session.rollback()
@@ -843,12 +845,30 @@ def _is_fatal_error(error_summary: str | None) -> bool:
 
 def _is_douyin_rate_limit_error(error_summary: str | None) -> bool:
     summary = error_summary or ""
-    return "2119003" in summary or "请求太过频繁" in summary
+    normalized = summary.lower()
+    return (
+        "2119003" in summary
+        or "请求太过频繁" in summary
+        or "douyin_api_quota_exhausted" in normalized
+    )
+
+
+_RETRY_AFTER_SECONDS_RE = re.compile(r"retry_after_seconds=(\d+)", re.IGNORECASE)
+
+
+def _quota_retry_after_seconds(error_summary: str | None) -> int | None:
+    match = _RETRY_AFTER_SECONDS_RE.search(error_summary or "")
+    if match is None:
+        return None
+    return max(60, min(172800, int(match.group(1))))
 
 
 def _failure_retry_base_delay_seconds(error_summary: str | None) -> int:
     if not _is_douyin_rate_limit_error(error_summary):
         return DEFAULT_RETRY_BASE_DELAY_SECONDS
+    quota_retry_after = _quota_retry_after_seconds(error_summary)
+    if quota_retry_after is not None:
+        return quota_retry_after
     raw = os.getenv("DOUYIN_RATE_LIMIT_RETRY_BASE_SECONDS", "1800")
     try:
         value = int(raw)

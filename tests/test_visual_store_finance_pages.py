@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import pytest
-from playwright.sync_api import Browser
+from playwright.sync_api import Browser, expect
 
 from test_visual_smoke import (
     api_payload,
@@ -557,10 +557,8 @@ def test_store_summary_metrics_stay_compact_in_one_row(
         install_store_finance_routes(page)
         page.goto(f"{vite_real_api_base_url}{path}", wait_until="domcontentloaded")
         cards = page.locator(".store-summary-metrics .metric-card")
-        cards.first.wait_for(timeout=10000)
-
         expected_card_count = 4 if name == "ranking-metrics" else 6
-        assert cards.count() == expected_card_count
+        expect(cards).to_have_count(expected_card_count, timeout=10000)
         assert page.locator(".store-summary-metrics").get_by_text("当期推广服务费", exact=True).count() == 1
         assert page.locator(".store-summary-metrics").get_by_text("累计推广服务费", exact=True).count() == 1
         if name == "ranking-metrics":

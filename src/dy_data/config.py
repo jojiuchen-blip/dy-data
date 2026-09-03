@@ -31,6 +31,8 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "poi_name_map": {},
         "page_size": 100,
         "request_sleep_seconds": 0.5,
+        "api_limits": {},
+        "rate_limit_environment": "production",
     },
     "sku": {"type_map": DEFAULT_SKU_TYPE_MAP},
     "settlement": {
@@ -190,6 +192,48 @@ def douyin_app_secret() -> str | None:
 
 def douyin_account_id(default: str | None = None) -> str | None:
     return env_or_config("DOUYIN_ACCOUNT_ID", "douyin", "account_id", default=default)
+
+
+def douyin_request_sleep_seconds() -> float:
+    raw = env_or_config(
+        "DOUYIN_REQUEST_SLEEP_SECONDS",
+        "douyin",
+        "request_sleep_seconds",
+        default=0.5,
+    )
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("DOUYIN_REQUEST_SLEEP_SECONDS must be a number") from exc
+    if value < 0:
+        raise ValueError("DOUYIN_REQUEST_SLEEP_SECONDS must be non-negative")
+    return value
+
+
+def douyin_api_limits() -> dict[str, Any] | str:
+    env_value = os.getenv("DOUYIN_API_LIMITS_JSON")
+    if env_value is not None and env_value.strip():
+        return env_value
+    value = config_value("douyin", "api_limits", default={})
+    if not isinstance(value, dict):
+        raise ValueError("douyin.api_limits must be an object")
+    return value
+
+
+def douyin_rate_limit_environment() -> str:
+    quota_environment = os.getenv("DOUYIN_RATE_LIMIT_ENVIRONMENT", "").strip()
+    agent_environment = os.getenv("DY_AGENT_ENVIRONMENT", "").strip()
+    if quota_environment and agent_environment and quota_environment != agent_environment:
+        raise ValueError("DOUYIN_RATE_LIMIT_ENVIRONMENT must match DY_AGENT_ENVIRONMENT")
+    value = (
+        quota_environment
+        or agent_environment
+        or config_value("douyin", "rate_limit_environment", default="production")
+    )
+    normalized = str(value or "").strip()
+    if normalized not in {"production", "development", "test", "acceptance"}:
+        raise ValueError("DOUYIN_RATE_LIMIT_ENVIRONMENT must be production, development, test, or acceptance")
+    return normalized
 
 
 def douyin_poi_ids() -> list[str]:

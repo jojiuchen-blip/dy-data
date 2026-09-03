@@ -274,6 +274,57 @@ class RawDouyinRefundRecord(Base):
     )
 
 
+class DouyinApiQuotaUsage(Base):
+    """One durable daily reservation counter for a Douyin API endpoint."""
+
+    __tablename__ = "douyin_api_quota_usage"
+    __table_args__ = (
+        UniqueConstraint(
+            "environment",
+            "app_id",
+            "account_id",
+            "endpoint_key",
+            "business_date",
+            name="uq_douyin_api_quota_usage_identity",
+        ),
+        CheckConstraint(
+            "request_count >= 0",
+            name="ck_douyin_api_quota_usage_request_count",
+        ),
+        CheckConstraint(
+            "effective_limit > 0",
+            name="ck_douyin_api_quota_usage_effective_limit",
+        ),
+        Index(
+            "ix_douyin_api_quota_usage_reset_at",
+            "reset_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        Identity(),
+        primary_key=True,
+        autoincrement=True,
+    )
+    environment: Mapped[str] = mapped_column(String(32), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    endpoint_key: Mapped[str] = mapped_column(String(128), nullable=False)
+    business_date: Mapped[date] = mapped_column(Date, nullable=False)
+    request_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    effective_limit: Mapped[int] = mapped_column(Integer, nullable=False)
+    reset_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow, nullable=False
+    )
+
+
 class DimStore(Base):
     __tablename__ = "dim_stores"
 
