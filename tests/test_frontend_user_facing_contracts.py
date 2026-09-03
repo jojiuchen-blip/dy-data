@@ -336,6 +336,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "directionIsFrozen" in details
     api_errors = read_source("utils/apiErrors.ts")
     assert "请求编号" in api_errors
+    assert "错误码" in api_errors
     assert "metaResource.rawError" in ranking
     assert "metaResource.rawError" in settlement
     assert "statusLabel(row.resultStatus)" in details
