@@ -62,3 +62,10 @@
 - TDD 回归：新增“商品归属为比亚迪销售但订单归属为其他账号仍保留结果、订单归属为比亚迪销售两个方向均阻断”的用例；修复前 `1 failed`，修复后 `1 passed`。
 - 受影响专项回归：`tests/test_data_settlement.py tests/test_worker_order_collector.py` 为 `48 passed`。结算、增量和采集组合回归为 `115 passed, 2 failed`；两项失败均位于既有 `test_worker_collection_pipeline.py` 调度器场景，当前变更未触及调度器代码，需单独处理。
 - 本任务无 foundation 漂移；现有例外账号表与 API 契约足以承载该口径，不改写 Foundation。
+
+## 2026-09-04 生产发布与重算观察
+
+- 生产部署工作流成功：`33832277314`，Verify 与 Deploy 均通过，生产落地 SHA 为 `128b1d54fd070d26dfd59d53f5b7b4d126f16a4c`；部署脚本完成 API、Worker、Web、Browser、Ops Agent 健康检查。
+- 已在生产后台确认当前有 `10` 个已生效 SKU，并提交结算投影重建任务 `admin_sku_fee_rules-2ad6f368fdee2ad690bf5da5`。
+- 观察记录：提交后任务列表暂显示“已排队”，尚未出现成功或失败最终回执；后台重建在同一事务完成后才提交最终状态，不能把当前状态误判为成功。
+- 生产后台的 worker 重启入口返回“当前账号没有执行此操作的权限”，未绕过权限，也未重复触发重算；如任务长时间不提交，需要有运维执行权限的账号处理 worker。
