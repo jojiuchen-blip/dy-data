@@ -1343,6 +1343,94 @@ def test_product_owner_scope_is_independent_from_order_sale_attribution(
     assert promotion.scope_rule_version == "scope-2026-08-short_video"
 
 
+def test_dual_fee_non_commission_rule_uses_order_owner_not_product_owner(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    product = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-dual")
+    )
+    assert product is not None
+    product.owner_account_id = "product-owner-byd"
+    product.owner_account_name = "比亚迪汽车销售有限公司"
+    for scope_rule in db_session.scalars(select(SettlementScopeRule)):
+        scope_rule.owner_account_id = "product-owner-byd"
+
+    upsert_aweme_account(
+        db_session,
+        "owner-byd",
+        nickname="比亚迪汽车销售有限公司",
+        store_id="store-sale",
+        binding_status="active",
+    )
+    upsert_raw_order(
+        db_session,
+        "order-coupon-excluded",
+        order_status="paid",
+        order_status_raw="paid",
+        order_status_normalized="paid",
+        sku_id="sku-dual",
+        pay_time=_dual_time(8, 10),
+        sale_time=_dual_time(8, 10),
+        paid_amount_cent=10001,
+        order_paid_amount_cent=10001,
+        owner_account_id="owner-byd",
+        owner_account_name="比亚迪汽车销售有限公司",
+        sale_channel="short_video",
+        sale_channel_raw="short_video",
+        sale_channel_normalized="short_video",
+        source_run_id="dual-source",
+    )
+    upsert_order_coupon(
+        db_session,
+        "coupon-excluded",
+        "order-coupon-excluded",
+        coupon_status="fulfilled",
+        coupon_status_raw="fulfilled",
+        coupon_status_normalized="available",
+        coupon_paid_amount_cent=10001,
+        coupon_refunded_amount_cent=0,
+        source_run_id="dual-source",
+    )
+    upsert_verify_record(
+        db_session,
+        "verify-coupon-excluded",
+        coupon_id="coupon-excluded",
+        verify_status="valid",
+        verify_time=_dual_time(9, 5),
+        poi_id="poi-verify",
+        sku_id="sku-dual",
+        paid_amount_cent=10001,
+        source_run_id="dual-source",
+    )
+    db_session.merge(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name=normalize_owner_account_name(
+                "比亚迪汽车销售有限公司"
+            ),
+            owner_account_name="比亚迪汽车销售有限公司",
+            is_active=True,
+        )
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-order-owner-rule")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+    assert _fee_result(db_session, "coupon-excluded", 1) is None
+    assert _fee_result(db_session, "coupon-excluded", 2) is None
+    blocked_issues = list(
+        db_session.scalars(
+            select(DataQualityIssue).where(
+                DataQualityIssue.coupon_id == "coupon-excluded",
+                DataQualityIssue.issue_type == "dual_fee_non_commission_owner",
+            )
+        )
+    )
+    assert len(blocked_issues) == 2
+
+
 def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     db_session: Session,
 ) -> None:

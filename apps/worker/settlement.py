@@ -2908,6 +2908,23 @@ def _materialize_dual_fee_direction(
         )
         return False
 
+    if _is_non_commission_owner_account(session, order.owner_account_name):
+        _block_dual_fee(
+            session,
+            calculation_run_id,
+            coupon,
+            order,
+            "dual_fee_non_commission_owner",
+            "订单归属账号配置为不参与分佣，费用方向已阻断。",
+            directions=(direction,),
+            context={
+                "direction": direction_name,
+                "order_owner_account_id": order.owner_account_id,
+                "order_owner_account_name": order.owner_account_name,
+            },
+        )
+        return False
+
     sale_owner_account_id = _first_text(order.owner_account_id)
     sale_account = (
         session.get(DimAwemeAccount, sale_owner_account_id)

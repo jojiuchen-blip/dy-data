@@ -53,3 +53,12 @@
 - 全量 pytest 首次运行未完全通过；当前变更相关的 61 个聚焦/受影响用例已通过，完整重跑尚未在可视化 mock 修正后再次执行。
 - 尚未部署生产，也未直接改写生产数据库；部署后需核对规则数、`job_runs` 状态、重算后的 `settlement_fee_result`、活动投影代际及单店月度/榜单行数与样本，并刷新 `/admin/rules`、门店榜单和单店分账页面。账单确认卡片还需单独核对 `SettlementStatement` 当前账单是否已生成。
 - Foundation 契约漂移已登记为 `S4-FCR-008`，等待评审，不直接改写 Foundation 正文。
+
+## 2026-09-04 订单归属账号例外修复
+
+- 业务口径确认：商品主数据归属账号只用于商品与结算范围匹配；是否参与分佣按订单归属账号判断。订单归属账号命中不分佣名单时，推广费和管理服务费两个方向均不生成结果。
+- 根因：旧 `settlement_order_details` 物化路径已经读取 `dim_non_commission_owner_accounts`，但新的 `_materialize_dual_fee_direction` 没有读取该名单，导致双费率结果链路与旧链路口径不一致。
+- 修复：在双费率方向物化入口按订单 `owner_account_name` 读取现有不分佣名单并记录 `dual_fee_non_commission_owner` 数据质量问题；商品归属账号仍保留为结算范围规则的匹配键。
+- TDD 回归：新增“商品归属为比亚迪销售但订单归属为其他账号仍保留结果、订单归属为比亚迪销售两个方向均阻断”的用例；修复前 `1 failed`，修复后 `1 passed`。
+- 受影响专项回归：`tests/test_data_settlement.py tests/test_worker_order_collector.py` 为 `48 passed`。结算、增量和采集组合回归为 `115 passed, 2 failed`；两项失败均位于既有 `test_worker_collection_pipeline.py` 调度器场景，当前变更未触及调度器代码，需单独处理。
+- 本任务无 foundation 漂移；现有例外账号表与 API 契约足以承载该口径，不改写 Foundation。
