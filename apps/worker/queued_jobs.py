@@ -18,11 +18,14 @@ from apps.api.dy_api.finance_dispute_detection import (
 from apps.api.dy_api.models import JobRun, utcnow
 from apps.worker.pipeline import sanitize_error_message
 from apps.worker.repositories import finish_job_run
-from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
+from apps.worker.settlement_rebuild import (
+    SETTLEMENT_REBUILD_JOB_NAME,
+    claim_settlement_rebuild_job,
+    refresh_active_settlement_lineage,
+)
 from apps.worker.settlement import run_settlement_job
 
 
-SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
 DEFAULT_FINANCE_DETECTION_STALE_AFTER = timedelta(minutes=5)
 DEFAULT_FINANCE_DETECTION_MAX_ATTEMPTS = 3
 DEFAULT_FINANCE_DETECTION_BATCH_SIZE = 25
@@ -323,6 +326,8 @@ def process_queued_settlement_rebuilds(factory: sessionmaker) -> QueuedSettlemen
         superseded_job_ids = tuple(job.job_id for job in queued_jobs[:-1])
 
     assert selected_job_id is not None
+    if not claim_settlement_rebuild_job(factory, job_id=selected_job_id):
+        return QueuedSettlementRebuildResult()
     try:
         with session_scope(factory) as session:
             job = session.get(JobRun, selected_job_id)

@@ -4,7 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import sessionmaker
 
 from apps.api.dy_api.db import session_scope
@@ -14,6 +14,7 @@ from apps.api.dy_api.models import (
     SettlementProjectionGeneration,
     SettlementProjectionPartitionManifest,
     SettlementStatement,
+    utcnow,
 )
 from apps.worker.projection_publish import publish_settlement_rebuild
 from apps.worker.repositories import finish_job_run
@@ -28,6 +29,7 @@ from apps.worker.settlement import (
 
 
 SETTLEMENT_REBUILD_SPARSE_BATCH_SIZE = 200
+SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
 
 
 @dataclass(frozen=True)
@@ -165,16 +167,48 @@ def refresh_active_settlement_lineage(
         return publication
 
 
+def claim_settlement_rebuild_job(
+    factory: sessionmaker,
+    *,
+    job_id: str,
+) -> bool:
+    """Atomically claim one queued rebuild before starting expensive work."""
+
+    claimed_at = utcnow()
+    with session_scope(factory) as session:
+        result = session.execute(
+            update(JobRun)
+            .where(
+                JobRun.job_id == job_id,
+                JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
+                JobRun.status == "queued",
+            )
+            .values(
+                status="running",
+                started_at=claimed_at,
+                finished_at=None,
+                success_count=0,
+                failed_count=0,
+                error_message=None,
+                state_updated_at=claimed_at,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return result.rowcount == 1
+
+
 def run_settlement_rebuild_job(
     *,
     job_id: str,
     factory: sessionmaker,
     source_run_id: str | None = None,
-) -> None:
+) -> bool:
     """Run a settlement rebuild and publish its active lineage overlay."""
 
     if factory is None:
         raise RuntimeError("settlement rebuild requires a database session factory")
+    if not claim_settlement_rebuild_job(factory, job_id=job_id):
+        return False
     try:
         # The legacy rebuild owns one transaction. Sparse overlay partitions
         # intentionally use independent transactions, so they start only after
@@ -201,10 +235,13 @@ def run_settlement_rebuild_job(
             except ValueError:
                 pass
         raise
+    return True
 
 
 __all__ = [
+    "SETTLEMENT_REBUILD_JOB_NAME",
     "SETTLEMENT_REBUILD_SPARSE_BATCH_SIZE",
+    "claim_settlement_rebuild_job",
     "refresh_active_settlement_lineage",
     "run_settlement_rebuild_job",
 ]

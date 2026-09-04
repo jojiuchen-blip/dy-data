@@ -2,6 +2,20 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
+## S4-FCR-011：结算重建任务缺少原子抢占与可观测运行态合同
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-011` |
+| 来源 Task | `T5.7 / DYDATA-87 分佣规则发布后的结算重建生产闭环` |
+| 分类 | `GAP` |
+| 改动项 | 为 `settlement_rebuild` 定义持久化任务的原子抢占语义：昂贵重算开始前以独立短事务提交 `queued -> running`，API 后台入口与 Worker 兜底共用同一抢占条件，同一任务只有抢占成功者可执行；任务列表必须在重算期间读取到已提交的运行态。 |
+| 原因 | 现有实现把 `running` 与整批结算重算放在同一长事务，其他连接在任务完成前始终看到 `queued`；API 后台任务和 Worker 又可能同时读取同一排队任务并重复执行，既误导运维判断，也可能重复占用生产资源。 |
+| 指向代码块 | `apps/worker/settlement_rebuild.py::claim_settlement_rebuild_job`；`apps/worker/queued_jobs.py::process_queued_settlement_rebuilds`；`tests/test_worker_collection_pipeline.py::test_api_and_worker_cannot_execute_the_same_settlement_rebuild_twice` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data.md` 的后台重建任务生命周期；`docs/prd/foundation/foundation-schema-dy-data.md` 的 `job_runs` 状态与并发语义 |
+| 严重度 | `高（数据重算可能重复执行且运行状态不可观测）` |
+| 状态 | `待评审` |
+
 ## S4-FCR-009：财务页面模板下载与筛选导出缺少正式接口合同
 
 | 字段 | 内容 |

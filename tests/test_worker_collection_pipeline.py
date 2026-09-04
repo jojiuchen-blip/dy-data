@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from threading import Event, Thread
 
 import pytest
 from sqlalchemy import create_engine, select
@@ -20,7 +21,7 @@ from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.pipeline import build_douyin_client_from_env, run_collect_and_settle
-from apps.worker import pipeline, scheduler
+from apps.worker import pipeline, queued_jobs, scheduler, settlement_rebuild
 from apps.worker.scheduler import (
     _incremental_chunks_latest_first,
     resolve_worker_mode,
@@ -436,6 +437,122 @@ def test_queued_settlement_rebuild_applies_current_non_commission_rules(db_sessi
     assert detail.commission_rate == Decimal("0.0000")
     assert detail.receivable_commission_cent == 0
     assert detail.payable_commission_cent == 0
+
+
+def test_settlement_rebuild_commits_running_status_before_expensive_work(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-running.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    job_id = "queued-visible-running"
+    with factory() as session:
+        queue_job_run(session, job_id, "settlement_rebuild")
+        session.commit()
+
+    observed_statuses: list[str] = []
+
+    def fake_run_settlement_job(
+        session: Session,
+        *,
+        job_id: str,
+        source_run_id: str,
+    ) -> None:
+        del source_run_id
+        with factory() as observer:
+            observed = observer.get(JobRun, job_id)
+            assert observed is not None
+            observed_statuses.append(observed.status)
+        finish_job_run(session, job_id, status="success", success_count=1)
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "run_settlement_job",
+        fake_run_settlement_job,
+    )
+
+    processed = settlement_rebuild.run_settlement_rebuild_job(
+        job_id=job_id,
+        factory=factory,
+    )
+
+    assert observed_statuses == ["running"]
+    assert processed is True
+
+
+def test_api_and_worker_cannot_execute_the_same_settlement_rebuild_twice(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-single-claim.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    job_id = "queued-single-claim"
+    with factory() as session:
+        queue_job_run(session, job_id, "settlement_rebuild")
+        session.commit()
+
+    entered = Event()
+    release = Event()
+    calls: list[str] = []
+    thread_errors: list[BaseException] = []
+
+    def fake_run_settlement_job(
+        session: Session,
+        *,
+        job_id: str,
+        source_run_id: str,
+    ) -> None:
+        del source_run_id
+        calls.append(job_id)
+        if len(calls) == 1:
+            entered.set()
+            assert release.wait(timeout=5)
+        finish_job_run(session, job_id, status="success", success_count=1)
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "run_settlement_job",
+        fake_run_settlement_job,
+    )
+    monkeypatch.setattr(
+        queued_jobs,
+        "run_settlement_job",
+        fake_run_settlement_job,
+    )
+
+    def run_api_background_task() -> None:
+        try:
+            settlement_rebuild.run_settlement_rebuild_job(
+                job_id=job_id,
+                factory=factory,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            thread_errors.append(exc)
+
+    runner = Thread(target=run_api_background_task, daemon=True)
+    runner.start()
+    assert entered.wait(timeout=5)
+    try:
+        worker_result = queued_jobs.process_queued_settlement_rebuilds(factory)
+    finally:
+        release.set()
+        runner.join(timeout=5)
+        engine.dispose()
+
+    assert not runner.is_alive()
+    assert thread_errors == []
+    assert calls == [job_id]
+    assert worker_result.processed_job_id is None
 
 
 def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
