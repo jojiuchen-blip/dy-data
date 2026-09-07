@@ -3719,7 +3719,10 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
         assert len(observed_keys) == 2
         assert len(observed_keys[0]) >= 16
         assert observed_keys[0] == observed_keys[1]
-        assert rebuild_requests == 1
+        page.get_by_text("结算重算任务已自动排队", exact=False).wait_for(timeout=10000)
+        # Rule persistence now queues the rebuild atomically in the API;
+        # browser retries must not add a second, separate rebuild request.
+        assert rebuild_requests == 0
     finally:
         context.close()
 
