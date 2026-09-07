@@ -1,0 +1,117 @@
+.modal-backdrop.guided-tour-backdrop {
+  background: transparent;
+  backdrop-filter: none;
+  pointer-events: auto;
+}
+
+.modal-backdrop.guided-tour-backdrop--no-target {
+  background: var(--ink-shadow-55);
+}
+
+.guided-tour__spotlight {
+  position: fixed;
+  z-index: 0;
+  border: 2px solid var(--brand-orange);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 9999px var(--ink-shadow-55), var(--focus-ring);
+  pointer-events: auto;
+}
+
+.guided-tour {
+  position: relative;
+  z-index: 1;
+  width: min(360px, calc(100vw - 24px));
+  max-height: min(420px, calc(100dvh - 24px));
+  border-color: var(--brand-orange-30);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-workbench);
+}
+
+.guided-tour .ui-dialog__header {
+  padding: var(--space-9) var(--space-10) var(--space-7);
+  background: var(--surface-cream-96);
+}
+
+.guided-tour .ui-dialog__header h2 {
+  font-size: var(--font-size-title);
+}
+
+.guided-tour .ui-dialog__body {
+  display: grid;
+  gap: var(--space-6);
+  overflow: auto;
+  padding: var(--space-8) var(--space-10);
+}
+
+.guided-tour__content {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.guided-tour__progress {
+  margin: 0;
+  color: var(--brand-orange-ink);
+  font-size: var(--font-size-caption);
+  font-weight: 700;
+}
+
+.guided-tour__notice {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--font-size-table);
+  line-height: 1.55;
+}
+
+.guided-tour__actions {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-6);
+}
+
+.guided-tour__navigation {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-4);
+}
+
+.guided-tour .guided-tour__skip.ui-button--text {
+  min-height: var(--touch-target);
+  padding-inline: var(--space-4);
+}
+
+.guided-tour .ui-button {
+  min-height: var(--touch-target);
+}
+
+@media (max-width: 600px) {
+  .guided-tour {
+    width: calc(100vw - 24px);
+    max-height: calc(100dvh - 24px);
+  }
+
+  .guided-tour__actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .guided-tour__navigation {
+    width: 100%;
+  }
+
+  .guided-tour__navigation .ui-button {
+    flex: 1;
+  }
+
+  .guided-tour__skip {
+    align-self: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .guided-tour__spotlight {
+    transition: none;
+  }
+}

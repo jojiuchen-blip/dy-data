@@ -369,6 +369,7 @@ export function Shell({
           return (
             <a
               aria-current={active ? "page" : undefined}
+              data-clue-tour={item.href === "/clues/details" ? "navigation" : undefined}
               href={href}
               key={href}
             >
