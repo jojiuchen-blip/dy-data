@@ -14,6 +14,7 @@
 | 2 | DYDATA-89 七步引导实现与本地验证完成 | 补充更新 | ✅ |
 | 3 | DYDATA-89 七步引导实现与本地验证完成 | 补充更新 | ✅ |
 | 4 | DYDATA-89 完整回归与提交评审准备 | 补充更新 | ✅ |
+| 5 | DYDATA-89 生产发布授权与放行准备 | 补充更新 | ✅ |
 
 **本日关键结论**：七步引导已实现并提交为 `95dff72`，完整回归 2418 passed / 129 skipped，142 项专项与相关回归、122 项治理套包测试、Web 与设计系统构建通过。Linear 为 In Review；PR 与 CI 最新证据回填 DYDATA-89，等待用户验收。本任务无 foundation 漂移，不涉及生产部署。
 
@@ -121,3 +122,12 @@
 - **操作**：功能代码提交 95dff72；完成完整 pytest、治理套包测试与协议对齐；同步专项主计划、子计划、看板和执行入口，保留用户验收状态
 - **结果**：完整 pytest 退出码 0：2418 passed、129 skipped、8407 warnings，耗时 2634.35s；专用 PostgreSQL 测试库未配置，相关集成用例按条件跳过。17 项引导专项及全站浏览器回归通过，治理套包 122 passed；功能复审未发现阻断问题。分支推送、草稿 PR 链接及 CI 最新证据回填 Linear DYDATA-89，保持 In Review。本任务无 foundation 漂移，无 API、Schema 或生产部署变更。
 - **涉及文件**：docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md、docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md、docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md、docs/plans/execution-plan.md
+---
+
+## 补充更新 4（22:32 · 窗口 4）
+
+### 任务 5：DYDATA-89 生产发布授权与放行准备
+- **目标**：将已实现的七步引导提交、推送并部署生产
+- **操作**：用户明确授权发布；核对 PR #22、现有腾讯云工作流、运行手册、数据库备份和应用回退路径；同步专项计划与执行入口的发布范围
+- **结果**：功能代码未变更，本地完整测试 2418 passed / 129 skipped。PR 的治理、真实 PostgreSQL、带数据迁移及财务并发门禁已通过，完整 CI 仍在运行。部署必须等待最终提交 CI 成功；生产 SHA、部署日志、备份路径及 smoke 结果统一回填 Linear DYDATA-89。本任务无 foundation 漂移，不执行新增 Schema 变更。
+- **涉及文件**：docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md、docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md、docs/plans/execution-plan.md

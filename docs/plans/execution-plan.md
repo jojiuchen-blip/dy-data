@@ -27,6 +27,8 @@
 
 ## 0.3 并行增量入口：DYDATA-89
 
+- 最新发布授权（2026-09-07）：用户明确要求“提交、推送、部署”。当前增量进入 PR CI、合并与腾讯云生产发布；以下“不涉及生产部署”为前序实现阶段记录。发布与 smoke 结果以 Linear DYDATA-89 最新记录为准。
+
 - Linear `DYDATA-89`（线索中心增加逐步聚焦的新手引导）提交 In Review，等待用户验收；本入口与 DYDATA-81、DYDATA-46、DYDATA-45、DYDATA-58 的全局 cockpit 并行。
 - 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。
 - T0.1 状态为 `进行中`（2026-09-07 实现与验证完成，待验收）：已接入 `/clues` 与 `/clues/details` 的七步真实页面引导、首次邀请/重播、当前筛选内可操作行优先、空/加载/只读 fallback、键盘与响应式协作。

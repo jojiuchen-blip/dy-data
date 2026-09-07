@@ -1,5 +1,7 @@
 # T0.1 线索中心逐步聚焦新手引导子开发计划
 
+> **发布增量（2026-09-07）**：用户已明确授权提交、推送和部署。完成当前 PR 的 CI 后合并并执行生产发布；此前“不部署”约束为原开发阶段记录。发布 SHA、备份与 smoke 证据回填 Linear DYDATA-89，发布未验证前保持进行中。
+
 ## 任务来源
 
 - 主开发计划：[main-delivery-plan-dydata-89-clue-onboarding.md](main-delivery-plan-dydata-89-clue-onboarding.md)
