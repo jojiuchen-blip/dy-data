@@ -26,6 +26,32 @@ class PhaseStats:
     upserted: int = 0
     skipped: int = 0
     failed: int = 0
+    inserted: int = 0
+    updated: int = 0
+    unchanged: int = 0
+    rejected: int = 0
+
+    def record_upsert(self, outcome: str) -> None:
+        """Record a raw-row outcome without conflating it with a write.
+
+        ``upserted`` remains the number of rows that created or changed
+        business data.  Replays and stale observations are reported
+        separately so a successful collection cannot be mistaken for a set of
+        accepted updates.
+        """
+
+        if outcome == "inserted":
+            self.inserted += 1
+            self.upserted += 1
+        elif outcome == "updated":
+            self.updated += 1
+            self.upserted += 1
+        elif outcome == "unchanged":
+            self.unchanged += 1
+        elif outcome == "rejected":
+            self.rejected += 1
+        else:
+            raise ValueError(f"unknown upsert outcome: {outcome!r}")
 
     @property
     def success_count(self) -> int:
@@ -42,6 +68,10 @@ class PhaseStats:
             "upserted": self.upserted,
             "skipped": self.skipped,
             "failed": self.failed,
+            "inserted": self.inserted,
+            "updated": self.updated,
+            "unchanged": self.unchanged,
+            "rejected": self.rejected,
         }
 
 
@@ -71,4 +101,3 @@ class CollectionStats:
             "source_window": self.source_window.as_metadata(),
             "phases": {phase.name: phase.as_metadata() for phase in self.phases},
         }
-

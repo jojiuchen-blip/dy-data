@@ -22,13 +22,21 @@ from apps.api.dy_api.models import (
     StoreScoreSnapshot,
     utcnow,
 )
-from apps.worker.clue_allocation import haversine_km, normalize_city_code
+from apps.worker.clue_allocation import (
+    haversine_km,
+    lock_clue_assignment_round_for_update,
+    lock_clue_center_order_for_update,
+    lock_clue_master_for_update,
+    lock_clue_masters_for_update,
+    normalize_city_code,
+)
 from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     enter_headquarters_pool,
     headquarters_pool_reason_storage_values,
 )
 from apps.worker.clue_rule_versions import RuleResolutionError, bind_lead_rule_version
+from apps.worker.clue_state_locking import refresh_dirty_rounds_for_locked_leads
 
 
 SELF_OWNED_EXECUTION_MODES = {"formal", "trial"}
@@ -89,9 +97,13 @@ def allocate_lead(
     normalized_actor = _clean(actor) or "manual"
     normalized_transition_key = _clean(transition_key)
 
-    lead = session.get(ClueMasterLead, normalized_lead_key)
+    # Every allocation writer begins with a fresh master row and keeps that row
+    # locked until the transaction commits.  This serializes against follow-up
+    # state transitions and avoids stale identity-map state driving a new round.
+    lead = lock_clue_master_for_update(session, normalized_lead_key)
     if lead is None:
         raise ValueError("clue master lead was not found")
+    refresh_dirty_rounds_for_locked_leads(session, (lead.lead_key,))
     if lead.lifecycle_status != "active" or lead.normalized_order_status != "active":
         return AllocationResult(
             lead_key=lead.lead_key,
@@ -419,6 +431,7 @@ def allocate_lead(
             executed_at=executed_at,
             auto_expiry_enabled_override=auto_expiry_enabled_override,
         )
+        round_row = lock_clue_assignment_round_for_update(session, round_row.assignment_round_id) or round_row
         _project_self_owned_assignment(lead, round_row, selected, normalized_cycle, executed_at, session)
         session.flush()
         decision_ids.append(decision.decision_id)
@@ -482,10 +495,27 @@ def allocate_leads(
     """Explicit batch helper for a caller that has already selected M1 leads."""
 
     batch_context = _AllocationBatchContext()
-    return [
-        allocate_lead(
+    indexed_keys = list(enumerate(lead_keys))
+    normalized_keys = {
+        index: _required_text(lead_key, "lead_key")
+        for index, lead_key in indexed_keys
+    }
+    # Acquire all master locks in one deterministic order before any round or
+    # center lock can be taken.  Results retain the caller's order for API
+    # compatibility while lock acquisition remains deadlock-safe.
+    locked_masters = lock_clue_masters_for_update(session, normalized_keys.values())
+    refresh_dirty_rounds_for_locked_leads(session, locked_masters.keys())
+    missing = next(
+        (lead_key for lead_key in sorted(set(normalized_keys.values())) if lead_key not in locked_masters),
+        None,
+    )
+    if missing is not None:
+        raise ValueError("clue master lead was not found")
+    results: dict[int, AllocationResult] = {}
+    for index, _lead_key in sorted(indexed_keys, key=lambda pair: normalized_keys[pair[0]]):
+        results[index] = allocate_lead(
             session,
-            lead_key,
+            normalized_keys[index],
             execution_mode=execution_mode,
             allocation_cycle_id=allocation_cycle_id,
             actor=actor,
@@ -493,8 +523,7 @@ def allocate_leads(
             auto_expiry_enabled_override=auto_expiry_enabled_override,
             _batch_context=batch_context,
         )
-        for lead_key in lead_keys
-    ]
+    return [results[index] for index, _lead_key in indexed_keys]
 
 
 def _strategy_configs(rule_snapshot: Mapping[str, Any]) -> list[dict[str, Any]]:
@@ -999,7 +1028,7 @@ def _ensure_selected_round(
 ) -> ClueAssignmentRound:
     if not decision.assignment_round_id or decision.round_no is None:
         raise RuntimeError("selected allocation decision must contain its round identity")
-    existing = session.get(ClueAssignmentRound, decision.assignment_round_id)
+    existing = lock_clue_assignment_round_for_update(session, decision.assignment_round_id)
     if existing is not None:
         return existing
 
@@ -1041,7 +1070,7 @@ def _ensure_selected_round(
             session.add(round_row)
             session.flush()
     except IntegrityError:
-        winner = session.get(ClueAssignmentRound, decision.assignment_round_id)
+        winner = lock_clue_assignment_round_for_update(session, decision.assignment_round_id)
         if winner is not None:
             return winner
         raise
@@ -1069,7 +1098,19 @@ def _project_self_owned_assignment(
     lead.ended_without_assignment = False
     lead.updated_at = executed_at
 
-    center_order = session.get(ClueCenterOrder, round_row.order_id)
+    center_order = lock_clue_center_order_for_update(session, round_row.order_id)
+    if center_order is None:
+        # A same-session batch may have just created this order projection and
+        # not flushed it yet.  Reuse that pending identity instead of creating
+        # a second object with the same primary key.
+        center_order = next(
+            (
+                pending
+                for pending in session.new
+                if isinstance(pending, ClueCenterOrder) and pending.order_id == round_row.order_id
+            ),
+            None,
+        )
     if center_order is None:
         center_order = ClueCenterOrder(
             order_id=round_row.order_id,
@@ -1080,7 +1121,11 @@ def _project_self_owned_assignment(
         )
         session.add(center_order)
     existing_center_round = (
-        session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+        session.scalar(
+            select(ClueAssignmentRound)
+            .where(ClueAssignmentRound.assignment_round_id == center_order.current_assignment_round_id)
+            .execution_options(populate_existing=True)
+        )
         if center_order.current_assignment_round_id
         else None
     )
@@ -1135,10 +1180,44 @@ def _project_headquarters(
         entered_at=executed_at,
         source_decision=decision,
     )
-    center_order = session.get(ClueCenterOrder, lead.order_id) if lead.order_id else None
-    if center_order is None or not center_order.current_assignment_round_id:
-        return
-    center_round = session.get(ClueAssignmentRound, center_order.current_assignment_round_id)
+    center_order = None
+    if lead.order_id:
+        # Read the pointer once to determine which round must be locked, then
+        # acquire the canonical master -> round -> center chain.  If the center
+        # pointer changed while waiting, leave the newer projection untouched.
+        pointer_snapshot = session.scalar(
+            select(ClueCenterOrder)
+            .where(ClueCenterOrder.order_id == lead.order_id)
+            .execution_options(populate_existing=True)
+        )
+        pointer_round_id = pointer_snapshot.current_assignment_round_id if pointer_snapshot is not None else None
+        with session.no_autoflush:
+            pointer_owner = session.scalar(
+                select(ClueAssignmentRound.lead_key)
+                .where(ClueAssignmentRound.assignment_round_id == pointer_round_id)
+            ) if pointer_round_id else None
+        # An order may have several master records.  Owning this master does
+        # not authorize taking another master's child lock out of order.
+        if pointer_owner != lead.lead_key:
+            return
+        pointer_round = (
+            lock_clue_assignment_round_for_update(session, pointer_round_id)
+            if pointer_round_id
+            else None
+        )
+        if pointer_round is None or pointer_round.lead_key != lead.lead_key:
+            return
+        center_order = lock_clue_center_order_for_update(session, lead.order_id)
+        if (
+            center_order is None
+            or not center_order.current_assignment_round_id
+            or pointer_round is None
+            or center_order.current_assignment_round_id != pointer_round.assignment_round_id
+        ):
+            return
+        center_round = pointer_round
+    else:
+        center_round = None
     if center_round is None or center_round.lead_key != lead.lead_key:
         return
     center_order.current_assignment_round_id = None
@@ -1174,7 +1253,7 @@ def _is_retriable_rule_version_unavailable(session: Session, lead_key: str) -> b
 def _current_self_owned_round(session: Session, lead: ClueMasterLead) -> ClueAssignmentRound | None:
     if not lead.current_assignment_round_id:
         return None
-    row = session.get(ClueAssignmentRound, lead.current_assignment_round_id)
+    row = lock_clue_assignment_round_for_update(session, lead.current_assignment_round_id)
     if row is None or row.execution_mode not in SELF_OWNED_EXECUTION_MODES:
         return None
     return row

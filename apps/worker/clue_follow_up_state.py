@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, ClueMasterLead
+from src.dy_data.clue_access import can_access_clue_store
 
 
 BUSINESS_EXECUTION_MODE = "formal"
@@ -46,12 +47,13 @@ def apply_follow_up_action(
     action = (follow_result or "").strip()
     if action not in FOLLOW_UP_ACTIONS:
         return FollowUpStateResult("conflict")
-    round_row = session.get(ClueAssignmentRound, assignment_round_id)
+    round_row, lead = _locked_round_state(session, assignment_round_id)
     if round_row is None or round_row.order_id != order_id:
         return FollowUpStateResult("not_found")
-    lead = session.get(ClueMasterLead, round_row.lead_key) if round_row.lead_key else None
     if lead is None:
         return FollowUpStateResult("conflict")
+    if not _actor_can_operate_round(round_row, actor):
+        return FollowUpStateResult("forbidden")
     executed_at = _aware(now)
     if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
         if not _is_current_self_owned_round(lead, round_row):
@@ -61,8 +63,6 @@ def apply_follow_up_action(
         return FollowUpStateResult("conflict")
     if not _is_current_active_round(lead, round_row):
         return FollowUpStateResult("conflict")
-    if not _actor_can_operate_round(round_row, actor):
-        return FollowUpStateResult("forbidden")
 
     record = ClueFollowUpRecord(
         follow_up_record_id=uuid4().hex,
@@ -92,19 +92,22 @@ def process_due_transitions(session: Session, *, now: datetime | None = None) ->
 
     processed_at = _aware(now)
     stats = {"sla_expired": 0, "protection_expired": 0, "terminal_closed": 0}
-    rounds = session.scalars(
-        select(ClueAssignmentRound)
+    round_ids = session.scalars(
+        select(ClueAssignmentRound.assignment_round_id)
         .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
         .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
-        .order_by(ClueAssignmentRound.assignment_round_id)
+        .order_by(ClueAssignmentRound.lead_key, ClueAssignmentRound.assignment_round_id)
+        .execution_options(autoflush=False)
     ).all()
-    for round_row in rounds:
-        lead = session.get(ClueMasterLead, round_row.lead_key) if round_row.lead_key else None
-        if lead is None or lead.current_assignment_round_id != round_row.assignment_round_id:
+    for round_id in round_ids:
+        round_row, lead = _locked_round_state(session, round_id)
+        if round_row is None or lead is None or not _is_current_self_owned_round(lead, round_row):
             continue
         if lead.normalized_order_status in TERMINAL_ORDER_STATUSES:
             _close_for_terminal_order(lead, round_row, processed_at, session)
             stats["terminal_closed"] += 1
+            continue
+        if not _is_current_active_round(lead, round_row):
             continue
         if not round_row.auto_expiry_enabled:
             continue
@@ -138,13 +141,25 @@ def soft_delete_follow_up_record(
 
     if not _actor_is_highest_admin(actor):
         return FollowUpStateResult("forbidden")
-    record = session.get(ClueFollowUpRecord, follow_up_record_id)
+    round_id = session.scalar(
+        select(ClueFollowUpRecord.assignment_round_id)
+        .where(ClueFollowUpRecord.follow_up_record_id == follow_up_record_id)
+        .execution_options(autoflush=False)
+    )
+    if round_id is None:
+        return FollowUpStateResult("not_found")
+    round_row, lead = _locked_round_state(session, round_id)
+    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
+        return FollowUpStateResult("conflict")
+    record = session.scalar(
+        select(ClueFollowUpRecord)
+        .where(ClueFollowUpRecord.follow_up_record_id == follow_up_record_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
     if record is None:
         return FollowUpStateResult("not_found")
-    if record.deleted_at is not None:
-        return FollowUpStateResult("conflict")
-    round_row = session.get(ClueAssignmentRound, record.assignment_round_id)
-    if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
+    if record.deleted_at is not None or record.assignment_round_id != round_id:
         return FollowUpStateResult("conflict")
     deleted_at = _aware(now)
     record.deleted_at = deleted_at
@@ -153,7 +168,6 @@ def soft_delete_follow_up_record(
     record.deletion_reason = _text(reason)
     session.flush()
 
-    lead = session.get(ClueMasterLead, round_row.lead_key) if round_row is not None and round_row.lead_key else None
     if round_row is not None and lead is not None and _is_current_active_round(lead, round_row):
         _recalculate_active_round_summary(session, lead, round_row, deleted_at)
     elif round_row is not None:
@@ -172,11 +186,40 @@ def can_reveal_current_order_phone(session: Session, *, order_id: str, actor: di
     lead = session.get(ClueMasterLead, round_row.lead_key) if round_row is not None and round_row.lead_key else None
     if round_row is None or lead is None or not _is_current_active_round(lead, round_row):
         return False
-    role = _text(actor.get("role"))
-    if role == "admin":
-        return True
-    store_ids = {_text(store_id) for store_id in actor.get("store_ids") or ()}
-    return role == "store" and bool(round_row.assigned_store_id and round_row.assigned_store_id in store_ids)
+    return _actor_can_operate_round(round_row, actor)
+
+
+def _locked_round_state(
+    session: Session, assignment_round_id: str,
+) -> tuple[ClueAssignmentRound | None, ClueMasterLead | None]:
+    """Lock master then round and replace cached ORM state before validation."""
+    with session.no_autoflush:
+        lead_key = session.scalar(
+            select(ClueAssignmentRound.lead_key)
+            .where(ClueAssignmentRound.assignment_round_id == assignment_round_id)
+        )
+        lead = None
+        if lead_key:
+            lead = session.scalar(
+                select(ClueMasterLead).where(ClueMasterLead.lead_key == lead_key)
+                .with_for_update().execution_options(populate_existing=True)
+            )
+        round_row = session.scalar(
+            select(ClueAssignmentRound)
+            .where(ClueAssignmentRound.assignment_round_id == assignment_round_id)
+            .with_for_update().execution_options(populate_existing=True)
+        )
+        if round_row is not None and round_row.lead_key != lead_key:
+            return round_row, None
+        return round_row, lead
+
+
+def _locked_center(session: Session, order_id: str) -> ClueCenterOrder | None:
+    """Lock the compatibility projection only after its master and round."""
+    return session.scalar(
+        select(ClueCenterOrder).where(ClueCenterOrder.order_id == order_id)
+        .with_for_update().execution_options(populate_existing=True, autoflush=False)
+    )
 
 
 def _recalculate_active_round_summary(
@@ -255,7 +298,7 @@ def _recalculate_detached_round_summary(
         )
     round_row.reassign_reason = reassign_reason
     round_row.updated_at = now
-    center = session.get(ClueCenterOrder, round_row.order_id)
+    center = _locked_center(session, round_row.order_id)
     if center is not None and center.current_assignment_round_id == round_row.assignment_round_id:
         center.follow_result = round_row.follow_result
         center.is_followed = round_row.is_followed
@@ -299,7 +342,7 @@ def _close_for_reassignment(
 
 
 def _project_closed_round(round_row: ClueAssignmentRound, reason: str, session: Session, now: datetime) -> None:
-    center = session.get(ClueCenterOrder, round_row.order_id)
+    center = _locked_center(session, round_row.order_id)
     if center is None or center.current_assignment_round_id != round_row.assignment_round_id:
         return
     center.follow_result = round_row.follow_result
@@ -330,7 +373,7 @@ def _project_current_round_summary(
     session: Session,
     now: datetime,
 ) -> None:
-    center = session.get(ClueCenterOrder, round_row.order_id)
+    center = _locked_center(session, round_row.order_id)
     if center is None or center.current_assignment_round_id != round_row.assignment_round_id:
         return
     center.follow_result = round_row.follow_result
@@ -369,7 +412,7 @@ def _close_for_terminal_order(
     lead.closed_at = now
     lead.closed_reason = round_row.terminal_reason
     lead.updated_at = now
-    center = session.get(ClueCenterOrder, round_row.order_id)
+    center = _locked_center(session, round_row.order_id)
     if center is not None and center.current_assignment_round_id == round_row.assignment_round_id:
         center.lead_status = "converted" if verified else "refunded" if refunded else "closed"
         center.current_round_status = round_row.round_status
@@ -395,13 +438,7 @@ def _is_current_self_owned_round(lead: ClueMasterLead, round_row: ClueAssignment
 
 
 def _actor_can_operate_round(round_row: ClueAssignmentRound | None, actor: dict[str, Any]) -> bool:
-    role = _text(actor.get("role"))
-    if role == "admin":
-        return True
-    if role != "store" or round_row is None:
-        return False
-    store_ids = {_text(store_id) for store_id in actor.get("store_ids") or ()}
-    return bool(round_row.assigned_store_id and round_row.assigned_store_id in store_ids)
+    return round_row is not None and can_access_clue_store(actor, round_row.assigned_store_id)
 
 
 def _actor_is_highest_admin(actor: dict[str, Any]) -> bool:

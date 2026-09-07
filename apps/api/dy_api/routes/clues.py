@@ -32,13 +32,16 @@ def _require_available_store(store):
 
 
 def _scope_store_ids(current_user: AuthContext) -> tuple[str, ...] | None:
-    return None if current_user.has_global_data_access else current_user.store_ids
+    if current_user.has_global_data_access and current_user.is_admin:
+        return None
+    return current_user.store_ids if current_user.store_scope_mode == "specified" else ()
 
 
 def _operation_actor(current_user: AuthContext) -> dict:
     return {
         "role": "admin" if current_user.is_highest_admin else current_user.role,
         "store_ids": current_user.store_ids,
+        "store_scope_mode": current_user.store_scope_mode,
         "user_id": current_user.user_id,
         "username": current_user.username,
         "auth_type": current_user.auth_type,

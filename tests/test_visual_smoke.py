@@ -3271,6 +3271,307 @@ def test_clue_demo_admin_allocation_uses_demo_identity_without_api_requests(
         context.close()
 
 
+def test_clue_allocation_real_mode_requests_pages_and_renders_server_totals(
+    browser: Browser,
+    vite_real_api_base_url: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    def allocation_payload(data: object) -> str:
+        return api_payload(data)
+
+    def eligible_route(route: object) -> None:
+        request = route.request
+        page_no = 2 if "page=2" in request.url else 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=allocation_payload(
+                {
+                    "rows": [
+                        {
+                            "lead_key": f"LEAD-VISUAL-{page_no}",
+                            "canonical_clue_id": f"CLUE-VISUAL-{page_no}",
+                            "order_id": f"ORDER-VISUAL-{page_no}",
+                            "allocation_state": "pending_allocation",
+                            "pool_location": "pending_allocation",
+                            "anchor_store_id": "store_001",
+                            "anchor_city": "上海",
+                            "anchor_city_code": "SH",
+                            "updated_at": "2026-09-07T10:00:00Z",
+                        }
+                    ],
+                    "pagination": {
+                        "page": page_no,
+                        "page_size": 50,
+                        "total": 51,
+                        "total_pages": 2,
+                    },
+                }
+            ),
+        )
+
+    def cycles_route(route: object) -> None:
+        request = route.request
+        page_no = 2 if "page=2" in request.url else 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=allocation_payload(
+                {
+                    "rows": [],
+                    "pagination": {
+                        "page": page_no,
+                        "page_size": 50,
+                        "total": 51,
+                        "total_pages": 2,
+                    },
+                }
+            ),
+        )
+
+    try:
+        install_api_routes(page)
+        page.route("**/api/v1/admin/clue-allocation/eligible-leads?*", eligible_route)
+        page.route("**/api/v1/admin/clue-allocation/cycles?*", cycles_route)
+        page.goto(
+            f"{vite_real_api_base_url}/admin/clue-allocation/trial",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="线索分配", exact=True).wait_for(timeout=10000)
+        page.get_by_text("共 51 条", exact=False).first.wait_for(timeout=10000)
+        assert page.locator("section.clue-allocation-control .data-table").count() == 1
+        pagination = page.locator("section.clue-allocation-control .table-pagination")
+        pagination.get_by_role("button", name="下一页").wait_for(state="visible")
+        with page.expect_request("**/api/v1/admin/clue-allocation/eligible-leads?*") as request_info:
+            pagination.get_by_role("button", name="下一页").click()
+        assert "page=2" in request_info.value.url
+        assert "page_size=50" in request_info.value.url
+        page.get_by_text("CLUE-VISUAL-2", exact=True).first.wait_for(timeout=10000)
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    "failure_mode,expected_message",
+    [
+        ("404", "未找到相关数据，请刷新后重试。"),
+        ("500", "服务暂时不可用，请稍后重试。"),
+        ("network", "网络连接异常，请检查网络后重试。"),
+    ],
+)
+def test_clue_order_detail_real_errors_are_visible_without_mock_fallback(
+    browser: Browser,
+    vite_real_api_base_url: str,
+    failure_mode: str,
+    expected_message: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    order_id = "ORDER-F09-REAL-DETAIL"
+    round_row = {
+        "assignment_round_id": "ROUND-F09-REAL-DETAIL",
+        "order_id": order_id,
+        "round_no": 1,
+        "store_display_status": "active_unfollowed",
+        "lead_status": "active",
+        "order_current_status": "paid",
+        "current_assignment_round_id": "ROUND-F09-REAL-DETAIL",
+        "current_round_no": 1,
+        "current_round_status": "active_unfollowed",
+        "current_assigned_store_id": "store_001",
+        "current_assigned_store_name": "F09 真实门店",
+        "is_current_round": True,
+        "round_effective_status": "active",
+        "can_operate_current_round": True,
+        "timing_state": "active",
+        "status_reason": "active_unfollowed",
+        "round_status": "active_unfollowed",
+        "assigned_at": "2026-09-07T00:00:00Z",
+        "expires_at": None,
+        "remaining_reassign_seconds": None,
+        "assigned_store_id": "store_001",
+        "assigned_store_name": "F09 真实门店",
+        "phone_masked": "138****0000",
+        "product_name": "F09 真实详情订单",
+        "product_type": "service",
+        "author_nickname": "F09",
+        "followed_at": None,
+        "follow_result": "further_follow_up",
+        "reassign_reason": None,
+        "reassigned_at": None,
+        "verified_store_id": None,
+        "verified_store_name": None,
+        "verified_at": None,
+        "is_self_store_verified": False,
+    }
+
+    def filters_route(route: object) -> None:
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload(
+                {
+                    "assigned_stores": [
+                        {"store_id": "store_001", "store_name": "F09 真实门店"}
+                    ],
+                    "assigned_provinces": ["上海"],
+                    "assigned_cities": ["上海"],
+                    "product_types": ["service"],
+                    "default_product_type": "service",
+                    "lead_statuses": ["active"],
+                    "round_statuses": ["active_unfollowed"],
+                    "verification_statuses": ["unverified"],
+                }
+            ),
+        )
+
+    def rounds_route(route: object) -> None:
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload(
+                {
+                    "rows": [round_row],
+                    "pagination": {
+                        "page": 1,
+                        "page_size": 50,
+                        "total": 1,
+                        "total_pages": 1,
+                    },
+                }
+            ),
+        )
+
+    def detail_route(route: object) -> None:
+        if failure_mode == "network":
+            route.abort()
+            return
+        route.fulfill(
+            status=int(failure_mode),
+            content_type="application/json",
+            body=json.dumps({"detail": f"F09 real detail {failure_mode}"}),
+        )
+
+    try:
+        install_api_routes(page)
+        page.route("**/api/v1/clues/filters*", filters_route)
+        page.route("**/api/v1/clues/assignment-rounds?*", rounds_route)
+        page.route(
+            f"**/api/v1/clues/orders/{order_id}",
+            detail_route,
+        )
+        page.goto(
+            f"{vite_real_api_base_url}/clues/details",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_text("线索跟进列表", exact=False).first.wait_for(timeout=10000)
+        with page.expect_request(f"**/api/v1/clues/orders/{order_id}"):
+            page.get_by_role("button", name="查看详情", exact=True).first.click()
+        dialog = page.get_by_role("dialog", name="线索跟进详情")
+        dialog.wait_for(timeout=10000)
+        alert = dialog.get_by_role("alert")
+        alert.wait_for(timeout=10000)
+        alert_text = alert.inner_text()
+        assert "线索详情暂不可用：" in alert_text
+        assert expected_message in alert_text
+        assert dialog.locator(".clue-followup-detail__grid").count() == 0
+        assert "F09 真实详情订单" not in dialog.inner_text()
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize(
+    "url_path,section_heading,endpoint",
+    [
+        (
+            "/admin/clue-allocation/trial",
+            "待试运行线索",
+            "/admin/clue-allocation/eligible-leads",
+        ),
+        (
+            "/admin/clue-allocation/trial",
+            "预览与重建",
+            "/admin/clue-allocation/cycles",
+        ),
+        (
+            "/admin/clue-allocation/records",
+            "最近分配决策",
+            "/admin/clue-allocation/decisions",
+        ),
+        (
+            "/admin/clue-allocation/records",
+            "门店评分快照",
+            "/admin/clue-allocation/store-scores",
+        ),
+        (
+            "/admin/clue-allocation/records",
+            "试运行记录",
+            "/admin/clue-allocation/cycles",
+        ),
+        (
+            "/admin/clue-allocation/records",
+            "审计记录",
+            "/admin/clue-allocation/audit-logs",
+        ),
+        (
+            "/admin/clue-allocation/rules",
+            "规则范围与版本",
+            "/admin/clue-allocation/rules",
+        ),
+    ],
+)
+def test_clue_allocation_each_paginated_resource_can_turn_page(
+    browser: Browser,
+    vite_real_api_base_url: str,
+    url_path: str,
+    section_heading: str,
+    endpoint: str,
+) -> None:
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+
+    def paginated_route(route: object) -> None:
+        page_no = 2 if "page=2" in route.request.url else 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload(
+                {
+                    "rows": [],
+                    "pagination": {
+                        "page": page_no,
+                        "page_size": 50,
+                        "total": 51,
+                        "total_pages": 2,
+                    },
+                }
+            ),
+        )
+
+    try:
+        install_api_routes(page)
+        page.route(f"**/api/v1{endpoint}?*", paginated_route)
+        page.goto(
+            f"{vite_real_api_base_url}{url_path}",
+            wait_until="domcontentloaded",
+        )
+        section = page.get_by_role("heading", name=section_heading, exact=True).locator(
+            "xpath=ancestor::section"
+        )
+        section.wait_for(timeout=10000)
+        pagination = section.locator(".table-pagination")
+        pagination.get_by_role("button", name="下一页").wait_for(state="visible")
+        with page.expect_request(f"**/api/v1{endpoint}?*") as request_info:
+            pagination.get_by_role("button", name="下一页").click()
+        assert "page=2" in request_info.value.url
+        assert "page_size=50" in request_info.value.url
+        pagination.get_by_text("第 2 / 2 页", exact=True).wait_for(timeout=10000)
+    finally:
+        context.close()
+
+
 @pytest.mark.parametrize(
     "url_path",
     ["/finance/promotion", "/settlement", "/admin/accounts"],

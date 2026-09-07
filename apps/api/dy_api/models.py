@@ -4241,6 +4241,7 @@ class ClueCenterOrder(Base):
     phone_plain: Mapped[str | None] = mapped_column(Text)
     phone_masked: Mapped[str | None] = mapped_column(Text)
     phone_source: Mapped[str | None] = mapped_column(Text)
+    phone_source_fingerprint: Mapped[str | None] = mapped_column(String(64))
     product_id: Mapped[str | None] = mapped_column(Text, index=True)
     product_name: Mapped[str | None] = mapped_column(Text)
     product_type: Mapped[str | None] = mapped_column(Text, index=True)

@@ -12,8 +12,12 @@ from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.repositories import upsert_raw_clue
 
 PAGE_ITEM_LIMIT = 10_000
-NEAR_PAGE_LIMIT_ROWS = 9_500
 MAX_PAGE_SIZE = 100
+MIN_WINDOW_SECONDS = 1
+
+
+class ClueCollectionError(RuntimeError):
+    """Raised when an upstream clue window cannot be proven complete."""
 
 
 def collect_clues(
@@ -35,7 +39,6 @@ def collect_clues(
             source_run_id=source_run_id,
             page_size=safe_page_size,
             stats=stats,
-            allow_split=True,
         )
     return stats
 
@@ -49,22 +52,40 @@ def _collect_clue_window(
     source_run_id: str,
     page_size: int,
     stats: PhaseStats,
-    allow_split: bool,
 ) -> None:
-    rows, near_limit = _fetch_clue_window(client, start, end, page_size=page_size)
-    if near_limit and allow_split and (end - start) > timedelta(hours=1):
-        for hour_start, hour_end in _split_window(start, end, timedelta(hours=1)):
+    rows, incomplete = _fetch_clue_window(client, start, end, page_size=page_size)
+    if incomplete:
+        duration_seconds = int((end - start).total_seconds())
+        if duration_seconds > MIN_WINDOW_SECONDS:
+            try:
+                left_start, left_end, right_start, right_end = _split_clue_window(start, end)
+            except ClueCollectionError:
+                stats.failed += 1
+                raise
             _collect_clue_window(
                 session,
                 client,
-                hour_start,
-                hour_end,
+                left_start,
+                left_end,
                 source_run_id=source_run_id,
                 page_size=page_size,
                 stats=stats,
-                allow_split=False,
             )
-        return
+            _collect_clue_window(
+                session,
+                client,
+                right_start,
+                right_end,
+                source_run_id=source_run_id,
+                page_size=page_size,
+                stats=stats,
+            )
+            return
+        stats.failed += 1
+        raise ClueCollectionError(
+            "incomplete clue window at minimum granularity of one second: "
+            f"{start.isoformat()}..{end.isoformat()}"
+        )
 
     fetched_at = datetime.now(timezone.utc)
     for row in rows:
@@ -73,15 +94,27 @@ def _collect_clue_window(
         if not clue_row_key:
             stats.skipped += 1
             continue
-        upsert_raw_clue(
+        create_time_detail = source_datetime(
+            first(row, "create_time_detail", "create_time")
+        )
+        modify_time = source_datetime(
+            first(row, "modify_time", "update_time", "updated_at")
+        )
+        result = upsert_raw_clue(
             session,
             clue_row_key,
             clue_id=text(first(row, "clue_id")),
             source_window_start=start,
             source_window_end=end,
             fetched_at=fetched_at,
-            create_time_detail=source_datetime(first(row, "create_time_detail", "create_time")),
-            modify_time=source_datetime(first(row, "modify_time", "update_time", "updated_at")),
+            create_time_detail=create_time_detail,
+            modify_time=modify_time,
+            # Source time is a version marker.  If the platform omits both
+            # source times, leave it null so the repository rejects later
+            # business replays instead of ordering them by fetch time.
+            source_observed_at=modify_time or create_time_detail,
+            observation_key=_observation_key(row),
+            source_run_id=source_run_id,
             name=text(first(row, "name", "user_name", "customer_name")),
             telephone=phone_text(row),
             enc_telephone=text(first(row, "enc_telephone", "encrypted_telephone")),
@@ -99,8 +132,9 @@ def _collect_clue_window(
             raw_payload=row,
             source_file=None,
             updated_at=fetched_at,
+            return_result=True,
         )
-        stats.upserted += 1
+        stats.record_upsert(result.outcome)
 
 
 def _fetch_clue_window(
@@ -110,21 +144,55 @@ def _fetch_clue_window(
     *,
     page_size: int,
 ) -> tuple[list[dict[str, Any]], bool]:
-    page_limit = max(1, PAGE_ITEM_LIMIT // page_size)
+    # The upstream response cap is not a completeness proof.  Use a ceiling
+    # here so a non-divisor page size can still reach the cap boundary, then
+    # treat that boundary as incomplete below.
+    page_limit = max(1, (PAGE_ITEM_LIMIT + page_size - 1) // page_size)
     rows: list[dict[str, Any]] = []
-    near_limit = False
+    complete = False
+    source_total: int | None = None
+    inconsistent_total = False
     for page in range(1, page_limit + 1):
         payload = client.query_clues(start, end, page=page, page_size=page_size)
         items = _extract_clues(payload)
         total = _extract_total(payload)
+        if total is not None:
+            if source_total is None:
+                source_total = total
+            elif source_total != total:
+                # A moving/contradictory total cannot establish that the
+                # pages belong to one complete snapshot.
+                inconsistent_total = True
         rows.extend(items)
-        if total is not None and total >= NEAR_PAGE_LIMIT_ROWS:
-            near_limit = True
-        if len(rows) >= NEAR_PAGE_LIMIT_ROWS or page >= int(page_limit * 0.95):
-            near_limit = True
+        if total is not None and total >= PAGE_ITEM_LIMIT:
+            # The cap boundary is intentionally conservative.  There is no
+            # need to fetch the remaining pages before recursively narrowing
+            # this window.
+            return rows, True
         if len(items) < page_size:
+            complete = source_total is None or (
+                source_total < PAGE_ITEM_LIMIT and len(rows) >= source_total
+            )
             break
-    return rows, near_limit
+    if page >= page_limit and len(items) >= page_size:
+        complete = (
+            source_total is not None
+            and source_total < PAGE_ITEM_LIMIT
+            and len(rows) >= source_total
+        )
+    if source_total is not None and (
+        source_total >= PAGE_ITEM_LIMIT
+        or len(rows) != source_total
+        or inconsistent_total
+    ):
+        complete = False
+    # Reaching the response cap is ambiguous even when the upstream omits a
+    # total or reports a smaller moving total; never treat it as complete.
+    if len(rows) >= PAGE_ITEM_LIMIT:
+        complete = False
+    # Any response that is not proven complete must be split or failed by the
+    # caller, even when it is below the old near-limit heuristic.
+    return rows, not complete
 
 
 def _extract_clues(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -175,6 +243,19 @@ def _clue_row_key(row: dict[str, Any]) -> str:
     return f"raw-clue-{digest}"
 
 
+def _observation_key(row: dict[str, Any]) -> str:
+    """Return a stable key for the exact source observation."""
+
+    serialized = json.dumps(
+        row,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
 def _split_window(
     start: datetime,
     end: datetime,
@@ -189,3 +270,19 @@ def _split_window(
         windows.append((current, window_end))
         current = window_end
     return windows
+
+
+def _split_clue_window(
+    start: datetime,
+    end: datetime,
+) -> tuple[datetime, datetime, datetime, datetime]:
+    """Split a saturated half-open window at an integer-second midpoint."""
+
+    duration_seconds = int((end - start).total_seconds())
+    midpoint = start + timedelta(seconds=duration_seconds // 2)
+    if midpoint <= start or midpoint >= end:
+        raise ClueCollectionError(
+            "cannot split incomplete clue window at integer-second boundary: "
+            f"{start.isoformat()}..{end.isoformat()}"
+        )
+    return start, midpoint, midpoint, end

@@ -48,6 +48,10 @@ from apps.worker.clue_follow_up_state import (
     can_reveal_current_order_phone,
     soft_delete_follow_up_record,
 )
+from src.dy_data.clue_access import can_access_clue_store
+from src.dy_data.phones import normalize_phone, mask_phone, is_online_cipher, phone_source_fingerprint
+from ..clue_phone_cache import get_phone, put_phone
+from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
 from apps.worker.projection_lineage import (
     MAX_LINEAGE_DEPTH,
     MAX_PARTITION_KEYS,
@@ -286,17 +290,11 @@ def _json_object(value: Any) -> dict[str, Any]:
 
 
 def _normalized_phone(value: Any) -> str:
-    digits = re.sub(r"\D", "", _to_str(value))
-    if len(digits) < 11:
-        return ""
-    return digits[-11:]
+    return normalize_phone(value)
 
 
 def _masked_phone(value: Any) -> str:
-    phone = _normalized_phone(value)
-    if not phone:
-        return ""
-    return f"{phone[:3]}****{phone[-4:]}"
+    return mask_phone(value)
 
 
 def _mask_or_masked_phone(value: Any) -> str:
@@ -327,7 +325,7 @@ def _phone_from_clue_payload(row: dict[str, Any]) -> str:
 
 
 def _encrypted_phone_from_clue_payload(row: dict[str, Any]) -> str:
-    for key in ("enc_telephone", "encrypted_telephone", "telephone"):
+    for key in ("telephone", "enc_telephone", "encrypted_telephone"):
         value = _to_str(row.get(key)).strip()
         if _is_online_cipher(value):
             return value
@@ -350,7 +348,7 @@ def _encrypted_phone_from_clue_payload(row: dict[str, Any]) -> str:
 
 
 def _is_online_cipher(value: str) -> bool:
-    return value.startswith("Enc.")
+    return is_online_cipher(value)
 
 
 def _optional_bool(value: Any) -> bool | None:
@@ -4192,28 +4190,35 @@ class DashboardDataStore:
         rows = self._execute(
             f"""
             SELECT COUNT(*) AS total_clues,
-                   COALESCE(SUM(CASE
-                       WHEN r.assignment_round_id = c.current_assignment_round_id
-                         AND r.round_status IN ('active_unfollowed', 'active_followed')
-                       THEN 1 ELSE 0 END), 0) AS active_clues,
-                   COALESCE(SUM(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END), 0)
-                       AS followed_clues,
-                   COALESCE(SUM(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END), 0)
-                       AS successful_follow_clues,
-                   COALESCE(SUM(CASE
-                       WHEN r.is_follow_success = true AND r.is_self_store_verified = true
-                       THEN 1 ELSE 0 END), 0) AS self_store_verified_clues,
-                   COALESCE(SUM(CASE
-                       WHEN r.assignment_round_id = c.current_assignment_round_id
-                         AND (c.lead_status = 'pending_reassign'
-                         OR r.round_status IN (
-                            'failed_pending_reassign',
-                            'expired_pending_reassign'
-                         ))
-                       THEN 1 ELSE 0 END), 0) AS pending_reassign_count
-            FROM clue_assignment_rounds r
-            JOIN clue_center_orders c ON c.order_id = r.order_id
-            {where_sql}
+                   COALESCE(SUM(active_clue), 0) AS active_clues,
+                   COALESCE(SUM(followed_clue), 0) AS followed_clues,
+                   COALESCE(SUM(successful_follow_clue), 0) AS successful_follow_clues,
+                   COALESCE(SUM(self_store_verified_clue), 0) AS self_store_verified_clues,
+                   COALESCE(SUM(pending_reassign_clue), 0) AS pending_reassign_count
+            FROM (
+                SELECT c.order_id,
+                       MAX(CASE
+                           WHEN r.assignment_round_id = c.current_assignment_round_id
+                             AND r.round_status IN ('active_unfollowed', 'active_followed')
+                           THEN 1 ELSE 0 END) AS active_clue,
+                       MAX(CASE WHEN r.is_followed = true THEN 1 ELSE 0 END) AS followed_clue,
+                       MAX(CASE WHEN r.is_follow_success = true THEN 1 ELSE 0 END)
+                           AS successful_follow_clue,
+                       MAX(CASE
+                           WHEN r.is_follow_success = true AND r.is_self_store_verified = true
+                           THEN 1 ELSE 0 END) AS self_store_verified_clue,
+                       MAX(CASE
+                           WHEN r.assignment_round_id = c.current_assignment_round_id
+                             AND (c.lead_status = 'pending_reassign'
+                             OR r.round_status IN (
+                                'failed_pending_reassign', 'expired_pending_reassign'
+                             ))
+                           THEN 1 ELSE 0 END) AS pending_reassign_clue
+                FROM clue_assignment_rounds r
+                JOIN clue_center_orders c ON c.order_id = r.order_id
+                {where_sql}
+                GROUP BY c.order_id
+            ) scoped_orders
             """,
             params,
         )
@@ -4396,15 +4401,11 @@ class DashboardDataStore:
             """,
             {**params, "limit": page_size, "offset": offset},
         )
+        phones = self._clue_order_phones([_to_str(row.get("order_id")) for row in rows])
         cleaned_rows = []
-        phone_mask_cache: dict[str, str] = {}
         for row in rows:
             cleaned = self._clean_clue_round_row(row, actor=actor)
-            if not cleaned["phone_masked"]:
-                row_order_id = cleaned["order_id"]
-                if row_order_id not in phone_mask_cache:
-                    phone_mask_cache[row_order_id] = self._clue_order_masked_phone(row_order_id)
-                cleaned["phone_masked"] = phone_mask_cache[row_order_id]
+            cleaned["phone_masked"] = phones.get(cleaned["order_id"], ("", ""))[1]
             cleaned_rows.append(cleaned)
 
         return {
@@ -4502,13 +4503,12 @@ class DashboardDataStore:
         buffer.write("\ufeff")
         writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
+        phones = self._clue_order_phones([_to_str(row.get("order_id")) for row in rows])
         for row in rows:
-            cleaned = self._clean_clue_round_row(row, actor=actor)
-            cleaned["phone_plain"] = (
-                _to_str(row.get("phone_plain"))
-                if self._actor_can_reveal_round_phone(row, actor)
-                else ""
-            )
+            cleaned = self._clean_clue_round_row(row)
+            phone, masked = phones.get(cleaned["order_id"], ("", ""))
+            cleaned["phone_plain"] = phone if self._actor_can_reveal_round_phone(row, actor) else ""
+            cleaned["phone_masked"] = masked
             writer.writerow(cleaned)
         return buffer.getvalue()
 
@@ -4623,12 +4623,11 @@ class DashboardDataStore:
             },
         )
         order = orders[0]
-        phone_masked = _to_str(order.get("phone_masked")) or self._clue_order_masked_phone(order_id)
+        phone_masked = self._clue_order_masked_phone(order_id)
         cleaned_rounds = []
         for row in rows:
             cleaned = self._clean_clue_round_row(row, actor=actor)
-            if not cleaned["phone_masked"]:
-                cleaned["phone_masked"] = phone_masked
+            cleaned["phone_masked"] = phone_masked
             cleaned_rounds.append(cleaned)
 
         return {
@@ -4648,78 +4647,83 @@ class DashboardDataStore:
             ],
         }
 
-    def _clue_order_cached_phone(self, order_id: str) -> str:
-        rows = self._execute(
-            """
-            SELECT phone_plain
-            FROM clue_center_orders
-            WHERE order_id = :order_id
-            LIMIT 1
-            """,
-            {"order_id": order_id},
+    def _clue_order_phones(self, order_ids: Sequence[str]) -> dict[str, tuple[str, str]]:
+        """Resolve current sources in batches without committing a read transaction."""
+        order_ids = tuple(dict.fromkeys(order_ids))
+        result = {order_id: ("", "") for order_id in order_ids}
+        if not order_ids:
+            return result
+        if len(order_ids) > 200:
+            for offset in range(0, len(order_ids), 200):
+                result.update(self._clue_order_phones(order_ids[offset:offset + 200]))
+            return result
+        placeholders, params = _in_clause_params("phone_order", order_ids)
+        cached_rows = self._execute(
+            f"SELECT order_id, phone_plain, phone_source_fingerprint FROM clue_center_orders "
+            f"WHERE order_id IN ({placeholders})", params,
         )
-        if not rows:
-            return ""
-        return _normalized_phone(rows[0].get("phone_plain"))
-
-    def _raw_clue_phone(self, order_id: str) -> str:
-        rows = self._execute(
-            """
-            SELECT telephone,
-                   enc_telephone,
-                   raw_payload
-            FROM raw_douyin_clues
-            WHERE order_id = :order_id
-            ORDER BY create_time_detail, clue_row_key
-            """,
-            {"order_id": order_id},
+        cached = {_to_str(row.get("order_id")): row for row in cached_rows}
+        statuses, status_params = _in_clause_params("phone_status", sorted(ACTIVE_ORDER_STATUSES | PAID_ORDER_STATUSES))
+        raw_rows = self._execute(
+            f"SELECT order_id, telephone, enc_telephone, raw_payload FROM raw_douyin_clues "
+            f"WHERE order_id IN ({placeholders}) AND order_status IN ({statuses}) "
+            "ORDER BY CASE WHEN create_time_detail IS NULL THEN 1 ELSE 0 END, "
+            "create_time_detail, COALESCE(clue_id, ''), clue_row_key", {**params, **status_params},
         )
-        for row in rows:
-            phone = _phone_from_clue_payload(row)
-            if phone:
-                return phone
-        return ""
-
-    def _raw_clue_encrypted_phone(self, order_id: str) -> str:
-        rows = self._execute(
-            """
-            SELECT telephone,
-                   enc_telephone,
-                   raw_payload
-            FROM raw_douyin_clues
-            WHERE order_id = :order_id
-            ORDER BY create_time_detail, clue_row_key
-            """,
-            {"order_id": order_id},
-        )
-        for row in rows:
-            cipher_text = _encrypted_phone_from_clue_payload(row)
-            if cipher_text:
-                return cipher_text
-        return ""
-
-    def _decrypted_raw_clue_phone(self, order_id: str) -> str:
-        cipher_text = self._raw_clue_encrypted_phone(order_id)
-        if not cipher_text or build_douyin_client_from_env is None:
-            return ""
-        try:
-            client = build_douyin_client_from_env()
-            decrypted = client.decrypt_cipher_texts([cipher_text]).get(cipher_text, "")
-        except Exception:
-            return ""
-        return _normalized_phone(decrypted)
-
-    def _decrypted_raw_clue_masked_phone(self, order_id: str) -> str:
-        return _masked_phone(self._decrypted_raw_clue_phone(order_id))
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in raw_rows:
+            grouped.setdefault(_to_str(row.get("order_id")), []).append(row)
+        pending: dict[str, list[tuple[str, str]]] = {}
+        engine = self.session.get_bind()
+        for order_id, source_rows in grouped.items():
+            plain = next((phone for row in source_rows if (phone := _phone_from_clue_payload(row))), "")
+            if plain:
+                result[order_id] = (plain, _masked_phone(plain))
+                continue
+            masked = ""
+            for row in source_rows:
+                payload = _json_object(row.get("raw_payload"))
+                values = [row.get("telephone"), *(payload.get(key) for key in (
+                    "telephone", "tel_addr", "phone", "mobile", "phone_number", "customer_phone", "contact_phone"
+                ))]
+                masked = next((value for value in values if isinstance(value, str)
+                               and re.fullmatch(r"1[3-9]\d\*{4}\d{4}", value.strip())), "")
+                if masked:
+                    break
+            if masked:
+                result[order_id] = ("", masked.strip())
+                continue
+            cipher = next((value for row in source_rows if (value := _encrypted_phone_from_clue_payload(row))), "")
+            fingerprint = phone_source_fingerprint(cipher_text=cipher)
+            if not fingerprint:
+                continue
+            stored = cached.get(order_id, {})
+            plain = _normalized_phone(stored.get("phone_plain"))
+            if plain and stored.get("phone_source_fingerprint") == fingerprint:
+                result[order_id] = (plain, _masked_phone(plain))
+                continue
+            memory_phone = get_phone(engine, fingerprint)
+            if memory_phone is not None:
+                result[order_id] = (memory_phone, _masked_phone(memory_phone))
+                continue
+            pending.setdefault(cipher, []).append((order_id, fingerprint))
+        if pending:
+            decrypted = {}
+            try:
+                if build_douyin_client_from_env is not None:
+                    decrypted = build_douyin_client_from_env().decrypt_cipher_texts(list(pending))
+            except Exception:
+                # Fail closed; never log source values or serve a different source's cache.
+                pass
+            for cipher, targets in pending.items():
+                plain = _normalized_phone(decrypted.get(cipher))
+                for order_id, fingerprint in targets:
+                    put_phone(engine, fingerprint, plain)
+                    result[order_id] = (plain, _masked_phone(plain))
+        return result
 
     def _clue_order_masked_phone(self, order_id: str) -> str:
-        cached = _masked_phone(self._clue_order_cached_phone(order_id))
-        if cached:
-            return cached
-        masked = _masked_phone(self._raw_clue_phone(order_id))
-        if masked:
-            return masked
-        return self._decrypted_raw_clue_masked_phone(order_id)
+        return self._clue_order_phones([order_id])[order_id][1]
 
     def _current_operation_round(self, order_id: str) -> dict[str, Any] | None:
         rows = self._execute(
@@ -4797,15 +4801,8 @@ class DashboardDataStore:
             return False
         if _to_str(row.get("round_status")) not in CURRENT_OPERABLE_ROUND_STATUSES:
             return False
-        role = _to_str(actor.get("role"))
-        if role == "admin":
-            return True
-        if role != "store":
-            return False
-        assigned_store_id = _to_str(
-            row.get("current_assigned_store_id") or row.get("assigned_store_id")
-        ).strip()
-        return bool(assigned_store_id and assigned_store_id in self._actor_store_ids(actor))
+        assigned_store_id = _to_str(row.get("assigned_store_id")).strip()
+        return can_access_clue_store(actor, assigned_store_id)
 
     def save_clue_follow_up(
         self,
@@ -4892,11 +4889,7 @@ class DashboardDataStore:
             if not can_reveal_current_order_phone(self.session, order_id=order_id, actor=actor):
                 return None
 
-        phone = (
-            self._clue_order_cached_phone(order_id)
-            or self._raw_clue_phone(order_id)
-            or self._decrypted_raw_clue_phone(order_id)
-        )
+        phone = self._clue_order_phones([order_id])[order_id][0]
         if phone:
             return {
                 "order_id": order_id,

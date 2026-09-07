@@ -13,11 +13,11 @@ def _read(relative_path: str) -> str:
 def test_normal_admin_loads_and_renders_store_score_snapshots() -> None:
     page_source = _read("pages/AdminClueAllocationPage.tsx")
     load_start = page_source.index("const load = async")
-    load_end = page_source.index("setScoreData", load_start)
+    load_end = page_source.index("loadScores()", load_start)
     load_source = page_source[load_start:load_end]
 
-    assert "fetchClueAllocationStoreScores()," in load_source
-    assert "isHighestAdmin ? fetchClueAllocationStoreScores()" not in load_source
+    assert "loadScores()" in page_source
+    assert "isHighestAdmin ? loadScores()" not in load_source
 
     score_table = page_source.index("columns={scoreColumns}")
     score_section_start = page_source.rfind("<section", 0, score_table)

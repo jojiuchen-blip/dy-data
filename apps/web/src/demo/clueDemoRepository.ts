@@ -370,11 +370,14 @@ export class ClueDemoRepository {
     };
   }
 
-  getEligibleLeads(): ApiResponse<ClueAllocationEligibleLeadData> {
+  getEligibleLeads(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationEligibleLeadData> {
     const rows = [...this.state.eligibleLeads].sort((left, right) =>
       right.updated_at.localeCompare(left.updated_at),
     );
-    return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
+    return demoResponse(paginate(rows, page, pageSize), this.state.generatedAt);
   }
 
   getHeadquartersPool(
@@ -460,11 +463,14 @@ export class ClueDemoRepository {
     );
   }
 
-  getCycles(): ApiResponse<ClueAllocationCycleData> {
+  getCycles(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationCycleData> {
     const rows = [...this.state.cycles].sort((left, right) =>
       right.created_at.localeCompare(left.created_at),
     );
-    return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
+    return demoResponse(paginate(rows, page, pageSize), this.state.generatedAt);
   }
 
   getCycle(
@@ -520,11 +526,14 @@ export class ClueDemoRepository {
     );
   }
 
-  getAuditLogs(): ApiResponse<ClueAllocationAuditLogData> {
+  getAuditLogs(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationAuditLogData> {
     const rows = [...this.state.auditLogs].sort((left, right) =>
       right.created_at.localeCompare(left.created_at),
     );
-    return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
+    return demoResponse(paginate(rows, page, pageSize), this.state.generatedAt);
   }
 
   previewCycle(
@@ -648,11 +657,14 @@ export class ClueDemoRepository {
     });
   }
 
-  getRules(): ApiResponse<ClueAllocationRuleListData> {
+  getRules(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationRuleListData> {
     const rows = this.state.rules
       .map((bundle) => bundle.rule)
       .sort((left, right) => right.updated_at.localeCompare(left.updated_at));
-    return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
+    return demoResponse(paginate(rows, page, pageSize), this.state.generatedAt);
   }
 
   getRuleDetail(ruleId: string): ApiResponse<ClueAllocationRuleDetailData> {
@@ -671,17 +683,30 @@ export class ClueDemoRepository {
     );
   }
 
-  getDecisions(): ApiResponse<ClueAllocationDecisionData> {
+  getDecisions(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<ClueAllocationDecisionData> {
     const rows = [...this.state.decisions].sort((left, right) =>
       right.executed_at.localeCompare(left.executed_at),
     );
-    return demoResponse(paginate(rows, 1, 100), this.state.generatedAt);
+    return demoResponse(paginate(rows, page, pageSize), this.state.generatedAt);
   }
 
-  getStoreScores(): ApiResponse<StoreScoreSnapshotData> {
+  getStoreScores(
+    page = 1,
+    pageSize = 50,
+  ): ApiResponse<StoreScoreSnapshotData> {
     const generatedDate = new Date(this.state.generatedAt);
     const windowStart = new Date(
       generatedDate.getTime() - 30 * 24 * 60 * 60 * 1000,
+    );
+    const pagedRows = paginate(
+      [...this.state.storeScores].sort(
+        (left, right) => right.composite_score - left.composite_score,
+      ),
+      page,
+      pageSize,
     );
     return demoResponse(
       {
@@ -696,15 +721,8 @@ export class ClueDemoRepository {
           triggered_by: "DEMO-USER-ADMIN",
           computed_at: this.state.generatedAt,
         },
-        rows: [...this.state.storeScores].sort(
-          (left, right) => right.composite_score - left.composite_score,
-        ),
-        pagination: {
-          page: 1,
-          page_size: this.state.storeScores.length,
-          total: this.state.storeScores.length,
-          total_pages: 1,
-        },
+        rows: pagedRows.rows,
+        pagination: pagedRows.pagination,
       },
       this.state.generatedAt,
     );

@@ -108,12 +108,13 @@ def test_m3_each_allocation_subview_only_loads_its_own_api_group() -> None:
     assert 'if (activeSubview === "trial")' in page_source
     assert 'else if (activeSubview === "records")' in page_source
     assert 'else if (activeSubview === "headquarters")' in page_source
-    assert "fetchClueAllocationEligibleLeads()," in page_source
-    assert "const auditData = await fetchClueAllocationAuditLogs();" in page_source
+    assert "const loadPaginatedResource = async" in page_source
+    assert "fetchClueAllocationEligibleLeads," in page_source
+    assert "const loadAuditLogs = (" in page_source
     assert "if (isHighestAdmin)" in page_source
     assert "{isHighestAdmin ? (" in page_source
     assert "fetchClueHeadquartersPool({" in page_source
-    assert "fetchClueAllocationRules();" in page_source
+    assert "fetchClueAllocationRules," in page_source
 
 
 def test_m3_allocation_control_has_mobile_safe_layout() -> None:

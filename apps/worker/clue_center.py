@@ -13,12 +13,20 @@ from apps.api.dy_api.models import (
     ClueAssignmentRound,
     ClueCenterOrder,
     ClueMasterLead,
+    ClueSourceRecordLink,
     DimSkuProductRule,
     RawDouyinClue,
     SettlementOrderDetail,
     utcnow,
 )
+from apps.worker.clue_state_locking import refresh_dirty_rounds_for_locked_leads
 from apps.worker.order_status import ACTIVE_ORDER_STATUSES, PAID_ORDER_STATUSES
+from src.dy_data.phones import (
+    is_online_cipher,
+    mask_phone,
+    normalize_phone,
+    phone_source_fingerprint,
+)
 
 BUSINESS_EXECUTION_MODE = "formal"
 ACTIVE_ROUND_STATUSES = ("active_unfollowed", "active_followed")
@@ -36,20 +44,6 @@ PHONE_PAYLOAD_KEYS = (
 )
 ENCRYPTED_PHONE_PAYLOAD_KEYS = ("enc_telephone", "encrypted_telephone")
 PhonePlainResolver = Callable[[list[str]], dict[str, str]]
-
-
-def normalize_phone(value: str | None) -> str:
-    digits = re.sub(r"\D", "", value or "")
-    if len(digits) < 11:
-        return ""
-    return digits[-11:]
-
-
-def mask_phone(value: str | None) -> str:
-    phone = normalize_phone(value)
-    if not phone:
-        return ""
-    return f"{phone[:3]}****{phone[-4:]}"
 
 
 def refresh_clue_center_projection(
@@ -80,9 +74,10 @@ def refresh_clue_center_projection(
     )
     if incremental:
         raw_stmt = raw_stmt.where(RawDouyinClue.order_id.in_(selected_order_ids))
-    raw_clues = session.scalars(
-        raw_stmt.order_by(RawDouyinClue.order_id, RawDouyinClue.clue_row_key)
-    ).all()
+    with session.no_autoflush:
+        raw_clues = session.scalars(
+            raw_stmt.order_by(RawDouyinClue.order_id, RawDouyinClue.clue_row_key)
+        ).all()
 
     grouped: dict[str, list[RawDouyinClue]] = defaultdict(list)
     for clue in raw_clues:
@@ -94,40 +89,48 @@ def refresh_clue_center_projection(
         return {"eligible_orders": 0, "projected_orders": 0}
 
     order_ids = set(grouped)
-    sku_rules = _sku_rules(session, raw_clues)
-    master_leads_by_source_clue_row_key = _master_leads_by_source_clue_row_key(session, raw_clues)
-    preferred_store_by_order = {
-        order_id: store_id
-        for order_id, store_id in session.execute(
-            select(
-                ClueAssignmentRound.order_id,
-                ClueAssignmentRound.assigned_store_id,
-            )
-            .where(ClueAssignmentRound.order_id.in_(order_ids))
-            .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
-            .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
-            .where(ClueAssignmentRound.is_follow_success.is_(True))
-            .where(ClueAssignmentRound.assigned_store_id.is_not(None))
-        ).all()
-        if order_id and store_id
-    }
-    verifications = _verification_rows(
-        session,
-        order_ids,
-        preferred_store_by_order=preferred_store_by_order,
-    )
-    existing_center_orders = _existing_center_orders(session, order_ids)
-    encrypted_phone_plain_values = _encrypted_phone_plain_values(
-        grouped,
-        existing_center_orders,
-        phone_plain_resolver,
-    )
+    with session.no_autoflush:
+        sku_rules = _sku_rules(session, raw_clues)
+        master_leads_by_source_clue_row_key = _master_leads_by_source_clue_row_key(
+            session, raw_clues
+        )
+        preferred_store_by_order = {
+            order_id: store_id
+            for order_id, store_id in session.execute(
+                select(
+                    ClueAssignmentRound.order_id,
+                    ClueAssignmentRound.assigned_store_id,
+                )
+                .where(ClueAssignmentRound.order_id.in_(order_ids))
+                .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
+                .where(ClueAssignmentRound.round_status.in_(ACTIVE_ROUND_STATUSES))
+                .where(ClueAssignmentRound.is_follow_success.is_(True))
+                .where(ClueAssignmentRound.assigned_store_id.is_not(None))
+            ).all()
+            if order_id and store_id
+        }
+        verifications = _verification_rows(
+            session,
+            order_ids,
+            preferred_store_by_order=preferred_store_by_order,
+        )
+        existing_center_orders = _existing_center_orders(session, order_ids)
+        encrypted_phone_plain_values = _encrypted_phone_plain_values(
+            grouped,
+            existing_center_orders,
+            phone_plain_resolver,
+        )
+        locked_master_leads = _locked_master_leads(
+            session,
+            list(master_leads_by_source_clue_row_key.values()),
+        )
 
     projected_orders = 0
-    for order_id, clues in grouped.items():
+    for order_id in sorted(grouped):
+        clues = grouped[order_id]
         sorted_clues = sorted(clues, key=_clue_sort_key)
         canonical = sorted_clues[0]
-        lead = next(
+        lead_candidate = next(
             (
                 master_leads_by_source_clue_row_key.get(clue.clue_row_key)
                 for clue in sorted_clues
@@ -135,7 +138,18 @@ def refresh_clue_center_projection(
             ),
             None,
         )
-        center_order = existing_center_orders.get(order_id)
+        lead = (
+            locked_master_leads.get(lead_candidate.lead_key)
+            if lead_candidate is not None
+            else None
+        )
+        round_row = _formal_round_for_projection(session, lead, order_id)
+        previous_round = (
+            _latest_closed_formal_round(session, lead, order_id)
+            if round_row is None
+            else None
+        )
+        center_order = _locked_center_order(session, order_id)
         if lead is not None and lead.lifecycle_status != "active" and center_order is None:
             continue
         product_rule = sku_rules.get(_clean(canonical.product_id) or "")
@@ -158,7 +172,6 @@ def refresh_clue_center_projection(
             product_rule=product_rule,
             encrypted_phone_plain_values=encrypted_phone_plain_values,
         )
-        round_row = _formal_round_for_projection(session, lead, center_order)
         if round_row is not None:
             verification = _select_verification(
                 verifications.get(order_id, []),
@@ -193,7 +206,6 @@ def refresh_clue_center_projection(
             center_order.expires_at = round_row.expires_at
             center_order.reassign_reason = round_row.reassign_reason
         else:
-            previous_round = _latest_closed_formal_round(session, lead, center_order)
             _project_unassigned_state(center_order, lead, previous_round=previous_round)
             verification = _select_verification(
                 verifications.get(order_id, []),
@@ -230,20 +242,41 @@ def _clue_phone(clue: RawDouyinClue) -> tuple[str | None, str | None]:
     return None, None
 
 
-def _first_clue_phone(
-    clues: list[RawDouyinClue],
-    encrypted_phone_plain_values: dict[str, str],
-) -> tuple[str | None, str | None]:
-    phone, source = _first_plain_clue_phone(clues)
-    if phone:
-        return phone, source
+def _masked_clue_phone(clue: RawDouyinClue) -> str | None:
+    values: list[object] = [clue.telephone]
+    raw_payload = clue.raw_payload if isinstance(clue.raw_payload, dict) else {}
+    values.extend(raw_payload.get(key) for key in PHONE_PAYLOAD_KEYS)
+    for value in values:
+        text = _clean(value) or ""
+        if re.fullmatch(r"1[3-9]\d\*{4}\d{4}", text):
+            return text
+    return None
+
+
+def _first_cipher_clue_phone(clues: list[RawDouyinClue]) -> str | None:
     for clue in clues:
         cipher_text = _encrypted_phone_text(clue)
         if cipher_text:
-            phone = normalize_phone(encrypted_phone_plain_values.get(cipher_text))
-            if phone:
-                return phone, "enc_telephone"
-    return None, None
+            return cipher_text
+    return None
+
+
+def _phone_source(
+    clues: list[RawDouyinClue],
+) -> tuple[str | None, str | None, str | None]:
+    """Return ``(kind, value, source_label)`` for the current source data."""
+
+    plain_phone, plain_source = _first_plain_clue_phone(clues)
+    if plain_phone:
+        return "plain", plain_phone, plain_source
+    for clue in clues:
+        masked = _masked_clue_phone(clue)
+        if masked:
+            return "masked", masked, "masked"
+    cipher_text = _first_cipher_clue_phone(clues)
+    if cipher_text:
+        return "cipher", cipher_text, "enc_telephone"
+    return None, None, None
 
 
 def _first_plain_clue_phone(clues: list[RawDouyinClue]) -> tuple[str | None, str | None]:
@@ -259,56 +292,62 @@ def _encrypted_phone_plain_values(
     existing_center_orders: dict[str, ClueCenterOrder],
     resolver: PhonePlainResolver | None,
 ) -> dict[str, str]:
-    if resolver is None:
-        return {}
+    resolved_values: dict[str, str] = {}
     cipher_texts: list[str] = []
     for order_id, clues in grouped.items():
         existing = existing_center_orders.get(order_id)
-        if existing is not None and normalize_phone(existing.phone_plain):
-            continue
         sorted_clues = sorted(clues, key=_clue_sort_key)
-        plain_phone, _ = _first_plain_clue_phone(sorted_clues)
-        if plain_phone:
+        source_kind, source_value, _ = _phone_source(sorted_clues)
+        if source_kind != "cipher" or not source_value:
             continue
-        for clue in sorted_clues:
-            cipher_text = _encrypted_phone_text(clue)
-            if cipher_text:
-                cipher_texts.append(cipher_text)
-                break
+        cipher_text = source_value
+        source_fingerprint = phone_source_fingerprint(cipher_text=cipher_text)
+        cached_phone = normalize_phone(existing.phone_plain) if existing is not None else ""
+        if (
+            cached_phone
+            and source_fingerprint
+            and existing is not None
+            and existing.phone_source_fingerprint == source_fingerprint
+        ):
+            resolved_values[cipher_text] = cached_phone
+            continue
+        if resolver is not None:
+            cipher_texts.append(cipher_text)
     cipher_texts = [cipher_text for cipher_text in dict.fromkeys(cipher_texts) if cipher_text]
-    if not cipher_texts:
-        return {}
+    if not cipher_texts or resolver is None:
+        return resolved_values
     try:
-        return {
+        resolved_values.update({
             cipher_text: phone
             for cipher_text, value in resolver(cipher_texts).items()
             if (phone := normalize_phone(value))
-        }
+        })
+        return resolved_values
     except Exception:
         print("[worker-clue-center] encrypted phone resolver failed", flush=True)
-        return {}
+        return resolved_values
 
 
 def _encrypted_phone_text(clue: RawDouyinClue) -> str | None:
+    value = _clean(clue.telephone)
+    if is_online_cipher(value):
+        return value
+
     value = _clean(clue.enc_telephone)
-    if _is_online_cipher(value):
+    if is_online_cipher(value):
         return value
 
     raw_payload = clue.raw_payload if isinstance(clue.raw_payload, dict) else {}
     for key in ENCRYPTED_PHONE_PAYLOAD_KEYS:
         value = _clean(raw_payload.get(key))
-        if _is_online_cipher(value):
+        if is_online_cipher(value):
             return value
 
     for key in PHONE_PAYLOAD_KEYS:
         value = _clean(raw_payload.get(key))
-        if _is_online_cipher(value):
+        if is_online_cipher(value):
             return value
     return None
-
-
-def _is_online_cipher(value: str | None) -> bool:
-    return bool(value and value.startswith("Enc."))
 
 
 def _mask_or_masked_phone(value: str | None) -> str:
@@ -378,30 +417,103 @@ def _master_leads_by_source_clue_row_key(
     source_clue_row_keys = {clue.clue_row_key for clue in raw_clues if clue.clue_row_key}
     if not source_clue_row_keys:
         return {}
-    rows = session.scalars(
-        select(ClueMasterLead).where(ClueMasterLead.source_clue_row_key.in_(source_clue_row_keys))
+    mapped: dict[str, ClueMasterLead] = {}
+    linked_rows = session.execute(
+        select(
+            ClueSourceRecordLink.source_record_key,
+            ClueSourceRecordLink.link_status,
+            ClueMasterLead,
+        )
+        .join(ClueMasterLead, ClueMasterLead.lead_key == ClueSourceRecordLink.lead_key)
+        .where(ClueSourceRecordLink.source_table == "raw_douyin_clues")
+        .where(ClueSourceRecordLink.source_record_key.in_(source_clue_row_keys))
     ).all()
-    return {row.source_clue_row_key: row for row in rows}
+    linked_keys: set[str] = set()
+    for source_record_key, link_status, lead in linked_rows:
+        linked_keys.add(source_record_key)
+        if link_status == 1 and lead is not None:
+            mapped[source_record_key] = lead
+
+    # Pre-link historical rows still exist in local/test databases.  Keep the
+    # old direct lookup only when no authoritative link row exists; a conflict
+    # or isolated link must never be silently replaced by the legacy pointer.
+    legacy_rows = session.scalars(
+        select(ClueMasterLead).where(
+            ClueMasterLead.source_clue_row_key.in_(source_clue_row_keys - linked_keys)
+        )
+    ).all()
+    mapped.update({row.source_clue_row_key: row for row in legacy_rows})
+    return mapped
+
+
+def _locked_master_leads(
+    session: Session,
+    candidates: list[ClueMasterLead],
+) -> dict[str, ClueMasterLead]:
+    """Lock every candidate master in lead-key order before child rows.
+
+    Allocation and due-transition writers use the same lead-key ordering.  A
+    projection batch therefore owns the complete master lock set first, then
+    the order loop may acquire round/center locks without crossing another
+    writer's master order.  The locked query refreshes identity-map state after
+    taking the database lock so a stale projection cannot overwrite a newer
+    committed allocation state.
+    """
+
+    lead_keys = sorted({candidate.lead_key for candidate in candidates if candidate.lead_key})
+    if not lead_keys:
+        return {}
+    statement = (
+        select(ClueMasterLead)
+        .where(ClueMasterLead.lead_key.in_(lead_keys))
+        .order_by(ClueMasterLead.lead_key)
+        .with_for_update()
+        .execution_options(autoflush=False)
+    )
+    with session.no_autoflush:
+        rows = session.scalars(
+            statement.execution_options(populate_existing=True)
+        ).all()
+        refresh_dirty_rounds_for_locked_leads(session, (row.lead_key for row in rows))
+    return {row.lead_key: row for row in rows}
+
+
+def _locked_center_order(session: Session, order_id: str) -> ClueCenterOrder | None:
+    with session.no_autoflush:
+        statement = (
+            select(ClueCenterOrder)
+            .where(ClueCenterOrder.order_id == order_id)
+            .with_for_update()
+            .execution_options(autoflush=False)
+        )
+        return session.scalar(statement.execution_options(populate_existing=True))
 
 
 def _formal_round_for_projection(
     session: Session,
     lead: ClueMasterLead | None,
-    center_order: ClueCenterOrder,
+    order_id: str,
 ) -> ClueAssignmentRound | None:
-    round_id = (
-        lead.current_assignment_round_id
-        if lead is not None
-        else center_order.current_assignment_round_id
-    )
+    # The master row has just been refreshed and locked.  Never select a
+    # current round from a stale center row when the master link is missing.
+    round_id = lead.current_assignment_round_id if lead is not None else None
     if not round_id:
         return None
-    round_row = session.get(ClueAssignmentRound, round_id)
+    with session.no_autoflush:
+        statement = (
+            select(ClueAssignmentRound)
+            .where(ClueAssignmentRound.assignment_round_id == round_id)
+            .with_for_update()
+            .execution_options(autoflush=False)
+        )
+        round_row = session.scalar(
+            statement.execution_options(populate_existing=True)
+        )
     if round_row is None or round_row.execution_mode != BUSINESS_EXECUTION_MODE:
         return None
     if round_row.round_status not in ACTIVE_ROUND_STATUSES:
         return None
-    if round_row.order_id != center_order.order_id:
+    if round_row.order_id != order_id:
         return None
     if lead is not None and (
         round_row.lead_key != lead.lead_key
@@ -414,11 +526,16 @@ def _formal_round_for_projection(
 def _latest_closed_formal_round(
     session: Session,
     lead: ClueMasterLead | None,
-    center_order: ClueCenterOrder,
+    order_id: str,
 ) -> ClueAssignmentRound | None:
+    # Historical rounds are authoritative only through a locked master.  An
+    # order-only lookup could lock a round owned by another master and violate
+    # the shared master -> round -> center lock contract.
+    if lead is None:
+        return None
     statement = (
         select(ClueAssignmentRound)
-        .where(ClueAssignmentRound.order_id == center_order.order_id)
+        .where(ClueAssignmentRound.order_id == order_id)
         .where(ClueAssignmentRound.execution_mode == BUSINESS_EXECUTION_MODE)
         .where(ClueAssignmentRound.round_status.not_in(ACTIVE_ROUND_STATUSES))
         .order_by(
@@ -428,9 +545,13 @@ def _latest_closed_formal_round(
         )
         .limit(1)
     )
-    if lead is not None:
-        statement = statement.where(ClueAssignmentRound.lead_key == lead.lead_key)
-    return session.scalar(statement)
+    statement = statement.where(ClueAssignmentRound.lead_key == lead.lead_key)
+    with session.no_autoflush:
+        return session.scalar(
+            statement
+            .with_for_update()
+            .execution_options(populate_existing=True, autoflush=False)
+        )
 
 
 def _project_unassigned_state(
@@ -490,17 +611,29 @@ def _refresh_center_source_fields(
     center_order.source_clue_ids = [_clue_identifier(clue) for clue in sorted_clues]
     center_order.source_clue_count = len(sorted_clues)
     center_order.canonical_clue_id = _clean(canonical.clue_id)
-    phone_plain, phone_source = _first_clue_phone(sorted_clues, encrypted_phone_plain_values)
-    if not phone_plain:
-        phone_plain = normalize_phone(center_order.phone_plain)
-        phone_source = _clean(center_order.phone_source)
-    phone_masked = mask_phone(phone_plain)
-    if not phone_masked:
-        phone_masked = _mask_or_masked_phone(center_order.phone_masked)
-        phone_source = phone_source or _clean(center_order.phone_source)
-    center_order.phone_plain = phone_plain or None
+    source_kind, source_value, source_label = _phone_source(sorted_clues)
+    phone_plain: str | None = None
+    phone_masked: str | None = None
+    source_fingerprint: str | None = None
+    if source_kind == "plain" and source_value:
+        phone_plain = normalize_phone(source_value)
+        phone_masked = mask_phone(phone_plain)
+        source_fingerprint = phone_source_fingerprint(plain_phone=phone_plain)
+    elif source_kind == "masked" and source_value:
+        phone_masked = _mask_or_masked_phone(source_value)
+    elif source_kind == "cipher" and source_value:
+        phone_plain = normalize_phone(encrypted_phone_plain_values.get(source_value))
+        if phone_plain:
+            phone_masked = mask_phone(phone_plain)
+        source_fingerprint = phone_source_fingerprint(cipher_text=source_value)
+
+    # A source disappearing or becoming unresolvable must invalidate the old
+    # cached plaintext.  A nullable fingerprint on historical rows is never a
+    # reason to trust that cache as if it had been verified.
+    center_order.phone_plain = phone_plain
     center_order.phone_masked = phone_masked
-    center_order.phone_source = phone_source if phone_plain or phone_masked else None
+    center_order.phone_source = source_label if phone_plain or phone_masked else None
+    center_order.phone_source_fingerprint = source_fingerprint
     center_order.product_id = _clean(canonical.product_id)
     center_order.product_name = _clean(canonical.product_name)
     center_order.product_type = product_rule.product_type if product_rule else None
@@ -508,7 +641,11 @@ def _refresh_center_source_fields(
 
 
 def _existing_center_orders(session: Session, order_ids: set[str]) -> dict[str, ClueCenterOrder]:
-    rows = session.scalars(select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_ids))).all()
+    rows = session.scalars(
+        select(ClueCenterOrder)
+        .where(ClueCenterOrder.order_id.in_(order_ids))
+        .execution_options(populate_existing=True)
+    ).all()
     return {row.order_id: row for row in rows}
 
 

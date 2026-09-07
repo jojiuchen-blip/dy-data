@@ -310,6 +310,11 @@ def _activate_order_one(session: Session) -> None:
 
 def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> None:
     _seed_clue_center(db_session)
+    db_session.add_all([
+        RawDouyinClue(clue_row_key="dashboard-source-1", order_id="order-1", order_status="201", telephone="13812345678", raw_payload={}),
+        RawDouyinClue(clue_row_key="dashboard-source-2", order_id="order-2", order_status="201", telephone="13912345678", raw_payload={}),
+    ])
+    db_session.flush()
     _login(client)
 
     filters = client.get("/api/v1/clues/filters")
@@ -508,10 +513,43 @@ def test_clue_overview_separates_action_and_effective_follow_rates(
     assert metrics["follow_success_rate"] == 0.5
 
 
+def test_clue_overview_counts_unique_orders_within_selected_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    db_session.add(ClueAssignmentRound(
+        assignment_round_id="order-2-historical", order_id="order-2", round_no=2,
+        assigned_at=_dt(1), assigned_at_source="test", assigned_store_id="store-1",
+        execution_mode="formal", round_status="closed_reassigned",
+        follow_result="appointment", is_followed=True, is_follow_success=True,
+        is_self_store_verified=False, created_at=_dt(1), updated_at=_dt(1),
+    ))
+    db_session.add(ClueAssignmentRound(
+        assignment_round_id="order-2-outside-scope", order_id="order-2", round_no=3,
+        assigned_at=_dt(1), assigned_at_source="test", assigned_store_id="store-2",
+        execution_mode="formal", round_status="closed_reassigned",
+        follow_result="appointment", is_followed=True, is_follow_success=True,
+        is_self_store_verified=True, created_at=_dt(1), updated_at=_dt(1),
+    ))
+    db_session.commit()
+    _login(client)
+    response = client.get("/api/v1/clues/overview?assigned_store_id=store-1")
+    assert response.status_code == 200
+    metrics = response.json()["data"]
+    assert metrics["total_clues"] == 2
+    assert metrics["active_clues"] == 2
+    assert metrics["follow_rate"] == 1
+    assert metrics["follow_success_rate"] == 1
+    assert metrics["verified_count"] == 1
+    assert metrics["self_store_verify_rate"] == 0.5
+
+
 def test_clue_assignment_rounds_export_csv_includes_plain_phone_and_scope(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    db_session.add(RawDouyinClue(clue_row_key="verified-source-order-2", order_id="order-2", order_status="201", telephone="13912345678", raw_payload={}))
+    db_session.flush()
     db_session.add(
         ClueAssignmentRound(
             assignment_round_id="order-2-2",
@@ -800,6 +838,8 @@ def test_clue_order_detail_returns_all_assignment_rounds(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    db_session.add(RawDouyinClue(clue_row_key="verified-source-order-1", order_id="order-1", order_status="201", telephone="13812345678", raw_payload={}))
+    db_session.flush()
     db_session.add(
         ClueAssignmentRound(
             assignment_round_id="order-1-2",
@@ -1055,6 +1095,7 @@ def test_database_admin_can_write_follow_up_but_cannot_soft_delete(
                 external_account_id="ordinary-admin",
                 display_name="Ordinary Admin",
                 role="admin",
+                store_scope_mode="all",
                 status="active",
                 is_initialized=True,
                 password_hash=hash_password_pbkdf2("ordinary-admin-secret"),
@@ -1477,9 +1518,13 @@ def test_clue_phone_reveal_uses_cached_plain_phone_without_decrypting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _seed_clue_center(db_session)
+    db_session.add(RawDouyinClue(clue_row_key="verified-source-order-1", order_id="order-1", order_status="201", enc_telephone="Enc.verified-source", raw_payload={}))
+    db_session.flush()
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
     _activate_order_one(db_session)
+    from src.dy_data.phones import phone_source_fingerprint
+    order.phone_source_fingerprint = phone_source_fingerprint(cipher_text="Enc.verified-source")
     order.phone_plain = "13812345678"
     order.phone_masked = "138****5678"
     db_session.commit()
@@ -1545,6 +1590,8 @@ def test_store_account_sees_only_own_round_but_can_open_full_order_detail(
     client: TestClient, db_session: Session
 ) -> None:
     _seed_clue_center(db_session)
+    db_session.add(RawDouyinClue(clue_row_key="verified-source-order-1", order_id="order-1", order_status="201", telephone="13812345678", raw_payload={}))
+    db_session.flush()
     order = db_session.get(ClueCenterOrder, "order-1")
     assert order is not None
     order.lead_status = "active"

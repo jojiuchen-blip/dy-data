@@ -1617,6 +1617,7 @@ export function fetchClueOrderDetail(
         `/clues/orders/${encodeURIComponent(orderId)}`,
       ),
     () => mockClueOrderDetailResponse(orderId),
+    { fallbackOnError: false },
   );
 }
 
@@ -2415,15 +2416,19 @@ export async function runManualSync({
   };
 }
 
-export async function fetchClueAllocationEligibleLeads(): Promise<
+export async function fetchClueAllocationEligibleLeads(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<ClueAllocationEligibleLeadData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getEligibleLeads());
+    return demoLoad(() => clueDemoRepository.getEligibleLeads(page, pageSize));
   }
   return {
     ...(await requestJson<ClueAllocationEligibleLeadData>(
       "/admin/clue-allocation/eligible-leads",
+      { page, page_size: pageSize },
     )),
     usingMock: false,
   };
@@ -2458,15 +2463,19 @@ export async function fetchClueHeadquartersPool(
   };
 }
 
-export async function fetchClueAllocationCycles(): Promise<
+export async function fetchClueAllocationCycles(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<ClueAllocationCycleData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getCycles());
+    return demoLoad(() => clueDemoRepository.getCycles(page, pageSize));
   }
   return {
     ...(await requestJson<ClueAllocationCycleData>(
       "/admin/clue-allocation/cycles",
+      { page, page_size: pageSize },
     )),
     usingMock: false,
   };
@@ -2489,15 +2498,19 @@ export async function fetchClueAllocationCycle(
   };
 }
 
-export async function fetchClueAllocationAuditLogs(): Promise<
+export async function fetchClueAllocationAuditLogs(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<ClueAllocationAuditLogData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getAuditLogs());
+    return demoLoad(() => clueDemoRepository.getAuditLogs(page, pageSize));
   }
   return {
     ...(await requestJson<ClueAllocationAuditLogData>(
       "/admin/clue-allocation/audit-logs",
+      { page, page_size: pageSize },
     )),
     usingMock: false,
   };
@@ -2566,14 +2579,20 @@ export async function rebuildClueAllocationTrial(
   };
 }
 
-export async function fetchClueAllocationRules(): Promise<
+export async function fetchClueAllocationRules(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<ClueAllocationRuleListData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getRules());
+    return demoLoad(() => clueDemoRepository.getRules(page, pageSize));
   }
   return {
-    ...(await requestJson<ClueAllocationRuleListData>("/admin/clue-allocation/rules")),
+    ...(await requestJson<ClueAllocationRuleListData>(
+      "/admin/clue-allocation/rules",
+      { page, page_size: pageSize },
+    )),
     usingMock: false,
   };
 }
@@ -2592,26 +2611,38 @@ export async function fetchClueAllocationRuleDetail(
   };
 }
 
-export async function fetchClueAllocationDecisions(): Promise<
+export async function fetchClueAllocationDecisions(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<ClueAllocationDecisionData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getDecisions());
+    return demoLoad(() => clueDemoRepository.getDecisions(page, pageSize));
   }
   return {
-    ...(await requestJson<ClueAllocationDecisionData>("/admin/clue-allocation/decisions")),
+    ...(await requestJson<ClueAllocationDecisionData>(
+      "/admin/clue-allocation/decisions",
+      { page, page_size: pageSize },
+    )),
     usingMock: false,
   };
 }
 
-export async function fetchClueAllocationStoreScores(): Promise<
+export async function fetchClueAllocationStoreScores(
+  page = 1,
+  pageSize = 50,
+): Promise<
   ApiLoadResult<StoreScoreSnapshotData>
 > {
   if (isClueDemoRuntime()) {
-    return demoLoad(() => clueDemoRepository.getStoreScores());
+    return demoLoad(() => clueDemoRepository.getStoreScores(page, pageSize));
   }
   return {
-    ...(await requestJson<StoreScoreSnapshotData>("/admin/clue-allocation/store-scores")),
+    ...(await requestJson<StoreScoreSnapshotData>(
+      "/admin/clue-allocation/store-scores",
+      { page, page_size: pageSize },
+    )),
     usingMock: false,
   };
 }

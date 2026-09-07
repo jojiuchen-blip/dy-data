@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   ApiRequestError,
   createClueAllocationRule,
@@ -17,6 +17,7 @@ import {
   rebuildClueAllocationTrial,
   retireClueAllocationRuleVersion,
   runClueAllocationTrial,
+  type ApiLoadResult,
   type ClueHeadquartersPoolFilters,
 } from "../api/client";
 import { Button } from "../components/Button";
@@ -42,6 +43,7 @@ import type {
   ClueAllocationRuleVersionWrite,
   ClueHeadquartersPoolData,
   ClueHeadquartersPoolEntry,
+  Pagination,
   StoreScoreSnapshot,
   StoreScoreSnapshotData,
 } from "../types/dashboard";
@@ -110,6 +112,14 @@ const defaultRuleVersionDraft: RuleVersionDraft = {
   nearbyCityEnabled: true,
   nearbyCityDistanceKm: 15,
   cityFallbackEnabled: true,
+};
+
+const allocationPageSizeOptions = [20, 50, 100];
+const emptyAllocationPagination: Pagination = {
+  page: 1,
+  page_size: 50,
+  total: 0,
+  total_pages: 0,
 };
 
 const defaultHeadquartersFilters: ClueHeadquartersPoolFilters = {
@@ -320,6 +330,10 @@ export function AdminClueAllocationPage({
   isHighestAdmin,
 }: AdminClueAllocationPageProps) {
   const [eligibleLeads, setEligibleLeads] = useState<ClueAllocationEligibleLead[]>([]);
+  const [eligiblePagination, setEligiblePagination] = useState<Pagination>(
+    emptyAllocationPagination,
+  );
+  const [eligibleLoading, setEligibleLoading] = useState(false);
   const [headquartersPool, setHeadquartersPool] = useState<ClueHeadquartersPoolData>(
     emptyHeadquartersPoolData,
   );
@@ -329,17 +343,34 @@ export function AdminClueAllocationPage({
     useState<ClueHeadquartersPoolFilters>(defaultHeadquartersFilters);
   const [headquartersLoading, setHeadquartersLoading] = useState(false);
   const [cycles, setCycles] = useState<ClueAllocationCycle[]>([]);
+  const [cyclesPagination, setCyclesPagination] = useState<Pagination>(
+    emptyAllocationPagination,
+  );
+  const [cyclesLoading, setCyclesLoading] = useState(false);
   const [selectedCycleDetail, setSelectedCycleDetail] =
     useState<ClueAllocationCycleDetailData | null>(null);
   const [cycleDetailLoading, setCycleDetailLoading] = useState(false);
   const [auditLogs, setAuditLogs] = useState<ClueAllocationAuditLog[]>([]);
+  const [auditPagination, setAuditPagination] = useState<Pagination>(
+    emptyAllocationPagination,
+  );
+  const [auditLoading, setAuditLoading] = useState(false);
   const [rules, setRules] = useState<ClueAllocationRule[]>([]);
+  const [rulesPagination, setRulesPagination] = useState<Pagination>(
+    emptyAllocationPagination,
+  );
+  const [rulesLoading, setRulesLoading] = useState(false);
   const [selectedRuleId, setSelectedRuleId] = useState("");
   const [selectedRuleDetail, setSelectedRuleDetail] = useState<ClueAllocationRuleDetailData | null>(
     null,
   );
   const [decisions, setDecisions] = useState<ClueAllocationDecision[]>([]);
+  const [decisionsPagination, setDecisionsPagination] = useState<Pagination>(
+    emptyAllocationPagination,
+  );
+  const [decisionsLoading, setDecisionsLoading] = useState(false);
   const [scoreData, setScoreData] = useState<StoreScoreSnapshotData | null>(null);
+  const [scoresLoading, setScoresLoading] = useState(false);
   const [selectedLeadKeys, setSelectedLeadKeys] = useState<Set<string>>(new Set());
   const [selectedRebuildCycleId, setSelectedRebuildCycleId] = useState("");
   const [preview, setPreview] = useState<ClueAllocationCyclePreview | null>(null);
@@ -365,6 +396,8 @@ export function AdminClueAllocationPage({
   );
   const [newRuleScopeTarget, setNewRuleScopeTarget] = useState("");
   const isWritable = isHighestAdmin && !isCompactViewport;
+  const resourceRequestIds = useRef<Record<string, number>>({});
+  const loadRequestId = useRef(0);
 
   const selectedKeys = useMemo(
     () => Array.from(selectedLeadKeys).sort(),
@@ -375,11 +408,28 @@ export function AdminClueAllocationPage({
     [cycles],
   );
 
+  const beginResourceRequest = (resource: string): number => {
+    const requestId = (resourceRequestIds.current[resource] ?? 0) + 1;
+    resourceRequestIds.current[resource] = requestId;
+    return requestId;
+  };
+
+  const isCurrentResourceRequest = (resource: string, requestId: number): boolean =>
+    resourceRequestIds.current[resource] === requestId;
+
+  const allocationReadError = (error: unknown, fallback: string): string => {
+    if (error instanceof ApiRequestError && error.status === 403) {
+      return "当前账号没有线索分配读取权限。";
+    }
+    return userFacingError(error, fallback);
+  };
+
   const refreshHeadquartersPool = async (
     filters: ClueHeadquartersPoolFilters,
     page = 1,
     pageSize = headquartersPool.pagination.page_size,
   ) => {
+    const requestId = beginResourceRequest("headquarters");
     setHeadquartersLoading(true);
     try {
       const response = await fetchClueHeadquartersPool({
@@ -387,19 +437,170 @@ export function AdminClueAllocationPage({
         page,
         page_size: pageSize,
       });
+      if (!isCurrentResourceRequest("headquarters", requestId)) {
+        return false;
+      }
       setHeadquartersPool(normalizeHeadquartersPoolData(response.data));
       return true;
     } catch (error) {
-      setStatusText(
-        error instanceof ApiRequestError && error.status === 422
-          ? "总部池筛选条件无效，请检查日期范围。"
-          : "总部线索池暂时无法读取。",
-      );
+      if (isCurrentResourceRequest("headquarters", requestId)) {
+        setStatusText(
+          error instanceof ApiRequestError && error.status === 422
+            ? "总部池筛选条件无效，请检查日期范围。"
+            : "总部线索池暂时无法读取。",
+        );
+      }
       return false;
     } finally {
-      setHeadquartersLoading(false);
+      if (isCurrentResourceRequest("headquarters", requestId)) {
+        setHeadquartersLoading(false);
+      }
     }
   };
+
+  const loadPaginatedResource = async <TData extends {
+    rows: unknown[];
+    pagination: Pagination;
+  }>(
+    resource: string,
+    page: number,
+    pageSize: number,
+    setResourceLoading: (loading: boolean) => void,
+    fetchPage: (page: number, pageSize: number) => Promise<ApiLoadResult<TData>>,
+    onSuccess: (data: TData) => void,
+    fallback: string,
+  ): Promise<boolean> => {
+    const requestId = beginResourceRequest(resource);
+    setResourceLoading(true);
+    try {
+      const response = await fetchPage(page, pageSize);
+      if (!isCurrentResourceRequest(resource, requestId)) {
+        return false;
+      }
+      onSuccess(response.data);
+      return true;
+    } catch (error) {
+      if (isCurrentResourceRequest(resource, requestId)) {
+        setStatusText(allocationReadError(error, fallback));
+      }
+      return false;
+    } finally {
+      if (isCurrentResourceRequest(resource, requestId)) {
+        setResourceLoading(false);
+      }
+    }
+  };
+
+  const loadEligibleLeads = (
+    page = eligiblePagination.page,
+    pageSize = eligiblePagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "eligible",
+      page,
+      pageSize,
+      setEligibleLoading,
+      fetchClueAllocationEligibleLeads,
+      (data) => {
+        setEligibleLeads(data.rows);
+        setEligiblePagination(data.pagination);
+        setSelectedLeadKeys((current) => {
+          const visibleKeys = new Set(data.rows.map((row) => row.lead_key));
+          return new Set(Array.from(current).filter((leadKey) => visibleKeys.has(leadKey)));
+        });
+      },
+      "待试运行线索暂时无法读取。",
+    );
+
+  const loadCycles = (
+    page = cyclesPagination.page,
+    pageSize = cyclesPagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "cycles",
+      page,
+      pageSize,
+      setCyclesLoading,
+      fetchClueAllocationCycles,
+      (data) => {
+        setCycles(data.rows);
+        setCyclesPagination(data.pagination);
+        setSelectedRebuildCycleId((current) =>
+          data.rows.some((cycle) => cycle.allocation_cycle_id === current) ? current : "",
+        );
+      },
+      "分配批次暂时无法读取。",
+    );
+
+  const loadDecisions = (
+    page = decisionsPagination.page,
+    pageSize = decisionsPagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "decisions",
+      page,
+      pageSize,
+      setDecisionsLoading,
+      fetchClueAllocationDecisions,
+      (data) => {
+        setDecisions(data.rows);
+        setDecisionsPagination(data.pagination);
+      },
+      "分配决策暂时无法读取。",
+    );
+
+  const loadScores = (
+    page = scoreData?.pagination.page ?? 1,
+    pageSize = scoreData?.pagination.page_size ?? emptyAllocationPagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "scores",
+      page,
+      pageSize,
+      setScoresLoading,
+      fetchClueAllocationStoreScores,
+      setScoreData,
+      "门店评分快照暂时无法读取。",
+    );
+
+  const loadAuditLogs = (
+    page = auditPagination.page,
+    pageSize = auditPagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "audit",
+      page,
+      pageSize,
+      setAuditLoading,
+      fetchClueAllocationAuditLogs,
+      (data) => {
+        setAuditLogs(data.rows);
+        setAuditPagination(data.pagination);
+      },
+      "审计记录暂时无法读取。",
+    );
+
+  const loadRules = (
+    page = rulesPagination.page,
+    pageSize = rulesPagination.page_size,
+  ): Promise<boolean> =>
+    loadPaginatedResource(
+      "rules",
+      page,
+      pageSize,
+      setRulesLoading,
+      fetchClueAllocationRules,
+      (data) => {
+        setRules(data.rows);
+        setRulesPagination(data.pagination);
+        setSelectedRuleId((current) =>
+          data.rows.some((rule) => rule.rule_id === current)
+            ? current
+            : data.rows[0]?.rule_id ?? "",
+        );
+      },
+      "线索分配规则暂时无法读取。",
+    );
 
   const applyHeadquartersFilters = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -428,66 +629,51 @@ export function AdminClueAllocationPage({
   };
 
   const load = async ({ clearStatus = true }: { clearStatus?: boolean } = {}) => {
+    const requestId = ++loadRequestId.current;
     setLoading(true);
+    let succeeded = true;
     try {
       if (activeSubview === "trial") {
-        const [eligible, cycleData] = await Promise.all([
-          fetchClueAllocationEligibleLeads(),
-          fetchClueAllocationCycles(),
-        ]);
-        setEligibleLeads(eligible.data.rows);
-        setCycles(cycleData.data.rows);
-        setSelectedLeadKeys((current) => {
-          const valid = new Set(eligible.data.rows.map((row) => row.lead_key));
-          return new Set(Array.from(current).filter((leadKey) => valid.has(leadKey)));
-        });
-        setSelectedRebuildCycleId((current) =>
-          cycleData.data.rows.some((cycle) => cycle.allocation_cycle_id === current)
-            ? current
-            : "",
-        );
+        const results = await Promise.all([loadEligibleLeads(), loadCycles()]);
+        succeeded = results.every(Boolean);
       } else if (activeSubview === "records") {
-        const [cycleData, decisionData, scores] = await Promise.all([
-          fetchClueAllocationCycles(),
-          fetchClueAllocationDecisions(),
-          fetchClueAllocationStoreScores(),
+        const results = await Promise.all([
+          loadCycles(),
+          loadDecisions(),
+          loadScores(),
         ]);
-        setCycles(cycleData.data.rows);
-        setDecisions(decisionData.data.rows);
-        setScoreData(scores.data);
+        succeeded = results.every(Boolean);
         if (isHighestAdmin) {
-          const auditData = await fetchClueAllocationAuditLogs();
-          setAuditLogs(auditData.data.rows);
+          succeeded = (await loadAuditLogs()) && succeeded;
         } else {
           setAuditLogs([]);
+          setAuditPagination(emptyAllocationPagination);
         }
       } else if (activeSubview === "headquarters") {
-        const headquarters = await fetchClueHeadquartersPool({
-          ...headquartersFilters,
-          page: headquartersPool.pagination.page,
-          page_size: headquartersPool.pagination.page_size,
-        });
-        setHeadquartersPool(normalizeHeadquartersPoolData(headquarters.data));
-      } else {
-        const ruleData = await fetchClueAllocationRules();
-        setRules(ruleData.data.rows);
-        setSelectedRuleId((current) =>
-          ruleData.data.rows.some((rule) => rule.rule_id === current)
-            ? current
-            : ruleData.data.rows[0]?.rule_id ?? "",
+        succeeded = await refreshHeadquartersPool(
+          headquartersFilters,
+          headquartersPool.pagination.page,
+          headquartersPool.pagination.page_size,
         );
+      } else {
+        succeeded = await loadRules();
       }
-      if (clearStatus) {
+      if (clearStatus && succeeded && loadRequestId.current === requestId) {
         setStatusText("");
       }
     } catch (error) {
+      if (loadRequestId.current !== requestId) {
+        return;
+      }
       if (error instanceof ApiRequestError && error.status === 403) {
         setStatusText("当前账号没有线索分配试运行权限。");
       } else {
         setStatusText("线索分配控制数据暂时无法读取。");
       }
     } finally {
-      setLoading(false);
+      if (loadRequestId.current === requestId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -860,14 +1046,22 @@ export function AdminClueAllocationPage({
     page = 1,
     pageSize = 50,
   ) => {
+    const requestId = beginResourceRequest("cycle-detail");
     setCycleDetailLoading(true);
     try {
       const response = await fetchClueAllocationCycle(cycleId, page, pageSize);
+      if (!isCurrentResourceRequest("cycle-detail", requestId)) {
+        return;
+      }
       setSelectedCycleDetail(response.data);
     } catch (error) {
-      setStatusText(userFacingError(error, "分配批次详情暂时无法读取。"));
+      if (isCurrentResourceRequest("cycle-detail", requestId)) {
+        setStatusText(userFacingError(error, "分配批次详情暂时无法读取。"));
+      }
     } finally {
-      setCycleDetailLoading(false);
+      if (isCurrentResourceRequest("cycle-detail", requestId)) {
+        setCycleDetailLoading(false);
+      }
     }
   };
 
@@ -1282,7 +1476,9 @@ export function AdminClueAllocationPage({
             <p>仅展示没有当前分配轮次的有效线索；总部池线索保留在总部池，暂不通过本页再投放。</p>
           </div>
           <span className="source-pill">
-            {isWritable ? `已选 ${selectedKeys.length} 条` : `共 ${eligibleLeads.length} 条`}
+            {isWritable
+              ? `已选 ${selectedKeys.length} 条`
+              : `共 ${eligiblePagination.total} 条`}
           </span>
         </div>
         {isWritable ? (
@@ -1319,9 +1515,22 @@ export function AdminClueAllocationPage({
         ) : null}
         <DataTable
           columns={eligibleColumns}
-          emptyText={loading ? "正在加载待试运行线索..." : "暂无可试运行线索"}
+          emptyText={loading || eligibleLoading ? "正在加载待试运行线索..." : "暂无可试运行线索"}
           rows={eligibleLeads}
           stickyHeader="container"
+        />
+        <TablePagination
+          loading={eligibleLoading}
+          onPageChange={(page) =>
+            void loadEligibleLeads(page, eligiblePagination.page_size)
+          }
+          onPageSizeChange={(pageSize) => void loadEligibleLeads(1, pageSize)}
+          page={eligiblePagination.page}
+          pageSize={eligiblePagination.page_size}
+          pageSizeOptions={allocationPageSizeOptions}
+          rowsOnPage={eligibleLeads.length}
+          total={eligiblePagination.total}
+          totalPages={eligiblePagination.total_pages}
         />
       </section>
 
@@ -1355,6 +1564,20 @@ export function AdminClueAllocationPage({
               }))}
               placeholder="请选择批次"
               value={selectedRebuildCycleId}
+            />
+            <small>
+              当前显示第 {cyclesPagination.page} 页批次，共 {cyclesPagination.total} 次；翻页后可选择其他批次。
+            </small>
+            <TablePagination
+              loading={cyclesLoading}
+              onPageChange={(page) => void loadCycles(page, cyclesPagination.page_size)}
+              onPageSizeChange={(pageSize) => void loadCycles(1, pageSize)}
+              page={cyclesPagination.page}
+              pageSize={cyclesPagination.page_size}
+              pageSizeOptions={allocationPageSizeOptions}
+              rowsOnPage={cycles.length}
+              total={cyclesPagination.total}
+              totalPages={cyclesPagination.total_pages}
             />
             <label className="filter-field checkbox-field">
               <span>允许覆盖已有跟进记录</span>
@@ -1402,7 +1625,7 @@ export function AdminClueAllocationPage({
             <h2>规则范围与版本</h2>
             <p>新线索首次命中已发布版本后固定沿用；历史轮次与决策快照不会被后续配置改写。</p>
           </div>
-          <span className="source-pill">{rules.length} 条规则</span>
+          <span className="source-pill">{rulesPagination.total} 条规则</span>
         </div>
         <div className="clue-allocation-management-grid">
           <div className="clue-allocation-rule-readonly">
@@ -1415,6 +1638,17 @@ export function AdminClueAllocationPage({
               }))}
               placeholder="请选择规则"
               value={selectedRuleId}
+            />
+            <TablePagination
+              loading={rulesLoading}
+              onPageChange={(page) => void loadRules(page, rulesPagination.page_size)}
+              onPageSizeChange={(pageSize) => void loadRules(1, pageSize)}
+              page={rulesPagination.page}
+              pageSize={rulesPagination.page_size}
+              pageSizeOptions={allocationPageSizeOptions}
+              rowsOnPage={rules.length}
+              total={rulesPagination.total}
+              totalPages={rulesPagination.total_pages}
             />
 
             {selectedRuleDetail ? (
@@ -1743,13 +1977,26 @@ export function AdminClueAllocationPage({
                 <h2>最近分配决策</h2>
                 <p>保留策略、选择结果、失败原因和当时的执行批次，用于复核而不暴露联系方式。</p>
               </div>
-              <span className="source-pill">{decisions.length} 条</span>
+              <span className="source-pill">{decisionsPagination.total} 条</span>
             </div>
             <DataTable
               columns={decisionColumns}
               emptyText={loading ? "正在加载分配决策..." : "暂无分配决策记录"}
               rows={decisions}
               stickyHeader="container"
+            />
+            <TablePagination
+              loading={decisionsLoading}
+              onPageChange={(page) =>
+                void loadDecisions(page, decisionsPagination.page_size)
+              }
+              onPageSizeChange={(pageSize) => void loadDecisions(1, pageSize)}
+              page={decisionsPagination.page}
+              pageSize={decisionsPagination.page_size}
+              pageSizeOptions={allocationPageSizeOptions}
+              rowsOnPage={decisions.length}
+              total={decisionsPagination.total}
+              totalPages={decisionsPagination.total_pages}
             />
           </section>
 
@@ -1769,6 +2016,19 @@ export function AdminClueAllocationPage({
               rows={scoreData?.rows ?? []}
               stickyHeader="container"
             />
+            <TablePagination
+              loading={scoresLoading}
+              onPageChange={(page) =>
+                void loadScores(page, scoreData?.pagination.page_size ?? 50)
+              }
+              onPageSizeChange={(pageSize) => void loadScores(1, pageSize)}
+              page={scoreData?.pagination.page ?? 1}
+              pageSize={scoreData?.pagination.page_size ?? 50}
+              pageSizeOptions={allocationPageSizeOptions}
+              rowsOnPage={scoreData?.rows.length ?? 0}
+              total={scoreData?.pagination.total ?? 0}
+              totalPages={scoreData?.pagination.total_pages ?? 0}
+            />
           </section>
 
           <section className="content-section">
@@ -1777,13 +2037,24 @@ export function AdminClueAllocationPage({
                 <h2>试运行记录</h2>
                 <p>记录每次批次执行范围、结果和操作人。</p>
               </div>
-              <span className="source-pill">{cycles.length} 次</span>
+              <span className="source-pill">{cyclesPagination.total} 次</span>
             </div>
             <DataTable
               columns={cycleColumns}
               emptyText={loading ? "正在加载试运行记录..." : "暂无试运行记录"}
               rows={cycles}
               stickyHeader="container"
+            />
+            <TablePagination
+              loading={cyclesLoading}
+              onPageChange={(page) => void loadCycles(page, cyclesPagination.page_size)}
+              onPageSizeChange={(pageSize) => void loadCycles(1, pageSize)}
+              page={cyclesPagination.page}
+              pageSize={cyclesPagination.page_size}
+              pageSizeOptions={allocationPageSizeOptions}
+              rowsOnPage={cycles.length}
+              total={cyclesPagination.total}
+              totalPages={cyclesPagination.total_pages}
             />
           </section>
 
@@ -1800,6 +2071,17 @@ export function AdminClueAllocationPage({
                 emptyText={loading ? "正在加载审计记录..." : "暂无审计记录"}
                 rows={auditLogs}
                 stickyHeader="container"
+              />
+              <TablePagination
+                loading={auditLoading}
+                onPageChange={(page) => void loadAuditLogs(page, auditPagination.page_size)}
+                onPageSizeChange={(pageSize) => void loadAuditLogs(1, pageSize)}
+                page={auditPagination.page}
+                pageSize={auditPagination.page_size}
+                pageSizeOptions={allocationPageSizeOptions}
+                rowsOnPage={auditLogs.length}
+                total={auditPagination.total}
+                totalPages={auditPagination.total_pages}
               />
             </section>
           ) : null}
@@ -1969,7 +2251,10 @@ export function AdminClueAllocationPage({
             ? `${displayAllocationCycleType(selectedCycleDetail.cycle.cycle_type)} · ${formatDateTime(selectedCycleDetail.cycle.completed_at ?? selectedCycleDetail.cycle.executed_at)}`
             : undefined
         }
-        onClose={() => setSelectedCycleDetail(null)}
+        onClose={() => {
+          beginResourceRequest("cycle-detail");
+          setSelectedCycleDetail(null);
+        }}
         open={Boolean(selectedCycleDetail)}
         panelClassName="clue-allocation-cycle-dialog"
         title="分配批次详情"

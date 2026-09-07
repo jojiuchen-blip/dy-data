@@ -140,26 +140,26 @@ def test_first_protection_action_sets_fixed_window_without_extension(db_session:
         order_id="order-1",
         assignment_round_id="round-1",
         follow_result="appointment",
-        actor={"user_id": "store-user", "username": "store-user", "role": "store", "auth_type": "user", "store_ids": ("store-1",)},
+        actor={"user_id": "store-user", "username": "store-user", "role": "store", "store_scope_mode": "specified", "auth_type": "user", "store_ids": ("store-1",)},
         now=_dt(3),
     )
 
     assert first.status == "ok"
-    assert round_row.protection_started_at == _dt(3)
-    assert round_row.protection_expires_at == _dt(3) + timedelta(days=7)
+    assert round_row.protection_started_at.replace(tzinfo=timezone.utc) == _dt(3)
+    assert round_row.protection_expires_at.replace(tzinfo=timezone.utc) == _dt(3) + timedelta(days=7)
 
     second = apply_follow_up_action(
         db_session,
         order_id="order-1",
         assignment_round_id="round-1",
         follow_result="unreachable",
-        actor={"user_id": "store-user", "username": "store-user", "role": "store", "auth_type": "user", "store_ids": ("store-1",)},
+        actor={"user_id": "store-user", "username": "store-user", "role": "store", "store_scope_mode": "specified", "auth_type": "user", "store_ids": ("store-1",)},
         now=_dt(4),
     )
 
     assert second.status == "ok"
-    assert round_row.protection_started_at == _dt(3)
-    assert round_row.protection_expires_at == _dt(3) + timedelta(days=7)
+    assert round_row.protection_started_at.replace(tzinfo=timezone.utc) == _dt(3)
+    assert round_row.protection_expires_at.replace(tzinfo=timezone.utc) == _dt(3) + timedelta(days=7)
 
 
 def test_admin_and_assigned_store_can_write_but_master_pool_pointer_is_authoritative(db_session: Session) -> None:
@@ -172,18 +172,19 @@ def test_admin_and_assigned_store_can_write_but_master_pool_pointer_is_authorita
         order_id="order-1",
         assignment_round_id="round-1",
         follow_result="appointment",
-        actor={"user_id": "admin-user", "username": "admin-user", "role": "admin", "auth_type": "user", "is_highest_admin": False},
+        actor={"user_id": "admin-user", "username": "admin-user", "role": "admin", "store_scope_mode": "all", "auth_type": "user", "is_highest_admin": False},
         now=_dt(2),
     )
     assert ordinary_admin.status == "ok"
 
     lead.pool_location = "headquarters_pool"
+    db_session.flush()
     highest_admin = apply_follow_up_action(
         db_session,
         order_id="order-1",
         assignment_round_id="round-1",
         follow_result="appointment",
-        actor={"username": "ordinary-admin", "role": "admin", "auth_type": "user", "is_highest_admin": False},
+        actor={"username": "ordinary-admin", "role": "admin", "store_scope_mode": "all", "auth_type": "user", "is_highest_admin": False},
         now=_dt(2),
     )
     assert highest_admin.status == "conflict"
@@ -206,7 +207,7 @@ def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(d
     denied = soft_delete_follow_up_record(
         db_session,
         follow_up_record_id=created.record.follow_up_record_id,
-        actor={"username": "ordinary-admin", "role": "admin", "auth_type": "user", "is_highest_admin": False},
+        actor={"username": "ordinary-admin", "role": "admin", "store_scope_mode": "all", "auth_type": "user", "is_highest_admin": False},
         reason="correction",
         now=_dt(3),
     )
@@ -215,6 +216,7 @@ def test_only_highest_admin_can_soft_delete_without_reopening_a_terminal_round(d
     round_row.round_status = "closed_reassigned"
     round_row.terminal_reason = "follow_lost"
     lead.current_assignment_round_id = None
+    db_session.flush()
     deleted = soft_delete_follow_up_record(
         db_session,
         follow_up_record_id=created.record.follow_up_record_id,
@@ -423,6 +425,7 @@ def test_due_transition_respects_auto_expiry_but_terminal_order_still_wins(db_se
     assert disabled_round.round_status == "active_unfollowed"
 
     disabled_lead.normalized_order_status = "verified"
+    db_session.flush()
     stats = process_due_transitions(db_session, now=_dt(4))
 
     assert stats["terminal_closed"] == 1
@@ -442,7 +445,7 @@ def test_terminal_order_action_closes_current_round_before_returning_conflict(
         order_id="order-1",
         assignment_round_id="round-1",
         follow_result="appointment",
-        actor={"username": "system-admin", "role": "admin", "is_highest_admin": True},
+        actor={"username": "system-admin", "role": "admin", "auth_type": "env_admin", "is_highest_admin": True},
         now=_dt(2),
     )
 

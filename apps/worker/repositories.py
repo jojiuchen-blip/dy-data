@@ -5,7 +5,7 @@ import json
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, TypeVar
+from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
 from sqlalchemy import and_, case, exists, func, insert, literal, literal_column, or_, select, text, update
@@ -142,6 +142,15 @@ class ClaimedJobRecord:
     component_instance_id: str
     business_date: date | None
     current_stage: str
+
+
+RawClueUpsertOutcome = Literal["inserted", "updated", "unchanged", "rejected"]
+
+
+@dataclass(frozen=True)
+class RawClueUpsertResult:
+    row: RawDouyinClue
+    outcome: RawClueUpsertOutcome
 
 
 @dataclass(frozen=True)
@@ -476,6 +485,20 @@ def _comparable_observation_time(value: Any) -> datetime | None:
     if not isinstance(value, datetime):
         return None
     return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
+def _same_observation(row: Any, values: Mapping[str, Any]) -> bool:
+    current_at = _comparable_observation_time(getattr(row, "source_observed_at", None))
+    candidate_at = _comparable_observation_time(values.get("source_observed_at"))
+    current_key = getattr(row, "observation_key", None)
+    candidate_key = values.get("observation_key")
+    if current_at is None and candidate_at is None:
+        return bool(current_key and candidate_key) and str(current_key) == str(
+            candidate_key
+        )
+    return current_at == candidate_at and str(current_key or "") == str(
+        candidate_key or ""
+    )
 
 
 def _legacy_observation_lower_bound(
@@ -874,13 +897,22 @@ def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyi
     return row
 
 
-def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDouyinClue:
+def upsert_raw_clue(
+    session: Session,
+    clue_row_key: str,
+    *,
+    return_result: bool = False,
+    **values: Any,
+) -> RawDouyinClue | RawClueUpsertResult:
     row = session.scalar(select(RawDouyinClue).where(RawDouyinClue.clue_row_key == clue_row_key))
     identity_keys: list[str] = []
+    outcome: RawClueUpsertOutcome
     if row is None:
         row = RawDouyinClue(clue_row_key=clue_row_key, **values)
         session.add(row)
         before: dict[str, Any] = {}
+        apply_business = True
+        same_observation = False
     else:
         identity_keys.append(
             _clue_source_identity_key(
@@ -892,7 +924,9 @@ def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDo
             )
         )
         before = _canonical_values(row)
-        _set_observed_values(row, values, apply_business=_observation_is_newer(row, values))
+        same_observation = _same_observation(row, values)
+        apply_business = _observation_is_newer(row, values)
+        _set_observed_values(row, values, apply_business=apply_business)
     session.flush()
     identity_keys.append(
         _clue_source_identity_key(
@@ -903,17 +937,28 @@ def upsert_raw_clue(session: Session, clue_row_key: str, **values: Any) -> RawDo
             enc_telephone=row.enc_telephone,
         )
     )
+    after = _canonical_values(row)
+    if not before:
+        outcome = "inserted"
+    elif apply_business and before != after:
+        outcome = "updated"
+    elif same_observation or apply_business:
+        outcome = "unchanged"
+    else:
+        outcome = "rejected"
     _capture_job_impact(
         session,
         entity_type="clue",
         entity_key=clue_row_key,
         before=before,
-        after=_canonical_values(row),
+        after=after,
         source_run_id=values.get("source_run_id"),
         source_observed_at=values.get("source_observed_at"),
         observation_key=values.get("observation_key"),
         identity_keys=identity_keys,
     )
+    if return_result:
+        return RawClueUpsertResult(row=row, outcome=outcome)
     return row
 
 

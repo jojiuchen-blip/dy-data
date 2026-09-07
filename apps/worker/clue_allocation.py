@@ -54,6 +54,7 @@ from apps.worker.clue_headquarters_pool import (
 )
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
 from apps.worker.clue_center import refresh_clue_center_projection
+from apps.worker.clue_state_locking import refresh_dirty_rounds_for_locked_leads
 from apps.worker.repositories import (
     begin_clue_materialization_cycle,
     claim_clue_materialization_batch,
@@ -194,15 +195,17 @@ def materialize_clue_master_leads(
     if explicit_page is not None:
         selected_raw_clues = list(explicit_page)
     elif incremental:
-        selected_raw_clues = _bounded_raw_clues(
-            session,
-            raw_clue_row_keys=raw_clue_row_keys or set(),
-            clue_ids=clue_ids or set(),
-            order_ids=order_ids or set(),
-            poi_ids=poi_ids or set(),
-        )
+        with session.no_autoflush:
+            selected_raw_clues = _bounded_raw_clues(
+                session,
+                raw_clue_row_keys=raw_clue_row_keys or set(),
+                clue_ids=clue_ids or set(),
+                order_ids=order_ids or set(),
+                poi_ids=poi_ids or set(),
+            )
     else:
-        selected_raw_clues = session.scalars(select(RawDouyinClue)).all()
+        with session.no_autoflush:
+            selected_raw_clues = session.scalars(select(RawDouyinClue)).all()
     raw_clues = selected_raw_clues
     if not raw_clues:
         return {"master_leads": 0, "closed_leads": 0, "headquarters_pool": 0}
@@ -218,53 +221,69 @@ def materialize_clue_master_leads(
         )
     )
     selected_order_ids.discard(None)
-    raw_orders = _raw_orders_by_id(session, selected_order_ids)
-    coupon_statuses_by_order = _coupon_statuses_by_order(session, selected_order_ids)
-    verified_at_by_order = _verified_at_by_order(session, selected_order_ids)
+    with session.no_autoflush:
+        raw_orders = _raw_orders_by_id(session, selected_order_ids)
+        coupon_statuses_by_order = _coupon_statuses_by_order(session, selected_order_ids)
+        verified_at_by_order = _verified_at_by_order(session, selected_order_ids)
+        if incremental:
+            mappings_by_poi, stores_by_id = _bounded_location_context(
+                session,
+                raw_clues,
+                poi_ids=poi_ids or set(),
+            )
+        else:
+            stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
+            mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
+        _enrich_store_locations_from_raw_evidence(
+            session,
+            raw_clues,
+            mappings_by_poi,
+            stores_by_id,
+            now,
+        )
+        source_links_by_record_key = _source_record_links_by_key(
+            session,
+            {row.clue_row_key for row in raw_clues if row.clue_row_key},
+        )
+        existing_rows = (
+            _bounded_existing_masters(
+                session,
+                raw_clues,
+                order_ids=(
+                    existing_order_ids
+                    if existing_order_ids is not None
+                    else selected_order_ids
+                ),
+                clue_ids=(existing_clue_ids if existing_clue_ids is not None else clue_ids),
+                poi_ids=(existing_poi_ids if existing_poi_ids is not None else poi_ids),
+                source_identity_keys=(
+                    existing_source_identity_keys
+                    if existing_source_identity_keys is not None
+                    else source_identity_keys
+                ),
+                source_link_lead_keys={
+                    source_link.lead_key
+                    for source_link in source_links_by_record_key.values()
+                },
+            )
+            if incremental
+            else session.scalars(select(ClueMasterLead)).all()
+        )
+
+    locked_masters_by_key: dict[str, ClueMasterLead] = {}
+    locked_rounds_by_id: dict[str, ClueAssignmentRound] = {}
+    locked_centers_by_id: dict[str, ClueCenterOrder] = {}
     if incremental:
-        mappings_by_poi, stores_by_id = _bounded_location_context(
+        # Incremental calls are already bounded to one raw impact page.  Lock
+        # only the masters that can be touched by this page, in key order; the
+        # full rebuild keeps the existing advisory lock and acquires rows lazily
+        # as they become actual write targets.
+        locked_existing = lock_clue_masters_for_update(
             session,
-            raw_clues,
-            poi_ids=poi_ids or set(),
+            (row.lead_key for row in existing_rows),
         )
-    else:
-        stores_by_id = {row.store_id: row for row in session.scalars(select(DimStore)).all()}
-        mappings_by_poi = {row.poi_id: row for row in session.scalars(select(DimStorePoiMapping)).all()}
-    _enrich_store_locations_from_raw_evidence(
-        session,
-        raw_clues,
-        mappings_by_poi,
-        stores_by_id,
-        now,
-    )
-    source_links_by_record_key = _source_record_links_by_key(
-        session,
-        {row.clue_row_key for row in raw_clues if row.clue_row_key},
-    )
-    existing_rows = (
-        _bounded_existing_masters(
-            session,
-            raw_clues,
-            order_ids=(
-                existing_order_ids
-                if existing_order_ids is not None
-                else selected_order_ids
-            ),
-            clue_ids=(existing_clue_ids if existing_clue_ids is not None else clue_ids),
-            poi_ids=(existing_poi_ids if existing_poi_ids is not None else poi_ids),
-            source_identity_keys=(
-                existing_source_identity_keys
-                if existing_source_identity_keys is not None
-                else source_identity_keys
-            ),
-            source_link_lead_keys={
-                source_link.lead_key
-                for source_link in source_links_by_record_key.values()
-            },
-        )
-        if incremental
-        else session.scalars(select(ClueMasterLead)).all()
-    )
+        locked_masters_by_key.update(locked_existing)
+        refresh_dirty_rounds_for_locked_leads(session, locked_existing.keys())
     existing_by_lead_key = {row.lead_key: row for row in existing_rows}
     existing_by_source_clue_row_key = {row.source_clue_row_key: row for row in existing_rows}
     existing_by_identity = {row.source_identity_key: row for row in existing_rows}
@@ -294,9 +313,10 @@ def materialize_clue_master_leads(
             candidate_identifiers=candidate_identifiers,
         )
     else:
-        identifier_history_rows = session.scalars(
-            select(ClueSourceIdentifierHistory)
-        ).all()
+        with session.no_autoflush:
+            identifier_history_rows = session.scalars(
+                select(ClueSourceIdentifierHistory)
+            ).all()
     identifier_history_by_key = {
         (row.source_clue_row_key, row.identifier_type, row.identifier_value): row
         for row in identifier_history_rows
@@ -328,68 +348,74 @@ def materialize_clue_master_leads(
         linked_lead = existing_by_lead_key.get(source_link.lead_key)
         if linked_lead is not None:
             existing_by_source_clue_row_key.setdefault(source_record_key, linked_lead)
-    current_round_ids = {
-        row.current_assignment_round_id for row in existing_rows if row.current_assignment_round_id
-    }
-    current_rounds_by_id: dict[str, ClueAssignmentRound] = {}
-    for round_id_batch in _materialization_order_id_batches(current_round_ids):
-        current_rounds_by_id.update(
-            {
-                row.assignment_round_id: row
-                for row in session.scalars(
-                    select(ClueAssignmentRound).where(
-                        ClueAssignmentRound.assignment_round_id.in_(round_id_batch)
-                    )
-                ).all()
-            }
-        )
-    center_orders_by_id: dict[str, ClueCenterOrder] = {}
-    for order_id_batch in _materialization_order_id_batches(selected_order_ids):
-        center_orders_by_id.update(
-            {
-                row.order_id: row
-                for row in session.scalars(
-                    select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_id_batch))
-                ).all()
-            }
-        )
-    projected_round_ids = {
-        row.current_assignment_round_id
-        for row in center_orders_by_id.values()
-        if row.current_assignment_round_id and row.current_assignment_round_id not in current_rounds_by_id
-    }
-    for round_id_batch in _materialization_order_id_batches(projected_round_ids):
-        current_rounds_by_id.update(
-            {
-                row.assignment_round_id: row
-                for row in session.scalars(
-                    select(ClueAssignmentRound).where(
-                        ClueAssignmentRound.assignment_round_id.in_(round_id_batch)
-                    )
-                ).all()
-            }
-        )
+    # These maps contain only rows acquired through the master -> round ->
+    # center lock chain.  An empty map is authoritative: a missing locked row
+    # must not fall back to a stale identity-map object.
+    current_rounds_by_id = locked_rounds_by_id
+    center_orders_by_id = locked_centers_by_id
     affected_lead_keys = set(existing_by_lead_key)
-    if incremental:
-        active_headquarters_entries_by_lead = {
-            row.lead_key: row
-            for row in _bounded_active_headquarters_entries(session, affected_lead_keys)
-        }
-        anchor_issue_ids = set(_bounded_anchor_issue_ids(session, affected_lead_keys))
-        status_event_ids = None
-    else:
-        active_headquarters_entries_by_lead = {
-            row.lead_key: row
-            for row in session.scalars(
-                select(ClueHeadquartersPoolEntry).where(ClueHeadquartersPoolEntry.status == "active")
-            ).all()
-        }
-        anchor_issue_ids = set(
-            session.scalars(
-                select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
-            ).all()
+    with session.no_autoflush:
+        if incremental:
+            active_headquarters_entries_by_lead = {
+                row.lead_key: row
+                for row in _bounded_active_headquarters_entries(session, affected_lead_keys)
+            }
+            anchor_issue_ids = set(_bounded_anchor_issue_ids(session, affected_lead_keys))
+            status_event_ids = None
+        else:
+            active_headquarters_entries_by_lead = {
+                row.lead_key: row
+                for row in session.scalars(
+                    select(ClueHeadquartersPoolEntry).where(ClueHeadquartersPoolEntry.status == "active")
+                ).all()
+            }
+            anchor_issue_ids = set(
+                session.scalars(
+                    select(DataQualityIssue.issue_id).where(DataQualityIssue.issue_id.like("clue-anchor:%"))
+                ).all()
+            )
+            status_event_ids = set(session.scalars(select(ClueOrderStatusEvent.event_id)).all())
+
+    def materialization_lock_sort_key(raw_clue: RawDouyinClue) -> tuple[str, str]:
+        source_identity_key = _source_identity_key(raw_clue)
+        canonical_clue_id = _clean(raw_clue.clue_id)
+        order_id = _clean(raw_clue.order_id)
+        source_match = existing_by_source_clue_row_key.get(raw_clue.clue_row_key)
+        order_match = existing_by_order_id.get(order_id) if order_id else None
+        identity_match = existing_by_identity.get(source_identity_key)
+        canonical_match = (
+            existing_by_canonical_clue_id.get(canonical_clue_id)
+            if canonical_clue_id
+            else None
         )
-        status_event_ids = set(session.scalars(select(ClueOrderStatusEvent.event_id)).all())
+        history_match = (
+            existing_by_identifier.get(("clue_id", canonical_clue_id))
+            if canonical_clue_id
+            else None
+        )
+        lead_key_match = existing_by_lead_key.get(_lead_key(source_identity_key))
+        candidate = source_match or order_match
+        if candidate is None:
+            candidate = next(
+                (
+                    match
+                    for match in (
+                        identity_match,
+                        canonical_match,
+                        history_match,
+                        lead_key_match,
+                    )
+                    if match is not None and _master_order_is_compatible(match, order_id)
+                ),
+                None,
+            )
+        return (candidate.lead_key if candidate is not None else _lead_key(source_identity_key), raw_clue.clue_row_key)
+
+    if not incremental:
+        # Full rebuilds acquire masters lazily, but always in the same order as
+        # bounded batches.  This keeps master -> round -> center lock order
+        # deterministic without locking the entire master table up front.
+        raw_clues = sorted(raw_clues, key=materialization_lock_sort_key)
 
     materialized_lead_keys: set[str] = set()
     closed_lead_keys: set[str] = set()
@@ -483,6 +509,26 @@ def materialize_clue_master_leads(
                 ),
                 None,
             )
+        if existing is not None:
+            lead_key = existing.lead_key
+            existing = locked_masters_by_key.get(lead_key)
+            if existing is None:
+                existing = lock_clue_master_for_update(session, lead_key)
+                if existing is None:
+                    # The candidate disappeared after the bounded read.  Do
+                    # not write through the stale identity-map object.
+                    continue
+                locked_masters_by_key[lead_key] = existing
+                refresh_dirty_rounds_for_locked_leads(session, (lead_key,))
+            if existing.current_assignment_round_id:
+                round_id = existing.current_assignment_round_id
+                if round_id not in locked_rounds_by_id:
+                    locked_round = lock_clue_assignment_round_for_update(
+                        session,
+                        round_id,
+                    )
+                    if locked_round is not None:
+                        locked_rounds_by_id[locked_round.assignment_round_id] = locked_round
         observed_at = _observed_at(raw_clue, now)
         if (
             incremental
@@ -537,6 +583,7 @@ def materialize_clue_master_leads(
             )
             session.add(existing)
             existing_by_lead_key[lead_key] = existing
+            locked_masters_by_key[lead_key] = existing
             status_changed = True
         else:
             status_changed = False
@@ -702,8 +749,17 @@ def materialize_clue_master_leads(
         if anchor.unavailable_reason and not is_isolated_source:
             _record_anchor_quality_issue(session, existing.lead_key, anchor, now, anchor_issue_ids)
     session.flush()
-    for lead_key in materialized_lead_keys:
-        lead = existing_by_lead_key[lead_key]
+    for lead_key in sorted(materialized_lead_keys):
+        lead = locked_masters_by_key.get(lead_key)
+        if lead is None:
+            lead = lock_clue_master_for_update(session, lead_key)
+            if lead is None:
+                # Do not fall back to the stale object retained by the first
+                # query if a concurrent delete won the race.
+                continue
+            locked_masters_by_key[lead_key] = lead
+            refresh_dirty_rounds_for_locked_leads(session, (lead_key,))
+        existing_by_lead_key[lead_key] = lead
         if lead.lifecycle_status == "active" and lead.pool_location == "headquarters_pool":
             ensure_active_headquarters_pool_entry(
                 session,
@@ -714,6 +770,27 @@ def materialize_clue_master_leads(
                 _flush=False,
             )
         elif lead.lifecycle_status != "active" and lead.order_id:
+            center_snapshot = locked_centers_by_id.get(lead.order_id)
+            if center_snapshot is None:
+                with session.no_autoflush:
+                    center_snapshot = session.scalar(
+                        select(ClueCenterOrder)
+                        .where(ClueCenterOrder.order_id == lead.order_id)
+                        .execution_options(populate_existing=True)
+                    )
+            round_id = lead.current_assignment_round_id or (
+                center_snapshot.current_assignment_round_id
+                if center_snapshot is not None
+                else None
+            )
+            if round_id and round_id not in locked_rounds_by_id:
+                locked_round = lock_clue_assignment_round_for_update(session, round_id)
+                if locked_round is not None:
+                    locked_rounds_by_id[locked_round.assignment_round_id] = locked_round
+            if lead.order_id not in locked_centers_by_id:
+                locked_center = lock_clue_center_order_for_update(session, lead.order_id)
+                if locked_center is not None:
+                    locked_centers_by_id[lead.order_id] = locked_center
             close_current_headquarters_pool_entry(
                 session,
                 lead.lead_key,
@@ -770,19 +847,67 @@ def refresh_unknown_clue_master_statuses(
     last_lead_key = ""
     try:
         while True:
-            leads = session.scalars(
-                select(ClueMasterLead)
-                .where(ClueMasterLead.normalized_order_status == "unknown")
-                .where(ClueMasterLead.lead_key > last_lead_key)
-                .order_by(ClueMasterLead.lead_key)
-                .limit(batch_size)
-            ).all()
+            with session.no_autoflush:
+                leads = session.scalars(
+                    select(ClueMasterLead)
+                    .where(ClueMasterLead.normalized_order_status == "unknown")
+                    .where(ClueMasterLead.lead_key > last_lead_key)
+                    .order_by(ClueMasterLead.lead_key)
+                    .limit(batch_size)
+                ).all()
             if not leads:
                 break
 
             last_lead_key = leads[-1].lead_key
             stats["batches"] = int(stats["batches"]) + 1
             stats["scanned"] = int(stats["scanned"]) + len(leads)
+            if dry_run:
+                locked_leads = {lead.lead_key: lead for lead in leads}
+            else:
+                locked_leads = lock_clue_masters_for_update(
+                    session,
+                    (lead.lead_key for lead in leads),
+                )
+                refresh_dirty_rounds_for_locked_leads(session, locked_leads.keys())
+                # A concurrent materializer may have resolved a row between
+                # the keyset read and this lock.  It is no longer this repair
+                # job's unknown-status target, so skip it after refreshing.
+                leads = [
+                    locked_leads[lead_key]
+                    for lead_key in sorted(locked_leads)
+                    if locked_leads[lead_key].normalized_order_status == "unknown"
+                ]
+            current_rounds_by_id: dict[str, ClueAssignmentRound] = {}
+            center_orders_by_id: dict[str, ClueCenterOrder] = {}
+            if not dry_run and leads:
+                order_ids_for_lock = {
+                    order_id
+                    for order_id in (_clean(lead.order_id) for lead in leads)
+                    if order_id
+                }
+                center_snapshots = list(
+                    session.scalars(
+                        select(ClueCenterOrder)
+                        .where(ClueCenterOrder.order_id.in_(order_ids_for_lock))
+                        .execution_options(populate_existing=True)
+                    ).all()
+                ) if order_ids_for_lock else []
+                round_ids_for_lock = {
+                    round_id
+                    for round_id in (
+                        [lead.current_assignment_round_id for lead in leads]
+                        + [center.current_assignment_round_id for center in center_snapshots]
+                    )
+                    if round_id
+                }
+                current_rounds_by_id = lock_clue_assignment_rounds_for_update(
+                    session,
+                    round_ids_for_lock,
+                )
+                center_orders_by_id = lock_clue_center_orders_for_update(
+                    session,
+                    order_ids_for_lock,
+                )
             source_keys = {lead.source_clue_row_key for lead in leads}
             order_ids = {_clean(lead.order_id) for lead in leads}
             order_ids.discard(None)
@@ -835,7 +960,11 @@ def refresh_unknown_clue_master_statuses(
                     pool_location = "headquarters_pool"
                     allocation_state = "headquarters"
                 else:
-                    current_round = _active_self_owned_current_round(session, lead)
+                    current_round = _active_self_owned_current_round(
+                        session,
+                        lead,
+                        current_rounds_by_id=(current_rounds_by_id if not dry_run else None),
+                    )
                     pool_location = "store_follow_up_pool" if current_round else None
                     allocation_state = "assigned" if current_round else "pending_allocation"
 
@@ -884,6 +1013,8 @@ def refresh_unknown_clue_master_statuses(
                         lifecycle_status,
                         close_at,
                         current_assignment_round_id=lead.current_assignment_round_id,
+                        center_orders_by_id=center_orders_by_id,
+                        current_rounds_by_id=current_rounds_by_id,
                         closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
                 if resolution.normalized_status != "unknown" or previous_state[3] != lifecycle_status:
@@ -948,19 +1079,30 @@ def synchronize_non_active_clue_states(
     active_round_statuses = ("active_unfollowed", "active_followed")
     try:
         while True:
-            leads = session.scalars(
-                select(ClueMasterLead)
-                .where(ClueMasterLead.lifecycle_status != "active")
-                .where(ClueMasterLead.lead_key > last_lead_key)
-                .order_by(ClueMasterLead.lead_key)
-                .limit(batch_size)
-            ).all()
+            with session.no_autoflush:
+                leads = session.scalars(
+                    select(ClueMasterLead)
+                    .where(ClueMasterLead.lifecycle_status != "active")
+                    .where(ClueMasterLead.lead_key > last_lead_key)
+                    .order_by(ClueMasterLead.lead_key)
+                    .limit(batch_size)
+                ).all()
             if not leads:
                 break
 
             last_lead_key = leads[-1].lead_key
             stats["batches"] = int(stats["batches"]) + 1
             stats["scanned"] = int(stats["scanned"]) + len(leads)
+            if dry_run:
+                locked_leads = {lead.lead_key: lead for lead in leads}
+            else:
+                locked_leads = lock_clue_masters_for_update(
+                    session,
+                    (lead.lead_key for lead in leads),
+                )
+                refresh_dirty_rounds_for_locked_leads(session, locked_leads.keys())
+                leads = [locked_leads[lead_key] for lead_key in sorted(locked_leads)
+                         if locked_leads[lead_key].lifecycle_status != "active"]
             lead_keys = {lead.lead_key for lead in leads}
             leads_by_order: dict[str, list[ClueMasterLead]] = defaultdict(list)
             for lead in leads:
@@ -971,18 +1113,46 @@ def synchronize_non_active_clue_states(
             centers = {
                 row.order_id: row
                 for row in session.scalars(
-                    select(ClueCenterOrder).where(ClueCenterOrder.order_id.in_(order_ids))
+                    select(ClueCenterOrder)
+                    .where(ClueCenterOrder.order_id.in_(order_ids))
+                    .execution_options(populate_existing=True)
                 ).all()
             }
             rounds_by_order: dict[str, list[ClueAssignmentRound]] = defaultdict(list)
             if order_ids:
-                for round_row in session.scalars(
+                round_rows = session.scalars(
                     select(ClueAssignmentRound)
                     .where(ClueAssignmentRound.order_id.in_(order_ids))
                     .where(ClueAssignmentRound.execution_mode.in_(STATUS_REPAIR_EXECUTION_MODES))
                     .where(ClueAssignmentRound.round_status.in_(active_round_statuses))
-                ).all():
+                    .execution_options(populate_existing=True)
+                ).all()
+                for round_row in round_rows:
                     rounds_by_order[round_row.order_id].append(round_row)
+            if not dry_run:
+                round_ids_for_lock = {
+                    round_row.assignment_round_id
+                    for order_rounds in rounds_by_order.values()
+                    for round_row in order_rounds
+                }
+                round_ids_for_lock.update(
+                    center.current_assignment_round_id
+                    for center in centers.values()
+                    if center.current_assignment_round_id
+                )
+                locked_rounds = lock_clue_assignment_rounds_for_update(
+                    session,
+                    round_ids_for_lock,
+                )
+                for order_id, order_rounds in list(rounds_by_order.items()):
+                    rounds_by_order[order_id] = [
+                        locked_rounds[round_row.assignment_round_id]
+                        for round_row in order_rounds
+                        if round_row.assignment_round_id in locked_rounds
+                    ]
+                centers = lock_clue_center_orders_for_update(session, order_ids)
+            else:
+                locked_rounds = {}
             active_hq_by_lead = {
                 row.lead_key: row
                 for row in session.scalars(
@@ -1005,7 +1175,8 @@ def synchronize_non_active_clue_states(
                         _active_entries_by_lead=active_hq_by_lead,
                     )
 
-            for order_id, order_leads in leads_by_order.items():
+            for order_id in sorted(leads_by_order):
+                order_leads = leads_by_order[order_id]
                 lifecycle_status = _terminal_lifecycle_for_order(order_leads)
                 closed_at = _terminal_closed_at(order_leads, now)
                 order_rounds = rounds_by_order.get(order_id, [])
@@ -1030,6 +1201,8 @@ def synchronize_non_active_clue_states(
                         lifecycle_status,
                         closed_at,
                         current_assignment_round_id=round_row.assignment_round_id,
+                        center_orders_by_id=centers,
+                        current_rounds_by_id=locked_rounds,
                         closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
                 if center_needs_update:
@@ -1038,6 +1211,8 @@ def synchronize_non_active_clue_states(
                         order_id,
                         lifecycle_status,
                         closed_at,
+                        center_orders_by_id=centers,
+                        current_rounds_by_id=locked_rounds,
                         closable_execution_modes=STATUS_REPAIR_EXECUTION_MODES,
                     )
 
@@ -3235,6 +3410,118 @@ def _source_identity_key(raw_clue: RawDouyinClue) -> str:
 
 def _lead_key(source_identity_key: str) -> str:
     return f"lead-{source_identity_key.removeprefix('identity-')}"
+
+
+def lock_clue_master_for_update(session: Session, lead_key: str) -> ClueMasterLead | None:
+    """Refresh and lock one master row before a cross-table state write.
+
+    ``populate_existing`` is intentional: workers may retain a master object in
+    the identity map while the follow-up API has advanced its current pointer.
+    The no-autoflush scope prevents that stale object from being flushed before
+    the authoritative row is read and locked.
+    """
+
+    with session.no_autoflush:
+        return session.scalar(
+            select(ClueMasterLead)
+            .where(ClueMasterLead.lead_key == lead_key)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+
+def lock_clue_masters_for_update(
+    session: Session,
+    lead_keys: Iterable[str],
+) -> dict[str, ClueMasterLead]:
+    """Refresh and lock a bounded master batch in deterministic key order."""
+
+    normalized_keys = sorted({str(key) for key in lead_keys if _clean(key)})
+    if not normalized_keys:
+        return {}
+    with session.no_autoflush:
+        rows = session.scalars(
+            select(ClueMasterLead)
+            .where(ClueMasterLead.lead_key.in_(normalized_keys))
+            .order_by(ClueMasterLead.lead_key)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+    return {row.lead_key: row for row in rows}
+
+
+def lock_clue_assignment_round_for_update(
+    session: Session,
+    assignment_round_id: str | None,
+) -> ClueAssignmentRound | None:
+    """Refresh and lock one assignment round after its master is locked."""
+
+    if not _clean(assignment_round_id):
+        return None
+    with session.no_autoflush:
+        return session.scalar(
+            select(ClueAssignmentRound)
+            .where(ClueAssignmentRound.assignment_round_id == assignment_round_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+
+def lock_clue_assignment_rounds_for_update(
+    session: Session,
+    assignment_round_ids: Iterable[str],
+) -> dict[str, ClueAssignmentRound]:
+    """Refresh and lock a bounded round batch in deterministic key order."""
+
+    normalized_ids = sorted({str(value) for value in assignment_round_ids if _clean(value)})
+    if not normalized_ids:
+        return {}
+    with session.no_autoflush:
+        rows = session.scalars(
+            select(ClueAssignmentRound)
+            .where(ClueAssignmentRound.assignment_round_id.in_(normalized_ids))
+            .order_by(ClueAssignmentRound.assignment_round_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+    return {row.assignment_round_id: row for row in rows}
+
+
+def lock_clue_center_order_for_update(
+    session: Session,
+    order_id: str | None,
+) -> ClueCenterOrder | None:
+    """Refresh and lock one center projection after master/round locks."""
+
+    if not _clean(order_id):
+        return None
+    with session.no_autoflush:
+        return session.scalar(
+            select(ClueCenterOrder)
+            .where(ClueCenterOrder.order_id == order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+
+
+def lock_clue_center_orders_for_update(
+    session: Session,
+    order_ids: Iterable[str],
+) -> dict[str, ClueCenterOrder]:
+    """Refresh and lock a bounded center batch in deterministic key order."""
+
+    normalized_ids = sorted({str(value) for value in order_ids if _clean(value)})
+    if not normalized_ids:
+        return {}
+    with session.no_autoflush:
+        rows = session.scalars(
+            select(ClueCenterOrder)
+            .where(ClueCenterOrder.order_id.in_(normalized_ids))
+            .order_by(ClueCenterOrder.order_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        ).all()
+    return {row.order_id: row for row in rows}
 
 
 def _try_transaction_lock(session: Session, *, lock_name: str) -> bool:
