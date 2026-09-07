@@ -1002,6 +1002,20 @@ export interface SkuFeeRuleCreate {
   changeReason: string;
 }
 
+export type SettlementRebuildStatus =
+  | "queued"
+  | "running"
+  | "retry_wait"
+  | "success"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export interface SettlementRebuildResult {
+  jobId: string;
+  rebuildStatus: SettlementRebuildStatus;
+}
+
 export type ImportBatchStatus =
   | "UPLOADED"
   | "VALIDATION_FAILED"
@@ -1068,6 +1082,7 @@ export interface ImportBatchDetailData {
 export interface ImportBatchCommitData {
   batch: ImportBatchItem;
   createdRuleVersions: string[];
+  settlementRebuild: SettlementRebuildResult;
 }
 
 export type ProductSyncStatus =

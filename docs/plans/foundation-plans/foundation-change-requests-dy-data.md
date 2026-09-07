@@ -2,6 +2,20 @@
 
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
+## S4-FCR-011：结算重建任务缺少原子抢占与可观测运行态合同
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-011` |
+| 来源 Task | `T5.7 / DYDATA-87 分佣规则发布后的结算重建生产闭环` |
+| 分类 | `GAP` |
+| 改动项 | 为 `settlement_rebuild` 定义持久化任务的 Worker-only 执行、规则与任务同事务提交、全局单执行槽、原子抢占、租约心跳、分区提交 fencing、失联恢复和终态发布语义：API 只写 `queued`；Worker 以独立短事务提交 `queued -> running` 并持有 fencing token；长任务按有界批次续租，租约过期后最多安全重试 3 次；所有 sparse 分区、ready 与活动指针提交都必须验证未过期 claim；只有活动结算投影发布成功后才写 `success`，发布后进程失联及旧版提前成功记录可由持久事实对账恢复。 |
+| 原因 | 旧实现把 30 万级全量结算放进 768MB API 容器的临时 `BackgroundTasks`，进程重启或资源回收后只留下永久 `running`，Worker 又因检测到运行任务而永远跳过；此前仅有原子抢占，仍缺少执行器失联后的恢复和“发布完成才成功”的终态保证。 |
+| 指向代码块 | `apps/api/dy_api/routes/fee_admin.py`；`apps/api/dy_api/routes/admin.py`；`apps/worker/settlement_rebuild.py::claim_settlement_rebuild_job`；`apps/worker/settlement_rebuild.py::_settlement_rebuild_claim_transaction`；`apps/worker/settlement.py::build_settlement_sparse_overlay`；`apps/worker/queued_jobs.py::process_queued_settlement_rebuilds`；`tests/test_worker_collection_pipeline.py` 和 `tests/test_settlement_rebuild_postgres.py` 的结算重建租约、并发、重试和恢复用例 |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data.md` 的后台重建任务生命周期；`docs/prd/foundation/foundation-schema-dy-data.md` 的 `job_runs` 状态与并发语义 |
+| 严重度 | `高（数据重算可能永久卡住、重复执行或在活动投影发布前误报成功）` |
+| 状态 | `待评审` |
+
 ## S4-FCR-009：财务页面模板下载与筛选导出缺少正式接口合同
 
 | 字段 | 内容 |

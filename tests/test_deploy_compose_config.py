@@ -153,7 +153,8 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
         in deploy_script
     )
     assert "compose build --progress=plain api web browser worker ops-agent" in deploy_script
-    assert "compose up -d --no-deps api web browser ops-agent" in deploy_script
+    assert "compose up -d --no-deps --force-recreate api" in deploy_script
+    assert "compose up -d --no-deps web browser ops-agent" in deploy_script
     assert 'wait_for_healthy_service ops-agent' in deploy_script
     assert 'compose logs --tail=80 api web proxy ops-agent' in deploy_script
     assert "compose up -d --no-deps --force-recreate worker" in deploy_script
@@ -164,11 +165,12 @@ def test_tencent_deploy_uploads_source_from_actions_runner():
     assert worker_gate < migration
     worker_start = deploy_script.index('log "starting required worker"')
     worker_smoke = deploy_script.index('log "worker queue runtime smoke passed"')
-    runtime_start = deploy_script.index('log "starting runtime services without worker"')
+    api_restart = deploy_script.index('log "restarting API before worker claim recovery"')
+    runtime_start = deploy_script.index('log "starting runtime support services"')
     proxy_cutover = deploy_script.index(
         'log "recreating proxy so nginx resolves fresh upstream container addresses"'
     )
-    assert worker_start < worker_smoke < runtime_start < proxy_cutover
+    assert api_restart < runtime_start < worker_start < worker_smoke < proxy_cutover
     assert "keeping worker stopped" not in deploy_script
     assert 'compose exec -T worker python -c' in deploy_script
     assert "apps.worker.queued_jobs" in deploy_script
@@ -330,7 +332,9 @@ def test_tencent_deploy_blocks_unresolved_statement_snapshot_migration_exception
     exception_gate = deploy_script.index(
         'log "checking unresolved statement snapshot migration exceptions"'
     )
-    runtime_start = deploy_script.index('log "starting runtime services without worker"')
+    runtime_start = deploy_script.index(
+        'log "restarting API before worker claim recovery"'
+    )
 
     assert migration < exception_gate < runtime_start
     assert "settlement_statement_snapshot_migration_exception" in deploy_script

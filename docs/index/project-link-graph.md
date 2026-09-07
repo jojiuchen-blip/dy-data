@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：859
-- 文件关系：965
+- 文件节点：866
+- 文件关系：970
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -194,7 +194,8 @@
 | docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/subprd/08-subprd-finance-disputes.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:41 |
 | docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/superpowers/specs/2026-08-20-dydata-19-settlement-finance-design.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:39 |
 | docs/devlog/20260830_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260830_refactor_log_Keith_Chen.md:96 |
-| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:70 |
+| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | apps/web/README.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:52 |
+| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:52 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -218,7 +219,6 @@
 | docs/governance/authority-map.md | links_to | project-rules.md | docs/governance/authority-map.md:19 |
 | docs/governance/authority-map.md | links_to | README.md | docs/governance/authority-map.md:28 |
 | docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/项目产品介绍书.md | docs/plans/2026-06-11-two-person-development-division.md:44 |
-| docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/architecture.md | docs/plans/2026-06-11-two-person-development-division.md:68 |
 
 ## 4. 诊断问题
 

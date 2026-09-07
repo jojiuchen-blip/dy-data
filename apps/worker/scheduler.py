@@ -473,8 +473,8 @@ def main() -> None:
         next_plan_at = None
 
     while not _STOP:
-        if not _auto_sync_enabled(factory) and factory is not None:
-            process_queued_finance_dispute_detections(factory)
+        if factory is not None:
+            _process_queued_jobs(factory)
         drain_ready_daily_children(factory)
         if _STOP:
             break

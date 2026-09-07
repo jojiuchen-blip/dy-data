@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import event, text
+from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
@@ -29,13 +31,21 @@ from apps.worker.projection_lineage import (
     canonical_score_partition_key,
     resolve_projection_partitions,
 )
+from apps.worker.projection_publish import publish_settlement_rebuild
+from apps.worker import settlement_rebuild
+from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
 from apps.api.dy_api.models import (
     AggStoreMonthlySettlement,
     AggStoreRanking,
     DimStore,
+    JobRun,
     RawDouyinVerifyRecord,
+    SettlementFeeResult,
+    SettlementFeeResultCurrent,
     SettlementMonthlyOverlay,
     SettlementOrderDetail,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
     SettlementRankingOverlay,
     StoreScoreSnapshot,
     StoreScoreSnapshotGeneration,
@@ -1244,6 +1254,332 @@ def test_pinned_cumulative_ranking_uses_its_own_partition_identity(db_session) -
     )
     assert report["total"] == 1
     assert report["totals"]["sales_order_count"] == 11
+
+
+def test_finance_ranking_basis_uses_active_lineage_for_the_single_store_flow(
+    db_session,
+) -> None:
+    _generation(db_session, "g-finance-lineage")
+    for partition_key in ("monthly:2026-08", "cumulative:2026-08"):
+        _manifest(
+            db_session,
+            "g-finance-lineage",
+            "ranking",
+            partition_key,
+            data_generation_id="g-finance-lineage",
+        )
+    for period_type in (1, 2):
+        partition_key = "monthly:2026-08" if period_type == 1 else "cumulative:2026-08"
+        db_session.add(
+            SettlementRankingOverlay(
+                generation_id="g-finance-lineage",
+                base_generation_id=None,
+                period_type=period_type,
+                period_key="2026-08",
+                month="2026-08",
+                partition_key=partition_key,
+                store_id="lineage-store",
+                store_name="Lineage Store",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=7 if period_type == 1 else 12,
+                sales_amount_cent=700 if period_type == 1 else 1200,
+                promotion_net_fee_cent=70 if period_type == 1 else 120,
+                management_net_fee_cent=7 if period_type == 1 else 12,
+                net_settlement_reference_cent=63 if period_type == 1 else 108,
+            )
+        )
+        db_session.add(
+            AggStoreRanking(
+                period_type=period_type,
+                period_key="2026-08",
+                month="2026-08",
+                store_id="legacy-store",
+                store_name="Legacy Store",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=70 if period_type == 1 else 120,
+                sales_amount_cent=7000 if period_type == 1 else 12000,
+                promotion_net_fee_cent=700 if period_type == 1 else 1200,
+                management_net_fee_cent=70 if period_type == 1 else 120,
+                net_settlement_reference_cent=630 if period_type == 1 else 1080,
+                projection_run_id="legacy-run",
+            )
+        )
+    db_session.execute(
+        text(
+            "INSERT INTO settlement_projection_active (projection_name, generation_id) "
+            "VALUES ('settlement', 'g-finance-lineage')"
+        )
+    )
+    db_session.commit()
+
+    report = DashboardDataStore(db_session).store_ranking_report(
+        {
+            "period_type": "MONTHLY",
+            "period_key": "2026-08",
+            "ranking_basis": "PROMOTION_FEE_MONTH",
+            "product_scope": "all",
+            "product_type": "all",
+            "page": 1,
+            "page_size": 20,
+            "sort_order": "DESC",
+            "scope_mode": "AUTHORIZED",
+            "scope_store_ids": None,
+        }
+    )
+
+    assert report["total"] == 1
+    assert report["list"][0]["store_id"] == "lineage-store"
+    assert report["list"][0]["promotion_month_fee_cent"] == 70
+    assert report["totals"]["promotion_cumulative_fee_cent"] == 120
+
+
+def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
+    db_session,
+) -> None:
+    now = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
+    _generation(db_session, "g-admin-refresh-base")
+    db_session.add_all(
+        [
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="g-admin-refresh-base",
+            ),
+            DimStore(store_id="single-store", store_name="Single Store"),
+            JobRun(
+                job_id="admin-refresh-real-builder",
+                job_name="settlement_rebuild",
+                status="running",
+                claim_token="admin-refresh-claim",
+                lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                metadata_json={},
+            ),
+            SettlementFeeResult(
+                fee_result_id="admin-refresh-fee-result",
+                coupon_id="admin-refresh-coupon",
+                order_id="admin-refresh-order",
+                fee_direction=1,
+                result_version=1,
+                original_business_month="2026-08",
+                rule_match_date=date(2026, 8, 2),
+                sale_store_id="single-store",
+                verify_store_id=None,
+                sku_id="admin-refresh-sku",
+                product_scope="精诚养车",
+                product_type="养车服务",
+                sale_channel_normalized="live",
+                source_amount_cent=1000,
+                refunded_amount_cent=0,
+                fee_base_cent=1000,
+                fee_rate=Decimal("0.080000"),
+                fee_amount_cent=80,
+                rule_version="admin-refresh-rule",
+                scope_rule_version="admin-refresh-scope",
+                result_status=1,
+                calculation_run_id="admin-refresh-run",
+                input_fingerprint="a" * 64,
+                calculated_at=now,
+            ),
+        ]
+    )
+    db_session.add(
+        SettlementFeeResultCurrent(
+            coupon_id="admin-refresh-coupon",
+            fee_direction=1,
+            fee_result_id="admin-refresh-fee-result",
+        )
+    )
+    db_session.commit()
+
+    factory = sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True
+    )
+    publication = refresh_active_settlement_lineage(
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
+    )
+
+    assert publication is not None
+    db_session.expire_all()
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    generation = db_session.get(
+        SettlementProjectionGeneration, active.generation_id
+    )
+    assert generation is not None
+    assert generation.state == "published"
+
+    store = DashboardDataStore(db_session)
+    monthly = store.monthly_settlement_report(
+        {
+            "store_id": "single-store",
+            "month": "2026-08",
+            "product_scope": "all",
+            "product_type": "all",
+        }
+    )
+    ranking = store.store_ranking_report(
+        {
+            "period_type": "MONTHLY",
+            "period_key": "2026-08",
+            "ranking_basis": "PROMOTION_FEE_MONTH",
+            "product_scope": "all",
+            "product_type": "all",
+            "page": 1,
+            "page_size": 20,
+            "sort_order": "DESC",
+        }
+    )
+
+    assert monthly["metrics"]["sales_amount_cent"] == 1000
+    assert monthly["metrics"]["promotion_net_fee_cent"] == 80
+    assert ranking["total"] == 1
+    assert ranking["list"][0]["store_id"] == "single-store"
+    assert ranking["list"][0]["promotion_month_fee_cent"] == 80
+
+    # A retry after publication must be a no-op: the job's generation and
+    # active pointer must not be rebuilt from the already-published overlay.
+    retry_publication = refresh_active_settlement_lineage(
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
+    )
+    assert retry_publication is None
+    db_session.expire_all()
+    retried_active = db_session.get(SettlementProjectionActive, "settlement")
+    assert retried_active is not None
+    assert retried_active.generation_id == active.generation_id
+
+
+def test_settlement_rebuild_publish_rejects_a_stale_claim(db_session) -> None:
+    now = datetime.now(timezone.utc)
+    _generation(db_session, "g-fenced-base")
+    db_session.add_all(
+        [
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="g-fenced-base",
+            ),
+            JobRun(
+                job_id="fenced-settlement-rebuild",
+                job_name="settlement_rebuild",
+                status="running",
+                claim_token="current-claim",
+                lease_expires_at=now + timedelta(minutes=10),
+                heartbeat_at=now,
+                state_updated_at=now,
+                metadata_json={},
+            ),
+            SettlementProjectionGeneration(
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                generation_kind="lineage",
+                projection_name="settlement",
+                state="ready",
+                input_fingerprint="a" * 64,
+                lineage_depth=1,
+                manifest_checksum="b" * 64,
+                source_job_id="fenced-settlement-rebuild",
+                checkpoint_json={},
+                source_input_json={},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with db_session.begin():
+        with pytest.raises(RuntimeError, match="claim"):
+            publish_settlement_rebuild(
+                db_session,
+                job_id="fenced-settlement-rebuild",
+                claim_id="stale-claim",
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                input_fingerprint="a" * 64,
+                manifest_checksum="b" * 64,
+            )
+
+    db_session.expire_all()
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    assert active.generation_id == "g-fenced-base"
+
+
+def test_settlement_rebuild_publication_requires_a_claim_token(db_session) -> None:
+    with pytest.raises(TypeError, match="claim_id"):
+        publish_settlement_rebuild(
+            db_session,
+            job_id="missing-claim",
+            generation_id="missing-generation",
+            base_generation_id="missing-base",
+            input_fingerprint="a" * 64,
+            manifest_checksum="b" * 64,
+        )
+
+
+def test_lineage_generation_identity_changes_when_active_base_moves(
+    db_session,
+) -> None:
+    _generation(db_session, "pointer-base-a")
+    _generation(db_session, "pointer-base-b")
+    _manifest(
+        db_session,
+        "pointer-base-a",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-a",
+    )
+    _manifest(
+        db_session,
+        "pointer-base-b",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-b",
+    )
+    db_session.add(
+        SettlementProjectionActive(
+            projection_name="settlement",
+            generation_id="pointer-base-a",
+        )
+    )
+    db_session.commit()
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+
+    first = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert first is not None
+    db_session.add(
+        SettlementProjectionGeneration(
+            generation_id=first.generation_id,
+            base_generation_id=first.base_generation_id,
+            generation_kind="lineage",
+            projection_name="settlement",
+            state="staging",
+            input_fingerprint=first.input_fingerprint,
+            lineage_depth=1,
+            source_job_id=None,
+            checkpoint_json={},
+            source_input_json={},
+        )
+    )
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    active.generation_id = "pointer-base-b"
+    db_session.commit()
+
+    second = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert second is not None
+    assert second.base_generation_id == "pointer-base-b"
+    assert second.input_fingerprint != first.input_fingerprint
+    assert second.generation_id != first.generation_id
 
 
 # ---------------------------------------------------------------------------
