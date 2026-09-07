@@ -674,6 +674,286 @@ def test_dual_fee_results_use_directional_dates_rules_months_and_rounding(
     assert management.fee_amount_cent == 2000
 
 
+@pytest.mark.parametrize("account_without_store", [False, True])
+@pytest.mark.parametrize("with_binding_dimension", [False, True])
+def test_dual_fee_resolves_order_uid_through_unique_active_raw_binding(
+    db_session: Session, account_without_store: bool, with_binding_dimension: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    if account_without_store:
+        upsert_aweme_account(
+            db_session, order.owner_account_id,
+            nickname="Owner Dual", binding_status="active",
+        )
+    upsert_aweme_binding(
+        db_session, "binding-owner-dual", account_id="store-sale",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    if with_binding_dimension:
+        upsert_aweme_account(
+            db_session, "store-sale", nickname="Owner Dual", store_id="store-sale",
+            binding_status="认证成功", valid_from=date(2026, 8, 10),
+            valid_to=date(2026, 8, 10),
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="uid-binding-fix")
+    rebuild_dual_fee_results(db_session, calculation_run_id="uid-binding-repeat")
+    rebuild_dual_fee_projections(db_session, projection_run_id="uid-projection")
+
+    promotion = _fee_result(db_session, "coupon-dual", 1)
+    management = _fee_result(db_session, "coupon-dual", 2)
+    assert promotion is not None
+    assert promotion.sale_store_id == "store-sale"
+    assert promotion.fee_amount_cent == 123
+    assert management is not None
+    assert management.sale_store_id == "store-sale"
+    assert management.verify_store_id == "store-verify"
+    assert management.fee_amount_cent == 2000
+    assert count(db_session, SettlementFeeResult) == 2
+    monthly = monthly_projection(db_session, "2026-08", "store-sale", "maintenance")
+    assert monthly is not None
+    assert monthly.promotion_net_fee_cent == 123
+
+
+@pytest.mark.parametrize(
+    "invalid_binding",
+    ["unbound", "unknown_store", "ambiguous", "id_conflict", "inactive_account",
+     "before_valid_from", "after_valid_to", "non_commission", "inactive_store",
+     "known_id_inactive", "known_id_expired", "missing_binding", "name_mismatch"],
+)
+def test_dual_fee_owner_binding_fails_closed(
+    db_session: Session, invalid_binding: str
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    store_id = "unknown-store" if invalid_binding == "unknown_store" else "store-sale"
+    upsert_aweme_binding(
+        db_session, "binding-owner-dual", account_id=store_id,
+        douyin_nickname="Unrelated Owner" if invalid_binding == "name_mismatch" else "Owner Dual",
+        binding_status="已解绑" if invalid_binding == "unbound" else "active",
+    )
+    if invalid_binding == "missing_binding":
+        order.owner_account_name = None
+    if invalid_binding == "inactive_store":
+        store = db_session.get(dy_models.DimStore, "store-sale")
+        assert store is not None
+        store.is_active = False
+    if invalid_binding in {"known_id_inactive", "known_id_expired"}:
+        upsert_aweme_account(
+            db_session, order.owner_account_id, nickname="Owner Dual",
+            store_id="store-sale",
+            binding_status="已解绑" if invalid_binding == "known_id_inactive" else "active",
+            valid_to=date(2026, 8, 9) if invalid_binding == "known_id_expired" else None,
+        )
+    if invalid_binding == "ambiguous":
+        upsert_aweme_binding(
+            db_session, "binding-owner-other", account_id="store-verify",
+            douyin_nickname="Owner Dual", binding_status="active",
+        )
+    if invalid_binding == "id_conflict":
+        upsert_aweme_account(
+            db_session, order.owner_account_id, nickname="Owner Dual",
+            store_id="store-verify", binding_status="active",
+        )
+    if invalid_binding in {"inactive_account", "before_valid_from", "after_valid_to"}:
+        upsert_aweme_account(
+            db_session, "store-sale", nickname="Owner Dual", store_id="store-sale",
+            binding_status="已解绑" if invalid_binding == "inactive_account" else "active",
+            valid_from=date(2026, 8, 11) if invalid_binding == "before_valid_from" else None,
+            valid_to=date(2026, 8, 9) if invalid_binding == "after_valid_to" else None,
+        )
+    if invalid_binding == "non_commission":
+        db_session.add(DimNonCommissionOwnerAccount(
+            owner_account_name="Owner Dual",
+            normalized_owner_account_name=normalize_owner_account_name("Owner Dual"),
+            is_active=True,
+        ))
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="invalid-owner-binding")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+    issue_types = set(db_session.scalars(select(DataQualityIssue.issue_type)))
+    assert (
+        "dual_fee_non_commission_owner" if invalid_binding == "non_commission"
+        else "dual_fee_missing_sale_store"
+    ) in issue_types
+
+
+@pytest.mark.parametrize("direct_match", [False, True])
+def test_dual_fee_does_not_resurrect_an_explicitly_unbound_identity(
+    db_session: Session, direct_match: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    if not direct_match:
+        order.owner_account_id = "_000_opaque_order_uid"
+    for key, status in [("old-active", "active"), ("new-unbound", "已解绑")]:
+        upsert_aweme_binding(
+            db_session, key, account_id="store-sale", douyin_id="seller-douyin-id",
+            douyin_nickname="Owner Dual", poi_id="poi-sale", binding_status=status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="conflicting-binding-status")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_unrelated_unbound_identity_does_not_override_valid_binding(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    upsert_aweme_binding(
+        db_session, "active-owner", account_id="store-sale", douyin_id="seller-a",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    upsert_aweme_binding(
+        db_session, "inactive-other", account_id="store-verify", douyin_id="seller-b",
+        douyin_nickname="Owner Dual", binding_status="已解绑",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="unrelated-binding-status")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+
+
+@pytest.mark.parametrize("status", ["pending", "reviewing"])
+@pytest.mark.parametrize("with_old_active", [False, True])
+@pytest.mark.parametrize("direct_match", [False, True])
+def test_dual_fee_pending_binding_never_qualifies_as_active(
+    db_session: Session, status: str, with_old_active: bool, direct_match: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    if not direct_match:
+        order.owner_account_id = "_000_opaque_order_uid"
+    statuses = ["active", status] if with_old_active else [status]
+    for binding_status in statuses:
+        upsert_aweme_binding(
+            db_session, f"binding-{binding_status}", account_id="store-sale",
+            douyin_id="seller-id", douyin_nickname="Owner Dual",
+            binding_status=binding_status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="pending-binding")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_normalizes_numeric_binding_account_type(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    for key, status, payload in [
+        ("numeric-type", "active", {"account_type": 1}),
+        ("string-type", "已解绑", {"账号类型": "1"}),
+    ]:
+        upsert_aweme_binding(
+            db_session, key, account_id="store-sale", douyin_id="seller-id",
+            douyin_nickname="Owner Dual", binding_status=status, raw_payload=payload,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="numeric-binding-type")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_ignores_status_conflict_without_a_real_store_candidate(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    upsert_aweme_binding(
+        db_session, "actual-store-binding", account_id="store-sale",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    for status in ["active", "已解绑"]:
+        upsert_aweme_binding(
+            db_session, f"unrelated-{status}", account_id="not-a-store",
+            douyin_id="unrelated-seller", douyin_nickname="Owner Dual",
+            binding_status=status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="irrelevant-status-conflict")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+
+
+def test_dual_fee_direct_unbinding_cannot_be_masked_by_another_identity(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    upsert_aweme_binding(
+        db_session, "direct-unbound", account_id="owner-dual",
+        douyin_id="direct-douyin", douyin_nickname="Owner Dual",
+        binding_status="unbound",
+    )
+    upsert_aweme_binding(
+        db_session, "other-active", account_id="store-sale",
+        douyin_id="other-douyin", douyin_nickname="Owner Dual",
+        binding_status="active",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="direct-unbinding-evidence")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+@pytest.mark.parametrize("missing_store", [False, True])
+def test_dual_fee_invalid_direct_store_cannot_be_replaced_by_same_name(
+    db_session: Session, missing_store: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    account = db_session.get(DimAwemeAccount, "owner-dual")
+    assert account is not None
+    if missing_store:
+        account.store_id = "missing-direct-store"
+    else:
+        store = db_session.get(dy_models.DimStore, "store-sale")
+        assert store is not None
+        store.is_active = False
+    upsert_aweme_binding(
+        db_session, "other-store-active", account_id="store-verify",
+        douyin_id="other-douyin", douyin_nickname="Owner Dual",
+        binding_status="active",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="invalid-direct-store")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
 def test_newer_inactive_fee_rule_suppresses_older_active_rule(
     db_session: Session,
 ) -> None:
@@ -1341,6 +1621,94 @@ def test_product_owner_scope_is_independent_from_order_sale_attribution(
     assert management is not None
     assert promotion.sale_store_id == "store-sale"
     assert promotion.scope_rule_version == "scope-2026-08-short_video"
+
+
+def test_dual_fee_non_commission_rule_uses_order_owner_not_product_owner(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    product = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-dual")
+    )
+    assert product is not None
+    product.owner_account_id = "product-owner-byd"
+    product.owner_account_name = "比亚迪汽车销售有限公司"
+    for scope_rule in db_session.scalars(select(SettlementScopeRule)):
+        scope_rule.owner_account_id = "product-owner-byd"
+
+    upsert_aweme_account(
+        db_session,
+        "owner-byd",
+        nickname="比亚迪汽车销售有限公司",
+        store_id="store-sale",
+        binding_status="active",
+    )
+    upsert_raw_order(
+        db_session,
+        "order-coupon-excluded",
+        order_status="paid",
+        order_status_raw="paid",
+        order_status_normalized="paid",
+        sku_id="sku-dual",
+        pay_time=_dual_time(8, 10),
+        sale_time=_dual_time(8, 10),
+        paid_amount_cent=10001,
+        order_paid_amount_cent=10001,
+        owner_account_id="owner-byd",
+        owner_account_name="比亚迪汽车销售有限公司",
+        sale_channel="short_video",
+        sale_channel_raw="short_video",
+        sale_channel_normalized="short_video",
+        source_run_id="dual-source",
+    )
+    upsert_order_coupon(
+        db_session,
+        "coupon-excluded",
+        "order-coupon-excluded",
+        coupon_status="fulfilled",
+        coupon_status_raw="fulfilled",
+        coupon_status_normalized="available",
+        coupon_paid_amount_cent=10001,
+        coupon_refunded_amount_cent=0,
+        source_run_id="dual-source",
+    )
+    upsert_verify_record(
+        db_session,
+        "verify-coupon-excluded",
+        coupon_id="coupon-excluded",
+        verify_status="valid",
+        verify_time=_dual_time(9, 5),
+        poi_id="poi-verify",
+        sku_id="sku-dual",
+        paid_amount_cent=10001,
+        source_run_id="dual-source",
+    )
+    db_session.merge(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name=normalize_owner_account_name(
+                "比亚迪汽车销售有限公司"
+            ),
+            owner_account_name="比亚迪汽车销售有限公司",
+            is_active=True,
+        )
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-order-owner-rule")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+    assert _fee_result(db_session, "coupon-excluded", 1) is None
+    assert _fee_result(db_session, "coupon-excluded", 2) is None
+    blocked_issues = list(
+        db_session.scalars(
+            select(DataQualityIssue).where(
+                DataQualityIssue.coupon_id == "coupon-excluded",
+                DataQualityIssue.issue_type == "dual_fee_non_commission_owner",
+            )
+        )
+    )
+    assert len(blocked_issues) == 2
 
 
 def test_statement_lock_freezes_result_entry_line_and_head_idempotently(

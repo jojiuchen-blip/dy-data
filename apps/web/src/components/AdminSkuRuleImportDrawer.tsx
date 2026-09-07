@@ -7,7 +7,11 @@ import {
   fetchSkuFeeRuleImportDetail,
   uploadSkuFeeRuleImport,
 } from "../api/client";
-import type { ImportBatchItem, ImportRowItem } from "../types/dashboard";
+import type {
+  ImportBatchItem,
+  ImportRowItem,
+  SettlementRebuildStatus,
+} from "../types/dashboard";
 import { apiErrorText } from "../utils/apiErrors";
 import { formatInteger } from "../utils/format";
 import {
@@ -28,6 +32,19 @@ function statusTone(value: string): ChipTone {
   }
   if (["PENDING_COMMIT", "COMMITTING", "PENDING"].includes(value)) return "warning";
   return "neutral";
+}
+
+function displaySettlementRebuildStatus(value: SettlementRebuildStatus): string {
+  const labels: Record<SettlementRebuildStatus, string> = {
+    queued: "已排队",
+    running: "执行中",
+    success: "已完成",
+    partial: "部分完成",
+    failed: "失败",
+    cancelled: "已取消",
+    retry_wait: "等待重试",
+  };
+  return labels[value] ?? "状态未知";
 }
 
 interface AdminSkuRuleImportDrawerProps {
@@ -105,10 +122,13 @@ export function AdminSkuRuleImportDrawer({
         importReason.trim(),
         importCommitIntent.current.key,
       );
-      importCommitIntent.current = null;
       setActiveBatch(response.data.batch);
-      setNotice(`整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则。`);
+      const rebuild = response.data.settlementRebuild;
+      setNotice(
+        `整批已原子写入 ${formatInteger(response.data.batch.successCount)} 条规则，结算重算任务${displaySettlementRebuildStatus(rebuild.rebuildStatus)}（任务编号：${rebuild.jobId}）。`,
+      );
       await onChanged();
+      importCommitIntent.current = null;
     } catch (error) {
       setNotice(apiErrorText(error, "整批原子提交失败，正式规则未部分写入。", {
         403: "当前账号不是最高管理员，不能提交正式规则。",

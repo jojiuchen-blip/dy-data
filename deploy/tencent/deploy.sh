@@ -245,6 +245,16 @@ if [ "$unresolved_snapshot_exceptions" -ne 0 ]; then
   exit 1
 fi
 
+log "restarting API before worker claim recovery"
+compose up -d --no-deps --force-recreate api
+wait_for_healthy_service api
+
+log "starting runtime support services"
+compose up -d --no-deps web browser ops-agent
+
+log "waiting for ops-agent health"
+wait_for_healthy_service ops-agent
+
 log "starting required worker"
 compose up -d --no-deps --force-recreate worker
 if ! compose ps --status running --services | grep -qx "worker"; then
@@ -255,17 +265,11 @@ if ! compose exec -T worker sh -c 'tr "\000" " " </proc/1/cmdline | grep -Fq "ap
   log "worker scheduler process check failed"
   exit 1
 fi
-if ! compose exec -T worker python -c 'from sqlalchemy import text; from apps.api.dy_api.db import get_session_factory; from apps.worker.queued_jobs import process_queued_finance_dispute_detections; factory = get_session_factory(); assert factory is not None; session = factory(); assert session.execute(text("SELECT 1")).scalar_one() == 1; session.close(); assert callable(process_queued_finance_dispute_detections)'; then
+if ! compose exec -T worker python -c 'from sqlalchemy import text; from apps.api.dy_api.db import get_session_factory; from apps.worker.queued_jobs import process_queued_finance_dispute_detections, process_queued_settlement_rebuilds; factory = get_session_factory(); assert factory is not None; session = factory(); assert session.execute(text("SELECT 1")).scalar_one() == 1; session.close(); assert callable(process_queued_finance_dispute_detections); assert callable(process_queued_settlement_rebuilds)'; then
   log "worker queue runtime or database connectivity check failed"
   exit 1
 fi
 log "worker queue runtime smoke passed"
-
-log "starting runtime services without worker"
-compose up -d --no-deps api web browser ops-agent
-
-log "waiting for ops-agent health"
-wait_for_healthy_service ops-agent
 
 log "recreating proxy so nginx resolves fresh upstream container addresses"
 compose up -d --no-deps --force-recreate proxy

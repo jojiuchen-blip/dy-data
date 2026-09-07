@@ -3650,6 +3650,7 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
     context = browser.new_context(viewport={"width": 1440, "height": 900})
     page = context.new_page()
     observed_keys: list[str] = []
+    rebuild_requests = 0
     attempts = 0
 
     def handle_publish(route) -> None:
@@ -3680,9 +3681,22 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
             }),
         )
 
+    def handle_rebuild(route) -> None:
+        nonlocal rebuild_requests
+        rebuild_requests += 1
+        route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "jobId": "admin-sku-fee-rules-rebuild-visual",
+                "rebuildStatus": "queued",
+            }),
+        )
+
     try:
         install_api_routes(page)
         page.route("**/api/v1/admin/sku-fee-rules", handle_publish)
+        page.route("**/api/v1/admin/sku-fee-rules/rebuild", handle_rebuild)
         page.goto(f"{vite_base_url}/admin/rules", wait_until="domcontentloaded")
         selection_section = page.get_by_role(
             "heading", name="1. SKU 查询与批量选择", exact=True
@@ -3705,6 +3719,10 @@ def test_admin_fee_publish_reuses_idempotency_key_after_uncertain_network_failur
         assert len(observed_keys) == 2
         assert len(observed_keys[0]) >= 16
         assert observed_keys[0] == observed_keys[1]
+        page.get_by_text("结算重算任务已自动排队", exact=False).wait_for(timeout=10000)
+        # Rule persistence now queues the rebuild atomically in the API;
+        # browser retries must not add a second, separate rebuild request.
+        assert rebuild_requests == 0
     finally:
         context.close()
 

@@ -139,6 +139,7 @@ import type {
   SkuFeeRuleCreate,
   SkuFeeRuleItem,
   SkuFeeRuleListData,
+  SettlementRebuildResult,
   SkuProductItem,
   SkuProductBulkUpdate,
   SkuProductImportBatch,
@@ -2046,6 +2047,19 @@ export async function publishSkuFeeRule(
   return {
     ...(await sendJson<SkuFeeRuleItem>("/admin/sku-fee-rules", {
       body: payload,
+      headers: { "Idempotency-Key": idempotencyKey },
+    })),
+    usingMock: false,
+  };
+}
+
+export async function triggerSkuFeeRuleRebuild(
+  updatedRuleCount: number,
+  idempotencyKey: string,
+): Promise<ApiLoadResult<SettlementRebuildResult>> {
+  return {
+    ...(await sendJson<SettlementRebuildResult>("/admin/sku-fee-rules/rebuild", {
+      body: { updatedRuleCount },
       headers: { "Idempotency-Key": idempotencyKey },
     })),
     usingMock: false,

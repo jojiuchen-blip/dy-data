@@ -121,6 +121,7 @@ def test_component_manifest_points_to_real_runtime_components() -> None:
         "data-table",
         "table-pagination",
         "dialog",
+        "guided-tour",
         "resource-state",
         "tertiary-nav",
         "theme-picker",

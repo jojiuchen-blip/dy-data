@@ -22,6 +22,7 @@ import { Button, IconButton } from "../components/Button";
 import { CountPill, FilterChip, StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
+import { GuidedTour } from "../components/GuidedTour";
 import { FilterBar, FilterField } from "../components/Filters";
 import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { MetricCard } from "../components/MetricCard";
@@ -33,6 +34,7 @@ import {
 import { SearchableStoreSelect } from "../components/SearchableStoreSelect";
 import { TablePagination } from "../components/TablePagination";
 import { useApiResource } from "../hooks/useApiResource";
+import { useClueOnboarding } from "../hooks/useClueOnboarding";
 import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import type {
   ClueFilterMetadata,
@@ -50,6 +52,7 @@ import {
   displayFollowUpTimingState,
   displayOrderStatus,
 } from "../utils/userFacingLabels";
+import "./ClueOnboarding.css";
 
 interface ClueCenterPageProps {
   currentUser: AdminUser;
@@ -651,6 +654,32 @@ export function ClueCenterPage({
     setFollowUpError(null);
   };
 
+  const tourCandidate =
+    rows.find((row) => canOperateCurrentRound(row) && getStoreDisplayStatus(row) === "待跟进") ??
+    rows.find(canOperateCurrentRound) ?? rows[0];
+  const onboarding = useClueOnboarding({
+    currentUser,
+    isDetailsView,
+    candidateRound: tourCandidate,
+    candidateCanOperate: Boolean(tourCandidate && canOperateCurrentRound(tourCandidate)),
+    roundsReady: roundsResource.data !== undefined,
+    roundsLoading: roundsResource.loading,
+    roundsRefreshing: roundsResource.refreshing,
+    roundsError: roundsResource.error ?? filterResource.error,
+    detailReady: detail !== null,
+    detailLoading,
+    detailError,
+    detailHasSelectedRound: Boolean(detail?.rounds.some((round) => round.assignment_round_id === selectedRoundId)),
+    canEditFollowUp,
+    canShowPhone: canShowActiveDetailPhone,
+    selectedRoundId,
+    busy: savingFollowUp || exportingClues,
+    mobileFiltersOpen,
+    setMobileFiltersOpen,
+    openDetail: openClueDetail,
+    closeDetail: closeClueDetail,
+  });
+
   const fetchFullPhone = async (row: ClueAssignmentRound) => {
     if (!canViewFullPhone(row)) {
       setPhoneRevealError(getPhoneUnavailableReason(row));
@@ -1013,6 +1042,7 @@ export function ClueCenterPage({
           {renderPhoneContact(row)}
           <Button
             className="clue-detail-trigger"
+            data-clue-tour={row.assignment_round_id === onboarding.targetRoundId ? "open-detail" : undefined}
             onClick={(event) => {
               event.stopPropagation();
               openClueDetail(row, event.currentTarget);
@@ -1096,12 +1126,34 @@ export function ClueCenterPage({
         <div>
           <h1>{pageHeadingTitle}</h1>
         </div>
-        <span className="source-pill">
+        <div className="clue-onboarding-heading-actions" ref={(element) => {
+          onboarding.replayRef.current = element?.querySelector("button") ?? null;
+        }}>
+          {onboarding.allowed ? (
+            <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch">
+              新手引导
+            </Button>
+          ) : null}
+          <span className="source-pill">
           {isDetailsView
             ? resourceSourceLabel(roundsResource.data, roundsResource.loading)
             : resourceSourceLabel(overviewResource.data, overviewResource.loading)}
-        </span>
+          </span>
+        </div>
       </section>
+
+      {onboarding.showInvitation ? (
+        <section aria-label="线索中心新手引导邀请" className="clue-onboarding-invitation">
+          <div>
+            <strong>第一次跟进线索？</strong>
+            <p>跟着页面提示，了解找线索、联系客户和记录跟进的流程。</p>
+          </div>
+          <div className="clue-onboarding-invitation__actions">
+            <Button onClick={onboarding.dismissInvitation} size="touch" variant="text">稍后再看</Button>
+            <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch" variant="primary">开始引导</Button>
+          </div>
+        </section>
+      ) : null}
 
       <ResourceNotice
         error={displayedResourceError}
@@ -1217,6 +1269,8 @@ export function ClueCenterPage({
           />
         </FilterField>
         <SelectField
+          className="clue-tour-status"
+          id="clue-status-filter"
           label="线索状态"
           onChange={(value) => {
             setPage(1);
@@ -1295,7 +1349,7 @@ export function ClueCenterPage({
 
       {isDetailsView ? (
         <section className="content-section content-section--data-workspace">
-          <div className="section-title">
+          <div className="section-title" data-clue-tour="results">
             <div>
               <h2>当前筛选结果</h2>
               <p>
@@ -1378,6 +1432,7 @@ export function ClueCenterPage({
                         </dl>
                         <Button
                           className="clue-card__detail clue-detail-trigger"
+                          data-clue-tour={row.assignment_round_id === onboarding.targetRoundId ? "open-detail" : undefined}
                           onClick={(event) => openClueDetail(row, event.currentTarget)}
                           type="button"
                           variant="primary"
@@ -1471,6 +1526,7 @@ export function ClueCenterPage({
                   <section
                     aria-label="手机号与状态"
                     className="clue-followup-contact-status"
+                    data-clue-tour="contact"
                   >
                     <div className="clue-followup-contact-card">
                       <span>联系方式 · 号码操作</span>
@@ -1489,7 +1545,7 @@ export function ClueCenterPage({
                       <h3>跟进操作</h3>
                       {canEditFollowUp ? (
                         <form className="clue-followup-form" onSubmit={handleSaveFollowUp}>
-                          <fieldset>
+                          <fieldset data-clue-tour="follow-up">
                             <legend>跟进结果</legend>
                             <label>
                               <FieldInput
@@ -1556,6 +1612,7 @@ export function ClueCenterPage({
                             />
                           </label>
                           <Button
+                            data-clue-tour="save"
                             disabled={savingFollowUp}
                             loading={savingFollowUp}
                             type="submit"
@@ -1606,7 +1663,7 @@ export function ClueCenterPage({
                     </section>
 
                     <section className="clue-followup-history">
-                      <div className="clue-followup-section-title">
+                      <div className="clue-followup-section-title" data-clue-tour="history">
                         <h3>线索跟进历史</h3>
                         <CountPill>
                           {detail.rounds.length}轮 · {detail.follow_up_records.length}条记录
@@ -1769,6 +1826,7 @@ export function ClueCenterPage({
           </div>
         </Dialog>
       ) : null}
+      {onboarding.running ? <GuidedTour {...onboarding.tourProps} /> : null}
     </div>
   );
 }
