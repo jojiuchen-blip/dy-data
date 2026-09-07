@@ -3029,28 +3029,20 @@ def _materialize_dual_fee_direction(
         return False
 
     sale_owner_account_id = _first_text(order.owner_account_id)
-    sale_account = (
-        session.get(DimAwemeAccount, sale_owner_account_id)
-        if sale_owner_account_id
-        else None
-    )
-    if (
-        sale_account is None
-        or not sale_account.store_id
-        or not _is_active_binding_status(sale_account.binding_status)
-        or session.get(DimStore, sale_account.store_id) is None
-    ):
+    sale_account = _resolve_dual_fee_sale_account(session, order)
+    if sale_account is None:
         _block_dual_fee(
             session,
             calculation_run_id,
             coupon,
             order,
             "dual_fee_missing_sale_store",
-            "稳定归属账号未映射到有效销售门店，费用方向已阻断。",
+            "订单归属账号未唯一映射到有效销售门店，费用方向已阻断。",
             directions=(direction,),
             context={
                 "direction": direction_name,
                 "sale_owner_account_id": sale_owner_account_id,
+                "sale_owner_account_name": order.owner_account_name,
             },
         )
         return False
@@ -5520,13 +5512,19 @@ def _match_owner(
     return None
 
 
-def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccountMatch]:
+def _nickname_matches(
+    session: Session,
+    nickname: str | None,
+    *,
+    raw_bindings: list[RawAwemeBinding] | None = None,
+) -> list[OwnerAccountMatch]:
     if not nickname:
         return []
     matches: dict[tuple[str, str | None], OwnerAccountMatch] = {}
-    raw_bindings = list(
-        session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
-    )
+    if raw_bindings is None:
+        raw_bindings = list(
+            session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
+        )
     for binding in raw_bindings:
         if not binding.account_id or not _is_active_binding_status(binding.binding_status):
             continue
@@ -5536,6 +5534,117 @@ def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccou
             binding_status=binding.binding_status,
         )
     return list(matches.values())
+
+
+def _resolve_dual_fee_sale_account(
+    session: Session, order: RawDouyinOrder
+) -> OwnerAccountMatch | None:
+    """Resolve order identity across UID and backend binding ID namespaces.
+
+    Reuse the legacy exact-nickname binding evidence, never product ownership.
+    A known invalid account or conflicting store evidence must not be bypassed
+    by falling back to a nickname. Binding date bounds apply to the sale date
+    for both fee directions, not the later verification date.
+    """
+    sale_date = _business_date(_first_datetime(order.sale_time, order.pay_time))
+
+    def account_is_valid(account: DimAwemeAccount) -> bool:
+        return (
+            _is_active_dual_fee_binding_status(account.binding_status)
+            and (account.valid_from is None or (
+                sale_date is not None and account.valid_from <= sale_date
+            ))
+            and (account.valid_to is None or (
+                sale_date is not None and sale_date <= account.valid_to
+            ))
+        )
+
+    owner_id = _first_text(order.owner_account_id)
+    direct = session.get(DimAwemeAccount, owner_id) if owner_id else None
+    if direct is not None and not account_is_valid(direct):
+        return None
+    if direct is not None and direct.store_id:
+        direct_store = session.get(DimStore, direct.store_id)
+        if direct_store is None or not direct_store.is_active:
+            return None
+
+    raw_bindings = list(session.scalars(
+        select(RawAwemeBinding).where(
+            RawAwemeBinding.douyin_nickname == order.owner_account_name
+        )
+    )) if order.owner_account_name else []
+    # Backend exports include status in the row key and retain earlier rows.
+    # Do not let a retained ACTIVE row resurrect the same unbound identity.
+    # POI, Douyin ID and account type distinguish unrelated binding records.
+    statuses: dict[tuple[str, str | None, str | None, str | None], set[bool]] = {}
+    for binding in raw_bindings:
+        if not binding.account_id:
+            continue
+        payload = binding.raw_payload or {}
+        account_type = _first_text(*(
+            str(value) if value is not None else None
+            for value in (payload.get("账号类型"), payload.get("account_type"))
+        ))
+        identity = (
+            binding.account_id, binding.douyin_id, binding.poi_id,
+            account_type,
+        )
+        statuses.setdefault(identity, set()).add(
+            _is_active_dual_fee_binding_status(binding.binding_status)
+        )
+    for identity, values in statuses.items():
+        if direct is not None and identity[0] == direct.account_id and False in values:
+            return None
+        if len(values) > 1:
+            conflict_store = session.get(DimStore, identity[0])
+            if conflict_store is not None and conflict_store.is_active:
+                return None
+    if direct is not None:
+        direct_statuses = {
+            status for identity, values in statuses.items()
+            if identity[0] == direct.store_id
+            for status in values
+        }
+        if direct_statuses == {False}:
+            return None
+
+    candidates = _nickname_matches(
+        session, order.owner_account_name,
+        raw_bindings=[binding for binding in raw_bindings
+                      if _is_active_dual_fee_binding_status(binding.binding_status)],
+    )
+    if direct is not None and direct.store_id:
+        candidates.append(OwnerAccountMatch(
+            account_id=direct.account_id,
+            store_id=direct.store_id,
+            binding_status=direct.binding_status,
+            match_source="dim_aweme_accounts",
+        ))
+
+    valid_matches: dict[str, OwnerAccountMatch] = {}
+    for candidate in candidates:
+        if not candidate.store_id:
+            continue
+        store = session.get(DimStore, candidate.store_id)
+        if store is None or not store.is_active:
+            continue
+        account = session.get(DimAwemeAccount, candidate.account_id)
+        if account is not None:
+            if not account_is_valid(account):
+                return None
+            if account.store_id and account.store_id != candidate.store_id:
+                return None
+        valid_matches[candidate.store_id] = candidate
+
+    return next(iter(valid_matches.values())) if len(valid_matches) == 1 else None
+
+
+def _is_active_dual_fee_binding_status(status: str | None) -> bool:
+    # Keep legacy matching unchanged; dual fees also honor the exporter's
+    # explicit pending/reviewing exclusion.
+    return _is_active_binding_status(status) and _normalized(status) not in {
+        "pending", "reviewing",
+    }
 
 
 def _is_active_binding_status(status: str | None) -> bool:
