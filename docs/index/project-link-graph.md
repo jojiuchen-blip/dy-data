@@ -4,9 +4,9 @@
 
 ## 1. 摘要
 
-- 文件节点：736
-- 文件关系：822
-- 诊断问题：29
+- 文件节点：859
+- 文件关系：965
+- 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
 
@@ -16,7 +16,6 @@
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
-| page-2026-08-28T05-09-50-002Z.yml | config | host-project | [[.playwright-cli/page-2026-08-28T05-09-50-002Z.yml|page-2026-08-28T05-09-50-002Z.yml]] | [page-2026-08-28T05-09-50-002Z.yml](../../.playwright-cli/page-2026-08-28T05-09-50-002Z.yml) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
 | env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
 | 20260612_0001_backend_production_mvp.py | source_code | coding-standards | [[alembic/versions/20260612_0001_backend_production_mvp.py|20260612_0001_backend_production_mvp.py]] | [20260612_0001_backend_production_mvp.py](../../alembic/versions/20260612_0001_backend_production_mvp.py) |
@@ -79,6 +78,14 @@
 | 20260824_0041_g2_management_sap_reversal.py | source_code | coding-standards | [[alembic/versions/20260824_0041_g2_management_sap_reversal.py|20260824_0041_g2_management_sap_reversal.py]] | [20260824_0041_g2_management_sap_reversal.py](../../alembic/versions/20260824_0041_g2_management_sap_reversal.py) |
 | 20260824_0042_finance_import_final_version_guard.py | source_code | coding-standards | [[alembic/versions/20260824_0042_finance_import_final_version_guard.py|20260824_0042_finance_import_final_version_guard.py]] | [20260824_0042_finance_import_final_version_guard.py](../../alembic/versions/20260824_0042_finance_import_final_version_guard.py) |
 | 20260824_0043_statement_store_snapshots.py | source_code | coding-standards | [[alembic/versions/20260824_0043_statement_store_snapshots.py|20260824_0043_statement_store_snapshots.py]] | [20260824_0043_statement_store_snapshots.py](../../alembic/versions/20260824_0043_statement_store_snapshots.py) |
+| 20260830_0044_clue_source_record_links.py | source_code | coding-standards | [[alembic/versions/20260830_0044_clue_source_record_links.py|20260830_0044_clue_source_record_links.py]] | [20260830_0044_clue_source_record_links.py](../../alembic/versions/20260830_0044_clue_source_record_links.py) |
+| 20260831_0044_finance_dispute_detection_idempotency.py | source_code | coding-standards | [[alembic/versions/20260831_0044_finance_dispute_detection_idempotency.py|20260831_0044_finance_dispute_detection_idempotency.py]] | [20260831_0044_finance_dispute_detection_idempotency.py](../../alembic/versions/20260831_0044_finance_dispute_detection_idempotency.py) |
+| 20260831_0045_clue_allocation_cycle_evidence.py | source_code | coding-standards | [[alembic/versions/20260831_0045_clue_allocation_cycle_evidence.py|20260831_0045_clue_allocation_cycle_evidence.py]] | [20260831_0045_clue_allocation_cycle_evidence.py](../../alembic/versions/20260831_0045_clue_allocation_cycle_evidence.py) |
+| 20260831_0046_retire_legacy_clue_rounds.py | source_code | coding-standards | [[alembic/versions/20260831_0046_retire_legacy_clue_rounds.py|20260831_0046_retire_legacy_clue_rounds.py]] | [20260831_0046_retire_legacy_clue_rounds.py](../../alembic/versions/20260831_0046_retire_legacy_clue_rounds.py) |
+| 20260831_0047_merge_dydata81_and_clue_heads.py | source_code | coding-standards | [[alembic/versions/20260831_0047_merge_dydata81_and_clue_heads.py|20260831_0047_merge_dydata81_and_clue_heads.py]] | [20260831_0047_merge_dydata81_and_clue_heads.py](../../alembic/versions/20260831_0047_merge_dydata81_and_clue_heads.py) |
+| 20260831_0048_allow_finance_detection_succeeded.py | source_code | coding-standards | [[alembic/versions/20260831_0048_allow_finance_detection_succeeded.py|20260831_0048_allow_finance_detection_succeeded.py]] | [20260831_0048_allow_finance_detection_succeeded.py](../../alembic/versions/20260831_0048_allow_finance_detection_succeeded.py) |
+| 20260901_0049_promotion_invoice_manual_fields.py | source_code | coding-standards | [[alembic/versions/20260901_0049_promotion_invoice_manual_fields.py|20260901_0049_promotion_invoice_manual_fields.py]] | [20260901_0049_promotion_invoice_manual_fields.py](../../alembic/versions/20260901_0049_promotion_invoice_manual_fields.py) |
+| 20260903_0050_douyin_api_quota_usage.py | source_code | coding-standards | [[alembic/versions/20260903_0050_douyin_api_quota_usage.py|20260903_0050_douyin_api_quota_usage.py]] | [20260903_0050_douyin_api_quota_usage.py](../../alembic/versions/20260903_0050_douyin_api_quota_usage.py) |
 | __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
 | access_control.py | source_code | coding-standards | [[apps/api/dy_api/access_control.py|access_control.py]] | [access_control.py](../../apps/api/dy_api/access_control.py) |
 | agent_capabilities.py | source_code | coding-standards | [[apps/api/dy_api/agent_capabilities.py|agent_capabilities.py]] | [agent_capabilities.py](../../apps/api/dy_api/agent_capabilities.py) |
@@ -87,13 +94,6 @@
 | auth.py | source_code | coding-standards | [[apps/api/dy_api/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/auth.py) |
 | cli_audit.py | source_code | coding-standards | [[apps/api/dy_api/cli_audit.py|cli_audit.py]] | [cli_audit.py](../../apps/api/dy_api/cli_audit.py) |
 | cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/cli_auth.py) |
-| cli_contract.py | source_code | coding-standards | [[apps/api/dy_api/cli_contract.py|cli_contract.py]] | [cli_contract.py](../../apps/api/dy_api/cli_contract.py) |
-| db.py | source_code | coding-standards | [[apps/api/dy_api/db.py|db.py]] | [db.py](../../apps/api/dy_api/db.py) |
-| main.py | source_code | coding-standards | [[apps/api/dy_api/main.py|main.py]] | [main.py](../../apps/api/dy_api/main.py) |
-| mcp_oauth.py | source_code | coding-standards | [[apps/api/dy_api/mcp_oauth.py|mcp_oauth.py]] | [mcp_oauth.py](../../apps/api/dy_api/mcp_oauth.py) |
-| mcp_server.py | source_code | coding-standards | [[apps/api/dy_api/mcp_server.py|mcp_server.py]] | [mcp_server.py](../../apps/api/dy_api/mcp_server.py) |
-| models.py | source_code | coding-standards | [[apps/api/dy_api/models.py|models.py]] | [models.py](../../apps/api/dy_api/models.py) |
-| _data.py | source_code | coding-standards | [[apps/api/dy_api/routes/_data.py|_data.py]] | [_data.py](../../apps/api/dy_api/routes/_data.py) |
 
 ## 3. 关系
 
@@ -104,7 +104,7 @@
 | AGENTS.md | links_to | docs/plans/execution-plan.md | AGENTS.md:88 |
 | AGENTS.md | links_to | project-profile.md | AGENTS.md:85 |
 | AGENTS.md | links_to | project-rules.md | AGENTS.md:83 |
-| apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:43 |
+| apps/web/README.md | links_to | docs/design-system/README.md | apps/web/README.md:53 |
 | design-system/dy-data/MASTER.md | links_to | docs/design-system/README.md | design-system/dy-data/MASTER.md:15 |
 | docs/技术架构与部署规划.md | links_to | docs/architecture.md | docs/技术架构与部署规划.md:3 |
 | docs/技术架构与部署规划.md | links_to | docs/runbook.md | docs/技术架构与部署规划.md:3 |
@@ -188,6 +188,13 @@
 | docs/devlog/20260821_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260821_refactor_log_jojiuchen-blip.md:75 |
 | docs/devlog/20260824_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260824_refactor_log_jojiuchen-blip.md:69 |
 | docs/devlog/20260828_dydata-81-store-finance.md | links_to | design-qa.md | docs/devlog/20260828_dydata-81-store-finance.md:34 |
+| docs/devlog/20260828_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260828_refactor_log_jojiuchen-blip.md:69 |
+| docs/devlog/20260830_dydata-81-finance-contract-g5.md | links_to | docs/plans/2026-08-30-dydata-81-finance-contract-controller-spec.md | docs/devlog/20260830_dydata-81-finance-contract-g5.md:10 |
+| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/foundation/foundation-api-dy-data/billing-invoice.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:40 |
+| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/subprd/08-subprd-finance-disputes.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:41 |
+| docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/superpowers/specs/2026-08-20-dydata-19-settlement-finance-design.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:39 |
+| docs/devlog/20260830_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260830_refactor_log_Keith_Chen.md:96 |
+| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:70 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -212,13 +219,6 @@
 | docs/governance/authority-map.md | links_to | README.md | docs/governance/authority-map.md:28 |
 | docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/项目产品介绍书.md | docs/plans/2026-06-11-two-person-development-division.md:44 |
 | docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/architecture.md | docs/plans/2026-06-11-two-person-development-division.md:68 |
-| docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/runbook.md | docs/plans/2026-06-11-two-person-development-division.md:69 |
-| docs/plans/2026-06-11-two-person-development-division.md | links_to | README.md | docs/plans/2026-06-11-two-person-development-division.md:67 |
-| docs/plans/2026-06-12-automatic-collection-production-closure.md | links_to | docs/技术架构与部署规划.md | docs/plans/2026-06-12-automatic-collection-production-closure.md:523 |
-| docs/plans/2026-06-12-automatic-collection-production-closure.md | links_to | docs/data-model.md | docs/plans/2026-06-12-automatic-collection-production-closure.md:524 |
-| docs/plans/2026-06-12-automatic-collection-production-closure.md | links_to | docs/runbook.md | docs/plans/2026-06-12-automatic-collection-production-closure.md:522 |
-| docs/plans/2026-06-12-backend-production-mvp-controller-spec.md | links_to | docs/api-contract.md | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md:21 |
-| docs/plans/2026-06-12-backend-production-mvp-controller-spec.md | links_to | docs/data-model.md | docs/plans/2026-06-12-backend-production-mvp-controller-spec.md:20 |
 
 ## 4. 诊断问题
 
@@ -229,6 +229,10 @@
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.2-settlement-pages.md | docs/plans/delivery-plans/sub-delivery-plan-dy-data-T3.2-settlement-pages.md references missing file docs/plans/delivery-plans/docs/prd/subprd/04-subprd-invoice-guide.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.1-frontend.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
 | error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-22-dual-id-activation-T1.3-integration-guide.md references missing file docs/plans/account-activation-guide/docs/superpowers/specs/2026-07-16-dual-id-account-activation-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.1-dydata-58-foundation.md references missing file docs/plans/delivery-plans/docs/superpowers/specs/2026-08-06-dy-data-8gb-safe-sync-control-plane-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.2-dydata-70.md references missing file docs/plans/delivery-plans/docs/superpowers/specs/2026-08-06-dy-data-8gb-safe-sync-control-plane-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.3-dydata-58-remaining.md references missing file docs/plans/delivery-plans/docs/superpowers/specs/2026-08-06-dy-data-8gb-safe-sync-control-plane-design.md |
+| error | broken_link | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md | docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md references missing file docs/plans/delivery-plans/docs/superpowers/specs/2026-08-06-dy-data-8gb-safe-sync-control-plane-design.md |
 | error | broken_link | docs/prd/mainprd-clue-center.md | docs/prd/mainprd-clue-center.md references missing file docs/prd/subprd/01-subprd-view-navigation-and-filters.md |
 | error | broken_link | docs/prd/mainprd-clue-center.md | docs/prd/mainprd-clue-center.md references missing file docs/prd/subprd/02-subprd-operating-metrics-dashboard.md |
 | error | broken_link | docs/prd/mainprd-clue-center.md | docs/prd/mainprd-clue-center.md references missing file docs/prd/subprd/03-subprd-lead-list-and-export.md |

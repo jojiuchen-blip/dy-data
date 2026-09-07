@@ -25,6 +25,13 @@
 - 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。
 - 本增量不改变下文 DYDATA-41 线索中心 Foundation 的业务基线与依赖顺序；当前由 `DYDATA-46` 将腾讯云入口、OAuth、keyring、部署、文档和 smoke 切换为 production，禁止复用测试凭据。
 
+## 0.3 并行增量入口：DYDATA-89
+
+- Linear `DYDATA-89`（线索中心增加逐步聚焦的新手引导）提交 In Review，等待用户验收；本入口与 DYDATA-81、DYDATA-46、DYDATA-45、DYDATA-58 的全局 cockpit 并行。
+- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。
+- T0.1 状态为 `进行中`（2026-09-07 实现与验证完成，待验收）：已接入 `/clues` 与 `/clues/details` 的七步真实页面引导、首次邀请/重播、当前筛选内可操作行优先、空/加载/只读 fallback、键盘与响应式协作。
+- 验证结果：完整回归 2418 passed / 129 skipped；17 项引导专项、119 项相关回归、6 项既有浏览器回归、122 项套包测试通过；Web build、设计系统 build、`git diff --check` 通过。覆盖 1440/768/390、浅深色、reduced-motion、焦点与滚动/resize；完整证据见主计划 §5.1–5.2。功能代码已本地提交 `95dff72`，PR 与 CI 最新证据见 Linear DYDATA-89；本任务无 foundation 漂移，未改 API/Schema，不涉及生产部署，用户验收后再同步完成状态。
+
 ## 1. 当前阶段
 
 - 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。
