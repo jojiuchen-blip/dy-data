@@ -140,7 +140,6 @@ function latestEffectiveRules(rules: SkuFeeRuleItem[]): Map<string, SkuFeeRuleIt
 
 export function AdminSkuRulesPage() {
   const publishIntent = useRef<Map<string, string>>(new Map());
-  const publishRebuildIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const manualRebuildIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const previewRef = useRef<HTMLElement | null>(null);
   const stepRefs = useRef<Array<HTMLElement | null>>([]);
@@ -416,23 +415,6 @@ export function AdminSkuRulesPage() {
     setPublishFeedback("");
     setPublishProgress({ completed: 0, total: selectedRows.length });
     let completed = 0;
-    let rebuildJobId: string | null = null;
-    const rebuildFingerprint = JSON.stringify({
-      skuIds: selectedRows.map((row) => row.sku_id),
-      promotion,
-      management,
-      effectiveDate,
-      ruleStatus,
-      changeReason: changeReason.trim(),
-    });
-    let rebuildIntent = publishRebuildIntent.current;
-    if (!rebuildIntent || rebuildIntent.fingerprint !== rebuildFingerprint) {
-      rebuildIntent = {
-        fingerprint: rebuildFingerprint,
-        key: createIdempotencyKey("sku-fee-rule-rebuild"),
-      };
-      publishRebuildIntent.current = rebuildIntent;
-    }
     try {
       for (const row of selectedRows) {
         const payload = {
@@ -450,27 +432,19 @@ export function AdminSkuRulesPage() {
         completed += 1;
         setPublishProgress({ completed, total: selectedRows.length });
       }
-      const rebuildResponse = await triggerSkuFeeRuleRebuild(
-        completed,
-        rebuildIntent.key,
-      );
-      rebuildJobId = rebuildResponse.data.jobId;
       await refreshFeeDataAndRows();
       setConfirmOpen(false);
       setSelectedSkuMap(new Map());
       setRateApplied(false);
       setChangeReason("");
       publishIntent.current.clear();
-      publishRebuildIntent.current = null;
       setPublishProgress(null);
       setNotice(
-        `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已排队（任务编号：${rebuildJobId}）。`,
+        `已发布 ${completed} 个 SKU 的双费率版本，结算重算任务已自动排队。`,
       );
     } catch (error) {
-      const fallback = rebuildJobId
-        ? `已发布 ${completed} 个 SKU，结算重算任务 ${rebuildJobId} 已排队，但页面刷新失败，请稍后刷新。`
-        : completed === selectedRows.length
-          ? `规则已保存 ${completed} 个 SKU，但结算重算任务未排队；请保持当前内容重试。`
+      const fallback = completed === selectedRows.length
+          ? `已发布 ${completed} 个 SKU，结算重算任务已自动排队，但页面刷新失败，请稍后刷新。`
           : `发布中断，已完成 ${completed} 个 SKU；可使用相同内容重试。`;
       const feedback = apiErrorText(error, fallback, {
         403: "当前账号不是最高管理员，不能发布费率版本。",

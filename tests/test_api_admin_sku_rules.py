@@ -28,9 +28,7 @@ from apps.api.dy_api.models import (  # noqa: E402
 from dy_api.routes import admin as admin_routes  # noqa: E402
 from dy_api.routes import _settlement_jobs as settlement_jobs  # noqa: E402
 from apps.worker.repositories import (  # noqa: E402
-    finish_job_run,
     queue_job_run,
-    start_job_run,
     upsert_aweme_binding,
     upsert_order_coupon,
     upsert_raw_order,
@@ -38,7 +36,7 @@ from apps.worker.repositories import (  # noqa: E402
     upsert_store_poi_mapping,
     upsert_verify_record,
 )
-from apps.worker.settlement import run_settlement_job  # noqa: E402
+from apps.worker.settlement import SettlementStats, run_settlement_job  # noqa: E402
 from apps.worker import settlement_rebuild  # noqa: E402
 
 
@@ -387,16 +385,14 @@ def test_admin_rebuild_publishes_lineage_for_single_store_readers(
     )
     db_session.commit()
 
-    def fake_run_settlement_job(
-        session: Session, *, job_id: str, source_run_id: str
-    ) -> None:
-        start_job_run(
-            session,
-            job_id,
-            "settlement_rebuild",
-            metadata_json={"source_run_id": source_run_id},
-        )
-        finish_job_run(session, job_id, status="success", success_count=1)
+    def fake_rebuild_settlement(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, source_run_id, progress_callback
+        return SettlementStats(1, 0, 1, 1)
 
     def fake_build_sparse_overlay(factory, **kwargs):
         with factory() as session:
@@ -426,7 +422,7 @@ def test_admin_rebuild_publishes_lineage_for_single_store_readers(
         return SimpleNamespace(manifest_checksum="f" * 64, manifest_count=1, row_count=1)
 
     monkeypatch.setattr(
-        settlement_rebuild, "run_settlement_job", fake_run_settlement_job
+        settlement_rebuild, "rebuild_settlement", fake_rebuild_settlement
     )
     monkeypatch.setattr(
         settlement_rebuild,
@@ -442,7 +438,7 @@ def test_admin_rebuild_publishes_lineage_for_single_store_readers(
     db_session.expire_all()
     pointer = db_session.get(SettlementProjectionActive, "settlement")
     assert pointer is not None
-    assert pointer.generation_id == f"settlement-admin-rebuild:{job_id}"
+    assert pointer.generation_id.startswith(f"settlement-admin-rebuild:{job_id}:")
     generation = db_session.get(SettlementProjectionGeneration, pointer.generation_id)
     assert generation is not None
     assert generation.state == "published"
@@ -501,7 +497,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
     assert payload["updated_count"] == 1
     assert payload["rebuild_status"] == "queued"
     assert payload["job_id"].startswith("admin-sku-rules-")
-    assert queued_jobs == [payload["job_id"]]
+    assert queued_jobs == []
 
     rule = db_session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-admin")
@@ -609,7 +605,7 @@ def test_admin_can_replace_non_commission_owner_accounts_and_queue_rebuild(
     assert payload["updated_count"] == 2
     assert payload["rebuild_status"] == "queued"
     assert payload["job_id"].startswith("admin-non-commission-accounts-")
-    assert queued_jobs == [payload["job_id"]]
+    assert queued_jobs == []
 
     rows = {
         row["owner_account_name"]: row

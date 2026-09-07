@@ -105,6 +105,7 @@ MAX_SETTLEMENT_CLOSURE_VALUES = 64
 MAX_SETTLEMENT_IMPACT_BATCH_SIZE = 64
 MAX_SETTLEMENT_COUPON_BATCH_SIZE = 100
 MAX_SETTLEMENT_PAGE_CARDINALITY = 8192
+SETTLEMENT_REBUILD_PROGRESS_INTERVAL = 1000
 SETTLEMENT_SPARSE_PROTOCOL = "t343-settlement-sparse-v1"
 MAX_SETTLEMENT_SPARSE_MONTHS = 120
 _MONTH_KEY_RE = re.compile(r"\d{4}-\d{2}\Z")
@@ -858,6 +859,7 @@ def _sparse_write_monthly_partition(
     base_generation_id: str,
     month: str,
     batch_size: int,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> None:
     with session_factory() as session:
         _sparse_assert_writable(
@@ -924,6 +926,8 @@ def _sparse_write_monthly_partition(
                 digest=digest,
             )],
         )
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
 
 
@@ -1173,6 +1177,7 @@ def _sparse_write_ranking_partition(
     period_type: int,
     period_key: str,
     batch_size: int,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> None:
     prefix = "monthly" if period_type == 1 else "cumulative"
     partition_key = f"{prefix}:{period_key}"
@@ -1253,6 +1258,8 @@ def _sparse_write_ranking_partition(
                 digest=digest,
             )],
         )
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
 
 
@@ -1333,6 +1340,7 @@ def _sparse_finalize_generation(
     cumulative_months: tuple[str, ...],
     batch_size: int,
     resumed: bool,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> ProjectionManifestSet:
     with session_factory() as session:
         generation = _sparse_assert_writable(
@@ -1400,6 +1408,8 @@ def _sparse_finalize_generation(
         generation.last_key = terminal
         generation.manifest_checksum = manifest_checksum
         generation.source_input_json = source_input
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
         return _sparse_result(
             session,
@@ -1415,6 +1425,7 @@ def mark_settlement_sparse_overlay_ready(
     generation_id: str,
     base_generation_id: str,
     input_fingerprint: str,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> ProjectionManifestSet:
     """Certify a settlement-only sparse build before pointer publication.
 
@@ -1447,6 +1458,8 @@ def mark_settlement_sparse_overlay_ready(
             raise ValueError("active settlement pointer changed before sparse ready")
 
         if generation.state in {"ready", "published"}:
+            if commit_guard is not None:
+                commit_guard(session)
             return _sparse_result(
                 session,
                 generation_id=generation_id,
@@ -1502,6 +1515,8 @@ def mark_settlement_sparse_overlay_ready(
             "row_count": row_count,
             "last_key": generation.last_key,
         }
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
         return _sparse_result(
             session,
@@ -1520,6 +1535,8 @@ def build_settlement_sparse_overlay(
     batch_size: int,
     input_fingerprint: str,
     source_job_id: str | None = None,
+    commit_guard: Callable[[Session], None] | None = None,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> ProjectionManifestSet:
     """Build only claimed monthly/ranking partitions over a pinned base.
 
@@ -1554,14 +1571,25 @@ def build_settlement_sparse_overlay(
         )
         existing_state = existing.state if existing is not None else None
 
+    partition_total = len(affected) * 2 + len(cumulative_months)
+    if progress_callback is not None:
+        progress_callback("build_sparse_projection", 0, partition_total)
+
     if existing_state in {"ready", "published"}:
         with session_factory() as session:
-            return _sparse_result(
+            if commit_guard is not None:
+                commit_guard(session)
+            result = _sparse_result(
                 session,
                 generation_id=generation_id,
                 base_generation_id=base_generation_id,
                 resumed=True,
             )
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection", partition_total, partition_total
+            )
+        return result
 
     source_input = _sparse_source_input(
         base_generation_id=base_generation_id,
@@ -1603,6 +1631,8 @@ def build_settlement_sparse_overlay(
                 )
             )
             try:
+                if commit_guard is not None:
+                    commit_guard(session)
                 session.commit()
             except IntegrityError:
                 session.rollback()
@@ -1616,6 +1646,7 @@ def build_settlement_sparse_overlay(
                     raise
                 resumed = True
 
+    completed_partitions = 0
     for month in affected:
         _sparse_write_monthly_partition(
             session_factory,
@@ -1623,7 +1654,15 @@ def build_settlement_sparse_overlay(
             base_generation_id=base_generation_id,
             month=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
     for month in affected:
         _sparse_write_ranking_partition(
             session_factory,
@@ -1633,7 +1672,15 @@ def build_settlement_sparse_overlay(
             period_type=1,
             period_key=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
     for month in cumulative_months:
         _sparse_write_ranking_partition(
             session_factory,
@@ -1643,8 +1690,16 @@ def build_settlement_sparse_overlay(
             period_type=2,
             period_key=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
-    return _sparse_finalize_generation(
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
+    result = _sparse_finalize_generation(
         session_factory,
         generation_id=generation_id,
         base_generation_id=base_generation_id,
@@ -1652,7 +1707,13 @@ def build_settlement_sparse_overlay(
         cumulative_months=cumulative_months,
         batch_size=batch_size,
         resumed=resumed,
+        commit_guard=commit_guard,
     )
+    if progress_callback is not None:
+        progress_callback(
+            "build_sparse_projection", partition_total, partition_total
+        )
+    return result
 
 
 def settle_coupon_local(
@@ -2562,27 +2623,60 @@ def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> 
     return stats
 
 
-def rebuild_settlement(session: Session, *, source_run_id: str) -> SettlementStats:
+def rebuild_settlement(
+    session: Session,
+    *,
+    source_run_id: str,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
+) -> SettlementStats:
+    def report(stage: str, current: int = 0, total: int | None = None) -> None:
+        if progress_callback is not None:
+            progress_callback(stage, current, total)
+
+    report("clear_legacy_projection")
     session.execute(delete(SettlementOrderDetail))
     session.execute(delete(AggStoreRanking))
     session.execute(delete(AggStoreMonthlySettlement))
     session.execute(delete(DataQualityIssue))
     session.flush()
 
-    coupons = session.scalars(select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)).all()
-    for coupon in coupons:
+    report("load_coupons")
+    coupons = session.scalars(
+        select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)
+    ).all()
+    coupon_count = len(coupons)
+    report("materialize_coupons", 0, coupon_count)
+    for index, coupon in enumerate(coupons, start=1):
         _materialize_coupon(session, coupon, source_run_id=source_run_id)
+        if (
+            index % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+            or index == coupon_count
+        ):
+            report("materialize_coupons", index, coupon_count)
     session.flush()
 
+    report("load_settlement_details", coupon_count, coupon_count)
     details = session.scalars(select(SettlementOrderDetail)).all()
+    report("rebuild_store_ranking", coupon_count, coupon_count)
     ranking_count = _rebuild_store_ranking(
         session, details, source_run_id=source_run_id
     )
+    report("rebuild_monthly_settlement", coupon_count, coupon_count)
     monthly_count = _rebuild_monthly_settlement(
         session, details, source_run_id=source_run_id
     )
-    rebuild_dual_fee_results(session, calculation_run_id=source_run_id)
-    rebuild_dual_fee_projections(session, projection_run_id=source_run_id)
+    report("rebuild_dual_fee_results", 0, coupon_count)
+    rebuild_dual_fee_results(
+        session,
+        calculation_run_id=source_run_id,
+        progress_callback=progress_callback,
+    )
+    report("rebuild_dual_fee_projections", 0, None)
+    rebuild_dual_fee_projections(
+        session,
+        projection_run_id=source_run_id,
+        progress_callback=progress_callback,
+    )
     ranking_count = _model_count(session, AggStoreRanking)
     monthly_count = _model_count(session, AggStoreMonthlySettlement)
     issue_count = session.scalar(
@@ -2590,6 +2684,7 @@ def rebuild_settlement(session: Session, *, source_run_id: str) -> SettlementSta
     )
     if issue_count is None:
         issue_count = 0
+    report("legacy_projection_ready", coupon_count, coupon_count)
     return SettlementStats(
         detail_count=len(details),
         issue_count=issue_count,
@@ -2735,6 +2830,7 @@ def rebuild_dual_fee_results(
     calculation_run_id: str,
     force_recalculate: bool = False,
     coupon_ids: Iterable[str] | None = None,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> DualFeeStats:
     """Materialize immutable promotion/management results and later adjustments.
 
@@ -2765,7 +2861,15 @@ def rebuild_dual_fee_results(
             RawDouyinOrderCoupon.coupon_id.in_(bounded_coupon_ids)
         )
     coupons = list(session.scalars(coupon_query))
-    for coupon in coupons:
+    coupon_count = len(coupons)
+    if progress_callback is not None:
+        progress_callback("rebuild_dual_fee_results", 0, coupon_count)
+    for index, coupon in enumerate(coupons, start=1):
+        if progress_callback is not None and (
+            index % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+            or index == coupon_count
+        ):
+            progress_callback("rebuild_dual_fee_results", index, coupon_count)
         # The coupon row is the stable serialization key for both fee directions.
         # PostgreSQL therefore cannot race on max(version)+1/current-pointer updates.
         locked_coupon = session.scalar(
@@ -2839,7 +2943,6 @@ def rebuild_dual_fee_results(
             coupon=coupon,
             calculation_run_id=calculation_run_id,
         )
-
     session.flush()
     if bounded_coupon_ids is None:
         result_count = _model_count(session, SettlementFeeResult) - before_results
@@ -4556,7 +4659,11 @@ def _next_month_key(month: str) -> str:
 
 
 def rebuild_dual_fee_projections(
-    session: Session, *, projection_run_id: str, batch_size: int = 1000
+    session: Session,
+    *,
+    projection_run_id: str,
+    batch_size: int = 1000,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> StatementProjectionStats:
     if batch_size < 1 or batch_size > 10000:
         raise ValueError("batch_size must be between 1 and 10000")
@@ -4568,6 +4675,7 @@ def rebuild_dual_fee_projections(
                 projection_run_id=projection_run_id,
                 batch_size=batch_size,
                 source_counts=source_counts,
+                progress_callback=progress_callback,
             )
     except Exception:
         source_counts["failed"] += 1
@@ -4590,6 +4698,7 @@ def _rebuild_dual_fee_projections(
     projection_run_id: str,
     batch_size: int,
     source_counts: dict[str, int],
+    progress_callback: Callable[[str, int, int | None], None] | None,
 ) -> StatementProjectionStats:
     projection_months = _projection_months(session)
     monthly_count = 0
@@ -4621,6 +4730,7 @@ def _rebuild_dual_fee_projections(
             posting_month=month,
             batch_size=batch_size,
             source_counts=source_counts,
+            progress_callback=progress_callback,
         ):
             for product_scope, product_type in _projection_dimensions(
                 source.product_scope, source.product_type
@@ -4931,7 +5041,16 @@ def _projection_sources(
     posting_month: str,
     batch_size: int,
     source_counts: dict[str, int],
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> Iterator[StatementSource]:
+    def report_progress() -> None:
+        current = source_counts["processed"] + source_counts["skipped"]
+        if (
+            progress_callback is not None
+            and current % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+        ):
+            progress_callback("rebuild_dual_fee_projections", current, None)
+
     locked_entries = session.execute(
         select(
             SettlementStatementEntry,
@@ -4957,6 +5076,7 @@ def _projection_sources(
     )
     for entry, store_id, source_amount_cent in locked_entries:
         source_counts["processed"] += 1
+        report_progress()
         yield StatementSource(
             source_type=entry.source_type,
             source_record_id=entry.source_record_id,
@@ -5011,8 +5131,10 @@ def _projection_sources(
         is_locked = locked_slot_cache[source.store_id]
         if is_locked:
             source_counts["skipped"] += 1
+            report_progress()
             continue
         source_counts["processed"] += 1
+        report_progress()
         yield source
     adjustments = session.execute(
         select(SettlementFeeAdjustment, SettlementFeeResult)
@@ -5041,8 +5163,10 @@ def _projection_sources(
         is_locked = locked_slot_cache[source.store_id]
         if is_locked:
             source_counts["skipped"] += 1
+            report_progress()
             continue
         source_counts["processed"] += 1
+        report_progress()
         yield source
 
 

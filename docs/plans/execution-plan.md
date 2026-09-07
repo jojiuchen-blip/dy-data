@@ -25,6 +25,14 @@
 - 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。
 - 本增量不改变下文 DYDATA-41 线索中心 Foundation 的业务基线与依赖顺序；当前由 `DYDATA-46` 将腾讯云入口、OAuth、keyring、部署、文档和 smoke 切换为 production，禁止复用测试凭据。
 
+## 0.3 生产缺陷修复入口：DYDATA-87
+
+- 用户已授权修复、生产部署和重算现有规则；本窗口在 `codex/dydata-87-production-release-v2` 承接，关联 T5.7 生产验收，不修改其他窗口任务。
+- 业务口径不变：分佣例外按订单归属账号判定，不按商品主数据归属账号替代；不虚构门店或金额。
+- 当前实现将规则与重算任务原子入队，Worker 负责租约续期、失联恢复、提交围栏、过时任务合并和发布事实对账；发布必须先替换旧 API 执行器，再恢复 Worker。
+- 本地受影响模块 225 项通过；真实 PostgreSQL 并发与完整回归收口后进入 GitHub 发布门禁。生产仍待验证遗留任务恢复、活动投影发布、2026-08 全国榜单及单店分账样本。
+- 当前证据见 [2026-09-07 开发日志](../devlog/20260907_refactor_log_jojiuchen-blip.md)，需求与验收状态以 Linear DYDATA-87 为准；未获用户验收前不关闭。
+
 ## 1. 当前阶段
 
 - 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。

@@ -732,6 +732,15 @@ def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
     assert item["effectiveAt"].endswith("+08:00")
     assert item["ruleStatus"] == "ACTIVE"
     assert db_session.scalar(select(func.count()).select_from(SkuFeeRule)) == 1
+    rebuild_jobs = list(
+        db_session.scalars(
+            select(JobRun).where(JobRun.job_name == "settlement_rebuild")
+        )
+    )
+    assert len(rebuild_jobs) == 1
+    assert rebuild_jobs[0].status == "queued"
+    assert rebuild_jobs[0].metadata_json["trigger"] == "admin_sku_fee_rule"
+    assert rebuild_jobs[0].metadata_json["updated_rule_count"] == 1
     detail = client.get(f"/api/v1/admin/sku-fee-rules/{item['ruleVersion']}")
     assert detail.status_code == 200
     assert detail.json()["data"] == item
@@ -808,16 +817,8 @@ def test_single_fee_rule_publish_is_immutable_idempotent_and_day_scoped(
 def test_fee_rule_rebuild_trigger_is_durable_and_idempotent(
     client: TestClient,
     db_session: Session,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _login(client)
-    calls: list[str] = []
-    monkeypatch.setattr(
-        fee_admin_routes,
-        "run_sku_fee_rule_rebuild_job",
-        lambda *, job_id: calls.append(job_id),
-        raising=False,
-    )
     headers = {"Idempotency-Key": "fee-rebuild-key-0001"}
     payload = {"updatedRuleCount": 10}
 
@@ -837,7 +838,6 @@ def test_fee_rule_rebuild_trigger_is_durable_and_idempotent(
     assert first.json()["data"] == retried.json()["data"]
     rebuild = first.json()["data"]
     assert rebuild["rebuildStatus"] == "queued"
-    assert calls == [rebuild["jobId"]]
     job = db_session.get(JobRun, rebuild["jobId"])
     assert job is not None
     assert job.job_name == "settlement_rebuild"
@@ -883,6 +883,17 @@ def test_settlement_scope_publish_is_channel_scoped_and_idempotent(
     assert first.json()["data"]["allowedSaleChannels"] == ["LIVE", "SHORT_VIDEO"]
     assert len(first.json()["data"]["scopeRuleVersions"]) == 2
     assert db_session.scalar(select(func.count()).select_from(SettlementScopeRule)) == 2
+    rebuild_jobs = list(
+        db_session.scalars(
+            select(JobRun).where(JobRun.job_name == "settlement_rebuild")
+        )
+    )
+    assert len(rebuild_jobs) == 1
+    assert rebuild_jobs[0].status == "queued"
+    assert rebuild_jobs[0].metadata_json["trigger"] == (
+        "admin_settlement_scope_rule"
+    )
+    assert rebuild_jobs[0].metadata_json["updated_rule_count"] == 2
 
     conflict = client.post(
         "/api/v1/admin/settlement-scope-rules",

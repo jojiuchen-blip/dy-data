@@ -7,7 +7,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -23,6 +23,20 @@ from apps.worker.stage_runner import BeforeSuccessCommit
 _LOWER_HEX_64 = re.compile(r"[0-9a-f]{64}\Z")
 _ONCE_PREFIX = "finalize-consume-v1:"
 _REBUILD_ONCE_PREFIX = "settlement-rebuild-publish-v1:"
+
+
+def _database_utcnow(session: Session) -> datetime:
+    clock = (
+        func.clock_timestamp()
+        if session.get_bind().dialect.name == "postgresql"
+        else func.current_timestamp()
+    )
+    value = session.scalar(select(clock))
+    if not isinstance(value, datetime):  # pragma: no cover - supported dialects
+        return datetime.now(UTC)
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
 
 
 def _identity(value: object, *, label: str) -> str:
@@ -196,6 +210,7 @@ def publish_settlement_rebuild(
     session: Session,
     *,
     job_id: str,
+    claim_id: str,
     generation_id: str,
     base_generation_id: str,
     input_fingerprint: str,
@@ -210,16 +225,32 @@ def publish_settlement_rebuild(
     """
 
     job_id = _identity(job_id, label="job_id")
+    claim_id = _identity(claim_id, label="claim_id")
     generation_id = _identity(generation_id, label="generation_id")
     base_generation_id = _identity(base_generation_id, label="base_generation_id")
     input_fingerprint = _digest(input_fingerprint, label="input_fingerprint")
     manifest_checksum = _digest(manifest_checksum, label="manifest_checksum")
 
-    job = session.get(JobRun, job_id)
-    if not session.in_transaction():  # pragma: no cover - get() auto-begins
+    job_statement = select(JobRun).where(JobRun.job_id == job_id)
+    if session.get_bind().dialect.name == "postgresql":
+        job_statement = job_statement.with_for_update()
+    job = session.scalar(job_statement.execution_options(populate_existing=True))
+    if not session.in_transaction():  # pragma: no cover - scalar() auto-begins
         raise RuntimeError("settlement rebuild publication requires a transaction")
     if job is None or job.job_name != "settlement_rebuild":
         raise RuntimeError("settlement rebuild publication job is invalid")
+    if claim_id:
+        database_now = _database_utcnow(session)
+        lease_expires_at = job.lease_expires_at
+        if lease_expires_at is not None and lease_expires_at.tzinfo is None:
+            lease_expires_at = lease_expires_at.replace(tzinfo=UTC)
+        if (
+            job.status != "running"
+            or job.claim_token != claim_id
+            or lease_expires_at is None
+            or lease_expires_at <= database_now
+        ):
+            raise RuntimeError("settlement rebuild publication claim is no longer active")
 
     active_statement = select(SettlementProjectionActive).where(
         SettlementProjectionActive.projection_name == "settlement"
@@ -249,6 +280,11 @@ def publish_settlement_rebuild(
         raise RuntimeError("settlement rebuild generation metadata conflicts")
     if generation.manifest_checksum != manifest_checksum:
         raise RuntimeError("settlement rebuild manifest checksum conflicts")
+
+    # Lock acquisition can outlive the lease while blocking heartbeat renewal.
+    # Validate again only after all publication rows have been acquired.
+    if lease_expires_at <= _database_utcnow(session):
+        raise RuntimeError("settlement rebuild publication claim expired during lock wait")
 
     already_published = (
         active.generation_id == generation_id and generation.state == "published"

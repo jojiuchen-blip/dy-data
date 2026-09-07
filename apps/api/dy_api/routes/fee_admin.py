@@ -17,7 +17,6 @@ from zoneinfo import ZoneInfo
 
 from fastapi import (
     APIRouter,
-    BackgroundTasks,
     Depends,
     Header,
     HTTPException,
@@ -46,9 +45,6 @@ from apps.api.dy_api.models import (
 from apps.worker.repositories import queue_job_run
 from dy_api.auth import get_current_admin, get_current_super_admin
 from dy_api.routes._data import generated_at, get_data_store
-from dy_api.routes._settlement_jobs import (
-    run_settlement_rebuild_job as run_sku_fee_rule_rebuild_job,
-)
 from dy_api.schemas import (
     SettlementScopeRuleCreateRequest,
     SkuFeeRuleCreateRequest,
@@ -74,6 +70,8 @@ FORMAL_EFFECTIVE_START_DATE = date(2026, 8, 1)
 SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
 MANUAL_REBUILD_TRIGGER = "admin_sku_fee_rules"
 IMPORT_REBUILD_TRIGGER = "admin_sku_fee_rule_import"
+SINGLE_RULE_REBUILD_TRIGGER = "admin_sku_fee_rule"
+SETTLEMENT_SCOPE_REBUILD_TRIGGER = "admin_settlement_scope_rule"
 BATCH_STATUS_NAMES = {
     1: "UPLOADED",
     2: "VALIDATION_FAILED",
@@ -667,6 +665,16 @@ def create_sku_fee_rule(
                 "IDEMPOTENCY_KEY_REUSED",
                 "Idempotency-Key 已用于不同请求",
             )
+        _queue_settlement_rebuild(
+            store.session,
+            request,
+            idempotency_key_hash=key_hash,
+            request_hash=request_hash,
+            updated_rule_count=1,
+            trigger=SINGLE_RULE_REBUILD_TRIGGER,
+            requested_by=username,
+        )
+        store.session.commit()
         return _success(request, _sku_fee_rule_item(idempotent))
 
     sku = store.session.scalar(
@@ -717,6 +725,15 @@ def create_sku_fee_rule(
     )
     store.session.add(row)
     try:
+        _queue_settlement_rebuild(
+            store.session,
+            request,
+            idempotency_key_hash=key_hash,
+            request_hash=request_hash,
+            updated_rule_count=1,
+            trigger=SINGLE_RULE_REBUILD_TRIGGER,
+            requested_by=username,
+        )
         store.session.commit()
     except IntegrityError as exc:
         store.session.rollback()
@@ -734,7 +751,6 @@ def create_sku_fee_rule(
 def trigger_sku_fee_rule_rebuild(
     payload: dict[str, Any],
     request: Request,
-    background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
@@ -745,7 +761,7 @@ def trigger_sku_fee_rule_rebuild(
     request_hash = _canonical_sha256(
         {"updatedRuleCount": parsed.updated_rule_count}
     )
-    job_id, rebuild_status, created = _queue_settlement_rebuild(
+    job_id, rebuild_status, _created = _queue_settlement_rebuild(
         store.session,
         request,
         idempotency_key_hash=key_hash,
@@ -755,8 +771,6 @@ def trigger_sku_fee_rule_rebuild(
         requested_by=username,
     )
     store.session.commit()
-    if created:
-        background_tasks.add_task(run_sku_fee_rule_rebuild_job, job_id=job_id)
     return _success(
         request,
         {"jobId": job_id, "rebuildStatus": rebuild_status},
@@ -859,6 +873,16 @@ def create_settlement_scope_rules(
                 "IDEMPOTENCY_KEY_REUSED",
                 "Idempotency-Key 已用于不同请求",
             )
+        _queue_settlement_rebuild(
+            store.session,
+            request,
+            idempotency_key_hash=key_hash,
+            request_hash=request_hash,
+            updated_rule_count=len(existing_key_rows),
+            trigger=SETTLEMENT_SCOPE_REBUILD_TRIGGER,
+            requested_by=username,
+        )
+        store.session.commit()
         return _success(
             request,
             {
@@ -913,6 +937,15 @@ def create_settlement_scope_rules(
         store.session.add(row)
         rows.append(row)
     try:
+        _queue_settlement_rebuild(
+            store.session,
+            request,
+            idempotency_key_hash=key_hash,
+            request_hash=request_hash,
+            updated_rule_count=len(rows),
+            trigger=SETTLEMENT_SCOPE_REBUILD_TRIGGER,
+            requested_by=username,
+        )
         store.session.commit()
     except IntegrityError as exc:
         store.session.rollback()
@@ -1191,7 +1224,6 @@ def commit_sku_fee_rule_import(
     batch_id: str,
     payload: dict[str, Any],
     request: Request,
-    background_tasks: BackgroundTasks,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     username: str = Depends(get_current_super_admin),
     store=Depends(get_data_store),
@@ -1224,7 +1256,7 @@ def commit_sku_fee_rule_import(
                     .order_by(SkuFeeRuleImportRow.row_number)
                 )
             )
-            rebuild_job_id, rebuild_status, rebuild_created = _queue_settlement_rebuild(
+            rebuild_job_id, rebuild_status, _rebuild_created = _queue_settlement_rebuild(
                 store.session,
                 request,
                 idempotency_key_hash=key_hash,
@@ -1234,11 +1266,6 @@ def commit_sku_fee_rule_import(
                 requested_by=username,
             )
             store.session.commit()
-            if rebuild_created:
-                background_tasks.add_task(
-                    run_sku_fee_rule_rebuild_job,
-                    job_id=rebuild_job_id,
-                )
             return _success(
                 request,
                 {
@@ -1395,7 +1422,7 @@ def commit_sku_fee_rule_import(
     batch.success_count = len(rows)
     batch.failed_count = 0
     batch.committed_at = now
-    rebuild_job_id, rebuild_status, rebuild_created = _queue_settlement_rebuild(
+    rebuild_job_id, rebuild_status, _rebuild_created = _queue_settlement_rebuild(
         store.session,
         request,
         idempotency_key_hash=key_hash,
@@ -1405,11 +1432,6 @@ def commit_sku_fee_rule_import(
         requested_by=username,
     )
     store.session.commit()
-    if rebuild_created:
-        background_tasks.add_task(
-            run_sku_fee_rule_rebuild_job,
-            job_id=rebuild_job_id,
-        )
     return _success(
         request,
         {

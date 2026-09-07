@@ -158,8 +158,11 @@ def test_rules_publish_and_import_report_settlement_rebuild_job() -> None:
     page = read_source("pages/AdminSkuRulesPage.tsx")
     drawer = read_source("components/AdminSkuRuleImportDrawer.tsx")
 
-    assert "triggerSkuFeeRuleRebuild" in page
-    assert "结算重算任务已排队" in page
+    publish_flow = page[
+        page.index("const publishSelectedRules") : page.index("const saveExceptions")
+    ]
+    assert "triggerSkuFeeRuleRebuild" not in publish_flow
+    assert "结算重算任务已自动排队" in publish_flow
     assert "重建结算投影" in page
     assert 'title="结算投影重建确认"' in page
     assert "settlementRebuild" in drawer

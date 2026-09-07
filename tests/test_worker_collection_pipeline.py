@@ -3,9 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from threading import Event, Thread
+from time import sleep
+from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -13,9 +15,13 @@ from apps.api.dy_api.models import Base
 from apps.api.dy_api.models import (
     ClueCenterOrder,
     DimNonCommissionOwnerAccount,
+    DimStore,
+    JobEvent,
     JobRun,
     JobStageRun,
     SettlementOrderDetail,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.backfill import iter_backfill_windows, run_backfill
@@ -41,7 +47,7 @@ from apps.worker.repositories import (
     upsert_store_poi_mapping,
     upsert_verify_record,
 )
-from apps.worker.settlement import run_settlement_job
+from apps.worker.settlement import SettlementStats, run_settlement_job
 from src.dy_data import config as data_config
 
 
@@ -457,23 +463,23 @@ def test_settlement_rebuild_commits_running_status_before_expensive_work(
 
     observed_statuses: list[str] = []
 
-    def fake_run_settlement_job(
+    def fake_rebuild_settlement(
         session: Session,
         *,
-        job_id: str,
         source_run_id: str,
-    ) -> None:
-        del source_run_id
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, source_run_id
         with factory() as observer:
             observed = observer.get(JobRun, job_id)
             assert observed is not None
             observed_statuses.append(observed.status)
-        finish_job_run(session, job_id, status="success", success_count=1)
+        return SettlementStats(1, 0, 0, 0)
 
     monkeypatch.setattr(
         settlement_rebuild,
-        "run_settlement_job",
-        fake_run_settlement_job,
+        "rebuild_settlement",
+        fake_rebuild_settlement,
     )
 
     processed = settlement_rebuild.run_settlement_rebuild_job(
@@ -483,6 +489,235 @@ def test_settlement_rebuild_commits_running_status_before_expensive_work(
 
     assert observed_statuses == ["running"]
     assert processed is True
+
+
+def test_settlement_rebuild_stays_running_until_projection_is_published(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-publish-lifecycle.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    job_id = "queued-publish-lifecycle"
+    with factory() as session:
+        queue_job_run(session, job_id, "settlement_rebuild")
+        session.commit()
+
+    observed_statuses: list[str] = []
+
+    def fake_rebuild(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, source_run_id
+        with factory() as observer:
+            observed = observer.get(JobRun, job_id)
+            assert observed is not None
+            assert observed.claim_token
+            assert observed.lease_expires_at is not None
+            observed_statuses.append(observed.status)
+        assert progress_callback is not None
+        progress_callback("materialize_coupons", 7, 7)
+        return SettlementStats(
+            detail_count=7,
+            issue_count=0,
+            ranking_count=1,
+            monthly_count=1,
+        )
+
+    def fake_publish(
+        factory_arg,
+        *,
+        job_id: str,
+        claim_id: str,
+        progress_callback=None,
+        lease_duration=None,
+    ):
+        del factory_arg
+        assert progress_callback is not None
+        with factory() as observer:
+            observed = observer.get(JobRun, job_id)
+            assert observed is not None
+            assert observed.claim_token == claim_id
+            observed_statuses.append(observed.status)
+        return {"generation_id": "published-test"}
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", fake_rebuild, raising=False)
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "refresh_active_settlement_lineage",
+        fake_publish,
+    )
+
+    try:
+        processed = settlement_rebuild.run_settlement_rebuild_job(
+            job_id=job_id,
+            factory=factory,
+        )
+
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job is not None
+            assert job.status == "success"
+            assert job.success_count == 7
+            assert job.claim_token is None
+            assert job.lease_expires_at is None
+        assert observed_statuses == ["running", "running"]
+        assert processed is True
+    finally:
+        engine.dispose()
+
+
+def test_queued_settlement_rebuild_recovers_abandoned_legacy_claim(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-stale-recovery.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.fromisoformat("2026-09-04T08:00:00+00:00")
+    job_id = "abandoned-api-background-rebuild"
+    with factory() as session:
+        job = queue_job_run(
+            session,
+            job_id,
+            "settlement_rebuild",
+            metadata_json={"trigger": "admin_sku_fee_rules"},
+        )
+        job.status = "running"
+        job.started_at = now - timedelta(hours=2)
+        job.state_updated_at = now - timedelta(hours=2)
+        job.claim_token = None
+        job.lease_expires_at = None
+        job.attempt_count = 0
+        session.commit()
+
+    calls: list[str] = []
+
+    def fake_rebuild(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session
+        calls.append(source_run_id)
+        assert progress_callback is not None
+        progress_callback("materialize_coupons", 4, 4)
+        return SettlementStats(
+            detail_count=4,
+            issue_count=0,
+            ranking_count=1,
+            monthly_count=1,
+        )
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", fake_rebuild, raising=False)
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "refresh_active_settlement_lineage",
+        lambda factory_arg, **kwargs: None,
+    )
+
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory, now=now)
+
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job is not None
+            assert job.status == "success"
+            assert job.attempt_count == 1
+            assert job.claim_token is None
+            assert job.lease_expires_at is None
+            assert job.metadata_json["recoveryState"] == "REQUEUED_STALE_CLAIM"
+        assert calls == [job_id]
+        assert result.processed_job_id == job_id
+        assert result.recovered_job_ids == (job_id,)
+    finally:
+        engine.dispose()
+
+
+def test_queued_settlement_rebuild_does_not_recover_a_live_lease(tmp_path):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-live-lease.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.fromisoformat("2026-09-04T08:00:00+00:00")
+    job_id = "live-worker-rebuild"
+    with factory() as session:
+        job = queue_job_run(session, job_id, "settlement_rebuild")
+        job.status = "running"
+        job.started_at = now - timedelta(hours=1)
+        job.state_updated_at = now
+        job.heartbeat_at = now
+        job.claim_token = "live-claim"
+        job.lease_expires_at = now + timedelta(minutes=10)
+        job.attempt_count = 1
+        session.commit()
+
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory, now=now)
+
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job is not None
+            assert job.status == "running"
+            assert job.claim_token == "live-claim"
+        assert result.processed_job_id is None
+        assert result.recovered_job_ids == ()
+        assert result.failed_stale_job_ids == ()
+    finally:
+        engine.dispose()
+
+
+def test_queued_settlement_rebuild_fails_an_expired_final_attempt(tmp_path):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-attempts-exhausted.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.fromisoformat("2026-09-04T08:00:00+00:00")
+    job_id = "expired-final-attempt"
+    with factory() as session:
+        job = queue_job_run(session, job_id, "settlement_rebuild")
+        job.status = "running"
+        job.started_at = now - timedelta(hours=1)
+        job.state_updated_at = now - timedelta(minutes=20)
+        job.heartbeat_at = now - timedelta(minutes=20)
+        job.claim_token = "expired-claim"
+        job.lease_expires_at = now - timedelta(minutes=5)
+        job.attempt_count = 3
+        job.max_attempts = 3
+        session.commit()
+
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory, now=now)
+
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job is not None
+            assert job.status == "failed"
+            assert job.failed_count == 1
+            assert job.claim_token is None
+            assert job.metadata_json["recoveryState"] == "FAILED_ATTEMPTS_EXHAUSTED"
+        assert result.processed_job_id is None
+        assert result.failed_stale_job_ids == (job_id,)
+    finally:
+        engine.dispose()
 
 
 def test_api_and_worker_cannot_execute_the_same_settlement_rebuild_twice(
@@ -506,28 +741,23 @@ def test_api_and_worker_cannot_execute_the_same_settlement_rebuild_twice(
     calls: list[str] = []
     thread_errors: list[BaseException] = []
 
-    def fake_run_settlement_job(
+    def fake_rebuild_settlement(
         session: Session,
         *,
-        job_id: str,
         source_run_id: str,
-    ) -> None:
-        del source_run_id
-        calls.append(job_id)
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, progress_callback
+        calls.append(source_run_id)
         if len(calls) == 1:
             entered.set()
             assert release.wait(timeout=5)
-        finish_job_run(session, job_id, status="success", success_count=1)
+        return SettlementStats(1, 0, 0, 0)
 
     monkeypatch.setattr(
         settlement_rebuild,
-        "run_settlement_job",
-        fake_run_settlement_job,
-    )
-    monkeypatch.setattr(
-        queued_jobs,
-        "run_settlement_job",
-        fake_run_settlement_job,
+        "rebuild_settlement",
+        fake_rebuild_settlement,
     )
 
     def run_api_background_task() -> None:
@@ -555,9 +785,431 @@ def test_api_and_worker_cannot_execute_the_same_settlement_rebuild_twice(
     assert worker_result.processed_job_id is None
 
 
+def test_two_distinct_settlement_rebuilds_share_one_execution_slot(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-global-slot.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        queue_job_run(session, "queued-slot-a", "settlement_rebuild")
+        queue_job_run(session, "queued-slot-b", "settlement_rebuild")
+        session.commit()
+
+    entered = Event()
+    release = Event()
+    calls: list[str] = []
+    thread_errors: list[BaseException] = []
+
+    def fake_rebuild(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, progress_callback
+        calls.append(source_run_id)
+        if source_run_id == "queued-slot-a":
+            entered.set()
+            assert release.wait(timeout=5)
+        return SettlementStats(1, 0, 0, 0)
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", fake_rebuild)
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "refresh_active_settlement_lineage",
+        lambda factory_arg, **kwargs: None,
+    )
+
+    def run_first() -> None:
+        try:
+            settlement_rebuild.run_settlement_rebuild_job(
+                job_id="queued-slot-a",
+                factory=factory,
+            )
+        except BaseException as exc:  # pragma: no cover - asserted below
+            thread_errors.append(exc)
+
+    runner = Thread(target=run_first, daemon=True)
+    runner.start()
+    assert entered.wait(timeout=5)
+    try:
+        second_processed = settlement_rebuild.run_settlement_rebuild_job(
+            job_id="queued-slot-b",
+            factory=factory,
+        )
+    finally:
+        release.set()
+        runner.join(timeout=5)
+
+    try:
+        assert second_processed is False
+        assert calls == ["queued-slot-a"]
+        assert thread_errors == []
+        with factory() as session:
+            second = session.get(JobRun, "queued-slot-b")
+            assert second is not None
+            assert second.status == "queued"
+    finally:
+        engine.dispose()
+
+
+def test_expired_settlement_rebuild_claim_cannot_heartbeat_or_finish(
+    tmp_path,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-expired-owner.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.now(timezone.utc)
+    with factory() as session:
+        job = queue_job_run(session, "expired-owner", "settlement_rebuild")
+        job.status = "running"
+        job.claim_token = "expired-claim"
+        job.attempt_count = 1
+        job.lease_expires_at = now - timedelta(seconds=1)
+        job.heartbeat_at = now - timedelta(minutes=15)
+        session.commit()
+
+    try:
+        renewed = settlement_rebuild.heartbeat_settlement_rebuild_job(
+            factory,
+            job_id="expired-owner",
+            claim_id="expired-claim",
+            stage="late-heartbeat",
+            heartbeat_at=now,
+        )
+        assert renewed is False
+        with pytest.raises(settlement_rebuild.SettlementRebuildLeaseLost):
+            settlement_rebuild._finish_claimed_settlement_rebuild(
+                factory,
+                job_id="expired-owner",
+                claim_id="expired-claim",
+                stats=SettlementStats(1, 0, 0, 0),
+            )
+        with factory() as session:
+            job = session.get(JobRun, "expired-owner")
+            assert job is not None
+            assert job.status == "running"
+            assert job.claim_token == "expired-claim"
+    finally:
+        engine.dispose()
+
+
+def test_lineage_refresh_passes_claim_fence_through_sparse_commits(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-sparse-fence.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.now(timezone.utc)
+    job_id = "sparse-fenced-job"
+    with factory() as session:
+        job = queue_job_run(session, job_id, "settlement_rebuild")
+        job.status = "running"
+        job.claim_token = "sparse-claim"
+        job.lease_expires_at = now + timedelta(minutes=10)
+        job.heartbeat_at = now
+        job.state_updated_at = now
+        session.commit()
+
+    plan = SimpleNamespace(
+        generation_id="sparse-target",
+        base_generation_id="sparse-base",
+        affected_months=("2026-08",),
+        input_fingerprint="a" * 64,
+    )
+    guarded_stages: list[str] = []
+    progress: list[tuple[str, int, int | None]] = []
+
+    def fake_build(factory_arg, **kwargs):
+        assert factory_arg is factory
+        guard = kwargs["commit_guard"]
+        assert callable(guard)
+        with factory.begin() as session:
+            guard(session)
+        guarded_stages.append("build")
+        kwargs["progress_callback"]("build_sparse_projection", 1, 1)
+
+    def fake_ready(factory_arg, **kwargs):
+        assert factory_arg is factory
+        guard = kwargs["commit_guard"]
+        assert callable(guard)
+        with factory.begin() as session:
+            guard(session)
+        guarded_stages.append("ready")
+        return SimpleNamespace(
+            manifest_checksum="b" * 64,
+            manifest_count=2,
+            row_count=3,
+        )
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "_lineage_refresh_plan",
+        lambda factory_arg, *, job_id: plan,
+    )
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "build_settlement_sparse_overlay",
+        fake_build,
+    )
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "mark_settlement_sparse_overlay_ready",
+        fake_ready,
+    )
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "publish_settlement_rebuild",
+        lambda session, **kwargs: {"generation_id": "sparse-target"},
+    )
+
+    try:
+        result = settlement_rebuild.refresh_active_settlement_lineage(
+            factory,
+            job_id=job_id,
+            claim_id="sparse-claim",
+            progress_callback=lambda stage, current, total: progress.append(
+                (stage, current, total)
+            ),
+        )
+        assert result == {"generation_id": "sparse-target"}
+        assert guarded_stages == ["build", "ready"]
+        assert progress == [
+            ("build_sparse_projection", 1, 1),
+            ("certify_sparse_projection", 1, 1),
+        ]
+    finally:
+        engine.dispose()
+
+
+def test_retryable_settlement_rebuild_failure_returns_job_to_queue(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-retryable.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        queue_job_run(session, "retryable-rebuild", "settlement_rebuild")
+        session.commit()
+
+    def fail_once(*args, **kwargs):
+        del args, kwargs
+        raise RuntimeError("temporary database interruption")
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", fail_once)
+    with pytest.raises(RuntimeError, match="temporary database interruption"):
+        settlement_rebuild.run_settlement_rebuild_job(
+            job_id="retryable-rebuild",
+            factory=factory,
+        )
+
+    with factory() as session:
+        job = session.get(JobRun, "retryable-rebuild")
+        assert job is not None
+        assert job.status == "retry_wait"
+        assert job.attempt_count == 1
+        assert job.claim_token is None
+        assert job.next_retry_at is not None
+        assert job.metadata_json["recoveryState"] == "REQUEUED_RETRYABLE_FAILURE"
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "rebuild_settlement",
+        lambda *args, **kwargs: SettlementStats(3, 0, 1, 1),
+    )
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "refresh_active_settlement_lineage",
+        lambda factory_arg, **kwargs: None,
+    )
+    try:
+        retry_result = queued_jobs.process_queued_settlement_rebuilds(
+            factory,
+            now=datetime.now(timezone.utc) + timedelta(minutes=10),
+        )
+        assert retry_result.processed_job_id == "retryable-rebuild"
+        with factory() as session:
+            job = session.get(JobRun, "retryable-rebuild")
+            assert job is not None
+            assert job.status == "success"
+            assert job.attempt_count == 2
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("head_advanced", [False, True])
+def test_stale_final_attempt_reconciles_an_already_published_projection(
+    tmp_path, head_advanced,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-published-reconcile.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.fromisoformat("2026-09-04T08:00:00+00:00")
+    job_id = "published-before-crash"
+    generation_id = f"settlement-admin-rebuild:{job_id}"
+    with factory() as session:
+        job = queue_job_run(session, job_id, "settlement_rebuild")
+        job.status = "running"
+        job.claim_token = "final-claim"
+        job.attempt_count = 3
+        job.max_attempts = 3
+        job.progress_current = 19
+        job.lease_expires_at = now - timedelta(minutes=1)
+        job.heartbeat_at = now - timedelta(minutes=16)
+        job.state_updated_at = now - timedelta(minutes=16)
+        session.add(
+            SettlementProjectionGeneration(
+                generation_id=generation_id,
+                base_generation_id=None,
+                generation_kind="legacy_root",
+                projection_name="settlement",
+                state="published",
+                input_fingerprint="d" * 64,
+                lineage_depth=0,
+                source_job_id=job_id,
+                checkpoint_json={},
+                source_input_json={},
+            )
+        )
+        session.add(
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id=generation_id,
+            )
+        )
+        if head_advanced:
+            from apps.worker.projection_publish import settlement_rebuild_publish_once_key
+
+            session.add(JobEvent(
+                event_id="published-event", job_id=job_id,
+                event_type="settlement_projection_published", actor_type="worker",
+                idempotency_key=settlement_rebuild_publish_once_key(job_id, "d" * 64),
+                payload_json={"generation_id": generation_id, "base_generation_id": "base",
+                              "input_fingerprint": "d" * 64, "manifest_checksum": "c" * 64},
+                occurred_at=now - timedelta(minutes=2),
+            ))
+            session.flush()
+            session.get(SettlementProjectionGeneration, generation_id).manifest_checksum = "c" * 64
+            session.get(SettlementProjectionGeneration, generation_id).base_generation_id = "base"
+            session.get(SettlementProjectionGeneration, generation_id).generation_kind = "lineage"
+            session.get(SettlementProjectionGeneration, generation_id).lineage_depth = 1
+            session.add(SettlementProjectionGeneration(
+                generation_id="base", generation_kind="legacy_root",
+                projection_name="settlement", state="published", input_fingerprint="b" * 64,
+                lineage_depth=0, checkpoint_json={}, source_input_json={},
+            ))
+            session.add(SettlementProjectionGeneration(
+                generation_id="newer-head", generation_kind="legacy_root",
+                projection_name="settlement", state="published", input_fingerprint="e" * 64,
+                lineage_depth=0, checkpoint_json={}, source_input_json={},
+            ))
+            session.get(SettlementProjectionActive, "settlement").generation_id = "newer-head"
+        session.commit()
+
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory, now=now)
+        with factory() as session:
+            job = session.get(JobRun, job_id)
+            assert job is not None
+            assert job.status == "success"
+            assert job.success_count == 19
+            assert job.metadata_json["recoveryState"] == "RECONCILED_PUBLISHED"
+        assert result.failed_stale_job_ids == ()
+    finally:
+        engine.dispose()
+
+
+def test_legacy_success_without_projection_marker_is_requeued_once(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-legacy-success.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    now = datetime.fromisoformat("2026-09-04T08:00:00+00:00")
+    with factory() as session:
+        session.add(
+            SettlementProjectionGeneration(
+                generation_id="existing-active-head",
+                base_generation_id=None,
+                generation_kind="legacy_root",
+                projection_name="settlement",
+                state="published",
+                input_fingerprint="e" * 64,
+                lineage_depth=0,
+                checkpoint_json={},
+                source_input_json={},
+            )
+        )
+        session.add(
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="existing-active-head",
+            )
+        )
+        job = queue_job_run(
+            session,
+            "legacy-success-without-publish",
+            "settlement_rebuild",
+            metadata_json={"trigger": "admin_sku_fee_rules"},
+        )
+        job.status = "success"
+        job.finished_at = now - timedelta(minutes=10)
+        job.state_updated_at = job.finished_at
+        session.commit()
+
+    monkeypatch.setattr(
+        queued_jobs,
+        "claim_latest_settlement_rebuild_job",
+        lambda *args, **kwargs: None,
+    )
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory, now=now)
+        with factory() as session:
+            job = session.get(JobRun, "legacy-success-without-publish")
+            assert job is not None
+            assert job.status == "queued"
+            assert job.metadata_json["recoveryState"] == (
+                "REQUEUED_UNPUBLISHED_SUCCESS"
+            )
+        assert result.recovered_job_ids == ("legacy-success-without-publish",)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("old_status", ["queued", "retry_wait"])
 def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
     db_session: Session,
     monkeypatch,
+    old_status,
 ):
     from apps.worker import queued_jobs
 
@@ -575,15 +1227,29 @@ def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
         metadata_json={"trigger": "admin_non_commission_owner_accounts"},
         started_at=datetime.fromisoformat("2026-06-17T05:30:00+00:00"),
     )
+    db_session.flush()
+    old = db_session.get(JobRun, "queued-old")
+    old.status = old_status
+    if old_status == "retry_wait":
+        old.next_retry_at = datetime.now(timezone.utc) + timedelta(hours=1)
     db_session.commit()
     calls: list[tuple[str, str]] = []
 
-    def fake_run_settlement_job(session: Session, *, job_id: str, source_run_id: str):
-        calls.append((job_id, source_run_id))
-        start_job_run(session, job_id, "settlement_rebuild", metadata_json={"source_run_id": source_run_id})
-        finish_job_run(session, job_id, status="success", success_count=1)
+    def fake_rebuild_settlement(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, progress_callback
+        calls.append((source_run_id, source_run_id))
+        return SettlementStats(1, 0, 0, 0)
 
-    monkeypatch.setattr(queued_jobs, "run_settlement_job", fake_run_settlement_job)
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "rebuild_settlement",
+        fake_rebuild_settlement,
+    )
 
     result = queued_jobs.process_queued_settlement_rebuilds(
         sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True)
@@ -599,9 +1265,185 @@ def test_queued_settlement_rebuild_coalesces_older_jobs_after_latest_success(
     assert old_job.status == "success"
     assert old_job.success_count == 0
     assert old_job.metadata_json["superseded_by"] == "queued-new"
+    assert old_job.metadata_json["settlement_projection"]["status"] == "superseded"
     assert new_job is not None
     assert new_job.status == "success"
     assert new_job.success_count == 1
+
+    second = queued_jobs.process_queued_settlement_rebuilds(
+        sessionmaker(
+            bind=db_session.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            future=True,
+        )
+    )
+    assert second.processed_job_id is None
+    assert calls == [("queued-new", "queued-new")]
+
+
+def test_commit_fence_checks_lease_after_pending_data_is_flushed(db_session, monkeypatch):
+    now = datetime.now(timezone.utc)
+    job = queue_job_run(db_session, "flush-fence", "settlement_rebuild")
+    job.status = "running"
+    job.claim_token = "flush-claim"
+    job.lease_expires_at = now + timedelta(seconds=1)
+    db_session.commit()
+    flushed = []
+
+    def slow_flush(session, context, instances):
+        flushed.append(True)
+
+    monkeypatch.setattr(settlement_rebuild, "_database_utcnow", lambda session: (
+        now + timedelta(seconds=2) if flushed else now
+    ))
+    event.listen(db_session, "before_flush", slow_flush)
+    try:
+        db_session.add(DimStore(store_id="uncommitted-store", store_name="Not committed"))
+        with pytest.raises(settlement_rebuild.SettlementRebuildLeaseLost):
+            settlement_rebuild._fence_settlement_rebuild_commit(
+                db_session, job_id="flush-fence", claim_id="flush-claim", stage="settle",
+            )
+    finally:
+        db_session.rollback()
+        event.remove(db_session, "before_flush", slow_flush)
+    assert db_session.get(DimStore, "uncommitted-store") is None
+
+
+def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-watchdog.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    with factory() as session:
+        queue_job_run(session, "slow-rebuild", "settlement_rebuild")
+        session.commit()
+
+    def slow_rebuild(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, source_run_id, progress_callback
+        sleep(0.25)
+        return SettlementStats(2, 0, 1, 1)
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", slow_rebuild)
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "refresh_active_settlement_lineage",
+        lambda factory_arg, **kwargs: None,
+    )
+    try:
+        assert settlement_rebuild.run_settlement_rebuild_job(
+            job_id="slow-rebuild",
+            factory=factory,
+            lease_duration=timedelta(milliseconds=150),
+            heartbeat_interval_seconds=0.03,
+        )
+        with factory() as session:
+            job = session.get(JobRun, "slow-rebuild")
+            assert job is not None
+            assert job.status == "success"
+            assert job.attempt_count == 1
+    finally:
+        engine.dispose()
+
+
+def test_recovery_uses_database_clock_instead_of_application_clock(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-database-clock.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    database_now = datetime.now(timezone.utc)
+    with factory() as session:
+        job = queue_job_run(session, "clock-live-rebuild", "settlement_rebuild")
+        job.status = "running"
+        job.claim_token = "clock-claim"
+        job.attempt_count = 1
+        job.lease_expires_at = database_now + timedelta(minutes=10)
+        job.heartbeat_at = database_now
+        job.state_updated_at = database_now
+        session.commit()
+
+    monkeypatch.setattr(
+        queued_jobs,
+        "utcnow",
+        lambda: database_now + timedelta(days=365),
+    )
+    monkeypatch.setattr(
+        queued_jobs,
+        "run_settlement_rebuild_job",
+        lambda **kwargs: pytest.fail("live lease must not be recovered"),
+    )
+    try:
+        result = queued_jobs.process_queued_settlement_rebuilds(factory)
+        assert result.recovered_job_ids == ()
+        with factory() as session:
+            job = session.get(JobRun, "clock-live-rebuild")
+            assert job is not None
+            assert job.status == "running"
+            assert job.claim_token == "clock-claim"
+    finally:
+        engine.dispose()
+
+
+def test_legacy_settlement_commit_is_rejected_after_claim_takeover(
+    tmp_path,
+    monkeypatch,
+):
+    engine = create_engine(
+        f"sqlite+pysqlite:///{tmp_path / 'settlement-legacy-fence.db'}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    job_id = "legacy-fence-rebuild"
+    with factory() as session:
+        queue_job_run(session, job_id, "settlement_rebuild")
+        session.commit()
+
+    def lose_claim_before_commit(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del source_run_id, progress_callback
+        session.add(DimStore(store_id="must-rollback", store_name="Must Roll Back"))
+        with factory.begin() as takeover:
+            job = takeover.get(JobRun, job_id)
+            assert job is not None
+            job.claim_token = "replacement-claim"
+            job.lease_expires_at = datetime.now(timezone.utc) + timedelta(minutes=10)
+        return SettlementStats(1, 0, 0, 0)
+
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "rebuild_settlement",
+        lose_claim_before_commit,
+    )
+    try:
+        with pytest.raises(settlement_rebuild.SettlementRebuildLeaseLost):
+            settlement_rebuild.run_settlement_rebuild_job(
+                job_id=job_id,
+                factory=factory,
+            )
+        with factory() as session:
+            assert session.get(DimStore, "must-rollback") is None
+    finally:
+        engine.dispose()
 
 
 def test_backfill_splits_windows_by_chunk_days():
@@ -733,6 +1575,41 @@ def test_run_once_processes_queued_rebuilds_before_and_during_backfill(monkeypat
     run_once()
 
     assert calls == ["queued", "backfill", "queued"]
+
+
+def test_scheduler_main_polls_durable_queues_while_auto_sync_is_enabled(
+    monkeypatch,
+):
+    calls: list[str] = []
+    factory = object()
+    original_stop = scheduler._STOP
+
+    monkeypatch.setenv("WORKER_RUN_ON_START", "false")
+    monkeypatch.delenv("WORKER_RUN_ONCE", raising=False)
+    monkeypatch.setattr(scheduler.signal, "signal", lambda *args: None)
+    monkeypatch.setattr(scheduler, "get_session_factory", lambda: factory)
+    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory_arg: True)
+    monkeypatch.setattr(scheduler, "_configured_interval_seconds", lambda factory_arg: 86400)
+    monkeypatch.setattr(scheduler, "_configured_daily_queue_poll_seconds", lambda: 1)
+    monkeypatch.setattr(
+        scheduler,
+        "_process_queued_jobs",
+        lambda factory_arg: calls.append("queued"),
+    )
+    monkeypatch.setattr(scheduler, "drain_ready_daily_children", lambda factory_arg: None)
+
+    def stop_after_first_poll(seconds: float) -> None:
+        del seconds
+        scheduler._STOP = True
+
+    monkeypatch.setattr(scheduler, "_sleep_until_stop", stop_after_first_poll)
+    scheduler._STOP = False
+    try:
+        scheduler.main()
+    finally:
+        scheduler._STOP = original_stop
+
+    assert calls == ["queued"]
 
 
 def test_run_once_plans_natural_daily_jobs_without_executing_the_pipeline(monkeypatch):

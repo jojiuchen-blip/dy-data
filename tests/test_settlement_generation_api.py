@@ -31,6 +31,8 @@ from apps.worker.projection_lineage import (
     canonical_score_partition_key,
     resolve_projection_partitions,
 )
+from apps.worker.projection_publish import publish_settlement_rebuild
+from apps.worker import settlement_rebuild
 from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
 from apps.api.dy_api.models import (
     AggStoreMonthlySettlement,
@@ -1348,7 +1350,9 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
             JobRun(
                 job_id="admin-refresh-real-builder",
                 job_name="settlement_rebuild",
-                status="success",
+                status="running",
+                claim_token="admin-refresh-claim",
+                lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
                 metadata_json={},
             ),
             SettlementFeeResult(
@@ -1392,7 +1396,7 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
         bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True
     )
     publication = refresh_active_settlement_lineage(
-        factory, job_id="admin-refresh-real-builder"
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
     )
 
     assert publication is not None
@@ -1436,13 +1440,146 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
     # A retry after publication must be a no-op: the job's generation and
     # active pointer must not be rebuilt from the already-published overlay.
     retry_publication = refresh_active_settlement_lineage(
-        factory, job_id="admin-refresh-real-builder"
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
     )
     assert retry_publication is None
     db_session.expire_all()
     retried_active = db_session.get(SettlementProjectionActive, "settlement")
     assert retried_active is not None
     assert retried_active.generation_id == active.generation_id
+
+
+def test_settlement_rebuild_publish_rejects_a_stale_claim(db_session) -> None:
+    now = datetime.now(timezone.utc)
+    _generation(db_session, "g-fenced-base")
+    db_session.add_all(
+        [
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="g-fenced-base",
+            ),
+            JobRun(
+                job_id="fenced-settlement-rebuild",
+                job_name="settlement_rebuild",
+                status="running",
+                claim_token="current-claim",
+                lease_expires_at=now + timedelta(minutes=10),
+                heartbeat_at=now,
+                state_updated_at=now,
+                metadata_json={},
+            ),
+            SettlementProjectionGeneration(
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                generation_kind="lineage",
+                projection_name="settlement",
+                state="ready",
+                input_fingerprint="a" * 64,
+                lineage_depth=1,
+                manifest_checksum="b" * 64,
+                source_job_id="fenced-settlement-rebuild",
+                checkpoint_json={},
+                source_input_json={},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with db_session.begin():
+        with pytest.raises(RuntimeError, match="claim"):
+            publish_settlement_rebuild(
+                db_session,
+                job_id="fenced-settlement-rebuild",
+                claim_id="stale-claim",
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                input_fingerprint="a" * 64,
+                manifest_checksum="b" * 64,
+            )
+
+    db_session.expire_all()
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    assert active.generation_id == "g-fenced-base"
+
+
+def test_settlement_rebuild_publication_requires_a_claim_token(db_session) -> None:
+    with pytest.raises(TypeError, match="claim_id"):
+        publish_settlement_rebuild(
+            db_session,
+            job_id="missing-claim",
+            generation_id="missing-generation",
+            base_generation_id="missing-base",
+            input_fingerprint="a" * 64,
+            manifest_checksum="b" * 64,
+        )
+
+
+def test_lineage_generation_identity_changes_when_active_base_moves(
+    db_session,
+) -> None:
+    _generation(db_session, "pointer-base-a")
+    _generation(db_session, "pointer-base-b")
+    _manifest(
+        db_session,
+        "pointer-base-a",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-a",
+    )
+    _manifest(
+        db_session,
+        "pointer-base-b",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-b",
+    )
+    db_session.add(
+        SettlementProjectionActive(
+            projection_name="settlement",
+            generation_id="pointer-base-a",
+        )
+    )
+    db_session.commit()
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+
+    first = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert first is not None
+    db_session.add(
+        SettlementProjectionGeneration(
+            generation_id=first.generation_id,
+            base_generation_id=first.base_generation_id,
+            generation_kind="lineage",
+            projection_name="settlement",
+            state="staging",
+            input_fingerprint=first.input_fingerprint,
+            lineage_depth=1,
+            source_job_id=None,
+            checkpoint_json={},
+            source_input_json={},
+        )
+    )
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    active.generation_id = "pointer-base-b"
+    db_session.commit()
+
+    second = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert second is not None
+    assert second.base_generation_id == "pointer-base-b"
+    assert second.input_fingerprint != first.input_fingerprint
+    assert second.generation_id != first.generation_id
 
 
 # ---------------------------------------------------------------------------
