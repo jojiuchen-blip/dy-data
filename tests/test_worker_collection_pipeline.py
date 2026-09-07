@@ -1329,7 +1329,12 @@ def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
         progress_callback=None,
     ) -> SettlementStats:
         del session, source_run_id, progress_callback
-        sleep(0.25)
+        with factory() as observer:
+            initial_lease = observer.get(JobRun, "slow-rebuild").lease_expires_at
+        sleep(4.5)
+        with factory() as observer:
+            renewed_lease = observer.get(JobRun, "slow-rebuild").lease_expires_at
+        assert renewed_lease > initial_lease + timedelta(seconds=2)
         return SettlementStats(2, 0, 1, 1)
 
     monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", slow_rebuild)
@@ -1342,8 +1347,8 @@ def test_watchdog_renews_lease_during_a_slow_stage(tmp_path, monkeypatch):
         assert settlement_rebuild.run_settlement_rebuild_job(
             job_id="slow-rebuild",
             factory=factory,
-            lease_duration=timedelta(milliseconds=150),
-            heartbeat_interval_seconds=0.03,
+            lease_duration=timedelta(seconds=2),
+            heartbeat_interval_seconds=0.2,
         )
         with factory() as session:
             job = session.get(JobRun, "slow-rebuild")

@@ -419,6 +419,7 @@ def test_scheduler_queue_poll_is_independent_of_long_auto_plan_interval(
 ) -> None:
     factory = object()
     drain_calls: list[object] = []
+    durable_queue_calls: list[object] = []
     sleep_calls: list[float] = []
 
     def fake_drain(passed_factory):
@@ -442,6 +443,7 @@ def test_scheduler_queue_poll_is_independent_of_long_auto_plan_interval(
     monkeypatch.setattr(scheduler, "_configured_interval_seconds", lambda _factory: 3600)
     monkeypatch.setattr(scheduler, "_configured_daily_queue_poll_seconds", lambda: 5.0)
     monkeypatch.setattr(scheduler, "drain_ready_daily_children", fake_drain)
+    monkeypatch.setattr(scheduler, "_process_queued_jobs", durable_queue_calls.append)
     monkeypatch.setattr(
         scheduler,
         "_sleep_until_stop",
@@ -456,6 +458,7 @@ def test_scheduler_queue_poll_is_independent_of_long_auto_plan_interval(
     scheduler.main()
 
     assert drain_calls == [factory, factory]
+    assert durable_queue_calls == [factory, factory]
     assert sleep_calls == [5.0]
 
 
