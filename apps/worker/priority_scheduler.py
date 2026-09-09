@@ -20,7 +20,7 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.db import session_scope
-from apps.api.dy_api.models import DouyinApiQuotaUsage, JobRun
+from apps.api.dy_api.models import JobRun
 from apps.worker.daily_windows import DailySyncPlan, plan_daily_sync
 from apps.worker.repositories import parent_sync_gate_allows_claim
 from apps.worker.sync_config import load_sync_config
@@ -34,7 +34,6 @@ PRIORITY_DAILY_MODE = "priority_daily"
 PRIORITY_CONFIG_VERSION = "priority-daily-v1"
 PRIORITY_DAILY_CUTOFF = time(2, 0)
 DIMENSION_REFRESH_INTERVAL = timedelta(hours=2)
-DEFAULT_HISTORY_RETRY_RESERVE_CALLS = 10
 MAX_HISTORY_SCAN_DAYS = 3_660
 MAX_PRIORITY_ROWS = 2_000
 DIMENSION_TARGETS = ("shop_pois", "aweme_bindings", "backend_aweme_export")
@@ -209,15 +208,21 @@ def run_priority_daily_tick(
         )
         daily_rows = _priority_rows_for_day(session, target_date)
         day_state = _day_state(target_date, daily_rows)
-        daily_candidate = (
-            None
-            if day_state.state == "failed"
-            else _select_candidate(
-                daily_rows,
-                now=local_now,
-                allowed_purposes={DAILY_REQUIRED_PURPOSE},
-                session=session,
+        daily_selection_rows = daily_rows
+        if day_state.state == "failed":
+            # A failed domain must not release the all-domain date/finalize
+            # closure, but unrelated manual domains can still make progress.
+            daily_selection_rows = tuple(
+                row
+                for row in daily_rows
+                if _is_manual_domain_row(row)
+                or (row.job_kind == "parent_sync" and _row_target(row) == "all")
             )
+        daily_candidate = _select_candidate(
+            daily_selection_rows,
+            now=local_now,
+            allowed_purposes={DAILY_REQUIRED_PURPOSE},
+            session=session,
         )
         if daily_candidate is not None:
             if _is_active_running(daily_candidate, local_now):
@@ -273,7 +278,7 @@ def run_priority_daily_tick(
                         )
                     )
                 selected = (local_now.date(), dimension_candidate)
-            elif is_priority_cutoff_open(local_now):
+            else:
                 due_dimension_plans = _plan_due_dimensions(session, local_now)
                 if due_dimension_plans:
                     dimension_rows = _dimension_rows_for_day(
@@ -377,23 +382,10 @@ def run_priority_daily_tick(
             )
         )
 
+    # Request-level PriorityRequestGovernor admission owns the shared endpoint
+    # reserve.  A scheduler-wide refund precheck would read its reduced history
+    # ceiling as the base quota and reserve the same calls a second time.
     with session_scope(factory) as session:
-        history_allowed = history_budget_available(
-            session,
-            now=local_now,
-            reserve_calls=_history_retry_reserve_calls(),
-        )
-        if not history_allowed:
-            return _snapshot(
-                PriorityTickResult(
-                    mode=PRIORITY_DAILY_MODE,
-                    action="blocked",
-                    business_date=daily_date,
-                    selected_purpose=HISTORY_PURPOSE,
-                    reason="history_quota_retry_reserve",
-                )
-            )
-
         history_start, history_end = _history_bounds(
             session,
             daily_date=daily_date,
@@ -531,78 +523,6 @@ def ensure_history_priority_plan(
             request_budget_date=local_shanghai_now(now).date(),
         )
     return plan
-
-
-def history_budget_available(
-    session_or_factory: Session | sessionmaker[Session] | Callable[[], Session],
-    *,
-    now: datetime | None = None,
-    reserve_calls: int = DEFAULT_HISTORY_RETRY_RESERVE_CALLS,
-) -> bool:
-    """Check known daily-limited refund headroom without inventing QPS limits.
-
-    Only persisted refund rows are considered.  Missing rows mean that the
-    endpoint has no known daily ledger reservation yet; the request governor
-    remains authoritative for that endpoint.  A database/query failure fails
-    closed because history is optional work.
-    """
-
-    if isinstance(reserve_calls, bool) or reserve_calls < 0:
-        raise ValueError("reserve_calls must be a non-negative integer")
-    local_now = local_shanghai_now(now)
-
-    if isinstance(session_or_factory, Session):
-        return _history_budget_available_in_session(
-            session_or_factory,
-            local_now=local_now,
-            reserve_calls=reserve_calls,
-        )
-    try:
-        with session_scope(session_or_factory) as session:
-            return _history_budget_available_in_session(
-                session,
-                local_now=local_now,
-                reserve_calls=reserve_calls,
-            )
-    except Exception:
-        LOGGER.exception("priority_scheduler_history_budget_check_failed")
-        return False
-
-
-def _history_budget_available_in_session(
-    session: Session,
-    *,
-    local_now: datetime,
-    reserve_calls: int,
-) -> bool:
-    rows = list(
-        session.scalars(
-            select(DouyinApiQuotaUsage)
-            .where(
-                DouyinApiQuotaUsage.business_date == local_now.date(),
-                DouyinApiQuotaUsage.endpoint_key.ilike("%refund%"),
-            )
-        )
-    )
-    for row in rows:
-        remaining = max(int(row.effective_limit) - int(row.request_count), 0)
-        if remaining <= reserve_calls:
-            return False
-    return True
-
-
-def _history_retry_reserve_calls() -> int:
-    raw = os.getenv(
-        "WORKER_HISTORY_DAILY_RESERVE",
-        str(DEFAULT_HISTORY_RETRY_RESERVE_CALLS),
-    )
-    try:
-        value = int(raw)
-    except (TypeError, ValueError) as exc:
-        raise ValueError(
-            "WORKER_HISTORY_DAILY_RESERVE must be an integer"
-        ) from exc
-    return max(0, min(100, value))
 
 
 def _resolve_daily_target_date(
@@ -1223,7 +1143,6 @@ __all__ = [
     "PriorityTickResult",
     "ensure_daily_priority_plan",
     "ensure_history_priority_plan",
-    "history_budget_available",
     "is_priority_cutoff_open",
     "local_shanghai_now",
     "priority_business_date",

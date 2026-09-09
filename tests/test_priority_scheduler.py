@@ -7,9 +7,9 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from apps.api.dy_api.models import Base, DouyinApiQuotaUsage, JobRun
+from apps.api.dy_api.models import Base, DouyinApiQuotaUsage, JobRun, JobStageRun
 from apps.worker import priority_scheduler
-from apps.worker.daily_windows import plan_daily_sync
+from apps.worker.daily_windows import enqueue_finalize_if_ready, plan_daily_sync
 from apps.worker.subprocess_supervisor import ChildRunResult, ChildRunStatus
 
 
@@ -141,6 +141,31 @@ def test_before_cutoff_recovers_existing_manual_yesterday_plan(factory) -> None:
         assert session.query(JobRun).where(JobRun.job_kind == "range_sync").count() == 1
 
 
+def test_dimension_refresh_can_start_before_daily_cutoff(factory) -> None:
+    now = datetime.fromisoformat("2026-09-10T00:10:00+08:00")
+    calls: list[str] = []
+
+    def child_runner(_factory, job_id: str):
+        calls.append(job_id)
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1)
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory,
+        now=now,
+        child_runner=child_runner,
+        product_sync_runner=lambda _factory, **_kwargs: None,
+    )
+
+    assert result.action == "executed"
+    assert result.selected_purpose == priority_scheduler.DAILY_REQUIRED_PURPOSE
+    assert calls == [result.selected_job_id]
+    with factory() as session:
+        selected = session.get(JobRun, result.selected_job_id)
+        assert selected is not None
+        assert selected.metadata_json.get("priority_kind") == "dimensions"
+        assert selected.metadata_json.get("priority_refresh_slot") == "2026091000"
+
+
 def test_daily_failure_blocks_history_and_does_not_run_child(
     factory,
     monkeypatch,
@@ -190,38 +215,172 @@ def test_daily_failure_blocks_history_and_does_not_run_child(
         assert session.query(JobRun).where(JobRun.job_kind == "range_sync").count() == 1
 
 
-def test_history_budget_only_considers_known_refund_ledger(factory) -> None:
+def test_failed_domain_does_not_block_other_manual_domain(factory) -> None:
+    target = date(2026, 9, 9)
+    now = datetime.fromisoformat("2026-09-10T02:10:00+08:00")
     with factory.begin() as session:
+        priority_scheduler.ensure_daily_priority_plan(session, target, now=now)
+        failed_plan = plan_daily_sync(
+            session,
+            start=target,
+            end=target + timedelta(days=1),
+            target="orders",
+            requested_by="manual",
+            trigger_source="manual",
+            config_version=priority_scheduler.PRIORITY_CONFIG_VERSION,
+        )
+        pending_plan = plan_daily_sync(
+            session,
+            start=target,
+            end=target + timedelta(days=1),
+            target="refunds",
+            requested_by="manual",
+            trigger_source="manual",
+            config_version=priority_scheduler.PRIORITY_CONFIG_VERSION,
+        )
+        failed_child = session.get(JobRun, failed_plan.daily_jobs[0].job_id)
+        pending_child = session.get(JobRun, pending_plan.daily_jobs[0].job_id)
+        assert failed_child is not None
+        assert pending_child is not None
+        failed_child.status = "failed"
+        for row in (failed_child, pending_child):
+            row.metadata_json = {
+                **(row.metadata_json or {}),
+                "priority_purpose": priority_scheduler.DAILY_REQUIRED_PURPOSE,
+                "priority_mode": priority_scheduler.PRIORITY_DAILY_MODE,
+                "priority_business_date": target.isoformat(),
+                "request_budget_date": now.date().isoformat(),
+            }
+
+    calls: list[str] = []
+
+    def child_runner(_factory, job_id: str):
+        calls.append(job_id)
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1)
+
+    result = priority_scheduler.run_priority_daily_tick(
+        factory,
+        now=now,
+        child_runner=child_runner,
+        product_sync_runner=lambda _factory, **_kwargs: None,
+    )
+
+    assert result.action == "executed"
+    assert result.selected_job_id == calls[0]
+    with factory() as session:
+        selected = session.get(JobRun, result.selected_job_id)
+        assert selected is not None
+        assert selected.job_kind == "date_sync"
+        assert selected.metadata_json.get("target") == "refunds"
+
+
+def test_history_checkpoint_uses_request_governor_after_daily_reserve(
+    factory,
+    monkeypatch,
+) -> None:
+    target = date(2026, 9, 9)
+    now = datetime.fromisoformat("2026-09-10T02:10:00+08:00")
+    with factory.begin() as session:
+        plan = priority_scheduler.ensure_daily_priority_plan(session, target, now=now)
+        parent_execution = session.scalar(
+            select(JobRun).where(
+                JobRun.parent_job_id == plan.parent_job_id,
+                JobRun.job_kind == "parent_sync",
+            )
+        )
+        child = session.scalar(
+            select(JobRun).where(
+                JobRun.parent_job_id == plan.parent_job_id,
+                JobRun.job_kind == "date_sync",
+            )
+        )
+        parent_stage = session.scalar(
+            select(JobStageRun).where(
+                JobStageRun.job_id == plan.parent_job_id,
+                JobStageRun.stage_name == "collect_dimensions",
+            )
+        )
+        assert parent_execution is not None
+        assert child is not None
+        assert parent_stage is not None
+        parent_execution.status = "success"
+        child.status = "success"
+        parent_stage.committed_at = now
+        parent_stage.status = "success"
+        for stage_name in ("collect", "materialize", "settle"):
+            checkpoint = {}
+            if stage_name == "settle":
+                checkpoint = {
+                    "settlement_summary": {
+                        "mode": "incremental",
+                        "completed": True,
+                        "impact_count": 0,
+                        "coupon_count": 0,
+                        "detail_count": 0,
+                        "result_count": 0,
+                        "adjustment_count": 0,
+                        "affected_months": [],
+                        "affected_store_ids": [],
+                    },
+                    "store_score_snapshot": {
+                        "deferred": True,
+                        "consumer": "T3.4.finalize",
+                        "affected_store_ids": [],
+                        "rule_closure": "published-rules-and-eligible-stores",
+                    },
+                }
+            session.add(
+                JobStageRun(
+                    stage_run_id=f"stage-{child.job_id}-{stage_name}",
+                    job_id=child.job_id,
+                    stage_name=stage_name,
+                    status="success",
+                    checkpoint_json=checkpoint,
+                    lease_epoch=1,
+                    started_at=now,
+                    finished_at=now,
+                    committed_at=now,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.flush()
+        finalize = enqueue_finalize_if_ready(session, plan.parent_job_id)
+        assert finalize is not None
+        finalize.status = "success"
+        range_parent = session.get(JobRun, plan.parent_job_id)
+        assert range_parent is not None
+        range_parent.status = "success"
         session.add(
             DouyinApiQuotaUsage(
                 environment="test",
                 app_id="app",
                 account_id="account",
                 endpoint_key="/goodlife/refunds/list",
-                business_date=datetime.fromisoformat("2026-09-10T00:00:00+08:00").date(),
-                request_count=86,
-                effective_limit=90,
-                reset_at=datetime.fromisoformat("2026-09-11T00:00:00+08:00"),
-            )
-        )
-        session.add(
-            DouyinApiQuotaUsage(
-                environment="test",
-                app_id="app",
-                account_id="account",
-                endpoint_key="/goodlife/orders/list",
-                business_date=datetime.fromisoformat("2026-09-10T00:00:00+08:00").date(),
-                request_count=0,
-                effective_limit=1,
+                business_date=now.date(),
+                request_count=70,
+                effective_limit=80,
                 reset_at=datetime.fromisoformat("2026-09-11T00:00:00+08:00"),
             )
         )
 
-    assert not priority_scheduler.history_budget_available(
+    monkeypatch.setattr(priority_scheduler, "_plan_due_dimensions", lambda *_args: ())
+    calls: list[str] = []
+
+    def child_runner(_factory, job_id: str):
+        calls.append(job_id)
+        return ChildRunResult(job_id=job_id, status=ChildRunStatus.SUCCESS, attempts=1)
+
+    result = priority_scheduler.run_priority_daily_tick(
         factory,
-        now=datetime.fromisoformat("2026-09-10T12:00:00+08:00"),
-        reserve_calls=10,
+        now=now,
+        child_runner=child_runner,
+        product_sync_runner=lambda _factory, **_kwargs: None,
     )
+
+    assert result.action == "executed"
+    assert result.selected_purpose == priority_scheduler.HISTORY_PURPOSE
+    assert calls == [result.selected_job_id]
 
 
 def test_priority_tick_executes_one_exact_job_without_legacy_drain(factory) -> None:
@@ -337,13 +496,25 @@ def test_daily_failure_still_allows_independent_dimension_refresh(factory) -> No
     now = datetime.fromisoformat("2026-09-10T02:10:00+08:00")
     with factory.begin() as session:
         plan = priority_scheduler.ensure_daily_priority_plan(session, target, now=now)
+        parent_execution = session.scalar(
+            select(JobRun).where(
+                JobRun.parent_job_id == plan.parent_job_id,
+                JobRun.job_kind == "parent_sync",
+            )
+        )
         child = session.scalar(
             select(JobRun).where(
                 JobRun.parent_job_id == plan.parent_job_id,
                 JobRun.job_kind == "date_sync",
             )
         )
+        assert parent_execution is not None
         assert child is not None
+        # Keep the all-domain parent closure out of the candidate set so this
+        # test exercises an independent dimension refresh after a failed
+        # daily child.  The scheduler may still execute a healthy parent when
+        # it is the only remaining daily-required candidate.
+        parent_execution.status = "success"
         child.status = "failed"
 
     calls: list[str] = []
