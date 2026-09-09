@@ -33,6 +33,8 @@ JOB_STATUSES = frozenset(
 )
 DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SECONDS = 30
+MAX_BUDGET_PAUSE_DELAY_SECONDS = 172800
+PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
 
 
 class FailureKind(str, Enum):
@@ -43,6 +45,7 @@ class FailureKind(str, Enum):
     DATA_INTEGRITY = "data_integrity"
     MEMORY_GUARD = "memory_guard"
     CRASHED = "crashed"
+    BUDGET_PAUSE = "budget_pause"
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,7 @@ def retry_policy(
     *,
     attempt_number: int,
     max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+    quota_pause_count: int = 0,
     previous_exit_type: str | None = None,
     base_delay_seconds: int = DEFAULT_RETRY_BASE_DELAY_SECONDS,
     fixed_delay_seconds: int | None = None,
@@ -82,22 +86,35 @@ def retry_policy(
         raise ValueError("attempt_number must be positive")
     if max_attempts <= 0 or max_attempts > DEFAULT_MAX_ATTEMPTS:
         raise ValueError("max_attempts must be between 1 and 3")
+    if quota_pause_count < 0:
+        raise ValueError("quota_pause_count cannot be negative")
     if base_delay_seconds <= 0:
         raise ValueError("base_delay_seconds must be positive")
     if fixed_delay_seconds is not None and fixed_delay_seconds <= 0:
         raise ValueError("fixed_delay_seconds must be positive")
 
+    if failure_kind is FailureKind.BUDGET_PAUSE:
+        # A quota pause is a durable scheduling yield.  It must never consume
+        # one of the three genuine failure attempts, and its delay is fixed so
+        # repeated quota exhaustion cannot be exponentially amplified.
+        delay_seconds = fixed_delay_seconds or base_delay_seconds
+        return RetryDecision(
+            status="retry_wait",
+            delay_seconds=min(delay_seconds, MAX_BUDGET_PAUSE_DELAY_SECONDS),
+        )
+
+    effective_attempt_number = attempt_number - quota_pause_count
     is_fatal = failure_kind is FailureKind.DATA_INTEGRITY
     if failure_kind is FailureKind.MEMORY_GUARD:
         is_fatal = previous_exit_type == "resource_guard"
-    if attempt_number >= max_attempts:
+    if effective_attempt_number >= max_attempts:
         is_fatal = True
     if is_fatal:
         return RetryDecision(status="failed", delay_seconds=None)
     delay_seconds = (
         fixed_delay_seconds
         if fixed_delay_seconds is not None
-        else base_delay_seconds * (2 ** (attempt_number - 1))
+        else base_delay_seconds * (2 ** (max(1, effective_attempt_number) - 1))
     )
     return RetryDecision(status="retry_wait", delay_seconds=delay_seconds)
 
@@ -229,7 +246,10 @@ def _claim_job_sqlite(
     now = datetime.now(UTC)
     attempt_number = int(job.attempt_count or 0) + 1
     max_attempts = int(job.max_attempts or DEFAULT_MAX_ATTEMPTS)
-    if attempt_number > max_attempts:
+    quota_pause_count = int(job.quota_pause_count or 0)
+    if quota_pause_count < 0:
+        return None
+    if attempt_number > max_attempts + quota_pause_count:
         return None
     lease_epoch = int(job.lease_epoch or 0) + 1
     attempt_id = f"attempt-{uuid4()}"
@@ -451,6 +471,15 @@ def fail_job(
         raise ValueError("error_code is required")
     if not error_summary.strip():
         raise ValueError("error_summary is required")
+    if failure_kind is FailureKind.BUDGET_PAUSE:
+        if fixed_delay_seconds is None or fixed_delay_seconds <= 0:
+            raise ValueError("budget pause requires a positive fixed delay")
+        from apps.api.dy_api.models import JobRun
+
+        job = session.get(JobRun, token.job_id)
+        if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+            return None
+        error_code = "priority_budget_pause"
     if session.get_bind().dialect.name == "postgresql":
         retry_state = repositories.lock_active_execution_state(
             session,
@@ -462,6 +491,12 @@ def fail_job(
         )
         if retry_state is None:
             return None
+        if failure_kind is FailureKind.BUDGET_PAUSE:
+            from apps.api.dy_api.models import JobRun
+
+            job = session.get(JobRun, token.job_id)
+            if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+                return None
         previous_exit_type = repositories.previous_attempt_exit_type(
             session,
             job_id=token.job_id,
@@ -471,6 +506,7 @@ def fail_job(
             failure_kind,
             attempt_number=retry_state.attempt_number,
             max_attempts=retry_state.max_attempts,
+            quota_pause_count=retry_state.quota_pause_count,
             previous_exit_type=previous_exit_type,
             base_delay_seconds=base_delay_seconds,
             fixed_delay_seconds=fixed_delay_seconds,
@@ -488,6 +524,7 @@ def fail_job(
             attempt_exit_type=attempt_exit_type,
             error_code=error_code.strip(),
             error_summary=error_summary.strip(),
+            increment_quota_pause_count=failure_kind is FailureKind.BUDGET_PAUSE,
         )
         return decision if updated else None
     return _fail_job_sqlite(
@@ -521,6 +558,8 @@ def _attempt_exit_type(
     failure_kind: FailureKind,
     decision: RetryDecision,
 ) -> str:
+    if failure_kind is FailureKind.BUDGET_PAUSE:
+        return "retryable_failure"
     if failure_kind is FailureKind.MEMORY_GUARD:
         return "resource_guard"
     if failure_kind is FailureKind.CRASHED:
@@ -605,6 +644,11 @@ def _fail_job_sqlite(
     if active is None:
         return None
     job, attempt, component = active
+    if (
+        failure_kind is FailureKind.BUDGET_PAUSE
+        and job.config_version != PRIORITY_DAILY_CONFIG_VERSION
+    ):
+        return None
     previous_exit_type = session.scalar(
         select(repositories.JobAttempt.exit_type).where(
             repositories.JobAttempt.job_id == token.job_id,
@@ -615,11 +659,15 @@ def _fail_job_sqlite(
         failure_kind,
         attempt_number=int(job.attempt_count or 0),
         max_attempts=int(job.max_attempts or DEFAULT_MAX_ATTEMPTS),
+        quota_pause_count=int(job.quota_pause_count or 0),
         previous_exit_type=previous_exit_type,
         base_delay_seconds=base_delay_seconds,
         fixed_delay_seconds=fixed_delay_seconds,
     )
     now = datetime.now(UTC)
+    if failure_kind is FailureKind.BUDGET_PAUSE:
+        job.quota_pause_count = int(job.quota_pause_count or 0) + 1
+        error_code = "priority_budget_pause"
     job.status = decision.status
     job.finished_at = now if decision.status == "failed" else None
     job.lease_owner = None

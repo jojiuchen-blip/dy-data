@@ -42,6 +42,7 @@ ModelT = TypeVar("ModelT")
 
 HEAVY_SYNC_CLAIM_LOCK_KEY = 661893198734880846
 DOUYIN_RATE_LIMIT_ERROR_CODE = "douyin_rate_limited"
+MAX_CONTROL_HISTORY_ROWS = 10000
 
 
 def heavy_sync_rate_limit_cooldown_active(
@@ -159,6 +160,7 @@ class ActiveExecutionState:
 
     attempt_number: int
     max_attempts: int
+    quota_pause_count: int
 
 
 @dataclass(frozen=True)
@@ -1674,7 +1676,10 @@ def claim_next_heavy_job(
     other_running = aliased(JobRun)
     attempt_available = (
         func.coalesce(JobRun.attempt_count, 0)
-        < func.coalesce(JobRun.max_attempts, 3)
+        < (
+            func.coalesce(JobRun.max_attempts, 3)
+            + func.coalesce(JobRun.quota_pause_count, 0)
+        )
     )
     ready_to_start = and_(
         or_(
@@ -1905,7 +1910,8 @@ def claim_next_heavy_job(
 
     completed_attempts = int(job.attempt_count or 0)
     max_attempts = int(job.max_attempts or 3)
-    if previous_status == "running" and completed_attempts >= max_attempts:
+    quota_pause_count = int(job.quota_pause_count or 0)
+    if previous_status == "running" and completed_attempts >= max_attempts + quota_pause_count:
         assert previous_attempt is not None
         with session.begin_nested():
             _close_expired_attempt(
@@ -1919,6 +1925,7 @@ def claim_next_heavy_job(
                 attempt=previous_attempt,
                 database_now=database_now,
                 max_attempts=max_attempts,
+                quota_pause_count=quota_pause_count,
             )
             session.flush()
         return None
@@ -2212,6 +2219,7 @@ def lock_active_execution_state(
     return ActiveExecutionState(
         attempt_number=int(job.attempt_count or 0),
         max_attempts=int(job.max_attempts or 3),
+        quota_pause_count=int(job.quota_pause_count or 0),
     )
 
 
@@ -2246,6 +2254,7 @@ def fail_claim(
     attempt_exit_type: str,
     error_code: str,
     error_summary: str,
+    increment_quota_pause_count: bool = False,
 ) -> bool:
     """Apply one fenced retry/fatal failure with attempt and event atomically."""
 
@@ -2264,22 +2273,25 @@ def fail_claim(
         if delay_seconds is not None
         else None
     )
+    values = {
+        "status": status,
+        "failed_count": 1,
+        "finished_at": func.statement_timestamp() if status == "failed" else None,
+        "lease_owner": None,
+        "lease_expires_at": None,
+        "next_retry_at": next_retry_at,
+        "error_code": error_code,
+        "error_summary": error_summary,
+        "error_message": error_summary,
+    }
+    if increment_quota_pause_count:
+        values["quota_pause_count"] = func.coalesce(JobRun.quota_pause_count, 0) + 1
     failed = False
     with session.begin_nested():
         result = session.execute(
             update(JobRun)
             .where(*_active_lease_conditions(job_id, lease_owner, lease_epoch))
-            .values(
-                status=status,
-                failed_count=1,
-                finished_at=func.statement_timestamp() if status == "failed" else None,
-                lease_owner=None,
-                lease_expires_at=None,
-                next_retry_at=next_retry_at,
-                error_code=error_code,
-                error_summary=error_summary,
-                error_message=error_summary,
-            )
+            .values(**values)
             .returning(func.statement_timestamp())
         )
         database_now = result.scalar_one_or_none()
@@ -2503,12 +2515,14 @@ def _inspect_expired_running_control(
 ) -> _ExpiredRunningControlState:
     """Lock bounded attempt history and validate counters and identity."""
 
+    attempt_count = int(job.attempt_count or 0)
+    history_limit = min(max(attempt_count + 1, 1), MAX_CONTROL_HISTORY_ROWS)
     attempts = tuple(
         session.scalars(
             select(JobAttempt)
             .where(JobAttempt.job_id == job.job_id)
             .order_by(JobAttempt.attempt_number, JobAttempt.attempt_id)
-            .limit(4)
+            .limit(history_limit)
             .with_for_update()
         )
     )
@@ -2516,35 +2530,41 @@ def _inspect_expired_running_control(
         attempt for attempt in attempts if attempt.finished_at is None
     )
     reasons: list[str] = []
-    attempt_count = int(job.attempt_count or 0)
+    quota_pause_count = int(job.quota_pause_count or 0)
+    max_attempts = int(job.max_attempts or 3)
     lease_epoch = int(job.lease_epoch or 0)
     counter_anomaly = False
     history_anomaly = False
-    if attempt_count < 0 or attempt_count > 3:
+    if quota_pause_count < 0:
+        counter_anomaly = True
+        reasons.append("quota_pause_count_invalid")
+    if max_attempts < 1 or max_attempts > 3:
+        counter_anomaly = True
+        reasons.append("max_attempts_invalid")
+    if attempt_count < 0 or attempt_count > max_attempts + max(quota_pause_count, 0):
         counter_anomaly = True
         reasons.append("attempt_count_invalid")
+    if quota_pause_count > attempt_count:
+        counter_anomaly = True
+        reasons.append("quota_pause_count_exceeds_attempt_count")
+    if attempt_count + 1 > MAX_CONTROL_HISTORY_ROWS:
+        history_anomaly = True
+        reasons.append("attempt_history_exceeds_safety_limit")
     if lease_epoch != attempt_count:
         counter_anomaly = True
         reasons.append("lease_epoch_counter_mismatch")
     if len(attempts) != attempt_count:
         counter_anomaly = True
         reasons.append("attempt_row_count_mismatch")
-    if len(attempts) >= 4:
-        history_anomaly = True
-        reasons.append("attempt_history_exceeds_limit")
-
     observed_numbers = [attempt.attempt_number for attempt in attempts]
     observed_epochs = [attempt.lease_epoch for attempt in attempts]
     expected_sequence = list(range(1, attempt_count + 1))
     if (
-        len(attempts) <= 3
-        and (
-            sorted(observed_numbers) != expected_sequence
-            or sorted(observed_epochs) != expected_sequence
-            or any(
-                attempt.attempt_number != attempt.lease_epoch
-                for attempt in attempts
-            )
+        sorted(observed_numbers) != expected_sequence
+        or sorted(observed_epochs) != expected_sequence
+        or any(
+            attempt.attempt_number != attempt.lease_epoch
+            for attempt in attempts
         )
     ):
         history_anomaly = True
@@ -2552,6 +2572,23 @@ def _inspect_expired_running_control(
     if any(attempt.component_type != "worker" for attempt in attempts):
         history_anomaly = True
         reasons.append("history_component_type_invalid")
+    if attempt_count + 1 <= MAX_CONTROL_HISTORY_ROWS:
+        budget_pause_attempt_count = sum(
+            1
+            for attempt in attempts
+            if (
+                attempt.finished_at is not None
+                and attempt.error_code == "priority_budget_pause"
+            )
+        )
+        expected_budget_pause_count = (
+            quota_pause_count
+            if job.config_version == "priority-daily-v1"
+            else 0
+        )
+        if budget_pause_attempt_count != expected_budget_pause_count:
+            counter_anomaly = True
+            reasons.append("quota_pause_count_history_mismatch")
 
     if job.status == "running":
         lease_owner = job.lease_owner
@@ -2903,6 +2940,7 @@ def _fail_job_after_exhausted_crash(
     attempt: JobAttempt,
     database_now: datetime,
     max_attempts: int,
+    quota_pause_count: int,
 ) -> None:
     job.status = "failed"
     job.failed_count = 1
@@ -2926,6 +2964,8 @@ def _fail_job_after_exhausted_crash(
         payload_json={
             "error_code": job.error_code,
             "max_attempts": max_attempts,
+            "quota_pause_count": quota_pause_count,
+            "effective_attempts": max(0, int(job.attempt_count or 0) - quota_pause_count),
         },
     )
 

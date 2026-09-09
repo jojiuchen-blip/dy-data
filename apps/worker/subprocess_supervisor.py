@@ -87,6 +87,8 @@ RSSReader = Callable[[int], int | None]
 DEFAULT_LEASE_SECONDS = 120
 MIN_LEASE_SECONDS = 1
 MAX_LEASE_SECONDS = 3600
+PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
+PRIORITY_BUDGET_PAUSE_MARKER = "priority_budget_pause"
 
 
 def _truthy(value: str | None) -> bool:
@@ -593,7 +595,8 @@ class SubprocessSupervisor:
             if (
                 job is not None
                 and job.status == "pending"
-                and int(job.attempt_count or 0) >= int(job.max_attempts or 3)
+                and int(job.attempt_count or 0)
+                >= int(job.max_attempts or 3) + int(job.quota_pause_count or 0)
             ):
                 # No active token exists here, so fail closed instead of
                 # fabricating a terminal mutation outside T1.2's event/attempt
@@ -738,6 +741,13 @@ class SubprocessSupervisor:
             session.begin()
             summary = sanitize_error_message(error_summary) or "daily child failed"
             reason = termination_reason or ChildTerminationReason.PROCESS_EXIT
+            is_priority_budget_pause = _is_priority_budget_pause(
+                session,
+                job_id=job_id,
+                exit_code=exit_code,
+                termination_reason=reason,
+                error_summary=summary,
+            )
             has_termination_evidence = (
                 exit_code not in (None, 0)
                 or reason is not ChildTerminationReason.PROCESS_EXIT
@@ -747,12 +757,16 @@ class SubprocessSupervisor:
                 token,
                 exit_code=exit_code,
                 rss_peak_bytes=rss_peak_bytes,
-                error_code=_failure_error_code(
-                    exit_code,
-                    termination_reason=termination_reason,
-                    rss_peak_bytes=rss_peak_bytes,
-                    rss_limit_bytes=self.rss_limit_bytes,
-                    error_summary=summary,
+                error_code=(
+                    PRIORITY_BUDGET_PAUSE_MARKER
+                    if is_priority_budget_pause
+                    else _failure_error_code(
+                        exit_code,
+                        termination_reason=termination_reason,
+                        rss_peak_bytes=rss_peak_bytes,
+                        rss_limit_bytes=self.rss_limit_bytes,
+                        error_summary=summary,
+                    )
                 ),
                 error_summary=summary if has_termination_evidence else None,
             ):
@@ -775,11 +789,15 @@ class SubprocessSupervisor:
                             JobAttempt.attempt_id == token.attempt_id,
                         )
                         .values(
-                            error_code=_failure_error_code(
-                                exit_code,
-                                termination_reason=termination_reason,
-                                rss_peak_bytes=rss_peak_bytes,
-                                rss_limit_bytes=self.rss_limit_bytes,
+                            error_code=(
+                                PRIORITY_BUDGET_PAUSE_MARKER
+                                if is_priority_budget_pause
+                                else _failure_error_code(
+                                    exit_code,
+                                    termination_reason=termination_reason,
+                                    rss_peak_bytes=rss_peak_bytes,
+                                    rss_limit_bytes=self.rss_limit_bytes,
+                                )
                             ),
                             error_summary=summary,
                         )
@@ -792,20 +810,24 @@ class SubprocessSupervisor:
                 error_code = "stage_checkpoint_incomplete"
                 summary = "daily child exited successfully before all stage checkpoints completed"
             else:
-                failure_kind = _failure_kind(
-                    exit_code,
-                    termination_reason=termination_reason,
-                    error_summary=summary,
-                    rss_peak_bytes=rss_peak_bytes,
-                    rss_limit_bytes=self.rss_limit_bytes,
-                )
-                error_code = _failure_error_code(
-                    exit_code,
-                    termination_reason=termination_reason,
-                    rss_peak_bytes=rss_peak_bytes,
-                    rss_limit_bytes=self.rss_limit_bytes,
-                    error_summary=summary,
-                )
+                if is_priority_budget_pause:
+                    failure_kind = FailureKind.BUDGET_PAUSE
+                    error_code = PRIORITY_BUDGET_PAUSE_MARKER
+                else:
+                    failure_kind = _failure_kind(
+                        exit_code,
+                        termination_reason=termination_reason,
+                        error_summary=summary,
+                        rss_peak_bytes=rss_peak_bytes,
+                        rss_limit_bytes=self.rss_limit_bytes,
+                    )
+                    error_code = _failure_error_code(
+                        exit_code,
+                        termination_reason=termination_reason,
+                        rss_peak_bytes=rss_peak_bytes,
+                        rss_limit_bytes=self.rss_limit_bytes,
+                        error_summary=summary,
+                    )
             decision = fail_job(
                 session,
                 token,
@@ -854,6 +876,27 @@ def _is_douyin_rate_limit_error(error_summary: str | None) -> bool:
 
 
 _RETRY_AFTER_SECONDS_RE = re.compile(r"retry_after_seconds=(\d+)", re.IGNORECASE)
+
+
+def _is_priority_budget_pause(
+    session: Session,
+    *,
+    job_id: str,
+    exit_code: int | None,
+    termination_reason: ChildTerminationReason | None,
+    error_summary: str | None,
+) -> bool:
+    """Recognize an intentional budget yield only for priority-daily jobs."""
+
+    if exit_code in (None, 0) or termination_reason is not ChildTerminationReason.PROCESS_EXIT:
+        return False
+    if PRIORITY_BUDGET_PAUSE_MARKER not in (error_summary or ""):
+        return False
+    retry_after_match = _RETRY_AFTER_SECONDS_RE.search(error_summary or "")
+    if retry_after_match is None or int(retry_after_match.group(1)) <= 0:
+        return False
+    job = session.get(JobRun, job_id)
+    return bool(job is not None and job.config_version == PRIORITY_DAILY_CONFIG_VERSION)
 
 
 def _quota_retry_after_seconds(error_summary: str | None) -> int | None:

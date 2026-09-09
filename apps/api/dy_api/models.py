@@ -3483,8 +3483,12 @@ class JobRun(Base):
         CheckConstraint(
             "(attempt_count IS NULL OR attempt_count >= 0) AND "
             "(max_attempts IS NULL OR max_attempts BETWEEN 1 AND 3) AND "
+            "(quota_pause_count IS NULL OR quota_pause_count >= 0) AND "
             "(attempt_count IS NULL OR max_attempts IS NULL "
-            "OR attempt_count <= max_attempts)",
+            "OR quota_pause_count IS NULL "
+            "OR attempt_count <= max_attempts + quota_pause_count) AND "
+            "(quota_pause_count IS NULL OR attempt_count IS NULL "
+            "OR quota_pause_count <= attempt_count)",
             name="ck_job_runs_attempt_bounds",
         ),
         Index(
@@ -3593,6 +3597,11 @@ class JobRun(Base):
     current_stage: Mapped[str | None] = mapped_column(String(32))
     attempt_count: Mapped[int | None] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int | None] = mapped_column(Integer, default=3)
+    quota_pause_count: Mapped[int] = mapped_column(
+        Integer,
+        default=0,
+        server_default="0",
+    )
     lease_owner: Mapped[str | None] = mapped_column(Text)
     lease_epoch: Mapped[int | None] = mapped_column(Integer, default=0)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
