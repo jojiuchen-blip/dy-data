@@ -650,6 +650,40 @@ class DashboardDataStore:
             {"source_month": month},
         )
 
+    def finance_monthly_projection_sql(self, months: list[str]) -> tuple[str, dict[str, Any]]:
+        """Expose only published monthly partitions, pinned once for this request."""
+        if len(months) > MAX_PARTITION_KEYS:
+            raise LineageError("finance partition input exceeds maximum")
+        parts: list[str] = []
+        parameters: dict[str, Any] = {}
+        for index, month in enumerate(months):
+            if self._pinned_aggregate_generation() is None:
+                continue
+            table, condition, params = self._monthly_source_spec(month=month)
+            if table is None:
+                continue
+            product_condition = self._reporting_projection_product_condition(
+                params, product_scope="all", product_type="all", prefix="finance_product",
+            )
+            sql = (
+                "SELECT source.month, source.store_id, "
+                "SUM(source.promotion_net_fee_cent) AS promotion_net_fee_cent, "
+                "SUM(source.management_net_fee_cent) AS management_net_fee_cent "
+                f"FROM {table} WHERE {condition} AND {product_condition} "
+                "GROUP BY source.month, source.store_id"
+            )
+            for key, value in params.items():
+                renamed = f"finance_{index}_{key}"
+                sql = re.sub(r":" + re.escape(key) + r"\b", ":" + renamed, sql)
+                parameters[renamed] = value
+            parts.append(sql)
+        return (
+            " UNION ALL ".join(parts) if parts else
+            "SELECT NULL AS month, NULL AS store_id, 0 AS promotion_net_fee_cent, "
+            "0 AS management_net_fee_cent WHERE 1 = 0",
+            parameters,
+        )
+
     def _ranking_source_rows(
         self,
         *,
@@ -2861,15 +2895,15 @@ class DashboardDataStore:
                   ON c.fee_result_id = r.fee_result_id
                 LEFT JOIN settlement_statement_entry e
                   ON e.original_fee_result_id = r.fee_result_id
-                WHERE (:statement_line_id IS NULL OR e.statement_line_id = :statement_line_id)
-                  AND (:statement_line_id IS NOT NULL OR c.fee_result_id = r.fee_result_id)
+                WHERE (CAST(:statement_line_id AS TEXT) IS NULL OR e.statement_line_id = :statement_line_id)
+                  AND (CAST(:statement_line_id AS TEXT) IS NOT NULL OR c.fee_result_id = r.fee_result_id)
                   AND r.fee_direction = :fee_direction
                   AND r.product_scope = :product_scope
                   AND r.product_type = :product_type
                   AND ((r.fee_direction = 1 AND r.sale_store_id = :store_id)
                     OR (r.fee_direction = 2 AND r.verify_store_id = :store_id))
                   AND (
-                      :statement_line_id IS NOT NULL
+                      CAST(:statement_line_id AS TEXT) IS NOT NULL
                       OR r.original_business_month = :month
                       OR EXISTS (
                           SELECT 1

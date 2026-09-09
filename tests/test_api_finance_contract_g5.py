@@ -170,6 +170,30 @@ def _seed_promotion_invoice(
     return invoice
 
 
+@pytest.mark.parametrize("tombstoned", [False, True])
+def test_computed_promotion_list_keeps_one_row_and_respects_scope(
+    client: TestClient, db_session: Session, tombstoned: bool,
+) -> None:
+    statement = _seed_store_and_statement(db_session)
+    invoice = _seed_promotion_invoice(db_session, statement=statement)
+    invoice.is_tombstone = tombstoned
+    _seed_store_and_statement(db_session, store_id="hidden-store", statement_id="hidden-statement")
+    db_session.commit()
+    _act_as_restricted_finance_admin(client, store_ids=(statement.store_id,))
+    params = {"month": "2026-08", "feeDirection": "PROMOTION", "metricScope": "MONTH"}
+    listed = client.get("/api/v1/admin/finance/invoices", params=params)
+    assert listed.status_code == 200
+    assert listed.json()["data"]["total"] == 1
+    row = listed.json()["data"]["list"][0]
+    assert row["invoiceId"] == (None if tombstoned else invoice.invoice_id)
+    assert row["processingStatus"] == ("PENDING_CONFIRMATION" if tombstoned else "SUBMITTED")
+    summary = client.get("/api/v1/admin/finance/summary", params=params)
+    assert summary.json()["data"]["metrics"]["statementTotalCent"] == 1000
+    exported = client.get("/api/v1/admin/finance/invoices/export", params=params)
+    assert "hidden-statement" not in exported.text
+    assert "processing_status" in exported.text
+
+
 def _seed_management_order_case(
     db_session: Session,
     *,

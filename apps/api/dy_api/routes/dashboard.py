@@ -15,7 +15,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTT
 from fastapi.responses import Response, StreamingResponse
 from cryptography.fernet import Fernet, InvalidToken
 from openpyxl import load_workbook
-from sqlalchemy import and_, func, not_, or_, select, text, update
+from sqlalchemy import BigInteger, String, and_, func, not_, or_, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
@@ -3916,6 +3916,20 @@ def get_admin_finance_summary(
         scope_store_ids=scope_store_ids,
     )
 
+    projection = _finance_unbilled_projection_query(
+        store, month=month, metric_scope=normalized_scope, store_id=store_id,
+        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
+    )
+    projected = projection.order_by(None).subquery()
+    projection_total = session.scalar(select(func.coalesce(func.sum(
+        projected.c.promotion_net_fee_cent if direction == "PROMOTION"
+        else projected.c.management_net_fee_cent
+    ), 0))) or 0
+    metrics = _finance_summary_metrics(
+        session, month=month, fee_direction=direction, metric_scope=normalized_scope,
+        store_id=store_id, statement_ids=statement_ids,
+    )
+    metrics["statement_total_cent"] += int(projection_total)
     return _reporting_success(
         request,
         {
@@ -3923,14 +3937,7 @@ def get_admin_finance_summary(
             "store_id": store_id,
             "fee_direction": direction,
             "metric_scope": normalized_scope,
-            "metrics": _finance_summary_metrics(
-                session,
-                month=month,
-                fee_direction=direction,
-                metric_scope=normalized_scope,
-                store_id=store_id,
-                statement_ids=statement_ids,
-            ),
+            "metrics": metrics,
         },
     )
 
@@ -3968,51 +3975,23 @@ def list_admin_finance_invoices(
         invoice_status, request, fee_direction=direction
     )
 
+    projection = _finance_unbilled_projection_query(
+        store, month=month, metric_scope=normalized_scope, store_id=store_id,
+        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
+    )
+    projection_count = session.scalar(select(func.count()).select_from(projection.subquery())) or 0
+    offset = (page - 1) * page_size
+    projected_rows = session.execute(projection.offset(offset).limit(page_size)).all()
+    projection_items = [_finance_unbilled_projection_item(session, row, direction) for row in projected_rows]
+    formal_offset = max(0, offset - projection_count)
+    formal_limit = page_size - len(projection_items)
     if direction == "PROMOTION":
-        conditions = [
-            _finance_invoice_period_condition(
-                PromotionInvoiceAllocation.statement_month,
-                month=month,
-                metric_scope=normalized_scope,
-            ),
-            PromotionInvoiceAllocation.is_current.is_(True),
-            PromotionInvoice.is_current.is_(True),
-            PromotionInvoice.is_tombstone.is_(False),
-            SettlementStatement.is_current.is_(True),
-        ]
-        if store_id is not None:
-            conditions.append(PromotionInvoiceAllocation.store_id == store_id)
-        if scope_store_ids is not None:
-            conditions.append(
-                PromotionInvoiceAllocation.store_id.in_(scope_store_ids)
-            )
-        if status_code is not None:
-            conditions.append(PromotionInvoice.invoice_status == status_code)
-        if q and q.strip():
-            conditions.append(
-                _finance_invoice_search_condition(
-                    q.strip(), PromotionInvoice.invoice_number
-                )
-            )
-        query = (
-            select(
-                PromotionInvoice,
-                PromotionInvoiceAllocation,
-                SettlementStatement,
-            )
-            .join(
-                PromotionInvoiceAllocation,
-                PromotionInvoiceAllocation.invoice_id == PromotionInvoice.invoice_id,
-            )
-            .join(
-                SettlementStatement,
-                SettlementStatement.statement_id == PromotionInvoiceAllocation.statement_id,
-            )
-            .where(*conditions)
-            .order_by(PromotionInvoice.registered_at.desc(), PromotionInvoice.invoice_id)
+        query = _promotion_finance_collection_query(
+            month=month, metric_scope=normalized_scope, store_id=store_id,
+            q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
         )
         total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
-        rows = session.execute(query.offset((page - 1) * page_size).limit(page_size)).all()
+        rows = session.execute(query.offset(formal_offset).limit(formal_limit)).all()
         items = [
             _admin_promotion_invoice_item(
                 session, invoice, allocation, statement
@@ -4031,7 +4010,7 @@ def list_admin_finance_invoices(
         )
         total = session.scalar(select(func.count()).select_from(query.subquery())) or 0
         rows = session.execute(
-            query.offset((page - 1) * page_size).limit(page_size)
+            query.offset(formal_offset).limit(formal_limit)
         ).all()
         items = [
             _admin_management_invoice_item(session, invoice, statement)
@@ -4040,7 +4019,7 @@ def list_admin_finance_invoices(
 
     return _reporting_success(
         request,
-        {"list": items, "total": total, "page": page, "page_size": page_size},
+        {"list": projection_items + items, "total": projection_count + total, "page": page, "page_size": page_size},
     )
 
 
@@ -4077,54 +4056,11 @@ def export_admin_finance_invoices(
         invoice_status, request, fee_direction=direction
     )
     if direction == "PROMOTION":
-        conditions = [
-            _finance_invoice_period_condition(
-                PromotionInvoiceAllocation.statement_month,
-                month=month,
-                metric_scope=normalized_scope,
-            ),
-            PromotionInvoiceAllocation.is_current.is_(True),
-            PromotionInvoice.is_current.is_(True),
-            PromotionInvoice.is_tombstone.is_(False),
-            SettlementStatement.is_current.is_(True),
-        ]
-        if store_id is not None:
-            conditions.append(PromotionInvoiceAllocation.store_id == store_id)
-        if scope_store_ids is not None:
-            conditions.append(
-                PromotionInvoiceAllocation.store_id.in_(scope_store_ids)
-            )
-        if status_code is not None:
-            conditions.append(PromotionInvoice.invoice_status == status_code)
-        if q and q.strip():
-            conditions.append(
-                _finance_invoice_search_condition(
-                    q.strip(), PromotionInvoice.invoice_number
-                )
-            )
-        rows = session.execute(
-            select(
-                PromotionInvoice,
-                PromotionInvoiceAllocation,
-                SettlementStatement,
-            )
-            .join(
-                PromotionInvoiceAllocation,
-                PromotionInvoiceAllocation.invoice_id
-                == PromotionInvoice.invoice_id,
-            )
-            .join(
-                SettlementStatement,
-                SettlementStatement.statement_id
-                == PromotionInvoiceAllocation.statement_id,
-            )
-            .where(*conditions)
-            .order_by(
-                PromotionInvoice.registered_at.desc(),
-                PromotionInvoice.invoice_id,
-            )
-            .limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)
-        ).all()
+        query = _promotion_finance_collection_query(
+            month=month, metric_scope=normalized_scope, store_id=store_id,
+            q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
+        )
+        rows = session.execute(query.limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)).all()
         items = [
             _admin_promotion_invoice_item(
                 session, invoice, allocation, statement
@@ -4147,6 +4083,12 @@ def export_admin_finance_invoices(
             _admin_management_invoice_item(session, invoice, statement)
             for invoice, statement in rows
         ]
+    projection = _finance_unbilled_projection_query(
+        store, month=month, metric_scope=normalized_scope, store_id=store_id,
+        q=q, invoice_status=status_code, scope_store_ids=scope_store_ids,
+    )
+    projected_rows = session.execute(projection.limit(MAX_FINANCE_ORDER_EXPORT_ROWS + 1)).all()
+    items = [_finance_unbilled_projection_item(session, row, direction) for row in projected_rows] + items
     if len(items) > MAX_FINANCE_ORDER_EXPORT_ROWS:
         _raise_reporting_error(
             request,
@@ -4175,6 +4117,7 @@ def export_admin_finance_invoices(
             "registered_at",
             "factory_deduction_date",
             "factory_deduction_amount_cent",
+            "processing_status",
         ],
         rows=items,
     )
@@ -8008,6 +7951,63 @@ def _commit_management_import_row(
     row.target_record_id = next_invoice_id
 
 
+def _finance_unbilled_projection_query(store, *, month, metric_scope, store_id, q,
+                                      invoice_status, scope_store_ids):
+    """Read computed results without inventing a locked statement or invoice."""
+    start = FORMAL_PERIOD_START_MONTH if metric_scope == "CUMULATIVE" else max(month, FORMAL_PERIOD_START_MONTH)
+    start_year, start_month = map(int, start.split("-"))
+    end_year, end_month = map(int, month.split("-"))
+    months = [
+        f"{index // 12:04d}-{index % 12 + 1:02d}"
+        for index in range(start_year * 12 + start_month - 1, end_year * 12 + end_month)
+    ]
+    sql, params = store.finance_monthly_projection_sql(months)
+    source = text(sql).bindparams(**params).columns(
+        month=String, store_id=String, promotion_net_fee_cent=BigInteger,
+        management_net_fee_cent=BigInteger,
+    ).subquery("unbilled_projection")
+    conditions = [not_(select(SettlementStatement.id).where(
+        SettlementStatement.store_id == source.c.store_id,
+        SettlementStatement.statement_month == source.c.month,
+        SettlementStatement.is_current.is_(True),
+    ).exists())]
+    if invoice_status is not None:
+        conditions.append(False)
+    if store_id is not None:
+        conditions.append(source.c.store_id == store_id)
+    if scope_store_ids is not None:
+        conditions.append(source.c.store_id.in_(scope_store_ids))
+    if (q or "").strip():
+        term = q.strip().lower()
+        profiles = select(StoreFinanceProfile.store_id).where(
+            StoreFinanceProfile.is_current.is_(True),
+            StoreFinanceProfile.is_tombstone.is_(False),
+            func.lower(func.coalesce(StoreFinanceProfile.sap_code, "")).contains(term),
+        )
+        conditions.append(or_(
+            func.lower(source.c.store_id).contains(term),
+            func.lower(DimStore.store_name).contains(term),
+            source.c.store_id.in_(profiles),
+        ))
+    return select(source, DimStore.store_name).select_from(source).outerjoin(
+        DimStore, DimStore.store_id == source.c.store_id,
+    ).where(*conditions).order_by(source.c.month.desc(), source.c.store_id)
+
+
+def _finance_unbilled_projection_item(session, row, direction):
+    return {
+        "invoice_id": None, "statement_id": None, "store_id": row.store_id,
+        "store_name": row.store_name or row.store_id, "statement_month": row.month,
+        "fee_direction": direction, "processing_status": "PENDING_STATEMENT",
+        "status": "PENDING_INVOICE", "invoice_number": None, "invoice_date": None,
+        "invoice_amount_cent": None, "confirmed_amount_cent": None,
+        "registered_at": None, "settlement_batch_month": None,
+        "effective_sap_code": _finance_sap_state(session, row.store_id)["effective_sap_code"],
+        "statement_amount_cent": int(getattr(row, f"{direction.lower()}_net_fee_cent") or 0),
+        "rejection_reason": None,
+    }
+
+
 def _finance_invoice_period_condition(column, *, month: str, metric_scope: str):
     if metric_scope == "CUMULATIVE":
         return and_(column >= FORMAL_PERIOD_START_MONTH, column <= month)
@@ -8047,6 +8047,45 @@ def _finance_invoice_search_condition(q: str, invoice_number_column):
     )
 
 
+def _promotion_finance_collection_query(
+    *, month: str, metric_scope: str, store_id: str | None,
+    q: str | None, invoice_status: int | None,
+    scope_store_ids: tuple[str, ...] | None = None,
+):
+    """Include computed statements without manufacturing invoice facts."""
+    valid_invoices = select(PromotionInvoice.invoice_id).where(
+        PromotionInvoice.is_current.is_(True),
+        PromotionInvoice.is_tombstone.is_(False),
+    ).correlate(None)
+    conditions = _finance_statement_conditions(
+        month=month, metric_scope=metric_scope, store_id=store_id,
+    )
+    if scope_store_ids is not None:
+        conditions.append(SettlementStatement.store_id.in_(scope_store_ids))
+    if invoice_status == 1:
+        conditions.append(or_(
+            PromotionInvoice.invoice_id.is_(None),
+            PromotionInvoice.invoice_status.in_((1, 4)),
+        ))
+    elif invoice_status is not None:
+        conditions.append(PromotionInvoice.invoice_status == invoice_status)
+    if q and q.strip():
+        conditions.append(_finance_invoice_search_condition(q.strip(), PromotionInvoice.invoice_number))
+    return (
+        select(PromotionInvoice, PromotionInvoiceAllocation, SettlementStatement)
+        .select_from(SettlementStatement)
+        .outerjoin(PromotionInvoiceAllocation, and_(
+            PromotionInvoiceAllocation.statement_id == SettlementStatement.statement_id,
+            PromotionInvoiceAllocation.is_current.is_(True),
+            PromotionInvoiceAllocation.invoice_id.in_(valid_invoices),
+        ))
+        .outerjoin(PromotionInvoice, PromotionInvoice.invoice_id == PromotionInvoiceAllocation.invoice_id)
+        .where(*conditions)
+        .order_by(SettlementStatement.statement_month.desc(), SettlementStatement.statement_id,
+                  PromotionInvoice.invoice_id)
+    )
+
+
 def _management_invoice_collection_query(
     *,
     month: str,
@@ -8057,13 +8096,7 @@ def _management_invoice_collection_query(
     include_history: bool,
     scope_store_ids: tuple[str, ...] | None = None,
 ):
-    """Select confirmed management statements with an optional invoice fact.
-
-    The frozen management contract is statement-based: a confirmed statement
-    remains visible while it is waiting for the finance invoice import.  Keep
-    invoice predicates in the LEFT JOIN so the absence of an InvoiceRecord is
-    represented as PENDING_INVOICE instead of dropping the statement.
-    """
+    """Select computed management statements, with optional confirmation/invoice."""
 
     invoice_join = [
         InvoiceRecord.statement_id == SettlementStatement.statement_id,
@@ -8079,9 +8112,6 @@ def _management_invoice_collection_query(
             month=month,
             metric_scope=metric_scope,
         ),
-        SettlementStatementConfirmation.fee_direction
-        == CONFIRMATION_DIRECTION_TO_DB["MANAGEMENT"],
-        SettlementStatementConfirmation.confirmation_status == 1,
     ]
     if store_id is not None:
         conditions.append(SettlementStatement.store_id == store_id)
@@ -8089,6 +8119,8 @@ def _management_invoice_collection_query(
         conditions.append(SettlementStatement.store_id.in_(scope_store_ids))
     if invoice_status == 1:
         conditions.append(InvoiceRecord.invoice_id.is_(None))
+        # An unconfirmed statement is visible in All, but is not invoice-ready.
+        conditions.append(SettlementStatementConfirmation.confirmation_status == 1)
     elif invoice_status is not None:
         conditions.append(InvoiceRecord.invoice_id.is_not(None))
     normalized_q = (q or "").strip()
@@ -8100,10 +8132,14 @@ def _management_invoice_collection_query(
         )
     return (
         select(InvoiceRecord, SettlementStatement)
-        .join(
+        .select_from(SettlementStatement)
+        .outerjoin(
             SettlementStatementConfirmation,
-            SettlementStatementConfirmation.statement_id
-            == SettlementStatement.statement_id,
+            and_(
+                SettlementStatementConfirmation.statement_id == SettlementStatement.statement_id,
+                SettlementStatementConfirmation.fee_direction == 2,
+                SettlementStatementConfirmation.confirmation_status == 1,
+            ),
         )
         .outerjoin(InvoiceRecord, and_(*invoice_join))
         .where(*conditions)
@@ -8129,96 +8165,25 @@ def _finance_summary_filtered_statement_ids(
     invoice_status: int | None,
     scope_store_ids: tuple[str, ...] | None = None,
 ) -> set[str] | None:
-    """Resolve summary scope from the exact invoice search/status contract."""
-
-    normalized_q = (q or "").strip()
-    if (
-        fee_direction == "PROMOTION"
-        and not normalized_q
-        and invoice_status is None
-        and scope_store_ids is None
-    ):
+    """Use the same current-statement filters as the finance list and export."""
+    # Keep carry-forward calculation aware of prior periods when no row filter
+    # is requested. The metrics function applies the requested display month.
+    if not (q or "").strip() and invoice_status is None and scope_store_ids is None:
         return None
-    conditions = [
-        SettlementStatement.is_current.is_(True),
-        _finance_invoice_period_condition(
-            SettlementStatement.statement_month,
-            month=month,
-            metric_scope=metric_scope,
-        ),
-    ]
-    if store_id is not None:
-        conditions.append(SettlementStatement.store_id == store_id)
-    if scope_store_ids is not None:
-        conditions.append(SettlementStatement.store_id.in_(scope_store_ids))
     if fee_direction == "PROMOTION":
-        query = (
-            select(SettlementStatement.statement_id)
-            .outerjoin(
-                PromotionInvoiceAllocation,
-                and_(
-                    PromotionInvoiceAllocation.statement_id
-                    == SettlementStatement.statement_id,
-                    PromotionInvoiceAllocation.is_current.is_(True),
-                ),
-            )
-            .outerjoin(
-                PromotionInvoice,
-                and_(
-                    PromotionInvoice.invoice_id
-                    == PromotionInvoiceAllocation.invoice_id,
-                    PromotionInvoice.is_current.is_(True),
-                    PromotionInvoice.is_tombstone.is_(False),
-                ),
-            )
+        query = _promotion_finance_collection_query(
+            month=month, metric_scope=metric_scope, store_id=store_id,
+            q=q, invoice_status=invoice_status, scope_store_ids=scope_store_ids,
         )
-        if normalized_q:
-            conditions.append(
-                _finance_invoice_search_condition(
-                    normalized_q, PromotionInvoice.invoice_number
-                )
-            )
-        if invoice_status == 1:
-            conditions.append(
-                (PromotionInvoice.invoice_id.is_(None))
-                | (PromotionInvoice.invoice_status == 4)
-            )
-        elif invoice_status is not None:
-            conditions.append(PromotionInvoice.invoice_status == invoice_status)
     else:
-        query = (
-            select(SettlementStatement.statement_id)
-            .join(
-                SettlementStatementConfirmation,
-                and_(
-                    SettlementStatementConfirmation.statement_id
-                    == SettlementStatement.statement_id,
-                    SettlementStatementConfirmation.fee_direction == 2,
-                    SettlementStatementConfirmation.confirmation_status == 1,
-                ),
-            )
-            .outerjoin(
-                InvoiceRecord,
-                and_(
-                    InvoiceRecord.statement_id
-                    == SettlementStatement.statement_id,
-                    InvoiceRecord.fee_direction == 2,
-                    InvoiceRecord.is_current.is_(True),
-                    InvoiceRecord.is_tombstone.is_(False),
-                ),
-            )
+        query = _management_invoice_collection_query(
+            month=month, metric_scope=metric_scope, store_id=store_id,
+            q=q, invoice_status=invoice_status, include_history=False,
+            scope_store_ids=scope_store_ids,
         )
-        if normalized_q:
-            conditions.append(
-                _finance_invoice_search_condition(
-                    normalized_q, InvoiceRecord.invoice_number
-                )
-            )
-        if invoice_status == 1:
-            conditions.append(InvoiceRecord.invoice_id.is_(None))
-        elif invoice_status is not None:
-            conditions.append(InvoiceRecord.invoice_id.is_not(None))
-    return set(session.scalars(query.where(*conditions).distinct()))
+    return set(session.scalars(
+        query.with_only_columns(SettlementStatement.statement_id).order_by(None).distinct()
+    ))
 
 
 def _finance_statement_conditions(
@@ -8586,12 +8551,24 @@ def _finance_summary_metrics(
             direction_code=direction_code,
         )
     )
+    # Row filters select displayed statements, not the prior-period inputs
+    # needed to calculate their balance. Keep history within selected stores.
+    carry_store_ids = None if statement_ids is None else tuple(session.scalars(
+        select(SettlementStatement.store_id)
+        .where(SettlementStatement.statement_id.in_(statement_ids))
+        .distinct()
+    ))
     if fee_direction == "PROMOTION":
         _, promotion_groups = _promotion_invoice_carryforward_projection(
             session,
             store_id=store_id,
-            statement_ids=statement_ids,
+            store_ids=carry_store_ids,
         )
+        if statement_ids is not None:
+            promotion_groups = [
+                group for group in promotion_groups
+                if statement_ids.intersection(group["required_statement_ids"])
+            ]
         if metric_scope == "MONTH":
             pending_invoice_amount = sum(
                 group["invoiceable_amount_cent"]
@@ -8656,9 +8633,14 @@ def _finance_summary_metrics(
         management_periods, _ = _management_invoiceable_projection(
             session,
             store_id=store_id,
+            store_ids=carry_store_ids,
             through_month=month,
-            statement_ids=statement_ids,
         )
+        if statement_ids is not None:
+            management_periods = [
+                period for period in management_periods
+                if period["statement_id"] in statement_ids
+            ]
         if metric_scope == "MONTH":
             pending_invoice_amount = sum(
                 period["invoiceable_amount_cent"]
@@ -10368,23 +10350,36 @@ def _statement_confirmation(
 
 def _admin_promotion_invoice_item(
     session,
-    invoice: PromotionInvoice,
-    allocation: PromotionInvoiceAllocation,
+    invoice: PromotionInvoice | None,
+    allocation: PromotionInvoiceAllocation | None,
     statement: SettlementStatement,
 ) -> dict:
     confirmation = _statement_confirmation(session, statement.statement_id, 1)
     sap_state = _finance_sap_state(session, statement.store_id)
+    confirmed = confirmation is not None and confirmation.confirmation_status == 1
+    invoice_item = _promotion_invoice_item(invoice, allocation) if invoice is not None else {
+        "invoice_id": None, "store_id": statement.store_id,
+        "statement_id": statement.statement_id, "statement_month": statement.statement_month,
+        "fee_direction": "PROMOTION", "version_no": None, "is_current": None,
+        "invoice_number": None, "invoice_date": None, "invoice_amount_cent": None,
+        "status": "PENDING_INVOICE", "registered_at": None,
+        "settlement_batch_month": None, "allocated_amount_cent": 0,
+    }
     return {
-        **_promotion_invoice_item(invoice, allocation),
+        **invoice_item,
+        "processing_status": (
+            "SUBMITTED" if invoice is not None else
+            "PENDING_SUBMISSION" if confirmed else "PENDING_CONFIRMATION"
+        ),
         "store_name": statement.store_name_snapshot,
         "effective_sap_code": sap_state["effective_sap_code"],
         "statement_amount_cent": statement.promotion_net_fee_cent,
         "confirmed_amount_cent": (
-            confirmation.confirmed_amount_cent if confirmation is not None else None
+            confirmation.confirmed_amount_cent if confirmed else None
         ),
         "rejection_reason": _latest_invoice_rejection_reason(
             session, invoice.invoice_id
-        ),
+        ) if invoice is not None else None,
     }
 
 
@@ -10395,6 +10390,7 @@ def _admin_management_invoice_item(
 ) -> dict:
     confirmation = _statement_confirmation(session, statement.statement_id, 2)
     sap_state = _finance_sap_state(session, statement.store_id)
+    confirmed = confirmation is not None and confirmation.confirmation_status == 1
     invoice_item = (
         {**_management_invoice_item(invoice), "status": "APPROVED_SETTLED"}
         if invoice is not None
@@ -10420,11 +10416,15 @@ def _admin_management_invoice_item(
     )
     return {
         **invoice_item,
+        "processing_status": (
+            "SUBMITTED" if invoice is not None else
+            "PENDING_SUBMISSION" if confirmed else "PENDING_CONFIRMATION"
+        ),
         "store_name": statement.store_name_snapshot,
         "effective_sap_code": sap_state["effective_sap_code"],
         "statement_amount_cent": statement.management_net_fee_cent,
         "confirmed_amount_cent": (
-            confirmation.confirmed_amount_cent if confirmation is not None else None
+            confirmation.confirmed_amount_cent if confirmed else None
         ),
     }
 

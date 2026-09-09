@@ -2549,6 +2549,39 @@ def test_r13_a09_score_fact_db_failure_is_typed_and_fail_closed(db_session) -> N
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("tombstone", [False, True])
+def test_finance_projection_uses_active_partition_not_stale_legacy(db_session, tombstone):
+    from apps.api.dy_api.routes.dashboard import _finance_unbilled_projection_query
+
+    db_session.add(DimStore(store_id="finance-overlay-store", store_name="Finance Overlay"))
+    db_session.add(AggStoreMonthlySettlement(
+        month="2026-08", store_id="finance-overlay-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=999, management_net_fee_cent=999, projection_run_id="legacy",
+    ))
+    _generation(db_session, "finance-overlay")
+    _manifest(db_session, "finance-overlay", "monthly", "2026-08",
+              owner_state="tombstone" if tombstone else "owned",
+              source_kind="tombstone" if tombstone else "overlay",
+              data_generation_id=None if tombstone else "finance-overlay")
+    if not tombstone:
+        db_session.add(SettlementMonthlyOverlay(
+            generation_id="finance-overlay", partition_key="2026-08", month="2026-08",
+            store_id="finance-overlay-store", product_scope="all", product_type="all",
+            promotion_net_fee_cent=90, management_net_fee_cent=30, projection_run_id="finance-overlay",
+        ))
+    _activate_generation(db_session, "finance-overlay")
+    db_session.flush()
+    store = DashboardDataStore(db_session)
+    kwargs = dict(month="2026-08", metric_scope="MONTH", store_id=None, q=None,
+                  invoice_status=None, scope_store_ids=None)
+    rows = db_session.execute(_finance_unbilled_projection_query(store, **kwargs)).all()
+    assert len(rows) == (0 if tombstone else 1)
+    if rows:
+        assert rows[0].promotion_net_fee_cent == 90
+    kwargs["scope_store_ids"] = ["another-store"]
+    assert db_session.execute(_finance_unbilled_projection_query(store, **kwargs)).all() == []
+
+
 def _activate_generation(db_session, generation_id: str) -> None:
     db_session.execute(
         text(
