@@ -162,12 +162,22 @@ def test_governance_authority_files_define_distinct_roles() -> None:
     assert "docs/design-system.md" not in project_profile
 
 
-def test_current_formal_delivery_plan_selector_accepts_authority_marker() -> None:
+def test_current_formal_delivery_plan_selector_accepts_authority_marker(tmp_path: Path) -> None:
+    plans = tmp_path / "docs" / "plans"
+    delivery_plans = plans / "delivery-plans"
+    delivery_plans.mkdir(parents=True)
+    selected = "main-delivery-plan-authority-fixture.md"
+    (delivery_plans / selected).write_text("# Selected plan\n", encoding="utf-8")
+    (delivery_plans / "main-delivery-plan-other.md").write_text("# Other plan\n", encoding="utf-8")
+    (plans / "execution-plan.md").write_text(
+        f"- 当前正式计划文件组：[Current](delivery-plans/{selected})\n",
+        encoding="utf-8",
+    )
     result = subprocess.run(
         [
             "node",
             str(REPO_ROOT / "scripts" / "prepare_governance_plan.mjs"),
-            str(REPO_ROOT),
+            str(tmp_path),
         ],
         cwd=REPO_ROOT,
         check=False,
@@ -177,7 +187,7 @@ def test_current_formal_delivery_plan_selector_accepts_authority_marker() -> Non
     )
 
     assert result.returncode == 0, result.stderr or result.stdout
-    assert "main-delivery-plan-dydata-clue-platform-completion.md" in result.stdout
+    assert selected in result.stdout
 
 
 def test_host_rules_match_the_real_stack_and_configured_devlog() -> None:

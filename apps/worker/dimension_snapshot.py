@@ -10,9 +10,9 @@ from apps.api.dy_api.models import JobRun, JobStageRun
 
 
 def reusable_dimension_snapshot(session: Session, job: Any, *, now: datetime | None = None) -> dict | None:
-    metadata = job.metadata_json or {}
+    metadata = getattr(job, "metadata_json", None) or {}
     if (
-        job.config_version != "priority-daily-v1"
+        getattr(job, "config_version", None) != "priority-daily-v1"
         or metadata.get("target") != "all"
         or metadata.get("priority_purpose") != "history"
     ):

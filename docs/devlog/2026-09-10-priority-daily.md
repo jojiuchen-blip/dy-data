@@ -30,17 +30,28 @@
 - 任务控制、预算暂停、旧调度兼容与迁移组合：171 passed。
 - 分页采集、发布范围、维度快照及 daily orchestrator 集成：73 passed。
 - 调度器、旧 scheduler 及每请求预算：18 passed；最后收口回归及真实 PostgreSQL 另记。
+- 最终候选88e5cd37：新功能组合38 passed；修正00–02维度刷新、失败分域隔离和历史额度重复预留。调度层不再用退款余额阻断全部接口，单候选推进由每请求governor统一控制。
 - 完整集成、0053升级、CI、上线新模式及最终生产任务状态：待补证。
+
+## 发布进行中证据
+
+- 候选：88e5cd376def6c02cb034157894e1ccfd2541228。
+- 第一轮CI：https://github.com/jojiuchen-blip/dy-data/actions/runs/34382647627 。真实PostgreSQL迁移门禁及额度暂停3项实测通过；全量结果3 failed、2720 passed、155 skipped，部署被阻断。
+- 三项失败已修复：dimension_snapshot对无config_version旧适配对象按legacy处理；治理计划选择测试改为独立authority fixture，去除旧计划名硬编码。修复后治理、父任务兼容、资料快照组合73 passed、64 skipped（其余PostgreSQL专项本地无服务）。将重新运行完整流水线，不绕过发布门禁。
+- 配置备份：`/opt/dy-dashboard/logs/backups/pre-priority-mode-20260909T173047Z.env`；已保存api/worker/web/browser/ops-agent的`rollback-priority-20260910`镜像标签。
+- production.env已写入新模式，当前旧进程仍运行8a753e9f，不能把配置文件写入当作模式生效证据。
+- 01:36上海时间核销仍在settle，心跳更新；collect/materialize已成功。当前worker此前采样CPU79%、内存204MB，属于持续计算，尚不能宣称核销结算完成。
 
 ## 启用与回退操作
 
 - 生产配置使用 `WORKER_SCHEDULER_MODE=priority_daily`、`WORKER_HISTORY_DAILY_RESERVE=10`。API和worker必须重建，确保页面与真实调度模式一致。旧 `auto_sync_enabled=false` 不再阻止新模式；不可用旧开关当作新模式停止按钮。
-- 切换前等待正在运行的旧采集子任务结束，备份生产env、数据库和当前容器镜像；通过部署工作流的真实PostgreSQL、全量测试、构建和健康检查门禁。
+- 切换前优先等待旧子任务完成，备份生产env、数据库和当前容器镜像；通过部署工作流的真实PostgreSQL、全量测试、构建和健康检查门禁。若结算仍在运行，停止整个旧worker并等待其租约失效；已成功collect/materialize会复用，settle的已提交64券批次保留、中断批次回滚，未完成阶段会从impact起点幂等重放。
 - 用 `ensure_daily_priority_plan` 为上海2026-09-09建立同一config的all计划。四个手工分域任务未完成时，all业务处理与finalize必须等待；最终发布范围继承分域settle的月份和门店证据。
 - 发布验收读取实际worker模式、数据库迁移0053、9月9日任务租约/分页断点/阶段状态和range发布状态。不把采集行数当成已发布证明。
 - 回退时先停止worker领取，保留页级断点与0053额度暂停历史；恢复部署前镜像和env后，在旧自动同步关闭且旧daily drain关闭的状态核查。若已产生quota_pause_count，禁止降级数据库迁移来丢弃暂停计数。
 - 线索单窗口达到10,000条会明确失败，当前版本不自动拆子窗口；需按时间窗口进一步拆分后补齐，不得标为完整。
 - T0.2上线不代表DYDATA-90全部验收完成；72小时运行、状态回补覆盖和接口授权口径仍需单独留证。
+- 核销结算存在关系扩展及跨impact page重复coupon处理的计算放大，需后续记录唯一/重复coupon、批次数和耗时。本次只核查重启安全，不夹带未验证性能优化；重启可恢复数据，但未完成settle会重复部分计算。
 
 ## Foundation判断
 
