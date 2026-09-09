@@ -86,6 +86,14 @@ jobs:
 
       - name: Install Playwright browser
         run: |
+          # Playwright downloads its own Chromium; the runner's unrelated
+          # Chrome apt feed can block dependency installation during CDN sync.
+          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            if grep -q 'dl.google.com/linux/chrome' "$source"; then
+              sudo mv -- "$source" "${source}.disabled"
+            fi
+          done
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             printf '%s\n' \
               'https://archive.ubuntu.com/ubuntu' \

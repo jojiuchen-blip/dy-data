@@ -38,6 +38,7 @@
 - 候选：88e5cd376def6c02cb034157894e1ccfd2541228。
 - 第一轮CI：https://github.com/jojiuchen-blip/dy-data/actions/runs/34382647627 。真实PostgreSQL迁移门禁及额度暂停3项实测通过；全量结果3 failed、2720 passed、155 skipped，部署被阻断。
 - 三项失败已修复：dimension_snapshot对无config_version旧适配对象按legacy处理；治理计划选择测试改为独立authority fixture，去除旧计划名硬编码。修复后治理、父任务兼容、资料快照组合73 passed、64 skipped（其余PostgreSQL专项本地无服务）。将重新运行完整流水线，不绕过发布门禁。
+- 第二轮CI（34385048190）两次在安装浏览器依赖前因Google Chrome apt索引Hash Sum mismatch失败。CI使用Playwright自带Chromium，故仅在临时runner停用该无关apt源，保留Ubuntu依赖源及所有包完整性校验；生产镜像、机器软件源均未修改。
 - 配置备份：`/opt/dy-dashboard/logs/backups/pre-priority-mode-20260909T173047Z.env`；已保存api/worker/web/browser/ops-agent的`rollback-priority-20260910`镜像标签。
 - production.env已写入新模式，当前旧进程仍运行8a753e9f，不能把配置文件写入当作模式生效证据。
 - 01:36上海时间核销仍在settle，心跳更新；collect/materialize已成功。当前worker此前采样CPU79%、内存204MB，属于持续计算，尚不能宣称核销结算完成。
