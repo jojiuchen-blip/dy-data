@@ -108,3 +108,9 @@ DYDATA-88 修复后的运行约定：
 2. 破坏性字段或语义变化必须写入 Linear 验收标准并提供迁移方案。
 3. 新接口至少覆盖正常、非法输入、无认证、无权限和门店越权场景。
 4. 详细目标字段契约由 Foundation API 文档维护；本文保留当前运行入口与兼容约定。目标契约进入实现后，必须同步更新 route、Pydantic schema、前端类型、测试和本索引。
+
+## 昨日优先调度状态（DYDATA-90）
+
+`GET /api/v1/admin/sync` 在部署配置 `WORKER_SCHEDULER_MODE=priority_daily` 时，`worker_status.mode` 返回 `priority_daily`；`schedule.auto_sync_enabled` 和 `worker_status.auto_sync_enabled` 表示新模式已启用。`config.auto_sync_enabled` 仍保留旧滚动调度设置，不用于控制新模式。管理页将相关旧控件禁用并解释区别。
+
+`next_scheduled_sync_at` 是下次上海02:00日历触发点，不是当前任务预计完成时间。`latest_successful_sync_at` 和日窗完成覆盖以 `priority-daily-v1`、`target=all` 的已成功发布range任务为准，分域collect成功不计作已发布。状态栏纳入parent/date/finalize任务。历史范围仍由已有配置管理，新模式固定按完整日推进。

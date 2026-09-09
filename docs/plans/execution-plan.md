@@ -57,7 +57,7 @@
 
 - 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。
 - 当前 Linear issue：`DYDATA-81`，状态 `In Progress`；当前分支由本任务单一窗口负责，完成后等待 Owner 验收，不自行关闭。
-- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。
+- 当前正式计划文件组：[DYDATA-90 昨日优先主计划](delivery-plans/main-delivery-plan-dydata-90-priority.md)与[任务看板](delivery-plans/task-kanban-dydata-90-priority.md)。
 - 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
 - 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
 - 当前 Task：G4 已部署；G5 进行中。任一合同、数据正确性、正式 API、迁移、权限、CI、备份、部署或 smoke 门禁失败必须停止发布并记录证据。
@@ -112,7 +112,7 @@
 - 套包阶段：`S4 线索平台收口`。
 - 当前 Linear issue：`DYDATA-58`。
 - 当前需求序列：`DYDATA-56 -> DYDATA-8 -> DYDATA-14 -> DYDATA-15 -> DYDATA-34 -> DYDATA-58 基础能力 -> DYDATA-70 -> DYDATA-58 剩余能力与最终门禁`。
-- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。
+- 当前正式计划文件组：[DYDATA-90 昨日优先主计划](delivery-plans/main-delivery-plan-dydata-90-priority.md)与[任务看板](delivery-plans/task-kanban-dydata-90-priority.md)。
 - 当前子开发计划：[T2.4 全量、等价性和 8GB 最终门禁](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md)。
 
 ### 当前目标
@@ -155,3 +155,7 @@
 - 下一步：收口代码复查与回归，再承接新调度与完整单日试跑；不以本地采集修复代替全域恢复验收。
 - 2026-09-09：本地修复及94项专项通过；全仓2485通过/140跳过/1项结算页文案检查失败且可复现，验收记录已落盘，未部署。
 - 2026-09-10：8a753e9f已提交main并生产部署；CI 2685通过/152跳过，备份、0052迁移、健康及7份运行源代码散列核验通过。auto_sync_enabled仍为false；DYDATA-90继续承接新调度和真实单日采集验收。
+
+## DYDATA-90：2026-09-10 当前执行
+
+用户已授权启用新模式并启动9月9日拉取。T0.2进行中；隔离分支codex/dydata-90-priority。旧采集修复8a753e9f已部署；新模式实现、0053预算暂停迁移、发布闭环与生产验证单独留证。历史其他任务内容保留，不由本任务关闭。
