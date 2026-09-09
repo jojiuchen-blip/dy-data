@@ -510,6 +510,15 @@ export function displayFinanceInvoiceStatus(
   );
 }
 
+export function displayFinanceProcessingStatus(value: string | null | undefined): string {
+  return displayEnumLabel(value, {
+    PENDING_STATEMENT: "待生成账单",
+    PENDING_CONFIRMATION: "待确认",
+    PENDING_SUBMISSION: "待提交",
+    SUBMITTED: "已提交",
+  }, "未知办理状态", "finance processing status");
+}
+
 export function displayFinanceImportType(value: string | null | undefined): string {
   return displayEnumLabel(
     value,

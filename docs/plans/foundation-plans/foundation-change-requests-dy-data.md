@@ -1,5 +1,19 @@
 # dy-data Foundation 变更请求
 
+## S4-FCR-012：财务列表展示已计算但未确认账单
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-012` |
+| 来源 Task | `T5.7 / DYDATA-87` |
+| 分类 | `DRIFT` |
+| 改动项 | 财务推广、管理列表包含当前已生成但未确认/未提交的账单，以及当前已发布月度投影中尚无正式账单的门店；按门店账期去重，新增只读办理状态，与发票状态分离，不自动锁账。 |
+| 原因 | 2026-09-08 用户明确确认分佣计算后财务即应展示门店和金额，不自动确认或开票；原“提交/确认后才展示”不满足新口径。 |
+| 指向代码块 | `apps/api/dy_api/routes/dashboard.py::_promotion_finance_collection_query`、`_management_invoice_collection_query`；`tests/test_api_finance_g2.py::test_finance_shows_computed_unconfirmed_statements_without_creating_facts` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md` 财务列表、汇总与导出 |
+| 严重度 | 建议 |
+| 状态 | 待评审（业务变更已获用户确认，Foundation 正文待回捞） |
+
 > 本文件记录 S4 实装从真实代码与迁移约束中发现的 Foundation 漂移。条目由 `coding-standards` 追加，由 `ai-project-manager` 裁决并交给 `foundation-builder` 修订；不得在此文件直接替代 Foundation 正文。
 
 ## S4-FCR-011：结算重建任务缺少原子抢占与可观测运行态合同

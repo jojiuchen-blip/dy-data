@@ -10,6 +10,17 @@ def source(relative_path: str) -> str:
     return (WEB / relative_path).read_text(encoding="utf-8")
 
 
+def test_finance_computed_statements_show_processing_status() -> None:
+    page = source("pages/FinanceFeePage.tsx")
+    assert 'title: "办理状态"' in page
+    assert "row.processingStatus" in page
+    assert "displayFinanceProcessingStatus" in page
+    labels = source("utils/userFacingLabels.ts")
+    assert "待确认" in labels and "待提交" in labels
+    assert "门店提交成功后进入列表" not in page
+    assert "processingStatus" in source("types/dashboard.ts")
+
+
 def test_fee_pages_follow_the_frozen_module_order_and_headers() -> None:
     page = source("pages/FinanceFeePage.tsx")
     client = source("api/client.ts")

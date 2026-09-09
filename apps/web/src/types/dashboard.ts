@@ -2068,11 +2068,12 @@ export interface FinanceSummaryData {
 }
 
 export interface FinanceInvoiceRow {
+  processingStatus?: "PENDING_STATEMENT" | "PENDING_CONFIRMATION" | "PENDING_SUBMISSION" | "SUBMITTED";
   invoiceId: string | null;
   storeId: string;
   storeName: string | null;
   effectiveSapCode: string | null;
-  statementId: string;
+  statementId: string | null;
   statementMonth: string;
   statementAmountCent: number;
   confirmedAmountCent: number | null;
