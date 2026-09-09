@@ -9,7 +9,7 @@
 | 字段 | 枚举/格式 | 口径 |
 |------|-----------|------|
 | `periodType` | `MONTHLY/CUMULATIVE` | 累计只从 `2026-08` 开始 |
-| `feeDirection` | `PROMOTION/MANAGEMENT` | 推广按销售业务日与销售月；管理按核销业务日与核销月 |
+| `feeDirection` | `PROMOTION/MANAGEMENT` | 两方向均须有效核销，按有效核销日匹配各自费率、有效核销月计入，并使用同一核销实收基数；推广归销售门店，管理归核销门店 |
 | `statementStatus` | `GENERATING/PENDING_CONFIRMATION/CONFIRMED/LOCKED` | 锁账后头、行、来源项不可改 |
 | `dataStatus` | `VALID/ADJUSTED/BLOCKED/LOCKED` | 查询筛选派生状态 |
 | `resultStatus` | `VALID/SUPERSEDED/DATA_QUALITY_BLOCKED` | 费用结果状态 |
@@ -153,7 +153,7 @@
 | `statementId` | string | 否 | 锁账口径；有值时读取冻结来源项 |
 | `statementLineId` | string | 否 | 须属于 `statementId` |
 | `storeId` | string | 否 | 无 `statementId` 时可选；提供时必须在当前账号授权范围内 |
-| `month` | string | 否 | 无 `statementId` 时可选；提供时按方向解释业务月 |
+| `month` | string | 否 | 无 `statementId` 时可选；两方向原始费用均按有效核销月，调整按调整入账月 |
 | `saleMonth` | string | 否 | 额外按销售月份筛选 |
 | `verifyMonth` | string | 否 | 额外按核销月份筛选，支撑当前页面筛选语义 |
 | `feeDirection` | string | 是 | `PROMOTION/MANAGEMENT` |
@@ -175,10 +175,10 @@
 | `orderId` / `couponId` | string | 平台业务 ID | 费用结果及原始表业务 ID |
 | `orderStatus` / `couponStatus` | string/null | 标准化状态 | 两张原始表状态列 |
 | `feeDirection` | string | 费用方向 | `settlement_fee_result.fee_direction` |
-| `originalBusinessMonth` | string | 原始发生月 | `.original_business_month` |
+| `originalBusinessMonth` | string | 原始发生月，两方向均为有效核销月 | `.original_business_month` |
 | `saleMonth` | string/null | 销售月份 | `raw_douyin_orders.sale_time` 按上海时区派生 |
 | `verifyMonth` | string/null | 核销月份 | `raw_douyin_verify_records.verify_time` 按上海时区派生 |
-| `ruleMatchDate` | date | 费率匹配日 | `.rule_match_date` |
+| `ruleMatchDate` | date | 两方向均为有效核销业务日，读取结果快照 | `.rule_match_date` |
 | `saleTime` | datetime/null | 销售时间 | `raw_douyin_orders.sale_time` |
 | `verifyTime` | datetime/null | 核销时间 | `raw_douyin_verify_records.verify_time` |
 | `saleStoreId` / `verifyStoreId` | string/null | 销售/核销门店 | 费用结果同名列 |
@@ -188,9 +188,9 @@
 | `productName` | string/null | 商品名称 | `dim_sku_product_rules.product_name`，缺失时回退原始订单快照 |
 | `productScope` / `productType` | string | 产品快照 | `.product_scope/.product_type` |
 | `saleChannel` | string | 标准化渠道 | `.sale_channel_normalized` |
-| `sourceAmountCent` | integer | 原始方向金额 | `.source_amount_cent` |
+| `sourceAmountCent` | integer | 同一有效券两方向共同核销实收金额 | `.source_amount_cent` |
 | `refundedAmountCent` | integer | 计算时累计退款 | `.refunded_amount_cent` |
-| `originalBaseCent` | integer | 原结果基数 | `.fee_base_cent` |
+| `originalBaseCent` | integer | 原结果共同核销实收净额基数；两方向分别乘各自费率 | `.fee_base_cent` |
 | `feeRate` | decimal-string | 实际使用费率 | `.fee_rate` |
 | `originalFeeCent` | integer | 原费用金额 | `.fee_amount_cent` |
 | `adjustmentBaseCent` | integer | 全部调整基数合计 | `settlement_fee_adjustment.adjustment_base_cent` 聚合 |

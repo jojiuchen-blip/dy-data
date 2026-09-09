@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
+  ApiRequestError,
   fetchPromotionInvoiceReplacementCandidates,
   fetchPromotionInvoices,
   fetchSettlementFilterMeta,
@@ -23,6 +24,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
+import { createPendingRequestKey } from "../utils/pendingRequestKey";
 
 interface StoreInvoicePageProps {
   currentUser: AdminUser;
@@ -408,6 +410,8 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
     replacementContext?.invoiceId ?? null,
   );
   const invoiceFormRef = useRef<HTMLFormElement | null>(null);
+  const submitInFlight = useRef(false);
+  const invoiceRequest = useRef(createPendingRequestKey());
 
   const enabled = Boolean(storeId && month);
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
@@ -633,6 +637,7 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitInFlight.current) return;
     setShowValidationFeedback(true);
     const failedValidation = invoiceValidationItems.find((item) => !item.passed);
     if (failedValidation) {
@@ -661,11 +666,11 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       setSubmitMessage("核验未通过：金额必须有效，最多输入三位小数并四舍五入到分。");
       return;
     }
+    submitInFlight.current = true;
     setSubmitting(true);
     setSubmitMessage("");
     try {
-      await registerPromotionInvoice(
-        {
+      const payload = {
           storeId,
           buyerName: buyerName.trim(),
           fillerPhone: fillerPhone.trim(),
@@ -686,9 +691,10 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
             readVersion: statement.versionNo,
             promotionInvoiceGroupId: statement.promotionInvoiceGroupId ?? "",
           })),
-        },
-        crypto.randomUUID(),
-      );
+        };
+      await registerPromotionInvoice(payload,
+        invoiceRequest.current.forRequest(storeId, payload));
+      invoiceRequest.current.clear();
       setInvoiceNumber("");
       setInvoiceDate("");
       setBuyerName("");
@@ -706,8 +712,22 @@ export function StoreInvoicePage({ currentUser, searchParams }: StoreInvoicePage
       invoiceResource.reload();
       replacementCandidateResource.reload();
     } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 409) {
+        setSelectedStatements([]);
+        if (replacementContext) {
+          // Replacement groups are not loaded by the automatic statement resource.
+          setSubmitMessage("账单或发票状态已变化，请重新加载释放账期并核对后再提交。");
+          invoiceResource.reload();
+          replacementCandidateResource.reload();
+          return;
+        }
+        statementResource.reload();
+        invoiceResource.reload();
+        replacementCandidateResource.reload();
+      }
       setSubmitMessage(userFacingError(error, "登记失败，请稍后重试。"));
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   };

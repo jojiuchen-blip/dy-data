@@ -3464,8 +3464,13 @@ def test_admin_rules_renders_product_fee_and_atomic_import_workflow(
         assert "商品人工分类" not in body
         assert "旧单费率兼容区" not in body
         assert "SKU-ID分佣比例确认" in body
-        assert "8%" in body
-        assert "2%" in body
+        expect(page.get_by_label("两项费率一致", exact=True)).to_be_checked()
+        expect(page.get_by_label("推广服务费比例（%）", exact=True)).to_have_value("8")
+        expect(page.get_by_label("管理服务费比例（%）", exact=True)).to_have_value("8")
+        expect(page.get_by_label("管理服务费比例（%）", exact=True)).to_be_disabled()
+        # New-entry defaults must not rewrite the immutable 8% / 10% fixture.
+        published_row = page.locator(".admin-rule-table tbody tr").filter(has_text="SKU-VISUAL-001")
+        expect(published_row).to_contain_text("推广 8% / 管理 10%")
         assert "已启用分佣商品列表" in body
         page.get_by_role("button", name="批量导入设置", exact=True).click()
         page.get_by_role("heading", name="批量导入设置", exact=True).wait_for(timeout=10000)
@@ -4704,14 +4709,45 @@ def test_dydata_81_store_dispute_entry_stays_collapsed_until_confirmation(
         confirmation.get_by_role("button", name="确认发起", exact=True).click()
         dialog = page.get_by_role("dialog")
         dialog.get_by_role("heading", name="发起账单异议", exact=True).wait_for()
-        for label in ("异议类型", "争议金额（元）", "费用方向", "联系人", "手机号", "争议订单", "问题说明", "证明材料"):
+        for label in ("异议类型", "争议金额（元）", "费用方向", "联系人", "手机号", "争议订单", "问题说明"):
             expect(dialog.get_by_text(label, exact=True)).to_be_visible()
-        upload = dialog.locator('input[type="file"]')
-        expect(upload).to_be_disabled()
+        expect(dialog.locator('input[type="file"]')).to_have_count(0)
+        expect(dialog.get_by_text("证明材料", exact=True)).to_have_count(0)
+        expect(dialog).to_contain_text("无需附件")
         submit = dialog.get_by_role("button", name="提交异议并开始检测", exact=True)
-        expect(submit).to_be_disabled()
-        expect(dialog.get_by_text("证明材料受控上传尚未开放，当前不能提交异议。", exact=True)).to_be_visible()
-        assert dialog.get_by_text("暂无正式账单或受控证明资料，当前不能提交异议。", exact=True).count() == 0
+        expect(submit).to_be_enabled()
+        submissions = []
+        page.on("request", lambda request: submissions.append(request) if request.method == "POST" and request.url.endswith("/disputes") else None)
+        submit.click()
+        expect(dialog.get_by_role("alert")).to_contain_text("请填写理由、联系人、11 位手机号和正数争议金额")
+        assert submissions == []
+        description = f"无附件账单核验 {width}x{height}"
+        dialog.get_by_label("争议金额（元）", exact=True).fill("1.23")
+        dialog.get_by_label("联系人", exact=True).fill("视觉测试联系人")
+        dialog.get_by_label("手机号", exact=True).fill("13812345678")
+        dialog.get_by_label("争议订单", exact=True).fill("DY2026071900842")
+        dialog.get_by_label("问题说明", exact=True).fill(description)
+        with page.expect_response(lambda response: response.request.method == "POST" and response.url.endswith("/disputes")) as submitted:
+            submit.click()
+        response = submitted.value
+        assert response.status == 200, response.text()
+        dispute = response.json()["data"]
+        assert len(submissions) == 1
+        payload = submissions[0].post_data_json
+        assert payload["evidence"] == []
+        assert payload["disputedAmountCent"] == 123
+        assert payload["orders"] == [{"orderId": "DY2026071900842", "disputedAmountCent": 123}]
+        assert payload["readVersion"] == 1
+        assert dispute["status"] == "PENDING"
+        assert dispute["description"] == description
+        assert dispute["evidence"] == []
+        expect(page.get_by_role("dialog")).to_have_count(0)
+        expect(page.get_by_role("status").filter(has_text="异议已提交。")).to_be_visible()
+        persisted = context.request.get(f"{live_admin_fastapi_base_url}/api/v1/store-settlements/uat-statement-store-1/disputes")
+        assert persisted.status == 200, persisted.text()
+        saved = [item for item in persisted.json()["data"]["list"] if item["disputeId"] == dispute["disputeId"]]
+        assert len(saved) == 1
+        assert saved[0]["description"] == description and saved[0]["evidence"] == []
         output_dir = (
             REPO_ROOT
             / "output"

@@ -17,23 +17,28 @@
 | order_id | varchar(128) | NO | IDX | — | 订单 ID |
 | fee_direction | tinyint unsigned | NO | IDX | — | 1=推广服务费，2=管理服务费 |
 | result_version | int unsigned | NO | | `1` | 券+方向内递增版本 |
-| original_business_month | char(7) | NO | IDX | — | 推广取销售月，管理取核销月 |
-| rule_match_date | date | NO | IDX | — | 推广取销售业务日，管理取核销业务日 |
+| original_business_month | char(7) | NO | IDX | — | 两方向均取有效核销月（Asia/Shanghai）；不取销售月 |
+| rule_match_date | date | NO | IDX | — | 两方向均取有效核销业务日，据此匹配各自费率版本 |
 | sale_store_id | varchar(128) | YES | IDX | NULL | 销售门店 |
 | verify_store_id | varchar(128) | YES | IDX | NULL | 核销门店 |
 | sku_id | varchar(128) | NO | IDX | — | SKU ID |
 | product_scope | varchar(128) | NO | IDX | `''` | 产品范围快照 |
 | product_type | varchar(128) | NO | IDX | `''` | 商品类型快照 |
 | sale_channel_normalized | varchar(32) | NO | IDX | — | 标准化渠道 |
-| source_amount_cent | bigint | NO | | `0` | 原始实付或核销金额 |
+| source_amount_cent | bigint | NO | | `0` | 同一有效券两方向共同使用的核销实收金额 |
 | refunded_amount_cent | bigint | NO | | `0` | 计算时累计退款金额 |
-| fee_base_cent | bigint | NO | | `0` | 方向性净额基数 |
+| fee_base_cent | bigint | NO | | `0` | 同一有效券两方向共同使用的核销实收净额基数，按退款口径扣减 |
 | fee_rate | decimal(8,6) | NO | | `0` | 使用费率 |
 | fee_amount_cent | bigint | NO | | `0` | 四舍五入后的费用金额 |
 | rule_version | varchar(64) | NO | IDX | — | 使用的 SKU 费率版本 |
 | scope_rule_version | varchar(64) | NO | | — | 使用的范围规则版本 |
 | result_status | tinyint unsigned | NO | IDX | `1` | 1=有效，2=被新版本替代，3=数据质量阻断 |
 | calculation_run_id | varchar(128) | NO | IDX | — | 计算运行 ID |
+| qualifying_verify_id | text | YES | | NULL | 使本不可变结果获得计费资格的核销业务 ID（0051） |
+| qualifying_verify_time | timestamptz | YES | | NULL | 该次核销时间快照；与核销 ID 一起识别血缘 |
+| qualifying_verify_store_id | varchar(128) | YES | | NULL | 该次核销门店 ID 快照，不随后续 POI 映射变动 |
+| qualifying_verify_store_name | text | YES | | NULL | 该次核销门店名称快照 |
+| reverification_anchor_id | varchar(128) | YES | IDX | NULL | 仅通过调整入账的非当前重核销依据指向原冻结费用结果 ID；不是核销 ID |
 | calculated_at | datetime | NO | | — | 计算时间 |
 | gmt_create | datetime | NO | | CURRENT_TIMESTAMP | 创建时间 |
 | gmt_modified | datetime | NO | | CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP | 更新时间 |
@@ -46,12 +51,17 @@
 - `idx_settlement_fee_result_product` (product_scope, product_type)
 - `idx_settlement_fee_result_rule` (rule_version)
 - `idx_settlement_fee_result_match_date` (rule_match_date, fee_direction)
+- `idx_settlement_fee_result_reverification_anchor` (reverification_anchor_id, result_version)，普通非唯一索引。
+
+**0051 血缘兼容**：字段类型与 `apps/api/dy_api/models.py`、`alembic/versions/20260909_0051_fee_result_verification_provenance.py` 一致，使用 PostgreSQL `timestamptz`，不套用旧表中的 MySQL 类型示意。旧行允许 NULL，迁移不猜测或回填历史归属；新结果保存实际资格核销。取消须关联原资格核销，重核销不被历史取消误冲；已冻结槽位的恢复通过关联原结果的追加差额，不替换冻结依据。任一血缘字段非空或来源包表已有记录时，0051 downgrade 拒绝删除审计数据，只能回滚应用镜像或前滚修复。
 
 **使用接口**：
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 聚合账单行费率区间和规则版本数量。
 - `GET /api/v1/order-fee-details` — 返回券级原始基数、费率、金额、业务月和规则版本。
 - `GET /api/v1/order-fee-details/export` — 导出同口径费用依据。
 - 无公开写接口；仅结算计算 worker 新增不可变结果版本。
+
+**DYDATA-87 增量约束（2026-09-09 用户确认）**：两费均须有效核销；推广仍归销售门店，管理仍归核销门店，不改变各自配置费率。取消核销影响两方向；未锁账结果通过新版本/当前指针退出，已冻结结果通过独立调整追溯，不改写原结果、历史账单或发票事实。销售时间仍是独立事实字段，不再作为推广计费日期依据。
 
 ### 2 `settlement_fee_result_current` — 当前结果指针
 
@@ -276,6 +286,26 @@
 - `GET /api/v1/meta/filters` — 提供可用结算账期。
 - `GET /api/v1/stores/{storeId}/monthly-settlement` — 返回单店月度双费用投影与未锁账预览。
 - 无公开写接口；仅投影任务重建。
+
+### 9 `settlement_billing_source_bundle` — 私有冻结账单来源包（0051 新增）
+
+| 字段 | PostgreSQL 类型 | 可空 | 键 | 默认值 | 说明 |
+|---|---|---|---|---|---|
+| generation_id | varchar(128) | NO | PK* | — | 候选发布代际 |
+| store_id | varchar(128) | NO | PK* | — | 责任门店 |
+| statement_month | varchar(7) | NO | PK* | — | 账期，包含已撤销最后来源的空槽位 |
+| source_job_id | text | NO | | — | 捕获来源的重建任务 ID |
+| source_fingerprint | varchar(64) | NO | | — | 该包规范化来源数组的 SHA-256 |
+| sources_json | jsonb | NO | | — | 冻结 `StatementSource[]`，空槽位保存 `[]`，不是缺失来源 |
+| created_at | timestamptz | NO | | ORM utcnow | 创建时间；迁移无数据库默认值，由写入端提供 |
+
+**实际结构**：映射 `SettlementBillingSourceBundle`；复合主键 `(generation_id, store_id, statement_month)`，0051 无额外索引或外键。此私有不可变快照沿用实际复合键和 `created_at`，不虚构 `id/gmt_modified` 列。
+
+**来源结构**：`sources_json` 来自 `apps/worker/settlement.py::StatementSource`。每项包含 `source_type/source_record_id/original_fee_result_id`、订单/券、方向、原始月/入账月、门店、产品维度、基数/费用/来源金额、规则版本；并冻结订单/券状态、SKU/商品、渠道、销售与核销门店名称和 ID、销售/核销时间、实收金额、费率、退款时间及调整类型。时间和 Decimal 以字符串序列化，读取时恢复；详细来源不进入公共任务日志。
+
+**完整性与事务**：`job_events` 中的 `settlement_billing_sources_frozen` 完成标记只保存 generation、总指纹、来源数和包数；总指纹同时覆盖来源及全部槽位。读取必须校验标记、每包指纹、数量和总指纹，缺包/缺标记不能当作零账单。同 job/generation 同来源可复用，变化抛 `BillingSourceDriftError`，不得覆盖冻结包。
+
+**使用接口**：无公开 CRUD，不直接返回 `sources_json`。内部 `billing_source_capture.py` 捕获/读取，`billing_statements.py::generate_pending_statements` 消费；公开账单详情通过 `settlement_statement_entry` 返回授权快照。发布事务合同见 [账单生成边界](billing-invoice.md#dydata-87-待确认账单生成合同)。
 
 ### 8 `agg_store_ranking` — 门店排名投影（现有·需改动）
 

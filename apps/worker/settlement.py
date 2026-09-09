@@ -603,6 +603,13 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             SettlementFeeAdjustment.adjustment_posting_month.in_(months),
             _active_adjustment_condition(),
         )
+        .join(
+            SettlementFeeResultCurrent,
+            or_(
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+            ),
+        )
     )
     source = union_all(result_rows, adjustment_rows).subquery("sparse_authority")
 
@@ -2899,6 +2906,10 @@ def rebuild_dual_fee_results(
             continue
         order_status = _dual_order_status(order)
         if order_status == "closed":
+            for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+                current = _current_fee_result(session, coupon.coupon_id, direction)
+                if current is not None:
+                    _retire_unqualified_fee_result(session, current)
             continue
         if order_status == "unknown":
             blocked_count += _block_dual_fee(
@@ -3077,26 +3088,35 @@ def _materialize_dual_fee_direction(
         return False
     if sale_business_date < FORMAL_SETTLEMENT_START:
         # Management also requires the corresponding sale to be in the formal window.
+        if current is not None:
+            _retire_unqualified_fee_result(session, current)
         return True
-    verify: RawDouyinVerifyRecord | None = None
+    verify = _select_valid_verify_record(session, coupon.coupon_id)
+    if verify is None or verify.verify_time is None:
+        if current is not None:
+            cancelled = _matching_verify_cancellation(session, current)
+            # A dated cancellation keeps the original and adds an event-month
+            # reversal. Invalid/missing evidence must not leave an unlocked
+            # historical false positive in the current published population.
+            if cancelled is None:
+                _retire_unqualified_fee_result(session, current)
+        _block_dual_fee(
+            session,
+            calculation_run_id,
+            coupon,
+            order,
+            "dual_fee_missing_valid_verify",
+            "费用计入必须有有效核销记录，费用方向已阻断。",
+            directions=(direction,),
+            context={"direction": direction_name},
+        )
+        return False
     verify_store_id: str | None = None
+    # Both fees accrue on the qualifying redemption; responsibility remains directional.
+    business_time = verify.verify_time
     if direction == PROMOTION_FEE:
-        business_time = sale_time
         responsible_store_id = sale_account.store_id
     else:
-        verify = _select_valid_verify_record(session, coupon.coupon_id)
-        if verify is None or verify.verify_time is None:
-            _block_dual_fee(
-                session,
-                calculation_run_id,
-                coupon,
-                order,
-                "dual_fee_missing_valid_verify",
-                "管理服务费缺少有效核销记录，费用方向已阻断。",
-                directions=(direction,),
-                context={"direction": direction_name},
-            )
-            return False
         poi_mapping = _find_poi_mapping(session, verify.poi_id)
         if poi_mapping is None or session.get(DimStore, poi_mapping.store_id) is None:
             _block_dual_fee(
@@ -3111,7 +3131,6 @@ def _materialize_dual_fee_direction(
             )
             return False
         verify_store_id = poi_mapping.store_id
-        business_time = verify.verify_time
         responsible_store_id = verify_store_id
 
     business_date = _business_date(business_time)
@@ -3227,6 +3246,8 @@ def _materialize_dual_fee_direction(
         rule_version=fee_rule.rule_version,
         scope_rule_version=scope_rule.scope_rule_version,
         result_status=ACTIVE_FEE_RESULT,
+        qualifying_verify_id=verify.verify_id,
+        qualifying_verify_time=verify.verify_time,
     )
     if (
         current is not None
@@ -3235,13 +3256,42 @@ def _materialize_dual_fee_direction(
     ):
         return True
 
-    _lock_settlement_slot(session, responsible_store_id, business_month)
-    if _is_fee_result_locked(
+    target_slot = (responsible_store_id, business_month)
+    prior_store_id = (
+        current.sale_store_id if direction == PROMOTION_FEE else current.verify_store_id
+    ) if current is not None else None
+    prior_slot = (prior_store_id, current.original_business_month) if prior_store_id else None
+    # A month/store move must serialize with both slots, not just its destination.
+    for slot_store_id, slot_month in sorted({target_slot} | ({prior_slot} if prior_slot else set())):
+        _lock_settlement_slot(session, slot_store_id, slot_month)
+    prior_slot_locked = prior_slot is not None and prior_slot != target_slot and _is_fee_result_locked(
+        session, store_id=prior_slot[0], month=prior_slot[1],
+        current_fee_result_id=current.fee_result_id,
+    )
+    adjustment_only = False
+    if prior_slot_locked or (current is not None and current.reverification_anchor_id is not None) or _is_fee_result_locked(
         session,
         store_id=responsible_store_id,
         month=business_month,
         current_fee_result_id=current.fee_result_id if current else None,
     ):
+        # Frozen originals stay current. A new redemption gets a separate basis
+        # and an additive posting only after the previous redemption was zeroed.
+        if current is not None and _same_qualifying_verification(current, verify):
+            if current.reverification_anchor_id is not None:
+                return True
+        elif current is not None and current.qualifying_verify_id is not None:
+            _materialize_direction_verify_cancellation(
+                session, coupon=coupon, calculation_run_id=calculation_run_id,
+                direction=direction,
+            )
+            _, prior_delta = _effective_adjustment_totals(
+                session, original_fee_result_id=current.fee_result_id,
+            )
+            adjustment_only = (
+                _has_verify_cancellation(session, current)
+                and current.fee_amount_cent + prior_delta == 0
+            )
         issue_type = (
             "dual_fee_locked_recalculation"
             if current is not None
@@ -3252,17 +3302,13 @@ def _materialize_dual_fee_direction(
             if current is not None
             else "账期已锁定，迟到券不得新增到已冻结账单之外。"
         )
-        _block_dual_fee(
-            session,
-            calculation_run_id,
-            coupon,
-            order,
-            issue_type,
-            message,
-            directions=(direction,),
-            context={"direction": direction_name, "business_month": business_month},
-        )
-        return False
+        if not adjustment_only:
+            _block_dual_fee(
+                session, calculation_run_id, coupon, order, issue_type, message,
+                directions=(direction,),
+                context={"direction": direction_name, "business_month": business_month},
+            )
+            return False
 
     version = _next_fee_result_version(session, coupon.coupon_id, direction)
     fee_result_id = _stable_business_id(
@@ -3282,6 +3328,8 @@ def _materialize_dual_fee_direction(
             )
             .values(result_status=SUPERSEDED_FEE_RESULT)
         )
+    qualifying_mapping = _find_poi_mapping(session, verify.poi_id)
+    qualifying_store = session.get(DimStore, qualifying_mapping.store_id) if qualifying_mapping else None
     result = SettlementFeeResult(
         fee_result_id=fee_result_id,
         coupon_id=coupon.coupon_id,
@@ -3303,13 +3351,21 @@ def _materialize_dual_fee_direction(
         fee_amount_cent=fee_amount,
         rule_version=fee_rule.rule_version,
         scope_rule_version=scope_rule.scope_rule_version,
-        result_status=ACTIVE_FEE_RESULT,
+        result_status=SUPERSEDED_FEE_RESULT if adjustment_only else ACTIVE_FEE_RESULT,
         calculation_run_id=calculation_run_id,
         input_fingerprint=input_fingerprint,
+        qualifying_verify_id=verify.verify_id,
+        qualifying_verify_time=verify.verify_time,
+        qualifying_verify_store_id=qualifying_store.store_id if qualifying_store else None,
+        qualifying_verify_store_name=qualifying_store.store_name if qualifying_store else None,
+        reverification_anchor_id=(current.reverification_anchor_id or current.fee_result_id) if adjustment_only else None,
         calculated_at=utcnow(),
     )
     session.add(result)
     session.flush()
+    if adjustment_only:
+        _post_reverification_restoration(session, result, calculation_run_id)
+        return True
     if current is None:
         session.add(
             SettlementFeeResultCurrent(
@@ -3350,15 +3406,8 @@ def _materialize_refund_adjustments(
         original = _current_fee_result(session, coupon.coupon_id, direction)
         if original is None:
             continue
-        if direction == MANAGEMENT_FEE and session.scalar(
-            select(SettlementFeeAdjustment.id).where(
-                SettlementFeeAdjustment.original_fee_result_id
-                == original.fee_result_id,
-                SettlementFeeAdjustment.fee_direction == MANAGEMENT_FEE,
-                SettlementFeeAdjustment.adjustment_type == 3,
-            )
-        ):
-            # Cancellation already zeroed the management fee. A later refund
+        if _has_verify_cancellation(session, original):
+            # Cancellation already zeroed this direction. A later refund
             # must not append another reduction and make the net amount negative.
             continue
         cumulative_refund = original.refunded_amount_cent
@@ -3631,20 +3680,95 @@ def _materialize_verify_cancellation_adjustment(
     coupon: RawDouyinOrderCoupon,
     calculation_run_id: str,
 ) -> None:
-    cancelled = session.scalar(
-        select(RawDouyinVerifyRecord)
-        .where(
-            RawDouyinVerifyRecord.coupon_id == coupon.coupon_id,
-            RawDouyinVerifyRecord.cancel_time.is_not(None),
+    for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+        _materialize_direction_verify_cancellation(
+            session, coupon=coupon, calculation_run_id=calculation_run_id,
+            direction=direction,
         )
-        .order_by(RawDouyinVerifyRecord.cancel_time.desc())
+
+
+def _same_qualifying_verification(result: SettlementFeeResult, verify: RawDouyinVerifyRecord) -> bool:
+    return (
+        result.qualifying_verify_id == verify.verify_id
+        and result.qualifying_verify_time is not None
+        and verify.verify_time is not None
+        and _as_utc(result.qualifying_verify_time) == _as_utc(verify.verify_time)
     )
-    if cancelled is None or cancelled.cancel_time is None:
-        return
-    original = _current_fee_result(session, coupon.coupon_id, MANAGEMENT_FEE)
+
+
+def _has_verify_cancellation(session: Session, original: SettlementFeeResult) -> bool:
+    """A pending or applied cancellation occupies the same economic reduction."""
+    return session.scalar(select(SettlementFeeAdjustment.id).where(
+        SettlementFeeAdjustment.original_fee_result_id == original.fee_result_id,
+        SettlementFeeAdjustment.adjustment_type == 3,
+    ).limit(1)) is not None or session.scalar(select(SettlementCarryforwardSource.id).where(
+        SettlementCarryforwardSource.original_fee_result_id == original.fee_result_id,
+        SettlementCarryforwardSource.source_event_type == 2,
+        SettlementCarryforwardSource.adjustment_type == 3,
+    ).limit(1)) is not None
+
+
+def _matching_verify_cancellation(session: Session, original: SettlementFeeResult) -> RawDouyinVerifyRecord | None:
+    """Never let an unrelated cancellation preserve or reverse a newer basis."""
+    query = select(RawDouyinVerifyRecord).where(
+        RawDouyinVerifyRecord.coupon_id == original.coupon_id,
+        RawDouyinVerifyRecord.cancel_time.is_not(None),
+    )
+    if original.qualifying_verify_id:
+        query = query.where(RawDouyinVerifyRecord.verify_id == original.qualifying_verify_id)
+        if original.qualifying_verify_time is not None:
+            query = query.where(RawDouyinVerifyRecord.verify_time == original.qualifying_verify_time)
+    elif _select_valid_verify_record(session, original.coupon_id) is not None:
+        return None
+    return session.scalar(query.order_by(RawDouyinVerifyRecord.cancel_time.desc()).limit(1))
+
+
+def _post_reverification_restoration(session: Session, result: SettlementFeeResult, run_id: str) -> None:
+    """Post the new basis once without changing the frozen original or pointer."""
+    store_id = result.sale_store_id if result.fee_direction == PROMOTION_FEE else result.verify_store_id
+    assert store_id is not None and result.qualifying_verify_time is not None
+    event_month = _business_month(result.qualifying_verify_time)
+    _lock_settlement_slot(session, store_id, event_month)
+    reason = "有效重核销恢复计费，保留锁定历史并追加新核销差额。"
+    if _is_fee_result_locked(session, store_id=store_id, month=event_month):
+        _create_carryforward_source(
+            session, source_event_type=2,
+            source_event_key=f"reverification:{result.fee_result_id}", original=result,
+            refund_event_id=None, verify_id=result.qualifying_verify_id, store_id=store_id,
+            event_month=event_month, adjustment_type=4,
+            adjustment_base_cent=result.fee_base_cent, adjustment_fee_cent=result.fee_amount_cent,
+            carryforward_reason=reason, occurred_at=result.qualifying_verify_time,
+            calculation_run_id=run_id,
+        )
+    else:
+        session.add(SettlementFeeAdjustment(
+            adjustment_id=_stable_business_id("reverification", result.fee_result_id),
+            original_fee_result_id=result.fee_result_id, coupon_id=result.coupon_id,
+            order_id=result.order_id, fee_direction=result.fee_direction,
+            original_business_month=result.original_business_month, adjustment_posting_month=event_month,
+            adjustment_type=4, adjustment_base_cent=result.fee_base_cent,
+            adjustment_fee_cent=result.fee_amount_cent, rule_version=result.rule_version,
+            adjustment_reason=reason, occurred_at=result.qualifying_verify_time,
+            created_by=f"settlement:{run_id}",
+        ))
+        session.flush()
+
+
+def _materialize_direction_verify_cancellation(
+    session: Session,
+    *,
+    coupon: RawDouyinOrderCoupon,
+    calculation_run_id: str,
+    direction: int,
+) -> None:
+    original = _current_fee_result(session, coupon.coupon_id, direction)
     if original is None:
         return
-    if not original.verify_store_id:
+    cancelled = _matching_verify_cancellation(session, original)
+    if cancelled is None or cancelled.cancel_time is None:
+        return
+    responsible_store_id = original.sale_store_id if direction == PROMOTION_FEE else original.verify_store_id
+    if not responsible_store_id:
         raise ValueError(
             f"verification cancellation has no responsible store: {original.fee_result_id}"
         )
@@ -3669,7 +3793,7 @@ def _materialize_verify_cancellation_adjustment(
         session,
         source_event_key=source_event_key,
         original_fee_result_id=original.fee_result_id,
-        fee_direction=MANAGEMENT_FEE,
+        fee_direction=direction,
     )
     if existing_source is not None:
         _record_issue(
@@ -3681,7 +3805,7 @@ def _materialize_verify_cancellation_adjustment(
             source_run_id=calculation_run_id,
             raw_context={
                 "carryforward_source_id": existing_source.carryforward_source_id,
-                "fee_direction": MANAGEMENT_FEE,
+                "fee_direction": direction,
             },
             identity_suffix=existing_source.carryforward_source_id,
         )
@@ -3692,12 +3816,12 @@ def _materialize_verify_cancellation_adjustment(
     )
     adjustment_base = -original.fee_base_cent - existing_base
     adjustment_fee = -original.fee_amount_cent - existing_fee
-    adjustment_reason = "取消核销，仅将管理服务费按原规则版本调整为零。"
+    adjustment_reason = "取消核销，将本费用方向按原规则版本调整为零。"
     posting_month = _business_month(cancelled.cancel_time)
-    _lock_settlement_slot(session, original.verify_store_id, posting_month)
+    _lock_settlement_slot(session, responsible_store_id, posting_month)
     if _is_fee_result_locked(
         session,
-        store_id=original.verify_store_id,
+        store_id=responsible_store_id,
         month=posting_month,
     ):
         source = _create_carryforward_source(
@@ -3707,7 +3831,7 @@ def _materialize_verify_cancellation_adjustment(
             original=original,
             refund_event_id=None,
             verify_id=cancelled.verify_id,
-            store_id=original.verify_store_id,
+            store_id=responsible_store_id,
             event_month=posting_month,
             adjustment_type=3,
             adjustment_base_cent=adjustment_base,
@@ -3724,13 +3848,13 @@ def _materialize_verify_cancellation_adjustment(
             coupon_id=original.coupon_id,
             source_run_id=calculation_run_id,
             raw_context={
-                "fee_direction": MANAGEMENT_FEE,
+                "fee_direction": direction,
                 "verify_id": cancelled.verify_id,
-                "store_id": original.verify_store_id,
+                "store_id": responsible_store_id,
                 "posting_month": posting_month,
                 "carryforward_source_id": source.carryforward_source_id,
             },
-            identity_suffix=f"{cancelled.verify_id}:{MANAGEMENT_FEE}",
+            identity_suffix=f"{cancelled.verify_id}:{direction}",
         )
         return
     session.add(
@@ -3740,7 +3864,7 @@ def _materialize_verify_cancellation_adjustment(
             refund_event_id=None,
             coupon_id=original.coupon_id,
             order_id=original.order_id,
-            fee_direction=MANAGEMENT_FEE,
+            fee_direction=direction,
             original_business_month=original.original_business_month,
             adjustment_posting_month=_business_month(cancelled.cancel_time),
             adjustment_type=3,
@@ -3778,11 +3902,14 @@ def _effective_adjustment_totals(
 ) -> tuple[int, int]:
     """Count every business delta once, whether pending or already applied."""
 
+    # Restoration postings materialize an adjustment-only basis, not a second
+    # economic delta against it. Subsequent refunds/cancellations use its face value.
+    restoration_id = _stable_business_id("reverification", original_fee_result_id)
     sources = list(
         session.scalars(
             select(SettlementCarryforwardSource).where(
                 SettlementCarryforwardSource.original_fee_result_id
-                == original_fee_result_id
+                == original_fee_result_id,
             )
         )
     )
@@ -3809,7 +3936,10 @@ def _effective_adjustment_totals(
             )
         )
         if adjustment.adjustment_id not in materialized_adjustment_ids
+        and adjustment.adjustment_id != restoration_id
     ]
+    sources = [source for source in sources
+               if source.source_event_key != f"reverification:{original_fee_result_id}"]
     return (
         sum(row.adjustment_base_cent for row in sources)
         + sum(row.adjustment_base_cent for row in ordinary_adjustments),
@@ -3957,9 +4087,30 @@ def _referenced_order_business_id(
     return order.order_id if order is not None else None
 
 
+def _retire_unqualified_fee_result(session: Session, current: SettlementFeeResult) -> None:
+    """Remove only an unlocked current pointer, preserving historical amounts."""
+    if current.reverification_anchor_id is not None:
+        return
+    store_id = current.sale_store_id if current.fee_direction == PROMOTION_FEE else current.verify_store_id
+    if not store_id:
+        return
+    _lock_settlement_slot(session, store_id, current.original_business_month)
+    if _is_fee_result_locked(
+        session, store_id=store_id, month=current.original_business_month,
+        current_fee_result_id=current.fee_result_id,
+    ):
+        return
+    session.execute(delete(SettlementFeeResultCurrent).where(
+        SettlementFeeResultCurrent.fee_result_id == current.fee_result_id,
+    ))
+    current.result_status = SUPERSEDED_FEE_RESULT
+    session.flush()
+
+
 def _current_fee_result(
     session: Session, coupon_id: str, direction: int
 ) -> SettlementFeeResult | None:
+    """Return the economic basis; a frozen ledger pointer itself never moves."""
     pointer = session.scalar(
         select(SettlementFeeResultCurrent).where(
             SettlementFeeResultCurrent.coupon_id == coupon_id,
@@ -3969,9 +4120,10 @@ def _current_fee_result(
     if pointer is None:
         return None
     return session.scalar(
-        select(SettlementFeeResult).where(
-            SettlementFeeResult.fee_result_id == pointer.fee_result_id
-        )
+        select(SettlementFeeResult).where(or_(
+            SettlementFeeResult.fee_result_id == pointer.fee_result_id,
+            SettlementFeeResult.reverification_anchor_id == pointer.fee_result_id,
+        )).order_by(SettlementFeeResult.result_version.desc()).limit(1)
     )
 
 
@@ -4036,21 +4188,28 @@ def _is_fee_result_locked(
 ) -> bool:
     if _is_settlement_period_immutable(session, store_id=store_id, month=month):
         return True
-    if not current_fee_result_id:
-        return False
-    locked_source = session.scalar(
-        select(SettlementStatementEntry.id)
-        .join(
-            SettlementStatement,
-            SettlementStatement.statement_id == SettlementStatementEntry.statement_id,
-        )
-        .where(
+    # Local import avoids the module initialization cycle. Use the generator's
+    # exact financial-fact contract so it cannot retain an old bill while we
+    # move its economic source into a second pending bill.
+    from apps.worker.billing_statements import _protected
+
+    slot_condition = and_(
+        SettlementStatement.store_id == store_id,
+        SettlementStatement.statement_month == month,
+        SettlementStatement.is_current.is_(True),
+    )
+    if current_fee_result_id:
+        source_statements = select(SettlementStatementEntry.statement_id).where(
             SettlementStatementEntry.source_type == 1,
             SettlementStatementEntry.source_record_id == current_fee_result_id,
-            SettlementStatement.statement_status == 4,
         )
-    )
-    return bool(locked_source)
+        slot_condition = or_(slot_condition, SettlementStatement.statement_id.in_(source_statements))
+    # This predicate is also called by invalid-coupon inspection before any
+    # slot lock. Never acquire statement locks here: a later coupon in the
+    # same transaction may need a slot held by a publisher waiting on that row.
+    statements = session.scalars(select(SettlementStatement).where(slot_condition)
+                                 .execution_options(populate_existing=True))
+    return any(_protected(session, statement) for statement in statements)
 
 
 def _block_dual_fee(
@@ -4065,6 +4224,23 @@ def _block_dual_fee(
     context: dict[str, Any] | None = None,
 ) -> int:
     for direction in directions:
+        if issue_type in {
+            "raw_order_internal_reference_mismatch",
+            "dual_fee_unknown_order_status",
+            "dual_fee_inactive_or_unknown_sku",
+            "dual_fee_unstable_owner_account",
+            "dual_fee_non_commission_owner",
+            "dual_fee_missing_sale_store",
+            "dual_fee_unknown_or_out_of_scope_channel",
+            "dual_fee_missing_business_time",
+            "dual_fee_missing_verify_store",
+            "dual_fee_missing_scope_rule",
+            "dual_fee_missing_fee_rule",
+            "dual_fee_missing_coupon_amount",
+        }:
+            current = _current_fee_result(session, coupon.coupon_id, direction)
+            if current is not None:
+                _retire_unqualified_fee_result(session, current)
         _record_issue(
             session,
             issue_type=issue_type,
@@ -4153,6 +4329,8 @@ def _fee_result_input_fingerprint(
     rule_version: str | None,
     scope_rule_version: str | None,
     result_status: int,
+    qualifying_verify_id: str | None = None,
+    qualifying_verify_time: datetime | None = None,
 ) -> str:
     """Return a deterministic SHA-256 over business inputs and result fields."""
 
@@ -4176,6 +4354,8 @@ def _fee_result_input_fingerprint(
         "rule_version": rule_version,
         "scope_rule_version": scope_rule_version,
         "result_status": result_status,
+        "qualifying_verify_id": qualifying_verify_id,
+        "qualifying_verify_time": qualifying_verify_time,
     }
     normalized = {
         key: _canonical_fingerprint_value(value)
@@ -5131,14 +5311,18 @@ def _projection_sources(
     adjustments = session.execute(
         select(SettlementFeeAdjustment, SettlementFeeResult)
         .join(
-            SettlementFeeResultCurrent,
-            SettlementFeeResultCurrent.fee_result_id
-            == SettlementFeeAdjustment.original_fee_result_id,
-        )
-        .join(
             SettlementFeeResult,
             SettlementFeeResult.fee_result_id
             == SettlementFeeAdjustment.original_fee_result_id,
+        )
+        .join(
+            SettlementFeeResultCurrent,
+            or_(
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                # An adjustment-only basis never replaces its frozen pointer.
+                # Its postings remain authoritative while that anchor is current.
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+            ),
         )
         .where(
             SettlementFeeAdjustment.adjustment_posting_month == posting_month,
@@ -5239,7 +5423,13 @@ def _statement_source_snapshots(
     product = session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == result.sku_id)
     )
-    verify = _select_valid_verify_record(session, result.coupon_id)
+    verify = (
+        session.get(RawDouyinVerifyRecord, result.qualifying_verify_id)
+        if result.qualifying_verify_id
+        else None
+    )
+    if verify is not None and not _same_qualifying_verification(result, verify):
+        verify = None
     coupon = session.scalar(
         select(RawDouyinOrderCoupon).where(
             RawDouyinOrderCoupon.coupon_id == result.coupon_id
@@ -5253,7 +5443,7 @@ def _statement_source_snapshots(
     verify_mapping = (
         _find_poi_mapping(session, verify.poi_id) if verify is not None else None
     )
-    verify_store_id = result.verify_store_id or (
+    verify_store_id = result.qualifying_verify_store_id or result.verify_store_id or (
         verify_mapping.store_id if verify_mapping is not None else None
     )
     verify_store = (
@@ -5279,9 +5469,9 @@ def _statement_source_snapshots(
         "sale_store_id": result.sale_store_id,
         "sale_store": sale_store.store_name if sale_store is not None else None,
         "verify_store_id": verify_store_id,
-        "verify_store": verify_store.store_name if verify_store is not None else None,
+        "verify_store": result.qualifying_verify_store_name or (verify_store.store_name if verify_store is not None else None),
         "sale_time": order.sale_time if order is not None else None,
-        "verify_time": verify.verify_time if verify is not None else None,
+        "verify_time": result.qualifying_verify_time or (verify.verify_time if verify is not None else None),
         "received_amount_cent": result.source_amount_cent,
         "fee_rate": result.fee_rate,
         "refund_at": (
@@ -5666,16 +5856,22 @@ def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVe
             .where(RawDouyinVerifyRecord.coupon_id == coupon_id)
         )
     )
-    records.sort(key=lambda record: (record.verify_time or datetime.min, record.verify_id), reverse=True)
+    records.sort(
+        key=lambda record: (
+            _as_utc(record.verify_time) if record.verify_time else datetime.min.replace(tzinfo=timezone.utc),
+            record.verify_id,
+        ),
+        reverse=True,
+    )
     valid_records = [
         record
         for record in records
-        if _normalized(record.verify_status) in VALID_VERIFY_STATUSES and record.cancel_time is None
+        if _normalized(record.verify_status) in VALID_VERIFY_STATUSES
+        and record.cancel_time is None
+        and record.verify_time is not None
     ]
     if valid_records:
         return valid_records[0]
-    if records and _normalized(records[0].verify_status) not in CANCELLED_VERIFY_STATUSES:
-        return records[0]
     return None
 
 

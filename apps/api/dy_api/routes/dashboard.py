@@ -629,7 +629,7 @@ def confirm_store_settlement(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    statement = _get_billing_statement(session, statement_id, request)
+    statement = _get_billing_statement(session, statement_id, request, for_update=True)
     _require_billing_store_scope(current_user, statement.store_id, request)
     parsed = _parse_confirmation_payload(payload, request)
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
@@ -640,7 +640,7 @@ def confirm_store_settlement(
         )
     )
     if replay is not None:
-        if replay.request_payload_sha256 != payload_hash:
+        if replay.statement_id != statement.statement_id or replay.request_payload_sha256 != payload_hash:
             _raise_reporting_error(
                 request,
                 status.HTTP_409_CONFLICT,
@@ -734,7 +734,7 @@ def create_store_settlement_dispute(
     store=Depends(get_data_store),
 ):
     session = _billing_session(store, request)
-    statement = _get_billing_statement(session, statement_id, request)
+    statement = _get_billing_statement(session, statement_id, request, for_update=True)
     _require_billing_store_scope(current_user, statement.store_id, request)
     parsed = _parse_dispute_payload(payload, request)
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
@@ -745,7 +745,7 @@ def create_store_settlement_dispute(
         )
     )
     if replay is not None:
-        if replay.request_payload_sha256 != payload_hash:
+        if replay.statement_id != statement.statement_id or replay.request_payload_sha256 != payload_hash:
             _raise_reporting_error(
                 request,
                 status.HTTP_409_CONFLICT,
@@ -833,7 +833,7 @@ def create_store_settlement_dispute(
                 SettlementDispute.idempotency_key_hash == key_hash
             )
         )
-        if replay is not None and replay.request_payload_sha256 == payload_hash:
+        if replay is not None and replay.statement_id == statement_id and replay.request_payload_sha256 == payload_hash:
             return _reporting_success(request, _dispute_item(session, replay, request))
         _raise_reporting_error(
             request,
@@ -866,6 +866,7 @@ def withdraw_store_settlement_dispute(
             field="disputeId",
         )
     _require_billing_store_scope(current_user, dispute.store_id, request)
+    dispute = _lock_dispute_mutation(session, dispute, request)
     key_hash = _billing_idempotency_key_hash(idempotency_key, request)
     payload_hash = _canonical_billing_sha256(payload)
     replay = session.scalar(
@@ -874,7 +875,9 @@ def withdraw_store_settlement_dispute(
         )
     )
     if replay is not None:
-        if replay.request_payload_sha256 != payload_hash:
+        if (replay.request_payload_sha256 != payload_hash
+                or replay.target_id != dispute.dispute_id
+                or replay.operation_type != "DISPUTE_WITHDRAW"):
             _raise_reporting_error(
                 request,
                 status.HTTP_409_CONFLICT,
@@ -1332,6 +1335,7 @@ def transition_admin_dispute(
             field="disputeId",
         )
     _require_finance_store_scope(current_user, dispute.store_id, request)
+    dispute = _lock_dispute_mutation(session, dispute, request)
 
     target_status = payload.get("targetStatus")
     resolution_note = payload.get("resolutionNote")
@@ -1355,7 +1359,9 @@ def transition_admin_dispute(
         )
     )
     if replay is not None:
-        if replay.request_payload_sha256 != payload_hash:
+        if (replay.request_payload_sha256 != payload_hash
+                or replay.target_id != dispute.dispute_id
+                or replay.operation_type != "DISPUTE_TRANSITION"):
             _raise_reporting_error(
                 request,
                 status.HTTP_409_CONFLICT,
@@ -3474,7 +3480,9 @@ def register_promotion_invoice(
                         selected_statement_ids_for_lock
                     )
                 )
+                .order_by(SettlementStatement.store_id, SettlementStatement.statement_month, SettlementStatement.statement_id)
                 .with_for_update()
+                .execution_options(populate_existing=True)
             )
         )
         list(
@@ -6082,10 +6090,15 @@ def _normalize_billing_direction(value: str | None, request: Request) -> str | N
     return direction
 
 
-def _get_billing_statement(session, statement_id: str, request: Request) -> SettlementStatement:
-    statement = session.scalar(
-        select(SettlementStatement).where(SettlementStatement.statement_id == statement_id)
-    )
+def _get_billing_statement(
+    session, statement_id: str, request: Request, *, for_update: bool = False,
+) -> SettlementStatement:
+    query = select(SettlementStatement).where(SettlementStatement.statement_id == statement_id)
+    if for_update:
+        # Serialize confirmation with pending-version publication and reload an
+        # identity-map instance that may have been read before waiting for it.
+        query = query.with_for_update().execution_options(populate_existing=True)
+    statement = session.scalar(query)
     if statement is None:
         _raise_reporting_error(
             request,
@@ -9158,6 +9171,26 @@ def _confirmation_item(
         "version_no": statement.version_no,
         "is_current": statement.is_current,
     }
+
+
+def _lock_dispute_mutation(session, dispute: SettlementDispute, request: Request) -> SettlementDispute:
+    # Match pending generation / invoice writers: statement before child facts.
+    statement_id = session.scalar(select(SettlementStatement.statement_id).where(
+        SettlementStatement.store_id == dispute.store_id,
+        SettlementStatement.statement_month == dispute.statement_month,
+        SettlementStatement.is_current.is_(True),
+    ))
+    # A mutable is_current predicate can disappear during PostgreSQL lock wait.
+    # Lock the fixed identity, refresh, and fail closed if it was superseded.
+    statement = session.scalar(select(SettlementStatement).where(
+        SettlementStatement.statement_id == statement_id,
+    ).with_for_update().execution_options(populate_existing=True))
+    if statement is None or not statement.is_current:
+        _raise_reporting_error(request, status.HTTP_409_CONFLICT,
+            "STATEMENT_VERSION_CONFLICT", "当前账单版本已变化，请刷新后重试")
+    return session.scalar(select(SettlementDispute).where(
+        SettlementDispute.dispute_id == dispute.dispute_id,
+    ).with_for_update().execution_options(populate_existing=True))
 
 
 def _parse_dispute_payload(payload: dict, request: Request) -> dict:

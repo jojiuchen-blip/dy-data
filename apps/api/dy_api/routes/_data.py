@@ -989,6 +989,7 @@ class DashboardDataStore:
             SELECT statement_id, statement_status, confirmed_at, locked_at, lock_version
             FROM settlement_statement
             WHERE store_id = :store_id AND statement_month = :month
+              AND is_current = TRUE
             LIMIT 1
             """,
             {"store_id": store_id, "month": month},
@@ -1042,6 +1043,7 @@ class DashboardDataStore:
             "is_formal_period": month >= "2026-08",
             "statement": statement,
             "metrics": metrics,
+            "computed_cumulative": self._computed_store_cumulative(filters),
             "lines": lines,
         }
 
@@ -2640,6 +2642,23 @@ class DashboardDataStore:
             "page_size": page_size,
         }
 
+    def _computed_store_cumulative(self, filters: dict[str, Any]) -> dict[str, int]:
+        """Read displayed fees from the pinned ranking, never from formal bills."""
+        fields = ("promotion_net_fee_cent", "management_net_fee_cent")
+        if self._pinned_aggregate_generation() is None:
+            return {key: 0 for key in fields}
+        report = self.store_ranking_report({
+            "period_type": "CUMULATIVE",
+            "period_key": filters.get("month"),
+            "product_scope": filters.get("product_scope"),
+            "product_type": filters.get("product_type"),
+            "scope_mode": "AUTHORIZED",
+            "scope_store_ids": (_to_str(filters.get("store_id")),),
+            "page": 1,
+            "page_size": 1,
+        })
+        return {key: _to_int(report["totals"].get(key)) for key in fields}
+
     def monthly_settlement_report(self, filters: dict[str, Any]) -> dict[str, Any]:
         if self._pinned_aggregate_generation() is not None:
             return self._monthly_settlement_report_pinned(filters)
@@ -2689,6 +2708,7 @@ class DashboardDataStore:
             SELECT statement_id, statement_status, confirmed_at, locked_at, lock_version
             FROM settlement_statement
             WHERE store_id = :store_id AND statement_month = :month
+              AND is_current = TRUE
             LIMIT 1
             """,
             {"store_id": store_id, "month": month},
@@ -2781,6 +2801,7 @@ class DashboardDataStore:
             "is_formal_period": month >= "2026-08",
             "statement": statement,
             "metrics": metrics,
+            "computed_cumulative": self._computed_store_cumulative(filters),
             "lines": lines,
         }
 

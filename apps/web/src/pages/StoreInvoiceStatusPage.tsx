@@ -72,8 +72,11 @@ export function StoreInvoiceStatusPage({ currentUser, searchParams }: StoreInvoi
 
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
-  const activeStoreId = currentUser.store_ids[0] || meta?.stores[0]?.storeId || "";
-  const activeMonth = meta?.statementMonths[0] || "";
+  const requestedStoreId = searchParams.get("storeId") ?? searchParams.get("store_id") ?? "";
+  const activeStoreId = currentUser.role === "store"
+    ? (currentUser.store_ids.includes(requestedStoreId) ? requestedStoreId : currentUser.store_ids[0] || "")
+    : requestedStoreId || currentUser.store_ids[0] || meta?.stores[0]?.storeId || "";
+  const activeMonth = searchParams.get("month") || meta?.statementMonths[0] || "";
   const normalizedInvoiceNumber = invoiceNumberQuery.trim();
   // An exact invoice-number query must search every authorized period; the
   // month filter is only sent for ordinary period browsing.
