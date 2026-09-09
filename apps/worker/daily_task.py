@@ -139,6 +139,21 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
             "aweme_bindings": {"aweme_bindings"},
         }.get(target, set())
         current_client = ensure_client()
+        if _priority_paged_enabled(job):
+            # The priority path owns one-page transactions and its durable
+            # cursor.  Install the task-local budget guard before the first
+            # upstream request so a history child cannot spend the daily
+            # protection reserve intended for the next required child.
+            from apps.worker.paged_collection import collect_priority_pages
+            from apps.worker.priority_budget import protect_priority_requests
+
+            protect_priority_requests(current_client, job)
+            return collect_priority_pages(
+                _session_factory_for(session),
+                current_client,
+                job,
+                page_fence=_daily_page_fence(session, job),
+            )
         collector_names = (
             "shop_pois",
             "aweme_bindings",
@@ -168,6 +183,10 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
             "aweme_bindings": {"aweme_bindings"},
         }.get(target, set())
         current_client = ensure_client()
+        if _priority_paged_enabled(job):
+            from apps.worker.priority_budget import protect_priority_requests
+
+            protect_priority_requests(current_client, job)
         source_window = _job_window(job)
         stats = CollectionStats(run_id=job.job_id, source_window=source_window)
         collector_names = (
@@ -229,8 +248,23 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
             )
             if not kernel_summary.get("completed"):
                 raise RuntimeError("incremental settlement did not complete")
+            normalized_settlement_summary = _normalize_incremental_settlement_summary(
+                kernel_summary
+            )
+            if _priority_paged_enabled(job) and _job_target(job) == "all":
+                # A date child can be replayed after its raw pages are
+                # unchanged, leaving no fresh JobImpact rows.  Expand the
+                # frozen publication scope from all completed domain children
+                # before deferred snapshots are produced.
+                from apps.worker.publication_scope import include_completed_domain_scope
+
+                normalized_settlement_summary = include_completed_domain_scope(
+                    _session_factory_for(session),
+                    job,
+                    normalized_settlement_summary,
+                )
             settlement_summary = {
-                **_normalize_incremental_settlement_summary(kernel_summary),
+                **normalized_settlement_summary,
                 "mode": "incremental",
                 "completed": True,
             }
@@ -303,6 +337,7 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
     # The stage runner releases its stage transaction before this handler when
     # the explicit incremental mode is enabled.  The legacy default remains a
     # single stage transaction for compatibility.
+    collect.requires_independent_sessions = _priority_paged_enabled
     materialize.requires_independent_sessions = _incremental_materialization_enabled
     settle.requires_independent_sessions = _incremental_settlement_enabled
 
@@ -844,6 +879,12 @@ def _session_scope(factory):
 def _job_target(job) -> str:
     target = (getattr(job, "metadata_json", None) or {}).get("target")
     return str(target or "all")
+
+
+def _priority_paged_enabled(job: Any) -> bool:
+    """Gate resumable collection by the explicit scheduler config version."""
+
+    return str(getattr(job, "config_version", "") or "") == "priority-daily-v1"
 
 
 def _required_stages_for_job(job) -> tuple[str, ...]:
