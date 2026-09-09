@@ -1,10 +1,14 @@
 ﻿from __future__ import annotations
 
+import runpy
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api import models as dy_models
@@ -34,6 +38,7 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 import apps.worker.settlement as settlement_worker
+import apps.worker.billing_source_capture as billing_capture
 from apps.worker.repositories import (
     upsert_aweme_account,
     upsert_aweme_binding,
@@ -649,6 +654,484 @@ def _fee_result(
     )
 
 
+@pytest.mark.parametrize("verify_status", [None, "unknown", "pending", "cancelled"])
+def test_both_fee_directions_require_effective_redemption(
+    db_session: Session, verify_status: str | None,
+) -> None:
+    _load_dual_fee_fixture(db_session, with_verify=verify_status is not None)
+    if verify_status is not None:
+        verify = db_session.scalar(select(RawDouyinVerifyRecord))
+        assert verify is not None
+        verify.verify_status = verify_status
+        db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="effective-verify-gate")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_cancel_timestamp_overrides_valid_redemption_status(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert verify is not None
+    verify.cancel_time = _dual_time(9, 8)
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="cancelled-valid-status")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_fee_result_persists_qualifying_verification_identity(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="verify-provenance")
+    for direction in (1, 2):
+        result = _fee_result(db_session, "coupon-dual", direction)
+        assert result is not None
+        assert getattr(result, "qualifying_verify_id", None) == "verify-coupon-dual"
+
+
+def test_historical_statement_source_keeps_its_qualifying_verification(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="source-before-reverify")
+    original = _fee_result(db_session, "coupon-dual", 1)
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert original is not None and verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 8)
+    upsert_verify_record(
+        db_session, "verify-new-source", coupon_id="coupon-dual", verify_status="valid",
+        verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
+        paid_amount_cent=10001, source_run_id="reverify-source",
+    )
+    db_session.flush()
+
+    snapshot = settlement_worker._statement_source_snapshots(db_session, result=original)
+
+    assert settlement_worker._as_utc(snapshot["verify_time"]) == _dual_time(9, 5)
+
+
+def test_recalculation_retires_unverified_unlocked_current_results(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="before-invalid-verify")
+    originals = [_fee_result(db_session, "coupon-dual", direction) for direction in (1, 2)]
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert verify is not None
+    verify.verify_status = "unknown"
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="repair-invalid-verify", force_recalculate=True)
+    rebuild_dual_fee_results(db_session, calculation_run_id="repair-invalid-verify", force_recalculate=True)
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+    assert all(original is not None and original.result_status == 2 for original in originals)
+    assert count(db_session, SettlementFeeResult) == 2
+
+
+@pytest.mark.parametrize("ineligible", ["product", "channel", "owner", "scope", "closed"])
+def test_current_results_exit_when_eligibility_is_revoked(db_session: Session, ineligible: str) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="before-eligibility-revoked")
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    if ineligible == "product":
+        product = db_session.scalar(select(DimSkuProductRule))
+        assert product is not None
+        product.is_active_product = False
+    elif ineligible == "channel":
+        order.sale_channel_normalized = "unknown"
+    elif ineligible == "owner":
+        db_session.add(DimNonCommissionOwnerAccount(
+            owner_account_name="Owner Dual",
+            normalized_owner_account_name=normalize_owner_account_name("Owner Dual"),
+            is_active=True,
+        ))
+    elif ineligible == "scope":
+        for scope in db_session.scalars(select(SettlementScopeRule)):
+            scope.is_active = False
+    else:
+        order.order_status_normalized = "closed"
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="eligibility-revoked")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+    assert count(db_session, SettlementFeeResult) == 2
+
+
+def test_cancellation_zeros_both_fees_once(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="before-dual-cancel")
+    originals = [_fee_result(db_session, "coupon-dual", direction) for direction in (1, 2)]
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 8)
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-cancel")
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-cancel-repeat")
+
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert len(adjustments) == 2
+    for original in originals:
+        assert original is not None
+        assert sum(row.adjustment_fee_cent for row in adjustments if row.original_fee_result_id == original.fee_result_id) == -original.fee_amount_cent
+    assert {row.adjustment_posting_month for row in adjustments} == {"2026-10"}
+
+
+def test_refund_after_pending_cancellation_does_not_double_reduce(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="before-pending-cancel")
+    originals = [_fee_result(db_session, "coupon-dual", direction) for direction in (1, 2)]
+    for store_id in ("store-sale", "store-verify"):
+        lock_settlement_statement(db_session, store_id=store_id, statement_month="2026-10", lock_run_id=f"lock-{store_id}")
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 8)
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="pending-cancel")
+    db_session.add(DouyinRefundEvent(
+        refund_event_id="refund-after-cancel", order_id="order-coupon-dual", coupon_id="coupon-dual",
+        refund_type=1, refund_status=2, refund_amount_cent=1000,
+        occurred_at=_dual_time(10, 9), source_run_id="refund-after-cancel", raw_payload={},
+    ))
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="refund-after-pending-cancel")
+
+    for original in originals:
+        assert original is not None
+        _, adjustment_fee = settlement_worker._effective_adjustment_totals(db_session, original_fee_result_id=original.fee_result_id)
+        assert original.fee_amount_cent + adjustment_fee == 0
+
+
+@pytest.mark.parametrize("reuse_verify_id", [False, True])
+def test_reverification_is_not_zeroed_by_previous_cancellation(db_session: Session, reuse_verify_id: bool) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="before-reverify")
+    verify = db_session.scalar(select(RawDouyinVerifyRecord))
+    assert verify is not None
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(10, 8)
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="old-cancel")
+    _add_scope_rule(db_session, "2026-10")
+    upsert_verify_record(
+        db_session, "verify-coupon-dual" if reuse_verify_id else "verify-again", coupon_id="coupon-dual", verify_status="valid",
+        verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
+        paid_amount_cent=10000, source_run_id="reverify-source",
+    )
+    if reuse_verify_id:
+        verify.verify_status = "valid"
+        verify.verify_time = _dual_time(10, 10)
+        verify.cancel_time = None
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="after-reverify")
+    rebuild_dual_fee_results(db_session, calculation_run_id="after-reverify-repeat")
+
+    for direction in (1, 2):
+        current = _fee_result(db_session, "coupon-dual", direction)
+        assert current is not None
+        adjustments = list(db_session.scalars(select(SettlementFeeAdjustment).where(
+            SettlementFeeAdjustment.original_fee_result_id == current.fee_result_id,
+        )))
+        assert current.fee_amount_cent > 0
+        assert sum(row.adjustment_fee_cent for row in adjustments) == 0
+
+    # V1's immutable cancellation rows still exist. They must not reduce V2
+    # after the unlocked pointer has moved, in either aggregation path.
+    assert count(db_session, SettlementFeeAdjustment) == 2
+    rebuild_dual_fee_projections(db_session, projection_run_id="unlocked-reverify-projection")
+    for month, store_id, prefix, expected in (
+        ("2026-08", "store-sale", "promotion", 0),
+        ("2026-09", "store-sale", "promotion", 0),
+        ("2026-09", "store-verify", "management", 0),
+        ("2026-10", "store-sale", "promotion", 3000),
+        ("2026-10", "store-verify", "management", 2000),
+    ):
+        ordinary = monthly_projection(db_session, month, store_id, "all")
+        ordinary_amount = getattr(ordinary, f"{prefix}_net_fee_cent") if ordinary else 0
+        assert ordinary_amount == expected
+        sparse_rows = db_session.execute(settlement_worker._sparse_monthly_query(month)).mappings().all()
+        sparse_amount = sum(
+            row[f"{prefix}_original_fee_cent"] + row[f"{prefix}_adjustment_fee_cent"]
+            for row in sparse_rows
+            if row["store_id"] == store_id and row["product_scope"] == row["product_type"] == "all"
+        )
+        assert sparse_amount == ordinary_amount
+        captured = billing_capture.collect_billing_sources(db_session, months=[month])
+        assert sum(source.fee_amount_cent for source in captured if source.store_id == store_id) == expected
+
+
+def test_old_cancellation_does_not_keep_invalid_reverification_current(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="exit-base")
+    old = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    old.verify_status = "cancelled"
+    old.cancel_time = _dual_time(10, 8)
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="exit-cancel")
+    _add_scope_rule(db_session, "2026-10")
+    upsert_verify_record(
+        db_session, "exit-new", coupon_id="coupon-dual", verify_status="valid",
+        verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
+        paid_amount_cent=10001, source_run_id="exit-new",
+    )
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="exit-reverify")
+    db_session.get(RawDouyinVerifyRecord, "exit-new").verify_status = "unknown"
+    db_session.flush()
+    for _ in range(2):
+        rebuild_dual_fee_results(db_session, calculation_run_id="exit-invalid", force_recalculate=True)
+    assert all(_fee_result(db_session, "coupon-dual", direction) is None for direction in (1, 2))
+
+
+def test_reused_verification_keeps_historical_store_snapshot(db_session: Session) -> None:
+    _load_dual_fee_fixture(db_session)
+    rebuild_dual_fee_results(db_session, calculation_run_id="snapshot-original")
+    originals = [_fee_result(db_session, "coupon-dual", direction) for direction in (1, 2)]
+    upsert_store(db_session, "store-reverified", "Reverified Store")
+    upsert_store_poi_mapping(db_session, "store-reverified", "poi-reverified", mapping_source="test")
+    verify = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    verify.verify_time = _dual_time(10, 10)
+    verify.poi_id = "poi-reverified"
+    db_session.flush()
+    for original in originals:
+        snapshot = settlement_worker._statement_source_snapshots(db_session, result=original)
+        assert snapshot["verify_store_id"] == "store-verify"
+        assert settlement_worker._as_utc(snapshot["verify_time"]) == _dual_time(9, 5)
+
+
+@pytest.mark.parametrize("populated_column", [
+    None, "qualifying_verify_store_id", "qualifying_verify_store_name", "reverification_anchor_id",
+])
+def test_reverification_migration_preserves_populated_provenance(populated_column: str | None) -> None:
+    migration_path = Path(__file__).resolve().parents[1] / "alembic/versions/20260909_0051_fee_result_verification_provenance.py"
+    migration = runpy.run_path(str(migration_path))
+    engine = create_engine("sqlite+pysqlite:///:memory:")
+    with engine.begin() as connection:
+        connection.execute(text("CREATE TABLE settlement_fee_result (id INTEGER PRIMARY KEY, result_version INTEGER DEFAULT 1)"))
+        migration["upgrade"].__globals__["op"] = Operations(MigrationContext.configure(connection))
+        migration["upgrade"]()
+        new_columns = {"qualifying_verify_store_id", "qualifying_verify_store_name", "reverification_anchor_id"}
+        columns = {column["name"]: column for column in inspect(connection).get_columns("settlement_fee_result")}
+        assert all(columns[name]["nullable"] for name in new_columns)
+        assert "idx_settlement_fee_result_reverification_anchor" in {
+            index["name"] for index in inspect(connection).get_indexes("settlement_fee_result")
+        }
+        if populated_column:
+            # The column is a fixed test enum, never external SQL input.
+            connection.execute(text(f"INSERT INTO settlement_fee_result (id, {populated_column}) VALUES (1, 'preserved')"))
+            with pytest.raises(RuntimeError, match="provenance is populated"):
+                migration["downgrade"]()
+            assert connection.execute(text(f"SELECT {populated_column} FROM settlement_fee_result")).scalar_one() == "preserved"
+        else:
+            migration["downgrade"]()
+            assert not new_columns.intersection(column["name"] for column in inspect(connection).get_columns("settlement_fee_result"))
+    engine.dispose()
+
+
+def _assert_reverification_projection_sources(
+    session: Session, *, month: str, expected: dict[str, int], expected_adjustment_ids: set[str],
+) -> None:
+    """Exercise SQL aggregation, durable billing capture and ordinary projection."""
+    captured = billing_capture.collect_billing_sources(session, months=[month])
+    assert expected_adjustment_ids.issubset({source.source_record_id for source in captured})
+    capture_job = f"projection-proof-{month}"
+    session.add(JobRun(job_id=capture_job, job_name="settlement_rebuild", status="running"))
+    session.flush()
+    billing_capture.freeze_billing_sources(session, generation_id=capture_job, job_id=capture_job, sources=captured)
+    restored = billing_capture.load_billing_sources(session, generation_id=capture_job, job_id=capture_job)
+    assert {source.source_record_id for source in restored} == {source.source_record_id for source in captured}
+    sparse_rows = session.execute(settlement_worker._sparse_monthly_query(month)).mappings().all()
+    for store_id, amount in expected.items():
+        prefix = "promotion" if store_id == "store-sale" else "management"
+        sparse = next(row for row in sparse_rows if row["store_id"] == store_id and row["product_scope"] == row["product_type"] == "all")
+        assert sparse[f"{prefix}_original_fee_cent"] + sparse[f"{prefix}_adjustment_fee_cent"] == amount
+        assert sum(source.fee_amount_cent for source in restored if source.store_id == store_id) == amount
+    rebuild_dual_fee_projections(session, projection_run_id=capture_job)
+    for store_id, amount in expected.items():
+        row = monthly_projection(session, month, store_id, "all")
+        assert row is not None
+        prefix = "promotion" if store_id == "store-sale" else "management"
+        assert getattr(row, f"{prefix}_net_fee_cent") == amount
+
+
+@pytest.mark.parametrize("reuse_verify_id", [False, True])
+@pytest.mark.parametrize("locked_event_month", [False, True])
+def test_locked_reverification_appends_delta_and_preserves_history(
+    db_session: Session, reuse_verify_id: bool, locked_event_month: bool,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="locked-reverify-base")
+    originals = [_fee_result(db_session, "coupon-dual", direction) for direction in (1, 2)]
+    frozen = [lock_settlement_statement(
+        db_session, store_id=store, statement_month=month, lock_run_id=f"freeze-{store}",
+    ) for store, month in (("store-sale", "2026-09"), ("store-verify", "2026-09"))]
+    frozen_totals = [(row.promotion_net_fee_cent, row.management_net_fee_cent) for row in frozen]
+    if locked_event_month:
+        for store in ("store-sale", "store-verify"):
+            lock_settlement_statement(db_session, store_id=store, statement_month="2026-10", lock_run_id=f"freeze-oct-{store}")
+    old = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    old.verify_status = "cancelled"
+    old.cancel_time = _dual_time(10, 8)
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="locked-reverify-cancel")
+    _add_scope_rule(db_session, "2026-10")
+    verify_id = "verify-coupon-dual" if reuse_verify_id else "locked-new"
+    upsert_verify_record(
+        db_session, verify_id, coupon_id="coupon-dual", verify_status="valid",
+        verify_time=_dual_time(10, 10), poi_id="poi-verify", sku_id="sku-dual",
+        paid_amount_cent=10000, source_run_id="locked-new",
+    )
+    verify = db_session.get(RawDouyinVerifyRecord, verify_id)
+    verify.verify_status = "valid"
+    verify.verify_time = _dual_time(10, 10)
+    verify.cancel_time = None
+    db_session.flush()
+    for run in ("locked-reverify-new", "locked-reverify-new", "locked-reverify-repeat"):
+        rebuild_dual_fee_results(db_session, calculation_run_id=run, force_recalculate=True)
+    restorations = list(db_session.scalars(select(SettlementFeeAdjustment).where(SettlementFeeAdjustment.adjustment_type == 4)))
+    pending = list(db_session.scalars(select(dy_models.SettlementCarryforwardSource).where(dy_models.SettlementCarryforwardSource.adjustment_type == 4)))
+    assert sorted(row.adjustment_fee_cent for row in restorations + pending) == [2000, 3000]
+    assert count(db_session, SettlementFeeResult) == 4
+    assert [_fee_result(db_session, "coupon-dual", direction).fee_result_id for direction in (1, 2)] == [row.fee_result_id for row in originals]
+    assert [(row.promotion_net_fee_cent, row.management_net_fee_cent) for row in frozen] == frozen_totals
+    if locked_event_month:
+        for store in ("store-sale", "store-verify"):
+            lock_settlement_statement(db_session, store_id=store, statement_month="2026-11", lock_run_id=f"apply-{store}")
+        assert count(db_session, dy_models.SettlementCarryforwardApplication) == 4
+    opening_adjustments = list(db_session.scalars(select(SettlementFeeAdjustment).where(
+        SettlementFeeAdjustment.adjustment_type == 4,
+    )))
+    _assert_reverification_projection_sources(
+        db_session, month="2026-11" if locked_event_month else "2026-10",
+        expected={"store-sale": 0, "store-verify": 0},
+        expected_adjustment_ids={row.adjustment_id for row in opening_adjustments},
+    )
+    # Refund and another cancellation follow the restored lineage, not the frozen one.
+    db_session.add(DouyinRefundEvent(
+        refund_event_id="restored-refund", order_id="order-coupon-dual", coupon_id="coupon-dual",
+        refund_type=1, refund_status=2, refund_amount_cent=1000,
+        occurred_at=_dual_time(12, 2), source_run_id="restored-refund", raw_payload={},
+    ))
+    db_session.flush()
+    rebuild_dual_fee_results(db_session, calculation_run_id="restored-refund")
+    refunds = list(db_session.scalars(select(SettlementFeeAdjustment).where(SettlementFeeAdjustment.refund_event_id == "restored-refund")))
+    assert sorted(row.adjustment_fee_cent for row in refunds) == [-300, -200]
+    _assert_reverification_projection_sources(
+        db_session, month="2026-12", expected={"store-sale": -300, "store-verify": -200},
+        expected_adjustment_ids={row.adjustment_id for row in refunds},
+    )
+    verify.verify_status = "cancelled"
+    verify.cancel_time = _dual_time(12, 3)
+    db_session.flush()
+    for _ in range(2):
+        rebuild_dual_fee_results(db_session, calculation_run_id="restored-cancel")
+    for direction, original in zip((1, 2), originals):
+        adjustments = settlement_worker._active_fee_adjustments(db_session)
+        assert original.fee_amount_cent + sum(row.adjustment_fee_cent for row in adjustments if row.fee_direction == direction) == 0
+
+
+@pytest.mark.parametrize("verify_paid", [0, 8000, 10000])
+def test_verified_basis_uses_same_receipts_and_verification_day_rules(
+    db_session: Session, verify_paid: int,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=12000)
+    _add_fee_rule(db_session, "fee-verify-day", date(2026, 9, 5), promotion="0.170000", management="0.170000")
+    verify = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
+    verify.paid_amount_cent = verify_paid
+    db_session.flush()
+    for run in ("common-basis", "common-basis", "common-basis-repeat"):
+        rebuild_dual_fee_results(db_session, calculation_run_id=run)
+    for direction in (1, 2):
+        result = _fee_result(db_session, "coupon-dual", direction)
+        assert result.original_business_month == "2026-09"
+        assert result.rule_match_date == date(2026, 9, 5)
+        assert result.rule_version == "fee-verify-day"
+        assert result.source_amount_cent == result.fee_base_cent == verify_paid
+        assert result.fee_amount_cent == verify_paid * 17 // 100
+        assert (result.sale_store_id if direction == 1 else result.verify_store_id) == ("store-sale" if direction == 1 else "store-verify")
+    assert count(db_session, SettlementFeeResult) == 2
+
+
+@pytest.mark.parametrize("old_slot_locked", [
+    False, True, "confirmation", "confirmed_status", "confirmed_at", "historical_invoice",
+])
+def test_verified_basis_migrates_only_unlocked_legacy_sale_month(
+    db_session: Session, old_slot_locked: bool,
+) -> None:
+    _load_dual_fee_fixture(db_session, amount_cent=10000)
+    rebuild_dual_fee_results(db_session, calculation_run_id="legacy-seed")
+    legacy = _fee_result(db_session, "coupon-dual", 1)
+    # Represent the pre-change sale-month record, including its old rule/base.
+    legacy.original_business_month = "2026-08"
+    legacy.rule_match_date = date(2026, 8, 10)
+    legacy.rule_version = "fee-aug"
+    legacy.scope_rule_version = "scope-2026-08-short_video"
+    legacy.fee_rate = Decimal("0.012345")
+    legacy.fee_amount_cent = 123
+    legacy.input_fingerprint = None
+    db_session.flush()
+    if old_slot_locked:
+        # Even a protected old slot without an entry referencing this result
+        # must not be bypassed by moving the result to another month.
+        db_session.add(SettlementStatement(
+            statement_id="legacy-locked-slot", store_id="store-sale", statement_month="2026-08",
+            statement_status=4, locked_by="test", locked_at=_dual_time(9, 8), lock_version="legacy-lock",
+        ))
+        db_session.flush()
+        statement = db_session.scalar(select(SettlementStatement).where(SettlementStatement.statement_id == "legacy-locked-slot"))
+        if isinstance(old_slot_locked, str):
+            statement.statement_status = 3 if old_slot_locked == "confirmed_status" else 2
+            statement.locked_at = None
+            statement.confirmed_at = _dual_time(9, 8) if old_slot_locked == "confirmed_at" else None
+            if old_slot_locked == "confirmation":
+                db_session.add(dy_models.SettlementStatementConfirmation(
+                    confirmation_id="legacy-confirmation", statement_id=statement.statement_id,
+                    fee_direction=1, confirmed_by="test", confirmed_at=_dual_time(9, 8),
+                    idempotency_key_hash="legacy-confirmation",
+                ))
+            if old_slot_locked == "historical_invoice":
+                db_session.add(dy_models.InvoiceRecord(
+                    invoice_id="legacy-invoice", store_id="store-sale", statement_month="2026-08",
+                    statement_id=statement.statement_id, fee_direction=1, is_current=False,
+                    invoice_number="12345678901234567890", invoice_date=date(2026, 9, 8),
+                    invoice_amount_cent=123, source_type=1, registered_by="test",
+                ))
+            db_session.flush()
+    for _ in range(2):
+        rebuild_dual_fee_results(db_session, calculation_run_id="legacy-repair", force_recalculate=True)
+    current = _fee_result(db_session, "coupon-dual", 1)
+    if old_slot_locked:
+        assert current.fee_result_id == legacy.fee_result_id
+        assert current.original_business_month == "2026-08"
+        assert current.fee_amount_cent == 123
+        assert db_session.scalar(select(func.count()).select_from(SettlementFeeResult).where(
+            SettlementFeeResult.coupon_id == "coupon-dual", SettlementFeeResult.fee_direction == 1,
+        )) == 1
+        assert not [source for source in billing_capture.collect_billing_sources(db_session, months=["2026-09"])
+                    if source.store_id == "store-sale"]
+    else:
+        assert current.fee_result_id != legacy.fee_result_id
+        assert current.original_business_month == "2026-09"
+        assert current.rule_version == "fee-sep"
+        assert current.fee_amount_cent == 3000
+        assert legacy.result_status == 2
+        rebuild_dual_fee_projections(db_session, projection_run_id="legacy-repair-projection")
+        old_month = monthly_projection(db_session, "2026-08", "store-sale", "all")
+        assert old_month is None or old_month.promotion_net_fee_cent == 0
+        assert monthly_projection(db_session, "2026-09", "store-sale", "all").promotion_net_fee_cent == 3000
+    assert legacy.original_business_month == "2026-08"
+    assert legacy.fee_amount_cent == 123
+
+
 def test_dual_fee_results_use_directional_dates_rules_months_and_rounding(
     db_session: Session,
 ) -> None:
@@ -660,12 +1143,12 @@ def test_dual_fee_results_use_directional_dates_rules_months_and_rounding(
     management = _fee_result(db_session, "coupon-dual", 2)
     assert promotion is not None
     assert management is not None
-    assert promotion.original_business_month == "2026-08"
-    assert promotion.rule_match_date == date(2026, 8, 10)
+    assert promotion.original_business_month == "2026-09"
+    assert promotion.rule_match_date == date(2026, 9, 5)
     assert promotion.sale_store_id == "store-sale"
-    assert promotion.rule_version == "fee-aug"
-    assert promotion.fee_rate == Decimal("0.012345")
-    assert promotion.fee_amount_cent == 123
+    assert promotion.rule_version == "fee-sep"
+    assert promotion.fee_rate == Decimal("0.300000")
+    assert promotion.fee_amount_cent == 3000
     assert management.original_business_month == "2026-09"
     assert management.rule_match_date == date(2026, 9, 5)
     assert management.verify_store_id == "store-verify"
@@ -674,14 +1157,294 @@ def test_dual_fee_results_use_directional_dates_rules_months_and_rounding(
     assert management.fee_amount_cent == 2000
 
 
+@pytest.mark.parametrize("account_without_store", [False, True])
+@pytest.mark.parametrize("with_binding_dimension", [False, True])
+def test_dual_fee_resolves_order_uid_through_unique_active_raw_binding(
+    db_session: Session, account_without_store: bool, with_binding_dimension: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    if account_without_store:
+        upsert_aweme_account(
+            db_session, order.owner_account_id,
+            nickname="Owner Dual", binding_status="active",
+        )
+    upsert_aweme_binding(
+        db_session, "binding-owner-dual", account_id="store-sale",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    if with_binding_dimension:
+        upsert_aweme_account(
+            db_session, "store-sale", nickname="Owner Dual", store_id="store-sale",
+            binding_status="认证成功", valid_from=date(2026, 8, 10),
+            valid_to=date(2026, 8, 10),
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="uid-binding-fix")
+    rebuild_dual_fee_results(db_session, calculation_run_id="uid-binding-repeat")
+    rebuild_dual_fee_projections(db_session, projection_run_id="uid-projection")
+
+    promotion = _fee_result(db_session, "coupon-dual", 1)
+    management = _fee_result(db_session, "coupon-dual", 2)
+    assert promotion is not None
+    assert promotion.sale_store_id == "store-sale"
+    assert promotion.fee_amount_cent == 3000
+    assert management is not None
+    assert management.sale_store_id == "store-sale"
+    assert management.verify_store_id == "store-verify"
+    assert management.fee_amount_cent == 2000
+    assert count(db_session, SettlementFeeResult) == 2
+    monthly = monthly_projection(db_session, "2026-09", "store-sale", "maintenance")
+    assert monthly is not None
+    assert monthly.promotion_net_fee_cent == 3000
+
+
+@pytest.mark.parametrize(
+    "invalid_binding",
+    ["unbound", "unknown_store", "ambiguous", "id_conflict", "inactive_account",
+     "before_valid_from", "after_valid_to", "non_commission", "inactive_store",
+     "known_id_inactive", "known_id_expired", "missing_binding", "name_mismatch"],
+)
+def test_dual_fee_owner_binding_fails_closed(
+    db_session: Session, invalid_binding: str
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    store_id = "unknown-store" if invalid_binding == "unknown_store" else "store-sale"
+    upsert_aweme_binding(
+        db_session, "binding-owner-dual", account_id=store_id,
+        douyin_nickname="Unrelated Owner" if invalid_binding == "name_mismatch" else "Owner Dual",
+        binding_status="已解绑" if invalid_binding == "unbound" else "active",
+    )
+    if invalid_binding == "missing_binding":
+        order.owner_account_name = None
+    if invalid_binding == "inactive_store":
+        store = db_session.get(dy_models.DimStore, "store-sale")
+        assert store is not None
+        store.is_active = False
+    if invalid_binding in {"known_id_inactive", "known_id_expired"}:
+        upsert_aweme_account(
+            db_session, order.owner_account_id, nickname="Owner Dual",
+            store_id="store-sale",
+            binding_status="已解绑" if invalid_binding == "known_id_inactive" else "active",
+            valid_to=date(2026, 8, 9) if invalid_binding == "known_id_expired" else None,
+        )
+    if invalid_binding == "ambiguous":
+        upsert_aweme_binding(
+            db_session, "binding-owner-other", account_id="store-verify",
+            douyin_nickname="Owner Dual", binding_status="active",
+        )
+    if invalid_binding == "id_conflict":
+        upsert_aweme_account(
+            db_session, order.owner_account_id, nickname="Owner Dual",
+            store_id="store-verify", binding_status="active",
+        )
+    if invalid_binding in {"inactive_account", "before_valid_from", "after_valid_to"}:
+        upsert_aweme_account(
+            db_session, "store-sale", nickname="Owner Dual", store_id="store-sale",
+            binding_status="已解绑" if invalid_binding == "inactive_account" else "active",
+            valid_from=date(2026, 8, 11) if invalid_binding == "before_valid_from" else None,
+            valid_to=date(2026, 8, 9) if invalid_binding == "after_valid_to" else None,
+        )
+    if invalid_binding == "non_commission":
+        db_session.add(DimNonCommissionOwnerAccount(
+            owner_account_name="Owner Dual",
+            normalized_owner_account_name=normalize_owner_account_name("Owner Dual"),
+            is_active=True,
+        ))
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="invalid-owner-binding")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+    issue_types = set(db_session.scalars(select(DataQualityIssue.issue_type)))
+    assert (
+        "dual_fee_non_commission_owner" if invalid_binding == "non_commission"
+        else "dual_fee_missing_sale_store"
+    ) in issue_types
+
+
+@pytest.mark.parametrize("direct_match", [False, True])
+def test_dual_fee_does_not_resurrect_an_explicitly_unbound_identity(
+    db_session: Session, direct_match: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    if not direct_match:
+        order.owner_account_id = "_000_opaque_order_uid"
+    for key, status in [("old-active", "active"), ("new-unbound", "已解绑")]:
+        upsert_aweme_binding(
+            db_session, key, account_id="store-sale", douyin_id="seller-douyin-id",
+            douyin_nickname="Owner Dual", poi_id="poi-sale", binding_status=status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="conflicting-binding-status")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_unrelated_unbound_identity_does_not_override_valid_binding(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    upsert_aweme_binding(
+        db_session, "active-owner", account_id="store-sale", douyin_id="seller-a",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    upsert_aweme_binding(
+        db_session, "inactive-other", account_id="store-verify", douyin_id="seller-b",
+        douyin_nickname="Owner Dual", binding_status="已解绑",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="unrelated-binding-status")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+
+
+@pytest.mark.parametrize("status", ["pending", "reviewing"])
+@pytest.mark.parametrize("with_old_active", [False, True])
+@pytest.mark.parametrize("direct_match", [False, True])
+def test_dual_fee_pending_binding_never_qualifies_as_active(
+    db_session: Session, status: str, with_old_active: bool, direct_match: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    if not direct_match:
+        order.owner_account_id = "_000_opaque_order_uid"
+    statuses = ["active", status] if with_old_active else [status]
+    for binding_status in statuses:
+        upsert_aweme_binding(
+            db_session, f"binding-{binding_status}", account_id="store-sale",
+            douyin_id="seller-id", douyin_nickname="Owner Dual",
+            binding_status=binding_status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="pending-binding")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_normalizes_numeric_binding_account_type(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    for key, status, payload in [
+        ("numeric-type", "active", {"account_type": 1}),
+        ("string-type", "已解绑", {"账号类型": "1"}),
+    ]:
+        upsert_aweme_binding(
+            db_session, key, account_id="store-sale", douyin_id="seller-id",
+            douyin_nickname="Owner Dual", binding_status=status, raw_payload=payload,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="numeric-binding-type")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+def test_dual_fee_ignores_status_conflict_without_a_real_store_candidate(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    order = db_session.scalar(select(RawDouyinOrder))
+    assert order is not None
+    order.owner_account_id = "_000_opaque_order_uid"
+    upsert_aweme_binding(
+        db_session, "actual-store-binding", account_id="store-sale",
+        douyin_nickname="Owner Dual", binding_status="active",
+    )
+    for status in ["active", "已解绑"]:
+        upsert_aweme_binding(
+            db_session, f"unrelated-{status}", account_id="not-a-store",
+            douyin_id="unrelated-seller", douyin_nickname="Owner Dual",
+            binding_status=status,
+        )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="irrelevant-status-conflict")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+
+
+def test_dual_fee_direct_unbinding_cannot_be_masked_by_another_identity(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    upsert_aweme_binding(
+        db_session, "direct-unbound", account_id="owner-dual",
+        douyin_id="direct-douyin", douyin_nickname="Owner Dual",
+        binding_status="unbound",
+    )
+    upsert_aweme_binding(
+        db_session, "other-active", account_id="store-sale",
+        douyin_id="other-douyin", douyin_nickname="Owner Dual",
+        binding_status="active",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="direct-unbinding-evidence")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
+@pytest.mark.parametrize("missing_store", [False, True])
+def test_dual_fee_invalid_direct_store_cannot_be_replaced_by_same_name(
+    db_session: Session, missing_store: bool
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    account = db_session.get(DimAwemeAccount, "owner-dual")
+    assert account is not None
+    if missing_store:
+        account.store_id = "missing-direct-store"
+    else:
+        store = db_session.get(dy_models.DimStore, "store-sale")
+        assert store is not None
+        store.is_active = False
+    upsert_aweme_binding(
+        db_session, "other-store-active", account_id="store-verify",
+        douyin_id="other-douyin", douyin_nickname="Owner Dual",
+        binding_status="active",
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="invalid-direct-store")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is None
+    assert _fee_result(db_session, "coupon-dual", 2) is None
+
+
 def test_newer_inactive_fee_rule_suppresses_older_active_rule(
     db_session: Session,
 ) -> None:
     _load_dual_fee_fixture(db_session)
     _add_fee_rule(
         db_session,
-        "fee-aug-disabled",
-        date(2026, 8, 5),
+        "fee-sep-disabled",
+        date(2026, 9, 2),
         promotion="0.900000",
         management="0.900000",
         status=2,
@@ -692,11 +1455,10 @@ def test_newer_inactive_fee_rule_suppresses_older_active_rule(
 
     assert _fee_result(db_session, "coupon-dual", 1) is None
     management = _fee_result(db_session, "coupon-dual", 2)
-    assert management is not None
-    assert management.rule_version == "fee-sep"
+    assert management is None
 
 
-def test_dual_fee_direction_failure_is_isolated_and_rerun_is_idempotent(
+def test_missing_verification_blocks_both_directions_and_rerun_is_idempotent(
     db_session: Session,
 ) -> None:
     _load_dual_fee_fixture(db_session, with_verify=False)
@@ -704,9 +1466,9 @@ def test_dual_fee_direction_failure_is_isolated_and_rerun_is_idempotent(
     rebuild_dual_fee_results(db_session, calculation_run_id="dual-calc-1")
     rebuild_dual_fee_results(db_session, calculation_run_id="dual-calc-1")
 
-    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 1) is None
     assert _fee_result(db_session, "coupon-dual", 2) is None
-    assert count(db_session, SettlementFeeResult) == 1
+    assert count(db_session, SettlementFeeResult) == 0
     issue_types = set(db_session.scalars(select(DataQualityIssue.issue_type)))
     assert "dual_fee_missing_valid_verify" in issue_types
 
@@ -821,7 +1583,7 @@ def test_refund_events_create_cross_month_immutable_adjustments_once(
         "2026-10",
     ]
     assert [row.adjustment_base_cent for row in first_adjustments] == [-4001, -4001]
-    assert [row.adjustment_fee_cent for row in first_adjustments] == [-49, -800]
+    assert [row.adjustment_fee_cent for row in first_adjustments] == [-1200, -800]
 
     db_session.add(
         DouyinRefundEvent(
@@ -850,7 +1612,7 @@ def test_refund_events_create_cross_month_immutable_adjustments_once(
     )
     assert len(adjustments) == 4
     assert [row.adjustment_base_cent for row in adjustments[2:]] == [-5999, -5999]
-    assert [row.adjustment_fee_cent for row in adjustments[2:]] == [-74, -1200]
+    assert [row.adjustment_fee_cent for row in adjustments[2:]] == [-1800, -1200]
     assert [row.adjustment_type for row in adjustments[2:]] == [2, 2]
     assert [row.adjustment_posting_month for row in adjustments[2:]] == [
         "2026-11",
@@ -858,7 +1620,7 @@ def test_refund_events_create_cross_month_immutable_adjustments_once(
     ]
 
 
-def test_cancelled_verification_adjusts_management_only(
+def test_cancelled_verification_adjusts_both_directions_at_original_rates(
     db_session: Session,
 ) -> None:
     _load_dual_fee_fixture(db_session, amount_cent=10000)
@@ -870,7 +1632,11 @@ def test_cancelled_verification_adjusts_management_only(
     db_session.flush()
 
     rebuild_dual_fee_results(db_session, calculation_run_id="dual-calc-2")
-    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    all_adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert len(all_adjustments) == 2
+    promotion_adjustments = [row for row in all_adjustments if row.fee_direction == 1]
+    assert promotion_adjustments[0].adjustment_fee_cent == -3000
+    adjustments = [row for row in all_adjustments if row.fee_direction == 2]
     assert len(adjustments) == 1
     assert adjustments[0].fee_direction == 2
     assert adjustments[0].adjustment_type == 3
@@ -935,7 +1701,8 @@ def test_backdated_cancellation_adjusts_existing_management_result(
 
     adjustment = db_session.scalar(
         select(SettlementFeeAdjustment).where(
-            SettlementFeeAdjustment.adjustment_type == 3
+            SettlementFeeAdjustment.adjustment_type == 3,
+            SettlementFeeAdjustment.fee_direction == 2,
         )
     )
     assert adjustment is not None
@@ -1051,10 +1818,10 @@ def test_recalculation_after_refund_uses_only_current_result_lineage(
     rebuild_dual_fee_results(db_session, calculation_run_id="dual-calc-2")
     _add_fee_rule(
         db_session,
-        "fee-aug-recalculated",
-        date(2026, 8, 5),
+        "fee-sep-recalculated",
+        date(2026, 9, 2),
         promotion="0.500000",
-        management="0.500000",
+        management="0.200000",
     )
     db_session.flush()
 
@@ -1073,14 +1840,14 @@ def test_recalculation_after_refund_uses_only_current_result_lineage(
     assert current_promotion.fee_amount_cent == 5000
     assert current_management.refunded_amount_cent == 0
     assert current_management.fee_amount_cent == 2000
-    august = monthly_projection(db_session, "2026-08", "store-sale", "all")
+    september_sale = monthly_projection(db_session, "2026-09", "store-sale", "all")
     september = monthly_projection(db_session, "2026-09", "store-verify", "all")
     october_sale = monthly_projection(db_session, "2026-10", "store-sale", "all")
     october_verify = monthly_projection(db_session, "2026-10", "store-verify", "all")
-    assert august is not None
+    assert september_sale is not None
     assert september is not None
-    assert august.promotion_original_fee_cent == 5000
-    assert august.promotion_adjustment_fee_cent == 0
+    assert september_sale.promotion_original_fee_cent == 5000
+    assert september_sale.promotion_adjustment_fee_cent == 0
     assert september.management_original_fee_cent == 2000
     assert september.management_adjustment_fee_cent == 0
     assert october_sale is not None
@@ -1153,8 +1920,8 @@ def test_unlocked_recalculation_versions_result_but_locked_statement_freezes_poi
     assert original is not None
     _add_fee_rule(
         db_session,
-        "fee-aug-new",
-        date(2026, 8, 5),
+        "fee-sep-new",
+        date(2026, 9, 2),
         promotion="0.500000",
         management="0.500000",
     )
@@ -1166,25 +1933,25 @@ def test_unlocked_recalculation_versions_result_but_locked_statement_freezes_poi
     recalculated = _fee_result(db_session, "coupon-dual", 1)
     assert recalculated is not None
     assert recalculated.result_version == 2
-    assert recalculated.rule_version == "fee-aug-new"
+    assert recalculated.rule_version == "fee-sep-new"
     assert recalculated.fee_result_id != original.fee_result_id
     assert original.result_status == 2
 
     db_session.add(
         SettlementStatement(
-            statement_id="statement-sale-2026-08",
+            statement_id="statement-sale-2026-09",
             store_id="store-sale",
-            statement_month="2026-08",
+            statement_month="2026-09",
             statement_status=4,
-            lock_version="lock-sale-2026-08",
+            lock_version="lock-sale-2026-09",
             locked_by="test",
             locked_at=_dual_time(10, 1),
         )
     )
     _add_fee_rule(
         db_session,
-        "fee-aug-latest",
-        date(2026, 8, 8),
+        "fee-sep-latest",
+        date(2026, 9, 4),
         promotion="0.900000",
         management="0.900000",
     )
@@ -1340,7 +2107,95 @@ def test_product_owner_scope_is_independent_from_order_sale_attribution(
     assert promotion is not None
     assert management is not None
     assert promotion.sale_store_id == "store-sale"
-    assert promotion.scope_rule_version == "scope-2026-08-short_video"
+    assert promotion.scope_rule_version == "scope-2026-09-short_video"
+
+
+def test_dual_fee_non_commission_rule_uses_order_owner_not_product_owner(
+    db_session: Session,
+) -> None:
+    _load_dual_fee_fixture(db_session)
+    product = db_session.scalar(
+        select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-dual")
+    )
+    assert product is not None
+    product.owner_account_id = "product-owner-byd"
+    product.owner_account_name = "比亚迪汽车销售有限公司"
+    for scope_rule in db_session.scalars(select(SettlementScopeRule)):
+        scope_rule.owner_account_id = "product-owner-byd"
+
+    upsert_aweme_account(
+        db_session,
+        "owner-byd",
+        nickname="比亚迪汽车销售有限公司",
+        store_id="store-sale",
+        binding_status="active",
+    )
+    upsert_raw_order(
+        db_session,
+        "order-coupon-excluded",
+        order_status="paid",
+        order_status_raw="paid",
+        order_status_normalized="paid",
+        sku_id="sku-dual",
+        pay_time=_dual_time(8, 10),
+        sale_time=_dual_time(8, 10),
+        paid_amount_cent=10001,
+        order_paid_amount_cent=10001,
+        owner_account_id="owner-byd",
+        owner_account_name="比亚迪汽车销售有限公司",
+        sale_channel="short_video",
+        sale_channel_raw="short_video",
+        sale_channel_normalized="short_video",
+        source_run_id="dual-source",
+    )
+    upsert_order_coupon(
+        db_session,
+        "coupon-excluded",
+        "order-coupon-excluded",
+        coupon_status="fulfilled",
+        coupon_status_raw="fulfilled",
+        coupon_status_normalized="available",
+        coupon_paid_amount_cent=10001,
+        coupon_refunded_amount_cent=0,
+        source_run_id="dual-source",
+    )
+    upsert_verify_record(
+        db_session,
+        "verify-coupon-excluded",
+        coupon_id="coupon-excluded",
+        verify_status="valid",
+        verify_time=_dual_time(9, 5),
+        poi_id="poi-verify",
+        sku_id="sku-dual",
+        paid_amount_cent=10001,
+        source_run_id="dual-source",
+    )
+    db_session.merge(
+        DimNonCommissionOwnerAccount(
+            normalized_owner_account_name=normalize_owner_account_name(
+                "比亚迪汽车销售有限公司"
+            ),
+            owner_account_name="比亚迪汽车销售有限公司",
+            is_active=True,
+        )
+    )
+    db_session.flush()
+
+    rebuild_dual_fee_results(db_session, calculation_run_id="dual-order-owner-rule")
+
+    assert _fee_result(db_session, "coupon-dual", 1) is not None
+    assert _fee_result(db_session, "coupon-dual", 2) is not None
+    assert _fee_result(db_session, "coupon-excluded", 1) is None
+    assert _fee_result(db_session, "coupon-excluded", 2) is None
+    blocked_issues = list(
+        db_session.scalars(
+            select(DataQualityIssue).where(
+                DataQualityIssue.coupon_id == "coupon-excluded",
+                DataQualityIssue.issue_type == "dual_fee_non_commission_owner",
+            )
+        )
+    )
+    assert len(blocked_issues) == 2
 
 
 def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
@@ -1367,22 +2222,22 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     first = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="statement-lock-1",
     )
     second = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="statement-lock-2",
     )
 
     assert second.statement_id == first.statement_id
     assert first.statement_status == 4
     assert first.lock_version is not None
-    assert first.promotion_original_fee_cent == 123
+    assert first.promotion_original_fee_cent == 3000
     assert first.promotion_adjustment_fee_cent == 0
-    assert first.promotion_net_fee_cent == 123
+    assert first.promotion_net_fee_cent == 3000
     assert first.management_net_fee_cent == 0
     assert first.store_name_snapshot == "Sale Store"
     assert first.sap_code_snapshot == "SAP-SALE-001"
@@ -1409,7 +2264,7 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     assert lines[0].original_base_cent == 10000
     assert lines[0].adjustment_entry_count == 0
     assert lines[0].net_base_cent == 10000
-    assert lines[0].net_fee_cent == 123
+    assert lines[0].net_fee_cent == 3000
     assert entries[0].source_type == 1
     assert entries[0].source_record_id == _fee_result(
         db_session, "coupon-dual", 1
@@ -1427,7 +2282,7 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     assert entries[0].sale_time_snapshot == _dual_time(8, 10).replace(tzinfo=None)
     assert entries[0].verify_time_snapshot == _dual_time(9, 5).replace(tzinfo=None)
     assert entries[0].received_amount_cent_snapshot == 10000
-    assert entries[0].fee_rate_snapshot == Decimal("0.012345")
+    assert entries[0].fee_rate_snapshot == Decimal("0.300000")
     assert count(db_session, SettlementStatement) == 1
     assert count(db_session, SettlementStatementLine) == 1
     assert count(db_session, SettlementStatementEntry) == 1
@@ -1446,7 +2301,7 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     frozen_again = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="statement-lock-after-master-change",
     )
     assert frozen_again.store_name_snapshot == "Sale Store"
@@ -1459,8 +2314,8 @@ def test_statement_lock_freezes_result_entry_line_and_head_idempotently(
     sale_account.store_id = "store-sale-moved"
     _add_fee_rule(
         db_session,
-        "fee-aug-after-lock",
-        date(2026, 8, 5),
+        "fee-sep-after-lock",
+        date(2026, 9, 2),
         promotion="0.900000",
         management="0.900000",
     )
@@ -1484,7 +2339,7 @@ def test_unlocked_statement_rebuild_keeps_original_store_snapshot(
         SettlementStatement(
             statement_id="statement-unlocked-snapshot",
             store_id="store-sale",
-            statement_month="2026-08",
+            statement_month="2026-09",
             version_no=1,
             is_current=True,
             statement_status=1,
@@ -1502,7 +2357,7 @@ def test_unlocked_statement_rebuild_keeps_original_store_snapshot(
     statement = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="snapshot-unlocked-lock",
     )
 
@@ -1522,7 +2377,7 @@ def test_statement_lock_queries_only_the_current_statement_version(
             SettlementStatement(
                 statement_id="statement-history-locked",
                 store_id="store-sale",
-                statement_month="2026-08",
+                statement_month="2026-09",
                 version_no=1,
                 is_current=False,
                 statement_status=4,
@@ -1530,7 +2385,7 @@ def test_statement_lock_queries_only_the_current_statement_version(
             SettlementStatement(
                 statement_id="statement-current-unlocked",
                 store_id="store-sale",
-                statement_month="2026-08",
+                statement_month="2026-09",
                 version_no=2,
                 is_current=True,
                 supersedes_statement_id="statement-history-locked",
@@ -1540,11 +2395,11 @@ def test_statement_lock_queries_only_the_current_statement_version(
     )
     db_session.flush()
 
-    assert settlement_worker._locked_statement(db_session, "store-sale", "2026-08") is None
+    assert settlement_worker._locked_statement(db_session, "store-sale", "2026-09") is None
     statement = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="current-statement-lock",
     )
 
@@ -1569,11 +2424,11 @@ def test_recalculation_and_statement_lock_share_store_month_slot_lock(
     lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="shared-lock-statement",
     )
 
-    assert acquired.count(("store-sale", "2026-08")) >= 2
+    assert acquired.count(("store-sale", "2026-09")) >= 2
 
 
 def test_locked_month_blocks_first_result_for_late_coupon(
@@ -1583,7 +2438,7 @@ def test_locked_month_blocks_first_result_for_late_coupon(
     lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="lock-empty-august",
     )
 
@@ -1675,7 +2530,7 @@ def test_locked_refund_creates_immutable_carryforward_sources(
     assert len(sources) == 2
     assert [source.fee_direction for source in sources] == [1, 2]
     assert [source.adjustment_base_cent for source in sources] == [-1000, -1000]
-    assert [source.adjustment_fee_cent for source in sources] == [-12, -200]
+    assert [source.adjustment_fee_cent for source in sources] == [-300, -200]
     assert {source.event_month for source in sources} == {"2026-10"}
     assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
 
@@ -1738,7 +2593,7 @@ def test_carryforward_applies_once_after_consecutive_locked_months(
     assert len(adjustments) == 2
     assert {row.adjustment_posting_month for row in adjustments} == {"2026-12"}
     assert {row.adjustment_base_cent for row in adjustments} == {-1000}
-    assert {row.adjustment_fee_cent for row in adjustments} == {-12, -200}
+    assert {row.adjustment_fee_cent for row in adjustments} == {-300, -200}
     target_rows = list(
         db_session.scalars(
             select(SettlementStatement).where(
@@ -1746,7 +2601,7 @@ def test_carryforward_applies_once_after_consecutive_locked_months(
             )
         )
     )
-    assert sum(row.promotion_adjustment_fee_cent for row in target_rows) == -12
+    assert sum(row.promotion_adjustment_fee_cent for row in target_rows) == -300
     assert sum(row.management_adjustment_fee_cent for row in target_rows) == -200
     carryforward_entry_ids = set(
         db_session.scalars(
@@ -2033,9 +2888,9 @@ def test_applied_source_then_later_refund_uses_each_delta_once(
         for store_id in ("store-sale", "store-verify")
     }
 
-    assert december["store-sale"].promotion_adjustment_fee_cent == -12
+    assert december["store-sale"].promotion_adjustment_fee_cent == -300
     assert december["store-verify"].management_adjustment_fee_cent == -200
-    assert january["store-sale"].promotion_adjustment_fee_cent == -6
+    assert january["store-sale"].promotion_adjustment_fee_cent == -150
     assert january["store-verify"].management_adjustment_fee_cent == -100
     adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
     assert sum(
@@ -2067,7 +2922,8 @@ def test_locked_event_month_blocks_unbillable_cancellation_adjustment(
 
     rebuild_dual_fee_results(db_session, calculation_run_id="late-cancel-calc")
 
-    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert [row.fee_direction for row in adjustments] == [1]
     issue = db_session.scalar(
         select(DataQualityIssue).where(
             DataQualityIssue.issue_type
@@ -2108,7 +2964,9 @@ def test_locked_cancellation_carries_management_fee_forward_once(
     assert sources[0].refund_event_id is None
     assert sources[0].adjustment_base_cent == -10000
     assert sources[0].adjustment_fee_cent == -2000
-    assert not list(db_session.scalars(select(SettlementFeeAdjustment)))
+    promotion_adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    assert [row.fee_direction for row in promotion_adjustments] == [1]
+    assert promotion_adjustments[0].adjustment_fee_cent == -3000
 
     target = lock_settlement_statement(
         db_session,
@@ -2117,7 +2975,9 @@ def test_locked_cancellation_carries_management_fee_forward_once(
         lock_run_id="cancel-carry-apply",
     )
     applications = list(db_session.scalars(select(application_model)))
-    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment)))
+    adjustments = list(db_session.scalars(select(SettlementFeeAdjustment).where(
+        SettlementFeeAdjustment.fee_direction == 2,
+    )))
     assert len(applications) == 1
     assert applications[0].carryforward_source_id == sources[0].carryforward_source_id
     assert applications[0].target_statement_id == target.statement_id
@@ -2138,7 +2998,7 @@ def test_locked_cancellation_carries_management_fee_forward_once(
     )
     assert count(db_session, source_model) == 1
     assert count(db_session, application_model) == 1
-    assert count(db_session, SettlementFeeAdjustment) == 1
+    assert count(db_session, SettlementFeeAdjustment) == 2
 
 
 def test_post_lock_refund_enters_event_month_without_changing_original_statements(
@@ -2149,7 +3009,7 @@ def test_post_lock_refund_enters_event_month_without_changing_original_statement
     promotion_statement = lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="lock-promotion",
     )
     management_statement = lock_settlement_statement(
@@ -2187,11 +3047,11 @@ def test_post_lock_refund_enters_event_month_without_changing_original_statement
         lock_run_id="lock-management-adjustment",
     )
 
-    assert promotion_statement.promotion_net_fee_cent == 123
+    assert promotion_statement.promotion_net_fee_cent == 3000
     assert management_statement.management_net_fee_cent == 2000
     assert promotion_adjustment_statement.promotion_original_fee_cent == 0
-    assert promotion_adjustment_statement.promotion_adjustment_fee_cent == -49
-    assert promotion_adjustment_statement.promotion_net_fee_cent == -49
+    assert promotion_adjustment_statement.promotion_adjustment_fee_cent == -1200
+    assert promotion_adjustment_statement.promotion_net_fee_cent == -1200
     assert management_adjustment_statement.management_original_fee_cent == 0
     assert management_adjustment_statement.management_adjustment_fee_cent == -800
     assert management_adjustment_statement.management_net_fee_cent == -800
@@ -2216,7 +3076,7 @@ def test_monthly_and_cumulative_projections_use_locked_sources_and_exclude_july(
     lock_settlement_statement(
         db_session,
         store_id="store-sale",
-        statement_month="2026-08",
+        statement_month="2026-09",
         lock_run_id="projection-lock-promotion",
     )
     lock_settlement_statement(
@@ -2275,7 +3135,7 @@ def test_monthly_and_cumulative_projections_use_locked_sources_and_exclude_july(
         db_session, projection_run_id="projection-2", batch_size=1
     )
 
-    august_sale = monthly_projection(db_session, "2026-08", "store-sale", "all")
+    september_sale = monthly_projection(db_session, "2026-09", "store-sale", "all")
     september_verify = monthly_projection(
         db_session, "2026-09", "store-verify", "all"
     )
@@ -2283,13 +3143,13 @@ def test_monthly_and_cumulative_projections_use_locked_sources_and_exclude_july(
     october_verify = monthly_projection(
         db_session, "2026-10", "store-verify", "all"
     )
-    assert august_sale is not None
-    assert august_sale.sales_order_count == 1
-    assert august_sale.sales_amount_cent == 10000
-    assert august_sale.promotion_base_cent == 10000
-    assert august_sale.promotion_original_fee_cent == 123
-    assert august_sale.promotion_net_fee_cent == 123
-    assert august_sale.statement_status == 4
+    assert september_sale is not None
+    assert september_sale.sales_order_count == 1
+    assert september_sale.sales_amount_cent == 10000
+    assert september_sale.promotion_base_cent == 10000
+    assert september_sale.promotion_original_fee_cent == 3000
+    assert september_sale.promotion_net_fee_cent == 3000
+    assert september_sale.statement_status == 4
     assert september_verify is not None
     assert september_verify.verified_order_count == 1
     assert september_verify.verified_amount_cent == 10000
@@ -2297,8 +3157,8 @@ def test_monthly_and_cumulative_projections_use_locked_sources_and_exclude_july(
     assert september_verify.management_net_fee_cent == 2000
     assert october_sale is not None
     assert october_sale.promotion_base_cent == -4001
-    assert october_sale.promotion_adjustment_fee_cent == -49
-    assert october_sale.promotion_net_fee_cent == -49
+    assert october_sale.promotion_adjustment_fee_cent == -1200
+    assert october_sale.promotion_net_fee_cent == -1200
     assert october_verify is not None
     assert october_verify.management_base_cent == -4001
     assert october_verify.management_adjustment_fee_cent == -800
@@ -2325,8 +3185,8 @@ def test_monthly_and_cumulative_projections_use_locked_sources_and_exclude_july(
     assert cumulative_sale is not None
     assert cumulative_sale.sales_order_count == 1
     assert cumulative_sale.sales_amount_cent == 10000
-    assert cumulative_sale.promotion_net_fee_cent == 74
-    assert cumulative_sale.net_settlement_reference_cent == 74
+    assert cumulative_sale.promotion_net_fee_cent == 1800
+    assert cumulative_sale.net_settlement_reference_cent == 1800
     assert cumulative_verify is not None
     assert cumulative_verify.verified_order_count == 1
     assert cumulative_verify.verified_amount_cent == 10000
@@ -2353,7 +3213,7 @@ def test_projection_rebuild_failure_rolls_back_without_half_updated_rows(
     _load_dual_fee_fixture(db_session, amount_cent=10000)
     rebuild_dual_fee_results(db_session, calculation_run_id="rollback-calc")
     rebuild_dual_fee_projections(db_session, projection_run_id="projection-good")
-    before = monthly_projection(db_session, "2026-08", "store-sale", "all")
+    before = monthly_projection(db_session, "2026-09", "store-sale", "all")
     assert before is not None
     before_values = (
         before.sales_order_count,
@@ -2369,7 +3229,7 @@ def test_projection_rebuild_failure_rolls_back_without_half_updated_rows(
     with pytest.raises(RuntimeError, match="injected projection failure"):
         rebuild_dual_fee_projections(db_session, projection_run_id="projection-bad")
 
-    after = monthly_projection(db_session, "2026-08", "store-sale", "all")
+    after = monthly_projection(db_session, "2026-09", "store-sale", "all")
     assert after is not None
     assert (
         after.sales_order_count,

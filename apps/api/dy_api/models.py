@@ -1366,6 +1366,7 @@ class SettlementFeeResult(Base):
             "idx_settlement_fee_result_match_date", "rule_match_date", "fee_direction"
         ),
         Index("idx_settlement_fee_result_calculation_run", "calculation_run_id"),
+        Index("idx_settlement_fee_result_reverification_anchor", "reverification_anchor_id", "result_version"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -1397,6 +1398,12 @@ class SettlementFeeResult(Base):
     result_status: Mapped[int] = mapped_column(Integer, default=1)
     calculation_run_id: Mapped[str] = mapped_column(String(128))
     input_fingerprint: Mapped[str | None] = mapped_column(String(64))
+    qualifying_verify_id: Mapped[str | None] = mapped_column(Text)
+    qualifying_verify_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    qualifying_verify_store_id: Mapped[str | None] = mapped_column(String(128))
+    qualifying_verify_store_name: Mapped[str | None] = mapped_column(Text)
+    # Non-current immutable basis whose value is posted only as an adjustment.
+    reverification_anchor_id: Mapped[str | None] = mapped_column(String(128))
     calculated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
         "gmt_create", DateTime(timezone=True), default=utcnow
@@ -1404,6 +1411,20 @@ class SettlementFeeResult(Base):
     updated_at: Mapped[datetime] = mapped_column(
         "gmt_modified", DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+class SettlementBillingSourceBundle(Base):
+    """Private immutable source snapshots captured before projection publication."""
+
+    __tablename__ = "settlement_billing_source_bundle"
+
+    generation_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    store_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    statement_month: Mapped[str] = mapped_column(String(7), primary_key=True)
+    source_job_id: Mapped[str] = mapped_column(Text)
+    source_fingerprint: Mapped[str] = mapped_column(String(64))
+    sources_json: Mapped[list] = mapped_column(JSON_TYPE)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class SettlementFeeResultCurrent(Base):

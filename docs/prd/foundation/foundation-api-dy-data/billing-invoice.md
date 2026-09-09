@@ -40,6 +40,15 @@
 
 ## 2 门店账单与确认
 
+### DYDATA-87 发布后的账单读取合同
+
+- 账单生成是内部发布协调器责任，不新增公开生成接口，GET 不写账单。投影发布与待确认账单生成在同一最终事务提交；来源缺失、不一致或生成阻断时不得返回已成功发布的假象。
+- `GET /api/v1/store-settlements` 读取已生成的当前账单；未受保护来源变化产生待确认 Vn+1，返回新 `statementId/versionNo/isCurrent/supersedesStatementId`。最后来源撤销可返回零金额待确认 V2，旧 V1 仍可通过详情回读，不删除旧记录。相同冻结来源重试不增加版本。
+- 已确认/锁账、有确认、发票或受保护异议事实的账期由生成器保护跳过，不把重建当成自动确认或开票；保护边界见 [Schema 生成合同](../foundation-schema-dy-data/billing-invoice.md#dydata-87-待确认账单生成合同)。此处不改变正式 `metrics` 或确认/发票金额定义。
+- 客户端仍以 `statementId + readVersion` 确认/登记；当前版本变化按原 409 合同刷新并重新核对，不自动替用户确认。网络结果不确定时同目标、版本和 payload 重用原 `Idempotency-Key`，payload/目标改变使用新 key，成功后清理；不得将 PII 写入浏览器持久存储。
+- 私有 `settlement_billing_source_bundle.sources_json` 不对外暴露；公开来源明细读取账单冻结 entry 快照，核销时间/门店来自费用资格血缘快照，不随原始核销记录或映射后续变化改写历史。五个血缘字段和重核销锚点不是新增公开请求参数。
+- 重建任务来源漂移的恢复合同为 `SETTLEMENT_REBUILD_SOURCE_DRIFT` / `NEW_REBUILD_JOB_REQUIRED`，需新建任务；不是可通过同 job 重试覆盖冻结包的 409。普通账单/发票版本冲突仍使用既有 409，不混用恢复语义。
+
 ### 2.1 `GET /api/v1/store-settlements`
 
 查询：`storeId` 必填，`month` 必填，`metricScope=MONTH/CUMULATIVE` 必填，`feeDirection` 可选，`page/pageSize`。列表按门店和账期只返回当前有效账单版本；累计从 `2026-08` 开始，测试账期不计入。

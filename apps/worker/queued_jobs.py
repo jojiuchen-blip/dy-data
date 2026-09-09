@@ -15,22 +15,30 @@ from apps.api.dy_api.finance_dispute_detection import (
     fail_claimed_finance_dispute_detection_job,
     run_finance_dispute_detection_job,
 )
-from apps.api.dy_api.models import JobRun, utcnow
+from apps.api.dy_api.models import JobRun, SettlementProjectionActive, utcnow
 from apps.worker.pipeline import sanitize_error_message
-from apps.worker.repositories import finish_job_run
-from apps.worker.settlement import run_settlement_job
+from apps.worker.settlement_rebuild import (
+    SETTLEMENT_REBUILD_JOB_NAME,
+    _database_utcnow,
+    claim_latest_settlement_rebuild_job,
+    reconcile_published_settlement_rebuild,
+    run_settlement_rebuild_job,
+)
 
 
-SETTLEMENT_REBUILD_JOB_NAME = "settlement_rebuild"
 DEFAULT_FINANCE_DETECTION_STALE_AFTER = timedelta(minutes=5)
 DEFAULT_FINANCE_DETECTION_MAX_ATTEMPTS = 3
 DEFAULT_FINANCE_DETECTION_BATCH_SIZE = 25
+DEFAULT_SETTLEMENT_REBUILD_STALE_AFTER = timedelta(minutes=5)
+DEFAULT_SETTLEMENT_REBUILD_MAX_ATTEMPTS = 3
 
 
 @dataclass(frozen=True)
 class QueuedSettlementRebuildResult:
     processed_job_id: str | None = None
     superseded_job_ids: tuple[str, ...] = ()
+    recovered_job_ids: tuple[str, ...] = ()
+    failed_stale_job_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -288,81 +296,342 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def process_queued_settlement_rebuilds(factory: sessionmaker) -> QueuedSettlementRebuildResult:
-    selected_job_id: str | None = None
-    superseded_job_ids: tuple[str, ...] = ()
-
-    with session_scope(factory) as session:
-        running = session.scalar(
-            select(JobRun)
-            .where(
-                JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
-                JobRun.status == "running",
-            )
-            .limit(1)
+def process_queued_settlement_rebuilds(
+    factory: sessionmaker,
+    *,
+    now: datetime | None = None,
+    stale_after: timedelta = DEFAULT_SETTLEMENT_REBUILD_STALE_AFTER,
+    max_attempts: int = DEFAULT_SETTLEMENT_REBUILD_MAX_ATTEMPTS,
+) -> QueuedSettlementRebuildResult:
+    if stale_after <= timedelta(0):
+        raise ValueError("stale_after must be greater than zero")
+    if max_attempts <= 0:
+        raise ValueError("max_attempts must be greater than zero")
+    with factory() as session:
+        current_time = _as_utc(now) if now is not None else _database_utcnow(session)
+    _release_due_settlement_retries(factory, now=current_time)
+    recovered_job_ids, failed_stale_job_ids = _recover_stale_settlement_rebuilds(
+        factory,
+        now=current_time,
+        stale_after=stale_after,
+        max_attempts=max_attempts,
+    )
+    legacy_recovered_job_id = _recover_unpublished_successful_settlement_rebuild(
+        factory,
+        now=current_time,
+    )
+    if legacy_recovered_job_id is not None:
+        recovered_job_ids.append(legacy_recovered_job_id)
+    claimed = claim_latest_settlement_rebuild_job(factory)
+    if claimed is None:
+        return QueuedSettlementRebuildResult(
+            recovered_job_ids=tuple(recovered_job_ids),
+            failed_stale_job_ids=tuple(failed_stale_job_ids),
         )
-        if running is not None:
-            return QueuedSettlementRebuildResult()
-
-        queued_jobs = list(
-            session.scalars(
-                select(JobRun)
-                .where(
-                    JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
-                    JobRun.status == "queued",
-                )
-                .order_by(JobRun.started_at, JobRun.job_id)
-            )
-        )
-        if not queued_jobs:
-            return QueuedSettlementRebuildResult()
-
-        selected = queued_jobs[-1]
-        selected_job_id = selected.job_id
-        superseded_job_ids = tuple(job.job_id for job in queued_jobs[:-1])
-
-    assert selected_job_id is not None
+    selected_job_id, claim_id, superseded_job_ids = claimed
     try:
-        with session_scope(factory) as session:
+        run_settlement_rebuild_job(
+            job_id=selected_job_id, factory=factory, claim_id=claim_id,
+        )
+    except Exception:
+        # Only contain failures durably handed to retry/recovery; a database
+        # outage or an unexpected live owner must remain visible to the caller.
+        with factory() as session:
             job = session.get(JobRun, selected_job_id)
-            source_run_id = _source_run_id(job.metadata_json if job else None, fallback=selected_job_id)
-            run_settlement_job(session, job_id=selected_job_id, source_run_id=source_run_id)
-    except Exception as exc:
-        with session_scope(factory) as session:
-            if session.get(JobRun, selected_job_id) is not None:
-                finish_job_run(
-                    session,
-                    selected_job_id,
-                    status="failed",
-                    failed_count=1,
-                    error_message=sanitize_error_message(str(exc)),
-                )
-        raise
-
-    if superseded_job_ids:
-        with session_scope(factory) as session:
-            for job_id in superseded_job_ids:
-                job = session.get(JobRun, job_id)
-                if job is None or job.status != "queued":
-                    continue
-                metadata = dict(job.metadata_json or {})
-                metadata["superseded_by"] = selected_job_id
-                job.status = "success"
-                job.success_count = 0
-                job.failed_count = 0
-                job.error_message = None
-                job.finished_at = utcnow()
-                job.metadata_json = metadata
-            session.flush()
+            if job is None or (
+                job.status == "running" and job.claim_token == claim_id
+                and job.lease_expires_at is not None
+                and _as_utc(job.lease_expires_at) > _database_utcnow(session)
+            ):
+                raise
 
     return QueuedSettlementRebuildResult(
         processed_job_id=selected_job_id,
         superseded_job_ids=superseded_job_ids,
+        recovered_job_ids=tuple(recovered_job_ids),
+        failed_stale_job_ids=tuple(failed_stale_job_ids),
     )
 
 
-def _source_run_id(metadata: dict[str, Any] | None, *, fallback: str) -> str:
-    value = (metadata or {}).get("source_run_id")
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-    return fallback
+def _release_due_settlement_retries(factory: sessionmaker, *, now: datetime) -> None:
+    with session_scope(factory) as session:
+        session.execute(
+            update(JobRun)
+            .where(
+                JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
+                JobRun.status == "retry_wait",
+                JobRun.next_retry_at <= now,
+            )
+            .values(status="queued", next_retry_at=None, state_updated_at=now)
+        )
+
+
+def _recover_stale_settlement_rebuilds(
+    factory: sessionmaker,
+    *,
+    now: datetime,
+    stale_after: timedelta,
+    max_attempts: int,
+) -> tuple[list[str], list[str]]:
+    recovered: list[str] = []
+    failed: list[str] = []
+    with session_scope(factory) as session:
+        running_jobs = list(
+            session.scalars(
+                select(JobRun)
+                .where(
+                    JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
+                    JobRun.status == "running",
+                )
+                .order_by(JobRun.started_at, JobRun.job_id)
+            )
+        )
+        for job in running_jobs:
+            observed_claim_token = job.claim_token
+            observed_state_updated_at = job.state_updated_at
+            observed_lease_expires_at = job.lease_expires_at
+            lease_expires_at = (
+                _as_utc(job.lease_expires_at)
+                if job.lease_expires_at is not None
+                else None
+            )
+            activity_values = [
+                _as_utc(value)
+                for value in (job.heartbeat_at, job.state_updated_at, job.started_at)
+                if value is not None
+            ]
+            last_activity = max(activity_values) if activity_values else now
+            if lease_expires_at is not None:
+                if lease_expires_at > now:
+                    continue
+            elif now - last_activity < stale_after:
+                continue
+
+            attempt_count = max(0, int(job.attempt_count or 0))
+            job_max_attempts = max(
+                1,
+                min(max_attempts, int(job.max_attempts or max_attempts)),
+            )
+            metadata = dict(job.metadata_json or {})
+            claim_condition = (
+                JobRun.claim_token.is_(None)
+                if observed_claim_token is None
+                else JobRun.claim_token == observed_claim_token
+            )
+            state_condition = (
+                JobRun.state_updated_at.is_(None)
+                if observed_state_updated_at is None
+                else JobRun.state_updated_at == observed_state_updated_at
+            )
+            lease_condition = (
+                JobRun.lease_expires_at.is_(None)
+                if observed_lease_expires_at is None
+                else JobRun.lease_expires_at == observed_lease_expires_at
+            )
+            if reconcile_published_settlement_rebuild(
+                session,
+                job=job,
+                reconciled_at=now,
+            ):
+                continue
+            if attempt_count >= job_max_attempts:
+                reason = "结算重建超过安全重试次数，请重新发布分佣规则。"
+                metadata.update(
+                    {
+                        "stage": "FAILED",
+                        "failureReason": reason,
+                        "recoveryState": "FAILED_ATTEMPTS_EXHAUSTED",
+                    }
+                )
+                result = session.execute(
+                    update(JobRun)
+                    .where(
+                        JobRun.job_id == job.job_id,
+                        JobRun.status == "running",
+                        claim_condition,
+                        state_condition,
+                        lease_condition,
+                    )
+                    .values(
+                        status="failed",
+                        success_count=0,
+                        failed_count=1,
+                        error_message=reason,
+                        finished_at=now,
+                        claim_token=None,
+                        lease_expires_at=None,
+                        heartbeat_at=now,
+                        state_updated_at=now,
+                        lease_owner=None,
+                        current_stage=None,
+                        error_code="SETTLEMENT_REBUILD_ATTEMPTS_EXHAUSTED",
+                        error_summary=reason,
+                        metadata_json=metadata,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if result.rowcount == 1:
+                    failed.append(job.job_id)
+                continue
+
+            metadata.update(
+                {
+                    "claimId": None,
+                    "claimedAt": None,
+                    "stage": "RETRY_QUEUED",
+                    "recoveryCount": int(metadata.get("recoveryCount") or 0) + 1,
+                    "recoveryState": "REQUEUED_STALE_CLAIM",
+                }
+            )
+            result = session.execute(
+                update(JobRun)
+                .where(
+                    JobRun.job_id == job.job_id,
+                    JobRun.status == "running",
+                    claim_condition,
+                    state_condition,
+                    lease_condition,
+                )
+                .values(
+                    status="queued",
+                    success_count=0,
+                    failed_count=0,
+                    error_message=None,
+                    finished_at=None,
+                    claim_token=None,
+                    lease_expires_at=None,
+                    heartbeat_at=None,
+                    state_updated_at=now,
+                    lease_owner=None,
+                    current_stage=None,
+                    progress_current=0,
+                    progress_total=None,
+                    rows_read=0,
+                    rows_written=0,
+                    error_code=None,
+                    error_summary=None,
+                    metadata_json=metadata,
+                )
+                .execution_options(synchronize_session=False)
+            )
+            if result.rowcount == 1:
+                recovered.append(job.job_id)
+    return recovered, failed
+
+
+def _recover_unpublished_successful_settlement_rebuild(
+    factory: sessionmaker,
+    *,
+    now: datetime,
+) -> str | None:
+    """Repair jobs completed by the old success-before-publication workflow."""
+
+    valid_projection_statuses = {
+        "published",
+        "legacy_root",
+        "no_affected_months",
+        "superseded",
+    }
+    with session_scope(factory) as session:
+        active_work = session.scalar(
+            select(JobRun.job_id)
+            .where(
+                JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
+                JobRun.status.in_(("queued", "running", "retry_wait")),
+            )
+            .limit(1)
+        )
+        if active_work is not None:
+            return None
+
+        statement = (
+            select(JobRun)
+            .where(
+                JobRun.job_name == SETTLEMENT_REBUILD_JOB_NAME,
+                JobRun.status.in_(("success", "succeeded")),
+            )
+            .order_by(
+                JobRun.finished_at.desc(),
+                JobRun.started_at.desc(),
+                JobRun.job_id.desc(),
+            )
+            .limit(1)
+        )
+        if session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update(skip_locked=True)
+        job = session.scalar(statement)
+        if job is None:
+            return None
+        metadata = dict(job.metadata_json or {})
+        trigger = metadata.get("trigger")
+        if not isinstance(trigger, str) or not trigger.startswith("admin_"):
+            return None
+        projection = metadata.get("settlement_projection")
+        if (
+            isinstance(projection, dict)
+            and projection.get("status") in valid_projection_statuses
+        ):
+            return None
+        if reconcile_published_settlement_rebuild(
+            session,
+            job=job,
+            reconciled_at=now,
+            recovery_state="RECONCILED_LEGACY_SUCCESS",
+        ):
+            return None
+
+        active = session.get(SettlementProjectionActive, "settlement")
+        if active is None or active.generation_id is None:
+            return None
+
+        observed_finished_at = job.finished_at
+        observed_state_updated_at = job.state_updated_at
+        metadata.update(
+            {
+                "stage": "RETRY_QUEUED",
+                "claimId": None,
+                "claimedAt": None,
+                "recoveryState": "REQUEUED_UNPUBLISHED_SUCCESS",
+                "recoveredAt": now.isoformat(),
+            }
+        )
+        result = session.execute(
+            update(JobRun)
+            .where(
+                JobRun.job_id == job.job_id,
+                JobRun.status.in_(("success", "succeeded")),
+                (
+                    JobRun.finished_at.is_(None)
+                    if observed_finished_at is None
+                    else JobRun.finished_at == observed_finished_at
+                ),
+                (
+                    JobRun.state_updated_at.is_(None)
+                    if observed_state_updated_at is None
+                    else JobRun.state_updated_at == observed_state_updated_at
+                ),
+            )
+            .values(
+                status="queued",
+                success_count=0,
+                failed_count=0,
+                error_message=None,
+                finished_at=None,
+                claim_token=None,
+                lease_expires_at=None,
+                heartbeat_at=None,
+                state_updated_at=now,
+                attempt_count=0,
+                lease_owner=None,
+                current_stage=None,
+                progress_current=0,
+                progress_total=None,
+                rows_read=0,
+                rows_written=0,
+                error_code=None,
+                error_summary=None,
+                metadata_json=metadata,
+            )
+            .execution_options(synchronize_session=False)
+        )
+        return job.job_id if result.rowcount == 1 else None

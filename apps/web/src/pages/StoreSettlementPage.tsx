@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   ApiRequestError,
   confirmStoreBillingStatement,
@@ -7,6 +7,7 @@ import {
   fetchSettlementMonthly,
   fetchStoreBillingDisputes,
   fetchStoreBillingStatements,
+  submitStoreBillingDispute,
 } from "../api/client";
 import { Button } from "../components/Button";
 import { DataTable, type Column } from "../components/DataTable";
@@ -28,6 +29,8 @@ import { formatCurrency, formatDateTime, formatInteger } from "../utils/format";
 import { apiErrorText } from "../utils/apiErrors";
 import { userFacingError } from "../utils/userFacingError";
 import { displayFinanceSaleChannel } from "../utils/userFacingLabels";
+import { parseYuanToCent } from "../utils/money";
+import { createPendingRequestKey } from "../utils/pendingRequestKey";
 
 interface StoreSettlementPageProps {
   currentUser: AdminUser;
@@ -76,6 +79,12 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const [disputeContactName, setDisputeContactName] = useState("");
   const [disputeContactPhone, setDisputeContactPhone] = useState("");
   const [disputeDescription, setDisputeDescription] = useState("");
+  const [disputeSubmitting, setDisputeSubmitting] = useState(false);
+  const [disputeMessage, setDisputeMessage] = useState("");
+  const disputeInFlight = useRef(false);
+  const confirmationInFlight = useRef(false);
+  const confirmationRequest = useRef(createPendingRequestKey());
+  const disputeRequest = useRef(createPendingRequestKey());
 
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
@@ -111,17 +120,6 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
     [activeStoreId, activeMonth],
     { enabled: Boolean(meta && activeStoreId && activeMonth) },
   );
-  const cumulativeBillingResource = useApiResource(
-    () => fetchStoreBillingStatements({
-      storeId: activeStoreId,
-      month: activeMonth,
-      metricScope: "CUMULATIVE",
-      page: 1,
-      pageSize: 1,
-    }),
-    [activeStoreId, activeMonth],
-    { enabled: Boolean(meta && activeStoreId && activeMonth) },
-  );
   const promotionOrderResource = useApiResource(
     () => fetchOrderFeeDetails({
       storeId: activeStoreId,
@@ -151,7 +149,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
 
   const view = settlementResource.data?.data;
   const metrics = view?.metrics;
-  const billingMetrics = cumulativeBillingResource.data?.data.metrics;
+  const cumulativeMetrics = view?.computedCumulative;
   const metaError = metaResource.rawError
     ? apiErrorText(metaResource.rawError, "筛选条件暂不可用，请稍后重试。")
     : metaResource.error;
@@ -190,19 +188,22 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
 
   const submitConfirmation = async () => {
     const direction = confirmationDirection;
-    if (!direction || !statement?.isCurrent) return;
+    if (confirmationInFlight.current || !direction || !statement?.isCurrent) return;
     const amount = direction === "PROMOTION"
       ? statement.promotionConfirmableAmountCent
       : statement.managementConfirmableAmountCent;
     setPendingDirection(direction);
     setConfirmationMessage("");
     setConfirmationState("idle");
+    confirmationInFlight.current = true;
+    const payload = { feeDirection: direction, confirmedAmountCent: amount, readVersion: statement.versionNo };
     try {
       await confirmStoreBillingStatement(
         statement.statementId,
-        { feeDirection: direction, confirmedAmountCent: amount, readVersion: statement.versionNo },
-        crypto.randomUUID(),
+        payload,
+        confirmationRequest.current.forRequest(statement.statementId, payload),
       );
+      confirmationRequest.current.clear();
       setConfirmationMessage(`${feeDirectionLabel(direction)}已确认，正在读取最新账单。`);
       setConfirmationState("success");
       setConfirmationDirection(null);
@@ -216,7 +217,55 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
       setConfirmationMessage(userFacingError(error, "确认失败，请刷新当前账单后重试。"));
       setConfirmationState("error");
     } finally {
+      confirmationInFlight.current = false;
       setPendingDirection(null);
+    }
+  };
+
+  const submitDispute = async () => {
+    if (disputeInFlight.current || !statement?.isCurrent) return;
+    const disputedAmountCent = parseYuanToCent(disputeAmount.trim());
+    const lines = disputeOrders.trim().split(/\n+/).filter(Boolean);
+    const orders = lines.map((line) => {
+      const [orderId, amount] = line.split(/[,，]/).map((value) => value.trim());
+      return { orderId, disputedAmountCent: amount ? parseYuanToCent(amount) : lines.length === 1 ? disputedAmountCent : null };
+    });
+    if (!disputedAmountCent || disputedAmountCent <= 0 || !disputeDescription.trim()
+      || !disputeContactName.trim() || !/^\d{11}$/.test(disputeContactPhone)
+      || !orders.length || orders.some((order) => !order.orderId || !order.disputedAmountCent || order.disputedAmountCent <= 0)) {
+      setDisputeMessage("请填写理由、联系人、11 位手机号和正数争议金额；多条订单请逐行填写订单号及金额（最多两位小数）。");
+      return;
+    }
+    disputeInFlight.current = true;
+    setDisputeSubmitting(true);
+    setDisputeMessage("");
+    try {
+      const payload = {
+        feeDirection: activeFeeDirection, disputeType, description: disputeDescription.trim(),
+        contactName: disputeContactName.trim(), contactPhone: disputeContactPhone,
+        disputedAmountCent,
+        orders: orders.map((order) => ({ orderId: order.orderId, disputedAmountCent: order.disputedAmountCent! })),
+        evidence: [], readVersion: statement.versionNo,
+      };
+      await submitStoreBillingDispute(statement.statementId, payload,
+        disputeRequest.current.forRequest(statement.statementId, payload));
+      disputeRequest.current.clear();
+      setDisputeOpen(false);
+      setDisputeDescription("");
+      setDisputeOrders("");
+      setDisputeAmount("");
+      disputeResource.reload();
+      billingResource.reload();
+      setDisputeMessage("异议已提交。");
+    } catch (error) {
+      if (error instanceof ApiRequestError && error.status === 409) {
+        setInvalidatedStatementKey(`${statement.statementId}:${statement.versionNo}`);
+        billingResource.reload();
+      }
+      setDisputeMessage(userFacingError(error, "异议提交失败，请核对当前账单及订单金额后重试。"));
+    } finally {
+      disputeInFlight.current = false;
+      setDisputeSubmitting(false);
     }
   };
 
@@ -244,7 +293,7 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
         </div>
       </section>
       <ResourceNotice
-        loading={metaResource.loading || settlementResource.loading || billingResource.loading || cumulativeBillingResource.loading}
+        loading={metaResource.loading || settlementResource.loading || billingResource.loading}
         error={metaError ?? settlementError ?? billingError}
       />
       <FilterBar>
@@ -269,9 +318,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             <MetricCard label="销售金额" value={displayMetricCurrency(metrics?.salesAmountCent)} meta={displayMetricCount(metrics?.salesOrderCount, "笔订单")} />
             <MetricCard label="核销金额" value={displayMetricCurrency(metrics?.verifiedAmountCent)} meta={displayMetricCount(metrics?.verifiedOrderCount, "笔核销")} />
             <MetricCard label="当期推广服务费" value={displayMetricCurrency(metrics?.promotionNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.promotionOriginalFeeCent)} · 调整 ${formatCurrency(metrics.promotionAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计推广服务费" value={displayMetricCurrency(billingMetrics?.cumulative?.promotionAmountCent)} meta={billingMetrics?.cumulative ? "正式账期累计" : "暂无数据"} />
+            <MetricCard label="累计推广服务费" value={displayMetricCurrency(cumulativeMetrics?.promotionNetFeeCent)} meta={cumulativeMetrics ? "已发布计算累计" : "暂无数据"} />
             <MetricCard label="当期管理服务费" value={displayMetricCurrency(metrics?.managementNetFeeCent)} meta={metrics ? `原始 ${formatCurrency(metrics.managementOriginalFeeCent)} · 调整 ${formatCurrency(metrics.managementAdjustmentFeeCent)}` : "暂无数据"} />
-            <MetricCard label="累计管理服务费" value={displayMetricCurrency(billingMetrics?.cumulative?.managementAmountCent)} meta={billingMetrics?.cumulative ? "正式账期累计" : "暂无数据"} />
+            <MetricCard label="累计管理服务费" value={displayMetricCurrency(cumulativeMetrics?.managementNetFeeCent)} meta={cumulativeMetrics ? "已发布计算累计" : "暂无数据"} />
       </section>
 
       <section className="content-section" aria-label="账单确认与异议">
@@ -350,10 +399,12 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
             <span className="store-finance-dispute-entry__empty">
               {statement?.isCurrent ? "如需核对账单，可发起异议" : "暂无可发起的账单异议"}
             </span>
-            <Button className="store-finance-dispute-entry__trigger" onClick={() => setDisputeConfirmationOpen(true)} size="sm" variant="text">
+            <Button disabled={!statement?.isCurrent} className="store-finance-dispute-entry__trigger" onClick={() => setDisputeConfirmationOpen(true)} size="sm" variant="text">
               发起账单异议
             </Button>
       </section>
+
+      {!disputeOpen && disputeMessage ? <p role="status">{disputeMessage}</p> : null}
 
           {disputeResource.data?.data.list.length ? (
             <section className="content-section store-finance-dispute-list" aria-label="已提交账单异议">
@@ -386,8 +437,9 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           </Dialog>
 
       <Dialog
-            actions={<><Button onClick={() => setDisputeOpen(false)} variant="secondary">取消</Button><Button disabled variant="primary">提交异议并开始检测</Button></>}
-            description="金额和订单将按当前账单版本校验；证明材料受控上传开放后方可提交。"
+            actions={<><Button disabled={disputeSubmitting} onClick={() => setDisputeOpen(false)} variant="secondary">取消</Button><Button disabled={!statement?.isCurrent || disputeSubmitting} loading={disputeSubmitting} onClick={() => void submitDispute()} variant="primary">提交异议并开始检测</Button></>}
+            closeDisabled={disputeSubmitting}
+            description="填写异议理由即可，无需附件；金额和订单将按当前账单版本校验。"
             onClose={() => setDisputeOpen(false)}
             open={disputeOpen}
             panelClassName="store-finance-dispute-dialog"
@@ -405,14 +457,13 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
                   }))}
                   value={activeFeeDirection}
                 />
-                <label className="ui-field"><span className="ui-field__label">争议金额（元）</span><FieldInput inputMode="decimal" value={disputeAmount} onChange={(event) => setDisputeAmount(event.target.value)} placeholder="最多三位小数" /></label>
+                <label className="ui-field"><span className="ui-field__label">争议金额（元）</span><FieldInput inputMode="decimal" value={disputeAmount} onChange={(event) => setDisputeAmount(event.target.value)} placeholder="最多两位小数" /></label>
                 <label className="ui-field"><span className="ui-field__label">联系人</span><FieldInput value={disputeContactName} onChange={(event) => setDisputeContactName(event.target.value)} /></label>
                 <label className="ui-field"><span className="ui-field__label">手机号</span><FieldInput inputMode="numeric" maxLength={11} value={disputeContactPhone} onChange={(event) => setDisputeContactPhone(event.target.value.replace(/\D/g, ""))} /></label>
               </div>
               <label className="ui-field"><span className="ui-field__label">争议订单</span><FieldTextarea value={disputeOrders} onChange={(event) => setDisputeOrders(event.target.value)} placeholder="每行填写：订单号,争议金额(元)；仅一条时可只填订单号" /></label>
               <label className="ui-field"><span className="ui-field__label">问题说明</span><FieldTextarea value={disputeDescription} onChange={(event) => setDisputeDescription(event.target.value)} /></label>
-              <label className="ui-field"><span className="ui-field__label">证明材料</span><FieldInput aria-describedby="store-dispute-upload-status" disabled type="file" /></label>
-              <p className="store-finance-action-message" id="store-dispute-upload-status" role="status">证明材料受控上传尚未开放，当前不能提交异议。</p>
+              {disputeMessage ? <p className="store-finance-action-message" role="alert">{disputeMessage}</p> : null}
             </div>
           </Dialog>
     </div>

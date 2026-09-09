@@ -211,8 +211,9 @@ def test_sparse_builder_claims_only_affected_month_and_complete_cumulative_suffi
     ] == legacy_snapshot
 
 
-def test_sparse_builder_uses_immutable_adjustment_original_after_current_supersedes(
-    db_session: Session,
+@pytest.mark.parametrize("source_state", ["superseded", "current", "anchor"])
+def test_sparse_builder_retains_only_current_or_anchored_immutable_adjustments(
+    db_session: Session, source_state: str,
 ):
     base = _seed_base(db_session, prefix="projection-adjustment")
     old = _fee_result(
@@ -235,13 +236,19 @@ def test_sparse_builder_uses_immutable_adjustment_original_after_current_superse
         source_amount=500,
         fee_amount=50,
     )
+    if source_state == "anchor":
+        old.reverification_anchor_id = current.fee_result_id
+        old.result_version = 3
+        old.result_status = 2
+    elif source_state == "superseded":
+        old.result_status = 2
     db_session.add_all([old, current])
     db_session.flush()
     db_session.add(
         SettlementFeeResultCurrent(
             coupon_id=current.coupon_id,
             fee_direction=1,
-            fee_result_id=current.fee_result_id,
+            fee_result_id=old.fee_result_id if source_state == "current" else current.fee_result_id,
         )
     )
     db_session.add(
@@ -281,10 +288,13 @@ def test_sparse_builder_uses_immutable_adjustment_original_after_current_superse
         for row in monthly
         if row.product_scope == "all" and row.product_type == "all"
     ]
-    assert [(row.month, row.promotion_original_fee_cent, row.promotion_adjustment_fee_cent) for row in all_rows] == [
-        ("2026-08", 50, 0),
-        ("2026-09", 0, -10),
-    ]
+    original_fee = 10 if source_state == "current" else 50
+    expected = [("2026-08", original_fee, 0)]
+    if source_state != "superseded":
+        expected.append(("2026-09", 0, -10))
+    assert [(row.month, row.promotion_original_fee_cent, row.promotion_adjustment_fee_cent) for row in all_rows] == expected
+    # Retirement changes active visibility, never deletes the historical fact.
+    assert db_session.scalar(select(func.count()).select_from(SettlementFeeAdjustment)) == 1
     cumulative = db_session.scalar(
         select(SettlementRankingOverlay).where(
             SettlementRankingOverlay.generation_id == result.generation_id,
@@ -295,7 +305,7 @@ def test_sparse_builder_uses_immutable_adjustment_original_after_current_superse
         )
     )
     assert cumulative is not None
-    assert cumulative.promotion_net_fee_cent == 40
+    assert cumulative.promotion_net_fee_cent == original_fee - (0 if source_state == "superseded" else 10)
 
 
 def test_sparse_builder_is_idempotent_for_same_generation(db_session: Session):

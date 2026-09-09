@@ -51,6 +51,19 @@ COPY requirements.txt ./
 RUN python3 -m pip install --break-system-packages --no-cache-dir --upgrade pip \
     && python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt
 
+# Shadow audited packages in local site-packages, preserving apt files and dependencies.
+RUN python3 -m pip install --break-system-packages --no-cache-dir --ignore-installed --no-deps \
+    'urllib3==2.7.0' 'msgpack==1.2.1' 'Pillow==12.3.0' 'idna==3.19' 'jwcrypto==1.5.7'
+RUN python3 -c "from importlib.metadata import version; from pathlib import Path; \
+    import urllib3, msgpack, PIL, idna; from PIL import Image; from jwcrypto import jwk; \
+    expected = {'urllib3': '2.7.0', 'msgpack': '1.2.1', 'Pillow': '12.3.0', 'idna': '3.19', 'jwcrypto': '1.5.7'}; \
+    assert {name: version(name) for name in expected} == expected; \
+    modules = (urllib3, msgpack, PIL, Image, idna, jwk); \
+    assert all(Path(module.__file__).resolve().is_relative_to('/usr/local/lib') for module in modules), [(module.__name__, module.__file__) for module in modules]; \
+    assert urllib3.__version__ == expected['urllib3']; assert msgpack.__version__ == expected['msgpack']; \
+    assert PIL.__version__ == expected['Pillow']; assert idna.__version__ == expected['idna']; \
+    print(expected, [(module.__name__, module.__file__) for module in modules])"
+
 COPY src ./src
 COPY scripts ./scripts
 COPY apps/api ./apps/api

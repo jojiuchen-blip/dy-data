@@ -21,7 +21,7 @@ import type {
 } from "../types/dashboard";
 import { formatCurrency, formatDateTime } from "../utils/format";
 import { userFacingError } from "../utils/userFacingError";
-import { displayFinanceInvoiceStatus } from "../utils/userFacingLabels";
+import { displayFinanceInvoiceStatus, displayFinanceProcessingStatus } from "../utils/userFacingLabels";
 
 interface FinanceFeePageProps {
   feeDirection: FeeDirection;
@@ -58,6 +58,10 @@ function financeInvoiceStatusLabel(status: string, direction: FeeDirection): str
     } as Record<string, string>)[status] ?? "未知发票 / 扣款状态";
   }
   return displayFinanceInvoiceStatus(status);
+}
+
+function processingStatusLabel(row: FinanceInvoiceRow): string {
+  return displayFinanceProcessingStatus(row.processingStatus);
 }
 
 function managementCorrectionValidationError(correction: CorrectionDraft): string {
@@ -178,6 +182,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
   };
 
   const promotionColumns: Column<FinanceInvoiceRow>[] = [
+    { key: "processing", title: "办理状态", render: processingStatusLabel },
     { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
     { key: "sap", title: "有效 SAP", minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
     { key: "month", title: "账期", render: (row) => row.statementMonth },
@@ -190,6 +195,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     { key: "reason", title: "审核原因", minWidth: 220, render: (row) => row.rejectionReason ?? "—" },
   ];
   const managementColumns: Column<FinanceInvoiceRow>[] = [
+    { key: "processing", title: "办理状态", render: processingStatusLabel },
     { key: "store", title: "门店", minWidth: 210, sticky: true, render: (row) => <span><strong>{row.storeName ?? row.storeId}</strong><br /><small>{row.storeId}</small></span> },
     { key: "sap", title: "有效 SAP", minWidth: 130, render: (row) => row.effectiveSapCode ?? "—" },
     { key: "month", title: "账期", render: (row) => row.statementMonth },
@@ -293,7 +299,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
         <div>
           <p className="eyebrow">财务管理员</p>
           <h1>{title}</h1>
-          <p>{feeDirection === "PROMOTION" ? "门店提交成功后进入列表；厂家审核结果和结算事实由财务导入。" : "展示全量已确认账单；厂家发票、扣款及更正结果由正式财务数据驱动。"}</p>
+          <p>分佣计算完成的结果即进入列表，待生成账单、待确认、待提交与已提交分别标识；展示不会自动确认或开票。</p>
         </div>
         <div className="finance-heading__actions">
           <Button loading={downloadBusy} onClick={handleTemplateDownload} variant="secondary">

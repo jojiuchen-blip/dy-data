@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,9 +20,13 @@ from apps.api.dy_api.models import (  # noqa: E402
     AggStoreMonthlySettlement,
     DimNonCommissionOwnerAccount,
     DimSkuProductRule,
+    JobEvent,
     JobRun,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
 )
 from dy_api.routes import admin as admin_routes  # noqa: E402
+from dy_api.routes import _settlement_jobs as settlement_jobs  # noqa: E402
 from apps.worker.repositories import (  # noqa: E402
     queue_job_run,
     upsert_aweme_binding,
@@ -31,7 +36,8 @@ from apps.worker.repositories import (  # noqa: E402
     upsert_store_poi_mapping,
     upsert_verify_record,
 )
-from apps.worker.settlement import run_settlement_job  # noqa: E402
+from apps.worker.settlement import SettlementStats, run_settlement_job  # noqa: E402
+from apps.worker import settlement_rebuild  # noqa: E402
 
 
 def _dt(day: int) -> datetime:
@@ -313,6 +319,139 @@ def test_admin_sku_rule_background_rebuild_materializes_settlement(
     assert job.status == "success"
 
 
+def test_admin_rebuild_publishes_lineage_for_single_store_readers(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    now = datetime(2026, 8, 2, 10, 0, tzinfo=timezone.utc)
+    db_session.add(
+        SettlementProjectionGeneration(
+            generation_id="admin-lineage-base",
+            base_generation_id=None,
+            generation_kind="legacy_root",
+            compaction_base_generation_id=None,
+            projection_name="settlement",
+            state="published",
+            input_fingerprint="0" * 64,
+            lineage_depth=0,
+            estimated_write_rows=0,
+            estimated_write_bytes=0,
+            estimated_wal_bytes=0,
+            estimated_disk_headroom_bytes=0,
+            checkpoint_json={"phase": "published"},
+            last_key=None,
+            manifest_checksum="1" * 64,
+            source_input_json={},
+            published_at=now,
+            created_at=now,
+        )
+    )
+    db_session.add(
+        SettlementProjectionActive(
+            projection_name="settlement",
+            generation_id="admin-lineage-base",
+        )
+    )
+    db_session.add(
+        AggStoreMonthlySettlement(
+            month="2026-08",
+            store_id="lineage-store",
+            product_scope="all",
+            product_type="all",
+            sales_order_count=1,
+            sales_amount_cent=100,
+            verified_order_count=1,
+            verified_amount_cent=100,
+            promotion_base_cent=100,
+            promotion_original_fee_cent=10,
+            promotion_adjustment_fee_cent=0,
+            promotion_net_fee_cent=10,
+            management_base_cent=100,
+            management_original_fee_cent=2,
+            management_adjustment_fee_cent=0,
+            management_net_fee_cent=2,
+            statement_status=1,
+            projection_run_id="legacy",
+            estimated_receivable_commission_cent=10,
+            commissionable_total_cent=100,
+            estimated_payable_commission_cent=2,
+        )
+    )
+    job_id = "admin-lineage-refresh-test"
+    queue_job_run(
+        db_session,
+        job_id,
+        "settlement_rebuild",
+        metadata_json={"trigger": "admin_sku_fee_rules"},
+    )
+    db_session.commit()
+
+    def fake_rebuild_settlement(
+        session: Session,
+        *,
+        source_run_id: str,
+        progress_callback=None,
+    ) -> SettlementStats:
+        del session, source_run_id, progress_callback
+        return SettlementStats(1, 0, 1, 1)
+
+    def fake_build_sparse_overlay(factory, **kwargs):
+        with factory() as session:
+            session.add(
+                SettlementProjectionGeneration(
+                    generation_id=kwargs["generation_id"],
+                    base_generation_id=kwargs["base_generation_id"],
+                    generation_kind="lineage",
+                    compaction_base_generation_id=None,
+                    projection_name="settlement",
+                    state="ready",
+                    input_fingerprint=kwargs["input_fingerprint"],
+                    lineage_depth=1,
+                    estimated_write_rows=1,
+                    estimated_write_bytes=1,
+                    estimated_wal_bytes=1,
+                    estimated_disk_headroom_bytes=0,
+                    checkpoint_json={"phase": "ready"},
+                    last_key=None,
+                    manifest_checksum="f" * 64,
+                    source_job_id=job_id,
+                    source_input_json={},
+                    created_at=now,
+                )
+            )
+            session.commit()
+        return SimpleNamespace(manifest_checksum="f" * 64, manifest_count=1, row_count=1)
+
+    monkeypatch.setattr(
+        settlement_rebuild, "rebuild_settlement", fake_rebuild_settlement
+    )
+    monkeypatch.setattr(
+        settlement_rebuild,
+        "build_settlement_sparse_overlay",
+        fake_build_sparse_overlay,
+    )
+    factory = sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True
+    )
+
+    settlement_jobs.run_settlement_rebuild_job(job_id=job_id, factory=factory)
+
+    db_session.expire_all()
+    pointer = db_session.get(SettlementProjectionActive, "settlement")
+    assert pointer is not None
+    assert pointer.generation_id.startswith(f"settlement-admin-rebuild:{job_id}:")
+    generation = db_session.get(SettlementProjectionGeneration, pointer.generation_id)
+    assert generation is not None
+    assert generation.state == "published"
+    assert generation.source_job_id == job_id
+    event = db_session.scalar(
+        select(JobEvent).where(
+            JobEvent.job_id == job_id,
+            JobEvent.event_type == "settlement_projection_published",
+        )
+    )
+    assert event is not None
+
+
 def test_admin_bulk_save_rules_queues_settlement_rebuild(
     client: TestClient,
     db_session: Session,
@@ -358,7 +497,7 @@ def test_admin_bulk_save_rules_queues_settlement_rebuild(
     assert payload["updated_count"] == 1
     assert payload["rebuild_status"] == "queued"
     assert payload["job_id"].startswith("admin-sku-rules-")
-    assert queued_jobs == [payload["job_id"]]
+    assert queued_jobs == []
 
     rule = db_session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == "sku-admin")
@@ -466,7 +605,7 @@ def test_admin_can_replace_non_commission_owner_accounts_and_queue_rebuild(
     assert payload["updated_count"] == 2
     assert payload["rebuild_status"] == "queued"
     assert payload["job_id"].startswith("admin-non-commission-accounts-")
-    assert queued_jobs == [payload["job_id"]]
+    assert queued_jobs == []
 
     rows = {
         row["owner_account_name"]: row

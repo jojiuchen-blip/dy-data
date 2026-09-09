@@ -20,6 +20,7 @@ from dy_api.main import create_app  # noqa: E402
 from dy_api.routes import dashboard as dashboard_routes  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.api.dy_api.models import (  # noqa: E402
+    AggStoreMonthlySettlement,
     DimStore,
     FinanceImportBatch,
     FinanceImportRow,
@@ -31,6 +32,11 @@ from apps.api.dy_api.models import (  # noqa: E402
     SapSuggestion,
     SettlementStatement,
     SettlementStatementConfirmation,
+    SettlementMonthlyOverlay,
+    SettlementRankingOverlay,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
+    SettlementProjectionPartitionManifest,
     StoreFinanceProfile,
 )
 
@@ -50,12 +56,229 @@ def client(monkeypatch: pytest.MonkeyPatch, db_session: Session) -> TestClient:
     return TestClient(app)
 
 
+@pytest.mark.parametrize("direction,amount", [("PROMOTION", 2400), ("MANAGEMENT", 1200)])
+def test_finance_ignores_unpublished_legacy_projection(client, db_session, direction, amount):
+    db_session.add(DimStore(store_id="unpublished-store", store_name="Unpublished Store"))
+    db_session.add(AggStoreMonthlySettlement(
+        month="2026-08", store_id="unpublished-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=amount, management_net_fee_cent=amount,
+        projection_run_id="unpublished",
+    ))
+    db_session.commit()
+    _login(client)
+    params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    response = client.get("/api/v1/admin/finance/invoices", params=params)
+    assert response.status_code == 200
+    assert response.json()["data"]["total"] == 0
+    summary = client.get("/api/v1/admin/finance/summary", params=params)
+    assert summary.json()["data"]["metrics"]["statementTotalCent"] == 0
+    exported = client.get("/api/v1/admin/finance/invoices/export", params=params)
+    assert "unpublished-store" not in exported.text
+
+
+@pytest.mark.parametrize("direction,amount", [("PROMOTION", 2400), ("MANAGEMENT", 1200)])
+def test_finance_exposes_projection_before_statement_creation(client, db_session, direction, amount):
+    _publish_finance_test_generation(db_session)
+    db_session.add(DimStore(store_id="projected-store", store_name="Projected Store"))
+    db_session.add(SettlementMonthlyOverlay(
+        generation_id="finance-published", partition_key="2026-08",
+        month="2026-08", store_id="projected-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=2400, management_net_fee_cent=1200,
+        projection_run_id="test-finance-projection",
+    ))
+    db_session.commit()
+    _login(client)
+    params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    response = client.get("/api/v1/admin/finance/invoices", params=params)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["total"] == 1
+    row = data["list"][0]
+    assert row["statementId"] is None
+    assert row["processingStatus"] == "PENDING_STATEMENT"
+    assert row["statementAmountCent"] == amount
+    summary = client.get("/api/v1/admin/finance/summary", params=params).json()["data"]
+    assert summary["metrics"]["statementTotalCent"] == amount
+    exported = client.get("/api/v1/admin/finance/invoices/export", params=params)
+    assert "projected-store" in exported.text
+    assert "PENDING_STATEMENT" in exported.text
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatement)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+
+
+def test_finance_projection_deduplicates_formal_statement_and_paginates(client, db_session):
+    _seed_management_periods(db_session, [("formal-row", "2026-08", 1200)])
+    _publish_finance_test_generation(db_session)
+    db_session.add(DimStore(store_id="unbilled-store", store_name="Unbilled Store"))
+    for store_id in ("g2-store-1", "unbilled-store"):
+        db_session.add(SettlementMonthlyOverlay(
+            generation_id="finance-published", partition_key="2026-08",
+            month="2026-08", store_id=store_id, product_scope="all", product_type="all",
+            management_net_fee_cent=200, projection_run_id="finance-dedupe",
+        ))
+    db_session.commit()
+    _login(client)
+    params = {"month": "2026-08", "feeDirection": "MANAGEMENT", "metricScope": "MONTH", "pageSize": 1}
+    first = client.get("/api/v1/admin/finance/invoices", params=params).json()["data"]
+    second = client.get("/api/v1/admin/finance/invoices", params={**params, "page": 2}).json()["data"]
+    assert first["total"] == second["total"] == 2
+    assert first["list"][0]["storeId"] == "unbilled-store"
+    assert second["list"][0]["statementId"] == "formal-row"
+    summary = client.get("/api/v1/admin/finance/summary", params=params).json()["data"]
+    assert summary["metrics"]["statementTotalCent"] == 1400
+    filtered = client.get("/api/v1/admin/finance/invoices", params={**params, "q": "Unbilled"}).json()["data"]
+    assert filtered["total"] == 1
+    pending = client.get("/api/v1/admin/finance/invoices", params={**params, "invoiceStatus": "PENDING_INVOICE"}).json()["data"]
+    assert pending["total"] == 1
+    assert pending["list"][0]["statementId"] == "formal-row"
+
+
+def _publish_finance_test_generation(db_session):
+    db_session.add(SettlementProjectionGeneration(
+        generation_id="finance-published", state="published",
+        input_fingerprint="finance-published-test",
+    ))
+    db_session.flush()
+    db_session.add(SettlementProjectionPartitionManifest(
+        generation_id="finance-published", artifact="monthly", partition_key="2026-08",
+        source_kind="overlay", data_generation_id="finance-published",
+    ))
+    db_session.add(SettlementProjectionActive(
+        projection_name="settlement", generation_id="finance-published",
+    ))
+
+
+def test_store_computed_cumulative_uses_published_ranking_without_creating_bills(client, db_session):
+    _publish_finance_test_generation(db_session)
+    db_session.add(DimStore(store_id="computed-store", store_name="Computed Store"))
+    db_session.add(SettlementMonthlyOverlay(
+        generation_id="finance-published", partition_key="2026-08", month="2026-08",
+        store_id="computed-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=2400, management_net_fee_cent=1200,
+    ))
+    db_session.add(SettlementProjectionPartitionManifest(
+        generation_id="finance-published", artifact="ranking", partition_key="cumulative:2026-08",
+        source_kind="overlay", data_generation_id="finance-published",
+    ))
+    for store_id, amount in (("computed-store", 2400), ("other-store", 99999)):
+        db_session.add(SettlementRankingOverlay(
+            generation_id="finance-published", partition_key="cumulative:2026-08",
+            period_type=2, period_key="2026-08", month="2026-08", store_id=store_id, store_name=store_id,
+            product_scope="all", product_type="all", promotion_net_fee_cent=amount,
+            management_net_fee_cent=amount // 2,
+            net_settlement_reference_cent=amount - amount // 2,
+        ))
+    db_session.commit()
+    _act_as_store(client, "computed-store")
+    response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["computedCumulative"]["promotionNetFeeCent"] == 2400
+    assert data["computedCumulative"]["managementNetFeeCent"] == 1200
+    assert data["statement"] is None
+    bills = client.get("/api/v1/store-settlements", params={
+        "storeId": "computed-store", "month": "2026-08", "metricScope": "CUMULATIVE",
+    })
+    assert bills.status_code == 200
+    assert bills.json()["data"]["metrics"]["cumulative"]["promotionAmountCent"] == 0
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatement)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+
+
+def test_store_computed_cumulative_does_not_present_unpublished_fees(client, db_session):
+    db_session.add(DimStore(store_id="computed-store", store_name="Computed Store"))
+    db_session.add(AggStoreMonthlySettlement(
+        month="2026-08", store_id="computed-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=88888, management_net_fee_cent=88888,
+    ))
+    db_session.commit()
+    _act_as_store(client, "computed-store")
+    response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["computedCumulative"] == {
+        "promotionNetFeeCent": 0, "managementNetFeeCent": 0,
+    }
+
+
+@pytest.mark.parametrize("direction,extra", [
+    ("MANAGEMENT", {"q": "G2 Store"}),
+    ("MANAGEMENT", {"invoiceStatus": "PENDING_INVOICE"}),
+    ("PROMOTION", {"q": "G2 Store"}),
+])
+def test_finance_summary_filters_preserve_prior_negative_carry(client, db_session, extra, direction):
+    _seed_management_periods(db_session, [("carry-aug", "2026-08", -100), ("carry-sep", "2026-09", 1000)])
+    if direction == "PROMOTION":
+        for confirmation in db_session.scalars(select(SettlementStatementConfirmation)):
+            confirmation.fee_direction = 1
+        for statement in db_session.scalars(select(SettlementStatement)):
+            statement.promotion_original_fee_cent = statement.management_original_fee_cent
+            statement.promotion_adjustment_fee_cent = statement.management_adjustment_fee_cent
+            statement.promotion_net_fee_cent = statement.management_net_fee_cent
+        db_session.commit()
+    _login(client)
+    params = {"month": "2026-09", "feeDirection": direction, "metricScope": "MONTH"}
+    baseline = client.get("/api/v1/admin/finance/summary", params=params)
+    filtered = client.get("/api/v1/admin/finance/summary", params={**params, **extra})
+    assert baseline.status_code == filtered.status_code == 200
+    assert baseline.json()["data"]["metrics"]["pendingInvoiceAmountCent"] == 900
+    assert filtered.json()["data"]["metrics"]["pendingInvoiceAmountCent"] == 900
+
+
+def test_finance_projection_rejects_excessive_month_expansion():
+    from dy_api.routes._data import DashboardDataStore
+    from apps.worker.projection_lineage import LineageError
+
+    with pytest.raises(LineageError, match="partition"):
+        dashboard_routes._finance_unbilled_projection_query(
+            DashboardDataStore(None), month="2110-12", metric_scope="CUMULATIVE",
+            store_id=None, q=None, invoice_status=None, scope_store_ids=None,
+        )
+
+
 def _login(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",
         json={"username": "system-admin", "password": "test-password"},
     )
     assert response.status_code == 200
+
+
+@pytest.mark.parametrize("direction", ["PROMOTION", "MANAGEMENT"])
+def test_finance_shows_computed_unconfirmed_statements_without_creating_facts(
+    client: TestClient, db_session: Session, direction: str,
+) -> None:
+    _seed_management_periods(db_session, [("visible-computed", "2026-08", 1200)])
+    confirmation = db_session.scalar(select(SettlementStatementConfirmation))
+    db_session.delete(confirmation)
+    statement = db_session.scalar(select(SettlementStatement).where(
+        SettlementStatement.statement_id == "visible-computed"
+    ))
+    statement.statement_status = 2
+    statement.store_name_snapshot = "Computed Store"
+    statement.promotion_original_fee_cent = 2400
+    statement.promotion_net_fee_cent = 2400
+    db_session.commit()
+    _login(client)
+    params = {"month": "2026-08", "feeDirection": direction, "metricScope": "MONTH"}
+    response = client.get("/api/v1/admin/finance/invoices", params=params)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["total"] == 1
+    row = data["list"][0]
+    assert row["statementId"] == "visible-computed"
+    assert row["invoiceId"] is None
+    assert row["confirmedAmountCent"] is None
+    assert row["processingStatus"] == "PENDING_CONFIRMATION"
+    assert row["statementAmountCent"] == (2400 if direction == "PROMOTION" else 1200)
+    summary = client.get("/api/v1/admin/finance/summary", params=params)
+    assert summary.status_code == 200
+    assert summary.json()["data"]["metrics"]["statementTotalCent"] == row["statementAmountCent"]
+    export = client.get("/api/v1/admin/finance/invoices/export", params=params)
+    assert export.status_code == 200
+    assert "visible-computed" in export.text
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 0
+    assert db_session.scalar(select(func.count()).select_from(InvoiceRecord)) == 0
 
 
 def _act_as_store(client: TestClient, store_id: str = "g2-store-1") -> None:

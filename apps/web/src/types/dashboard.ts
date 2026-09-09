@@ -580,6 +580,10 @@ export interface SettlementStatementLine {
 }
 
 export interface SettlementMonthlyData {
+  computedCumulative?: {
+    promotionNetFeeCent: number;
+    managementNetFeeCent: number;
+  };
   store: { storeId: string; storeName: string };
   month: string;
   productScope: string;
@@ -1002,6 +1006,20 @@ export interface SkuFeeRuleCreate {
   changeReason: string;
 }
 
+export type SettlementRebuildStatus =
+  | "queued"
+  | "running"
+  | "retry_wait"
+  | "success"
+  | "partial"
+  | "failed"
+  | "cancelled";
+
+export interface SettlementRebuildResult {
+  jobId: string;
+  rebuildStatus: SettlementRebuildStatus;
+}
+
 export type ImportBatchStatus =
   | "UPLOADED"
   | "VALIDATION_FAILED"
@@ -1068,6 +1086,7 @@ export interface ImportBatchDetailData {
 export interface ImportBatchCommitData {
   batch: ImportBatchItem;
   createdRuleVersions: string[];
+  settlementRebuild: SettlementRebuildResult;
 }
 
 export type ProductSyncStatus =
@@ -2053,11 +2072,12 @@ export interface FinanceSummaryData {
 }
 
 export interface FinanceInvoiceRow {
+  processingStatus?: "PENDING_STATEMENT" | "PENDING_CONFIRMATION" | "PENDING_SUBMISSION" | "SUBMITTED";
   invoiceId: string | null;
   storeId: string;
   storeName: string | null;
   effectiveSapCode: string | null;
-  statementId: string;
+  statementId: string | null;
   statementMonth: string;
   statementAmountCent: number;
   confirmedAmountCent: number | null;

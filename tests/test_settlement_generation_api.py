@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+from decimal import Decimal
 from pathlib import Path
 import sys
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
+from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "api"))
@@ -29,13 +31,22 @@ from apps.worker.projection_lineage import (
     canonical_score_partition_key,
     resolve_projection_partitions,
 )
+from apps.worker.projection_publish import publish_settlement_rebuild
+from apps.worker import settlement_rebuild
+from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
 from apps.api.dy_api.models import (
+    SettlementStatement,
     AggStoreMonthlySettlement,
     AggStoreRanking,
     DimStore,
+    JobRun,
     RawDouyinVerifyRecord,
+    SettlementFeeResult,
+    SettlementFeeResultCurrent,
     SettlementMonthlyOverlay,
     SettlementOrderDetail,
+    SettlementProjectionActive,
+    SettlementProjectionGeneration,
     SettlementRankingOverlay,
     StoreScoreSnapshot,
     StoreScoreSnapshotGeneration,
@@ -1246,6 +1257,460 @@ def test_pinned_cumulative_ranking_uses_its_own_partition_identity(db_session) -
     assert report["totals"]["sales_order_count"] == 11
 
 
+def test_finance_ranking_basis_uses_active_lineage_for_the_single_store_flow(
+    db_session,
+) -> None:
+    _generation(db_session, "g-finance-lineage")
+    for partition_key in ("monthly:2026-08", "cumulative:2026-08"):
+        _manifest(
+            db_session,
+            "g-finance-lineage",
+            "ranking",
+            partition_key,
+            data_generation_id="g-finance-lineage",
+        )
+    for period_type in (1, 2):
+        partition_key = "monthly:2026-08" if period_type == 1 else "cumulative:2026-08"
+        db_session.add(
+            SettlementRankingOverlay(
+                generation_id="g-finance-lineage",
+                base_generation_id=None,
+                period_type=period_type,
+                period_key="2026-08",
+                month="2026-08",
+                partition_key=partition_key,
+                store_id="lineage-store",
+                store_name="Lineage Store",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=7 if period_type == 1 else 12,
+                sales_amount_cent=700 if period_type == 1 else 1200,
+                promotion_net_fee_cent=70 if period_type == 1 else 120,
+                management_net_fee_cent=7 if period_type == 1 else 12,
+                net_settlement_reference_cent=63 if period_type == 1 else 108,
+            )
+        )
+        db_session.add(
+            AggStoreRanking(
+                period_type=period_type,
+                period_key="2026-08",
+                month="2026-08",
+                store_id="legacy-store",
+                store_name="Legacy Store",
+                product_scope="all",
+                product_type="all",
+                sales_order_count=70 if period_type == 1 else 120,
+                sales_amount_cent=7000 if period_type == 1 else 12000,
+                promotion_net_fee_cent=700 if period_type == 1 else 1200,
+                management_net_fee_cent=70 if period_type == 1 else 120,
+                net_settlement_reference_cent=630 if period_type == 1 else 1080,
+                projection_run_id="legacy-run",
+            )
+        )
+    db_session.execute(
+        text(
+            "INSERT INTO settlement_projection_active (projection_name, generation_id) "
+            "VALUES ('settlement', 'g-finance-lineage')"
+        )
+    )
+    db_session.commit()
+
+    report = DashboardDataStore(db_session).store_ranking_report(
+        {
+            "period_type": "MONTHLY",
+            "period_key": "2026-08",
+            "ranking_basis": "PROMOTION_FEE_MONTH",
+            "product_scope": "all",
+            "product_type": "all",
+            "page": 1,
+            "page_size": 20,
+            "sort_order": "DESC",
+            "scope_mode": "AUTHORIZED",
+            "scope_store_ids": None,
+        }
+    )
+
+    assert report["total"] == 1
+    assert report["list"][0]["store_id"] == "lineage-store"
+    assert report["list"][0]["promotion_month_fee_cent"] == 70
+    assert report["totals"]["promotion_cumulative_fee_cent"] == 120
+
+
+@pytest.mark.parametrize("billing_failure", [False, True, "blocked"])
+def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
+    db_session, monkeypatch, billing_failure: bool,
+) -> None:
+    now = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
+    _generation(db_session, "g-admin-refresh-base")
+    db_session.add_all(
+        [
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="g-admin-refresh-base",
+            ),
+            DimStore(store_id="single-store", store_name="Single Store"),
+            JobRun(
+                job_id="admin-refresh-real-builder",
+                job_name="settlement_rebuild",
+                status="running",
+                claim_token="admin-refresh-claim",
+                lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+                metadata_json={},
+            ),
+            SettlementFeeResult(
+                fee_result_id="admin-refresh-fee-result",
+                coupon_id="admin-refresh-coupon",
+                order_id="admin-refresh-order",
+                fee_direction=1,
+                result_version=1,
+                original_business_month="2026-08",
+                rule_match_date=date(2026, 8, 2),
+                sale_store_id="single-store",
+                verify_store_id=None,
+                sku_id="admin-refresh-sku",
+                product_scope="精诚养车",
+                product_type="养车服务",
+                sale_channel_normalized="live",
+                source_amount_cent=1000,
+                refunded_amount_cent=0,
+                fee_base_cent=1000,
+                fee_rate=Decimal("0.080000"),
+                fee_amount_cent=80,
+                rule_version="admin-refresh-rule",
+                scope_rule_version="admin-refresh-scope",
+                result_status=1,
+                calculation_run_id="admin-refresh-run",
+                input_fingerprint="a" * 64,
+                calculated_at=now,
+            ),
+        ]
+    )
+    db_session.add(
+        SettlementFeeResultCurrent(
+            coupon_id="admin-refresh-coupon",
+            fee_direction=1,
+            fee_result_id="admin-refresh-fee-result",
+        )
+    )
+    db_session.commit()
+
+    factory = sessionmaker(
+        bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True
+    )
+    if billing_failure:
+        generate = settlement_rebuild.generate_pending_statements
+
+        def fail_billing(*args, **kwargs):
+            if billing_failure == "blocked":
+                result = generate(*args, **kwargs)
+                result["blocked"] = 1
+                return result
+            raise RuntimeError("injected billing failure")
+
+        monkeypatch.setattr(settlement_rebuild, "generate_pending_statements", fail_billing)
+        expected_error = "pending billing generation blocked" if billing_failure == "blocked" else "injected billing failure"
+        with pytest.raises(RuntimeError, match=expected_error):
+            refresh_active_settlement_lineage(
+                factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim",
+            )
+        db_session.expire_all()
+        assert db_session.get(SettlementProjectionActive, "settlement").generation_id == "g-admin-refresh-base"
+        assert db_session.scalar(select(SettlementStatement)) is None
+        monkeypatch.setattr(settlement_rebuild, "generate_pending_statements", generate)
+    publication = refresh_active_settlement_lineage(
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
+    )
+
+    assert publication is not None
+    db_session.expire_all()
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    generation = db_session.get(
+        SettlementProjectionGeneration, active.generation_id
+    )
+    assert generation is not None
+    assert generation.state == "published"
+
+    statement = db_session.scalar(select(SettlementStatement).where(
+        SettlementStatement.store_id == "single-store",
+        SettlementStatement.statement_month == "2026-08",
+        SettlementStatement.is_current.is_(True),
+    ))
+    assert statement is not None
+    assert statement.statement_status == 2
+    assert statement.promotion_net_fee_cent == 80
+    assert statement.confirmed_at is None and statement.locked_at is None
+
+    store = DashboardDataStore(db_session)
+    monthly = store.monthly_settlement_report(
+        {
+            "store_id": "single-store",
+            "month": "2026-08",
+            "product_scope": "all",
+            "product_type": "all",
+        }
+    )
+    ranking = store.store_ranking_report(
+        {
+            "period_type": "MONTHLY",
+            "period_key": "2026-08",
+            "ranking_basis": "PROMOTION_FEE_MONTH",
+            "product_scope": "all",
+            "product_type": "all",
+            "page": 1,
+            "page_size": 20,
+            "sort_order": "DESC",
+        }
+    )
+
+    assert monthly["metrics"]["sales_amount_cent"] == 1000
+    assert monthly["metrics"]["promotion_net_fee_cent"] == 80
+    assert ranking["total"] == 1
+    assert ranking["list"][0]["store_id"] == "single-store"
+    assert ranking["list"][0]["promotion_month_fee_cent"] == 80
+
+    # A retry after publication must be a no-op: the job's generation and
+    # active pointer must not be rebuilt from the already-published overlay.
+    retry_publication = refresh_active_settlement_lineage(
+        factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
+    )
+    assert retry_publication is None
+    db_session.expire_all()
+    retried_active = db_session.get(SettlementProjectionActive, "settlement")
+    assert retried_active is not None
+    assert retried_active.generation_id == active.generation_id
+
+
+def _seed_r87_publication_source(db_session):
+    _generation(db_session, "r87-base")
+    db_session.add(SettlementProjectionActive(projection_name="settlement", generation_id="r87-base"))
+    db_session.add(DimStore(store_id="r87-store", store_name="R87 Store"))
+    db_session.add(SettlementFeeResult(
+        fee_result_id="r87-result", coupon_id="r87-coupon", order_id="r87-order",
+        fee_direction=1, result_version=1, original_business_month="2026-08",
+        rule_match_date=date(2026, 8, 2), sale_store_id="r87-store", sku_id="r87-sku",
+        product_scope="all", product_type="all", sale_channel_normalized="live",
+        source_amount_cent=1000, refunded_amount_cent=0, fee_base_cent=1000,
+        fee_rate=Decimal("0.08"), fee_amount_cent=80, rule_version="r87-rule",
+        scope_rule_version="r87-scope", result_status=1, calculation_run_id="r87-run",
+        input_fingerprint="b" * 64, calculated_at=datetime.now(timezone.utc),
+    ))
+    db_session.add(SettlementFeeResultCurrent(
+        coupon_id="r87-coupon", fee_direction=1, fee_result_id="r87-result",
+    ))
+    db_session.commit()
+    return sessionmaker(bind=db_session.get_bind(), autoflush=False, future=True)
+
+
+def _r87_rebuild_job(db_session, job_id):
+    db_session.add(JobRun(
+        job_id=job_id, job_name="settlement_rebuild", status="running",
+        claim_token=job_id, lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        metadata_json={},
+    ))
+    db_session.commit()
+
+
+def test_r87_published_last_source_revocation_creates_zero_pending_v2_preserving_v1(db_session):
+    factory = _seed_r87_publication_source(db_session)
+    _r87_rebuild_job(db_session, "r87-first")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-first", claim_id="r87-first")
+    db_session.expire_all()
+    v1 = db_session.scalar(select(SettlementStatement).where(SettlementStatement.is_current.is_(True)))
+    assert v1 is not None and v1.version_no == 1 and v1.promotion_net_fee_cent == 80
+    v1_id = v1.statement_id
+    prior_generation = active_generation_id(db_session)
+    db_session.execute(text("DELETE FROM settlement_fee_result_current WHERE coupon_id = 'r87-coupon'"))
+    db_session.commit()
+    _r87_rebuild_job(db_session, "r87-revocation")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-revocation", claim_id="r87-revocation")
+    db_session.expire_all()
+    versions = list(db_session.scalars(select(SettlementStatement).where(
+        SettlementStatement.store_id == "r87-store", SettlementStatement.statement_month == "2026-08",
+    ).order_by(SettlementStatement.version_no)))
+    assert len(versions) == 2
+    old, current = versions
+    assert old.statement_id == v1_id and old.version_no == 1
+    assert old.promotion_net_fee_cent == 80 and not old.is_current
+    assert current.version_no == 2 and current.is_current and current.statement_status == 2
+    assert current.promotion_net_fee_cent == current.management_net_fee_cent == 0
+    assert current.confirmed_at is None and current.locked_at is None
+    assert active_generation_id(db_session) != prior_generation
+    historical_result = db_session.scalar(select(SettlementFeeResult).where(
+        SettlementFeeResult.fee_result_id == "r87-result",
+    ))
+    assert historical_result is not None and historical_result.fee_amount_cent == 80
+
+
+def test_r87_source_drift_after_capture_rolls_back_publication_and_keeps_v1(db_session, monkeypatch):
+    factory = _seed_r87_publication_source(db_session)
+    _r87_rebuild_job(db_session, "r87-before-drift")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-before-drift", claim_id="r87-before-drift")
+    db_session.expire_all()
+    prior_generation = active_generation_id(db_session)
+    original_statement_id = db_session.scalar(select(SettlementStatement.statement_id))
+    _r87_rebuild_job(db_session, "r87-drift")
+    real_builder = settlement_rebuild.build_settlement_sparse_overlay
+    capture_observed = []
+
+    def drift_then_build(factory, **kwargs):
+        with factory() as session:
+            captured = settlement_rebuild.load_billing_sources(
+                session, generation_id=kwargs["generation_id"], job_id="r87-drift",
+            )
+            assert len(captured) == 1
+            capture_observed.append(kwargs["generation_id"])
+            session.execute(text("DELETE FROM settlement_fee_result_current WHERE coupon_id = 'r87-coupon'"))
+            session.commit()
+        return real_builder(factory, **kwargs)
+
+    monkeypatch.setattr(settlement_rebuild, "build_settlement_sparse_overlay", drift_then_build)
+    with pytest.raises(ValueError, match="billing sources changed after capture"):
+        refresh_active_settlement_lineage(factory, job_id="r87-drift", claim_id="r87-drift")
+    db_session.expire_all()
+    assert len(capture_observed) == 1
+    assert active_generation_id(db_session) == prior_generation
+    statements = list(db_session.scalars(select(SettlementStatement)))
+    assert len(statements) == 1
+    assert statements[0].statement_id == original_statement_id
+    assert statements[0].is_current and statements[0].promotion_net_fee_cent == 80
+    assert db_session.get(SettlementProjectionGeneration, capture_observed[0]).state != "published"
+    assert db_session.get(JobRun, "r87-drift").metadata_json.get("settlement_projection", {}).get("status") != "published"
+
+
+def test_settlement_rebuild_publish_rejects_a_stale_claim(db_session) -> None:
+    now = datetime.now(timezone.utc)
+    _generation(db_session, "g-fenced-base")
+    db_session.add_all(
+        [
+            SettlementProjectionActive(
+                projection_name="settlement",
+                generation_id="g-fenced-base",
+            ),
+            JobRun(
+                job_id="fenced-settlement-rebuild",
+                job_name="settlement_rebuild",
+                status="running",
+                claim_token="current-claim",
+                lease_expires_at=now + timedelta(minutes=10),
+                heartbeat_at=now,
+                state_updated_at=now,
+                metadata_json={},
+            ),
+            SettlementProjectionGeneration(
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                generation_kind="lineage",
+                projection_name="settlement",
+                state="ready",
+                input_fingerprint="a" * 64,
+                lineage_depth=1,
+                manifest_checksum="b" * 64,
+                source_job_id="fenced-settlement-rebuild",
+                checkpoint_json={},
+                source_input_json={},
+            ),
+        ]
+    )
+    db_session.commit()
+
+    with db_session.begin():
+        with pytest.raises(RuntimeError, match="claim"):
+            publish_settlement_rebuild(
+                db_session,
+                job_id="fenced-settlement-rebuild",
+                claim_id="stale-claim",
+                generation_id="g-fenced-target",
+                base_generation_id="g-fenced-base",
+                input_fingerprint="a" * 64,
+                manifest_checksum="b" * 64,
+            )
+
+    db_session.expire_all()
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    assert active.generation_id == "g-fenced-base"
+
+
+def test_settlement_rebuild_publication_requires_a_claim_token(db_session) -> None:
+    with pytest.raises(TypeError, match="claim_id"):
+        publish_settlement_rebuild(
+            db_session,
+            job_id="missing-claim",
+            generation_id="missing-generation",
+            base_generation_id="missing-base",
+            input_fingerprint="a" * 64,
+            manifest_checksum="b" * 64,
+        )
+
+
+def test_lineage_generation_identity_changes_when_active_base_moves(
+    db_session,
+) -> None:
+    _generation(db_session, "pointer-base-a")
+    _generation(db_session, "pointer-base-b")
+    _manifest(
+        db_session,
+        "pointer-base-a",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-a",
+    )
+    _manifest(
+        db_session,
+        "pointer-base-b",
+        "monthly",
+        "2026-08",
+        data_generation_id="pointer-base-b",
+    )
+    db_session.add(
+        SettlementProjectionActive(
+            projection_name="settlement",
+            generation_id="pointer-base-a",
+        )
+    )
+    db_session.commit()
+    factory = sessionmaker(
+        bind=db_session.get_bind(),
+        autoflush=False,
+        autocommit=False,
+        future=True,
+    )
+
+    first = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert first is not None
+    db_session.add(
+        SettlementProjectionGeneration(
+            generation_id=first.generation_id,
+            base_generation_id=first.base_generation_id,
+            generation_kind="lineage",
+            projection_name="settlement",
+            state="staging",
+            input_fingerprint=first.input_fingerprint,
+            lineage_depth=1,
+            source_job_id=None,
+            checkpoint_json={},
+            source_input_json={},
+        )
+    )
+    active = db_session.get(SettlementProjectionActive, "settlement")
+    assert active is not None
+    active.generation_id = "pointer-base-b"
+    db_session.commit()
+
+    second = settlement_rebuild._lineage_refresh_plan(
+        factory,
+        job_id="pointer-move-job",
+    )
+    assert second is not None
+    assert second.base_generation_id == "pointer-base-b"
+    assert second.input_fingerprint != first.input_fingerprint
+    assert second.generation_id != first.generation_id
+
+
 # ---------------------------------------------------------------------------
 # Remediation round 2 (R9-R14): contract tests are intentionally added before
 # the implementation changes.  The fixtures below exercise the fail-closed
@@ -2211,6 +2676,39 @@ def test_r13_a09_score_fact_db_failure_is_typed_and_fail_closed(db_session) -> N
 # bounds.  These tests are deliberately added before the round-3 implementation
 # changes so the focused RED run captures the current behavioral gaps.
 # ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("tombstone", [False, True])
+def test_finance_projection_uses_active_partition_not_stale_legacy(db_session, tombstone):
+    from apps.api.dy_api.routes.dashboard import _finance_unbilled_projection_query
+
+    db_session.add(DimStore(store_id="finance-overlay-store", store_name="Finance Overlay"))
+    db_session.add(AggStoreMonthlySettlement(
+        month="2026-08", store_id="finance-overlay-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=999, management_net_fee_cent=999, projection_run_id="legacy",
+    ))
+    _generation(db_session, "finance-overlay")
+    _manifest(db_session, "finance-overlay", "monthly", "2026-08",
+              owner_state="tombstone" if tombstone else "owned",
+              source_kind="tombstone" if tombstone else "overlay",
+              data_generation_id=None if tombstone else "finance-overlay")
+    if not tombstone:
+        db_session.add(SettlementMonthlyOverlay(
+            generation_id="finance-overlay", partition_key="2026-08", month="2026-08",
+            store_id="finance-overlay-store", product_scope="all", product_type="all",
+            promotion_net_fee_cent=90, management_net_fee_cent=30, projection_run_id="finance-overlay",
+        ))
+    _activate_generation(db_session, "finance-overlay")
+    db_session.flush()
+    store = DashboardDataStore(db_session)
+    kwargs = dict(month="2026-08", metric_scope="MONTH", store_id=None, q=None,
+                  invoice_status=None, scope_store_ids=None)
+    rows = db_session.execute(_finance_unbilled_projection_query(store, **kwargs)).all()
+    assert len(rows) == (0 if tombstone else 1)
+    if rows:
+        assert rows[0].promotion_net_fee_cent == 90
+    kwargs["scope_store_ids"] = ["another-store"]
+    assert db_session.execute(_finance_unbilled_projection_query(store, **kwargs)).all() == []
 
 
 def _activate_generation(db_session, generation_id: str) -> None:

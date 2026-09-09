@@ -1,0 +1,47 @@
+.clue-onboarding-heading-actions,
+.clue-onboarding-invitation__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  flex-wrap: wrap;
+}
+
+.clue-onboarding-invitation {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-8);
+  padding: var(--space-8) var(--space-10);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-left: var(--space-2) solid var(--brand-orange);
+  border-radius: var(--radius-lg);
+  color: var(--ink);
+}
+
+.clue-onboarding-invitation strong {
+  font-size: var(--font-size-body);
+}
+
+.clue-onboarding-invitation p {
+  margin: var(--space-2) 0 0;
+  color: var(--muted);
+  font-size: var(--font-size-body);
+  line-height: 1.6;
+}
+
+.clue-onboarding-invitation__actions {
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .clue-onboarding-invitation {
+    align-items: stretch;
+    flex-direction: column;
+    padding: var(--space-8);
+  }
+
+  .clue-onboarding-invitation__actions {
+    justify-content: flex-end;
+  }
+}

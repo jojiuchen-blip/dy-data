@@ -105,6 +105,7 @@ MAX_SETTLEMENT_CLOSURE_VALUES = 64
 MAX_SETTLEMENT_IMPACT_BATCH_SIZE = 64
 MAX_SETTLEMENT_COUPON_BATCH_SIZE = 100
 MAX_SETTLEMENT_PAGE_CARDINALITY = 8192
+SETTLEMENT_REBUILD_PROGRESS_INTERVAL = 1000
 SETTLEMENT_SPARSE_PROTOCOL = "t343-settlement-sparse-v1"
 MAX_SETTLEMENT_SPARSE_MONTHS = 120
 _MONTH_KEY_RE = re.compile(r"\d{4}-\d{2}\Z")
@@ -602,6 +603,13 @@ def _sparse_authority_relation(months: tuple[str, ...]) -> Any:
             SettlementFeeAdjustment.adjustment_posting_month.in_(months),
             _active_adjustment_condition(),
         )
+        .join(
+            SettlementFeeResultCurrent,
+            or_(
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+            ),
+        )
     )
     source = union_all(result_rows, adjustment_rows).subquery("sparse_authority")
 
@@ -858,6 +866,7 @@ def _sparse_write_monthly_partition(
     base_generation_id: str,
     month: str,
     batch_size: int,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> None:
     with session_factory() as session:
         _sparse_assert_writable(
@@ -924,6 +933,8 @@ def _sparse_write_monthly_partition(
                 digest=digest,
             )],
         )
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
 
 
@@ -1173,6 +1184,7 @@ def _sparse_write_ranking_partition(
     period_type: int,
     period_key: str,
     batch_size: int,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> None:
     prefix = "monthly" if period_type == 1 else "cumulative"
     partition_key = f"{prefix}:{period_key}"
@@ -1253,6 +1265,8 @@ def _sparse_write_ranking_partition(
                 digest=digest,
             )],
         )
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
 
 
@@ -1333,6 +1347,7 @@ def _sparse_finalize_generation(
     cumulative_months: tuple[str, ...],
     batch_size: int,
     resumed: bool,
+    commit_guard: Callable[[Session], None] | None = None,
 ) -> ProjectionManifestSet:
     with session_factory() as session:
         generation = _sparse_assert_writable(
@@ -1400,12 +1415,121 @@ def _sparse_finalize_generation(
         generation.last_key = terminal
         generation.manifest_checksum = manifest_checksum
         generation.source_input_json = source_input
+        if commit_guard is not None:
+            commit_guard(session)
         session.commit()
         return _sparse_result(
             session,
             generation_id=generation_id,
             base_generation_id=base_generation_id,
             resumed=resumed,
+        )
+
+
+def mark_settlement_sparse_overlay_ready(
+    session_factory: Callable[[], Session],
+    *,
+    generation_id: str,
+    base_generation_id: str,
+    input_fingerprint: str,
+    commit_guard: Callable[[Session], None] | None = None,
+) -> ProjectionManifestSet:
+    """Certify a settlement-only sparse build before pointer publication.
+
+    The shared sparse builder intentionally leaves a generation in ``staging``
+    because the finalize state machine may append score partitions before the
+    complete generation becomes ready.  Admin settlement rebuilds contain no
+    score artifact, so they use this smaller certification step explicitly.
+    """
+
+    with session_factory() as session:
+        statement = (
+            select(SettlementProjectionGeneration)
+            .where(SettlementProjectionGeneration.generation_id == generation_id)
+        )
+        if session.get_bind().dialect.name == "postgresql":
+            statement = statement.with_for_update()
+        generation = session.scalar(statement)
+        if generation is None:
+            raise ValueError("sparse settlement generation disappeared before ready")
+        if (
+            generation.projection_name != "settlement"
+            or generation.generation_kind != "lineage"
+            or generation.base_generation_id != base_generation_id
+            or generation.input_fingerprint != input_fingerprint
+            or generation.state not in {"staging", "ready", "published"}
+        ):
+            raise ValueError("sparse settlement generation metadata conflicts before ready")
+        active = session.get(SettlementProjectionActive, "settlement")
+        if active is None or active.generation_id != base_generation_id:
+            raise ValueError("active settlement pointer changed before sparse ready")
+
+        if generation.state in {"ready", "published"}:
+            if commit_guard is not None:
+                commit_guard(session)
+            return _sparse_result(
+                session,
+                generation_id=generation_id,
+                base_generation_id=base_generation_id,
+                resumed=True,
+            )
+
+        manifest_rows = [
+            dict(row)
+            for row in session.execute(
+                select(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                    SettlementProjectionPartitionManifest.owner_state,
+                    SettlementProjectionPartitionManifest.source_kind,
+                    SettlementProjectionPartitionManifest.data_generation_id,
+                    SettlementProjectionPartitionManifest.base_generation_id,
+                    SettlementProjectionPartitionManifest.row_count,
+                    SettlementProjectionPartitionManifest.amount_total_cent,
+                    SettlementProjectionPartitionManifest.status_counts_json,
+                    SettlementProjectionPartitionManifest.checksum,
+                    SettlementProjectionPartitionManifest.last_key,
+                )
+                .where(
+                    SettlementProjectionPartitionManifest.generation_id
+                    == generation_id,
+                    SettlementProjectionPartitionManifest.artifact.in_(
+                        ("monthly", "ranking")
+                    ),
+                )
+                .order_by(
+                    SettlementProjectionPartitionManifest.artifact,
+                    SettlementProjectionPartitionManifest.partition_key,
+                )
+            ).mappings()
+        ]
+        manifest_checksum = _sparse_generation_manifest_checksum(manifest_rows)
+        row_count = sum(int(row["row_count"]) for row in manifest_rows)
+        write_rows = 1 + len(manifest_rows) + row_count
+        write_bytes = 16_384 + 4_096 * (len(manifest_rows) + row_count)
+        generation.state = "ready"
+        generation.manifest_checksum = manifest_checksum
+        generation.last_key = manifest_rows[-1]["last_key"] if manifest_rows else None
+        generation.estimated_write_rows = write_rows
+        generation.estimated_write_bytes = write_bytes
+        generation.estimated_wal_bytes = 2 * write_bytes
+        generation.estimated_disk_headroom_bytes = 0
+        generation.checkpoint_json = {
+            **(generation.checkpoint_json or {}),
+            "phase": "settlement_ready",
+            "expected_active_pointer": base_generation_id,
+            "manifest_count": len(manifest_rows),
+            "row_count": row_count,
+            "last_key": generation.last_key,
+        }
+        if commit_guard is not None:
+            commit_guard(session)
+        session.commit()
+        return _sparse_result(
+            session,
+            generation_id=generation_id,
+            base_generation_id=base_generation_id,
+            resumed=False,
         )
 
 
@@ -1417,6 +1541,9 @@ def build_settlement_sparse_overlay(
     affected_months: Iterable[str],
     batch_size: int,
     input_fingerprint: str,
+    source_job_id: str | None = None,
+    commit_guard: Callable[[Session], None] | None = None,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> ProjectionManifestSet:
     """Build only claimed monthly/ranking partitions over a pinned base.
 
@@ -1451,14 +1578,25 @@ def build_settlement_sparse_overlay(
         )
         existing_state = existing.state if existing is not None else None
 
+    partition_total = len(affected) * 2 + len(cumulative_months)
+    if progress_callback is not None:
+        progress_callback("build_sparse_projection", 0, partition_total)
+
     if existing_state in {"ready", "published"}:
         with session_factory() as session:
-            return _sparse_result(
+            if commit_guard is not None:
+                commit_guard(session)
+            result = _sparse_result(
                 session,
                 generation_id=generation_id,
                 base_generation_id=base_generation_id,
                 resumed=True,
             )
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection", partition_total, partition_total
+            )
+        return result
 
     source_input = _sparse_source_input(
         base_generation_id=base_generation_id,
@@ -1495,10 +1633,13 @@ def build_settlement_sparse_overlay(
                     },
                     last_key=None,
                     manifest_checksum=None,
+                    source_job_id=source_job_id,
                     source_input_json=source_input,
                 )
             )
             try:
+                if commit_guard is not None:
+                    commit_guard(session)
                 session.commit()
             except IntegrityError:
                 session.rollback()
@@ -1512,6 +1653,7 @@ def build_settlement_sparse_overlay(
                     raise
                 resumed = True
 
+    completed_partitions = 0
     for month in affected:
         _sparse_write_monthly_partition(
             session_factory,
@@ -1519,7 +1661,15 @@ def build_settlement_sparse_overlay(
             base_generation_id=base_generation_id,
             month=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
     for month in affected:
         _sparse_write_ranking_partition(
             session_factory,
@@ -1529,7 +1679,15 @@ def build_settlement_sparse_overlay(
             period_type=1,
             period_key=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
     for month in cumulative_months:
         _sparse_write_ranking_partition(
             session_factory,
@@ -1539,8 +1697,16 @@ def build_settlement_sparse_overlay(
             period_type=2,
             period_key=month,
             batch_size=batch_size,
+            commit_guard=commit_guard,
         )
-    return _sparse_finalize_generation(
+        completed_partitions += 1
+        if progress_callback is not None:
+            progress_callback(
+                "build_sparse_projection",
+                completed_partitions,
+                partition_total,
+            )
+    result = _sparse_finalize_generation(
         session_factory,
         generation_id=generation_id,
         base_generation_id=base_generation_id,
@@ -1548,7 +1714,13 @@ def build_settlement_sparse_overlay(
         cumulative_months=cumulative_months,
         batch_size=batch_size,
         resumed=resumed,
+        commit_guard=commit_guard,
     )
+    if progress_callback is not None:
+        progress_callback(
+            "build_sparse_projection", partition_total, partition_total
+        )
+    return result
 
 
 def settle_coupon_local(
@@ -2458,27 +2630,60 @@ def run_settlement_job(session: Session, *, job_id: str, source_run_id: str) -> 
     return stats
 
 
-def rebuild_settlement(session: Session, *, source_run_id: str) -> SettlementStats:
+def rebuild_settlement(
+    session: Session,
+    *,
+    source_run_id: str,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
+) -> SettlementStats:
+    def report(stage: str, current: int = 0, total: int | None = None) -> None:
+        if progress_callback is not None:
+            progress_callback(stage, current, total)
+
+    report("clear_legacy_projection")
     session.execute(delete(SettlementOrderDetail))
     session.execute(delete(AggStoreRanking))
     session.execute(delete(AggStoreMonthlySettlement))
     session.execute(delete(DataQualityIssue))
     session.flush()
 
-    coupons = session.scalars(select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)).all()
-    for coupon in coupons:
+    report("load_coupons")
+    coupons = session.scalars(
+        select(RawDouyinOrderCoupon).order_by(RawDouyinOrderCoupon.coupon_id)
+    ).all()
+    coupon_count = len(coupons)
+    report("materialize_coupons", 0, coupon_count)
+    for index, coupon in enumerate(coupons, start=1):
         _materialize_coupon(session, coupon, source_run_id=source_run_id)
+        if (
+            index % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+            or index == coupon_count
+        ):
+            report("materialize_coupons", index, coupon_count)
     session.flush()
 
+    report("load_settlement_details", coupon_count, coupon_count)
     details = session.scalars(select(SettlementOrderDetail)).all()
+    report("rebuild_store_ranking", coupon_count, coupon_count)
     ranking_count = _rebuild_store_ranking(
         session, details, source_run_id=source_run_id
     )
+    report("rebuild_monthly_settlement", coupon_count, coupon_count)
     monthly_count = _rebuild_monthly_settlement(
         session, details, source_run_id=source_run_id
     )
-    rebuild_dual_fee_results(session, calculation_run_id=source_run_id)
-    rebuild_dual_fee_projections(session, projection_run_id=source_run_id)
+    report("rebuild_dual_fee_results", 0, coupon_count)
+    rebuild_dual_fee_results(
+        session,
+        calculation_run_id=source_run_id,
+        progress_callback=progress_callback,
+    )
+    report("rebuild_dual_fee_projections", 0, None)
+    rebuild_dual_fee_projections(
+        session,
+        projection_run_id=source_run_id,
+        progress_callback=progress_callback,
+    )
     ranking_count = _model_count(session, AggStoreRanking)
     monthly_count = _model_count(session, AggStoreMonthlySettlement)
     issue_count = session.scalar(
@@ -2486,6 +2691,7 @@ def rebuild_settlement(session: Session, *, source_run_id: str) -> SettlementSta
     )
     if issue_count is None:
         issue_count = 0
+    report("legacy_projection_ready", coupon_count, coupon_count)
     return SettlementStats(
         detail_count=len(details),
         issue_count=issue_count,
@@ -2631,6 +2837,7 @@ def rebuild_dual_fee_results(
     calculation_run_id: str,
     force_recalculate: bool = False,
     coupon_ids: Iterable[str] | None = None,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> DualFeeStats:
     """Materialize immutable promotion/management results and later adjustments.
 
@@ -2661,7 +2868,15 @@ def rebuild_dual_fee_results(
             RawDouyinOrderCoupon.coupon_id.in_(bounded_coupon_ids)
         )
     coupons = list(session.scalars(coupon_query))
-    for coupon in coupons:
+    coupon_count = len(coupons)
+    if progress_callback is not None:
+        progress_callback("rebuild_dual_fee_results", 0, coupon_count)
+    for index, coupon in enumerate(coupons, start=1):
+        if progress_callback is not None and (
+            index % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+            or index == coupon_count
+        ):
+            progress_callback("rebuild_dual_fee_results", index, coupon_count)
         # The coupon row is the stable serialization key for both fee directions.
         # PostgreSQL therefore cannot race on max(version)+1/current-pointer updates.
         locked_coupon = session.scalar(
@@ -2691,6 +2906,10 @@ def rebuild_dual_fee_results(
             continue
         order_status = _dual_order_status(order)
         if order_status == "closed":
+            for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+                current = _current_fee_result(session, coupon.coupon_id, direction)
+                if current is not None:
+                    _retire_unqualified_fee_result(session, current)
             continue
         if order_status == "unknown":
             blocked_count += _block_dual_fee(
@@ -2735,7 +2954,6 @@ def rebuild_dual_fee_results(
             coupon=coupon,
             calculation_run_id=calculation_run_id,
         )
-
     session.flush()
     if bounded_coupon_ids is None:
         result_count = _model_count(session, SettlementFeeResult) - before_results
@@ -2804,29 +3022,38 @@ def _materialize_dual_fee_direction(
         )
         return False
 
+    if _is_non_commission_owner_account(session, order.owner_account_name):
+        _block_dual_fee(
+            session,
+            calculation_run_id,
+            coupon,
+            order,
+            "dual_fee_non_commission_owner",
+            "订单归属账号配置为不参与分佣，费用方向已阻断。",
+            directions=(direction,),
+            context={
+                "direction": direction_name,
+                "order_owner_account_id": order.owner_account_id,
+                "order_owner_account_name": order.owner_account_name,
+            },
+        )
+        return False
+
     sale_owner_account_id = _first_text(order.owner_account_id)
-    sale_account = (
-        session.get(DimAwemeAccount, sale_owner_account_id)
-        if sale_owner_account_id
-        else None
-    )
-    if (
-        sale_account is None
-        or not sale_account.store_id
-        or not _is_active_binding_status(sale_account.binding_status)
-        or session.get(DimStore, sale_account.store_id) is None
-    ):
+    sale_account = _resolve_dual_fee_sale_account(session, order)
+    if sale_account is None:
         _block_dual_fee(
             session,
             calculation_run_id,
             coupon,
             order,
             "dual_fee_missing_sale_store",
-            "稳定归属账号未映射到有效销售门店，费用方向已阻断。",
+            "订单归属账号未唯一映射到有效销售门店，费用方向已阻断。",
             directions=(direction,),
             context={
                 "direction": direction_name,
                 "sale_owner_account_id": sale_owner_account_id,
+                "sale_owner_account_name": order.owner_account_name,
             },
         )
         return False
@@ -2861,26 +3088,35 @@ def _materialize_dual_fee_direction(
         return False
     if sale_business_date < FORMAL_SETTLEMENT_START:
         # Management also requires the corresponding sale to be in the formal window.
+        if current is not None:
+            _retire_unqualified_fee_result(session, current)
         return True
-    verify: RawDouyinVerifyRecord | None = None
+    verify = _select_valid_verify_record(session, coupon.coupon_id)
+    if verify is None or verify.verify_time is None:
+        if current is not None:
+            cancelled = _matching_verify_cancellation(session, current)
+            # A dated cancellation keeps the original and adds an event-month
+            # reversal. Invalid/missing evidence must not leave an unlocked
+            # historical false positive in the current published population.
+            if cancelled is None:
+                _retire_unqualified_fee_result(session, current)
+        _block_dual_fee(
+            session,
+            calculation_run_id,
+            coupon,
+            order,
+            "dual_fee_missing_valid_verify",
+            "费用计入必须有有效核销记录，费用方向已阻断。",
+            directions=(direction,),
+            context={"direction": direction_name},
+        )
+        return False
     verify_store_id: str | None = None
+    # Both fees accrue on the qualifying redemption; responsibility remains directional.
+    business_time = verify.verify_time
     if direction == PROMOTION_FEE:
-        business_time = sale_time
         responsible_store_id = sale_account.store_id
     else:
-        verify = _select_valid_verify_record(session, coupon.coupon_id)
-        if verify is None or verify.verify_time is None:
-            _block_dual_fee(
-                session,
-                calculation_run_id,
-                coupon,
-                order,
-                "dual_fee_missing_valid_verify",
-                "管理服务费缺少有效核销记录，费用方向已阻断。",
-                directions=(direction,),
-                context={"direction": direction_name},
-            )
-            return False
         poi_mapping = _find_poi_mapping(session, verify.poi_id)
         if poi_mapping is None or session.get(DimStore, poi_mapping.store_id) is None:
             _block_dual_fee(
@@ -2895,7 +3131,6 @@ def _materialize_dual_fee_direction(
             )
             return False
         verify_store_id = poi_mapping.store_id
-        business_time = verify.verify_time
         responsible_store_id = verify_store_id
 
     business_date = _business_date(business_time)
@@ -3011,6 +3246,8 @@ def _materialize_dual_fee_direction(
         rule_version=fee_rule.rule_version,
         scope_rule_version=scope_rule.scope_rule_version,
         result_status=ACTIVE_FEE_RESULT,
+        qualifying_verify_id=verify.verify_id,
+        qualifying_verify_time=verify.verify_time,
     )
     if (
         current is not None
@@ -3019,13 +3256,42 @@ def _materialize_dual_fee_direction(
     ):
         return True
 
-    _lock_settlement_slot(session, responsible_store_id, business_month)
-    if _is_fee_result_locked(
+    target_slot = (responsible_store_id, business_month)
+    prior_store_id = (
+        current.sale_store_id if direction == PROMOTION_FEE else current.verify_store_id
+    ) if current is not None else None
+    prior_slot = (prior_store_id, current.original_business_month) if prior_store_id else None
+    # A month/store move must serialize with both slots, not just its destination.
+    for slot_store_id, slot_month in sorted({target_slot} | ({prior_slot} if prior_slot else set())):
+        _lock_settlement_slot(session, slot_store_id, slot_month)
+    prior_slot_locked = prior_slot is not None and prior_slot != target_slot and _is_fee_result_locked(
+        session, store_id=prior_slot[0], month=prior_slot[1],
+        current_fee_result_id=current.fee_result_id,
+    )
+    adjustment_only = False
+    if prior_slot_locked or (current is not None and current.reverification_anchor_id is not None) or _is_fee_result_locked(
         session,
         store_id=responsible_store_id,
         month=business_month,
         current_fee_result_id=current.fee_result_id if current else None,
     ):
+        # Frozen originals stay current. A new redemption gets a separate basis
+        # and an additive posting only after the previous redemption was zeroed.
+        if current is not None and _same_qualifying_verification(current, verify):
+            if current.reverification_anchor_id is not None:
+                return True
+        elif current is not None and current.qualifying_verify_id is not None:
+            _materialize_direction_verify_cancellation(
+                session, coupon=coupon, calculation_run_id=calculation_run_id,
+                direction=direction,
+            )
+            _, prior_delta = _effective_adjustment_totals(
+                session, original_fee_result_id=current.fee_result_id,
+            )
+            adjustment_only = (
+                _has_verify_cancellation(session, current)
+                and current.fee_amount_cent + prior_delta == 0
+            )
         issue_type = (
             "dual_fee_locked_recalculation"
             if current is not None
@@ -3036,17 +3302,13 @@ def _materialize_dual_fee_direction(
             if current is not None
             else "账期已锁定，迟到券不得新增到已冻结账单之外。"
         )
-        _block_dual_fee(
-            session,
-            calculation_run_id,
-            coupon,
-            order,
-            issue_type,
-            message,
-            directions=(direction,),
-            context={"direction": direction_name, "business_month": business_month},
-        )
-        return False
+        if not adjustment_only:
+            _block_dual_fee(
+                session, calculation_run_id, coupon, order, issue_type, message,
+                directions=(direction,),
+                context={"direction": direction_name, "business_month": business_month},
+            )
+            return False
 
     version = _next_fee_result_version(session, coupon.coupon_id, direction)
     fee_result_id = _stable_business_id(
@@ -3066,6 +3328,8 @@ def _materialize_dual_fee_direction(
             )
             .values(result_status=SUPERSEDED_FEE_RESULT)
         )
+    qualifying_mapping = _find_poi_mapping(session, verify.poi_id)
+    qualifying_store = session.get(DimStore, qualifying_mapping.store_id) if qualifying_mapping else None
     result = SettlementFeeResult(
         fee_result_id=fee_result_id,
         coupon_id=coupon.coupon_id,
@@ -3087,13 +3351,21 @@ def _materialize_dual_fee_direction(
         fee_amount_cent=fee_amount,
         rule_version=fee_rule.rule_version,
         scope_rule_version=scope_rule.scope_rule_version,
-        result_status=ACTIVE_FEE_RESULT,
+        result_status=SUPERSEDED_FEE_RESULT if adjustment_only else ACTIVE_FEE_RESULT,
         calculation_run_id=calculation_run_id,
         input_fingerprint=input_fingerprint,
+        qualifying_verify_id=verify.verify_id,
+        qualifying_verify_time=verify.verify_time,
+        qualifying_verify_store_id=qualifying_store.store_id if qualifying_store else None,
+        qualifying_verify_store_name=qualifying_store.store_name if qualifying_store else None,
+        reverification_anchor_id=(current.reverification_anchor_id or current.fee_result_id) if adjustment_only else None,
         calculated_at=utcnow(),
     )
     session.add(result)
     session.flush()
+    if adjustment_only:
+        _post_reverification_restoration(session, result, calculation_run_id)
+        return True
     if current is None:
         session.add(
             SettlementFeeResultCurrent(
@@ -3134,15 +3406,8 @@ def _materialize_refund_adjustments(
         original = _current_fee_result(session, coupon.coupon_id, direction)
         if original is None:
             continue
-        if direction == MANAGEMENT_FEE and session.scalar(
-            select(SettlementFeeAdjustment.id).where(
-                SettlementFeeAdjustment.original_fee_result_id
-                == original.fee_result_id,
-                SettlementFeeAdjustment.fee_direction == MANAGEMENT_FEE,
-                SettlementFeeAdjustment.adjustment_type == 3,
-            )
-        ):
-            # Cancellation already zeroed the management fee. A later refund
+        if _has_verify_cancellation(session, original):
+            # Cancellation already zeroed this direction. A later refund
             # must not append another reduction and make the net amount negative.
             continue
         cumulative_refund = original.refunded_amount_cent
@@ -3415,20 +3680,95 @@ def _materialize_verify_cancellation_adjustment(
     coupon: RawDouyinOrderCoupon,
     calculation_run_id: str,
 ) -> None:
-    cancelled = session.scalar(
-        select(RawDouyinVerifyRecord)
-        .where(
-            RawDouyinVerifyRecord.coupon_id == coupon.coupon_id,
-            RawDouyinVerifyRecord.cancel_time.is_not(None),
+    for direction in (PROMOTION_FEE, MANAGEMENT_FEE):
+        _materialize_direction_verify_cancellation(
+            session, coupon=coupon, calculation_run_id=calculation_run_id,
+            direction=direction,
         )
-        .order_by(RawDouyinVerifyRecord.cancel_time.desc())
+
+
+def _same_qualifying_verification(result: SettlementFeeResult, verify: RawDouyinVerifyRecord) -> bool:
+    return (
+        result.qualifying_verify_id == verify.verify_id
+        and result.qualifying_verify_time is not None
+        and verify.verify_time is not None
+        and _as_utc(result.qualifying_verify_time) == _as_utc(verify.verify_time)
     )
-    if cancelled is None or cancelled.cancel_time is None:
-        return
-    original = _current_fee_result(session, coupon.coupon_id, MANAGEMENT_FEE)
+
+
+def _has_verify_cancellation(session: Session, original: SettlementFeeResult) -> bool:
+    """A pending or applied cancellation occupies the same economic reduction."""
+    return session.scalar(select(SettlementFeeAdjustment.id).where(
+        SettlementFeeAdjustment.original_fee_result_id == original.fee_result_id,
+        SettlementFeeAdjustment.adjustment_type == 3,
+    ).limit(1)) is not None or session.scalar(select(SettlementCarryforwardSource.id).where(
+        SettlementCarryforwardSource.original_fee_result_id == original.fee_result_id,
+        SettlementCarryforwardSource.source_event_type == 2,
+        SettlementCarryforwardSource.adjustment_type == 3,
+    ).limit(1)) is not None
+
+
+def _matching_verify_cancellation(session: Session, original: SettlementFeeResult) -> RawDouyinVerifyRecord | None:
+    """Never let an unrelated cancellation preserve or reverse a newer basis."""
+    query = select(RawDouyinVerifyRecord).where(
+        RawDouyinVerifyRecord.coupon_id == original.coupon_id,
+        RawDouyinVerifyRecord.cancel_time.is_not(None),
+    )
+    if original.qualifying_verify_id:
+        query = query.where(RawDouyinVerifyRecord.verify_id == original.qualifying_verify_id)
+        if original.qualifying_verify_time is not None:
+            query = query.where(RawDouyinVerifyRecord.verify_time == original.qualifying_verify_time)
+    elif _select_valid_verify_record(session, original.coupon_id) is not None:
+        return None
+    return session.scalar(query.order_by(RawDouyinVerifyRecord.cancel_time.desc()).limit(1))
+
+
+def _post_reverification_restoration(session: Session, result: SettlementFeeResult, run_id: str) -> None:
+    """Post the new basis once without changing the frozen original or pointer."""
+    store_id = result.sale_store_id if result.fee_direction == PROMOTION_FEE else result.verify_store_id
+    assert store_id is not None and result.qualifying_verify_time is not None
+    event_month = _business_month(result.qualifying_verify_time)
+    _lock_settlement_slot(session, store_id, event_month)
+    reason = "有效重核销恢复计费，保留锁定历史并追加新核销差额。"
+    if _is_fee_result_locked(session, store_id=store_id, month=event_month):
+        _create_carryforward_source(
+            session, source_event_type=2,
+            source_event_key=f"reverification:{result.fee_result_id}", original=result,
+            refund_event_id=None, verify_id=result.qualifying_verify_id, store_id=store_id,
+            event_month=event_month, adjustment_type=4,
+            adjustment_base_cent=result.fee_base_cent, adjustment_fee_cent=result.fee_amount_cent,
+            carryforward_reason=reason, occurred_at=result.qualifying_verify_time,
+            calculation_run_id=run_id,
+        )
+    else:
+        session.add(SettlementFeeAdjustment(
+            adjustment_id=_stable_business_id("reverification", result.fee_result_id),
+            original_fee_result_id=result.fee_result_id, coupon_id=result.coupon_id,
+            order_id=result.order_id, fee_direction=result.fee_direction,
+            original_business_month=result.original_business_month, adjustment_posting_month=event_month,
+            adjustment_type=4, adjustment_base_cent=result.fee_base_cent,
+            adjustment_fee_cent=result.fee_amount_cent, rule_version=result.rule_version,
+            adjustment_reason=reason, occurred_at=result.qualifying_verify_time,
+            created_by=f"settlement:{run_id}",
+        ))
+        session.flush()
+
+
+def _materialize_direction_verify_cancellation(
+    session: Session,
+    *,
+    coupon: RawDouyinOrderCoupon,
+    calculation_run_id: str,
+    direction: int,
+) -> None:
+    original = _current_fee_result(session, coupon.coupon_id, direction)
     if original is None:
         return
-    if not original.verify_store_id:
+    cancelled = _matching_verify_cancellation(session, original)
+    if cancelled is None or cancelled.cancel_time is None:
+        return
+    responsible_store_id = original.sale_store_id if direction == PROMOTION_FEE else original.verify_store_id
+    if not responsible_store_id:
         raise ValueError(
             f"verification cancellation has no responsible store: {original.fee_result_id}"
         )
@@ -3453,7 +3793,7 @@ def _materialize_verify_cancellation_adjustment(
         session,
         source_event_key=source_event_key,
         original_fee_result_id=original.fee_result_id,
-        fee_direction=MANAGEMENT_FEE,
+        fee_direction=direction,
     )
     if existing_source is not None:
         _record_issue(
@@ -3465,7 +3805,7 @@ def _materialize_verify_cancellation_adjustment(
             source_run_id=calculation_run_id,
             raw_context={
                 "carryforward_source_id": existing_source.carryforward_source_id,
-                "fee_direction": MANAGEMENT_FEE,
+                "fee_direction": direction,
             },
             identity_suffix=existing_source.carryforward_source_id,
         )
@@ -3476,12 +3816,12 @@ def _materialize_verify_cancellation_adjustment(
     )
     adjustment_base = -original.fee_base_cent - existing_base
     adjustment_fee = -original.fee_amount_cent - existing_fee
-    adjustment_reason = "取消核销，仅将管理服务费按原规则版本调整为零。"
+    adjustment_reason = "取消核销，将本费用方向按原规则版本调整为零。"
     posting_month = _business_month(cancelled.cancel_time)
-    _lock_settlement_slot(session, original.verify_store_id, posting_month)
+    _lock_settlement_slot(session, responsible_store_id, posting_month)
     if _is_fee_result_locked(
         session,
-        store_id=original.verify_store_id,
+        store_id=responsible_store_id,
         month=posting_month,
     ):
         source = _create_carryforward_source(
@@ -3491,7 +3831,7 @@ def _materialize_verify_cancellation_adjustment(
             original=original,
             refund_event_id=None,
             verify_id=cancelled.verify_id,
-            store_id=original.verify_store_id,
+            store_id=responsible_store_id,
             event_month=posting_month,
             adjustment_type=3,
             adjustment_base_cent=adjustment_base,
@@ -3508,13 +3848,13 @@ def _materialize_verify_cancellation_adjustment(
             coupon_id=original.coupon_id,
             source_run_id=calculation_run_id,
             raw_context={
-                "fee_direction": MANAGEMENT_FEE,
+                "fee_direction": direction,
                 "verify_id": cancelled.verify_id,
-                "store_id": original.verify_store_id,
+                "store_id": responsible_store_id,
                 "posting_month": posting_month,
                 "carryforward_source_id": source.carryforward_source_id,
             },
-            identity_suffix=f"{cancelled.verify_id}:{MANAGEMENT_FEE}",
+            identity_suffix=f"{cancelled.verify_id}:{direction}",
         )
         return
     session.add(
@@ -3524,7 +3864,7 @@ def _materialize_verify_cancellation_adjustment(
             refund_event_id=None,
             coupon_id=original.coupon_id,
             order_id=original.order_id,
-            fee_direction=MANAGEMENT_FEE,
+            fee_direction=direction,
             original_business_month=original.original_business_month,
             adjustment_posting_month=_business_month(cancelled.cancel_time),
             adjustment_type=3,
@@ -3562,11 +3902,14 @@ def _effective_adjustment_totals(
 ) -> tuple[int, int]:
     """Count every business delta once, whether pending or already applied."""
 
+    # Restoration postings materialize an adjustment-only basis, not a second
+    # economic delta against it. Subsequent refunds/cancellations use its face value.
+    restoration_id = _stable_business_id("reverification", original_fee_result_id)
     sources = list(
         session.scalars(
             select(SettlementCarryforwardSource).where(
                 SettlementCarryforwardSource.original_fee_result_id
-                == original_fee_result_id
+                == original_fee_result_id,
             )
         )
     )
@@ -3593,7 +3936,10 @@ def _effective_adjustment_totals(
             )
         )
         if adjustment.adjustment_id not in materialized_adjustment_ids
+        and adjustment.adjustment_id != restoration_id
     ]
+    sources = [source for source in sources
+               if source.source_event_key != f"reverification:{original_fee_result_id}"]
     return (
         sum(row.adjustment_base_cent for row in sources)
         + sum(row.adjustment_base_cent for row in ordinary_adjustments),
@@ -3741,9 +4087,30 @@ def _referenced_order_business_id(
     return order.order_id if order is not None else None
 
 
+def _retire_unqualified_fee_result(session: Session, current: SettlementFeeResult) -> None:
+    """Remove only an unlocked current pointer, preserving historical amounts."""
+    if current.reverification_anchor_id is not None:
+        return
+    store_id = current.sale_store_id if current.fee_direction == PROMOTION_FEE else current.verify_store_id
+    if not store_id:
+        return
+    _lock_settlement_slot(session, store_id, current.original_business_month)
+    if _is_fee_result_locked(
+        session, store_id=store_id, month=current.original_business_month,
+        current_fee_result_id=current.fee_result_id,
+    ):
+        return
+    session.execute(delete(SettlementFeeResultCurrent).where(
+        SettlementFeeResultCurrent.fee_result_id == current.fee_result_id,
+    ))
+    current.result_status = SUPERSEDED_FEE_RESULT
+    session.flush()
+
+
 def _current_fee_result(
     session: Session, coupon_id: str, direction: int
 ) -> SettlementFeeResult | None:
+    """Return the economic basis; a frozen ledger pointer itself never moves."""
     pointer = session.scalar(
         select(SettlementFeeResultCurrent).where(
             SettlementFeeResultCurrent.coupon_id == coupon_id,
@@ -3753,9 +4120,10 @@ def _current_fee_result(
     if pointer is None:
         return None
     return session.scalar(
-        select(SettlementFeeResult).where(
-            SettlementFeeResult.fee_result_id == pointer.fee_result_id
-        )
+        select(SettlementFeeResult).where(or_(
+            SettlementFeeResult.fee_result_id == pointer.fee_result_id,
+            SettlementFeeResult.reverification_anchor_id == pointer.fee_result_id,
+        )).order_by(SettlementFeeResult.result_version.desc()).limit(1)
     )
 
 
@@ -3820,21 +4188,28 @@ def _is_fee_result_locked(
 ) -> bool:
     if _is_settlement_period_immutable(session, store_id=store_id, month=month):
         return True
-    if not current_fee_result_id:
-        return False
-    locked_source = session.scalar(
-        select(SettlementStatementEntry.id)
-        .join(
-            SettlementStatement,
-            SettlementStatement.statement_id == SettlementStatementEntry.statement_id,
-        )
-        .where(
+    # Local import avoids the module initialization cycle. Use the generator's
+    # exact financial-fact contract so it cannot retain an old bill while we
+    # move its economic source into a second pending bill.
+    from apps.worker.billing_statements import _protected
+
+    slot_condition = and_(
+        SettlementStatement.store_id == store_id,
+        SettlementStatement.statement_month == month,
+        SettlementStatement.is_current.is_(True),
+    )
+    if current_fee_result_id:
+        source_statements = select(SettlementStatementEntry.statement_id).where(
             SettlementStatementEntry.source_type == 1,
             SettlementStatementEntry.source_record_id == current_fee_result_id,
-            SettlementStatement.statement_status == 4,
         )
-    )
-    return bool(locked_source)
+        slot_condition = or_(slot_condition, SettlementStatement.statement_id.in_(source_statements))
+    # This predicate is also called by invalid-coupon inspection before any
+    # slot lock. Never acquire statement locks here: a later coupon in the
+    # same transaction may need a slot held by a publisher waiting on that row.
+    statements = session.scalars(select(SettlementStatement).where(slot_condition)
+                                 .execution_options(populate_existing=True))
+    return any(_protected(session, statement) for statement in statements)
 
 
 def _block_dual_fee(
@@ -3849,6 +4224,23 @@ def _block_dual_fee(
     context: dict[str, Any] | None = None,
 ) -> int:
     for direction in directions:
+        if issue_type in {
+            "raw_order_internal_reference_mismatch",
+            "dual_fee_unknown_order_status",
+            "dual_fee_inactive_or_unknown_sku",
+            "dual_fee_unstable_owner_account",
+            "dual_fee_non_commission_owner",
+            "dual_fee_missing_sale_store",
+            "dual_fee_unknown_or_out_of_scope_channel",
+            "dual_fee_missing_business_time",
+            "dual_fee_missing_verify_store",
+            "dual_fee_missing_scope_rule",
+            "dual_fee_missing_fee_rule",
+            "dual_fee_missing_coupon_amount",
+        }:
+            current = _current_fee_result(session, coupon.coupon_id, direction)
+            if current is not None:
+                _retire_unqualified_fee_result(session, current)
         _record_issue(
             session,
             issue_type=issue_type,
@@ -3937,6 +4329,8 @@ def _fee_result_input_fingerprint(
     rule_version: str | None,
     scope_rule_version: str | None,
     result_status: int,
+    qualifying_verify_id: str | None = None,
+    qualifying_verify_time: datetime | None = None,
 ) -> str:
     """Return a deterministic SHA-256 over business inputs and result fields."""
 
@@ -3960,6 +4354,8 @@ def _fee_result_input_fingerprint(
         "rule_version": rule_version,
         "scope_rule_version": scope_rule_version,
         "result_status": result_status,
+        "qualifying_verify_id": qualifying_verify_id,
+        "qualifying_verify_time": qualifying_verify_time,
     }
     normalized = {
         key: _canonical_fingerprint_value(value)
@@ -4435,7 +4831,11 @@ def _next_month_key(month: str) -> str:
 
 
 def rebuild_dual_fee_projections(
-    session: Session, *, projection_run_id: str, batch_size: int = 1000
+    session: Session,
+    *,
+    projection_run_id: str,
+    batch_size: int = 1000,
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> StatementProjectionStats:
     if batch_size < 1 or batch_size > 10000:
         raise ValueError("batch_size must be between 1 and 10000")
@@ -4447,6 +4847,7 @@ def rebuild_dual_fee_projections(
                 projection_run_id=projection_run_id,
                 batch_size=batch_size,
                 source_counts=source_counts,
+                progress_callback=progress_callback,
             )
     except Exception:
         source_counts["failed"] += 1
@@ -4469,6 +4870,7 @@ def _rebuild_dual_fee_projections(
     projection_run_id: str,
     batch_size: int,
     source_counts: dict[str, int],
+    progress_callback: Callable[[str, int, int | None], None] | None,
 ) -> StatementProjectionStats:
     projection_months = _projection_months(session)
     monthly_count = 0
@@ -4500,6 +4902,7 @@ def _rebuild_dual_fee_projections(
             posting_month=month,
             batch_size=batch_size,
             source_counts=source_counts,
+            progress_callback=progress_callback,
         ):
             for product_scope, product_type in _projection_dimensions(
                 source.product_scope, source.product_type
@@ -4810,7 +5213,16 @@ def _projection_sources(
     posting_month: str,
     batch_size: int,
     source_counts: dict[str, int],
+    progress_callback: Callable[[str, int, int | None], None] | None = None,
 ) -> Iterator[StatementSource]:
+    def report_progress() -> None:
+        current = source_counts["processed"] + source_counts["skipped"]
+        if (
+            progress_callback is not None
+            and current % SETTLEMENT_REBUILD_PROGRESS_INTERVAL == 0
+        ):
+            progress_callback("rebuild_dual_fee_projections", current, None)
+
     locked_entries = session.execute(
         select(
             SettlementStatementEntry,
@@ -4836,6 +5248,7 @@ def _projection_sources(
     )
     for entry, store_id, source_amount_cent in locked_entries:
         source_counts["processed"] += 1
+        report_progress()
         yield StatementSource(
             source_type=entry.source_type,
             source_record_id=entry.source_record_id,
@@ -4890,20 +5303,26 @@ def _projection_sources(
         is_locked = locked_slot_cache[source.store_id]
         if is_locked:
             source_counts["skipped"] += 1
+            report_progress()
             continue
         source_counts["processed"] += 1
+        report_progress()
         yield source
     adjustments = session.execute(
         select(SettlementFeeAdjustment, SettlementFeeResult)
         .join(
-            SettlementFeeResultCurrent,
-            SettlementFeeResultCurrent.fee_result_id
-            == SettlementFeeAdjustment.original_fee_result_id,
-        )
-        .join(
             SettlementFeeResult,
             SettlementFeeResult.fee_result_id
             == SettlementFeeAdjustment.original_fee_result_id,
+        )
+        .join(
+            SettlementFeeResultCurrent,
+            or_(
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.fee_result_id,
+                # An adjustment-only basis never replaces its frozen pointer.
+                # Its postings remain authoritative while that anchor is current.
+                SettlementFeeResultCurrent.fee_result_id == SettlementFeeResult.reverification_anchor_id,
+            ),
         )
         .where(
             SettlementFeeAdjustment.adjustment_posting_month == posting_month,
@@ -4920,8 +5339,10 @@ def _projection_sources(
         is_locked = locked_slot_cache[source.store_id]
         if is_locked:
             source_counts["skipped"] += 1
+            report_progress()
             continue
         source_counts["processed"] += 1
+        report_progress()
         yield source
 
 
@@ -5002,7 +5423,13 @@ def _statement_source_snapshots(
     product = session.scalar(
         select(DimSkuProductRule).where(DimSkuProductRule.sku_id == result.sku_id)
     )
-    verify = _select_valid_verify_record(session, result.coupon_id)
+    verify = (
+        session.get(RawDouyinVerifyRecord, result.qualifying_verify_id)
+        if result.qualifying_verify_id
+        else None
+    )
+    if verify is not None and not _same_qualifying_verification(result, verify):
+        verify = None
     coupon = session.scalar(
         select(RawDouyinOrderCoupon).where(
             RawDouyinOrderCoupon.coupon_id == result.coupon_id
@@ -5016,7 +5443,7 @@ def _statement_source_snapshots(
     verify_mapping = (
         _find_poi_mapping(session, verify.poi_id) if verify is not None else None
     )
-    verify_store_id = result.verify_store_id or (
+    verify_store_id = result.qualifying_verify_store_id or result.verify_store_id or (
         verify_mapping.store_id if verify_mapping is not None else None
     )
     verify_store = (
@@ -5042,9 +5469,9 @@ def _statement_source_snapshots(
         "sale_store_id": result.sale_store_id,
         "sale_store": sale_store.store_name if sale_store is not None else None,
         "verify_store_id": verify_store_id,
-        "verify_store": verify_store.store_name if verify_store is not None else None,
+        "verify_store": result.qualifying_verify_store_name or (verify_store.store_name if verify_store is not None else None),
         "sale_time": order.sale_time if order is not None else None,
-        "verify_time": verify.verify_time if verify is not None else None,
+        "verify_time": result.qualifying_verify_time or (verify.verify_time if verify is not None else None),
         "received_amount_cent": result.source_amount_cent,
         "fee_rate": result.fee_rate,
         "refund_at": (
@@ -5275,13 +5702,19 @@ def _match_owner(
     return None
 
 
-def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccountMatch]:
+def _nickname_matches(
+    session: Session,
+    nickname: str | None,
+    *,
+    raw_bindings: list[RawAwemeBinding] | None = None,
+) -> list[OwnerAccountMatch]:
     if not nickname:
         return []
     matches: dict[tuple[str, str | None], OwnerAccountMatch] = {}
-    raw_bindings = list(
-        session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
-    )
+    if raw_bindings is None:
+        raw_bindings = list(
+            session.scalars(select(RawAwemeBinding).where(RawAwemeBinding.douyin_nickname == nickname))
+        )
     for binding in raw_bindings:
         if not binding.account_id or not _is_active_binding_status(binding.binding_status):
             continue
@@ -5291,6 +5724,117 @@ def _nickname_matches(session: Session, nickname: str | None) -> list[OwnerAccou
             binding_status=binding.binding_status,
         )
     return list(matches.values())
+
+
+def _resolve_dual_fee_sale_account(
+    session: Session, order: RawDouyinOrder
+) -> OwnerAccountMatch | None:
+    """Resolve order identity across UID and backend binding ID namespaces.
+
+    Reuse the legacy exact-nickname binding evidence, never product ownership.
+    A known invalid account or conflicting store evidence must not be bypassed
+    by falling back to a nickname. Binding date bounds apply to the sale date
+    for both fee directions, not the later verification date.
+    """
+    sale_date = _business_date(_first_datetime(order.sale_time, order.pay_time))
+
+    def account_is_valid(account: DimAwemeAccount) -> bool:
+        return (
+            _is_active_dual_fee_binding_status(account.binding_status)
+            and (account.valid_from is None or (
+                sale_date is not None and account.valid_from <= sale_date
+            ))
+            and (account.valid_to is None or (
+                sale_date is not None and sale_date <= account.valid_to
+            ))
+        )
+
+    owner_id = _first_text(order.owner_account_id)
+    direct = session.get(DimAwemeAccount, owner_id) if owner_id else None
+    if direct is not None and not account_is_valid(direct):
+        return None
+    if direct is not None and direct.store_id:
+        direct_store = session.get(DimStore, direct.store_id)
+        if direct_store is None or not direct_store.is_active:
+            return None
+
+    raw_bindings = list(session.scalars(
+        select(RawAwemeBinding).where(
+            RawAwemeBinding.douyin_nickname == order.owner_account_name
+        )
+    )) if order.owner_account_name else []
+    # Backend exports include status in the row key and retain earlier rows.
+    # Do not let a retained ACTIVE row resurrect the same unbound identity.
+    # POI, Douyin ID and account type distinguish unrelated binding records.
+    statuses: dict[tuple[str, str | None, str | None, str | None], set[bool]] = {}
+    for binding in raw_bindings:
+        if not binding.account_id:
+            continue
+        payload = binding.raw_payload or {}
+        account_type = _first_text(*(
+            str(value) if value is not None else None
+            for value in (payload.get("账号类型"), payload.get("account_type"))
+        ))
+        identity = (
+            binding.account_id, binding.douyin_id, binding.poi_id,
+            account_type,
+        )
+        statuses.setdefault(identity, set()).add(
+            _is_active_dual_fee_binding_status(binding.binding_status)
+        )
+    for identity, values in statuses.items():
+        if direct is not None and identity[0] == direct.account_id and False in values:
+            return None
+        if len(values) > 1:
+            conflict_store = session.get(DimStore, identity[0])
+            if conflict_store is not None and conflict_store.is_active:
+                return None
+    if direct is not None:
+        direct_statuses = {
+            status for identity, values in statuses.items()
+            if identity[0] == direct.store_id
+            for status in values
+        }
+        if direct_statuses == {False}:
+            return None
+
+    candidates = _nickname_matches(
+        session, order.owner_account_name,
+        raw_bindings=[binding for binding in raw_bindings
+                      if _is_active_dual_fee_binding_status(binding.binding_status)],
+    )
+    if direct is not None and direct.store_id:
+        candidates.append(OwnerAccountMatch(
+            account_id=direct.account_id,
+            store_id=direct.store_id,
+            binding_status=direct.binding_status,
+            match_source="dim_aweme_accounts",
+        ))
+
+    valid_matches: dict[str, OwnerAccountMatch] = {}
+    for candidate in candidates:
+        if not candidate.store_id:
+            continue
+        store = session.get(DimStore, candidate.store_id)
+        if store is None or not store.is_active:
+            continue
+        account = session.get(DimAwemeAccount, candidate.account_id)
+        if account is not None:
+            if not account_is_valid(account):
+                return None
+            if account.store_id and account.store_id != candidate.store_id:
+                return None
+        valid_matches[candidate.store_id] = candidate
+
+    return next(iter(valid_matches.values())) if len(valid_matches) == 1 else None
+
+
+def _is_active_dual_fee_binding_status(status: str | None) -> bool:
+    # Keep legacy matching unchanged; dual fees also honor the exporter's
+    # explicit pending/reviewing exclusion.
+    return _is_active_binding_status(status) and _normalized(status) not in {
+        "pending", "reviewing",
+    }
 
 
 def _is_active_binding_status(status: str | None) -> bool:
@@ -5312,16 +5856,22 @@ def _select_valid_verify_record(session: Session, coupon_id: str) -> RawDouyinVe
             .where(RawDouyinVerifyRecord.coupon_id == coupon_id)
         )
     )
-    records.sort(key=lambda record: (record.verify_time or datetime.min, record.verify_id), reverse=True)
+    records.sort(
+        key=lambda record: (
+            _as_utc(record.verify_time) if record.verify_time else datetime.min.replace(tzinfo=timezone.utc),
+            record.verify_id,
+        ),
+        reverse=True,
+    )
     valid_records = [
         record
         for record in records
-        if _normalized(record.verify_status) in VALID_VERIFY_STATUSES and record.cancel_time is None
+        if _normalized(record.verify_status) in VALID_VERIFY_STATUSES
+        and record.cancel_time is None
+        and record.verify_time is not None
     ]
     if valid_records:
         return valid_records[0]
-    if records and _normalized(records[0].verify_status) not in CANCELLED_VERIFY_STATUSES:
-        return records[0]
     return None
 
 

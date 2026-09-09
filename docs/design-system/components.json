@@ -266,9 +266,26 @@
       "avoidWhen": "长流程、可收藏内容或复杂导航应使用独立页面。",
       "states": ["closed", "open", "confirm", "danger", "busy"],
       "tokens": ["shadow.dialog", "radius.xl", "surface", "focus.ring"],
-      "accessibility": "初始聚焦、Tab 焦点循环、Esc、背景隔离、关闭回焦必须同时存在。",
+      "accessibility": "初始聚焦、Tab 焦点循环、Esc、背景隔离、关闭回焦必须同时存在。叠层时仅顶层接收键盘，全部关闭前持续隔离背景。",
       "responsive": "手机端近全屏，桌面端保持任务适配的最大宽度。",
       "previewAnchor": "catalog-dialog"
+    },
+    {
+      "id": "guided-tour",
+      "name": "GuidedTour",
+      "family": "Overlays",
+      "category": "overlay",
+      "status": "stable",
+      "description": "逐步框选真实控件，结合短说明介绍任务流程。",
+      "implementationPath": "apps/web/src/components/GuidedTour.tsx",
+      "exportName": "GuidedTour",
+      "useWhen": "首次使用或用户主动重播，需要在当前页面了解操作顺序。",
+      "avoidWhen": "不要强迫完成引导，也不要用下一步提交业务操作。",
+      "states": ["open", "pending", "missing-target", "completed", "skipped"],
+      "tokens": ["surface", "brand.orange", "radius.lg", "shadow.dialog", "focus.ring"],
+      "accessibility": "复用 Dialog 管理焦点；支持上一步、下一步、跳过与 Escape。缺失目标和超时仍能结束。",
+      "responsive": "选择当前可见的目标，随滚动与视口更新定位；说明框保持在视口内，减少动态效果设置下关闭过渡。",
+      "previewAnchor": "catalog-guided-tour"
     },
     {
       "id": "resource-state",

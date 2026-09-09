@@ -19,7 +19,60 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260907_0051"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260909_0052"]
+
+
+@pytest.mark.parametrize("starting_revision", ["20260907_0051", "20260909_0051"])
+def test_clue_and_fee_branches_upgrade_to_shared_head(tmp_path: Path, starting_revision: str) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_url = f"sqlite:///{(tmp_path / 'merged-branches.sqlite').as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, starting_revision)
+    command.upgrade(config, "head")
+    engine = create_engine(database_url)
+    try:
+        assert "phone_source_fingerprint" in {column["name"] for column in inspect(engine).get_columns("clue_center_orders")}
+        assert "qualifying_verify_id" in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == ["20260909_0052"]
+    finally:
+        engine.dispose()
+
+
+def test_fee_verification_provenance_migration_is_additive_and_reversible(tmp_path: Path) -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    database_url = f"sqlite:///{(tmp_path / 'fee-provenance.sqlite').as_posix()}"
+    config = Config(str(repo_root / "alembic.ini"))
+    config.set_main_option("script_location", str(repo_root / "alembic"))
+    config.set_main_option("sqlalchemy.url", database_url)
+    command.upgrade(config, "20260903_0050")
+    engine = create_engine(database_url)
+    assert "qualifying_verify_id" not in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
+    command.upgrade(config, "head")
+    columns = {column["name"]: column for column in inspect(engine).get_columns("settlement_fee_result")}
+    assert columns["qualifying_verify_id"]["nullable"] is True
+    assert columns["qualifying_verify_time"]["nullable"] is True
+    assert "settlement_billing_source_bundle" in inspect(engine).get_table_names()
+    command.downgrade(config, "20260903_0050")
+    assert "qualifying_verify_id" not in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
+    assert "qualifying_verify_time" not in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
+    assert "settlement_billing_source_bundle" not in inspect(engine).get_table_names()
+    command.upgrade(config, "head")
+    assert "qualifying_verify_id" in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
+    with engine.begin() as connection:
+        connection.execute(text("""
+            INSERT INTO settlement_billing_source_bundle
+                (generation_id, store_id, statement_month, source_job_id,
+                 source_fingerprint, sources_json, created_at)
+            VALUES ('audit-generation', 'audit-store', '2026-08', 'audit-job',
+                    'fingerprint', '[]', '2026-09-09 00:00:00')
+        """))
+    with pytest.raises(RuntimeError, match="provenance is populated"):
+        command.downgrade(config, "20260903_0050")
+    assert "settlement_billing_source_bundle" in inspect(engine).get_table_names()
+    engine.dispose()
 
 
 def test_promotion_invoice_manual_fields_migration_is_reversible_when_unused(
@@ -86,7 +139,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260907_0051"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260909_0052"
 
     with engine.begin() as connection:
         connection.execute(

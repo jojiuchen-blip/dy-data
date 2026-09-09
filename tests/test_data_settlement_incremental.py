@@ -493,6 +493,46 @@ def test_local_kernel_isolates_coupon_a_from_coupon_b(db_session) -> None:
     assert _coupon_local_snapshot(db_session, coupon_b.coupon_id) == before_b
 
 
+def test_invalid_then_valid_batch_does_not_take_statement_row_locks(db_session) -> None:
+    from sqlalchemy import event
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.orm import Session
+
+    coupon_a = _seed_local_coupon(db_session, "coupon-a")
+    coupon_b = _seed_local_coupon(db_session, "coupon-b", seed_dimensions=False)
+    settlement_worker.settle_coupon_local(db_session, coupon_a, "batch-seed")
+    db_session.add(SettlementStatement(
+        statement_id="batch-pending", store_id="store-sale", statement_month="2026-08",
+        statement_status=2,
+    ))
+    coupon_a.coupon_status_normalized = "closed"
+    db_session.commit()
+    statement_locks = []
+
+    def observe(execution):
+        if execution.is_select:
+            sql = str(execution.statement.compile(dialect=postgresql.dialect()))
+            if "FROM settlement_statement " in sql and "FOR UPDATE" in sql:
+                statement_locks.append(sql)
+
+    event.listen(Session, "do_orm_execute", observe)
+    try:
+        result = settlement_worker._settle_coupon_batch(
+            sessionmaker(bind=db_session.get_bind()), coupon_ids=["coupon-a", "coupon-b"],
+            source_run_id="invalid-valid-batch", page_fence=None,
+        )
+    finally:
+        event.remove(Session, "do_orm_execute", observe)
+    assert result is not None
+    assert not statement_locks, "protection reads must not introduce statement -> next coupon slot lock order"
+    assert not list(db_session.scalars(select(SettlementFeeResultCurrent).where(
+        SettlementFeeResultCurrent.coupon_id == "coupon-a",
+    )))
+    assert len(list(db_session.scalars(select(SettlementFeeResultCurrent).where(
+        SettlementFeeResultCurrent.coupon_id == "coupon-b",
+    )))) == 2
+
+
 def test_invalid_unlocked_coupon_removes_only_local_current_and_is_idempotent(
     db_session,
 ) -> None:
@@ -754,9 +794,9 @@ def test_cross_month_refund_and_cancellation_adjustments_are_append_only(db_sess
         db_session, coupon, "run-cancellation"
     )
     db_session.commit()
-    assert first_cancellation["adjustment_count"] == 1
+    assert first_cancellation["adjustment_count"] == 2
     all_adjustments = _coupon_local_snapshot(db_session, coupon.coupon_id)["adjustments"]
-    assert len(all_adjustments) == 3
+    assert len(all_adjustments) == 4
     assert all(
         month in first_cancellation["affected_months"]
         for month in ("2026-08", "2026-09")
@@ -769,7 +809,7 @@ def test_cross_month_refund_and_cancellation_adjustments_are_append_only(db_sess
     )
 
 
-def test_management_refund_after_cancellation_does_not_make_net_negative(
+def test_both_direction_refunds_after_cancellation_do_not_make_net_negative(
     db_session,
 ) -> None:
     coupon = _seed_local_coupon(db_session)
@@ -841,7 +881,14 @@ def test_management_refund_after_cancellation_does_not_make_net_negative(
     assert management.fee_amount_cent + sum(
         row.adjustment_fee_cent for row in management_adjustments
     ) >= 0
-    assert any(row.refund_event_id == "refund-after-cancellation" for row in promotion_adjustments)
+    assert len(promotion_adjustments) == 1
+    assert promotion_adjustments[0].adjustment_type == 3
+    assert promotion_adjustments[0].refund_event_id is None
+    promotion = db_session.scalar(select(SettlementFeeResult).where(
+        SettlementFeeResult.fee_result_id == promotion_adjustments[0].original_fee_result_id,
+    ))
+    assert promotion is not None
+    assert promotion.fee_amount_cent + promotion_adjustments[0].adjustment_fee_cent == 0
 
 
 def test_force_same_run_retry_fences_result_and_still_scans_adjustments(

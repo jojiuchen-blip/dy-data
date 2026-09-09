@@ -559,14 +559,14 @@ def test_store_summary_metrics_stay_compact_in_one_row(
         cards = page.locator(".store-summary-metrics .metric-card")
         expected_card_count = 4 if name == "ranking-metrics" else 6
         expect(cards).to_have_count(expected_card_count, timeout=10000)
-        assert page.locator(".store-summary-metrics").get_by_text("当期推广服务费", exact=True).count() == 1
-        assert page.locator(".store-summary-metrics").get_by_text("累计推广服务费", exact=True).count() == 1
+        expect(page.locator(".store-summary-metrics").get_by_text("当期推广服务费", exact=True)).to_have_count(1, timeout=10000)
+        expect(page.locator(".store-summary-metrics").get_by_text("累计推广服务费", exact=True)).to_have_count(1, timeout=10000)
         if name == "ranking-metrics":
-            assert page.locator(".store-summary-metrics").get_by_text("当期管理服务费", exact=True).count() == 0
-            assert page.locator(".store-summary-metrics").get_by_text("累计管理服务费", exact=True).count() == 0
+            expect(page.locator(".store-summary-metrics").get_by_text("当期管理服务费", exact=True)).to_have_count(0, timeout=10000)
+            expect(page.locator(".store-summary-metrics").get_by_text("累计管理服务费", exact=True)).to_have_count(0, timeout=10000)
         else:
-            assert page.locator(".store-summary-metrics").get_by_text("当期管理服务费", exact=True).count() == 1
-            assert page.locator(".store-summary-metrics").get_by_text("累计管理服务费", exact=True).count() == 1
+            expect(page.locator(".store-summary-metrics").get_by_text("当期管理服务费", exact=True)).to_have_count(1, timeout=10000)
+            expect(page.locator(".store-summary-metrics").get_by_text("累计管理服务费", exact=True)).to_have_count(1, timeout=10000)
         assert page.locator(".store-summary-metrics").get_by_text(
             "结算参考净额", exact=True,
         ).count() == 0

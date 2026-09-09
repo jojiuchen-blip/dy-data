@@ -122,19 +122,19 @@ def test_store_settlement_exposes_direction_cards_and_real_order_detail_resource
 
     assert "DYDATA-82" not in page
     assert "DYDATA-83" not in page
-    assert "submitStoreBillingDispute" not in page
+    assert "submitStoreBillingDispute" in page
     assert "账单异议" in page
     assert "异议类型" in page
     assert "发起账单异议" in page
     assert "受控证明对象键" not in page
-    assert "证明材料受控上传尚未开放，当前不能提交异议。" in page
+    assert "无需附件" in page
 
 
 def test_store_invoice_keeps_real_registration_and_adds_formal_invoice_guidance() -> None:
     page = read_source("pages/StoreInvoicePage.tsx")
 
     assert "registerPromotionInvoice" in page
-    assert "crypto.randomUUID()" in page
+    assert "invoiceRequest.current.forRequest(storeId, payload)" in page
     assert "StoreFinanceTimeline" in page
     assert "购买方开票信息" in page
     assert "一键复制全部开票信息" in page
@@ -226,8 +226,8 @@ def test_ranking_and_store_settlement_use_page_specific_compact_metrics() -> Non
     assert "verifiedAmountCumulativeCent" in ranking
     assert "promotionMonthFeeCent" in ranking
     assert "promotionCumulativeFeeCent" in ranking
-    assert 'billingMetrics?.cumulative?.promotionAmountCent' in settlement
-    assert 'billingMetrics?.cumulative?.managementAmountCent' in settlement
+    assert 'cumulativeMetrics?.promotionNetFeeCent' in settlement
+    assert 'cumulativeMetrics?.managementNetFeeCent' in settlement
     assert 'title: "管理服务费净额"' not in ranking
     assert 'title: "结算参考净额"' not in ranking
     assert '{ value: "MANAGEMENT_FEE"' not in ranking

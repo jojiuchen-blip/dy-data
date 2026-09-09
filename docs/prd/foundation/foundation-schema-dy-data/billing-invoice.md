@@ -3,6 +3,20 @@
 > 增量来源: DYDATA-19 冻结规格（2026-08-20）
 > 数据库: PostgreSQL；金额为整数分，时间为 `timestamptz`
 
+## DYDATA-87 待确认账单生成合同
+
+- 实现依据：`apps/worker/billing_source_capture.py`、`billing_statements.py`、`settlement_rebuild.py`；来源表及血缘定义见 [结算 Schema](settlement-reporting.md)。本节描述内部生成服务，不新增公开生成 API。
+- 捕获事务与发布前复核均采用 `job claim fence → active FOR UPDATE 并验证 base → 排序的门店/账期槽位锁`；锁后重查来源引用。同槽位替换使用锁后来源；出现未锁新槽位则退出，在新事务重试，不倒序补锁。
+- 先持久化私有来源包及包含空槽位的完成标记，再构建候选投影。最终事务重新校验来源指纹，调用投影发布和 `generate_pending_statements`，并保存任务统计；账单生成异常或 `blocked > 0` 时事务回滚，不能只提交投影。
+- 生成器要求当前 active generation 为 `published` 且匹配 source job，只消费显式冻结来源/槽位。缺少来源输入阻断，不能查询可变 raw/current 表重建已发布来源。先按方向/产品维度校验冻结来源与发布月度投影的基数、原始费用、调整费用一致。
+- 无受保护事实时创建 V1 或 Vn+1，状态为 `2=待确认`；写完整来源项、汇总行、账单头并核对金额后原子切换 `is_current`，新版本以 `supersedes_statement_id` 指向旧版本。最后来源撤销时，冻结的空账期允许生成零金额、空行/空来源 V2，V1 永久保留；不是删除账期或继续展示 V1 金额。
+- 保护检查与确认 API 共用当前账单行锁：状态已确认/锁账、存在确认或锁账时间、存在方向确认记录、该门店账期存在发票分配/管理费发票记录，或存在状态 1/2/3/4 的异议及已有结果账单的异议时，生成器跳过并记录 `FINANCIAL_FACTS_PROTECTED`。不自动确认、开票、转移旧确认或覆盖历史发票；`protected` 不等同于生成失败。
+- 幂等：账单 ID 派生自 generation/store/month；规范化来源 SHA-256 与 `GENERATE_PENDING_STATEMENT` 审计比对，当前账单来源不变则 `unchanged/skipped`，不制造新版本；来源身份在包中不重复，在账单版本内唯一。保护/阻断审计也使用稳定 ID 防重。
+- 迟到确认保护：生成器跳过受保护账单前，核对其所有原始来源 ID 仍被整批冻结原始来源或调整的原始关联保留；缺失时记录 `PROTECTED_BILLING_SOURCE_DRIFT` 并增加 `blocked`，由协调器回滚整个发布和新待确认账单，防止跨月重复金额。该回滚不撤销先前已提交的计算 current 迁移；任务不得显示成功。
+- 来源漂移抛 `BillingSourceDriftError`，任务立即 failed，错误码 `SETTLEMENT_REBUILD_SOURCE_DRIFT`、恢复状态 `NEW_REBUILD_JOB_REQUIRED`，不耗同 job 的三次重试、不覆盖冻结包；新数据必须新建重算任务。普通临时错误仍按现有重试策略，已持久发布的任务先走发布事实对账，避免重复发布。
+
+本合同不授权改写历史已确认账单；历史修正及锁账后的核销恢复沿用独立调整与血缘保护，由主控验证，不以本次文档回捞替代生产验收。
+
 ### 1 `settlement_statement_confirmation` — 账单方向确认
 
 | 字段 | 类型 | 可空 | 键 | 默认值 | 说明 |
