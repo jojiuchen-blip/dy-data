@@ -27,7 +27,20 @@
 - 分接口预算共享、保护预留、跨零点、QPS不伪造日额度：4 passed。
 - 管理同步API及新模式日历/已发布覆盖口径：20 passed。
 - Web TypeScript/Vite build通过。
+- 任务控制、预算暂停、旧调度兼容与迁移组合：171 passed。
+- 分页采集、发布范围、维度快照及 daily orchestrator 集成：73 passed。
+- 调度器、旧 scheduler 及每请求预算：18 passed；最后收口回归及真实 PostgreSQL 另记。
 - 完整集成、0053升级、CI、上线新模式及最终生产任务状态：待补证。
+
+## 启用与回退操作
+
+- 生产配置使用 `WORKER_SCHEDULER_MODE=priority_daily`、`WORKER_HISTORY_DAILY_RESERVE=10`。API和worker必须重建，确保页面与真实调度模式一致。旧 `auto_sync_enabled=false` 不再阻止新模式；不可用旧开关当作新模式停止按钮。
+- 切换前等待正在运行的旧采集子任务结束，备份生产env、数据库和当前容器镜像；通过部署工作流的真实PostgreSQL、全量测试、构建和健康检查门禁。
+- 用 `ensure_daily_priority_plan` 为上海2026-09-09建立同一config的all计划。四个手工分域任务未完成时，all业务处理与finalize必须等待；最终发布范围继承分域settle的月份和门店证据。
+- 发布验收读取实际worker模式、数据库迁移0053、9月9日任务租约/分页断点/阶段状态和range发布状态。不把采集行数当成已发布证明。
+- 回退时先停止worker领取，保留页级断点与0053额度暂停历史；恢复部署前镜像和env后，在旧自动同步关闭且旧daily drain关闭的状态核查。若已产生quota_pause_count，禁止降级数据库迁移来丢弃暂停计数。
+- 线索单窗口达到10,000条会明确失败，当前版本不自动拆子窗口；需按时间窗口进一步拆分后补齐，不得标为完整。
+- T0.2上线不代表DYDATA-90全部验收完成；72小时运行、状态回补覆盖和接口授权口径仍需单独留证。
 
 ## Foundation判断
 
