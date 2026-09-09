@@ -26,7 +26,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from apps.api.dy_api.models import JobRun, JobStageRun
-from apps.worker.collectors.clues import collect_clues
+from apps.worker.collectors.clues import PAGE_ITEM_LIMIT, collect_clues
 from apps.worker.collectors.normalizers import data_items, first, text
 from apps.worker.collectors.orders import collect_orders
 from apps.worker.collectors.refunds import collect_refunds
@@ -122,56 +122,85 @@ def collect_priority_pages(
 
     checkpoint = _load_checkpoint(factory, job, target=target, window=window)
     committed_pages = 0
+    deferred_pause: PriorityBudgetPauseError | None = None
+    deferred_error: BaseException | None = None
     for domain in domains:
         state = checkpoint["domains"][domain]
-        while not bool(state.get("completed")):
-            if max_pages is not None and committed_pages >= max_pages:
-                # A partial stage must never be reported as success.  The
-                # normal production path yields through the quota governor;
-                # this explicit bound is useful to callers that want a
-                # deterministic cooperative yield in a dry run.
-                raise PriorityBudgetPauseError(60)
+        try:
+            while not bool(state.get("completed")):
+                if max_pages is not None and committed_pages >= max_pages:
+                    # A partial stage must never be reported as success.  The
+                    # normal production path yields through the quota governor;
+                    # this explicit bound is useful to callers that want a
+                    # deterministic cooperative yield in a dry run.
+                    raise PriorityBudgetPauseError(60)
 
-            _guard_position(state, domain)
-            _assert_fence(factory, page_fence)
-            try:
-                page = _fetch_page(
-                    client,
-                    domain=domain,
-                    state=state,
-                    window=window,
-                    page_size=sizes[domain],
-                )
-            except PriorityBudgetPauseError:
-                # Preserve the scheduler's typed marker exactly.  Its message
-                # intentionally does not contain the global 2119003 code.
-                raise
-            except BaseException as exc:
-                _raise_budget_pause_if_needed(exc)
-                raise
+                _guard_position(state, domain)
+                _assert_fence(factory, page_fence)
+                try:
+                    page = _fetch_page(
+                        client,
+                        domain=domain,
+                        state=state,
+                        window=window,
+                        page_size=sizes[domain],
+                    )
+                except PriorityBudgetPauseError:
+                    # Preserve the scheduler's typed marker exactly.  Its
+                    # message intentionally does not contain the global 2119003
+                    # code.  A per-endpoint pause is deferred until independent
+                    # domains have had a chance to make progress.
+                    raise
+                except BaseException as exc:
+                    _raise_budget_pause_if_needed(exc)
+                    raise
 
-            try:
-                page_metadata = _commit_page(
-                    factory,
-                    job=job,
-                    expected_checkpoint=checkpoint,
-                    expected_state=state,
-                    page=page,
-                    window=window,
-                    source_run_id=source_id,
-                    page_fence=page_fence,
-                    original_client=client,
-                    page_size=sizes[domain],
-                )
-            except PriorityBudgetPauseError:
-                raise
-            except BaseException as exc:
-                _raise_budget_pause_if_needed(exc)
-                raise
+                try:
+                    page_metadata = _commit_page(
+                        factory,
+                        job=job,
+                        expected_checkpoint=checkpoint,
+                        expected_state=state,
+                        page=page,
+                        window=window,
+                        source_run_id=source_id,
+                        page_fence=page_fence,
+                        original_client=client,
+                        page_size=sizes[domain],
+                    )
+                except PriorityBudgetPauseError:
+                    raise
+                except BaseException as exc:
+                    _raise_budget_pause_if_needed(exc)
+                    raise
 
-            checkpoint = page_metadata["checkpoint"]
-            state = checkpoint["domains"][domain]
-            committed_pages += 1
+                checkpoint = page_metadata["checkpoint"]
+                state = checkpoint["domains"][domain]
+                committed_pages += 1
+        except PriorityBudgetPauseError as exc:
+            if _pause_halts_all_domains(exc):
+                raise
+            if deferred_pause is None:
+                deferred_pause = exc
+            continue
+        except (LeaseFenceLost, ConcurrentPageAdvance):
+            # These errors describe a control-plane race, not a source-domain
+            # failure.  Continuing would issue requests after the lease or
+            # checkpoint has already been invalidated.
+            raise
+        except Exception as exc:
+            # A malformed page or domain-local collector failure must not make
+            # otherwise independent domains look complete.  Keep the first
+            # error and finish already-admitted domains; the caller receives it
+            # after all safe progress is committed.
+            if deferred_error is None:
+                deferred_error = exc
+            continue
+
+    if deferred_error is not None:
+        raise deferred_error
+    if deferred_pause is not None:
+        raise deferred_pause
 
     checkpoint["completed"] = all(
         bool(checkpoint["domains"][domain].get("completed")) for domain in domains
@@ -304,6 +333,14 @@ def _normalize_checkpoint(
         raise PagedCollectionError(
             f"unsupported priority collect checkpoint protocol: {protocol!r}"
         )
+    raw_domains = existing.get("domains")
+    if protocol is None and not raw_domains and not _has_known_paging_state(existing):
+        # A failed legacy collect stage can leave only stage/status/error
+        # bookkeeping in checkpoint_json.  The legacy collector rolled back
+        # its whole domain transaction, so starting a fresh priority
+        # checkpoint is safe.  If any paging marker is present, fail closed
+        # below rather than silently discarding a real cursor.
+        return _new_checkpoint(target=target, window=window)
     saved_window = existing.get("window")
     if saved_window is not None and _canonical_json(saved_window) != _canonical_json(
         expected_window
@@ -312,7 +349,6 @@ def _normalize_checkpoint(
     saved_target = existing.get("target")
     if saved_target not in (None, target):
         raise PagedCollectionError("priority collect checkpoint target does not match job target")
-    raw_domains = existing.get("domains")
     if not isinstance(raw_domains, Mapping):
         raise PagedCollectionError("priority collect checkpoint domains are invalid")
     checkpoint = {
@@ -342,6 +378,27 @@ def _normalize_checkpoint(
         for domain in _TARGET_DOMAINS[target]
     )
     return checkpoint
+
+
+_KNOWN_PAGING_STATE_KEYS = frozenset(
+    {
+        "domains",
+        "pages_committed",
+        "cursor",
+        "page",
+        "endpoint",
+        "phase",
+        "seen_positions",
+        "source_total",
+        "source_rows",
+    }
+)
+
+
+def _has_known_paging_state(existing: Mapping[str, Any]) -> bool:
+    """Return whether a protocol-less checkpoint carries paging evidence."""
+
+    return bool(_KNOWN_PAGING_STATE_KEYS.intersection(existing))
 
 
 def _new_checkpoint(*, target: str, window: CollectionWindow) -> dict[str, Any]:
@@ -378,6 +435,8 @@ def _new_domain_state(domain: str) -> dict[str, Any]:
         return {
             "endpoint": "clues.query",
             "page": 1,
+            "source_total": None,
+            "source_rows": 0,
             "completed": False,
             "seen_positions": [],
             "pages_committed": 0,
@@ -454,6 +513,24 @@ def _validate_domain_state(domain: str, state: Mapping[str, Any]) -> None:
         raise PagedCollectionError(f"{domain} checkpoint contains a repeated page position")
     state["seen_positions"] = list(positions)  # type: ignore[index]
     if domain == "clues":
+        source_total = state.get("source_total")
+        if source_total in (None, ""):
+            state["source_total"] = None  # type: ignore[index]
+        else:
+            try:
+                source_total = int(source_total)
+            except (TypeError, ValueError) as exc:
+                raise PagedCollectionError("clues checkpoint source_total is invalid") from exc
+            if source_total < 0:
+                raise PagedCollectionError("clues checkpoint source_total is negative")
+            state["source_total"] = source_total  # type: ignore[index]
+        try:
+            source_rows = int(state.get("source_rows", 0) or 0)
+        except (TypeError, ValueError) as exc:
+            raise PagedCollectionError("clues checkpoint source_rows is invalid") from exc
+        if source_rows < 0:
+            raise PagedCollectionError("clues checkpoint source_rows is negative")
+        state["source_rows"] = source_rows  # type: ignore[index]
         try:
             page = int(state.get("page", 1) or 1)
         except (TypeError, ValueError) as exc:
@@ -510,15 +587,20 @@ def _fetch_orders_page(
     explicit_more = _explicit_bool(_first_in(data, "has_more", "more"))
     if explicit_more is True and not next_cursor:
         raise PagedCollectionError("orders has_more=true without an advancing cursor")
-    if next_cursor is not None and next_cursor == cursor:
-        raise PagedCollectionError("orders cursor did not advance")
-    if explicit_more is False or (explicit_more is None and len(rows) < page_size):
+    terminal = explicit_more is False or (explicit_more is None and len(rows) < page_size)
+    if terminal:
+        # Some upstream responses echo the request cursor on the terminal
+        # page.  It is not a next-page token when has_more is false (or when a
+        # short page proves the iterator is over).
+        next_cursor = None
         completed = True
-    elif next_cursor is None:
-        # The official order iterator stops on a short page, but a full page
-        # without a cursor cannot prove that it is the last page.
-        raise PagedCollectionError("orders full page is missing its cursor")
     else:
+        if next_cursor is not None and next_cursor == cursor:
+            raise PagedCollectionError("orders cursor did not advance")
+        if next_cursor is None:
+            # The official order iterator stops on a short page, but a full
+            # page without a cursor cannot prove that it is the last page.
+            raise PagedCollectionError("orders full page is missing its cursor")
         completed = False
     endpoint = f"orders.{phase}_order"
     return _Page(
@@ -564,8 +646,13 @@ def _fetch_refunds_page(
         raise PagedCollectionError("refunds page must include explicit has_more")
     if has_more and not next_cursor:
         raise PagedCollectionError("refunds has_more=true without a cursor")
-    if next_cursor is not None and next_cursor == cursor:
-        raise PagedCollectionError("refunds cursor did not advance")
+    if has_more:
+        if next_cursor == cursor:
+            raise PagedCollectionError("refunds cursor did not advance")
+    else:
+        # The terminal cursor is only an echo of the request position; never
+        # persist it as a resumable next cursor.
+        next_cursor = None
     return _Page(
         domain="refunds",
         endpoint="refunds.query",
@@ -599,12 +686,58 @@ def _fetch_clues_page(
     total = _integer(_first_in(data, "total", "total_count", "count"))
     if total is None and isinstance(data.get("page"), Mapping):
         total = _integer(data["page"].get("total"))
+    if page_number <= 0:
+        raise PagedCollectionError("clues page must be positive")
+    page_offset = (page_number - 1) * page_size
+    if page_offset >= PAGE_ITEM_LIMIT:
+        raise PagedCollectionError(
+            "clues page offset reaches the upstream 10000-item cap; "
+            "split the source window before continuing"
+        )
+    if total is not None and total < 0:
+        raise PagedCollectionError("clues source total is negative")
+    previous_total = _integer(state.get("source_total"))
+    if (
+        previous_total is not None
+        and total is not None
+        and previous_total != total
+    ):
+        raise PagedCollectionError("clues source total changed during one page stream")
+    source_total = total if total is not None else previous_total
+    source_rows = int(state.get("source_rows", 0) or 0) + len(rows)
+    if source_total is not None and source_rows > source_total:
+        raise PagedCollectionError("clues rows exceed the declared source total")
+    if source_total is not None and source_total >= PAGE_ITEM_LIMIT:
+        raise PagedCollectionError(
+            "clues source total reaches the upstream 10000-item cap; "
+            "split the source window before continuing"
+        )
+    if source_rows >= PAGE_ITEM_LIMIT:
+        raise PagedCollectionError(
+            "clues page offset reaches the upstream 10000-item cap; "
+            "split the source window before continuing"
+        )
     if has_more is True:
+        if not rows:
+            raise PagedCollectionError("clues has_more=true with an empty page")
+        if source_total is not None and source_rows >= source_total:
+            raise PagedCollectionError("clues has_more=true after reaching the source total")
         completed = False
     elif has_more is False:
+        if source_total is not None and source_rows < source_total:
+            raise PagedCollectionError(
+                "clues has_more=false before reaching the declared source total"
+            )
         completed = True
-    elif total is not None:
-        completed = page_number * page_size >= total
+    elif source_total is not None:
+        if source_rows >= source_total:
+            completed = True
+        elif len(rows) < page_size:
+            raise PagedCollectionError(
+                "clues short page before reaching the declared source total"
+            )
+        else:
+            completed = False
     else:
         completed = len(rows) < page_size
     next_page = None if completed else page_number + 1
@@ -648,10 +781,9 @@ def _fetch_verify_page(
     next_cursor = _generic_cursor(data, rows)
     if has_more is True and not next_cursor:
         raise PagedCollectionError("verify_records has_more=true without a cursor")
-    if next_cursor is not None and next_cursor == cursor:
-        raise PagedCollectionError("verify_records cursor did not advance")
     if has_more is None:
         if len(rows) < page_size:
+            next_cursor = None
             completed = True
         elif next_cursor is None:
             raise PagedCollectionError(
@@ -659,8 +791,13 @@ def _fetch_verify_page(
             )
         else:
             completed = False
-    else:
+    elif has_more is False:
+        next_cursor = None
         completed = not has_more
+    else:
+        if next_cursor == cursor:
+            raise PagedCollectionError("verify_records cursor did not advance")
+        completed = False
     return _Page(
         domain="verify_records",
         endpoint="verify_records.query",
@@ -759,6 +896,15 @@ def _commit_page(
             elif page.domain == "clues":
                 if page.next_page is not None:
                     next_state["page"] = page.next_page
+                page_data = _payload_data(page.payload)
+                page_total = _integer(_first_in(page_data, "total", "total_count", "count"))
+                if page_total is None and isinstance(page_data.get("page"), Mapping):
+                    page_total = _integer(page_data["page"].get("total"))
+                if page_total is not None:
+                    next_state["source_total"] = page_total
+                next_state["source_rows"] = int(
+                    current_state.get("source_rows", 0) or 0
+                ) + len(page.rows)
                 next_state["completed"] = bool(page.completed)
             else:
                 next_state["cursor"] = page.next_cursor
@@ -956,6 +1102,27 @@ def _raise_budget_pause_if_needed(exc: BaseException) -> None:
             raise PriorityBudgetPauseError(_retry_after_seconds(exc)) from exc
 
 
+def _pause_halts_all_domains(exc: PriorityBudgetPauseError) -> bool:
+    """Honor an explicit global pause marker supplied by the budget wrapper.
+
+    Per-endpoint pauses intentionally do not carry a global marker, allowing
+    the outer domain loop to continue independent requests.  The helper uses
+    a few stable boolean/scope spellings so the governor can evolve its
+    exception details without coupling this collector to its constructor.
+    """
+
+    for attribute in (
+        "halt_all_domains",
+        "global_pause",
+        "halt_all",
+        "pause_all_domains",
+        "is_global",
+    ):
+        if bool(getattr(exc, attribute, False)):
+            return True
+    return getattr(exc, "scope", None) in {"global", "all"}
+
+
 def _retry_after_seconds(exc: BaseException) -> int:
     for candidate in (
         getattr(exc, "retry_after_seconds", None),
@@ -1059,6 +1226,8 @@ def _state_token(state: Mapping[str, Any]) -> str:
         "completed": state.get("completed"),
         "pages_committed": state.get("pages_committed", 0),
         "seen_positions": state.get("seen_positions", []),
+        "source_total": state.get("source_total"),
+        "source_rows": state.get("source_rows", 0),
     }
     return _canonical_json(identity)
 

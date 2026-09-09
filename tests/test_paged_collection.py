@@ -198,6 +198,160 @@ def test_refund_normalizer_keeps_newer_completed_status_on_older_replay(db_sessi
     assert row.normalized_refund_status == 2
 
 
+def test_refund_terminal_echo_cursor_is_not_rejected_or_resumed(
+    db_session: Session,
+):
+    job = _job(db_session, job_id="terminal-echo-job")
+    client = _PagedRefundClient(
+        {
+            None: _refund_page([_refund("r-echo-1")], has_more=True, cursor="c1"),
+            "c1": _refund_page([_refund("r-echo-2")], has_more=False, cursor="c1"),
+        }
+    )
+
+    checkpoint = collect_priority_pages(_factory(db_session), client, job)
+
+    assert checkpoint["completed"] is True
+    assert client.calls == [None, "c1"]
+    assert checkpoint["domains"]["refunds"]["cursor"] is None
+
+
+def test_legacy_failed_stage_checkpoint_is_reinitialized_for_priority_collect(
+    db_session: Session,
+):
+    job = _job(db_session, job_id="legacy-failure-migration-job")
+    db_session.add(
+        JobStageRun(
+            stage_run_id="stage-legacy-failure-migration-job-collect",
+            job_id=job.job_id,
+            stage_name="collect",
+            status="failed",
+            checkpoint_json={
+                "stage": "collect",
+                "status": "failed",
+                "error": "legacy collector stopped after a rolled-back transaction",
+            },
+        )
+    )
+    db_session.commit()
+    client = _PagedRefundClient({None: _refund_page([], has_more=False)})
+
+    checkpoint = collect_priority_pages(_factory(db_session), client, job)
+
+    assert checkpoint["completed"] is True
+    assert client.calls == [None]
+
+
+def test_protocolless_checkpoint_with_cursor_is_not_silently_discarded(
+    db_session: Session,
+):
+    job = _job(db_session, job_id="protocolless-cursor-job")
+    db_session.add(
+        JobStageRun(
+            stage_run_id="stage-protocolless-cursor-job-collect",
+            job_id=job.job_id,
+            stage_name="collect",
+            status="pending",
+            checkpoint_json={
+                "cursor": "c1",
+                "domains": {
+                    "refunds": {
+                        "cursor": "c1",
+                        "completed": False,
+                    }
+                },
+            },
+        )
+    )
+    db_session.commit()
+    client = _PagedRefundClient({"c1": _refund_page([], has_more=False)})
+
+    checkpoint = collect_priority_pages(_factory(db_session), client, job)
+
+    assert checkpoint["completed"] is True
+    assert client.calls == ["c1"]
+
+
+def test_refund_budget_pause_does_not_block_other_domains(
+    db_session: Session,
+):
+    job = _job(db_session, target="all", job_id="independent-domain-pause-job")
+
+    class Client:
+        def __init__(self):
+            self.calls: list[tuple[str, Any]] = []
+
+        def query_orders(self, _start, _end, *, page_size, cursor=None, time_field="create_order"):
+            self.calls.append((time_field, cursor))
+            return {"data": {"orders": []}}
+
+        def query_refunds(self, _start, _end, *, page_size, cursor=None):
+            self.calls.append(("refunds", cursor))
+            raise PriorityBudgetPauseError(3600)
+
+        def query_clues(self, _start, _end, *, page, page_size):
+            self.calls.append(("clues", page))
+            return {"data": {"clue_data": []}}
+
+        def query_verify_records(self, _start, _end, *, page_size, cursor=None):
+            self.calls.append(("verify_records", cursor))
+            return {"data": {"verify_records": [], "has_more": False}}
+
+    client = Client()
+
+    with pytest.raises(PriorityBudgetPauseError):
+        collect_priority_pages(_factory(db_session), client, job)
+
+    assert ("refunds", None) in client.calls
+    assert ("clues", 1) in client.calls
+    assert ("verify_records", None) in client.calls
+    db_session.expire_all()
+    stage = db_session.scalar(
+        select(JobStageRun).where(
+            JobStageRun.job_id == job.job_id,
+            JobStageRun.stage_name == "collect",
+        )
+    )
+    assert stage is not None
+    assert stage.checkpoint_json["domains"]["refunds"]["completed"] is False
+    assert stage.checkpoint_json["domains"]["clues"]["completed"] is True
+    assert stage.checkpoint_json["domains"]["verify_records"]["completed"] is True
+
+
+def test_clues_cap_and_inconsistent_total_fail_closed(
+    db_session: Session,
+):
+    job = _job(db_session, target="clues", job_id="clues-cap-job")
+
+    class CappedClient:
+        def query_clues(self, _start, _end, *, page, page_size):
+            return {
+                "data": {
+                    "clue_data": [{"clue_id": f"c-{page}"}],
+                    "total": 10_000,
+                    "has_more": True,
+                }
+            }
+
+    with pytest.raises(PagedCollectionError, match="10000-item cap"):
+        collect_priority_pages(_factory(db_session), CappedClient(), job)
+
+    job = _job(db_session, target="clues", job_id="clues-total-drift-job")
+
+    class DriftingClient:
+        def query_clues(self, _start, _end, *, page, page_size):
+            return {
+                "data": {
+                    "clue_data": [{"clue_id": f"c-{page}"}],
+                    "total": 2 if page == 1 else 3,
+                    "has_more": True,
+                }
+            }
+
+    with pytest.raises(PagedCollectionError, match="total changed"):
+        collect_priority_pages(_factory(db_session), DriftingClient(), job)
+
+
 def test_checkpoint_rejects_wrong_endpoint_and_empty_page_completes(db_session: Session):
     job = _job(db_session, job_id="checkpoint-contract-job")
     db_session.add(
