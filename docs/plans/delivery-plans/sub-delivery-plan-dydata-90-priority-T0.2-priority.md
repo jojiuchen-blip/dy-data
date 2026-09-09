@@ -16,20 +16,28 @@
 - 按用户确认实现独立 priority_daily 模式：上海02:00昨日完整窗口优先、两小时维表和每日商品刷新、昨日成功发布后使用分接口剩余额度补历史；保留平台硬限额、租约和旧快照保护。页级断点保障退款预算耗尽后可续跑；部署后启动9月9日完整闭环。禁止无界旧drain抢占昨日任务。
 
 **核心文件**：
-- `src/dy_data/douyin_client.py`
-- `apps/worker/collectors/orders.py`
-- `apps/worker/collectors/verify_records.py`
-- `apps/worker/collectors/refunds.py`
-- `apps/worker/collectors/normalizers.py`
+- `apps/worker/priority_scheduler.py`
+- `apps/worker/priority_budget.py`
+- `apps/worker/paged_collection.py`
+- `apps/worker/publication_scope.py`
+- `apps/worker/scheduler.py`
+- `apps/worker/daily_task.py`
+- `apps/worker/task_control.py`
+- `apps/worker/subprocess_supervisor.py`
 - `apps/worker/repositories.py`
-- `tests/test_worker_source_updates.py`
-- `tests/test_douyin_openapi_client.py`
+- `apps/api/dy_api/models.py`
+- `apps/api/dy_api/routes/admin.py`
+- `alembic/versions/20260910_0053_quota_pause_attempts.py`
+- `deploy/compose.yaml`
+- `tests/test_priority_scheduler.py`
+- `tests/test_paged_collection.py`
+- `tests/test_priority_budget_pause.py`
 
 **完成标准**：
 - 时区边界、优先级、重启幂等、历史预算保护、分页恢复、发布闭环测试通过；生产启用新模式并有9月9日真实任务状态证据。
 
 **Verification Method**：
-- 执行 `python -m pytest tests/test_worker_source_updates.py tests/test_douyin_openapi_client.py tests/test_worker_refund_collector.py -q` 及完整回归。
+- 执行新priority、paging、budget pause、publication scope专项和既有worker/control/API回归；完整pytest、Web build、真实PostgreSQL升级与约束检查、生产模式与任务读取验证。
 
 **Evidence**：
 - `docs/devlog/2026-09-10-priority-daily.md`
@@ -47,7 +55,3 @@
 **前置**：无
 
 **状态**：进行中
-
-
-新增核心文件：apps/worker/priority_scheduler.py、apps/worker/scheduler.py、apps/worker/daily_task.py、apps/worker/paged_collection.py、tests/test_priority_scheduler.py、tests/test_paged_collection.py。
-

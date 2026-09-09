@@ -19,7 +19,7 @@ def test_alembic_has_one_deployable_head() -> None:
     config = Config(str(repo_root / "alembic.ini"))
     config.set_main_option("script_location", str(repo_root / "alembic"))
 
-    assert ScriptDirectory.from_config(config).get_heads() == ["20260909_0052"]
+    assert ScriptDirectory.from_config(config).get_heads() == ["20260910_0053"]
 
 
 @pytest.mark.parametrize("starting_revision", ["20260907_0051", "20260909_0051"])
@@ -36,7 +36,7 @@ def test_clue_and_fee_branches_upgrade_to_shared_head(tmp_path: Path, starting_r
         assert "phone_source_fingerprint" in {column["name"] for column in inspect(engine).get_columns("clue_center_orders")}
         assert "qualifying_verify_id" in {column["name"] for column in inspect(engine).get_columns("settlement_fee_result")}
         with engine.connect() as connection:
-            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == ["20260909_0052"]
+            assert connection.execute(text("SELECT version_num FROM alembic_version")).scalars().all() == ["20260910_0053"]
     finally:
         engine.dispose()
 
@@ -139,7 +139,7 @@ def test_existing_0036_database_can_upgrade_to_head(tmp_path: Path) -> None:
         inspector.get_table_names()
     )
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260909_0052"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "20260910_0053"
 
     with engine.begin() as connection:
         connection.execute(
