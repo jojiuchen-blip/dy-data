@@ -80,6 +80,16 @@ def resolve_worker_mode(env: Mapping[str, str] | None = None) -> str:
     return value
 
 
+def resolve_scheduler_mode(env: Mapping[str, str] | None = None) -> str:
+    """Resolve the scheduler family independently from the legacy worker mode."""
+
+    from apps.worker.priority_scheduler import (
+        resolve_scheduler_mode as resolve_priority_scheduler_mode,
+    )
+
+    return resolve_priority_scheduler_mode(env)
+
+
 def resolve_incremental_collection_window(
     *,
     now: datetime | None = None,
@@ -452,6 +462,33 @@ def _run_backend_aweme_export(session: Session, source_run_id: str) -> PhaseStat
     return run_backend_aweme_export(session, source_run_id=source_run_id)
 
 
+def _run_priority_daily_mode(factory) -> None:
+    """Run the bounded priority scheduler loop without the legacy drain."""
+
+    from apps.worker.priority_scheduler import run_priority_daily_tick
+
+    run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
+    run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
+    if run_once_only:
+        run_priority_daily_tick(factory)
+        return
+
+    if run_on_start and factory is not None:
+        try:
+            run_priority_daily_tick(factory)
+        except Exception as exc:  # noqa: BLE001 - keep the supervisor alive.
+            _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
+
+    while not _STOP:
+        if factory is not None:
+            _process_queued_jobs(factory)
+        try:
+            run_priority_daily_tick(factory)
+        except Exception as exc:  # noqa: BLE001 - keep polling after one tick.
+            _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
+        _sleep_until_stop(_configured_daily_queue_poll_seconds())
+
+
 def main() -> None:
     signal.signal(signal.SIGTERM, _handle_stop)
     signal.signal(signal.SIGINT, _handle_stop)
@@ -459,6 +496,10 @@ def main() -> None:
     run_on_start = _truthy(os.getenv("WORKER_RUN_ON_START", "true"))
     run_once_only = _truthy(os.getenv("WORKER_RUN_ONCE"))
     factory = get_session_factory()
+
+    if resolve_scheduler_mode() == "priority_daily":
+        _run_priority_daily_mode(factory)
+        return
 
     if run_once_only:
         run_once()
