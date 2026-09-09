@@ -15,6 +15,7 @@ import {
 import { DataTable, type Column } from "../components/DataTable";
 import { DefinitionList } from "../components/DefinitionList";
 import { ConfirmDialog, Dialog } from "../components/Dialog";
+import { GuidedTour } from "../components/GuidedTour";
 import { FilterBar, FilterField } from "../components/Filters";
 import {
   CheckboxField,
@@ -97,6 +98,7 @@ const componentLabels: Record<string, string> = {
   "chart-figure": "业务图表（ChartFigure）",
   "definition-list": "定义列表（DefinitionList）",
   dialog: "弹层与确认弹层（Dialog / ConfirmDialog）",
+  "guided-tour": "逐步引导（GuidedTour）",
   "icon-button": "图标按钮（IconButton）",
   "field-input": "基础输入控件（FieldInput / FieldTextarea）",
   "filter-bar": "筛选器（FilterBar / FilterField）",
@@ -499,6 +501,31 @@ function DialogPreview() {
   );
 }
 
+function GuidedTourPreview() {
+  const [stepIndex, setStepIndex] = useState<number | null>(null);
+  const steps = [
+    { id: "catalog-first", title: "找到入口", description: "每一步框选一个真实页面目标。点击下一步，查看下一个位置。", target: "#catalog-tour-start" },
+    { id: "catalog-second", title: "了解操作，再开始", description: "这里介绍下一步可以做什么。引导只作说明，完成后仍由用户操作。", target: "#catalog-tour-destination" },
+  ];
+  return (
+    <div className="catalog-preview-row">
+      <Button id="catalog-tour-start" onClick={() => setStepIndex(0)} variant="primary">预览逐步引导</Button>
+      <StatusChip><span id="catalog-tour-destination">下一个聚焦位置</span></StatusChip>
+      {stepIndex !== null ? (
+        <GuidedTour
+          index={stepIndex}
+          nextLabel={stepIndex === 1 ? "完成引导" : "下一步"}
+          onClose={() => setStepIndex(null)}
+          onNext={() => setStepIndex(stepIndex === 0 ? 1 : null)}
+          onPrevious={stepIndex > 0 ? () => setStepIndex(0) : undefined}
+          step={steps[stepIndex]}
+          total={steps.length}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 function ResourcePreview() {
   return (
     <div className="catalog-resource-stack">
@@ -584,6 +611,7 @@ const previews: Record<string, () => ReactNode> = {
   "data-table": TablePreview,
   "table-pagination": PaginationPreview,
   dialog: DialogPreview,
+  "guided-tour": GuidedTourPreview,
   "resource-state": ResourcePreview,
   "tertiary-nav": TertiaryPreview,
   "theme-picker": ThemePickerPreview,

@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-09-07T01:28:41.327Z",
+  "generatedAt": "2026-09-07T14:43:50.110Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,21 +9,21 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 855,
-    "edges": 944,
+    "nodes": 866,
+    "edges": 970,
     "issues": 33,
     "errors": 33,
     "warnings": 0,
     "nodesByKind": {
       "config": 27,
-      "doc": 145,
-      "source_code": 516,
+      "doc": 149,
+      "source_code": 520,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
       "brd_ledger": 2,
       "project_index": 2,
-      "delivery_plan": 85,
+      "delivery_plan": 88,
       "foundation": 46,
       "mainprd": 2,
       "prd_feature_list": 2,
@@ -36,8 +36,8 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 576,
-      "depends_on": 359,
+      "links_to": 590,
+      "depends_on": 371,
       "indexes": 9
     }
   },
@@ -1474,6 +1474,24 @@
       "title": "FormControls.tsx"
     },
     {
+      "id": "apps/web/src/components/GuidedTour.css",
+      "path": "apps/web/src/components/GuidedTour.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "GuidedTour.css"
+    },
+    {
+      "id": "apps/web/src/components/GuidedTour.tsx",
+      "path": "apps/web/src/components/GuidedTour.tsx",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "GuidedTour.tsx"
+    },
+    {
       "id": "apps/web/src/components/MetricCard.tsx",
       "path": "apps/web/src/components/MetricCard.tsx",
       "kind": "source_code",
@@ -1744,6 +1762,15 @@
       "title": "useApiResource.ts"
     },
     {
+      "id": "apps/web/src/hooks/useClueOnboarding.ts",
+      "path": "apps/web/src/hooks/useClueOnboarding.ts",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "useClueOnboarding.ts"
+    },
+    {
       "id": "apps/web/src/hooks/useDebouncedValue.ts",
       "path": "apps/web/src/hooks/useDebouncedValue.ts",
       "kind": "source_code",
@@ -1850,6 +1877,15 @@
       "authority": true,
       "slug": null,
       "title": "ClueCenterPage.tsx"
+    },
+    {
+      "id": "apps/web/src/pages/ClueOnboarding.css",
+      "path": "apps/web/src/pages/ClueOnboarding.css",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "ClueOnboarding.css"
     },
     {
       "id": "apps/web/src/pages/FinanceDisputesPage.tsx",
@@ -3247,6 +3283,24 @@
       "title": "DYDATA-87 分佣规则发布后的门店榜单重算闭环"
     },
     {
+      "id": "docs/devlog/20260907_refactor_log_jojiuchen-blip.md",
+      "path": "docs/devlog/20260907_refactor_log_jojiuchen-blip.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-09-07"
+    },
+    {
+      "id": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+      "path": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-09-07"
+    },
+    {
       "id": "docs/github-cicd.md",
       "path": "docs/github-cicd.md",
       "kind": "doc",
@@ -3497,6 +3551,15 @@
       "authority": true,
       "slug": "dydata-81-store-finance",
       "title": "DYDATA-81 门店端财务页面主交付计划"
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-89-clue-onboarding",
+      "title": "DYDATA-89 线索中心逐步聚焦新手引导主开发计划"
     },
     {
       "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md",
@@ -3976,6 +4039,15 @@
       "title": "T1.3 主系统集成与生产发布子交付计划"
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-89-clue-onboarding",
+      "title": "T0.1 线索中心逐步聚焦新手引导子开发计划"
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md",
       "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md",
       "kind": "delivery_plan",
@@ -4154,6 +4226,15 @@
       "authority": true,
       "slug": "dydata-81-store-finance",
       "title": "DYDATA-81 门店端财务页面任务看板"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "path": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "dydata-89-clue-onboarding",
+      "title": "DYDATA-89 线索中心逐步聚焦新手引导任务看板"
     },
     {
       "id": "docs/plans/delivery-plans/task-kanban-dydata-clue-platform-completion.md",
@@ -7441,6 +7522,15 @@
       "title": "test_settlement_projection.py"
     },
     {
+      "id": "tests/test_settlement_rebuild_postgres.py",
+      "path": "tests/test_settlement_rebuild_postgres.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_settlement_rebuild_postgres.py"
+    },
+    {
       "id": "tests/test_settlement_score.py",
       "path": "tests/test_settlement_score.py",
       "kind": "source_code",
@@ -7484,6 +7574,15 @@
       "authority": true,
       "slug": null,
       "title": "test_sync_incremental_equivalence.py"
+    },
+    {
+      "id": "tests/test_visual_clue_onboarding.py",
+      "path": "tests/test_visual_clue_onboarding.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_visual_clue_onboarding.py"
     },
     {
       "id": "tests/test_visual_dydata81_uat_preview.py",
@@ -7847,7 +7946,7 @@
       "evidence": [
         {
           "path": "apps/web/README.md",
-          "line": 43,
+          "line": 53,
           "text": "- 视觉与组件规范读取 `../../docs/design-system/README.md` 和 `../../docs/design-system/tokens.json`。",
           "syntax": "backtick"
         }
@@ -9588,6 +9687,40 @@
           "path": "docs/devlog/20260830_refactor_log_Keith_Chen.md",
           "line": 96,
           "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260907_refactor_log_Keith_Chen.md->apps/web/README.md:links_to",
+      "from": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 新建/修改 | `docs/plans/delivery-plans/`、`docs/plans/execution-plan.md`、`apps/web/README.md`、`docs/index/` | 本专项计划、用户说明和引用索引 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260907_refactor_log_Keith_Chen.md->docs/plans/execution-plan.md:links_to",
+      "from": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+      "to": "docs/plans/execution-plan.md",
+      "target": "docs/plans/execution-plan.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260907_refactor_log_Keith_Chen.md",
+          "line": 52,
+          "text": "| 新建/修改 | `docs/plans/delivery-plans/`、`docs/plans/execution-plan.md`、`apps/web/README.md`、`docs/index/` | 本专项计划、用户说明和引用索引 |",
           "syntax": "backtick"
         }
       ]
@@ -12358,6 +12491,183 @@
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md",
           "line": 21,
           "text": "- 先读 `docs/prd/mainprd-dy-data.md`，再读 `docs/prd/subprd/02-subprd-store-settlement.md` 与 `docs/prd/subprd/04-subprd-invoice-registration.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->apps/web/README.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 31,
+          "text": "- 真实实现与验证落点读 `apps/web/src/pages/ClueCenterPage.tsx`、`apps/web/src/components/Dialog.tsx`、`apps/web/src/components/Shell.tsx`、`apps/web/README.md` 及现有线索前端/视觉测试。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/brd/BRD-clue-center-20260721-2134.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/brd/BRD-clue-center-20260721-2134.md",
+      "target": "docs/brd/BRD-clue-center-20260721-2134.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 27,
+          "text": "- 线索业务语义读 `docs/brd/BRD-clue-center-20260721-2134.md` §3.2、§3.5、§5.1、§10；其中“当前有效轮次可操作、失效轮次仍可查看历史但不能查看/复制完整手机号”是详情 fallback 的依据。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/design-system/README.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 30,
+          "text": "- 页面与视觉边界读 `src/frontend/page-preview/explainer-delivery-dy-data.md` 相关线索流程、`docs/design-system/README.md`、`docs/design-system/tokens.json`、`apps/web/src/design-tokens.css`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 91,
+          "text": "| T0.1 | [sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) | 进行中 |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 145,
+          "text": "| Linear DYDATA-89 已审阅七步范围 | DYDATA-89-TOUR-FLOW | T0.1 | [T0.1](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 146,
+          "text": "| 线索中心 BRD §3.2、§3.5、§5.1：状态、当前有效轮次与跟进边界 | DYDATA-89-TOUR-SAFETY | T0.1 | [T0.1](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 147,
+          "text": "| 线索 API Foundation §3.1、§3.2、§5：详情、手机号与跟进权限 | DYDATA-89-TOUR-PERMISSION | T0.1 | [T0.1](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 148,
+          "text": "| 设计系统 Dialog、主题与三档视口约束 | DYDATA-89-TOUR-A11Y-VISUAL | T0.1 | [T0.1](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 95,
+          "text": "- 看板入口：[task-kanban-dydata-89-clue-onboarding.md](task-kanban-dydata-89-clue-onboarding.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/prd/foundation/foundation-api-clue-center.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/prd/foundation/foundation-api-clue-center.md",
+      "target": "docs/prd/foundation/foundation-api-clue-center.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 28,
+          "text": "- 线索 API/权限和页面覆盖读 `docs/prd/foundation/foundation-api-clue-center.md` §1、§3.1、§3.2、§5；本 Task 只消费现有只读/详情结果，不新增接口。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/prd/foundation/foundation-schema-clue-center.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/prd/foundation/foundation-schema-clue-center.md",
+      "target": "docs/prd/foundation/foundation-schema-clue-center.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 29,
+          "text": "- 线索状态与页面字段读 `docs/prd/foundation/foundation-schema-clue-center.md` §5、§6、§8；不把状态字段改造成引导状态。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 26,
+          "text": "- 先读 `docs/prd/mainprd-dy-data.md`，仅用于确认宿主技术栈、页面权威边界与通用加载/空态规则。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md->src/frontend/page-preview/explainer-delivery-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "to": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+          "line": 30,
+          "text": "- 页面与视觉边界读 `src/frontend/page-preview/explainer-delivery-dy-data.md` 相关线索流程、`docs/design-system/README.md`、`docs/design-system/tokens.json`、`apps/web/src/design-tokens.css`。",
           "syntax": "backtick"
         }
       ]
@@ -16912,6 +17222,176 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->apps/web/README.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 21,
+          "text": "- `apps/web/README.md`、Linear DYDATA-89 已审阅范围",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->apps/web/README.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "apps/web/README.md",
+      "target": "apps/web/README.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 41,
+          "text": "- `apps/web/README.md`（记录真实页面引导与重播/无写操作边界，如实现需要更新）",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/brd/BRD-clue-center-20260721-2134.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/brd/BRD-clue-center-20260721-2134.md",
+      "target": "docs/brd/BRD-clue-center-20260721-2134.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 16,
+          "text": "- `docs/brd/BRD-clue-center-20260721-2134.md` §3.2、§3.5、§5.1、§10",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/design-system/README.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/design-system/README.md",
+      "target": "docs/design-system/README.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 20,
+          "text": "- `docs/design-system/README.md`、`docs/design-system/tokens.json`、`apps/web/src/design-tokens.css`",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 7,
+          "text": "- 主开发计划：[main-delivery-plan-dydata-89-clue-onboarding.md](main-delivery-plan-dydata-89-clue-onboarding.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 8,
+          "text": "- 任务看板：[task-kanban-dydata-89-clue-onboarding.md](task-kanban-dydata-89-clue-onboarding.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/prd/foundation/foundation-api-clue-center.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/prd/foundation/foundation-api-clue-center.md",
+      "target": "docs/prd/foundation/foundation-api-clue-center.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 17,
+          "text": "- `docs/prd/foundation/foundation-api-clue-center.md` §1、§3.1、§3.2、§5",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/prd/foundation/foundation-schema-clue-center.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/prd/foundation/foundation-schema-clue-center.md",
+      "target": "docs/prd/foundation/foundation-schema-clue-center.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 18,
+          "text": "- `docs/prd/foundation/foundation-schema-clue-center.md` §5、§6、§8",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 15,
+          "text": "- `docs/prd/mainprd-dy-data.md` 全局权威边界与技术栈",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md->src/frontend/page-preview/explainer-delivery-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "to": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "target": "src/frontend/page-preview/explainer-delivery-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+          "line": 19,
+          "text": "- `src/frontend/page-preview/explainer-delivery-dy-data.md` 线索流程索引",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md->docs/plans/delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md:links_to",
       "from": "docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md",
       "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md",
@@ -18493,6 +18973,23 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+          "line": 5,
+          "text": "| T0.1 | [逐步聚焦引导与真实页面接入](sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md) | AI 执行 -> 人审核 | Linear DYDATA-89；用户已授权开发；现有线索页面、Dialog、设计系统和回归资产已读取 | 进行中 | - | 2026-09-07 功能已本地提交 `95dff72`：完整回归 2418 passed / 129 skipped；17 项引导、119 项相关回归、6 项既有浏览器回归、122 项套包测试及两项构建通过。PR 与 CI 最新证据见 Linear DYDATA-89，In Review 待验收。本任务无 foundation 漂移，无 API/Schema/部署变更 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dydata-clue-platform-completion.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md:links_to",
       "from": "docs/plans/delivery-plans/task-kanban-dydata-clue-platform-completion.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T0.1-dydata-56.md",
@@ -18663,6 +19160,23 @@
       ]
     },
     {
+      "id": "docs/plans/execution-plan.md->docs/devlog/20260907_refactor_log_jojiuchen-blip.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/devlog/20260907_refactor_log_jojiuchen-blip.md",
+      "target": "docs/devlog/20260907_refactor_log_jojiuchen-blip.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 36,
+          "text": "- 当前证据见 [2026-09-07 开发日志](../devlog/20260907_refactor_log_jojiuchen-blip.md)，需求与验收状态以 Linear DYDATA-87 为准；未获用户验收前不关闭。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/execution-plan.md->docs/plans/2026-08-30-dydata-81-finance-contract-controller-spec.md:links_to",
       "from": "docs/plans/execution-plan.md",
       "to": "docs/plans/2026-08-30-dydata-81-finance-contract-controller-spec.md",
@@ -18679,7 +19193,7 @@
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 33,
+          "line": 52,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -18702,7 +19216,7 @@
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 33,
+          "line": 52,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -18759,9 +19273,26 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 116,
+          "line": 135,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 43,
+          "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -18776,13 +19307,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 32,
+          "line": 51,
           "text": "- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 87,
+          "line": 106,
           "text": "- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。",
           "syntax": "markdown"
         }
@@ -18805,13 +19336,13 @@
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 33,
+          "line": 52,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 34,
+          "line": 53,
           "text": "- 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。",
           "syntax": "markdown"
         }
@@ -18828,9 +19359,26 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 117,
+          "line": 136,
           "text": "- 当前子开发计划：`sub-delivery-plan-dydata-81-store-finance-T1.3-production-release.md`。",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 43,
+          "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -18845,7 +19393,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 88,
+          "line": 107,
           "text": "- 当前子开发计划：[T2.4 全量、等价性和 8GB 最终门禁](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md)。",
           "syntax": "markdown"
         }
@@ -18868,7 +19416,7 @@
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 33,
+          "line": 52,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -18885,9 +19433,26 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 116,
+          "line": 135,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "target": "docs/plans/delivery-plans/task-kanban-dydata-89-clue-onboarding.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 43,
+          "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -18902,13 +19467,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 32,
+          "line": 51,
           "text": "- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 87,
+          "line": 106,
           "text": "- 当前正式计划文件组：[主开发计划](delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md)与[任务看板](delivery-plans/task-kanban-dydata-clue-platform-completion.md)。",
           "syntax": "markdown"
         }
