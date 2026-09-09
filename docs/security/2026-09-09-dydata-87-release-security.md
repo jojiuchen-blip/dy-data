@@ -1,6 +1,6 @@
 # DYDATA-87 发布安全扫描报告
 
-> 2026-09-09 最终补证结论：本次补丁范围安全检查 `PASS`，不是 CI、最终制品或部署通过。完整 npm 锁文件审计 High/Medium 为 0，仅 esbuild Low 1；主控补交 Windows 解析环境 Python 63 依赖审计零已知漏洞。最终 Linux candidate image 依赖审计由主控发布硬门禁继续承接，未通过不得发布。下文初次结果仅为整改轨迹。
+> 2026-09-09 候选镜像补证结论：`BLOCK`（partial Python 依赖门禁）。候选 `35eba477acf36ea3bc4e45d187e88f62900b0ff1` 的 CI 全绿由主控报告，但 browser 存在 3 个包、12 项未修 High，不能发布。先前补丁范围 PASS 仅保留为历史轨迹，不覆盖此镜像结论。无已批准 waiver；不以 pip-audit 非零退出自动判阻断。
 
 ## 1. 扫描范围
 
@@ -9,6 +9,7 @@
 - 范围：API dashboard/_data/models、0051、worker settlement/capture/coordinator/generator、前端本次变更及依赖锁文件、相关 Dockerfile/compose/CI。包括未跟踪新增文件。
 - 未覆盖域：生产写操作、互联网攻击测试、云账号策略、完整 Git 历史秘密扫描、最终镜像 OS/SBOM 漏洞扫描、全量历史 SQL 告警逐项验证。
 - 使用 security-scan 技能及 gate-contract、scan-scope、risk-rating-policy、report-template 四份必需参考。未安装工具、修改依赖或运行 audit fix；仅公开 npm 包名/版本元数据发送到审计服务，源码与秘密不外传。
+- 本次追加范围仅为候选 Python 依赖：全部 pip 命中、Debian 回移修订、两个 PyPI 无法识别项、实际导入路径、Brotli 条件，以及 Pillow 命中所关联的 libwebp 动态链接。不扩展全 OS；未做业务可达性/利用测试。
 
 ## 2. 输入证据
 
@@ -33,6 +34,62 @@
 - 本代理最终静态复审：共同核销日/月份/实收、旧账期保护、无反向 statement 锁、跨整批 retained_originals 与 blocked 原子回滚路径均已核对；规格先行、质量随后，均未发现新的可证实 P1/P2。此结论不宣称最终 CI 成功。
 
 ## 3. 发现项
+
+### SEC-05：精确候选 Python 依赖门禁（当前结论）
+
+候选 tag 后缀为 `dydata87-35eba477acf36ea3bc4e45d187e88f62900b0ff1`。镜像 ID 已逐个核对；提取直接使用 digest，而非可变 tag：
+
+| 镜像 | sha256 | Python 审计 |
+|---|---|---|
+| api | `1f5660bd2ec02e4553f70fc858929acf9a0e7d352ce517411bd4ae7fb1df9627` | 64 包，0 已知漏洞，退出 0 |
+| worker | `9376fa2ca4f5690b06b87abe914dc14115e648f5060707920455ed333574ad0f` | 64 包，0 已知漏洞，退出 0 |
+| ops-agent | `8f0195448c7422d4f753ab08c1b807fe53eb177356e3f7f467185047e5c290c0` | 64 包，仅 pip 命中；见 SEC-06 |
+| browser | `20462457ff70b57589204d283ad4ea9c5972b898aa89090624a6a57e20329987` | 98 包，以下完整分类 |
+| web | `f929cd4650ff1b0786674cc00fca57cd3bd2f10662d35b15ba0df7c63bc3adfa` | Python N/A：命令查找 python/python3/pip/pip3 及 /usr、/opt 路径搜索无匹配 |
+
+生产 SSH 仅运行无挂载、`--network none --read-only --cap-drop ALL --security-opt no-new-privileges` 一次性容器，覆盖 entrypoint；Python 使用 `-B`。本机对完整 pins 使用 `pip-audit --no-deps --disable-pip`，不在 Windows 重新解析平台依赖。证据临时文件为 `logs/dydata87-image-audit-*-pins.txt`、`*-result.json` 及 `*-debian-verification.md`（运行日志非长期权威）。未安装生产包、改服务、触发结算或开票。
+
+以下八个模块均已实际 import，路径为 `/usr/lib/python3/dist-packages/` 下的相应模块（zipp 为 `zipp.py`，Pillow 为 `PIL/`）；不是仅检查发行包元数据。requests 则从 `/usr/local/lib/python3.11/dist-packages/requests/` 导入。
+
+| 包 | dpkg 完整版本 | 全部命中分类及依据 |
+|---|---|---|
+| urllib3 | `1.26.12-1+deb12u4` | **High CVE-2025-66471 未修**；2023-43804、2023-45803、2024-37891、2025-50181、2025-66418、2026-21441、2026-44431 在当前 Debian 修订已解决。[Debian](https://security-tracker.debian.org/tracker/source-package/python-urllib3) |
+| msgpack | `1.0.3-2+b1`，source `1.0.3-2` | **High CVE-2026-57585 未修**：错误后重复使用 Unpacker 的越界读/崩溃。[Debian](https://security-tracker.debian.org/tracker/CVE-2026-57585)、[上游 High/修复 1.2.1](https://github.com/msgpack/msgpack-python/security/advisories/GHSA-6v7p-g79w-8964) |
+| Pillow | `9.4.0-1.1+deb12u1` | **10 High 未修**，见下表；另 3 Medium：2026-42308、2026-42310、2026-59198。2023-50447（原 Critical）、2024-28219、2023-44271 已回移修复；2026-55798 仅 Windows，不适用于本 Linux 镜像。[Debian](https://security-tracker.debian.org/tracker/source-package/pillow) |
+| idna | `3.3-1+deb12u1` | 2024-3651 已修；2026-45409 **Medium 未修**，超长特殊输入可绕过旧修复产生计算型 DoS。[Debian](https://security-tracker.debian.org/tracker/CVE-2026-45409)、[上游](https://github.com/kjd/idna/security/advisories/GHSA-65pc-fj4g-8rjx) |
+| setuptools | `66.1.1-1+deb12u2` | 2024-6345、2025-47273 两项 High 已回移修复；2026-59890 为 macOS APFS/HFS+ 特定问题，本 Linux 不受影响，不能说此项由版本升级修复。[Debian](https://security-tracker.debian.org/tracker/source-package/setuptools) |
+| zipp | `1.0.0-6+deb12u1` | 2024-5569 已修。[Debian](https://security-tracker.debian.org/tracker/source-package/python-zipp) |
+| jwcrypto | `1.1.0-1+deb12u1` | PyPI 元数据 `1.1` 无法识别，改以 Debian source 及实际 import 核验；2023-6681、2026-39373 **均 Medium 未修**，分别为 PBES2 迭代次数与 JWE ZIP 解压 DoS；2024-28102 已回移修复。[Debian](https://security-tracker.debian.org/tracker/source-package/python-jwcrypto)、[PBES2 公告](https://github.com/advisories/GHSA-cw2r-4p82-qv79)、[ZIP 公告](https://github.com/latchset/jwcrypto/security/advisories/GHSA-fjrm-76x2-c4q4) |
+| python-novnc | `1:1.3.0-1` | PyPI 元数据 `1.0.0` 不等于 Debian source 版本；source novnc 已核对，无当前 open issue，历史 2017-18635、2013-7436 不命中该版本。[Debian](https://security-tracker.debian.org/tracker/source-package/novnc) |
+
+Pillow 未修 High 清单（Debian 将本 bookworm 修订列 vulnerable/no-DSA/postponed；不等同项目 waiver）。严重性取上游 GitHub 公告；均已查询公告元数据，不以 pip-audit 输出推断严重性：
+
+| CVE | 条件性影响 | 上游公告 |
+|---|---|---|
+| 2026-55379 | BDF 字体加载绕过解压炸弹检查 | [GHSA-45hq-cxwh-f6vc](https://github.com/advisories/GHSA-45hq-cxwh-f6vc) |
+| 2026-54060 | FontFile.compile 分配绕过尺寸检查 | [GHSA-5x94-69rx-g8h2](https://github.com/advisories/GHSA-5x94-69rx-g8h2) |
+| 2026-54058 | McIdas mmap 行跨度导致越界读 | [GHSA-62p4-gmf7-7g93](https://github.com/advisories/GHSA-62p4-gmf7-7g93) |
+| 2026-59199 | paste/crop 坐标溢出导致堆越界写 | [GHSA-6r8x-57c9-28j4](https://github.com/advisories/GHSA-6r8x-57c9-28j4) |
+| 2026-54059 | PCF 字体位图加载绕过炸弹检查 | [GHSA-8v84-f9pq-wr9x](https://github.com/advisories/GHSA-8v84-f9pq-wr9x) |
+| 2026-59205 | ImageCms 输出模式不匹配导致堆越界写 | [GHSA-9hw9-ch79-4vh6](https://github.com/advisories/GHSA-9hw9-ch79-4vh6) |
+| 2026-59200 | PDF stream 解压资源耗尽 | [GHSA-jjj6-mw9f-p565](https://github.com/advisories/GHSA-jjj6-mw9f-p565) |
+| 2026-55380 | GD 图像尺寸绕过炸弹检查 | [GHSA-phj9-mv4w-65pm](https://github.com/advisories/GHSA-phj9-mv4w-65pm) |
+| 2026-59204 | JPEG2000 tiled decode 缓冲增长 DoS | [GHSA-vjc4-5qp5-m44j](https://github.com/advisories/GHSA-vjc4-5qp5-m44j) |
+| 2026-59197 | RankFilter/ImagingExpand 溢出导致堆越界写 | [GHSA-xj96-63gp-2gmr](https://github.com/advisories/GHSA-xj96-63gp-2gmr) |
+
+关联包与误报消歧：
+
+- `PYSEC-2023-175` 无 aliases，但上游 YAML 的 related 明确指向 CVE-2023-4863/5129（wheel 内置 libwebp），与另一 Pillow 命中属于同一来源风险。实际 `PIL/_webp.cpython-311-x86_64-linux-gnu.so` 的 ldd 链接系统 `libwebp.so.7`，dpkg 为 `libwebp7 1.2.4-0.2+deb12u1`，Debian 明确 fixed；不能把上游 wheel 的旧版本号误报为本候选 Critical。[PYSEC 原记录](https://github.com/pypa/advisory-database/blob/main/vulns/pillow/PYSEC-2023-175.yaml)、[Debian 修复](https://security-tracker.debian.org/tracker/CVE-2023-4863)。本镜像 changelog 文件已裁剪，读取失败；用 dpkg/动态链接/供应商公告替代，不声称读到了镜像内补丁日志。
+- `brotli`、`brotlicffi`、`_brotli`、`_brotlicffi` 的 find_spec 均为 null；`urllib3.response.brotli` 为 None；`python3-brotli` dpkg 状态 not-installed。只有原生 `libbrotli1 1.0.9-2+b6` installed，不等同 Python Brotli 被启用，不因此扩展 OS 扫描。后续候选若引入 Python Brotli，需验证 Brotli >=1.2.0 或 brotlicffi >=1.2.0.0；当前不存在这项 Python 修复依赖。[urllib3 公告](https://github.com/urllib3/urllib3/security/advisories/GHSA-2xpw-w6gg-jr37)。
+- 所有原始重复 PYSEC/alias 按 CVE 去重；两项 PyPI skip 已有供应商证据，未跳过不报。
+
+### SEC-06：ops-agent pip 非阻断残余
+
+pip `25.0.1` 原始 7 条记录去重为 6 项：Moderate 2025-8869（缺 PEP706 的 Python fallback tar 解包才涉及该回退路径）、2026-8643（脚本入口路径处理）、2026-3219（tar/ZIP 混合归档解释）、2026-6357（安装后自更新检查导入新安装模块）、2026-13346（恶意包索引双编码 URL）；Low 2026-1703（恶意 wheel 的受限路径穿越）。不把完整命中列表等同业务远程可利用，不表述零风险；未发现需要将这些项升级为 High 的新证据。
+
+责任：DYDATA-87 发布维护者／当前主控；整改截止：2026-09-16；后续维护升级 pip 26.2.1，主控已明确登记。Medium 默认不单独阻断，并非 waiver。公告分别为 [8869](https://github.com/advisories/GHSA-4xh5-x5gv-qwph)、[8643](https://github.com/advisories/GHSA-wf93-45jw-7689)、[3219](https://github.com/advisories/GHSA-58qw-9mgm-455v)、[6357](https://github.com/advisories/GHSA-jp4c-xjxw-mgf9)、[13346](https://github.com/advisories/GHSA-qwm4-qh6w-59xr)、[1703](https://github.com/advisories/GHSA-6vgw-5pg2-w6jp)。
+
+以下 SEC-01～04 保留初次补丁审查轨迹；与候选相关的当前判定以 SEC-05/06 及第 4～8 节为准。
 
 ### SEC-01：构建依赖 Browserslist 已知 High
 
@@ -66,26 +123,27 @@
 当前分级以最终补证为准：
 
 - Critical：本次范围未发现；不代表未覆盖域不存在。
-- High：0，SEC-01 已修复并独立复查。
-- Medium：0 个当前已证实项，SEC-02 baseline-browser-mapping 已消除；Bandit B608 属待人工分类历史告警，不累加为已确认漏洞。
+- High：SEC-05 browser 的 urllib3 1、msgpack 1、Pillow 10，共 12 项／3 包；SEC-01 已修复，不重复计入。
+- Medium：browser 6 项（idna 1、Pillow 3、jwcrypto 2）；ops-agent pip 5 项。browser 残余需主控明确责任与期限，建议与本次镜像修复一并升级；不得假定 ops 的期限已自动覆盖 browser。Bandit B608 属待人工分类历史告警，不累加为已确认漏洞。
 - Low：SEC-02 esbuild 条件性开发风险；SEC-03 测试常量/assert 工具告警按上下文记录。
 - 证据缺口：SEC-04 及生产鉴权环境/最终制品验证不赋予虚构 CVSS，但影响放行判断。
 
 ## 5. 阻断项
 
-- 阻断编号：本次补丁安全范围无剩余阻断项；SEC-01 已解除，无需 waiver。
-- 阻断原因：不适用。最终 candidate image 审计与 CI/PG 属明确保留的发布硬门禁，不因本报告 PASS 被免除。
-- 尚未满足的生产放行条件：主控锁定最终提交/镜像 digest，完成 candidate image 依赖审计、最终 CI/PG 与部署验证；本报告不批准跳过这些步骤。
+- 阻断编号：SEC-05。
+- 阻断原因：精确 browser 候选存在 12 项未修 High；没有书面 waiver。不是因为 pip-audit 退出 1。
+- 尚未满足的生产放行条件：修复上述三个包并构建新候选，按新 digest 复核导入路径及漏洞；browser Medium 残余若保留，应登记责任、期限和影响。主控报告旧 SHA 35eba CI 全绿，但不得用于新修复候选，更不能覆盖安全 BLOCK。
 
 ## 6. 放行结论
 
-- 最终结论：`PASS`（仅第 1 节定义的补丁安全范围）。
-- 结论理由：High/Medium 依赖项已消除，Windows 解析的 Python 依赖扫描与当前补丁回归、静态复审证据已补齐；本范围未发现剩余阻断项，Low 按风险规则不单独阻断。最终 Linux 制品审计作为后续发布硬门禁保留，不能解释为已完成或被豁免。用户授权已确认，不重复请求。
+- 最终结论：`BLOCK`（当前精确候选 partial Python 依赖门禁）。
+- 结论理由：已实际取得候选包、dpkg 与导入证据，并核对全部命中及两项 skip，存在 SEC-05 明确 High。此前代码补丁 PASS、Windows 审计、旧候选 CI 成功均不能豁免。未做业务漏洞利用/可达性测试、未审全 OS，不声称整个系统风险清零。
 
 ## 7. 整改建议
 
-- 立即整改：本补丁无剩余安全立即整改项；SEC-01、SEC-02 Medium 已消除，主控报告安装后 build 通过。
-- 生产发布前补齐：主控记录最终提交/镜像 digest 与包清单，执行 candidate image 精确依赖审计及最终 CI/PG、部署核验；任一失败阻断生产发布。
+- 立即整改：browser 在构建期一次性处理 urllib3、msgpack、Pillow 的 High。上游命中修复版本集合对应 urllib3 2.7.0、msgpack 1.2.1、Pillow 12.3.0；候选构建兼容性与实际导入必须测试，不能在生产 pip install。仅修 urllib3 不足以解除 BLOCK。
+- 生产发布前补齐：主控记录新提交/镜像 digest 与完整包清单，复审候选和 CI/PG；采用 local 覆盖保留 apt 时，应验证默认 Python、服务解释器及相关扩展都导入修复版本，不以安装日志代替导入证据。未有新 digest，尚不能断言 Cicero 的修复已在镜像生效。
+- Medium 跟踪：ops 按 SEC-06 的已指定责任/2026-09-16 期限执行；browser 6 项建议同时升级 idna 及 jwcrypto（上游已知修复 idna >=3.15、jwcrypto >=1.5.7），Pillow 12.3.0 可覆盖此轮其相关命中；如保留残余须单独登记而非强制 audit 全零。
 - 完工后跟踪：维护者跟踪 esbuild Low、历史 B608 告警与依赖可复现性，不将本报告扩大为历史安全清零承诺。
 
 ## 8. Waiver 记录（如有）
@@ -94,4 +152,4 @@
 - 豁免理由：不适用。
 - 责任人：未指定批准者。
 - 失效日期：不适用。
-- 临时缓解措施：不适用，无需豁免。Web 多阶段镜像不携带构建 node_modules 为暴露面事实；最终制品审计门禁未被豁免。
+- 临时缓解措施：无可用于解除 SEC-05 的已批准措施。Debian no-DSA/ignored/postponed 不构成项目 waiver；CI 全绿不构成 waiver。

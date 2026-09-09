@@ -25,6 +25,7 @@
 | 13 | DYDATA-87 核销共同口径确认与发布前保护修复 | 补充更新 | ✅ |
 | 14 | DYDATA-87 最终树定向验证 | 补充更新 | ✅ |
 | 15 | DYDATA-87 广回归结果与受控发布准备 | S4 | ✅ |
+| 16 | DYDATA-87 CI通过后候选依赖阻断 | S4 | ✅ |
 
 **本日关键结论**：生产范围已修复，订单归属排除保留；单店SQL修复及财务提前展示未部署。全量2472通过139跳过2配置相关失败，隔离配置采集模块46通过，清洁全量和独立审查进行中；不关闭Issue，不自动生成确认锁定账单。本次SQL修复无foundation漂移，财务展示漂移已记录S4-FCR-012
 
@@ -224,3 +225,14 @@
 - **操作**：广回归完成；修正活动投影旧退款断言及浏览器回调teardown；对旧默认比例和异议附件视觉断言继续对照现行规格验证；准备隔离目录精确SHA构建、备份、镜像审计和无二次构建切换
 - **结果**：广回归6 failed、2420 passed、141 skipped（3755秒）；投影模块6 passed、引导模块17 passed；非visual完整补跑与4项视觉失败修复进行中。线上只读基线statement/confirmation/invoice/promotion_invoice均0，在途settlement_rebuild为0；尚未提交或部署
 - **涉及文件**：tests/test_settlement_projection.py、tests/test_visual_clue_onboarding.py、tests/test_visual_smoke.py
+---
+
+## 补充更新 15（15:39 · 窗口 15）
+
+### 任务 16：DYDATA-87 CI通过后候选依赖阻断
+- **目标**：修复候选浏览器Python高危依赖后再切换生产
+- **操作**：CI34322218989全部通过；核对Debian与urllib3上游公告，按安全门禁阻断旧候选；先红测再添加browser专属urllib3覆盖和导入版本断言
+- **结果**：CI2591 passed/141 skipped，PG账单并发26 passed，本机非visual2236 passed/141 skipped。浏览器依赖契约红1后完整模块24 passed；镜像重建及剩余Python风险核验待完成，生产未切换
+- **同主题补充**：
+  - 15:50 DYDATA-87 浏览器高危依赖一次性收口：固定browser五个local包版本，保留apt且no-deps；增加metadata实际导入路径运行时版本断言；隔离probe构建和非root功能验证；结果：契约先红后绿，完整模块24 passed；probe pip check无冲突，msgpack/WebP/JWE往返及websockify/novnc导入通过，Python Brotli未启用。安全scope仍等待最终release digest复审；不以旧35eba CI替代新提交CI
+- **涉及文件**：deploy/browser/Dockerfile、tests/test_deploy_compose_config.py、docs/security/2026-09-09-dydata-87-release-security.md

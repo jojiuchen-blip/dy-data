@@ -102,6 +102,38 @@ def test_browser_image_upgrades_pip_before_resolving_shared_requirements():
     assert upgrade < requirements
 
 
+def test_browser_image_overlays_audited_packages_after_shared_requirements():
+    dockerfile = (ROOT / "deploy" / "browser" / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile = re.sub(r" *\\\n\s*", " ", dockerfile)
+    requirements = dockerfile.index(
+        "python3 -m pip install --break-system-packages --no-cache-dir -r requirements.txt"
+    )
+    overlay = (
+        "RUN python3 -m pip install --break-system-packages --no-cache-dir "
+        "--ignore-installed --no-deps "
+        "'urllib3==2.7.0' 'msgpack==1.2.1' 'Pillow==12.3.0' "
+        "'idna==3.19' 'jwcrypto==1.5.7'"
+    )
+    assert overlay in dockerfile, "browser must overlay exactly the five audited pins without changing dependencies"
+    assert requirements < dockerfile.index(overlay)
+    following = dockerfile.split(overlay, 1)[1].lstrip()
+    assert following.startswith('RUN python3 -c "')
+    check = following.splitlines()[0].removeprefix('RUN python3 -c "').removesuffix('"')
+    compile(check, "browser-package-verification", "exec")
+    assert "from importlib.metadata import version" in check
+    for name, pinned in {"urllib3": "2.7.0", "msgpack": "1.2.1", "Pillow": "12.3.0", "idna": "3.19", "jwcrypto": "1.5.7"}.items():
+        assert f"'{name}': '{pinned}'" in check
+    assert "assert {name: version(name) for name in expected} == expected" in check
+    assert "import urllib3, msgpack, PIL, idna" in check
+    assert "from PIL import Image" in check
+    assert "from jwcrypto import jwk" in check
+    assert "modules = (urllib3, msgpack, PIL, Image, idna, jwk)" in check
+    assert "assert all(Path(module.__file__).resolve().is_relative_to('/usr/local/lib') for module in modules)" in check
+    for module, name in (("urllib3", "urllib3"), ("msgpack", "msgpack"), ("PIL", "Pillow"), ("idna", "idna")):
+        assert f"assert {module}.__version__ == expected['{name}']" in check
+    assert "pip uninstall" not in dockerfile
+
+
 def test_docker_builds_do_not_force_ci_to_use_regional_apt_mirror():
     compose = (ROOT / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     dockerfiles = [
