@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+from itertools import chain
 from typing import Any
 
 from sqlalchemy.orm import Session
 
-from apps.worker.collectors.normalizers import amount_cent, first, get_path, source_datetime, text
+from apps.worker.collectors.normalizers import amount_cent, first, get_path, latest_source_time, source_datetime, text
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.order_status import normalize_coupon_status, normalize_order_status
-from apps.worker.repositories import upsert_order_coupon, upsert_raw_order
+from apps.worker.repositories import payload_fingerprint, upsert_order_coupon, upsert_raw_order
 
 
 def collect_orders(
@@ -18,7 +19,12 @@ def collect_orders(
     source_run_id: str,
 ) -> PhaseStats:
     stats = PhaseStats(name="orders")
-    for order in client.iter_orders(window.start, window.end):
+    updates = getattr(client, "iter_order_updates", None)
+    rows = chain(
+        client.iter_orders(window.start, window.end),
+        updates(window.start, window.end) if callable(updates) else (),
+    )
+    for order in rows:
         stats.fetched += 1
         order_id = text(get_path(order, "order_id"))
         if not order_id:
@@ -34,6 +40,7 @@ def collect_orders(
             first(order, "paid_amount", "pay_amount", "amount.pay_amount")
         )
         coupon_rows = _coupon_rows(order)
+        observed_at = latest_source_time(order, "update_order_time", "modify_time", "update_time", "updated_at")
         upsert_raw_order(
             session,
             order_id,
@@ -68,6 +75,8 @@ def collect_orders(
             intention_poi_id=text(first(order, "intention_poi_id", "poi_id")),
             raw_payload=order,
             source_run_id=source_run_id,
+            source_observed_at=observed_at,
+            observation_key=f"source:{payload_fingerprint(order)}",
         )
         stats.upserted += 1
 
@@ -112,6 +121,10 @@ def collect_orders(
                 latest_refund_at=latest_refund_at,
                 raw_payload=coupon,
                 source_run_id=source_run_id,
+                source_observed_at=latest_source_time(
+                    coupon, "coupon_updated_at", "item_update_time", "update_time", "updated_at", "refund_time"
+                ) or observed_at,
+                observation_key=f"source:{payload_fingerprint(coupon)}",
             )
             stats.upserted += 1
     return stats

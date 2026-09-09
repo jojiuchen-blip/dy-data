@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import RawDouyinOrderCoupon
-from apps.worker.collectors.normalizers import amount_cent, data_items, first, next_cursor, source_datetime, text
+from apps.worker.collectors.normalizers import amount_cent, data_items, first, latest_source_time, next_cursor, source_datetime, text
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
-from apps.worker.repositories import upsert_store, upsert_store_poi_mapping, upsert_verify_record
+from apps.worker.repositories import payload_fingerprint, upsert_store, upsert_store_poi_mapping, upsert_verify_record
 
 
 def collect_shop_pois(
@@ -141,6 +141,10 @@ def collect_verify_records(
                         cancel_time=source_datetime(first(record, "cancel_time")),
                         raw_payload=raw_payload,
                         source_run_id=source_run_id,
+                        source_observed_at=latest_source_time(
+                            record, "modify_time", "update_time", "updated_at", "cancel_time", "verify_time"
+                        ),
+                        observation_key=f"source:{payload_fingerprint(raw_payload)}",
                     )
                     stats.upserted += 1
                 cursor = next_cursor(payload)

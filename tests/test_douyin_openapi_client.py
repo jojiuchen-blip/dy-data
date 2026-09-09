@@ -672,3 +672,29 @@ def test_query_online_products_by_id_batches_at_ten():
     }
     with pytest.raises(ValueError, match="at most 10"):
         client.query_online_products_by_id([str(index) for index in range(11)])
+
+def test_modified_order_pagination_keeps_window_and_governor():
+    http = FakeHttp([
+        FakeResponse({'data': {'access_token': 'token'}}),
+        FakeResponse({'data': {'orders': [{'order_id': 'a'}], 'search_after': {'CursorValue': ['next']}}}),
+        FakeResponse({'data': {'orders': []}}),
+    ])
+    governor = RecordingGovernor()
+    client = DouyinOpenApiClient(DouyinCredentials('app', 'secret', 'account'), http=http, request_governor=governor)
+    start = datetime(2026, 9, 8, tzinfo=timezone.utc)
+    end = datetime(2026, 9, 9, tzinfo=timezone.utc)
+    assert list(client.iter_order_updates(start, end, page_size=1)) == [{'order_id': 'a'}]
+    for call in http.calls[1:]:
+        assert call['params']['update_order_start_time'] == int(start.timestamp())
+        assert call['params']['update_order_end_time'] == int(end.timestamp())
+        assert 'create_order_start_time' not in call['params']
+    assert http.calls[-1]['params']['cursor'] == '["next"]'
+    assert governor.endpoint_keys == ['oauth_client_token', 'orders', 'orders']
+
+
+def test_invalid_order_window_type_does_not_send_request():
+    http = FakeHttp([])
+    client = client_with(http)
+    with pytest.raises(ValueError):
+        client.query_orders(datetime.now(timezone.utc), datetime.now(timezone.utc), time_field='unknown')
+    assert http.calls == []

@@ -117,3 +117,12 @@
 - 当前子开发计划：`sub-delivery-plan-dydata-81-store-finance-T1.3-production-release.md`。
 - 本记录仅保存 DYDATA-81 已合入主线的发布证据，不改变当前主线 Linear 交付序列；生产发布仍以本轮门禁和用户最终验收为准。
 - 自动正式分配和自动再分配未被隐式开启，且未触碰腾讯云生产环境。
+
+## DYDATA-90：采集前置修复
+
+- 主开发计划：[DYDATA-90 采集修复](delivery-plans/main-delivery-plan-dydata-90-collector-fixes.md)。
+- 任务看板：[DYDATA-90 看板](delivery-plans/task-kanban-dydata-90-collector-fixes.md)。
+- 当前子计划：[T0.1 采集状态更新](delivery-plans/sub-delivery-plan-dydata-90-collector-fixes-T0.1-collector-fixes.md)。
+- 当前任务：T0.1，进行中；用户已授权修复试验发现的三个前置问题。
+- 下一步：收口代码复查与回归，再承接新调度与完整单日试跑；不以本地采集修复代替全域恢复验收。
+- 2026-09-09：本地修复及94项专项通过；全仓2485通过/140跳过/1项结算页文案检查失败且可复现，验收记录已落盘，未部署。

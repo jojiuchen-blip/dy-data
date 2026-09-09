@@ -90,13 +90,16 @@ class DouyinOpenApiClient:
         *,
         page_size: int = 100,
         cursor: str | int | None = None,
+        time_field: str = "create_order",
     ) -> dict[str, Any]:
+        if time_field not in {"create_order", "update_order"}:
+            raise ValueError("Order time_field must be create_order or update_order")
         params = {
             "account_id": self.credentials.account_id,
             "cursor": _cursor_param(cursor),
             "page_size": page_size,
-            "create_order_start_time": int(start.timestamp()),
-            "create_order_end_time": int(end.timestamp()),
+            f"{time_field}_start_time": int(start.timestamp()),
+            f"{time_field}_end_time": int(end.timestamp()),
         }
         return self._get_json(ORDER_QUERY_URL, params)
 
@@ -195,13 +198,18 @@ class DouyinOpenApiClient:
             },
         )
 
-    def iter_orders(self, start: datetime, end: datetime, *, page_size: int = 100):
+    def iter_order_updates(self, start: datetime, end: datetime, *, page_size: int = 100):
+        """Include older orders changed within this window."""
+        yield from self.iter_orders(start, end, page_size=page_size, time_field="update_order")
+
+    def iter_orders(self, start: datetime, end: datetime, *, page_size: int = 100, time_field: str = "create_order"):
         cursor: str | None = "0"
         seen: set[str] = set()
         seen_cursors: set[str] = set()
         while cursor and cursor not in seen_cursors:
             seen_cursors.add(cursor)
-            payload = self.query_orders(start, end, page_size=page_size, cursor=cursor)
+            query_options = {"time_field": time_field} if time_field != "create_order" else {}
+            payload = self.query_orders(start, end, page_size=page_size, cursor=cursor, **query_options)
             data = payload.get("data", {})
             orders = data.get("orders") or data.get("list") or []
             for order in orders:

@@ -215,8 +215,8 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
             raw_refund_status=raw_status,
             normalized_refund_status=normalized_status,
             refund_amount_cent=amount,
-            refund_applied_at=_source_time(payload, "refund_applied_at", "apply_time", "created_at"),
-            refund_completed_at=_source_time(payload, "refund_completed_at", "completed_at", "finish_time", "refund_done_at"),
+            refund_applied_at=_applied_time(payload),
+            refund_completed_at=_completed_time(payload),
             source_observed_at=source_observed_at,
             source_run_id=source_run_id,
             payload_hash=fingerprint,
@@ -224,20 +224,39 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
         )
         session.add(raw)
     else:
-        apply_business = not identity_conflict and _is_newer_observation(
-            raw.source_observed_at,
+        current_bound = raw.source_observed_at or _observation_time(raw.raw_payload or {})
+        current_bound = _retain_time(current_bound, raw.refund_completed_at)
+        current_bound = _retain_time(current_bound, raw.refund_applied_at)
+        same_snapshot = raw.payload_hash == fingerprint
+        if not identity_conflict and same_snapshot and raw.source_observed_at is None:
+            raw.source_observed_at = current_bound
+        apply_business = not identity_conflict and (current_bound is not None or same_snapshot) and _is_newer_observation(
+            current_bound,
             raw.payload_hash,
             source_observed_at,
             fingerprint,
         )
+        if not identity_conflict and not same_snapshot and not apply_business:
+            candidate_bound = _retain_time(None, source_observed_at)
+            normalized_bound = _retain_time(None, current_bound)
+            if normalized_bound is None or candidate_bound == normalized_bound:
+                _record_issue(session, "refund_source_version_conflict", stable_id, order_id, source_run_id,
+                              "Refund source version is missing or ambiguous; retained current snapshot", payload)
         if apply_business:
             raw.order_id = order_id
             raw.refund_id = stable_id
             raw.raw_refund_status = raw_status
             raw.normalized_refund_status = normalized_status
             raw.refund_amount_cent = amount
-            raw.refund_applied_at = _source_time(payload, "refund_applied_at", "apply_time", "created_at")
-            raw.refund_completed_at = _source_time(payload, "refund_completed_at", "completed_at", "finish_time", "refund_done_at")
+            for field, candidate in (
+                ("refund_applied_at", _applied_time(payload)),
+                ("refund_completed_at", _completed_time(payload)),
+            ):
+                retained = _retain_time(getattr(raw, field), candidate)
+                if candidate is not None and retained != candidate:
+                    _record_issue(session, "refund_time_regression", stable_id, order_id, source_run_id,
+                                  f"Refund {field} moved backwards; retained confirmed business time", payload)
+                setattr(raw, field, retained)
             raw.source_observed_at = source_observed_at
             raw.payload_hash = fingerprint
             raw.raw_payload = payload
@@ -261,12 +280,22 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
     # Project only the accepted current observation.  A stale replay must not
     # be allowed to update the business event from its incoming payload.
     current_payload = dict(raw.raw_payload or {})
+    # Reparse the accepted snapshot, including identical replays of legacy rows.
+    # Never backfill from a rejected/stale incoming payload.
+    if raw.refund_applied_at is None:
+        raw.refund_applied_at = _applied_time(current_payload)
+    if raw.refund_completed_at is None:
+        raw.refund_completed_at = _completed_time(current_payload)
     current_status = raw.normalized_refund_status
     current_amount = raw.refund_amount_cent
     current_observed_at = raw.source_observed_at
     current_order_id = raw.order_id
     current_type = _refund_type(current_payload)
     occurred_at = _business_occurred_at(current_payload, current_status)
+    if current_status == 1:
+        occurred_at = raw.refund_applied_at
+    elif current_status == 2:
+        occurred_at = raw.refund_completed_at
     (
         _amount_value,
         current_amount_conflict,
@@ -385,7 +414,7 @@ def _process_refund(session: Session, payload: dict[str, Any], *, source_run_id:
         source_run_id=source_run_id,
         source_observed_at=current_observed_at,
         payload_fingerprint=raw.payload_hash,
-        observation_key=f"{stable_id}:{raw.payload_hash}",
+        observation_key=f"source:{raw.payload_hash}",
         raw_payload=current_payload,
     )
     return True
@@ -539,20 +568,39 @@ def _is_newer_observation(
     candidate = candidate_at if candidate_at.tzinfo else candidate_at.replace(tzinfo=timezone.utc)
     if candidate != current:
         return candidate > current
-    return candidate_key > str(current_key or "")
+    # Fingerprints identify snapshots but cannot order simultaneous states.
+    return False
+
+
+def _applied_time(payload: dict[str, Any]) -> datetime | None:
+    return _source_time(payload, "refund_applied_at", "apply_time", "refund_created_at", "created_at", "create_time")
+
+
+def _completed_time(payload: dict[str, Any]) -> datetime | None:
+    return _source_time(payload, "refund_completed_at", "completed_at", "finish_time", "refund_done_at", "complete_time")
+
+
+def _retain_time(current: datetime | None, candidate: datetime | None) -> datetime | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate if candidate.tzinfo else candidate.replace(tzinfo=timezone.utc)
+    comparable = current if current.tzinfo else current.replace(tzinfo=timezone.utc)
+    candidate = candidate if candidate.tzinfo else candidate.replace(tzinfo=timezone.utc)
+    return max(comparable, candidate)
 
 
 def _observation_time(payload: dict[str, Any]) -> datetime | None:
     return source_datetime(
-        first(payload, "modify_time", "update_time", "updated_at", "completed_at", "refund_done_at", "apply_time", "refund_applied_at")
+        first(payload, "modify_time", "update_time", "updated_at", "completed_at", "refund_done_at", "complete_time", "apply_time", "refund_applied_at", "create_time")
     )
 
 
 def _business_occurred_at(payload: dict[str, Any], normalized_status: int) -> datetime | None:
     if normalized_status == 1:
-        return source_datetime(first(payload, "refund_applied_at", "apply_time", "refund_created_at", "created_at"))
+        return source_datetime(first(payload, "refund_applied_at", "apply_time", "refund_created_at", "created_at", "create_time"))
     if normalized_status == 2:
-        return source_datetime(first(payload, "refund_completed_at", "completed_at", "refund_done_at", "finish_time"))
+        return source_datetime(first(payload, "refund_completed_at", "completed_at", "refund_done_at", "finish_time", "complete_time"))
     if normalized_status == 3:
         return source_datetime(first(payload, "failed_at", "refund_failed_at", "refund_completed_at", "completed_at"))
     if normalized_status == 4:

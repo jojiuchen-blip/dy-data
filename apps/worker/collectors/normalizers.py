@@ -62,6 +62,12 @@ def amount_cent(value: Any) -> int | None:
         return None
 
 
+def latest_source_time(payload: dict[str, Any], *paths: str) -> datetime | None:
+    """Use source event/version times, never wall-clock ingestion time."""
+    values = [source_datetime(get_path(payload, path)) for path in paths]
+    return max((value for value in values if value is not None), default=None)
+
+
 def data_items(payload: dict[str, Any], *keys: str) -> list[dict[str, Any]]:
     data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
     if not isinstance(data, dict):

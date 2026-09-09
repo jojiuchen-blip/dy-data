@@ -515,6 +515,29 @@ def _legacy_observation_lower_bound(
     parent order lookup and never scans unrelated rows.
     """
 
+    # Prefer a platform version retained in the original snapshot. Ingestion
+    # time (especially the just-updated parent order) is not a source version.
+    from apps.worker.collectors.normalizers import latest_source_time
+
+    source_paths = {
+        RawDouyinOrder: ("update_order_time", "modify_time", "update_time", "updated_at"),
+        RawDouyinOrderCoupon: ("coupon_updated_at", "item_update_time", "update_time", "updated_at", "refund_time"),
+        RawDouyinVerifyRecord: ("modify_time", "update_time", "updated_at", "cancel_time", "verify_time"),
+    }.get(type(row))
+    if source_paths:
+        source_version = latest_source_time(row.raw_payload or {}, *source_paths)
+        if source_version is not None:
+            event_fields = {
+                RawDouyinOrder: ("pay_time", "sale_time", "create_order_time"),
+                RawDouyinOrderCoupon: ("coupon_updated_at", "latest_refund_at", "coupon_refund_time"),
+                RawDouyinVerifyRecord: ("cancel_time", "verify_time"),
+            }[type(row)]
+            return max(
+                [source_version]
+                + [value for field in event_fields
+                   if (value := _comparable_observation_time(getattr(row, field, None))) is not None]
+            )
+
     values: list[Any] = [
         getattr(row, "updated_at", None),
         getattr(row, "created_at", None),
@@ -603,6 +626,23 @@ def _observation_is_newer(
         return False
     if candidate_at > current_at:
         return True
+    if str(candidate_key or "").startswith("source:"):
+        # A content hash is an identity, not an ordering within the same second.
+        if candidate_key == f"source:{payload_fingerprint(row.raw_payload or {})}":
+            return current_key != candidate_key
+        if session is not None:
+            identity = {column.key: getattr(row, column.key) for column in row.__mapper__.primary_key}
+            issue_key = payload_fingerprint({"table": row.__tablename__, "identity": identity, "version": current_at.isoformat()})
+            upsert_data_quality_issue(
+                session, f"source-version-{issue_key}",
+                issue_type="source_version_conflict",
+                message="Different source snapshots have the same version time; retained current state for reconciliation",
+                order_id=getattr(row, "order_id", None),
+                coupon_id=getattr(row, "coupon_id", None),
+                source_run_id=values.get("source_run_id"),
+                raw_context_json={"current_key": current_key, "candidate_key": candidate_key},
+            )
+        return False
     if current_key is None:
         return candidate_key is not None
     if candidate_key is None:
@@ -879,7 +919,7 @@ def upsert_raw_order(session: Session, order_id: str, **values: Any) -> RawDouyi
         apply_business = True
     else:
         before = _canonical_values(row)
-        apply_business = _observation_is_newer(row, values)
+        apply_business = _observation_is_newer(row, values, session=session)
         _set_observed_values(row, values, apply_business=apply_business)
     session.flush()
     if apply_business and row.source_observed_at is None and values.get("source_observed_at") is not None:
@@ -1044,7 +1084,7 @@ def upsert_verify_record(session: Session, verify_id: str, **values: Any) -> Raw
         before: dict[str, Any] = {}
     else:
         before = _canonical_values(row)
-        _set_observed_values(row, values, apply_business=_observation_is_newer(row, values))
+        _set_observed_values(row, values, apply_business=_observation_is_newer(row, values, session=session))
     session.flush()
     _capture_job_impact(
         session,
@@ -1074,7 +1114,7 @@ def upsert_refund_event(
         apply_business = True
     else:
         before = _canonical_values(row)
-        apply_business = _observation_is_newer(row, values)
+        apply_business = _observation_is_newer(row, values, session=session)
         _set_observed_values(row, values, apply_business=apply_business)
     session.flush()
     _capture_job_impact(
