@@ -35,3 +35,19 @@ def test_history_reuses_only_fresh_actual_dimension_collection(tmp_path):
         stage.committed_at = now
         session.commit()
         assert reusable_dimension_snapshot(session, history, now=now) is None
+
+
+def test_history_dimension_handler_reuses_snapshot_before_creating_client(monkeypatch):
+    from apps.worker.daily_task import default_stage_handlers
+
+    proof = {"dimension_snapshot_reused": True, "phases": {}}
+    monkeypatch.setattr(
+        "apps.worker.dimension_snapshot.reusable_dimension_snapshot",
+        lambda session, job: proof,
+    )
+
+    def unexpected_client():
+        raise AssertionError("fresh dimension snapshot should avoid an API client")
+
+    monkeypatch.setattr("apps.worker.pipeline.build_douyin_client_from_env", unexpected_client)
+    assert default_stage_handlers()["collect_dimensions"](None, object()) is proof

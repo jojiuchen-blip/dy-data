@@ -169,6 +169,11 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
         return stats.as_metadata()
 
     def collect_dimensions(session: Session, job) -> dict[str, Any]:
+        from apps.worker.dimension_snapshot import reusable_dimension_snapshot
+
+        snapshot = reusable_dimension_snapshot(session, job)
+        if snapshot is not None:
+            return snapshot
         target = _job_target(job)
         if target == "backend_aweme_export":
             from apps.worker.browser_exports.backend_aweme import run_backend_aweme_export
