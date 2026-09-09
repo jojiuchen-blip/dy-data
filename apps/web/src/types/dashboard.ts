@@ -580,6 +580,10 @@ export interface SettlementStatementLine {
 }
 
 export interface SettlementMonthlyData {
+  computedCumulative?: {
+    promotionNetFeeCent: number;
+    managementNetFeeCent: number;
+  };
   store: { storeId: string; storeName: string };
   month: string;
   productScope: string;

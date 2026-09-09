@@ -934,6 +934,10 @@ def test_lineage_refresh_passes_claim_fence_through_sparse_commits(
     )
     guarded_stages: list[str] = []
     progress: list[tuple[str, int, int | None]] = []
+    # This unit test isolates commit-fence propagation with a fake publisher.
+    # Real pointer/billing atomicity is covered by test_settlement_generation_api.
+    monkeypatch.setattr(settlement_rebuild, "_lock_billing_publication_base", lambda session, base: None)
+    monkeypatch.setattr(settlement_rebuild, "generate_pending_statements", lambda session, **kwargs: {"blocked": 0})
 
     def fake_build(factory_arg, **kwargs):
         assert factory_arg is factory
@@ -993,6 +997,33 @@ def test_lineage_refresh_passes_claim_fence_through_sparse_commits(
             ("build_sparse_projection", 1, 1),
             ("certify_sparse_projection", 1, 1),
         ]
+    finally:
+        engine.dispose()
+
+
+def test_frozen_source_drift_requires_new_job_without_automatic_retry(tmp_path, monkeypatch):
+    from apps.worker import billing_source_capture
+
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'source-drift.db'}", future=True)
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, autoflush=False, future=True)
+    with factory.begin() as session:
+        queue_job_run(session, "source-drift-job", "settlement_rebuild")
+
+    def fail(*args, **kwargs):
+        raise billing_source_capture.BillingSourceDriftError("sources changed; create a new settlement rebuild job")
+
+    monkeypatch.setattr(settlement_rebuild, "rebuild_settlement", fail)
+    try:
+        with pytest.raises(billing_source_capture.BillingSourceDriftError):
+            settlement_rebuild.run_settlement_rebuild_job(job_id="source-drift-job", factory=factory)
+        with factory() as session:
+            job = session.get(JobRun, "source-drift-job")
+            assert job.status == "failed"
+            assert job.attempt_count == 1
+            assert job.next_retry_at is None
+            assert job.error_code == "SETTLEMENT_REBUILD_SOURCE_DRIFT"
+            assert job.metadata_json["recoveryState"] == "NEW_REBUILD_JOB_REQUIRED"
     finally:
         engine.dispose()
 

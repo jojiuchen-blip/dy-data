@@ -501,6 +501,118 @@ def test_store_settlement_reads_current_list_and_version_history(
     assert historical_detail.json()["data"]["storeName"] == "Store One Historical"
 
 
+def test_monthly_report_references_current_statement_not_historical_version(client: TestClient) -> None:
+    _login(client)
+    response = client.get("/api/v1/stores/store-1/monthly-settlement", params={"month": "2026-08"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["statement"]["statementId"] == "statement-1-v2"
+
+
+def test_store_to_finance_both_directions_complete_api_flow(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Exercise real routes with synthetic facts; neither direction blocks the other."""
+    monkeypatch.setattr(dashboard_routes, "utcnow", lambda: datetime(2026, 9, 10, 2, tzinfo=timezone.utc))
+    _login(client)
+    _act_as_store(client)
+    for direction, amount in (("PROMOTION", 1100), ("MANAGEMENT", 2200)):
+        body = {"feeDirection": direction, "confirmedAmountCent": amount, "readVersion": 2}
+        headers = {"Idempotency-Key": f"flow-confirm-{direction}"}
+        response = client.post("/api/v1/store-settlements/statement-1-v2/confirmations", json=body, headers=headers)
+        assert response.status_code == 200, response.text
+        replay = client.post("/api/v1/store-settlements/statement-1-v2/confirmations", json=body, headers=headers)
+        assert replay.json()["data"] == response.json()["data"]
+    invoice_number = "82345678901234567890"
+    invoice_payload = {
+        "storeId": "store-1", "buyerName": "比亚迪汽车销售有限公司", "taxRatePercent": 6,
+        "invoiceNumber": invoice_number, "invoiceDate": "2026-09-10", "invoiceAmountCent": 1100,
+        **_manual_invoice_fields(1100),
+        "allocations": _with_current_promotion_group_ids(client, store_id="store-1", allocations=[{
+            "statementId": "statement-1-v2", "statementMonth": "2026-08", "allocatedAmountCent": 1100, "readVersion": 2,
+        }]),
+    }
+    stale_payload = {**invoice_payload, "allocations": [
+        {**invoice_payload["allocations"][0], "readVersion": 1},
+    ]}
+    stale = client.post("/api/v1/promotion-invoices", json=stale_payload,
+                        headers={"Idempotency-Key": "flow-invoice-stale-0001"})
+    assert stale.status_code == 409, stale.text
+    assert stale.json()["detail"]["code"] == "STATEMENT_VERSION_CONFLICT"
+    invalid_number = client.post("/api/v1/promotion-invoices", json={**invoice_payload, "invoiceNumber": "1234567890123456789"},
+                                 headers={"Idempotency-Key": "flow-invoice-invalid-number"})
+    assert invalid_number.status_code == 422
+    assert db_session.scalar(select(func.count()).select_from(PromotionInvoice)) == 0
+    registered = client.post("/api/v1/promotion-invoices", json=invoice_payload,
+                             headers={"Idempotency-Key": "flow-invoice-register-0001"})
+    assert registered.status_code == 200, registered.text
+    assert registered.json()["data"]["status"] == "SUBMITTED_PENDING_FACTORY_REVIEW"
+    replay_invoice = client.post("/api/v1/promotion-invoices", json=invoice_payload,
+                                 headers={"Idempotency-Key": "flow-invoice-register-0001"})
+    assert replay_invoice.status_code == 200
+    assert replay_invoice.json()["data"] == registered.json()["data"]
+    duplicate_invoice = client.post("/api/v1/promotion-invoices", json=invoice_payload,
+                                    headers={"Idempotency-Key": "flow-invoice-duplicate-0001"})
+    assert duplicate_invoice.status_code == 409
+    # A store cannot promote its own invoice into a factory result.
+    denied = client.post("/api/v1/admin/finance-imports", data={"importType": "PROMOTION_FACTORY_RESULT", "statementMonth": "2026-08"},
+                         files={"file": ("result.csv", b"invoiceNumber\n", "text/csv")}, headers={"Idempotency-Key": "flow-denied-upload-0001"})
+    assert denied.status_code == 403
+    client.app.dependency_overrides.pop(get_current_user)
+    for import_type, csv_text in (
+        ("PROMOTION_FACTORY_RESULT", "invoiceNumber,reviewResult,rejectionReason,settlementDate,settlementAmountCent\n"
+         f"{invoice_number},APPROVED_SETTLED,,2026-09-10,1100\n"),
+        ("MANAGEMENT_FACTORY_RESULT", "storeId,statementMonth,storeName,invoiceNumber,invoiceDate,deductionDate,deductionAmountCent\n"
+         "store-1,2026-08,Store One,92345678901234567890,2026-09-10,2026-09-10,2200\n"),
+    ):
+        uploaded = client.post("/api/v1/admin/finance-imports", data={"importType": import_type, "statementMonth": "2026-08"},
+                               files={"file": ("result.csv", csv_text.encode(), "text/csv")}, headers={"Idempotency-Key": f"flow-upload-{import_type}"})
+        assert uploaded.status_code == 200, uploaded.text
+        preview = uploaded.json()["data"]
+        assert preview["scenario"] == "FIRST_IMPORT_READY", preview
+        committed = client.post(f"/api/v1/admin/finance-imports/{preview['batchId']}/commits",
+                                json={"readVersion": preview["readVersion"], "changeReason": "隔离闭环验证"},
+                                headers={"Idempotency-Key": f"flow-commit-{import_type}"})
+        assert committed.status_code == 200, committed.text
+        assert committed.json()["data"]["status"] == "COMMITTED"
+    _act_as_store(client)
+    readback = client.get("/api/v1/store-invoice-status", params={"storeId": "store-1", "month": "2026-08"})
+    assert readback.status_code == 200, readback.text
+    assert readback.json()["data"]["promotionInvoices"][0]["status"] == "APPROVED_SETTLED"
+    assert readback.json()["data"]["managementInvoices"][0]["invoiceAmountCent"] == 2200
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 2
+
+
+@pytest.mark.parametrize("invalid_row", [
+    "store-2,2026-08,Store Two,72345678901234567890,2026-09-10,2026-09-10,799\n",
+    "store-1,2026-08,Store One,72345678901234567890,2026-09-10,2026-09-10,2200\n",
+])
+def test_management_import_invalid_second_row_keeps_entire_batch_unwritten(
+    client: TestClient, db_session: Session, invalid_row: str,
+) -> None:
+    """Partial amount or duplicate store-month cannot write even the valid first row."""
+    _login(client)
+    for statement_id, amount, version in (("statement-1-v2", 2200, 2), ("statement-2-v1", 800, 1)):
+        confirmed = client.post(f"/api/v1/store-settlements/{statement_id}/confirmations",
+                                json={"feeDirection": "MANAGEMENT", "confirmedAmountCent": amount, "readVersion": version},
+                                headers={"Idempotency-Key": f"atomic-confirm-{statement_id}"})
+        assert confirmed.status_code == 200, confirmed.text
+    content = ("storeId,statementMonth,storeName,invoiceNumber,invoiceDate,deductionDate,deductionAmountCent\n"
+               "store-1,2026-08,Store One,62345678901234567890,2026-09-10,2026-09-10,2200\n" + invalid_row)
+    uploaded = client.post("/api/v1/admin/finance-imports",
+                           data={"importType": "MANAGEMENT_FACTORY_RESULT", "statementMonth": "2026-08"},
+                           files={"file": ("atomic.csv", content.encode(), "text/csv")},
+                           headers={"Idempotency-Key": "atomic-management-upload"})
+    assert uploaded.status_code == 200, uploaded.text
+    preview = uploaded.json()["data"]
+    assert preview["scenario"] == "BATCH_VALIDATION_FAILED"
+    committed = client.post(f"/api/v1/admin/finance-imports/{preview['batchId']}/commits",
+                            json={"readVersion": preview["readVersion"], "changeReason": "不得部分提交"},
+                            headers={"Idempotency-Key": "atomic-management-commit"})
+    assert committed.status_code >= 400
+    assert db_session.scalar(select(func.count()).select_from(InvoiceRecord)) == 0
+    assert db_session.scalar(select(func.count()).select_from(InvoiceStatusEvent)) == 0
+
+
 def test_store_confirmation_rechecks_current_version_and_replays_idempotently(
     client: TestClient, db_session: Session
 ) -> None:

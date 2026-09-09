@@ -90,6 +90,12 @@ jobs:
           DY_AGENT_ENVIRONMENT: production
         run: python scripts/verify_postgres_finance_import_concurrency.py
 
+      # Explicit gate: the normal suite skips these without the disposable PG URL.
+      - name: Run PostgreSQL pending billing concurrency gate
+        env:
+          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
+        run: python -m pytest tests/test_billing_statement_generation.py -q
+
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci

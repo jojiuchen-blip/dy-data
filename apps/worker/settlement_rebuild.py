@@ -27,6 +27,10 @@ from apps.worker.projection_publish import (
     settlement_rebuild_publish_once_key,
 )
 from apps.worker.pipeline import sanitize_error_message
+from apps.worker.billing_source_capture import (
+    BillingSourceDriftError, collect_billing_sources, freeze_billing_sources, load_billing_sources, load_billing_slots,
+)
+from apps.worker.billing_statements import generate_pending_statements
 from apps.worker.settlement import (
     FORMAL_SETTLEMENT_START,
     SettlementStats,
@@ -441,6 +445,15 @@ def _supersede_obsolete_settlement_generations(
         )
 
 
+def _lock_billing_publication_base(session: Session, base_generation_id: str) -> None:
+    """Keep publication lock order job -> active pointer -> settlement slots."""
+    active = session.scalar(select(SettlementProjectionActive).where(
+        SettlementProjectionActive.projection_name == "settlement",
+    ).with_for_update().execution_options(populate_existing=True))
+    if active is None or active.generation_id != base_generation_id:
+        raise RuntimeError("settlement active pointer changed before billing capture")
+
+
 def refresh_active_settlement_lineage(
     factory: sessionmaker,
     *,
@@ -475,6 +488,22 @@ def refresh_active_settlement_lineage(
         lease_duration=lease_duration,
     )
 
+    with session_scope(factory) as session:
+        commit_guard(session)
+        _lock_billing_publication_base(session, plan.base_generation_id)
+        billing_slots = list(session.execute(select(
+            SettlementStatement.store_id, SettlementStatement.statement_month,
+        ).where(
+            SettlementStatement.is_current.is_(True),
+            SettlementStatement.statement_month.in_(plan.affected_months),
+        )))
+        frozen_sources = collect_billing_sources(session, months=plan.affected_months, slots=billing_slots)
+        freeze_billing_sources(
+            session, generation_id=plan.generation_id, job_id=job_id, sources=frozen_sources,
+            slots=billing_slots,
+        )
+        commit_guard(session)
+
     build_settlement_sparse_overlay(
         factory,
         generation_id=plan.generation_id,
@@ -496,6 +525,15 @@ def refresh_active_settlement_lineage(
     if progress_callback is not None:
         progress_callback("certify_sparse_projection", 1, 1)
     with session_scope(factory) as session:
+        # Validate that the captured source set still matches what was aggregated.
+        # Detailed source data stays in a private table, not an operational log.
+        commit_guard(session)
+        _lock_billing_publication_base(session, plan.base_generation_id)
+        freeze_billing_sources(
+            session, generation_id=plan.generation_id, job_id=job_id,
+            sources=collect_billing_sources(session, months=plan.affected_months, slots=billing_slots),
+            slots=billing_slots,
+        )
         publication = publish_settlement_rebuild(
             session,
             job_id=job_id,
@@ -505,10 +543,18 @@ def refresh_active_settlement_lineage(
             input_fingerprint=plan.input_fingerprint,
             manifest_checksum=manifest.manifest_checksum,
         )
+        billing = generate_pending_statements(
+            session, generation_id=plan.generation_id, source_job_id=job_id,
+            sources=load_billing_sources(session, generation_id=plan.generation_id, job_id=job_id),
+            slots=load_billing_slots(session, generation_id=plan.generation_id, job_id=job_id),
+        )
+        if billing["blocked"]:
+            raise RuntimeError("pending billing generation blocked; publication was not committed")
         job = session.get(JobRun, job_id)
         if job is None:  # pragma: no cover - guarded by publication validation
             raise RuntimeError("settlement rebuild job disappeared before metadata update")
         metadata = dict(job.metadata_json or {})
+        metadata["billing_generation"] = billing
         metadata["settlement_projection"] = {
             "status": "published",
             "generation_id": plan.generation_id,
@@ -957,6 +1003,7 @@ def _fail_claimed_settlement_rebuild(
     job_id: str,
     claim_id: str,
     error_message: str,
+    requires_new_job: bool = False,
 ) -> str | None:
     controlled_error = sanitize_error_message(error_message) or "结算重建失败，请重试。"
     with session_scope(factory) as session:
@@ -996,7 +1043,7 @@ def _fail_claimed_settlement_rebuild(
                 int(job.max_attempts or DEFAULT_SETTLEMENT_REBUILD_MAX_ATTEMPTS),
             ),
         )
-        retryable = attempt_count < max_attempts
+        retryable = not requires_new_job and attempt_count < max_attempts
         metadata = dict(job.metadata_json or {})
         metadata.update(
             {
@@ -1005,6 +1052,7 @@ def _fail_claimed_settlement_rebuild(
                 "failureReason": controlled_error,
                 "failedAt": failed_at.isoformat(),
                 "recoveryState": (
+                    "NEW_REBUILD_JOB_REQUIRED" if requires_new_job else
                     "REQUEUED_RETRYABLE_FAILURE"
                     if retryable
                     else "FAILED_ATTEMPTS_EXHAUSTED"
@@ -1040,6 +1088,7 @@ def _fail_claimed_settlement_rebuild(
                 progress_current=0 if retryable else job.progress_current,
                 progress_total=None if retryable else job.progress_total,
                 error_code=(
+                    "SETTLEMENT_REBUILD_SOURCE_DRIFT" if requires_new_job else
                     "SETTLEMENT_REBUILD_RETRY_QUEUED"
                     if retryable
                     else "SETTLEMENT_REBUILD_ATTEMPTS_EXHAUSTED"
@@ -1144,6 +1193,7 @@ def run_settlement_rebuild_job(
     except Exception as exc:
         transition = _fail_claimed_settlement_rebuild(
             factory, job_id=job_id, claim_id=claim_id, error_message=str(exc),
+            requires_new_job=isinstance(exc, BillingSourceDriftError),
         )
         if transition == "reconciled":
             return True

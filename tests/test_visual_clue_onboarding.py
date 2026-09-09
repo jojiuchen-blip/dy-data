@@ -147,6 +147,16 @@ def connect_backend(page: Page, base: str) -> None:
     page.route("**/api/v1/**", forward)
 
 
+def close_backend_context(page: Page, store: TourDataStore) -> None:
+    # Context.close disposes route.fetch responses before stopping callbacks.
+    # Release synthetic slow responses and drain handlers while requests live.
+    store.release_detail.set()
+    try:
+        page.unroute_all(behavior="wait")
+    finally:
+        page.context.close()
+
+
 def tour_at(page: Page, step: str):
     marker = page.locator(f'[data-clue-tour-step="{step}"]')
     expect(marker).to_be_visible()
@@ -242,7 +252,7 @@ def test_seven_step_tour_with_real_api_and_no_business_writes(
         assert_read_only_tour(store)
         assert errors == []
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_back_escape_replay_drafts_and_manual_save(browser: Browser, vite_real_api_base_url: str, tour_backend, tmp_path: Path):
@@ -287,7 +297,7 @@ def test_back_escape_replay_drafts_and_manual_save(browser: Browser, vite_real_a
         detail.get_by_role("button", name="关闭线索详情").click()
         assert not page.locator("#root").evaluate("e => e.inert")
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 @pytest.mark.parametrize("mode", ["empty", "readonly", "list-error", "detail-error", "missing-round"])
@@ -318,7 +328,7 @@ def test_unavailable_data_has_a_short_exitable_tour(browser: Browser, vite_real_
         assert not page.locator("#root").evaluate("e => e.inert")
         assert_read_only_tour(store)
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_preferences_are_per_account_and_storage_failure_is_safe(browser: Browser, vite_real_api_base_url: str, tour_backend):
@@ -355,7 +365,7 @@ def test_preferences_are_per_account_and_storage_failure_is_safe(browser: Browse
         expect(page.get_by_role("button", name="开始引导")).to_have_count(0)
         assert not page.locator("#root").evaluate("e => e.inert")
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_no_detail_permission_has_no_invitation_or_navigation(browser: Browser, vite_real_api_base_url: str, tour_backend):
@@ -371,7 +381,7 @@ def test_no_detail_permission_has_no_invitation_or_navigation(browser: Browser, 
         expect(page.locator('[data-clue-tour="navigation"]')).to_have_count(0)
         assert page.request.get(f"{base}/api/v1/clues/assignment-rounds").status == 403
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_missing_target_and_slow_detail_can_exit(browser: Browser, vite_real_api_base_url: str, tour_backend):
@@ -402,7 +412,7 @@ def test_missing_target_and_slow_detail_can_exit(browser: Browser, vite_real_api
             route.abort()
         assert_read_only_tour(store)
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_resize_switches_to_visible_targets(browser: Browser, vite_real_api_base_url: str, tour_backend, tmp_path: Path):
@@ -433,7 +443,7 @@ def test_resize_switches_to_visible_targets(browser: Browser, vite_real_api_base
         assert not page.locator("#root").evaluate("e => e.inert")
         assert_read_only_tour(store)
     finally:
-        context.close()
+        close_backend_context(page, store)
 
 
 def test_tour_waits_for_current_filter_refresh(browser: Browser, vite_real_api_base_url: str, tour_backend):
@@ -466,4 +476,4 @@ def test_tour_waits_for_current_filter_refresh(browser: Browser, vite_real_api_b
         page.keyboard.press("Escape")
         assert_read_only_tour(store)
     finally:
-        context.close()
+        close_backend_context(page, store)

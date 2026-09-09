@@ -158,7 +158,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 **交互规则**：
 
 - 推广服务费和管理服务费为互斥页签，任何时刻必须有且只有一个选中；默认使用已验证来源上下文的 `feeDirection`。
-- 推广服务费按销售业务日匹配规则并归入销售月；管理服务费按核销业务日匹配规则并归入核销月。销售月与核销月可同时作为筛选条件，但不改变费用归属口径。
+- 【用户确认，2026-09-09，DYDATA-87】两费均须有效核销，按有效核销日匹配各自费率版本、归入有效核销月并使用同一核销实收基数。销售月与核销月可同时作为事实筛选条件，但不改变费用归属口径。
 - `dataStatus` 只允许 `VALID/ADJUSTED/BLOCKED/LOCKED`；关键词 `q` 可搜索订单 ID、券 ID、SKU ID、SKU 名称和产品名称。
 - 点击查询、切换方向或改变任一筛选后回到第 1 页；分页只改变 `page/pageSize`，不改变其他条件。
 - 重置恢复服务端验证后的来源上下文，不扩大门店、月份、产品或账单范围。
@@ -172,7 +172,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 
 1. 按 §3 重新校验来源上下文和权限，解析账单冻结来源或当前结果指针。
 2. 校验 `feeDirection`、月份格式、产品组合、状态枚举、关键词长度和分页范围；`pageSize` 默认 50、最大 100。
-3. 在已确定的来源集合内按销售月、核销月、产品维度、数据状态和关键词过滤；推广服务费仍以销售门店/销售月为归属，管理服务费仍以核销门店/核销月为归属。
+3. 在已确定的来源集合内按销售月、核销月、产品维度、数据状态和关键词过滤；推广服务费归销售门店、管理服务费归核销门店，两方向原始费用均归有效核销月。
 4. 返回服务端规范化 `context`、当前页 `list`、`total/page/pageSize`，并保证一张券在一个费用方向下只出现一个费用结果版本。
 
 **处理输入**：
@@ -193,7 +193,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 | UI 元素 | API 字段 | 计算规则 | 数据源（服务端读取） | 配置源（服务端读取） |
 |---------|----------|---------|--------|--------|
 | 费用方向页签 | `feeDirections`、`context.feeDirection`、`list[].feeDirection` | 必填且互斥；结果只含所选方向 | `settlement_fee_result.fee_direction` | — |
-| 销售月份 | `saleMonths`、`saleMonth`、`list[].saleMonth` | 按销售业务日形成的月份过滤 | `raw_douyin_orders.sale_time`、`settlement_fee_result.original_business_month` | — |
+| 销售月份 | `saleMonths`、`saleMonth`、`list[].saleMonth` | 按销售业务日形成的事实月份过滤，不用费用发生月替代 | `raw_douyin_orders.sale_time` | — |
 | 核销月份 | `verifyMonths`、`verifyMonth`、`list[].verifyMonth` | 按核销业务日形成的月份过滤 | `raw_douyin_verify_records.verify_time`、`settlement_fee_result.original_business_month` | — |
 | 产品范围与类型 | `productScope`、`productType` | 按规则快照中的产品维度过滤 | `settlement_fee_result.product_scope`、`settlement_fee_result.product_type` | `dim_sku_product_rules.product_scope`、`dim_sku_product_rules.product_type` |
 | 数据状态 | `dataStatus`、`list[].resultStatus` | 映射 `VALID/ADJUSTED/BLOCKED/LOCKED` 查询口径 | `settlement_fee_result.result_status` | — |
@@ -226,7 +226,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 | # | 类型 | 场景 | 触发条件 | 预期结果 |
 |---|------|------|---------|---------|
 | 1 | UX 交互 | 费用方向互斥 | 点击未选中的管理服务费页签 | 管理方向成为唯一选中项，回到第 1 页并按原筛选查询管理服务费。 |
-| 2 | 业务规则 | 双月份口径 | 同时选择销售月和核销月 | 服务端按两个条件过滤，但推广仍归销售月、管理仍归核销月。 |
+| 2 | 业务规则 | 双月份口径 | 同时选择销售月和核销月 | 服务端按两个事实条件过滤，两方向原始费用均归有效核销月；8 月销售、9 月有效核销时两费均计入 9 月。 |
 | 3 | UX 交互 | 多标识搜索 | 输入订单 ID、券 ID、SKU ID/名称或产品名称 | 仅在授权来源和当前费用方向内返回匹配行。 |
 | 4 | 异常兜底 | 方向空态 | 当前筛选无推广服务费结果 | 显示推广方向专属空态并禁用导出，不展示管理方向数据。 |
 | 5 | 异常兜底 | 非法产品组合 | 提交不属于当前产品范围的商品类型 | 返回 422，页面标记问题且不自动扩大为全部。 |
@@ -258,8 +258,8 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 
 - 每行固定为“一张券 + 一个费用方向 + 一个费用结果版本”，对外始终展示平台订单 ID、券 ID 和 SKU ID，不展示内部自增主键。
 - 主行至少展示订单/券状态、费用方向、原始发生月份、销售月、核销月、规则匹配日、销售/核销门店、SKU/产品、销售渠道、原始基数、费率、原始费用、调整基数、调整费用、调整后净基数、调整后净费用、规则版本、结果状态和账单锁定关联。
-- 推广服务费的规则匹配日取销售业务日，归属销售门店和销售月；管理服务费的规则匹配日取核销业务日，归属核销门店和核销月。
-- 部分退款按退款后净额同比例减少费用基数；全额退款归零；取消核销只调整管理服务费。后续事件通过 `adjustments[]` 展示，不覆盖原费用结果。
+- 两方向的规则匹配日均取有效核销业务日、计入有效核销月、使用同一核销实收基数；推广归属销售门店，管理归属核销门店，分别使用各自配置费率。相同券、相同费率下两费相等，不要求单店跨店订单合计相等。
+- 部分退款同比例减少两方向费用基数；全额退款归零；取消核销影响两方向，后续事件通过 `adjustments[]` 追溯，不覆盖原费用结果或已冻结账单。
 - 调整记录同时展示原始发生月份和调整入账月份。页面净额只展示接口返回的 `adjustedNetBaseCent/adjustedNetFeeCent`，不由前端把调整项重新求和。
 - 已锁账来源继续展示锁账时冻结的规则版本和金额；后续调整以独立账单来源关联原费用结果，不改写已锁账行。
 - 金额由整数分格式化为人民币，费率按服务端返回值展示；负向调整保留负号，状态文本不得只依赖颜色表达。
@@ -294,7 +294,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 |---------|----------|---------|--------|--------|
 | 订单/券业务标识 | `list[].orderId`、`list[].couponId` | 直透平台字符串业务 ID，不返回内部主键 | `raw_douyin_orders.order_id`、`raw_douyin_order_coupons.coupon_id` | — |
 | 订单/券状态 | `list[].orderStatus`、`list[].couponStatus` | 返回规范化状态 | `raw_douyin_orders.order_status_normalized`、`raw_douyin_order_coupons.coupon_status_normalized` | — |
-| 销售与核销时间 | `list[].saleTime`、`list[].verifyTime`、`list[].ruleMatchDate` | 推广取销售业务日，管理取核销业务日 | `raw_douyin_orders.sale_time`、`raw_douyin_verify_records.verify_time` | — |
+| 销售与核销时间 | `list[].saleTime`、`list[].verifyTime`、`list[].ruleMatchDate` | 销售/核销时间独立展示；两方向匹配日均读取有效核销日快照 | `raw_douyin_orders.sale_time`、`raw_douyin_verify_records.verify_time`、`settlement_fee_result.rule_match_date` | — |
 | 销售/核销门店 | `list[].saleStoreId/Name`、`list[].verifyStoreId/Name` | 分别关联销售门店和核销 POI 映射门店 | `settlement_fee_result.sale_store_id`、`settlement_fee_result.verify_store_id`、`dim_stores.store_id`、`dim_stores.store_name` | `dim_store_poi_mappings.poi_id`、`dim_store_poi_mappings.store_id` |
 | SKU 与产品 | `list[].skuId`、`list[].skuName`、`list[].productName`、`list[].productScope`、`list[].productType` | 费用结果产品维度与 SKU 规则展示信息关联 | `settlement_fee_result.sku_id` | `dim_sku_product_rules.sku_id`、`dim_sku_product_rules.sku_name`、`dim_sku_product_rules.product_name`、`dim_sku_product_rules.product_scope`、`dim_sku_product_rules.product_type` |
 | 销售渠道 | `list[].saleChannel` | 返回规范化渠道 | `settlement_fee_result.sale_channel_normalized` | — |
@@ -314,7 +314,7 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 | 场景 | 处理 |
 |------|------|
 | 原始费用结果缺少订单、券或 SKU 业务标识 | 标记为数据质量阻断并返回可追踪错误，不用内部主键或空字符串替代。 |
-| 核销记录或门店映射缺失 | 管理服务费结果不猜测核销时间/门店；按数据质量规则标记 `BLOCKED`。 |
+| 核销记录或门店映射缺失 | 两方向均不得绕过有效核销前置；缺少所需时间/责任门店时按数据质量规则标记 `BLOCKED`，不猜测。 |
 | 调整记录存在但无法关联原费用结果 | 不并入任意明细净额，进入数据质量问题并返回结构化错误。 |
 | 同一券同一方向命中多个当前结果 | 视为数据一致性错误，不随机选择版本。 |
 | 锁账来源与费用结果版本不一致 | 以冻结映射为审计依据并阻断异常行，不切换到当前指针。 |
@@ -334,10 +334,10 @@ Web 页面从上到下分为 6 个区域，主体纵向滚动，明细表在窄�
 |---|------|------|---------|---------|
 | 1 | 业务规则 | 一券一方向唯一 | 同一券同时产生推广服务费和管理服务费 | 两个方向各有一行；同一方向不重复出现多个当前版本。 |
 | 2 | 业务规则 | 部分退款调整 | 原费用完成后发生部分退款 | 原费用结果不变，新增负向调整并显示原始月、调整入账月和调整后净额。 |
-| 3 | 业务规则 | 取消核销 | 已核销券随后取消核销 | 只对管理服务费生成独立调整；推广服务费不因取消核销自动调整。 |
+| 3 | 业务规则 | 取消核销 | 已核销券随后取消核销 | 两方向均退出当前有效计费；已冻结费用通过独立调整追溯，原结果及历史账单保持不可变，历史取消不得抵消后续重核销结果。 |
 | 4 | 业务规则 | 锁账后规则变化 | 已锁账结果对应的当前费率发生变化 | 页面仍展示锁账时冻结的金额、费率和规则版本。 |
 | 5 | UX 交互 | 展开调整记录 | 点击有调整的明细行 | 展示每项调整的入账月份、类型、基数、费用、版本、原因和发生时间。 |
-| 6 | 异常兜底 | 数据质量阻断 | 管理费缺少有效核销记录或门店映射 | 行明确显示阻断状态和原因，不猜测核销时间、门店或金额。 |
+| 6 | 异常兜底 | 数据质量阻断 | 任一方向缺少有效核销记录或所需责任门店映射 | 行明确显示阻断状态和原因，不猜测核销时间、门店或金额；未核销不产生有效费用。 |
 
 ---
 

@@ -39,10 +39,10 @@ def test_settlement_embeds_two_fee_detail_tabs_and_safe_dispute_intake() -> None
     assert "推广费明细" in page
     assert "管理费明细" in page
     assert "发起账单异议" in page
-    assert "submitStoreBillingDispute" not in page
+    assert "submitStoreBillingDispute" in page
     assert "受控证明对象键" not in page
-    assert 'type="file"' in page
-    assert "证明材料受控上传尚未开放，当前不能提交异议。" in page
+    assert 'type="file"' not in page
+    assert "无需附件" in page
     assert "disputeType" in page
     assert "feeDirection" in page
     assert "StoreBillingDisputePayload" in types

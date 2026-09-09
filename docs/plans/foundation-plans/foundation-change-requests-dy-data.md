@@ -1,5 +1,19 @@
 # dy-data Foundation 变更请求
 
+## S4-FCR-013：有效核销共同前置、费用核销血缘与待确认账单衔接
+
+| 字段 | 内容 |
+|---|---|
+| ID | `S4-FCR-013` |
+| 来源 Task | `T5.7 / DYDATA-87` |
+| 分类 | `DRIFT / GAP` |
+| 改动项 | 两费用方向均须有效核销；未知/待核销/取消状态不放行；取消核销对两方向产生可追溯调整，费用结果记录核销 ID、时间及门店快照，重核销不得关联历史取消；锁账后恢复采用关联原冻结结果的追加差额。发布前冻结私有来源及空账期，发布与待确认账单生成同事务；待确认账单变化生成新版本，保留旧版本和已确认/开票事实，不在查询时写入、不自动确认或登记发票。来源漂移终止原任务并明确要求新建重算任务，不覆盖冻结审计。单店计算累计与正式确认金额分开命名。 |
+| 原因 | 最新用户明确未核销不能计费，要求全链路修复。旧契约允许无核销计推广且取消只冲管理；运行系统存在已发布投影而正式账单生成无调用入口，无法进入确认及登记流程。 |
+| 指向代码块 | `apps/worker/settlement.py::_materialize_dual_fee_direction`、`_materialize_direction_verify_cancellation`；`apps/api/dy_api/models.py::SettlementFeeResult`；`tests/test_data_settlement.py`；`apps/api/dy_api/routes/_data.py` |
+| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-glossary-dy-data.md` 双费用；`docs/prd/foundation/foundation-schema-dy-data/settlement-reporting.md` 结果/私有来源包；`docs/prd/foundation/foundation-schema-dy-data/billing-invoice.md` 生成合同；`docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md` 日期/基数；`docs/prd/foundation/foundation-api-dy-data/billing-invoice.md` 账单查询 |
+| 严重度 | 阻断 |
+| 状态 | 已改（2026-09-09 Foundation 正文已按【用户确认】统一核销月、核销日费率及共同实收，并回捞 0051 血缘、私有来源包、生成和财务保护合同；ai-project-manager 消费点确认）。仅表示文档回捞完成，最终全量/PG/部署/金额验收仍未完成。 |
+
 ## S4-FCR-012：财务列表展示已计算但未确认账单
 
 | 字段 | 内容 |

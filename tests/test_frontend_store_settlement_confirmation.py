@@ -46,7 +46,7 @@ def test_store_settlement_page_loads_and_refreshes_real_direction_confirmations(
     assert "statement.managementConfirmableAmountCent" in page
     assert "statement.promotionAmountCent" not in page
     assert "statement.managementAmountCent" not in page
-    assert "crypto.randomUUID()" in page
+    assert "confirmationRequest.current.forRequest(statement.statementId, payload)" in page
     assert "await billingResource.reload()" in page
     assert "error instanceof ApiRequestError && error.status === 409" in page
     assert "setInvalidatedStatementKey" in page
@@ -63,7 +63,7 @@ def test_store_settlement_page_exposes_collapsed_dispute_intake_without_fake_sub
 
     assert "DYDATA-82" not in page
     assert "fetchStoreBillingDisputes" in page
-    assert "submitStoreBillingDispute" not in page
+    assert "submitStoreBillingDispute" in page
     assert "账单异议" in page
     assert "发起账单异议" in page
     assert "异议类型" in page
@@ -77,8 +77,8 @@ def test_store_settlement_page_exposes_collapsed_dispute_intake_without_fake_sub
     assert 'open={disputeOpen}' in page
     assert 'form="store-dispute-form"' not in page
     assert "受控证明对象键" not in page
-    assert 'type="file"' in page
-    assert "证明材料受控上传尚未开放，当前不能提交异议。" in page
+    assert 'type="file"' not in page
+    assert "无需附件" in page
     assert "disabled" in page
     assert "window.confirm" not in page
     assert "window.alert" not in page

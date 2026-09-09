@@ -7,7 +7,7 @@ import sys
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session, sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -35,6 +35,7 @@ from apps.worker.projection_publish import publish_settlement_rebuild
 from apps.worker import settlement_rebuild
 from apps.worker.settlement_rebuild import refresh_active_settlement_lineage
 from apps.api.dy_api.models import (
+    SettlementStatement,
     AggStoreMonthlySettlement,
     AggStoreRanking,
     DimStore,
@@ -1335,8 +1336,9 @@ def test_finance_ranking_basis_uses_active_lineage_for_the_single_store_flow(
     assert report["totals"]["promotion_cumulative_fee_cent"] == 120
 
 
+@pytest.mark.parametrize("billing_failure", [False, True, "blocked"])
 def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
-    db_session,
+    db_session, monkeypatch, billing_failure: bool,
 ) -> None:
     now = datetime(2026, 8, 3, 10, 0, tzinfo=timezone.utc)
     _generation(db_session, "g-admin-refresh-base")
@@ -1395,6 +1397,26 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
     factory = sessionmaker(
         bind=db_session.get_bind(), autoflush=False, autocommit=False, future=True
     )
+    if billing_failure:
+        generate = settlement_rebuild.generate_pending_statements
+
+        def fail_billing(*args, **kwargs):
+            if billing_failure == "blocked":
+                result = generate(*args, **kwargs)
+                result["blocked"] = 1
+                return result
+            raise RuntimeError("injected billing failure")
+
+        monkeypatch.setattr(settlement_rebuild, "generate_pending_statements", fail_billing)
+        expected_error = "pending billing generation blocked" if billing_failure == "blocked" else "injected billing failure"
+        with pytest.raises(RuntimeError, match=expected_error):
+            refresh_active_settlement_lineage(
+                factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim",
+            )
+        db_session.expire_all()
+        assert db_session.get(SettlementProjectionActive, "settlement").generation_id == "g-admin-refresh-base"
+        assert db_session.scalar(select(SettlementStatement)) is None
+        monkeypatch.setattr(settlement_rebuild, "generate_pending_statements", generate)
     publication = refresh_active_settlement_lineage(
         factory, job_id="admin-refresh-real-builder", claim_id="admin-refresh-claim"
     )
@@ -1408,6 +1430,16 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
     )
     assert generation is not None
     assert generation.state == "published"
+
+    statement = db_session.scalar(select(SettlementStatement).where(
+        SettlementStatement.store_id == "single-store",
+        SettlementStatement.statement_month == "2026-08",
+        SettlementStatement.is_current.is_(True),
+    ))
+    assert statement is not None
+    assert statement.statement_status == 2
+    assert statement.promotion_net_fee_cent == 80
+    assert statement.confirmed_at is None and statement.locked_at is None
 
     store = DashboardDataStore(db_session)
     monthly = store.monthly_settlement_report(
@@ -1447,6 +1479,103 @@ def test_admin_rebuild_refreshes_single_store_monthly_and_ranking_lineage(
     retried_active = db_session.get(SettlementProjectionActive, "settlement")
     assert retried_active is not None
     assert retried_active.generation_id == active.generation_id
+
+
+def _seed_r87_publication_source(db_session):
+    _generation(db_session, "r87-base")
+    db_session.add(SettlementProjectionActive(projection_name="settlement", generation_id="r87-base"))
+    db_session.add(DimStore(store_id="r87-store", store_name="R87 Store"))
+    db_session.add(SettlementFeeResult(
+        fee_result_id="r87-result", coupon_id="r87-coupon", order_id="r87-order",
+        fee_direction=1, result_version=1, original_business_month="2026-08",
+        rule_match_date=date(2026, 8, 2), sale_store_id="r87-store", sku_id="r87-sku",
+        product_scope="all", product_type="all", sale_channel_normalized="live",
+        source_amount_cent=1000, refunded_amount_cent=0, fee_base_cent=1000,
+        fee_rate=Decimal("0.08"), fee_amount_cent=80, rule_version="r87-rule",
+        scope_rule_version="r87-scope", result_status=1, calculation_run_id="r87-run",
+        input_fingerprint="b" * 64, calculated_at=datetime.now(timezone.utc),
+    ))
+    db_session.add(SettlementFeeResultCurrent(
+        coupon_id="r87-coupon", fee_direction=1, fee_result_id="r87-result",
+    ))
+    db_session.commit()
+    return sessionmaker(bind=db_session.get_bind(), autoflush=False, future=True)
+
+
+def _r87_rebuild_job(db_session, job_id):
+    db_session.add(JobRun(
+        job_id=job_id, job_name="settlement_rebuild", status="running",
+        claim_token=job_id, lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=15),
+        metadata_json={},
+    ))
+    db_session.commit()
+
+
+def test_r87_published_last_source_revocation_creates_zero_pending_v2_preserving_v1(db_session):
+    factory = _seed_r87_publication_source(db_session)
+    _r87_rebuild_job(db_session, "r87-first")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-first", claim_id="r87-first")
+    db_session.expire_all()
+    v1 = db_session.scalar(select(SettlementStatement).where(SettlementStatement.is_current.is_(True)))
+    assert v1 is not None and v1.version_no == 1 and v1.promotion_net_fee_cent == 80
+    v1_id = v1.statement_id
+    prior_generation = active_generation_id(db_session)
+    db_session.execute(text("DELETE FROM settlement_fee_result_current WHERE coupon_id = 'r87-coupon'"))
+    db_session.commit()
+    _r87_rebuild_job(db_session, "r87-revocation")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-revocation", claim_id="r87-revocation")
+    db_session.expire_all()
+    versions = list(db_session.scalars(select(SettlementStatement).where(
+        SettlementStatement.store_id == "r87-store", SettlementStatement.statement_month == "2026-08",
+    ).order_by(SettlementStatement.version_no)))
+    assert len(versions) == 2
+    old, current = versions
+    assert old.statement_id == v1_id and old.version_no == 1
+    assert old.promotion_net_fee_cent == 80 and not old.is_current
+    assert current.version_no == 2 and current.is_current and current.statement_status == 2
+    assert current.promotion_net_fee_cent == current.management_net_fee_cent == 0
+    assert current.confirmed_at is None and current.locked_at is None
+    assert active_generation_id(db_session) != prior_generation
+    historical_result = db_session.scalar(select(SettlementFeeResult).where(
+        SettlementFeeResult.fee_result_id == "r87-result",
+    ))
+    assert historical_result is not None and historical_result.fee_amount_cent == 80
+
+
+def test_r87_source_drift_after_capture_rolls_back_publication_and_keeps_v1(db_session, monkeypatch):
+    factory = _seed_r87_publication_source(db_session)
+    _r87_rebuild_job(db_session, "r87-before-drift")
+    assert refresh_active_settlement_lineage(factory, job_id="r87-before-drift", claim_id="r87-before-drift")
+    db_session.expire_all()
+    prior_generation = active_generation_id(db_session)
+    original_statement_id = db_session.scalar(select(SettlementStatement.statement_id))
+    _r87_rebuild_job(db_session, "r87-drift")
+    real_builder = settlement_rebuild.build_settlement_sparse_overlay
+    capture_observed = []
+
+    def drift_then_build(factory, **kwargs):
+        with factory() as session:
+            captured = settlement_rebuild.load_billing_sources(
+                session, generation_id=kwargs["generation_id"], job_id="r87-drift",
+            )
+            assert len(captured) == 1
+            capture_observed.append(kwargs["generation_id"])
+            session.execute(text("DELETE FROM settlement_fee_result_current WHERE coupon_id = 'r87-coupon'"))
+            session.commit()
+        return real_builder(factory, **kwargs)
+
+    monkeypatch.setattr(settlement_rebuild, "build_settlement_sparse_overlay", drift_then_build)
+    with pytest.raises(ValueError, match="billing sources changed after capture"):
+        refresh_active_settlement_lineage(factory, job_id="r87-drift", claim_id="r87-drift")
+    db_session.expire_all()
+    assert len(capture_observed) == 1
+    assert active_generation_id(db_session) == prior_generation
+    statements = list(db_session.scalars(select(SettlementStatement)))
+    assert len(statements) == 1
+    assert statements[0].statement_id == original_statement_id
+    assert statements[0].is_current and statements[0].promotion_net_fee_cent == 80
+    assert db_session.get(SettlementProjectionGeneration, capture_observed[0]).state != "published"
+    assert db_session.get(JobRun, "r87-drift").metadata_json.get("settlement_projection", {}).get("status") != "published"
 
 
 def test_settlement_rebuild_publish_rejects_a_stale_claim(db_session) -> None:

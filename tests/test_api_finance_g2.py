@@ -33,6 +33,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     SettlementStatement,
     SettlementStatementConfirmation,
     SettlementMonthlyOverlay,
+    SettlementRankingOverlay,
     SettlementProjectionActive,
     SettlementProjectionGeneration,
     SettlementProjectionPartitionManifest,
@@ -145,6 +146,58 @@ def _publish_finance_test_generation(db_session):
     db_session.add(SettlementProjectionActive(
         projection_name="settlement", generation_id="finance-published",
     ))
+
+
+def test_store_computed_cumulative_uses_published_ranking_without_creating_bills(client, db_session):
+    _publish_finance_test_generation(db_session)
+    db_session.add(DimStore(store_id="computed-store", store_name="Computed Store"))
+    db_session.add(SettlementMonthlyOverlay(
+        generation_id="finance-published", partition_key="2026-08", month="2026-08",
+        store_id="computed-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=2400, management_net_fee_cent=1200,
+    ))
+    db_session.add(SettlementProjectionPartitionManifest(
+        generation_id="finance-published", artifact="ranking", partition_key="cumulative:2026-08",
+        source_kind="overlay", data_generation_id="finance-published",
+    ))
+    for store_id, amount in (("computed-store", 2400), ("other-store", 99999)):
+        db_session.add(SettlementRankingOverlay(
+            generation_id="finance-published", partition_key="cumulative:2026-08",
+            period_type=2, period_key="2026-08", month="2026-08", store_id=store_id, store_name=store_id,
+            product_scope="all", product_type="all", promotion_net_fee_cent=amount,
+            management_net_fee_cent=amount // 2,
+            net_settlement_reference_cent=amount - amount // 2,
+        ))
+    db_session.commit()
+    _act_as_store(client, "computed-store")
+    response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["computedCumulative"]["promotionNetFeeCent"] == 2400
+    assert data["computedCumulative"]["managementNetFeeCent"] == 1200
+    assert data["statement"] is None
+    bills = client.get("/api/v1/store-settlements", params={
+        "storeId": "computed-store", "month": "2026-08", "metricScope": "CUMULATIVE",
+    })
+    assert bills.status_code == 200
+    assert bills.json()["data"]["metrics"]["cumulative"]["promotionAmountCent"] == 0
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatement)) == 0
+    assert db_session.scalar(select(func.count()).select_from(SettlementStatementConfirmation)) == 0
+
+
+def test_store_computed_cumulative_does_not_present_unpublished_fees(client, db_session):
+    db_session.add(DimStore(store_id="computed-store", store_name="Computed Store"))
+    db_session.add(AggStoreMonthlySettlement(
+        month="2026-08", store_id="computed-store", product_scope="all", product_type="all",
+        promotion_net_fee_cent=88888, management_net_fee_cent=88888,
+    ))
+    db_session.commit()
+    _act_as_store(client, "computed-store")
+    response = client.get("/api/v1/stores/computed-store/monthly-settlement", params={"month": "2026-08"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["computedCumulative"] == {
+        "promotionNetFeeCent": 0, "managementNetFeeCent": 0,
+    }
 
 
 @pytest.mark.parametrize("direction,extra", [

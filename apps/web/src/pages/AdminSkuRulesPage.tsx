@@ -157,8 +157,8 @@ export function AdminSkuRulesPage() {
   const [checkedIds, setCheckedIds] = useState<Set<string>>(new Set());
   const [lookupInput, setLookupInput] = useState("");
   const [promotionRate, setPromotionRate] = useState("8");
-  const [managementRate, setManagementRate] = useState("2");
-  const [sameRate, setSameRate] = useState(false);
+  const [managementRate, setManagementRate] = useState("8");
+  const [sameRate, setSameRate] = useState(true);
   const [effectiveDate, setEffectiveDate] = useState(FIRST_EFFECTIVE_DATE);
   const [ruleStatus, setRuleStatus] = useState<"ACTIVE" | "INACTIVE">("ACTIVE");
   const [changeReason, setChangeReason] = useState("");

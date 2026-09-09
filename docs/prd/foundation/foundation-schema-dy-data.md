@@ -11,6 +11,8 @@
 
 ## §0 统一结构约束
 
+- DYDATA-87 / 0051 实际结构增量：费用结果新增五个可空核销血缘字段及重核销锚点索引；新增私有 `settlement_billing_source_bundle`，采用复合主键、JSONB、`created_at`，是下述通用三字段约定的已实现结构例外，不新增 DDL 决策。
+
 - 新表遵循小写下划线、单数表名、`id / gmt_create / gmt_modified` 三字段规范；现有复数表名为兼容迁移保留，不在本轮强制重命名。
 - 金额统一使用有符号整数“分”，字段后缀为 `_cent`；退款调整允许负数，禁止浮点金额。
 - 费率统一使用 `decimal(8,6)`，取值范围 `0` 到 `1`；计算结果按单券四舍五入到分后再汇总。
@@ -54,10 +56,11 @@
 | 26 | `store_finance_profile` | 财务导入 | 新建 | 保存门店基础信息和 SAP 确认的当前/历史版本 | [账单与发票 §6.1](foundation-schema-dy-data/billing-invoice.md#61-store_finance_profile--门店基础信息与-sap-确认版本) | **新增** |
 | 27 | `finance_import_row` | 财务导入 | 新建 | 保存逐行标准化内容和全部校验错误 | [账单与发票 §7](foundation-schema-dy-data/billing-invoice.md#7-finance_import_row--财务导入逐行结果) | **新增** |
 | 28 | `finance_operation_audit` | 操作审计 | 新建 | 保存账单、异议、发票和导入操作留痕 | [账单与发票 §8](foundation-schema-dy-data/billing-invoice.md#8-finance_operation_audit--财务操作审计) | **新增** |
+| 29 | `settlement_billing_source_bundle` | 发布账单来源 | 0051 新建 | 发布前冻结门店账期来源及空槽位，不提供公开 CRUD | [结算与报表 §9](foundation-schema-dy-data/settlement-reporting.md#9-settlement_billing_source_bundle--私有冻结账单来源包0051-新增) | **新增** |
 
 ### §1.1 本轮外既有依赖表
 
-以下表不计入 28 张目标设计表，因为本轮不改变其结构；它们仍是 API 字段和结算计算的明确数据来源，不能用“查询派生”掩盖：
+以下表不计入 29 张目标设计表（原 28 张加 0051 私有来源包），因为本轮不改变其结构；它们仍是 API 字段和结算计算的明确数据来源，不能用“查询派生”掩盖：
 
 | 既有表 | 本轮读取字段 | 用途 | 定义于 |
 |--------|-------------|------|--------|
@@ -96,6 +99,8 @@
 | 财务导入 | 模板类型、文件摘要、读取/当前版本、整批状态、全部错误行 | `finance_import_batch` + `finance_import_row` |
 
 ## §4 逻辑关联与事务边界
+
+- DYDATA-87 发布协调器先冻结私有来源；最终同一事务校验冻结指纹、发布投影并生成待确认账单，生成阻断则发布一并回滚。无来源旧账期仍纳入冻结槽位，未受保护 V1 可生成零金额待确认 V2；已确认/已开票等保护事实不被生成器覆盖。详见 [生成合同](foundation-schema-dy-data/billing-invoice.md#dydata-87-待确认账单生成合同)。
 
 - `dim_sku_product_rules.sku_id` ←→ `sku_fee_rule.sku_id`：应用层校验 SKU 必须存在，商品同步不修改费率表。
 - `raw_douyin_order_coupons.raw_order_id` → `raw_douyin_orders.id`：内部数值 ID 用于应用层关联；`order_id` 同时保留为平台业务 ID 快照和兼容查询键，不创建新的数据库级联。
