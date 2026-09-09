@@ -129,6 +129,36 @@ def test_admin_can_read_and_update_sync_config(client: TestClient) -> None:
     assert response.json()["data"]["config"] == config
 
 
+def test_priority_mode_reports_calendar_schedule_and_published_daily_coverage(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    _login(client)
+    response = client.put("/api/v1/admin/sync/config", json={
+        "auto_sync_enabled": False, "history_start": "2026-09-01",
+        "history_end": "2026-09-10", "history_chunk_days": 3,
+    })
+    assert response.status_code == 200
+    job = start_job_run(db_session, "priority-published", "range_sync", metadata_json={"target": "all"})
+    job.job_kind = "range_sync"
+    job.config_version = "priority-daily-v1"
+    job.window_start = datetime.fromisoformat("2026-09-09T00:00:00+08:00").astimezone(timezone.utc)
+    job.window_end = datetime.fromisoformat("2026-09-10T00:00:00+08:00").astimezone(timezone.utc)
+    finish_job_run(db_session, job.job_id, status="success")
+    db_session.commit()
+    response = client.get("/api/v1/admin/sync")
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["config"]["auto_sync_enabled"] is False  # legacy setting is preserved
+    assert data["schedule"]["auto_sync_enabled"] is True
+    assert data["worker_status"]["mode"] == "priority_daily"
+    assert data["worker_status"]["auto_sync_enabled"] is True
+    assert data["progress"]["total_windows"] == 9
+    assert data["progress"]["completed_windows"] == 1
+    next_due = datetime.fromisoformat(data["schedule"]["next_scheduled_sync_at"])
+    assert next_due.astimezone(admin_routes.SHANGHAI_TZ).hour == 2
+
+
 def test_admin_sync_exposes_schedule_status(
     client: TestClient,
     db_session: Session,

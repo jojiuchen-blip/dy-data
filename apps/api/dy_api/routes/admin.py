@@ -3792,6 +3792,24 @@ def _optional_account_value(value: str | None) -> str | None:
 
 
 def _sync_schedule(session, config: dict) -> SyncScheduleData:
+    if _worker_mode_from_env() == "priority_daily":
+        latest_success = session.scalar(
+            select(func.max(JobRun.finished_at)).where(
+                JobRun.job_kind == "range_sync",
+                JobRun.config_version == "priority-daily-v1",
+                JobRun.status == "success",
+                JobRun.metadata_json["target"].as_string() == "all",
+            )
+        )
+        now = datetime.now(SHANGHAI_TZ)
+        next_due = now.replace(hour=2, minute=0, second=0, microsecond=0)
+        if next_due <= now:
+            next_due += timedelta(days=1)
+        return SyncScheduleData(
+            auto_sync_enabled=True,
+            latest_successful_sync_at=_aware_utc(latest_success),
+            next_scheduled_sync_at=next_due,
+        )
     latest_success = session.execute(
         select(JobRun.finished_at)
         .where(JobRun.job_name == "collect_and_settle")
@@ -3824,7 +3842,7 @@ def _sync_worker_status(
 ) -> SyncWorkerStatusData:
     return SyncWorkerStatusData(
         mode=_worker_mode_from_env(),
-        auto_sync_enabled=bool(config.get("auto_sync_enabled", True)),
+        auto_sync_enabled=schedule.auto_sync_enabled,
         interval_seconds=int(config.get("interval_seconds") or 86400),
         rolling_days=int(config.get("rolling_days") or 30),
         history_chunk_days=int(config.get("history_chunk_days") or 1),
@@ -3840,9 +3858,12 @@ def _sync_worker_status(
 
 
 def _latest_worker_job(session, *, status: str) -> JobRun | None:
+    names = WORKER_STATUS_JOB_NAMES
+    if _worker_mode_from_env() == "priority_daily":
+        names = (*names, "date_sync", "parent_sync", "finalize")
     return session.execute(
         select(JobRun)
-        .where(JobRun.job_name.in_(WORKER_STATUS_JOB_NAMES))
+        .where(JobRun.job_name.in_(names))
         .where(JobRun.status == status)
         .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
         .limit(1)
@@ -3867,6 +3888,8 @@ def _job_run_data(job: JobRun | None) -> JobRunData | None:
 
 
 def _worker_mode_from_env() -> str:
+    if os.getenv("WORKER_SCHEDULER_MODE", "").strip().lower() == "priority_daily":
+        return "priority_daily"
     mode = (os.getenv("WORKER_MODE") or "collect_and_settle").strip().lower()
     return mode or "collect_and_settle"
 
@@ -4342,7 +4365,12 @@ def _clue_store_group_payload(
 
 
 def _sync_progress(session, config: dict) -> SyncProgressData:
-    history_end = config.get("history_end") or datetime.now(SHANGHAI_TZ).isoformat()
+    priority_mode = _worker_mode_from_env() == "priority_daily"
+    now = datetime.now(SHANGHAI_TZ)
+    history_end = config.get("history_end") or (
+        now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        if priority_mode else now.isoformat()
+    )
     source_window = resolve_collection_window(
         start=config.get("history_start"),
         end=history_end,
@@ -4351,10 +4379,29 @@ def _sync_progress(session, config: dict) -> SyncProgressData:
     chunks = list(
         iter_backfill_windows(
             source_window,
-            chunk_days=int(config.get("history_chunk_days") or 1),
+            chunk_days=1 if priority_mode else int(config.get("history_chunk_days") or 1),
         )
     )
     completed_keys = successful_window_keys(session)
+    if priority_mode:
+        completed_keys = set()
+        published = session.execute(
+            select(JobRun.window_start, JobRun.window_end).where(
+                JobRun.job_kind == "range_sync",
+                JobRun.config_version == "priority-daily-v1",
+                JobRun.status == "success",
+                JobRun.metadata_json["target"].as_string() == "all",
+                JobRun.window_start >= source_window.start,
+                JobRun.window_end <= source_window.end,
+            )
+        )
+        for start, end in published:
+            if start is not None and end is not None:
+                completed_keys.add((
+                    _aware_utc(start).astimezone(SHANGHAI_TZ).isoformat(),
+                    _aware_utc(end).astimezone(SHANGHAI_TZ).isoformat(),
+                    "Asia/Shanghai",
+                ))
     completed_chunks = [chunk for chunk in chunks if _window_key(chunk) in completed_keys]
     latest = max(completed_chunks, key=lambda chunk: chunk.end, default=None)
     recent_jobs = session.execute(

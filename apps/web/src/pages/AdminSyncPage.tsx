@@ -234,6 +234,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
     );
   }, [data]);
   const workerStatus = data?.worker_status ?? null;
+  const priorityMode = workerStatus?.mode === "priority_daily";
   const jobColumns: Column<JobRun>[] = [
     {
       key: "job_id",
@@ -470,10 +471,10 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         />
         <MetricCard
           label="同步间隔"
-          value={data ? intervalText(data.config.interval_seconds) : "-"}
+          value={priorityMode ? "每日 02:00" : data ? intervalText(data.config.interval_seconds) : "-"}
           meta={
             <>
-              日常同步每次回看 {formatInteger(data?.config.rolling_days ?? 0)} 天
+              {priorityMode ? "先完成昨日数据，剩余额度补历史；门店与职人每两小时刷新" : `日常同步每次回看 ${formatInteger(data?.config.rolling_days ?? 0)} 天`}
             </>
           }
         />
@@ -571,10 +572,12 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
 
         {draft ? (
           <div className="sync-config-grid">
+            {priorityMode && <p>当前使用昨日优先调度。旧自动同步开关、滚动天数和间隔不参与调度；历史日期范围仍生效。</p>}
             <label className="filter-field checkbox-field">
               <span>自动同步</span>
               <FieldInput
                 checked={draft.auto_sync_enabled}
+                disabled={priorityMode}
                 onChange={(event) =>
                   updateDraft({
                     auto_sync_enabled: event.target.checked,
@@ -613,6 +616,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 }
                 type="number"
                 value={draft.history_chunk_days}
+                disabled={priorityMode}
               />
             </label>
             <label className="filter-field">
@@ -625,6 +629,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
                 }
                 type="number"
                 value={draft.rolling_days}
+                disabled={priorityMode}
               />
             </label>
             <SelectField
@@ -632,11 +637,13 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
               onChange={(value) => updateDraft({ interval_seconds: value })}
               options={intervalOptions}
               value={draft.interval_seconds}
+              disabled={priorityMode}
             />
             <label className="filter-field checkbox-field">
               <span>历史回填断点续跑</span>
               <FieldInput
                 checked={draft.backfill_skip_completed}
+                disabled={priorityMode}
                 onChange={(event) =>
                   updateDraft({
                     backfill_skip_completed: event.target.checked,

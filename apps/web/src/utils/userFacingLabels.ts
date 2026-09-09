@@ -124,6 +124,7 @@ const syncFailureReasonLabels: LabelMap = {
 };
 
 const workerModeLabels: LabelMap = {
+  priority_daily: "昨日优先，余量补历史",
   collect_and_settle: "接口采集并重建结算",
   settlement_only: "只重建结算",
   backfill: "历史数据回填",
