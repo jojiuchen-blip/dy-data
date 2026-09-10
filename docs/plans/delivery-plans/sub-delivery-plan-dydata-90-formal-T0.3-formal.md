@@ -41,3 +41,5 @@
 **前置**：无
 
 **状态**：进行中
+**完成收尾：状态同步**：
+- 向ai-project-manager提交完成事实、证据、日期、foundation漂移和下一任务；delivery-planner同步三文件后执行route-check，未经验证不标完成。
