@@ -18,6 +18,7 @@ from apps.worker.clue_allocation import (
     run_incremental_clue_materialization,
 )
 from apps.worker.clue_center import refresh_clue_center_projection
+from apps.worker.formal_allocation_runtime import notify_formal_allocation
 from apps.worker.clue_allocation import refresh_due_store_score_snapshots
 from apps.worker.collectors.types import CollectionStats, CollectionWindow, PhaseStats
 from apps.worker.daily_windows import parent_required_stages
@@ -223,6 +224,9 @@ def default_stage_handlers(*, client: Any | None = None) -> dict[str, Callable[.
                 now=datetime.now(UTC),
                 phone_plain_resolver=resolver if callable(resolver) else None,
                 page_fence=_daily_page_fence(session, job),
+                on_center_batch=lambda order_ids: notify_formal_allocation(
+                    _session_factory_for(session), order_ids,
+                ),
             )
             return {
                 "master": result,

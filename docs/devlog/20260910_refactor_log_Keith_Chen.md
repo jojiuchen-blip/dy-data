@@ -33,3 +33,12 @@
 - **操作**：更新 BRD 第3.6节及其台账；支付成功必须有待使用证据；补齐数字状态候选；在隔离工作树实现运行时
 - **结果**：资格和物化回归98项、分配/API回归55项、隔离本地 PostgreSQL 投影与跟进11项通过；运行时和全量验证仍在进行
 - **涉及文件**：docs/brd/BRD-clue-center-20260721-2134.md、apps/worker/order_status.py、apps/worker/clue_allocation.py、apps/worker/clue_center.py
+---
+
+## 补充更新 2（09:47 · 窗口 2）
+
+### 任务 3：正式首次分配运行时及 PostgreSQL 事务验证
+- **目标**：接通每批正式分配，并以独立补偿覆盖历史待首次分配线索
+- **操作**：中心投影每64条提交后通知；priority_daily 独立每60秒补偿，每轮最多100条与10秒处理预算；主记录锁后复核原始状态；跨进程排他、每条事务提交、持久游标和脱敏汇总；自动超期强制保持关闭
+- **结果**：组合回归79项通过，含真实 PostgreSQL 并发排他和失败回滚恢复2项；后续新增旧轮次关联保护及调用接入测试通过；全仓回归仍在运行并出现待定位失败
+- **涉及文件**：apps/worker/formal_allocation_runtime.py、apps/worker/daily_task.py、apps/worker/scheduler.py、tests/test_formal_allocation_runtime.py、tests/test_formal_allocation_runtime_postgres.py
