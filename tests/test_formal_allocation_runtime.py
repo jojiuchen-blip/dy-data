@@ -138,7 +138,7 @@ def test_daily_materialization_notifies_formal_allocator_before_settlement(db_se
     assert calls == [("a", "b")]
 
 
-def test_independent_compensation_stops_cleanly_and_respects_pause(monkeypatch):
+def test_independent_compensation_stops_cleanly(monkeypatch):
     from threading import Event
     from apps.worker import scheduler
     stop = Event()
@@ -148,3 +148,30 @@ def test_independent_compensation_stops_cleanly_and_respects_pause(monkeypatch):
     monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: (calls.append(factory), stop.set()))
     scheduler._formal_compensation_loop("factory", stop)
     assert calls == ["factory"]
+
+
+def test_compensation_respects_auto_sync_pause(monkeypatch):
+    from threading import Event
+    from apps.worker import scheduler
+    stop = Event()
+    monkeypatch.setattr(scheduler, "_STOP", False)
+    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: False)
+    monkeypatch.setattr(stop, "wait", lambda seconds: stop.set())
+    monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: pytest.fail("paused"))
+    scheduler._formal_compensation_loop("factory", stop)
+
+
+def test_compensation_runs_while_daily_tick_is_blocked(monkeypatch):
+    from threading import Event
+    from apps.worker import scheduler
+    allocated = Event()
+    monkeypatch.delenv("WORKER_RUN_ONCE", raising=False)
+    monkeypatch.setattr(scheduler, "_STOP", False)
+    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: True)
+    monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: allocated.set())
+
+    def blocked_tick(factory):
+        assert allocated.wait(3), "allocation was blocked by the daily tick"
+
+    monkeypatch.setattr(scheduler, "_run_priority_daily_ticks", blocked_tick)
+    scheduler._run_priority_daily_mode("factory")
