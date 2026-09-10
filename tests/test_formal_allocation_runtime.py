@@ -144,18 +144,19 @@ def test_independent_compensation_stops_cleanly(monkeypatch):
     stop = Event()
     calls = []
     monkeypatch.setattr(scheduler, "_STOP", False)
-    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: True)
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: pytest.fail("legacy flag must not gate priority mode"))
     monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: (calls.append(factory), stop.set()))
     scheduler._formal_compensation_loop("factory", stop)
     assert calls == ["factory"]
 
 
-def test_compensation_respects_auto_sync_pause(monkeypatch):
+def test_compensation_does_not_run_outside_priority_mode(monkeypatch):
     from threading import Event
     from apps.worker import scheduler
     stop = Event()
     monkeypatch.setattr(scheduler, "_STOP", False)
-    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: False)
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "legacy")
     monkeypatch.setattr(stop, "wait", lambda seconds: stop.set())
     monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: pytest.fail("paused"))
     scheduler._formal_compensation_loop("factory", stop)
@@ -167,7 +168,7 @@ def test_compensation_runs_while_daily_tick_is_blocked(monkeypatch):
     allocated = Event()
     monkeypatch.delenv("WORKER_RUN_ONCE", raising=False)
     monkeypatch.setattr(scheduler, "_STOP", False)
-    monkeypatch.setattr(scheduler, "_auto_sync_enabled", lambda factory: True)
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
     monkeypatch.setattr(runtime, "run_formal_allocation_batch", lambda factory: allocated.set())
 
     def blocked_tick(factory):

@@ -468,7 +468,9 @@ def _formal_compensation_loop(factory, stop: Event) -> None:
 
     while not stop.is_set() and not _STOP:
         try:
-            if factory is not None and _auto_sync_enabled(factory):
+            # priority_daily deliberately keeps the legacy auto-sync flag off.
+            # Its consumer must follow the selected scheduler, not that flag.
+            if factory is not None and resolve_scheduler_mode() == "priority_daily":
                 run_formal_allocation_batch(factory)
         except Exception as exc:
             _log(f"formal_compensation_failed type={type(exc).__name__}")
