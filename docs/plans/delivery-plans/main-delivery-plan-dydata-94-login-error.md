@@ -44,7 +44,7 @@ Entry Criteria：DYDATA-94 已授权。Exit Criteria：专项回归与构建通�
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T0.1 | [T0.1](sub-delivery-plan-dydata-94-login-error-T0.1.md) | 进行中 |
+| T0.1 | [T0.1](sub-delivery-plan-dydata-94-login-error-T0.1.md) | 进行中（已部署，待用户验收） |
 
 ## 4. 任务看板
 
@@ -52,7 +52,10 @@ Entry Criteria：DYDATA-94 已授权。Exit Criteria：专项回归与构建通�
 
 ## 5. 发布闸门
 
-专项回归、构建和变更检查；部署结果独立记录，不将本地通过表述为上线。
+- 本地全量分段验证与 CI 独立全量验证均为 2787 passed / 161 skipped，失败 0；Web 构建和专项回归通过。
+- 提交 `34a0f12f`；[发布流水线](https://github.com/jojiuchen-blip/dy-data/actions/runs/34479348382)成功，2026-09-10 21:32:53（北京时间）部署完成。
+- 线上 worker 两个改动模块 SHA256 与提交一致，登录失效、正常页与长堆栈模拟检查通过；线上 AdminSyncPage 引用的共享文案分包包含新提示，全部运行服务正常。
+- 环境和数据库备份权限均为 0600，数据库备份非空；保留 `rollback-login-20260910` 镜像标签。未退出生产登录或制造业务失败记录。
 
 ## 6. 风险与应对
 
