@@ -28,15 +28,26 @@ def test_completed_order_uses_certificate_evidence_for_refund() -> None:
     assert resolve_clue_order_status("1", transaction_closed) == "closed"
 
 
-def test_clue_status_treats_paid_and_waiting_use_as_active() -> None:
+def test_clue_status_requires_waiting_use_evidence() -> None:
     assert resolve_clue_order_status("201") == "active"
     assert resolve_clue_order_status("履约中") == "active"
-    assert resolve_clue_order_status("200") == "active"
-    assert resolve_clue_order_status("支付成功") == "active"
+    assert resolve_clue_order_status("200") == "unknown"
+    assert resolve_clue_order_status("支付成功") == "unknown"
     assert resolve_clue_order_status("100") == "unknown"
     assert resolve_clue_order_status("101") == "closed"
     assert resolve_clue_order_status("1") == "unknown"
     assert resolve_clue_order_status("交易成功") == "verified"
+
+
+def test_payment_requires_positive_coupon_evidence_and_respects_terminals() -> None:
+    assert resolve_clue_order_status("200", normalized_order_status="paid") == "unknown"
+    assert resolve_clue_order_status("支付成功", coupon_statuses=["available"]) == "active"
+    assert resolve_clue_order_status("200", {"certificate": [{"item_status": 400}]}) == "active"
+    assert resolve_clue_order_status("200", coupon_statuses=["unknown"]) == "unknown"
+    assert resolve_clue_order_status("200", coupon_statuses=["verified"]) == "verified"
+    assert resolve_clue_order_status("200", coupon_statuses=["refunded"]) == "refunded"
+    assert resolve_clue_order_status("101", coupon_statuses=["available"]) == "closed"
+    assert resolve_clue_order_status("200", normalized_order_status="refunded", coupon_statuses=["available"]) == "refunded"
 
 
 def test_clue_status_uses_separate_coupon_projection_when_order_payload_is_sparse() -> None:

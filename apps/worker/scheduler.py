@@ -6,6 +6,7 @@ import signal
 import subprocess
 import sys
 import time
+from threading import Event, Thread
 from datetime import datetime, time as datetime_time, timedelta, timezone
 from collections.abc import Mapping
 from collections.abc import Callable
@@ -462,7 +463,36 @@ def _run_backend_aweme_export(session: Session, source_run_id: str) -> PhaseStat
     return run_backend_aweme_export(session, source_run_id=source_run_id)
 
 
+def _formal_compensation_loop(factory, stop: Event) -> None:
+    from apps.worker.formal_allocation_runtime import run_formal_allocation_batch
+
+    while not stop.is_set() and not _STOP:
+        try:
+            # priority_daily deliberately keeps the legacy auto-sync flag off.
+            # Its consumer must follow the selected scheduler, not that flag.
+            if factory is not None and resolve_scheduler_mode() == "priority_daily":
+                run_formal_allocation_batch(factory)
+        except Exception as exc:
+            _log(f"formal_compensation_failed type={type(exc).__name__}")
+        stop.wait(60)
+
+
 def _run_priority_daily_mode(factory) -> None:
+    # Allocation cannot wait behind a long history collection/settlement tick.
+    stop = Event()
+    thread = Thread(target=_formal_compensation_loop, args=(factory, stop), daemon=True,
+                    name="formal-allocation-compensation")
+    if not _truthy(os.getenv("WORKER_RUN_ONCE")):
+        thread.start()
+    try:
+        _run_priority_daily_ticks(factory)
+    finally:
+        stop.set()
+        if thread.is_alive():
+            thread.join(timeout=5)
+
+
+def _run_priority_daily_ticks(factory) -> None:
     """Run the bounded priority scheduler loop without the legacy drain."""
 
     from apps.worker.priority_scheduler import run_priority_daily_tick

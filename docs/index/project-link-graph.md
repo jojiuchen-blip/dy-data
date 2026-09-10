@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：866
-- 文件关系：970
+- 文件节点：942
+- 文件关系：1026
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -86,14 +86,14 @@
 | 20260831_0048_allow_finance_detection_succeeded.py | source_code | coding-standards | [[alembic/versions/20260831_0048_allow_finance_detection_succeeded.py|20260831_0048_allow_finance_detection_succeeded.py]] | [20260831_0048_allow_finance_detection_succeeded.py](../../alembic/versions/20260831_0048_allow_finance_detection_succeeded.py) |
 | 20260901_0049_promotion_invoice_manual_fields.py | source_code | coding-standards | [[alembic/versions/20260901_0049_promotion_invoice_manual_fields.py|20260901_0049_promotion_invoice_manual_fields.py]] | [20260901_0049_promotion_invoice_manual_fields.py](../../alembic/versions/20260901_0049_promotion_invoice_manual_fields.py) |
 | 20260903_0050_douyin_api_quota_usage.py | source_code | coding-standards | [[alembic/versions/20260903_0050_douyin_api_quota_usage.py|20260903_0050_douyin_api_quota_usage.py]] | [20260903_0050_douyin_api_quota_usage.py](../../alembic/versions/20260903_0050_douyin_api_quota_usage.py) |
+| 20260907_0051_clue_phone_source_fingerprint.py | source_code | coding-standards | [[alembic/versions/20260907_0051_clue_phone_source_fingerprint.py|20260907_0051_clue_phone_source_fingerprint.py]] | [20260907_0051_clue_phone_source_fingerprint.py](../../alembic/versions/20260907_0051_clue_phone_source_fingerprint.py) |
+| 20260909_0051_fee_result_verification_provenance.py | source_code | coding-standards | [[alembic/versions/20260909_0051_fee_result_verification_provenance.py|20260909_0051_fee_result_verification_provenance.py]] | [20260909_0051_fee_result_verification_provenance.py](../../alembic/versions/20260909_0051_fee_result_verification_provenance.py) |
+| 20260909_0052_merge_clue_and_fee_provenance.py | source_code | coding-standards | [[alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py|20260909_0052_merge_clue_and_fee_provenance.py]] | [20260909_0052_merge_clue_and_fee_provenance.py](../../alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py) |
+| 20260910_0053_quota_pause_attempts.py | source_code | coding-standards | [[alembic/versions/20260910_0053_quota_pause_attempts.py|20260910_0053_quota_pause_attempts.py]] | [20260910_0053_quota_pause_attempts.py](../../alembic/versions/20260910_0053_quota_pause_attempts.py) |
 | __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
 | access_control.py | source_code | coding-standards | [[apps/api/dy_api/access_control.py|access_control.py]] | [access_control.py](../../apps/api/dy_api/access_control.py) |
 | agent_capabilities.py | source_code | coding-standards | [[apps/api/dy_api/agent_capabilities.py|agent_capabilities.py]] | [agent_capabilities.py](../../apps/api/dy_api/agent_capabilities.py) |
 | dydata read-only Agent Skill | source_code | coding-standards | [[apps/api/dy_api/agent_contract.py|dydata read-only Agent Skill]] | [dydata read-only Agent Skill](../../apps/api/dy_api/agent_contract.py) |
-| agent_environment.py | source_code | coding-standards | [[apps/api/dy_api/agent_environment.py|agent_environment.py]] | [agent_environment.py](../../apps/api/dy_api/agent_environment.py) |
-| auth.py | source_code | coding-standards | [[apps/api/dy_api/auth.py|auth.py]] | [auth.py](../../apps/api/dy_api/auth.py) |
-| cli_audit.py | source_code | coding-standards | [[apps/api/dy_api/cli_audit.py|cli_audit.py]] | [cli_audit.py](../../apps/api/dy_api/cli_audit.py) |
-| cli_auth.py | source_code | coding-standards | [[apps/api/dy_api/cli_auth.py|cli_auth.py]] | [cli_auth.py](../../apps/api/dy_api/cli_auth.py) |
 
 ## 3. 关系
 
@@ -121,8 +121,8 @@
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | docs/governance/authority-map.md | docs/baseline/dydata-6-baseline-dry-run-review.md:50 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | project-profile.md | docs/baseline/dydata-6-baseline-dry-run-review.md:16 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | README.md | docs/baseline/dydata-6-baseline-dry-run-review.md:41 |
-| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m1-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:228 |
-| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:228 |
+| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m1-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:246 |
+| docs/brd/BRD-clue-center-20260721-2134.md | links_to | docs/plans/2026-07-12-clue-allocation-m2-m3-controller-spec.md | docs/brd/BRD-clue-center-20260721-2134.md:246 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/brd/BRD-dy-data-20260716-1255.md:7 |
 | docs/brd/BRD-dy-data-20260716-1255.md | links_to | project-profile.md | docs/brd/BRD-dy-data-20260716-1255.md:6 |
 | docs/cli-agent-guide.md | links_to | docs/cli-agent-acceptance.md | docs/cli-agent-guide.md:28 |
@@ -194,8 +194,13 @@
 | docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/prd/subprd/08-subprd-finance-disputes.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:41 |
 | docs/devlog/20260830_dydata-81-readonly-uat-preview.md | links_to | docs/superpowers/specs/2026-08-20-dydata-19-settlement-finance-design.md | docs/devlog/20260830_dydata-81-readonly-uat-preview.md:39 |
 | docs/devlog/20260830_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260830_refactor_log_Keith_Chen.md:96 |
-| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | apps/web/README.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:52 |
-| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:52 |
+| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/api-contract.md | docs/devlog/20260907_dydata-88-clue-fixes.md:7 |
+| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/plans/2026-09-07-dydata-88-clue-fixes-controller-spec.md | docs/devlog/20260907_dydata-88-clue-fixes.md:6 |
+| docs/devlog/20260907_dydata-88-clue-fixes.md | links_to | docs/plans/foundation-plans/foundation-change-requests-dydata-88-clue-fixes.md | docs/devlog/20260907_dydata-88-clue-fixes.md:47 |
+| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | apps/web/README.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:53 |
+| docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:53 |
+| docs/devlog/20260908_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260908_refactor_log_jojiuchen-blip.md:70 |
+| docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -214,11 +219,6 @@
 | docs/governance/authority-map.md | links_to | docs/prd/mainprd-dy-data.md | docs/governance/authority-map.md:44 |
 | docs/governance/authority-map.md | links_to | docs/runbook.md | docs/governance/authority-map.md:26 |
 | docs/governance/authority-map.md | links_to | docs/tencent-edgeone-migration.md | docs/governance/authority-map.md:33 |
-| docs/governance/authority-map.md | links_to | docs/tencent-lighthouse-cicd.md | docs/governance/authority-map.md:32 |
-| docs/governance/authority-map.md | links_to | project-profile.md | docs/governance/authority-map.md:20 |
-| docs/governance/authority-map.md | links_to | project-rules.md | docs/governance/authority-map.md:19 |
-| docs/governance/authority-map.md | links_to | README.md | docs/governance/authority-map.md:28 |
-| docs/plans/2026-06-11-two-person-development-division.md | links_to | docs/项目产品介绍书.md | docs/plans/2026-06-11-two-person-development-division.md:44 |
 
 ## 4. 诊断问题
 

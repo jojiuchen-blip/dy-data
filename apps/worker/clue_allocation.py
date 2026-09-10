@@ -52,7 +52,12 @@ from apps.worker.clue_headquarters_pool import (
     close_current_headquarters_pool_entry,
     ensure_active_headquarters_pool_entry,
 )
-from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
+from apps.worker.order_status import (
+    ACTIVE_ORDER_STATUSES,
+    PAID_ORDER_STATUSES,
+    normalize_coupon_status,
+    resolve_clue_order_status,
+)
 from apps.worker.clue_center import refresh_clue_center_projection
 from apps.worker.clue_state_locking import refresh_dirty_rounds_for_locked_leads
 from apps.worker.repositories import (
@@ -1237,6 +1242,7 @@ def run_incremental_clue_materialization(
     now: datetime | None = None,
     phone_plain_resolver: Any | None = None,
     page_fence: Any | None = None,
+    on_center_batch: Any | None = None,
 ) -> dict[str, object]:
     """Consume frozen JobImpact work with durable raw-page checkpoints.
 
@@ -1359,6 +1365,7 @@ def run_incremental_clue_materialization(
                     page_fence=page_fence,
                     cycle_id=str(cycle_id),
                     center_enabled=phase == "center",
+                    on_center_batch=on_center_batch,
                 )
             except Exception:
                 # Ordinary application failures are recoverable immediately.
@@ -1395,6 +1402,7 @@ def _process_incremental_clue_work_item(
     page_fence: Any | None,
     cycle_id: str,
     center_enabled: bool,
+    on_center_batch: Any | None = None,
 ) -> dict[str, int]:
     """Process one leased impact until its durable raw cursor reaches EOF."""
 
@@ -1475,6 +1483,11 @@ def _process_incremental_clue_work_item(
                     if renewed != 1:
                         raise RuntimeError("clue materialization center lease expired")
                     session.commit()
+                    # The downstream allocator gets only committed projection
+                    # batches. A retry may repeat this callback, so allocation
+                    # remains idempotent and compensation recovers missed calls.
+                    if callable(on_center_batch):
+                        on_center_batch(tuple(center_order_ids))
                     continue
 
                 _assert_incremental_page_fence(page_fence, session)
@@ -3736,7 +3749,7 @@ def _bounded_center_order_ids(
     stmt = (
         select(RawDouyinClue.order_id)
         .where(or_(*selectors))
-        .where(RawDouyinClue.order_status == "\u5c65\u7ea6\u4e2d")
+        .where(RawDouyinClue.order_status.in_(sorted(ACTIVE_ORDER_STATUSES | PAID_ORDER_STATUSES)))
         .where(RawDouyinClue.order_id.is_not(None))
         .where(RawDouyinClue.order_id != "")
         .where(RawDouyinClue.order_id != "0")

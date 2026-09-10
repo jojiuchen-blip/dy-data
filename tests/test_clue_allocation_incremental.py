@@ -100,6 +100,45 @@ def _factory(session: Session) -> sessionmaker[Session]:
     return sessionmaker(bind=session.get_bind(), expire_on_commit=False, future=True)
 
 
+def test_center_batch_callback_sees_committed_projection_and_failure_can_resume(tmp_path):
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path / 'batch-callback.sqlite'}")
+    Base.metadata.create_all(engine)
+    factory = sessionmaker(bind=engine, expire_on_commit=False)
+    with factory() as session:
+        session.add_all(_store("store-a", "poi-a"))
+        upsert_raw_clue(
+            session, "raw-a", clue_id="clue-a", order_id="order-a",
+            order_status="履约中", follow_poi_id="poi-a",
+            create_time_detail=_dt(1), fetched_at=_dt(3),
+            source_observed_at=_dt(3), observation_key="callback-observation",
+            raw_payload={"clue_id": "clue-a"},
+        )
+        session.commit()
+
+    seen = []
+
+    def on_batch(order_ids):
+        # A different connection proves this is a post-commit notification.
+        with factory() as reader:
+            assert reader.get(ClueCenterOrder, "order-a") is not None
+        seen.extend(order_ids)
+        raise RuntimeError("allocator unavailable after projection commit")
+
+    with pytest.raises(RuntimeError, match="allocator unavailable"):
+        run_incremental_clue_materialization(
+            factory, lease_token="batch-hook", now=_dt(4), on_center_batch=on_batch,
+        )
+    assert seen == ["order-a"]
+    result = run_incremental_clue_materialization(factory, lease_token="batch-retry", now=_dt(4))
+    with factory() as reader:
+        assert reader.query(ClueCenterOrder).count() == 1
+        assert reader.query(ClueMaterializationWorkItem).filter(
+            ClueMaterializationWorkItem.state != "completed"
+        ).count() == 0
+    assert result["work_items"] >= 1
+    engine.dispose()
+
+
 def test_incremental_materialization_processes_three_keyset_pages_and_freezes_upper_bound(
     db_session: Session,
 ) -> None:
