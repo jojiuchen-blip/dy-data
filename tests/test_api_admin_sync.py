@@ -49,6 +49,21 @@ def _login(client: TestClient) -> None:
     assert response.status_code == 200
 
 
+def test_admin_sync_exposes_login_recovery_reason(client: TestClient, db_session: Session):
+    start_job_run(db_session, "expired-browser", "backend_aweme_export")
+    finish_job_run(
+        db_session, "expired-browser", status="failed", failed_count=1,
+        error_message="douyin_backend_login_required",
+    )
+    db_session.commit()
+    _login(client)
+    response = client.get("/api/v1/admin/sync")
+    assert response.status_code == 200
+    failure = response.json()["data"]["worker_status"]["latest_failure"]
+    assert failure["job_id"] == "expired-browser"
+    assert failure["error_message"] == "douyin_backend_login_required"
+
+
 def _window(start: str, end: str) -> CollectionWindow:
     return CollectionWindow(
         start=datetime.fromisoformat(start),

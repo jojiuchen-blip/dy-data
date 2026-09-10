@@ -30,6 +30,7 @@ DEFAULT_EXPORT_URL = "https://life.douyin.com/"
 DEFAULT_EXPORT_SELECTOR = "div.lifep-container-header button.byted-btn"
 BACKEND_AWEME_BIND_LIST_PATH = "/life/merchant/v1/integration-user/bind/list"
 BIND_LIST_PAGE_SIZE = 100
+LOGIN_REQUIRED_ERROR = "douyin_backend_login_required"
 WORKBOOK_EXTENSIONS = {".xlsx", ".xlsm", ".xltx", ".xltm"}
 INACTIVE_BINDING_STATUSES = {
     "inactive",
@@ -207,10 +208,12 @@ def export_workbook_via_browser(
                     completed_download.update(info)
 
             page.on("response", capture_export_response)
-            page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
-            page_content = page.content()
-            if is_login_required(page.url, page_content):
-                raise BrowserExportError("Douyin backend login required. Log in through the protected noVNC browser first.")
+            try:
+                page.goto(target_url, wait_until="domcontentloaded", timeout=timeout_ms)
+            except PlaywrightTimeoutError:
+                raise_if_login_required(page)
+                raise
+            raise_if_login_required(page)
 
             download = None
             click_started_at = time.time() - 5
@@ -225,6 +228,9 @@ def export_workbook_via_browser(
                     )
                 download = download_info.value
             except PlaywrightTimeoutError:
+                # Authentication can expire after the initial page load. Do not
+                # accept an unrelated download or mask it with an API fallback.
+                raise_if_login_required(page)
                 downloaded_path = find_recent_workbook(
                     export_workbook_search_dirs(target_dir),
                     since_epoch=click_started_at,
@@ -243,7 +249,11 @@ def export_workbook_via_browser(
                 if downloaded_path is not None:
                     return downloaded_path
 
-            info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
+            try:
+                info = wait_for_completed_download(page, completed_download, timeout_ms=timeout_ms)
+            except (BrowserExportError, PlaywrightTimeoutError):
+                raise_if_login_required(page)
+                raise
             return save_workbook_from_file_url(
                 context,
                 file_url=info["file_url"],
@@ -261,6 +271,7 @@ def fetch_backend_aweme_records_via_bind_list_api(*, cdp_url: str | None = None)
         raise BrowserExportError("BROWSER_CDP_URL is required when workbook_path is not provided.")
 
     try:
+        from playwright.sync_api import Error as PlaywrightError
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise BrowserExportError("Install playwright before running browser exports.") from exc
@@ -269,10 +280,20 @@ def fetch_backend_aweme_records_via_bind_list_api(*, cdp_url: str | None = None)
         browser = playwright.chromium.connect_over_cdp(resolve_playwright_cdp_url(resolved_cdp_url))
         context = browser.contexts[0] if browser.contexts else browser.new_context(accept_downloads=True)
         page = context.pages[0] if context.pages else context.new_page()
-        bind_list_url = discover_backend_aweme_bind_list_url(page)
+        raise_if_login_required(page)
+        try:
+            bind_list_url = discover_backend_aweme_bind_list_url(page)
+        except PlaywrightError:
+            raise_if_login_required(page)
+            raise
         if not bind_list_url:
+            raise_if_login_required(page)
             raise BrowserExportError("Backend aweme bind list API URL was not observed after export download timeout.")
-        records = fetch_backend_aweme_bind_list_records(page, bind_list_url)
+        try:
+            records = fetch_backend_aweme_bind_list_records(page, bind_list_url)
+        except (BrowserExportError, PlaywrightError):
+            raise_if_login_required(page)
+            raise
         print(
             f"[backend-aweme-export] bind_list_api_fallback fetched={len(records)}",
             flush=True,
@@ -659,9 +680,26 @@ def normalize_cdp_websocket_url(cdp_url: str, websocket_url: str) -> str:
     )
 
 
+def raise_if_login_required(page: Any) -> None:
+    from playwright.sync_api import Error as PlaywrightError
+
+    if is_login_required(page.url, ""):
+        raise BrowserExportError(LOGIN_REQUIRED_ERROR)
+    try:
+        page_text = page.content()
+    except PlaywrightError:
+        # page.content() can race with the redirect itself.
+        if is_login_required(page.url, ""):
+            raise BrowserExportError(LOGIN_REQUIRED_ERROR) from None
+        raise
+    if is_login_required(page.url, page_text):
+        raise BrowserExportError(LOGIN_REQUIRED_ERROR)
+
+
 def is_login_required(url: str, page_text: str) -> bool:
-    lowered_url = url.lower()
-    if "login" in lowered_url or "passport" in lowered_url:
+    parsed_url = urlparse(url)
+    login_location = f"{parsed_url.hostname or ''}{parsed_url.path}".lower()
+    if "login" in login_location or "passport" in login_location:
         return True
     return "登录" in page_text and "抖音号明细" not in page_text
 

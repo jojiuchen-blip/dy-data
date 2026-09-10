@@ -117,6 +117,9 @@ const syncPhaseNameLabels: LabelMap = {
 };
 
 const syncFailureReasonLabels: LabelMap = {
+  douyin_backend_login_required: "抖音后台登录已失效，请在受保护的浏览器中重新登录后重试",
+  "douyin backend login required. log in through the protected novnc browser first.":
+    "抖音后台登录已失效，请在受保护的浏览器中重新登录后重试",
   "open api returned 0 rows": "开放接口未返回数据",
   "cdp endpoint unavailable": "浏览器导出服务暂不可用",
   "temporary douyin api error": "抖音开放接口暂时不可用",
