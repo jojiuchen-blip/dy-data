@@ -60,3 +60,12 @@
 - **操作**：189c788f已快进到main并推送；生产只读基线发现priority_daily运行但legacy auto_sync_enabled=false，取消尚未部署的34428808996流水线；补偿入口改为跟随WORKER_SCHEDULER_MODE，不启用旧同步
 - **结果**：部署前正式轮次最新仍为8月31日、9月可见0，待首次分配7924；36项调度/运行时回归通过，Web production build通过。该修正替代前轮关于旧自动同步开关控制新补偿的表述；新模式跟随自身模式与worker生命周期。暂无生产写入或新版本启用。
 - **涉及文件**：apps/worker/scheduler.py、tests/test_formal_allocation_runtime.py
+---
+
+## 补充更新 5（11:00 · 窗口 5）
+
+### 任务 6：DYDATA-90 正式分配生产发布验收
+- **目标**：完成用户授权的main合并、提交、推送、部署
+- **操作**：93ace560合入main并推送，显式触发34428997784；核查备份、迁移、健康、源码散列及已登录九月页面
+- **结果**：流水线成功：2752 passed/157 skipped，真实PostgreSQL及镜像构建通过；北京时间10:53部署完成。六份worker源码匹配发布提交；迁移仍0053。九月页面实测483条可跟进，10:59数据库579条，待首次分配7924降至7345；最近批次96分配/4终态跳过/0失败，重复活动轮次0、新增自动超期0。priority_daily运行、旧auto_sync_enabled保持false。备份pre-production-cutover-20260910T024853Z.env与pre-migrate-20260910T024858Z.dump已生成，并保留rollback-formal-20260910镜像。T0.3完成，DYDATA-90整体历史积压及72小时观察继续。流水线https://github.com/jojiuchen-blip/dy-data/actions/runs/34428997784；output/formal-release-before.json及after-final.json为本地脱敏只读证据。
+- **涉及文件**：docs/plans/delivery-plans/main-delivery-plan-dydata-90-formal.md、docs/plans/execution-plan.md、project-profile.md
