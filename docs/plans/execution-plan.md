@@ -2,7 +2,21 @@
 
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代 S3 正式交付计划。
 
-## 0. 当前增量交付：DYDATA-81 G5
+## 本轮当前入口：2026-09-10 线索任务交接
+
+- 当前阶段：S4，本地实现与整合验证完成，待发布和用户验收。
+- 当前 Linear issue：DYDATA-91 In Review；DYDATA-90 In Progress。
+- 当前正式计划：[DYDATA-91 日期可见范围](delivery-plans/main-delivery-plan-dydata-91-visibility.md)。
+- 当前子开发计划：[T0.1 日期可见范围](delivery-plans/sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md)。
+- 当前 Task：T0.1，本地验证完成、等待发布与用户验收；[任务看板](delivery-plans/task-kanban-dydata-91-visibility.md)。
+- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 本地验证完成，待生产效果核验。
+- 已确认规则：上海2026-09-01零点起按正式分配日期显示，8月产生9月分配保留；清空日期也保留下界。自动超期保持关闭；原始、财务和后台审计不改变。
+- 验证：固定整合代码全仓2775 passed/144 skipped/0 failed；后补PG新路径用例1 passed；既有真实PG13项、真实PG日期边界及补漏到API跨路径检查、Web构建通过。
+- 下一步：受控发布后核验215条有效投影遗漏的补齐、页面数量与补偿结果；5620条legacy_engine_retired历史轮次不自动重投，DYDATA-90的历史限流恢复和72小时观察继续。
+- 以下财务及其他业务线内容是历史或并行快照，状态以各自Linear与独立计划为准，不作为本轮当前入口。
+
+
+## 0. 历史与并行增量：DYDATA-81 G5（不作为本轮调度入口）
 
 - 用户已于 2026-08-30 明确授权：基于已确认《财务页面合同矩阵》、书面裁决、冻结原型和正式 API/Schema，完成六页实现、测试、隔离 UAT、受控生产部署与部署后验证；任一门禁失败即停止，不自行关闭 DYDATA-81。
 - 当前隔离分支：`codex/dydata-81-finance-contract`；专用 worktree 与其他未提交工作树隔离，不复用旧冲突改动。
@@ -57,7 +71,7 @@
 
 - 套包阶段：`S4 DYDATA-81 T5.7 G5 六页财务合同实现与生产放行进行中`。
 - 当前 Linear issue：`DYDATA-81`，状态 `In Progress`；当前分支由本任务单一窗口负责，完成后等待 Owner 验收，不自行关闭。
-- 当前正式计划：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)
+- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)
 - 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。
 - 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。
 - 当前 Task：G4 已部署；G5 进行中。任一合同、数据正确性、正式 API、迁移、权限、CI、备份、部署或 smoke 门禁失败必须停止发布并记录证据。
@@ -112,7 +126,7 @@
 - 套包阶段：`S4 线索平台收口`。
 - 当前 Linear issue：`DYDATA-58`。
 - 当前需求序列：`DYDATA-56 -> DYDATA-8 -> DYDATA-14 -> DYDATA-15 -> DYDATA-34 -> DYDATA-58 基础能力 -> DYDATA-70 -> DYDATA-58 剩余能力与最终门禁`。
-- 当前正式计划：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)
+- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)
 - 当前子开发计划：[T2.4 全量、等价性和 8GB 最终门禁](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md)。
 
 ### 当前目标

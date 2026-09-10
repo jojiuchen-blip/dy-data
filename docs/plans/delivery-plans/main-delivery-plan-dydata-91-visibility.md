@@ -106,3 +106,11 @@
 | [foundation-api-clue-center.md](../../prd/foundation/foundation-api-clue-center.md) Q01/Q02/Q05/Q06/Q07/Q08 | T0.1 | [sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md](sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md) |
 | [foundation-schema-clue-center/clue_assignment_round.md](../../prd/foundation/foundation-schema-clue-center/clue_assignment_round.md) §字段/页面映射 | T0.1 | [sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md](sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md) |
 
+
+
+## 2026-09-10 主代理整合验收
+
+- 两项业务修复固定后，全仓 `python -m pytest -q --tb=short`：2775 passed、144 skipped、0 failed，耗时29分04秒。完整记录为本地 `output/handoff-full-pytest.log`。
+- 后补缺中心专用PG测试：1 passed、2 deselected；整合验证的既有真实PG13项通过。真实PG日期边界及“缺中心→补投影→正式分配→九月API可见”两项场景通过，重跑无重复；前端构建通过。
+- 全仓运行后仅追加测试及文档，业务代码保持受测版本。代码 `23ca7287` / `11f974c5`，PG补充 `e633b165`，BRD `5b9192c7`。
+- 当前只完成本地交付，未推送或部署；计划保持进行中，剩余发布与用户验收真实存在，不标为业务上线完成。
