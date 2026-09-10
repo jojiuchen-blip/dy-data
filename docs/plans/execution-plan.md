@@ -158,7 +158,7 @@
 
 ## DYDATA-87：2026-09-10 并行修复记录
 
-门店 POI 分页遗漏修复已集成最新主线，专项 96 passed / 2 skipped，Web build 通过；全量、真实 PostgreSQL 和发布尚待完成。91 个缺失映射已从官方完整采集但未写入生产；保留现有冲突及已确认财务事实。详见 [分页修复记录](../devlog/2026-09-10-dydata-87-poi-pagination.md)。本记录不变更其他主线状态。
+门店 POI 分页遗漏修复已集成最新主线，专项 96 passed / 2 skipped，Web build 通过；CI 真实 PostgreSQL 门禁通过，全量和发布尚待完成。91 个缺失映射已从官方完整采集但未写入生产；保留现有冲突及已确认财务事实。详见 [分页修复记录](../devlog/20260910_refactor_log_jojiuchen-blip.md)。本记录不变更其他主线状态。
 
 ## DYDATA-90：2026-09-10 当前执行
 
