@@ -4,15 +4,15 @@
 
 ## 本轮当前入口：2026-09-10 线索任务交接
 
-- 当前阶段：S4，本地实现与整合验证完成，待发布和用户验收。
+- 当前阶段：S4，1e91f4dc已部署并通过生产检查，待用户验收。
 - 当前 Linear issue：DYDATA-91 In Review；DYDATA-90 In Progress。
 - 当前正式计划：[DYDATA-91 日期可见范围](delivery-plans/main-delivery-plan-dydata-91-visibility.md)。
 - 当前子开发计划：[T0.1 日期可见范围](delivery-plans/sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md)。
-- 当前 Task：T0.1，本地验证完成、等待发布与用户验收；[任务看板](delivery-plans/task-kanban-dydata-91-visibility.md)。
-- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 本地验证完成，待生产效果核验。
+- 当前 Task：T0.1，生产验证完成、等待用户验收；[任务看板](delivery-plans/task-kanban-dydata-91-visibility.md)。
+- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 生产验证完成：215条有效遗漏已处理。
 - 已确认规则：上海2026-09-01零点起按正式分配日期显示，8月产生9月分配保留；清空日期也保留下界。自动超期保持关闭；原始、财务和后台审计不改变。
 - 验证：固定整合代码全仓2775 passed/144 skipped/0 failed；后补PG新路径用例1 passed；既有真实PG13项、真实PG日期边界及补漏到API跨路径检查、Web构建通过。
-- 下一步：受控发布后核验215条有效投影遗漏的补齐、页面数量与补偿结果；5620条legacy_engine_retired历史轮次不自动重投，DYDATA-90的历史限流恢复和72小时观察继续。
+- 发布验收：CI 2762 passed/158 skipped，15:42部署成功；214条正式分配、1条无候选进入总部池，页面2204条、跨月482条保留、重复及新增自动超期0。下一步等待用户验收；5620条legacy_engine_retired历史轮次不自动重投，DYDATA-90的历史限流恢复和72小时观察继续。
 - 以下财务及其他业务线内容是历史或并行快照，状态以各自Linear与独立计划为准，不作为本轮当前入口。
 
 

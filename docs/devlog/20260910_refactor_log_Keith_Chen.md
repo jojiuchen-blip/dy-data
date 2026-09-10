@@ -87,3 +87,12 @@
 - **操作**：整合隔离提交并审查时间预算、游标、状态证据和日期过滤；在独立本机PostgreSQL验证新增路径和API；更新当前工作区入口与BRD
 - **结果**：固定业务代码全仓2775 passed/144 skipped/0 failed，29分04秒；后补PG新路径1 passed，既有PG13项及日期边界、补漏到九月API可见两项场景通过；Web构建通过。根因是历史缺中心行不在本轮JobImpact，补偿新增有界投影修复。日期按上海2026-09-01分配时间，跨月来源保留。未推送部署；215条生产存量效果、旧引擎退役5620条的业务处置与72小时观察未完成。
 - **涉及文件**：apps/worker/formal_allocation_runtime.py、apps/api/dy_api/routes/_data.py、docs/brd/BRD-clue-center-20260721-2134.md
+---
+
+## 补充更新 8（15:49 · 窗口 8）
+
+### 任务 9：DYDATA-90/91 生产发布验收
+- **目标**：完成用户授权的提交推送与部署
+- **操作**：推送1e91f4dc并触发受控流水线；保存回滚镜像，核对备份、源码哈希、健康状态和生产页面；只读复核补偿数据
+- **结果**：流水线34448207755成功，CI 2762 passed/158 skipped，真实PostgreSQL与全部发布构建通过；北京时间15:42:28部署完成。API及6份worker源码匹配目标提交，迁移仍20260910_0053。215条有效遗漏已处理：214条正式分配，1条因no_eligible_candidate进入总部池；九月正式分配1990增至2204，缺中心及待分配有效候选均0。跨月来源九月分配482条保留；浏览器八月查询0，清空回到九月默认范围。重复活动轮次及新增自动超期0，priority_daily且旧auto_sync_enabled=false。备份pre-production-cutover-20260910T073920Z.env与pre-migrate-20260910T073941Z.dump，回滚镜像rollback-handoff-20260910。5620条旧引擎退役轮次未重投；历史限流待9月11日00:02:47恢复，72小时观察和用户验收继续。本任务无foundation漂移。发布链接https://github.com/jojiuchen-blip/dy-data/actions/runs/34448207755；脱敏证据output/handoff-release-after.json、handoff-release-runtime-after.json与handoff-release-ci.log。
+- **涉及文件**：无
