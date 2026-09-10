@@ -1895,3 +1895,54 @@ def test_legacy_clue_rule_and_rebuild_routes_are_absent(client: TestClient) -> N
     assert client.post("/api/v1/admin/clues/rebuild").status_code == 404
     _login(client)
     assert client.post("/api/v1/admin/sync/clue-center/rebuild").status_code in {404, 405}
+
+
+def test_worker_phone_recovery_is_visible_without_api_douyin_credentials(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sqlalchemy.orm import sessionmaker
+    from apps.worker.clue_phone_recovery import run_clue_phone_recovery_batch
+
+    _seed_clue_center(db_session)
+    _activate_order_one(db_session)
+    source = RawDouyinClue(
+        clue_row_key="phone-recovery-source", order_id="order-1",
+        order_status="201", enc_telephone="Enc.phone-recovery-source",
+        create_time_detail=_dt(1), raw_payload={},
+    )
+    db_session.add(source)
+    order = db_session.get(ClueCenterOrder, "order-1")
+    assert order is not None
+    order.phone_plain = None
+    order.phone_masked = None
+    order.phone_source_fingerprint = None
+    db_session.commit()
+    before_round = order.current_assignment_round_id
+
+    api_client_attempts = []
+    def unavailable_api_client():
+        api_client_attempts.append(True)
+        raise RuntimeError("API deliberately has no collection credentials")
+    monkeypatch.setattr(data_module, "build_douyin_client_from_env", unavailable_api_client)
+    _login(client)
+    assert client.get("/api/v1/clues/orders/order-1/phone").status_code == 404
+    attempts_before = len(api_client_attempts)
+    # Close the API reader before the independent worker transaction.
+    db_session.rollback()
+    factory = sessionmaker(bind=db_session.get_bind(), expire_on_commit=False)
+    requested = []
+    def resolver(cipher_texts):
+        requested.extend(cipher_texts)
+        return {"Enc.phone-recovery-source": "13812345678"}
+    run_clue_phone_recovery_batch(factory, phone_plain_resolver=resolver, max_items=100, now=_dt(10))
+    db_session.expire_all()
+    assert requested == ["Enc.phone-recovery-source"]
+    assert db_session.get(ClueCenterOrder, "order-1").current_assignment_round_id == before_round
+    phone = client.get("/api/v1/clues/orders/order-1/phone")
+    assert phone.status_code == 200
+    assert phone.json()["data"]["phone"] == "13812345678"
+    assert phone.json()["data"]["phone_masked"] == "138****5678"
+    listing = client.get("/api/v1/clues/assignment-rounds")
+    assert listing.status_code == 200
+    assert "138****5678" in listing.text
+    assert len(api_client_attempts) == attempts_before
