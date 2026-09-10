@@ -70,7 +70,8 @@ def resolve_clue_order_status(
 ) -> str:
     """Resolve the business status used by the clue master.
 
-    Paid and waiting-use orders can enter the clue pool. Numeric 1 is terminal
+    Payment alone is not allocation eligibility. Waiting-use evidence is required.
+    Numeric 1 is terminal
     but needs certificate evidence to distinguish completed履约 from
     all-refunded. Missing evidence remains unknown and is quarantined by
     materialization.
@@ -109,7 +110,15 @@ def resolve_clue_order_status(
             return "closed"
         if _has_verified_certificate(certificates) and not _has_active_certificate(certificates):
             return "verified"
-        return "active"
+        if status in ACTIVE_ORDER_STATUSES:
+            return "active"
+        if (
+            normalized_order in ACTIVE_ORDER_STATUSES | {"active"}
+            or _has_active_certificate(certificates)
+            or normalized_coupons & ACTIVE_COUPON_STATUSES
+        ):
+            return "active"
+        return "unknown"
     if status in COMPLETED_ORDER_STATUSES:
         if _all_certificates_closed(certificates):
             return "closed"

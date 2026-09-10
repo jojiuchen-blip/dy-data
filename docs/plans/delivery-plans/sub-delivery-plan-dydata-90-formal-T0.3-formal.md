@@ -31,7 +31,7 @@
 - 状态解析、线索物化、正式分配引擎、调度接入及PostgreSQL并发回归；git diff --check；治理三文件一致性。
 
 **Evidence**：
-- `docs/devlog/2026-09-10-formal-allocation.md`
+- `docs/devlog/20260910_refactor_log_Keith_Chen.md`
 
 **Failure Handling**：
 - 测试失败修复后重跑；不得以数据入库代替页面可见验收。

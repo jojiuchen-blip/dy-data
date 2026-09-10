@@ -143,6 +143,15 @@ def refresh_clue_center_projection(
             if lead_candidate is not None
             else None
         )
+        # A payment clue is only a projection candidate. Materialization must
+        # first confirm waiting-use evidence; the raw label is not permission
+        # to create a follow-up task.
+        if canonical.order_status in PAID_ORDER_STATUSES and (
+            lead is None
+            or lead.lifecycle_status != "active"
+            or lead.normalized_order_status != "active"
+        ):
+            continue
         round_row = _formal_round_for_projection(session, lead, order_id)
         previous_round = (
             _latest_closed_formal_round(session, lead, order_id)
