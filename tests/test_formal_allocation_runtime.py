@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, ClueMasterLead, RawDouyinClue, SyncSetting
+from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, RawDouyinClue, RawDouyinOrder, SyncSetting
 from apps.worker import formal_allocation_runtime as runtime
 from test_clue_allocation_engine import _lead, _store, _publish_global_rule
 
@@ -63,6 +63,18 @@ def test_cursor_advances_past_invalid_lead_and_wraps_durably(db_session):
     with factory() as reader:
         assert reader.get(SyncSetting, runtime.CURSOR_KEY).setting_value == ""
     assert runtime.run_formal_allocation_batch(factory, max_items=1)["skipped"] == 1
+
+
+@pytest.mark.parametrize("order_status,expected", [("支付成功", 1), ("已退款", 0)])
+def test_current_order_and_coupon_evidence_override_clue_label(db_session, order_status, expected):
+    factory = setup(db_session)
+    lead = seed(db_session)
+    db_session.add(RawDouyinOrder(
+        order_id=lead.order_id, order_status=order_status,
+        raw_payload={"certificate": [{"item_status": 400}]},
+    ))
+    db_session.commit()
+    assert runtime.run_formal_allocation_batch(factory)["assigned"] == expected
 
 
 @pytest.mark.parametrize("field,value", [
