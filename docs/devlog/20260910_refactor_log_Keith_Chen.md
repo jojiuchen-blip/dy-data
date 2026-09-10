@@ -42,3 +42,12 @@
 - **操作**：中心投影每64条提交后通知；priority_daily 独立每60秒补偿，每轮最多100条与10秒处理预算；主记录锁后复核原始状态；跨进程排他、每条事务提交、持久游标和脱敏汇总；自动超期强制保持关闭
 - **结果**：组合回归79项通过，含真实 PostgreSQL 并发排他和失败回滚恢复2项；后续新增旧轮次关联保护及调用接入测试通过；全仓回归仍在运行并出现待定位失败
 - **涉及文件**：apps/worker/formal_allocation_runtime.py、apps/worker/daily_task.py、apps/worker/scheduler.py、tests/test_formal_allocation_runtime.py、tests/test_formal_allocation_runtime_postgres.py
+---
+
+## 补充更新 3（10:05 · 窗口 3）
+
+### 任务 4：DYDATA-90 正式分配本地验收收口
+- **目标**：完成用户确认的 BRD 与代码修复，保留生产证据边界
+- **操作**：固定代码后完成最终组合复测，核对 PostgreSQL 排他与事务、BRD台账、治理文件和 Git 差异；测试 PostgreSQL 已停止
+- **结果**：最终组合110 passed；PostgreSQL 13 passed。全仓初测2725 passed/156 skipped/5 failed：4项缺失TypeScript依赖，1项inspect.getsource因进程中源码行号变化读取整模块；补依赖并固定代码后五项均在110项组合复测中通过。未重新执行第二次完整全仓，不宣称一次全绿。BRD lint无失败，人工复核指标、角色和确认来源保持一致；suite锁和治理检查通过。BRD与代码本地完成，分支codex/dydata-90-formal，未合入main或部署。本任务无foundation漂移。
+- **涉及文件**：docs/brd/BRD-clue-center-20260721-2134.md、apps/worker/formal_allocation_runtime.py、docs/plans/execution-plan.md
