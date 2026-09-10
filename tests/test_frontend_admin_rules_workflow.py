@@ -8,6 +8,14 @@ def read_source(relative_path: str) -> str:
     return (WEB_SRC / relative_path).read_text(encoding="utf-8")
 
 
+def test_manual_rebuild_is_guarded_by_server_session_role() -> None:
+    page = read_source("pages/AdminSkuRulesPage.tsx")
+    assert 'setCanRebuild(response.data.is_highest_admin === true)' in page
+    assert 'disabled={!canRebuild || !effectiveRuleMap.size || working}' in page
+    assert 'if (!canRebuild) return;' in page
+    assert '仅最高管理员可手动重建' in page
+
+
 def test_rules_page_exposes_three_tabs_and_four_step_workflow() -> None:
     page = read_source("pages/AdminSkuRulesPage.tsx")
     import_drawer = read_source("components/AdminSkuRuleImportDrawer.tsx")

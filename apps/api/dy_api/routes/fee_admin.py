@@ -629,7 +629,7 @@ def create_sku_fee_rule(
     payload: dict[str, Any],
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    username: str = Depends(get_current_super_admin),
+    username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)
@@ -1225,7 +1225,7 @@ def commit_sku_fee_rule_import(
     payload: dict[str, Any],
     request: Request,
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
-    username: str = Depends(get_current_super_admin),
+    username: str = Depends(get_current_admin),
     store=Depends(get_data_store),
 ):
     store = _require_store(store, request)

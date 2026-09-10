@@ -79,6 +79,7 @@ jobs:
           python scripts/verify_postgres_release_gate.py
           python -m pytest -q tests/test_settlement_rebuild_postgres.py
           python -m pytest -q tests/test_priority_budget_pause_postgres.py
+          python -m pytest -q tests/test_shop_poi_postgres.py
 
       - name: Install frontend dependencies
         working-directory: apps/web

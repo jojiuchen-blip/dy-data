@@ -13,7 +13,7 @@ from apps.worker.repositories import upsert_order_coupon, upsert_raw_order
 
 
 class FakeVerifyClient:
-    def query_shop_pois(self, *, relation_type: int = 0, cursor=None):
+    def query_shop_pois(self, *, relation_type: int = 0, page=1, size=50):
         return {
             "data": {
                 "pois": [
@@ -31,6 +31,7 @@ class FakeVerifyClient:
                     }
                 ],
                 "has_more": False,
+                "total": 1,
             }
         }
 

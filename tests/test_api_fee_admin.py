@@ -25,6 +25,8 @@ from apps.api.dy_api.models import (  # noqa: E402
     SkuProductImportBatch,
 )
 from dy_api.main import create_app  # noqa: E402
+from dy_api.auth import hash_password_pbkdf2  # noqa: E402
+from apps.api.dy_api.models import User, UserPagePermissionOverride  # noqa: E402
 from dy_api.routes import fee_admin as fee_admin_routes  # noqa: E402
 from dy_api.routes._data import get_session_dependency  # noqa: E402
 
@@ -50,6 +52,99 @@ def _login(client: TestClient) -> None:
         json={"username": "system-admin", "password": "test-password"},
     )
     assert response.status_code == 200
+
+
+def _login_rule_operator(client: TestClient, session: Session, role: str = "admin") -> User:
+    operator = User(
+        user_id="rule-operator", username="rule-operator", display_name="Rule Operator",
+        role=role, status="active", is_initialized=True, store_scope_mode="all",
+        password_hash=hash_password_pbkdf2("isolated-password"),
+    )
+    session.add(operator)
+    session.commit()
+    response = client.post("/api/v1/auth/login", json={
+        "username": operator.username, "password": "isolated-password",
+    })
+    assert response.status_code == 200
+    session.merge(UserPagePermissionOverride(
+        user_id=operator.user_id, page_key="D03", effect="allow",
+    ))
+    session.commit()
+    return operator
+
+
+@pytest.mark.parametrize("mode", ["single", "import"])
+def test_authorized_admin_can_publish_fee_rules(client: TestClient, db_session: Session, mode: str) -> None:
+    _seed_sku(db_session, "permission-sku", "权限测试")
+    operator = _login_rule_operator(client, db_session)
+    if mode == "single":
+        path = "/api/v1/admin/sku-fee-rules"
+        payload = {
+            "skuId": "permission-sku", "promotionServiceFeeRate": "0.100000",
+            "managementServiceFeeRate": "0.100000", "effectiveDate": "2026-08-01",
+            "ruleStatus": "ACTIVE", "changeReason": "isolated permission test",
+        }
+    else:
+        uploaded = _upload(client, _csv([("权限测试", "permission-sku", "0.1", "0.1")]))
+        assert uploaded.status_code == 200
+        batch_id = uploaded.json()["data"]["batch"]["batchId"]
+        path = f"/api/v1/admin/sku-fee-rule-imports/{batch_id}/commit"
+        payload = {"changeReason": "isolated permission test"}
+    headers = {"Idempotency-Key": f"permission-test-{mode}-0001"}
+    response = client.post(path, json=payload, headers=headers)
+    assert response.status_code == 200, response.text
+    retry = client.post(path, json=payload, headers=headers)
+    assert retry.status_code == 200
+    assert retry.json()["data"] == response.json()["data"]
+    rules = list(db_session.scalars(select(SkuFeeRule)))
+    assert len(rules) == 1
+    assert rules[0].created_by == operator.username
+    detail = client.get(f"/api/v1/admin/sku-fee-rules/{rules[0].rule_version}")
+    assert detail.status_code == 200
+    assert detail.json()["data"]["ruleVersion"] == rules[0].rule_version
+    assert detail.json()["data"]["createdBy"] == operator.username
+    assert detail.json()["data"]["promotionServiceFeeRate"] == "0.100000"
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 1
+    assert operator.role == "admin"
+
+
+@pytest.mark.parametrize("role", ["admin", "store"])
+def test_rule_write_preserves_page_and_role_boundaries(client: TestClient, db_session: Session, role: str) -> None:
+    operator = _login_rule_operator(client, db_session, role)
+    if role == "admin":
+        db_session.merge(UserPagePermissionOverride(
+            user_id=operator.user_id, page_key="D03", effect="deny",
+        ))
+        db_session.commit()
+    for path in ["/api/v1/admin/sku-fee-rules", "/api/v1/admin/sku-fee-rule-imports/missing/commit"]:
+        response = client.post(path, json={}, headers={"Idempotency-Key": "permission-denied-0001"})
+        assert response.status_code == 403
+    assert db_session.scalar(select(func.count()).select_from(SkuFeeRule)) == 0
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+def test_admin_cannot_use_highest_only_rebuild_or_scope(client: TestClient, db_session: Session) -> None:
+    _login_rule_operator(client, db_session)
+    for path in ["/api/v1/admin/sku-fee-rules/rebuild", "/api/v1/admin/settlement-scope-rules"]:
+        response = client.post(path, json={}, headers={"Idempotency-Key": "highest-only-test-0001"})
+        assert response.status_code == 403
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
+
+
+@pytest.mark.parametrize("session_state", ["anonymous", "revoked", "inactive"])
+def test_fee_publish_rejects_invalid_sessions(client: TestClient, db_session: Session, session_state: str) -> None:
+    if session_state != "anonymous":
+        operator = _login_rule_operator(client, db_session)
+        if session_state == "revoked":
+            operator.auth_version += 1
+        else:
+            operator.status = "inactive"
+        db_session.commit()
+    for path in ["/api/v1/admin/sku-fee-rules", "/api/v1/admin/sku-fee-rule-imports/missing/commit"]:
+        response = client.post(path, json={}, headers={"Idempotency-Key": "invalid-session-test-0001"})
+        assert response.status_code == 401
+    assert db_session.scalar(select(func.count()).select_from(SkuFeeRule)) == 0
+    assert db_session.scalar(select(func.count()).select_from(JobRun)) == 0
 
 
 def _seed_sku(

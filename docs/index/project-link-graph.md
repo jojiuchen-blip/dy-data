@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：944
-- 文件关系：1056
+- 文件节点：942
+- 文件关系：1068
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
