@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -23,7 +23,7 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 
 
 def _bj(day: int, hour: int = 10) -> datetime:
-    return datetime(2026, 6, day, hour, 0, tzinfo=SHANGHAI)
+    return datetime(2026, 9, day, hour, 0, tzinfo=SHANGHAI).astimezone(timezone.utc)
 
 
 def _add_round(
@@ -166,8 +166,8 @@ def test_clue_store_follow_up_summary_partitions_rounds_and_matches_overview(
     store = DashboardDataStore(db_session)
     rows = store.clue_store_follow_up_summary(
         store_ids=("store-zero", "store-bravo", "store-alpha"),
-        assigned_date_start="2026-06-01",
-        assigned_date_end="2026-06-02",
+        assigned_date_start="2026-09-01",
+        assigned_date_end="2026-09-02",
     )
 
     assert [row["store_id"] for row in rows] == [
@@ -209,8 +209,8 @@ def test_clue_store_follow_up_summary_partitions_rounds_and_matches_overview(
         overview = store.clue_overview(
             {
                 "assigned_store_id": row["store_id"],
-                "assigned_date_start": "2026-06-01",
-                "assigned_date_end": "2026-06-02",
+                "assigned_date_start": "2026-09-01",
+                "assigned_date_end": "2026-09-02",
             }
         )
         assert row["system_follow_up_rate"] == overview["follow_success_rate"]
@@ -264,8 +264,8 @@ def test_clue_store_follow_up_summary_ignores_legacy_product_type_visibility(
     store = DashboardDataStore(db_session)
     filters = {
         "assigned_store_id": "store-visible",
-        "assigned_date_start": "2026-06-01",
-        "assigned_date_end": "2026-06-01",
+        "assigned_date_start": "2026-09-01",
+        "assigned_date_end": "2026-09-01",
     }
     rows = store.clue_store_follow_up_summary(
         store_ids=("store-zero", "store-visible"),

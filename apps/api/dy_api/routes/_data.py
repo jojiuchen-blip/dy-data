@@ -7,7 +7,7 @@ import math
 import os
 import re
 from collections.abc import Generator, Iterable, Sequence
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -70,6 +70,10 @@ FILE_PATH_RE = re.compile(
 )
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 BUSINESS_CLUE_EXECUTION_MODE = "formal"
+# User-facing clue surfaces use the formal assignment date as their lower bound.
+# Keep this display boundary separate from source collection, eligibility, and
+# audit data so historical records remain available to their existing owners.
+CLUE_VISIBLE_ASSIGNED_AT = datetime(2026, 9, 1, 0, 0, tzinfo=SHANGHAI_TZ)
 _SESSION_FACTORY: Any | None = None
 FOLLOW_UP_RESULTS = {
     "appointment",
@@ -519,6 +523,21 @@ class DashboardDataStore:
             return bind.dialect.name
         except Exception:
             return ""
+
+    def _clue_query_datetime(self, value: datetime) -> datetime:
+        """Bind clue timestamps in the representation used by each database.
+
+        PostgreSQL stores clue timestamps as timezone-aware values. SQLite's
+        test adapter serializes ``DateTime(timezone=True)`` as a naive string,
+        while the fixtures represent instants in UTC. Normalize only the
+        SQLite bind value so the Shanghai business boundary remains the same
+        instant in both dialects.
+        """
+
+        if self._dialect_name() != "sqlite":
+            return value
+        aware_value = value if value.tzinfo else value.replace(tzinfo=SHANGHAI_TZ)
+        return aware_value.astimezone(timezone.utc).replace(tzinfo=None)
 
     def _month_expr(self, column: str) -> str:
         if self._dialect_name() == "sqlite":
@@ -4287,9 +4306,14 @@ class DashboardDataStore:
             visibility_params,
             prefix="clue_store_option_product",
         )
-        base_params = {**round_scope_params, **visibility_params}
+        base_params = {
+            **round_scope_params,
+            **visibility_params,
+            "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+        }
         base_clauses = [
             "r.execution_mode = 'formal'",
+            "r.assigned_at >= :clue_min_assigned_at",
             "r.assigned_store_id IS NOT NULL",
             "r.assigned_store_id != ''",
         ]
@@ -4387,13 +4411,22 @@ class DashboardDataStore:
             order_visibility_params,
             prefix="clue_filter_order_product",
         )
-        round_params = {**round_scope_params, **round_visibility_params}
-        order_params = {**order_scope_params, **order_visibility_params}
+        round_params = {
+            **round_scope_params,
+            **round_visibility_params,
+            "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+        }
+        order_params = {
+            **order_scope_params,
+            **order_visibility_params,
+            "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+        }
         formal_order_exists_sql = (
             " AND EXISTS ("
             "SELECT 1 FROM clue_assignment_rounds formal_round "
             "WHERE formal_round.order_id = c.order_id "
-            "AND formal_round.execution_mode = 'formal'"
+            "AND formal_round.execution_mode = 'formal' "
+            "AND formal_round.assigned_at >= :clue_min_assigned_at"
             ")"
         )
         assigned_stores = [
@@ -4410,6 +4443,7 @@ class DashboardDataStore:
                 WHERE r.assigned_store_id IS NOT NULL
                   AND r.assigned_store_id != ''
                   AND r.execution_mode = 'formal'
+                  AND r.assigned_at >= :clue_min_assigned_at
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.assigned_store_name, r.assigned_store_id
@@ -4486,6 +4520,7 @@ class DashboardDataStore:
                 JOIN clue_center_orders c ON c.order_id = r.order_id
                 WHERE r.round_status IS NOT NULL AND r.round_status != ''
                   AND r.execution_mode = 'formal'
+                  AND r.assigned_at >= :clue_min_assigned_at
                   {round_scope_sql}
                   {round_visibility_sql}
                 ORDER BY r.round_status
@@ -4576,8 +4611,10 @@ class DashboardDataStore:
 
         clauses = [
             "r.execution_mode = 'formal'",
+            "r.assigned_at >= :clue_min_assigned_at",
             f"r.assigned_store_id IN ({placeholders})",
         ]
+        params["clue_min_assigned_at"] = self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT)
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
             visible_placeholders, visible_params = _in_clause_params(
@@ -4591,11 +4628,13 @@ class DashboardDataStore:
         assigned_start = _parse_filter_datetime(assigned_date_start)
         if assigned_start is not None:
             clauses.append("r.assigned_at >= :assigned_date_start")
-            params["assigned_date_start"] = assigned_start
+            params["assigned_date_start"] = self._clue_query_datetime(assigned_start)
         assigned_end_exclusive = _parse_filter_date_end(assigned_date_end)
         if assigned_end_exclusive is not None:
             clauses.append("r.assigned_at < :assigned_date_end_exclusive")
-            params["assigned_date_end_exclusive"] = assigned_end_exclusive
+            params["assigned_date_end_exclusive"] = self._clue_query_datetime(
+                assigned_end_exclusive
+            )
 
         display_status_sql = self._store_display_status_sql(include_round=True)
         rows = self._execute(
@@ -4908,9 +4947,13 @@ class DashboardDataStore:
              LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE r.order_id = :order_id
               AND r.execution_mode = 'formal'
+              AND r.assigned_at >= :clue_min_assigned_at
             ORDER BY r.round_no, r.assigned_at, r.assignment_round_id
             """,
-            {"order_id": order_id},
+            {
+                "order_id": order_id,
+                "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+            },
         )
         record_rows = self._execute(
             """
@@ -4933,11 +4976,13 @@ class DashboardDataStore:
               ON follow_round.assignment_round_id = follow_record.assignment_round_id
             WHERE follow_record.order_id = :order_id
               AND follow_round.execution_mode = 'formal'
+              AND follow_round.assigned_at >= :clue_min_assigned_at
               AND (:include_deleted = true OR follow_record.deleted_at IS NULL)
             ORDER BY follow_record.created_at, follow_record.follow_up_record_id
             """,
             {
                 "order_id": order_id,
+                "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
                 "include_deleted": bool(actor and actor.get("is_highest_admin")),
             },
         )
@@ -5044,9 +5089,22 @@ class DashboardDataStore:
     def _clue_order_masked_phone(self, order_id: str) -> str:
         return self._clue_order_phones([order_id])[order_id][1]
 
-    def _current_operation_round(self, order_id: str) -> dict[str, Any] | None:
+    def _current_operation_round(
+        self,
+        order_id: str,
+        *,
+        visible_only: bool = False,
+    ) -> dict[str, Any] | None:
+        visibility_sql = (
+            " AND r.assigned_at >= :clue_min_assigned_at"
+            if visible_only
+            else ""
+        )
+        params: dict[str, Any] = {"order_id": order_id}
+        if visible_only:
+            params["clue_min_assigned_at"] = self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT)
         rows = self._execute(
-            """
+            f"""
             SELECT c.order_id,
                    c.lead_status,
                    c.current_assignment_round_id,
@@ -5077,9 +5135,10 @@ class DashboardDataStore:
             LEFT JOIN clue_master_leads lead ON lead.lead_key = r.lead_key
             WHERE c.order_id = :order_id
               AND r.execution_mode = 'formal'
+              {visibility_sql}
             LIMIT 1
             """,
-            {"order_id": order_id},
+            params,
         )
         return rows[0] if rows else None
 
@@ -5198,7 +5257,7 @@ class DashboardDataStore:
             return None
         if not self._clue_order_product_visible(order_id):
             return None
-        row = self._current_operation_round(order_id)
+        row = self._current_operation_round(order_id, visible_only=True)
         if row is None:
             return None
         if not self._actor_can_reveal_round_phone(row, actor):
@@ -5448,7 +5507,35 @@ class DashboardDataStore:
         if not self._clue_order_product_visible(order_id):
             return False
         if scope_store_ids is None:
-            return True
+            rows = self._execute(
+                """
+                SELECT 1
+                FROM clue_assignment_rounds
+                WHERE order_id = :order_id
+                  AND execution_mode = 'formal'
+                  AND assigned_at >= :clue_min_assigned_at
+                LIMIT 1
+                """,
+                {
+                    "order_id": order_id,
+                    "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+                },
+            )
+            if rows:
+                return True
+            formal_rows = self._execute(
+                """
+                SELECT 1
+                FROM clue_assignment_rounds
+                WHERE order_id = :order_id
+                  AND execution_mode = 'formal'
+                LIMIT 1
+                """,
+                {"order_id": order_id},
+            )
+            # Preserve the existing trial-only detail response (empty
+            # business rounds) while hiding formal historical-only orders.
+            return not formal_rows
         if self._clue_order_has_active_headquarters_lead(order_id):
             return False
         placeholders, params = _in_clause_params("detail_scope_store", scope_store_ids)
@@ -5460,10 +5547,15 @@ class DashboardDataStore:
             FROM clue_assignment_rounds
             WHERE order_id = :order_id
               AND execution_mode = 'formal'
+              AND assigned_at >= :clue_min_assigned_at
               AND assigned_store_id IN ({placeholders})
             LIMIT 1
             """,
-            {"order_id": order_id, **params},
+            {
+                "order_id": order_id,
+                "clue_min_assigned_at": self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT),
+                **params,
+            },
         )
         return bool(rows)
 
@@ -5569,6 +5661,8 @@ class DashboardDataStore:
         params: dict[str, Any] = {}
         if include_round:
             clauses.append("r.execution_mode = 'formal'")
+            clauses.append("r.assigned_at >= :clue_min_assigned_at")
+            params["clue_min_assigned_at"] = self._clue_query_datetime(CLUE_VISIBLE_ASSIGNED_AT)
 
         exact_filters = {
             "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",
@@ -5630,13 +5724,13 @@ class DashboardDataStore:
         if assigned_start is not None:
             column = "r.assigned_at" if include_round else "c.assigned_at"
             clauses.append(f"{column} >= :assigned_date_start")
-            params["assigned_date_start"] = assigned_start
+            params["assigned_date_start"] = self._clue_query_datetime(assigned_start)
 
         assigned_end = _parse_filter_date_end(filters.get("assigned_date_end"))
         if assigned_end is not None:
             column = "r.assigned_at" if include_round else "c.assigned_at"
             clauses.append(f"{column} < :assigned_date_end")
-            params["assigned_date_end"] = assigned_end
+            params["assigned_date_end"] = self._clue_query_datetime(assigned_end)
 
         query = _to_str(filters.get("q")).strip().lower()
         if query:

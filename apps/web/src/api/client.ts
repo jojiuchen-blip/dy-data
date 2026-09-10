@@ -171,6 +171,10 @@ import {
   getStoreOptions,
   getVerifyMonthOptions,
 } from "../utils/settlement";
+import {
+  clueAssignedDateInShanghai,
+  isClueAssignedAtVisible,
+} from "../utils/clueVisibility";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 const USE_MOCKS = import.meta.env.VITE_USE_MOCKS === "true";
@@ -793,9 +797,34 @@ async function requestSalesDashboard({
 }
 
 function mockClueFiltersResponse(): ApiResponse<ClueFilterMetadata> {
+  const visibleRows = mockFilterClueRounds({});
+  const visibleStoreIds = new Set(
+    visibleRows
+      .map((row) => row.assigned_store_id)
+      .filter((storeId): storeId is string => Boolean(storeId)),
+  );
+  const visibleProductTypes = new Set(
+    visibleRows
+      .map((row) => row.product_type)
+      .filter((productType): productType is string => Boolean(productType)),
+  );
+  const visibleLeadStatuses = new Set(visibleRows.map((row) => row.lead_status));
+  const visibleRoundStatuses = new Set(visibleRows.map((row) => row.round_status));
   return {
     data: {
       ...clueCenterResponses.filters.data,
+      assigned_stores: clueCenterResponses.filters.data.assigned_stores.filter(
+        (store) => visibleStoreIds.has(store.store_id),
+      ),
+      product_types: clueCenterResponses.filters.data.product_types.filter(
+        (productType) => visibleProductTypes.has(productType),
+      ),
+      lead_statuses: clueCenterResponses.filters.data.lead_statuses.filter(
+        (status) => visibleLeadStatuses.has(status),
+      ),
+      round_statuses: clueCenterResponses.filters.data.round_statuses.filter(
+        (status) => visibleRoundStatuses.has(status),
+      ),
       default_product_type: "all",
     },
     definitions: clueCenterResponses.filters.definitions,
@@ -840,9 +869,38 @@ function mockFilterClueRounds(
   filters: ClueOverviewFilters,
 ): ClueAssignmentRoundData["rows"] {
   return clueCenterResponses.assignment_rounds.data.rows.filter((row) => {
+    if (!isClueAssignedAtVisible(row.assigned_at)) {
+      return false;
+    }
+    if (
+      filters.assigned_store_id &&
+      row.assigned_store_id !== filters.assigned_store_id
+    ) {
+      return false;
+    }
+    const assignedDate = clueAssignedDateInShanghai(row.assigned_at);
+    if (filters.assigned_date_start && assignedDate < filters.assigned_date_start) {
+      return false;
+    }
+    if (filters.assigned_date_end && assignedDate > filters.assigned_date_end) {
+      return false;
+    }
+    if (filters.lead_status && row.lead_status !== filters.lead_status) {
+      return false;
+    }
     if (
       filters.store_display_status &&
       mockStoreDisplayStatus(row) !== filters.store_display_status
+    ) {
+      return false;
+    }
+    if (filters.round_status && row.round_status !== filters.round_status) {
+      return false;
+    }
+    if (
+      filters.product_type &&
+      filters.product_type !== "all" &&
+      row.product_type !== filters.product_type
     ) {
       return false;
     }
@@ -924,13 +982,28 @@ function mockClueOrderDetailResponse(
 ): ApiResponse<ClueOrderDetail> {
   const stored = clueCenterResponses.order_details?.[orderId];
   const extraRecords = mockFollowUpRecordsByOrder[orderId] ?? [];
+  const visibleRounds = (stored?.data.rounds ??
+    clueCenterResponses.assignment_rounds.data.rows.filter(
+      (row) => row.order_id === orderId,
+    )).filter((row) => isClueAssignedAtVisible(row.assigned_at));
+  if (!visibleRounds.length) {
+    throw new ApiRequestError(404, "演示线索不存在");
+  }
+  const visibleRoundIds = new Set(
+    visibleRounds.map((round) => round.assignment_round_id),
+  );
   if (stored) {
     return {
       data: {
         ...stored.data,
+        rounds: visibleRounds,
         follow_up_records: [
-          ...(stored.data.follow_up_records ?? []),
-          ...extraRecords,
+          ...(stored.data.follow_up_records ?? []).filter((record) =>
+            visibleRoundIds.has(record.assignment_round_id),
+          ),
+          ...extraRecords.filter((record) =>
+            visibleRoundIds.has(record.assignment_round_id),
+          ),
         ],
       },
       meta: {
@@ -941,10 +1014,7 @@ function mockClueOrderDetailResponse(
     };
   }
 
-  const rounds = clueCenterResponses.assignment_rounds.data.rows.filter(
-    (row) => row.order_id === orderId,
-  );
-  const firstRound = rounds[0];
+  const firstRound = visibleRounds[0];
 
   return {
     data: {
@@ -958,8 +1028,10 @@ function mockClueOrderDetailResponse(
       author_nickname: firstRound?.author_nickname ?? null,
       assigned_city: null,
       assigned_province: null,
-      rounds,
-      follow_up_records: extraRecords,
+      rounds: visibleRounds,
+      follow_up_records: extraRecords.filter((record) =>
+        visibleRoundIds.has(record.assignment_round_id),
+      ),
     },
     meta: {
       generated_at: generatedAt(),
@@ -976,8 +1048,12 @@ function mockClueFollowUpResponse(
   const row = clueCenterResponses.assignment_rounds.data.rows.find(
     (candidate) =>
       candidate.order_id === orderId &&
-      candidate.assignment_round_id === payload.assignment_round_id,
+      candidate.assignment_round_id === payload.assignment_round_id &&
+      isClueAssignedAtVisible(candidate.assigned_at),
   );
+  if (!row) {
+    throw new ApiRequestError(404, "演示分配轮次不存在");
+  }
   const record: ClueFollowUpRecord = {
     follow_up_record_id: `mock-follow-up-${orderId}-${Date.now()}`,
     order_id: orderId,
@@ -1079,6 +1155,12 @@ function mockDeleteClueFollowUpRecordResponse(
 }
 
 function mockClueOrderPhoneResponse(orderId: string): ApiResponse<CluePhoneReveal> {
+  const visibleRounds = clueCenterResponses.assignment_rounds.data.rows.filter(
+    (row) => row.order_id === orderId && isClueAssignedAtVisible(row.assigned_at),
+  );
+  if (!visibleRounds.length) {
+    throw new ApiRequestError(404, "演示线索不存在");
+  }
   const stored = clueCenterResponses.order_details?.[orderId];
   const phoneMasked =
     stored?.data.phone_masked ??

@@ -32,7 +32,7 @@ from dy_api.auth import hash_password_pbkdf2  # noqa: E402
 
 
 def _dt(day: int, hour: int = 10) -> datetime:
-    return datetime(2026, 6, day, hour, 0, tzinfo=timezone.utc)
+    return datetime(2026, 9, day, hour, 0, tzinfo=timezone.utc)
 
 
 @pytest.fixture()
@@ -306,6 +306,215 @@ def _activate_order_one(session: Session) -> None:
     lead.pool_location = "store_follow_up_pool"
     lead.allocation_state = "assigned"
     lead.current_assignment_round_id = "order-1-1"
+
+
+def test_clue_surfaces_share_formal_assignment_visibility_boundary(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_clue_center(db_session)
+    # SQLite stores timezone-aware DateTime values as naive UTC strings in
+    # this fixture database. Use the UTC instants equivalent to the Shanghai
+    # boundary so this test exercises the real cross-dialect comparison.
+    hidden_at = datetime(2026, 8, 31, 15, 59, 59, tzinfo=timezone.utc)
+    boundary_at = datetime(2026, 8, 31, 16, 0, 0, tzinfo=timezone.utc)
+
+    # This historical round shares an order with a visible round. It must not
+    # affect list rows, detail history, or the per-store summary.
+    db_session.add(
+        ClueAssignmentRound(
+            assignment_round_id="order-2-hidden-history",
+            order_id="order-2",
+            round_no=0,
+            assigned_at=hidden_at,
+            assigned_at_source="historical_import",
+            assigned_store_id="store-old",
+            assigned_store_name="Historical Store",
+            follow_result="lost",
+            is_followed=True,
+            is_follow_success=False,
+            round_status="failed_pending_reassign",
+            execution_mode="formal",
+            created_at=hidden_at,
+            updated_at=hidden_at,
+        )
+    )
+    db_session.add(
+        ClueFollowUpRecord(
+            follow_up_record_id="order-2-hidden-follow-up",
+            order_id="order-2",
+            assignment_round_id="order-2-hidden-history",
+            round_no=0,
+            assigned_store_id="store-old",
+            follow_result="lost",
+            note="Historical record remains in storage.",
+            created_at=hidden_at,
+        )
+    )
+
+    # Source metadata can be in August while the formal assignment is at the
+    # September boundary; the assignment date controls user-facing visibility.
+    db_session.add_all(
+        [
+            ClueCenterOrder(
+                order_id="order-cross-month",
+                source_clue_ids=["clue-cross-month"],
+                source_clue_count=1,
+                canonical_clue_id="clue-cross-month",
+                lead_status="active",
+                current_assignment_round_id="order-cross-month-1",
+                current_round_no=1,
+                current_round_status="active_unfollowed",
+                assigned_at=boundary_at,
+                assigned_at_source="formal_assignment",
+                assigned_store_id="store-1",
+                assigned_store_name="Store One",
+                assigned_city="Shanghai",
+                assigned_province="Shanghai",
+                product_id="sku-cross-month",
+                product_name="Cross Month Product",
+                product_type="Car Service",
+                created_at=hidden_at,
+                updated_at=boundary_at,
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="order-cross-month-1",
+                order_id="order-cross-month",
+                round_no=1,
+                assigned_at=boundary_at,
+                assigned_at_source="formal_assignment",
+                assigned_store_id="store-1",
+                assigned_store_name="Store One",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                execution_mode="formal",
+                created_at=boundary_at,
+                updated_at=boundary_at,
+            ),
+            ClueCenterOrder(
+                order_id="order-hidden-only",
+                source_clue_ids=["clue-hidden-only"],
+                source_clue_count=1,
+                canonical_clue_id="clue-hidden-only",
+                lead_status="active",
+                current_assignment_round_id="order-hidden-only-1",
+                current_round_no=1,
+                current_round_status="active_unfollowed",
+                assigned_at=hidden_at,
+                assigned_at_source="historical_import",
+                assigned_store_id="store-old",
+                assigned_store_name="Historical Store",
+                assigned_city="Old City",
+                assigned_province="Old Province",
+                product_id="sku-hidden-only",
+                product_name="Hidden Product",
+                product_type="Car Service",
+                created_at=hidden_at,
+                updated_at=hidden_at,
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="order-hidden-only-1",
+                order_id="order-hidden-only",
+                round_no=1,
+                assigned_at=hidden_at,
+                assigned_at_source="historical_import",
+                assigned_store_id="store-old",
+                assigned_store_name="Historical Store",
+                follow_result="pending",
+                is_followed=False,
+                is_follow_success=False,
+                round_status="active_unfollowed",
+                execution_mode="formal",
+                created_at=hidden_at,
+                updated_at=hidden_at,
+            ),
+        ]
+    )
+    db_session.commit()
+    _login(client)
+
+    filters = client.get("/api/v1/clues/filters")
+    assert filters.status_code == 200
+    assert all(
+        option["store_id"] != "store-old"
+        for option in filters.json()["data"]["assigned_stores"]
+    )
+    store_options = client.get(
+        "/api/v1/clues/filter-options/stores",
+        params={"q": "Historical"},
+    )
+    assert store_options.status_code == 200
+    assert store_options.json()["data"]["stores"] == []
+
+    all_rounds = client.get(
+        "/api/v1/clues/assignment-rounds", params={"page_size": 100}
+    )
+    assert all_rounds.status_code == 200
+    all_ids = {
+        row["assignment_round_id"] for row in all_rounds.json()["data"]["rows"]
+    }
+    assert "order-2-hidden-history" not in all_ids
+    assert "order-cross-month-1" in all_ids
+    assert "order-2-1" in all_ids
+    assert all_rounds.json()["data"]["pagination"]["total"] == len(
+        all_rounds.json()["data"]["rows"]
+    )
+
+    exported = client.get("/api/v1/clues/assignment-rounds/export")
+    assert exported.status_code == 200
+    exported_ids = {
+        row["assignment_round_id"]
+        for row in csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig")))
+    }
+    assert "order-2-hidden-history" not in exported_ids
+    assert "order-cross-month-1" in exported_ids
+
+    earlier = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={"assigned_date_end": "2026-08-31", "page_size": 100},
+    )
+    assert earlier.status_code == 200
+    assert earlier.json()["data"]["rows"] == []
+    assert earlier.json()["data"]["pagination"]["total"] == 0
+
+    boundary = client.get(
+        "/api/v1/clues/assignment-rounds",
+        params={
+            "assigned_date_start": "2026-09-01",
+            "assigned_date_end": "2026-09-01",
+            "q": "order-cross-month",
+        },
+    )
+    assert boundary.status_code == 200
+    assert [row["assignment_round_id"] for row in boundary.json()["data"]["rows"]] == [
+        "order-cross-month-1"
+    ]
+
+    overview_earlier = client.get(
+        "/api/v1/clues/overview",
+        params={"assigned_date_end": "2026-08-31"},
+    )
+    assert overview_earlier.status_code == 200
+    assert overview_earlier.json()["data"]["total_clues"] == 0
+
+    detail = client.get("/api/v1/clues/orders/order-2")
+    assert detail.status_code == 200
+    assert [row["assignment_round_id"] for row in detail.json()["data"]["rounds"]] == [
+        "order-2-1"
+    ]
+    assert detail.json()["data"]["follow_up_records"] == []
+    assert client.get("/api/v1/clues/orders/order-hidden-only").status_code == 404
+    assert client.get("/api/v1/clues/orders/order-hidden-only/phone").status_code == 404
+    assert db_session.get(ClueAssignmentRound, "order-2-hidden-history") is not None
+    assert db_session.get(ClueAssignmentRound, "order-hidden-only-1") is not None
+
+    summary = data_module.DashboardDataStore(db_session).clue_store_follow_up_summary(
+        store_ids=("store-1",),
+        assigned_date_start="2026-08-31",
+        assigned_date_end="2026-09-01",
+    )
+    assert summary[0]["total_count"] == 3
 
 
 def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> None:
@@ -772,8 +981,8 @@ def test_clue_date_end_filter_includes_selected_calendar_day(
     response = client.get(
         "/api/v1/clues/assignment-rounds",
         params={
-            "assigned_date_start": "2026-06-01",
-            "assigned_date_end": "2026-06-02",
+            "assigned_date_start": "2026-09-01",
+            "assigned_date_end": "2026-09-02",
         },
     )
 

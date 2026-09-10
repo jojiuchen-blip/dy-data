@@ -23,6 +23,7 @@ import type {
   ClueDemoState,
   ClueDemoStore,
 } from "./clueDemoTypes";
+import { CLUE_VISIBLE_ASSIGNED_AT } from "../utils/clueVisibility";
 
 interface CreateClueDemoStateOptions {
   seed?: number;
@@ -403,6 +404,12 @@ export function createClueDemoState(
   options: CreateClueDemoStateOptions = {},
 ): ClueDemoState {
   const now = options.now ? new Date(options.now) : new Date();
+  const clueAssignmentNow = new Date(
+    Math.max(
+      now.getTime(),
+      Date.parse(CLUE_VISIBLE_ASSIGNED_AT) + 7 * 24 * 60 * 60 * 1000,
+    ),
+  );
   const random = createSeededRandom(options.seed ?? CLUE_DEMO_PROFILE.seed);
   const stores = createStores();
   const rounds: ClueAssignmentRound[] = [];
@@ -446,8 +453,8 @@ export function createClueDemoState(
           : HISTORICAL_REASONS[(leadIndex + roundNumber) % HISTORICAL_REASONS.length];
         const assignedStore = cityStores[(storeOffset + roundNumber - 1) % cityStores.length];
         const assignedAt = shiftedIso(
-          now,
-          -(8 + ((leadIndex * 7) % 145) - (roundNumber - 1)),
+          clueAssignmentNow,
+          -(1 + (leadIndex % 6) - (roundNumber - 1)),
           (leadIndex * 13 + roundNumber * 17) % 720,
         );
         const verified = isFinalRound && (outcome.leadStatus === "converted" || outcome.leadStatus === "refunded");

@@ -23,7 +23,7 @@
       ]
     },
     "meta": {
-      "generated_at": "2026-06-24T02:00:00.000Z",
+      "generated_at": "2026-09-24T02:00:00.000Z",
       "source": "mock"
     }
   },
@@ -38,7 +38,7 @@
       "pending_reassign_count": 2
     },
     "meta": {
-      "generated_at": "2026-06-24T02:00:00.000Z",
+      "generated_at": "2026-09-24T02:00:00.000Z",
       "source": "mock"
     }
   },
@@ -60,7 +60,7 @@
           "can_operate_current_round": true,
           "round_effective_status": "active",
           "round_status": "active_unfollowed",
-          "assigned_at": "2026-06-23T01:20:00.000Z",
+          "assigned_at": "2026-09-03T01:20:00.000Z",
           "expires_at": "2026-06-24T01:20:00.000Z",
           "remaining_reassign_seconds": 81000,
           "assigned_store_id": "STORE-001",
@@ -92,7 +92,7 @@
           "is_current_round": true,
           "round_effective_status": "active",
           "round_status": "active_followed",
-          "assigned_at": "2026-06-22T07:10:00.000Z",
+          "assigned_at": "2026-09-02T07:10:00.000Z",
           "expires_at": "2026-06-23T07:10:00.000Z",
           "remaining_reassign_seconds": 18600,
           "assigned_store_id": "STORE-002",
@@ -124,7 +124,7 @@
           "is_current_round": true,
           "round_effective_status": "active",
           "round_status": "active_followed",
-          "assigned_at": "2026-06-21T03:45:00.000Z",
+          "assigned_at": "2026-09-01T03:45:00.000Z",
           "expires_at": null,
           "remaining_reassign_seconds": 0,
           "assigned_store_id": "STORE-003",
@@ -157,7 +157,7 @@
           "can_operate_current_round": false,
           "round_effective_status": "inactive",
           "round_status": "failed_pending_reassign",
-          "assigned_at": "2026-06-22T02:05:00.000Z",
+          "assigned_at": "2026-09-02T02:05:00.000Z",
           "expires_at": "2026-06-22T03:14:00.000Z",
           "remaining_reassign_seconds": 0,
           "assigned_store_id": "STORE-003",
@@ -189,7 +189,7 @@
           "is_current_round": true,
           "round_effective_status": "active",
           "round_status": "active_unfollowed",
-          "assigned_at": "2026-06-22T03:30:00.000Z",
+          "assigned_at": "2026-09-02T03:30:00.000Z",
           "expires_at": "2026-06-23T03:30:00.000Z",
           "remaining_reassign_seconds": 72000,
           "assigned_store_id": "STORE-001",
@@ -221,7 +221,7 @@
           "is_current_round": false,
           "round_effective_status": "inactive",
           "round_status": "expired_pending_reassign",
-          "assigned_at": "2026-06-20T00:30:00.000Z",
+          "assigned_at": "2026-09-01T00:30:00.000Z",
           "expires_at": "2026-06-21T00:30:00.000Z",
           "remaining_reassign_seconds": 0,
           "assigned_store_id": "STORE-002",
@@ -248,7 +248,7 @@
       }
     },
     "meta": {
-      "generated_at": "2026-06-24T02:00:00.000Z",
+      "generated_at": "2026-09-24T02:00:00.000Z",
       "source": "mock"
     }
   },
@@ -280,7 +280,7 @@
             "is_current_round": true,
             "round_effective_status": "active",
             "round_status": "active_unfollowed",
-            "assigned_at": "2026-06-23T01:20:00.000Z",
+            "assigned_at": "2026-09-03T01:20:00.000Z",
             "expires_at": "2026-06-24T01:20:00.000Z",
             "remaining_reassign_seconds": 81000,
             "assigned_store_id": "STORE-001",
@@ -302,7 +302,7 @@
         "follow_up_records": []
       },
       "meta": {
-        "generated_at": "2026-06-24T02:00:00.000Z",
+        "generated_at": "2026-09-24T02:00:00.000Z",
         "source": "mock"
       }
     },
@@ -333,7 +333,7 @@
             "is_current_round": true,
             "round_effective_status": "active",
             "round_status": "active_followed",
-            "assigned_at": "2026-06-22T07:10:00.000Z",
+            "assigned_at": "2026-09-02T07:10:00.000Z",
             "expires_at": "2026-06-23T07:10:00.000Z",
             "remaining_reassign_seconds": 18600,
             "assigned_store_id": "STORE-002",
@@ -423,7 +423,7 @@
         ]
       },
       "meta": {
-        "generated_at": "2026-06-24T02:00:00.000Z",
+        "generated_at": "2026-09-24T02:00:00.000Z",
         "source": "mock"
       }
     },
@@ -454,7 +454,7 @@
             "is_current_round": false,
             "round_effective_status": "inactive",
             "round_status": "failed_pending_reassign",
-            "assigned_at": "2026-06-22T02:05:00.000Z",
+            "assigned_at": "2026-09-02T02:05:00.000Z",
             "expires_at": "2026-06-22T03:14:00.000Z",
             "remaining_reassign_seconds": 0,
             "assigned_store_id": "STORE-003",
@@ -486,7 +486,7 @@
             "is_current_round": true,
             "round_effective_status": "active",
             "round_status": "active_unfollowed",
-            "assigned_at": "2026-06-22T03:30:00.000Z",
+            "assigned_at": "2026-09-02T03:30:00.000Z",
             "expires_at": "2026-06-23T03:30:00.000Z",
             "remaining_reassign_seconds": 72000,
             "assigned_store_id": "STORE-001",
@@ -521,7 +521,7 @@
         ]
       },
       "meta": {
-        "generated_at": "2026-06-24T02:00:00.000Z",
+        "generated_at": "2026-09-24T02:00:00.000Z",
         "source": "mock"
       }
     }

@@ -37,6 +37,10 @@ import type {
   ClueDemoPreviewToken,
   ClueDemoState,
 } from "./clueDemoTypes";
+import {
+  clueAssignedDateInShanghai,
+  isClueAssignedAtVisible,
+} from "../utils/clueVisibility";
 
 export interface ClueDemoRoundQuery {
   filters: ClueOverviewFilters;
@@ -113,29 +117,42 @@ export class ClueDemoRepository {
   }
 
   getFilters(): ApiResponse<ClueFilterMetadata> {
+    const visibleRounds = this.filterRounds({});
+    const visibleStoreIds = new Set(
+      visibleRounds
+        .map((round) => round.assigned_store_id)
+        .filter((storeId): storeId is string => Boolean(storeId)),
+    );
+    const visibleProductTypes = new Set(
+      visibleRounds
+        .map((round) => round.product_type)
+        .filter((productType): productType is string => Boolean(productType)),
+    );
     return demoResponse(
       {
-        assigned_stores: this.state.stores.map((store) => ({
-          store_id: store.store_id,
-          store_name: store.store_name,
-        })),
+        assigned_stores: this.state.stores
+          .filter((store) => visibleStoreIds.has(store.store_id))
+          .map((store) => ({
+            store_id: store.store_id,
+            store_name: store.store_name,
+          })),
         assigned_provinces: uniqueSorted(
-          this.state.stores.map((store) => store.province),
+          this.state.stores
+            .filter((store) => visibleStoreIds.has(store.store_id))
+            .map((store) => store.province),
         ),
         assigned_cities: uniqueSorted(
-          this.state.stores.map((store) => store.city),
+          this.state.stores
+            .filter((store) => visibleStoreIds.has(store.store_id))
+            .map((store) => store.city),
         ),
-        product_types: uniqueSorted(
-          Object.values(this.state.orderDetails).map(
-            (detail) => detail.product_type,
-          ),
-        ),
+        product_types: uniqueSorted([...visibleProductTypes]),
         default_product_type: "all",
         lead_statuses: uniqueSorted(
-          this.state.rounds.map((round) => round.lead_status),
+          visibleRounds.map((round) => round.lead_status),
         ),
         round_statuses: uniqueSorted(
-          this.state.rounds.map((round) => round.round_status),
+          visibleRounds.map((round) => round.round_status),
         ),
         verification_statuses: [
           "unverified",
@@ -208,12 +225,33 @@ export class ClueDemoRepository {
     if (!detail) {
       throw new ClueDemoRepositoryError(404, "演示线索不存在");
     }
-    return demoResponse(detail, this.state.generatedAt);
+    const rounds = detail.rounds.filter((round) =>
+      isClueAssignedAtVisible(round.assigned_at),
+    );
+    if (!rounds.length) {
+      throw new ClueDemoRepositoryError(404, "演示线索不存在");
+    }
+    const visibleRoundIds = new Set(
+      rounds.map((round) => round.assignment_round_id),
+    );
+    return demoResponse(
+      {
+        ...detail,
+        rounds,
+        follow_up_records: detail.follow_up_records.filter((record) =>
+          visibleRoundIds.has(record.assignment_round_id),
+        ),
+      },
+      this.state.generatedAt,
+    );
   }
 
   getOrderPhone(orderId: string): ApiResponse<CluePhoneReveal> {
     const detail = this.state.orderDetails[orderId];
     if (!detail) {
+      throw new ClueDemoRepositoryError(404, "演示线索不存在");
+    }
+    if (!detail.rounds.some((round) => isClueAssignedAtVisible(round.assigned_at))) {
       throw new ClueDemoRepositoryError(404, "演示线索不存在");
     }
     const sequence = orderId.replace("DEMO-ORDER-", "");
@@ -1390,10 +1428,11 @@ export class ClueDemoRepository {
       this.state.stores.map((store) => [store.store_id, store]),
     );
     return this.state.rounds.filter((round) => {
+      if (!isClueAssignedAtVisible(round.assigned_at)) return false;
       const store = round.assigned_store_id
         ? storeById.get(round.assigned_store_id)
         : undefined;
-      const assignedDate = round.assigned_at?.slice(0, 10) ?? "";
+      const assignedDate = clueAssignedDateInShanghai(round.assigned_at);
       if (
         filters.assigned_store_id &&
         round.assigned_store_id !== filters.assigned_store_id

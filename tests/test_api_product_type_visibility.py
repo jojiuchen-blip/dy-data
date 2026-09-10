@@ -54,6 +54,10 @@ def _dt(day: int) -> datetime:
     return datetime(2026, 6, day, 8, tzinfo=timezone.utc)
 
 
+def _clue_dt(day: int) -> datetime:
+    return datetime(2026, 9, day, 8, tzinfo=timezone.utc)
+
+
 def _login_admin(client: TestClient) -> None:
     response = client.post(
         "/api/v1/auth/login",
@@ -229,7 +233,7 @@ def _seed_product_visibility_data(session: Session) -> None:
                 current_assignment_round_id="clue-visible-1",
                 current_round_no=1,
                 current_round_status="active_unfollowed",
-                assigned_at=_dt(1),
+                assigned_at=_clue_dt(1),
                 assigned_store_id="store-1",
                 assigned_store_name="Store One",
                 product_name="Visible Product",
@@ -238,14 +242,14 @@ def _seed_product_visibility_data(session: Session) -> None:
                 is_followed=False,
                 is_follow_success=False,
                 is_self_store_verified=False,
-                created_at=_dt(1),
-                updated_at=_dt(1),
+                created_at=_clue_dt(1),
+                updated_at=_clue_dt(1),
             ),
             ClueAssignmentRound(
                 assignment_round_id="clue-visible-1",
                 order_id="clue-visible",
                 round_no=1,
-                assigned_at=_dt(1),
+                assigned_at=_clue_dt(1),
                 assigned_store_id="store-1",
                 assigned_store_name="Store One",
                 follow_result="pending",
@@ -253,8 +257,8 @@ def _seed_product_visibility_data(session: Session) -> None:
                 is_follow_success=False,
                 round_status="active_unfollowed",
                 is_self_store_verified=False,
-                created_at=_dt(1),
-                updated_at=_dt(1),
+                created_at=_clue_dt(1),
+                updated_at=_clue_dt(1),
             ),
             ClueCenterOrder(
                 order_id="clue-hidden",
@@ -265,7 +269,7 @@ def _seed_product_visibility_data(session: Session) -> None:
                 current_assignment_round_id="clue-hidden-1",
                 current_round_no=1,
                 current_round_status="active_unfollowed",
-                assigned_at=_dt(1),
+                assigned_at=_clue_dt(1),
                 assigned_store_id="store-1",
                 assigned_store_name="Store One",
                 product_name="Hidden Product",
@@ -274,14 +278,14 @@ def _seed_product_visibility_data(session: Session) -> None:
                 is_followed=False,
                 is_follow_success=False,
                 is_self_store_verified=False,
-                created_at=_dt(1),
-                updated_at=_dt(1),
+                created_at=_clue_dt(1),
+                updated_at=_clue_dt(1),
             ),
             ClueAssignmentRound(
                 assignment_round_id="clue-hidden-1",
                 order_id="clue-hidden",
                 round_no=1,
-                assigned_at=_dt(1),
+                assigned_at=_clue_dt(1),
                 assigned_store_id="store-1",
                 assigned_store_name="Store One",
                 follow_result="pending",
@@ -289,8 +293,8 @@ def _seed_product_visibility_data(session: Session) -> None:
                 is_follow_success=False,
                 round_status="active_unfollowed",
                 is_self_store_verified=False,
-                created_at=_dt(1),
-                updated_at=_dt(1),
+                created_at=_clue_dt(1),
+                updated_at=_clue_dt(1),
             ),
         ]
     )
