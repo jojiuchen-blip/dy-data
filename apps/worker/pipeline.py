@@ -165,8 +165,8 @@ class EmptyDouyinClient:
     def iter_orders(self, start: Any, end: Any, *, page_size: int = 100):
         return iter(())
 
-    def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None) -> dict[str, Any]:
-        return {"data": {"pois": [], "has_more": False}}
+    def query_shop_pois(self, *, relation_type: int = 0, page: int = 1, size: int = 50) -> dict[str, Any]:
+        return {"data": {"pois": [], "total": 0, "has_more": False}}
 
     def query_verify_records(
         self,
