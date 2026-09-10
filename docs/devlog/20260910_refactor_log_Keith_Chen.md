@@ -69,3 +69,12 @@
 - **操作**：93ace560合入main并推送，显式触发34428997784；核查备份、迁移、健康、源码散列及已登录九月页面
 - **结果**：流水线成功：2752 passed/157 skipped，真实PostgreSQL及镜像构建通过；北京时间10:53部署完成。六份worker源码匹配发布提交；迁移仍0053。九月页面实测483条可跟进，10:59数据库579条，待首次分配7924降至7345；最近批次96分配/4终态跳过/0失败，重复活动轮次0、新增自动超期0。priority_daily运行、旧auto_sync_enabled保持false。备份pre-production-cutover-20260910T024853Z.env与pre-migrate-20260910T024858Z.dump已生成，并保留rollback-formal-20260910镜像。T0.3完成，DYDATA-90整体历史积压及72小时观察继续。流水线https://github.com/jojiuchen-blip/dy-data/actions/runs/34428997784；output/formal-release-before.json及after-final.json为本地脱敏只读证据。
 - **涉及文件**：docs/plans/delivery-plans/main-delivery-plan-dydata-90-formal.md、docs/plans/execution-plan.md、project-profile.md
+---
+
+## 补充更新 6（13:34 · 窗口 6）
+
+### 任务 7：DYDATA-90 接续生产对账
+- **目标**：核实正式分配积压与日批运行结果
+- **操作**：生产只读查询轮次、候选过滤、原始状态和日批阶段；不触发分配或修改配置
+- **结果**：13:30上海时间九月正式分配1990，重复活动轮次0、新增自动超期0。待分配5934：5620已有closed_reassigned正式轮次；234缺中心明细且原始支付成功，进一步复核其中215具备有效订单/券证据、4关闭10退款5核销，已承接同一DYDATA-90修复；80权威状态为31退款25核销24关闭。九月九日日批五项及采集物化结算阶段成功；历史推进至九月三日，平台限流等待九月十一日00:02:47。72小时观察未完成，DYDATA-90保持进行中。DYDATA-91用户确认沿用分配日期，跨月补分配保留，隔离工作树实现中。
+- **涉及文件**：无
