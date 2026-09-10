@@ -2,6 +2,13 @@
 
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代 S3 正式交付计划。
 
+## 当前发布校验入口：DYDATA-87
+
+- 当前正式计划文件组：[结算与门店财务发布](delivery-plans/main-delivery-plan-dy-data.md)
+- 当前活跃任务：T5.7；[任务看板](delivery-plans/task-kanban-dy-data.md)与[当前子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)均为进行中，承接用户已授权的 DYDATA-87 发布与数据验收。
+- 下一步：通过精确候选 CI、生产备份与发布验证，再执行限定 2026-08 的映射补齐和管理费修复；不变更真实账单确认或其他任务状态。
+- 此入口供本候选发布检查选择计划；下方 DYDATA-90 正式分配的完成记录保持不变，不将其重新标记进行中。
+
 ## 0. 当前增量交付：DYDATA-81 G5
 
 - 用户已于 2026-08-30 明确授权：基于已确认《财务页面合同矩阵》、书面裁决、冻结原型和正式 API/Schema，完成六页实现、测试、隔离 UAT、受控生产部署与部署后验证；任一门禁失败即停止，不自行关闭 DYDATA-81。
