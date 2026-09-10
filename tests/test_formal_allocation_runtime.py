@@ -1,9 +1,17 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy.orm import sessionmaker
 
-from apps.api.dy_api.models import ClueAssignmentRound, ClueCenterOrder, RawDouyinClue, RawDouyinOrder, SyncSetting
+from apps.api.dy_api.models import (
+    ClueAssignmentRound,
+    ClueCenterOrder,
+    ClueMasterLead,
+    DimStorePoiMapping,
+    RawDouyinClue,
+    RawDouyinOrder,
+    SyncSetting,
+)
 from apps.worker import formal_allocation_runtime as runtime
 from test_clue_allocation_engine import _lead, _store, _publish_global_rule
 
@@ -75,6 +83,198 @@ def test_current_order_and_coupon_evidence_override_clue_label(db_session, order
     ))
     db_session.commit()
     assert runtime.run_formal_allocation_batch(factory)["assigned"] == expected
+
+
+@pytest.mark.parametrize(
+    "raw_order_status,raw_payload,expected_center,expected_assigned",
+    [
+        ("支付成功", {"certificate": [{"item_status": 400}]}, 1, 1),
+        ("支付成功", {}, 0, 0),
+        ("已退款", {"certificate": [{"item_status": 400}]}, 0, 0),
+        ("已完成", {"certificate": [{"item_status": 401}]}, 0, 0),
+    ],
+)
+def test_missing_center_repair_reuses_current_order_evidence(
+    db_session, raw_order_status, raw_payload, expected_center, expected_assigned
+):
+    factory = setup(db_session)
+    db_session.add(DimStorePoiMapping(store_id="anchor", poi_id="poi-anchor"))
+    lead = _lead("missing-center")
+    db_session.add_all(
+        [
+            lead,
+            RawDouyinClue(
+                clue_row_key=lead.source_clue_row_key,
+                clue_id=lead.canonical_clue_id,
+                order_id=lead.order_id,
+                order_status="200",
+                follow_poi_id="poi-anchor",
+                source_observed_at=NOW,
+                raw_payload={},
+            ),
+            RawDouyinOrder(
+                order_id=lead.order_id,
+                order_status=raw_order_status,
+                raw_payload=raw_payload,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = runtime.run_formal_allocation_batch(factory, now=NOW)
+
+    with factory() as reader:
+        assert reader.query(ClueCenterOrder).count() == expected_center
+        assert reader.query(ClueAssignmentRound).count() == expected_assigned
+    assert result["assigned"] == expected_assigned
+    assert result["center_repaired"] == expected_center
+
+
+def test_missing_center_cursor_advances_past_terminal_rows(db_session):
+    factory = setup(db_session)
+    db_session.add(DimStorePoiMapping(store_id="anchor", poi_id="poi-anchor"))
+    for key in ("a", "b"):
+        lead = _lead(
+            f"missing-center-{key}",
+            order_id=f"order-missing-center-{key}",
+        )
+        db_session.add(
+            RawDouyinClue(
+                clue_row_key=lead.source_clue_row_key,
+                clue_id=lead.canonical_clue_id,
+                order_id=lead.order_id,
+                order_status="200",
+                follow_poi_id="poi-anchor",
+                source_observed_at=NOW,
+                raw_payload={},
+            )
+        )
+        db_session.add(lead)
+    db_session.add(RawDouyinOrder(
+        order_id="order-missing-center-b",
+        order_status="200",
+        raw_payload={"certificate": [{"item_status": 400}]},
+    ))
+    db_session.commit()
+
+    first = runtime._repair_missing_center_projection(
+        factory, order_ids=None, limit=1, now=NOW
+    )
+    assert first == {"scanned": 1, "projected": 0, "deferred": 0}
+    with factory() as reader:
+        assert reader.get(SyncSetting, runtime.CENTER_PROJECTION_CURSOR_KEY).setting_value == "missing-center-a"
+        assert reader.get(ClueMasterLead, "missing-center-a").normalized_order_status == "unknown"
+
+    second = runtime._repair_missing_center_projection(
+        factory, order_ids=None, limit=1, now=NOW
+    )
+    assert second == {"scanned": 1, "projected": 1, "deferred": 0}
+    with factory() as reader:
+        assert reader.get(ClueCenterOrder, "order-missing-center-b") is not None
+        assert reader.get(SyncSetting, runtime.CENTER_PROJECTION_CURSOR_KEY).setting_value == "missing-center-b"
+
+
+def test_missing_center_repair_failure_is_visible_and_existing_rows_continue(
+    db_session, monkeypatch
+):
+    factory = setup(db_session)
+    seed(db_session)
+    db_session.commit()
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("projection failed")
+
+    monkeypatch.setattr(runtime, "_repair_missing_center_projection", fail)
+    result = runtime.run_formal_allocation_batch(factory, now=NOW)
+
+    assert result["assigned"] == 1
+    assert result["center_repair_failed"] == 1
+    assert result["center_repair_deferred"] == 1
+
+
+def test_formal_batch_does_not_allocate_after_repair_deadline(db_session, monkeypatch):
+    factory = setup(db_session)
+    lead = seed(db_session)
+    db_session.commit()
+    ticks = iter((100.0, 100.2))
+    monkeypatch.setattr(runtime, "monotonic", lambda: next(ticks))
+    monkeypatch.setattr(
+        runtime,
+        "_repair_missing_center_projection",
+        lambda *args, **kwargs: {"scanned": 1, "projected": 0, "deferred": 1},
+    )
+
+    result = runtime.run_formal_allocation_batch(factory, now=NOW, max_seconds=0.1)
+
+    assert result["assigned"] == 0
+    assert result["center_repair_deferred"] == 1
+    with factory() as reader:
+        assert reader.get(ClueCenterOrder, lead.order_id).current_assignment_round_id is None
+
+
+def test_missing_center_repair_does_not_use_an_older_terminal_snapshot(db_session):
+    factory = setup(db_session)
+    lead = _lead("old-snapshot", order_id="order-old-snapshot")
+    lead.last_seen_at = NOW
+    lead.last_observation_key = "newer-observation"
+    db_session.add_all(
+        [
+            lead,
+            RawDouyinClue(
+                clue_row_key=lead.source_clue_row_key,
+                clue_id=lead.canonical_clue_id,
+                order_id=lead.order_id,
+                order_status="300",
+                source_observed_at=NOW - timedelta(days=1),
+                observation_key="older-observation",
+                raw_payload={},
+            ),
+            RawDouyinOrder(order_id=lead.order_id, order_status="300", raw_payload={}),
+        ]
+    )
+    db_session.commit()
+
+    result = runtime.run_formal_allocation_batch(factory, now=NOW)
+
+    with factory() as reader:
+        refreshed_lead = reader.get(ClueMasterLead, lead.lead_key)
+        assert refreshed_lead.normalized_order_status == "active"
+        assert reader.get(ClueCenterOrder, lead.order_id) is None
+        assert reader.query(ClueAssignmentRound).count() == 0
+    assert result["center_repaired"] == 0
+
+
+def test_missing_center_repair_excludes_existing_formal_history(db_session):
+    factory = setup(db_session)
+    lead = _lead("formal-history", order_id="order-formal-history")
+    db_session.add_all(
+        [
+            lead,
+            RawDouyinClue(
+                clue_row_key=lead.source_clue_row_key,
+                clue_id=lead.canonical_clue_id,
+                order_id=lead.order_id,
+                order_status="201",
+                raw_payload={},
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="formal-history-round",
+                lead_key=lead.lead_key,
+                order_id=lead.order_id,
+                execution_mode="formal",
+                round_status="closed_reassigned",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    result = runtime.run_formal_allocation_batch(factory, now=NOW)
+
+    with factory() as reader:
+        assert reader.get(ClueCenterOrder, lead.order_id) is None
+        assert reader.query(ClueAssignmentRound).count() == 1
+    assert result["assigned"] == 0
+    assert result["center_repaired"] == 0
 
 
 @pytest.mark.parametrize("field,value", [
