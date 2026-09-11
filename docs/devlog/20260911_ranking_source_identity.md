@@ -39,3 +39,5 @@ PR #28 的 CI run 34600707674 两次在 Playwright 系统依赖下载阶段达�
 官方完整归档提供 noble-security：https://archive.ubuntu.com/ubuntu/dists/noble-security/Release 。此修改是否消除托管 runner 下载故障，仍需下一次 CI 证明。
 
 Run 34606123933 再次在 APT 索引下载阶段达到10分钟上限；因此“只收敛镜像列表即可恢复”的假设未成立。下一次执行改为同一个官方 HTTPS 归档的直接 URI，去除 mirror+file 重定向层，并输出实际 APT 超时配置、用30秒有界 HTTPS 请求验证索引连通性。这是对传输层的定向诊断，不能提前宣称修复；仍须全部测试通过才合并。
+
+诊断 run 34607543733 已发现可证实的配置覆盖：apt-config dump 实际输出 HTTP/HTTPS Timeout=600、Retries=1，而非本步骤写入的30/2；同一 runner 的 curl 请求官方索引200，仅0.207秒。运行器后加载的配置覆盖了80-playwright-network。改为末序 zzzz-codex-playwright-network，并以三条精确 apt-config 断言验证实际生效值；不再仅靠工作流源码包含配置判断有效。

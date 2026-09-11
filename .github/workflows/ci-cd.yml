@@ -113,7 +113,7 @@ jobs:
             'Acquire::http::Timeout "30";' \
             'Acquire::https::Timeout "30";' \
             'Acquire::Retries "2";' \
-            | sudo tee /etc/apt/apt.conf.d/80-playwright-network >/dev/null
+            | sudo tee /etc/apt/apt.conf.d/zzzz-codex-playwright-network >/dev/null
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             # Use the full archive for mirror-selected base packages. It also
             # publishes noble-security; apt still verifies signed metadata.
@@ -128,6 +128,9 @@ jobs:
             sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
           done
           sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
+          sudo apt-config dump | grep -Fx 'Acquire::http::Timeout "30";'
+          sudo apt-config dump | grep -Fx 'Acquire::https::Timeout "30";'
+          sudo apt-config dump | grep -Fx 'Acquire::Retries "2";'
           curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
             --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
             https://archive.ubuntu.com/ubuntu/dists/noble/InRelease

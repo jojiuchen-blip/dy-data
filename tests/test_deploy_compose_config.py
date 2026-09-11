@@ -516,6 +516,9 @@ def test_browser_dependency_downloads_are_bounded_and_fail_closed():
         assert 'Acquire::http::Timeout "30";' in step
         assert 'Acquire::https::Timeout "30";' in step
         assert 'Acquire::Retries "2";' in step
+        assert '/etc/apt/apt.conf.d/zzzz-codex-playwright-network' in step
+        for setting in ('Acquire::http::Timeout "30";', 'Acquire::https::Timeout "30";', 'Acquire::Retries "2";'):
+            assert f"sudo apt-config dump | grep -Fx '{setting}'" in step
         assert "continue-on-error" not in step
         assert "|| true" not in step
         assert "timeout 10m python -m playwright install chromium --with-deps" in step
