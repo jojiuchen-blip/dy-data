@@ -34,3 +34,6 @@ Linear 当前连接未提供 DYDATA 团队，需求以本地 LOCAL-RANKING-IDENT
 PR #28 的 CI run 34600707674 两次在 Playwright 系统依赖下载阶段达到10分钟超时，退出124；完整测试未执行。
 日志分别显示 Ubuntu 镜像索引/包请求等待。为 CI 和腾讯部署验证阶段增加 APT 单连接30秒超时、有限2次重试，保留原10分钟总上限和失败退出，不切换到未验证镜像、不关闭签名验证、不跳过测试。
 新增部署配置检查先失败后通过；tests/test_deploy_compose_config.py 共25 passed。真实 CI 下载是否恢复，以新提交执行结果为准。
+
+后续 run 34603950582 仍在依赖安装阶段超时，日志显示基础字体包从 security.ubuntu.com 镜像请求被忽略并等待；测试尚未开始。本次将完整软件包镜像列表收敛到 archive.ubuntu.com，避免将安全更新站点当作完整基础包镜像。保留安全 suite、签名校验、连接和总体超时。
+官方完整归档提供 noble-security：https://archive.ubuntu.com/ubuntu/dists/noble-security/Release 。此修改是否消除托管 runner 下载故障，仍需下一次 CI 证明。

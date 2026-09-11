@@ -102,9 +102,9 @@ jobs:
             fi
           done
           if [ -f /etc/apt/apt-mirrors.txt ]; then
+            # The full archive also publishes the signed security suites.
             printf '%s\n' \
               'https://archive.ubuntu.com/ubuntu' \
-              'https://security.ubuntu.com/ubuntu' \
               | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
           timeout 10m python -m playwright install chromium --with-deps
