@@ -12,6 +12,7 @@ export const CLUE_DEMO_MODE =
 export function isClueDemoPathname(pathname: string): boolean {
   return pathname === "/clues"
     || pathname === "/clues/details"
+    || pathname === "/metrics/douyin-ranking"
     || pathname === "/admin/clue-allocation"
     || pathname.startsWith("/admin/clue-allocation/");
 }
@@ -28,6 +29,7 @@ export const CLUE_DEMO_ADMIN_USER: AdminUser = {
   page_keys: [
     "A01",
     "A02",
+    "A03",
     "D05",
     "D06",
     "D07",

@@ -301,6 +301,17 @@ export interface SyncAdminData {
   jobs: JobRun[];
 }
 
+export interface DouyinStoreOrgImportData {
+  source_file: string;
+  snapshot: boolean;
+  rows: number;
+  updated: number;
+  duplicates: number;
+  conflicts: number;
+  missing_code: number;
+  deactivated: number;
+}
+
 export type AdminObservedStatus =
   | "starting"
   | "healthy"
@@ -549,6 +560,67 @@ export interface SettlementStoreRankingData {
   total: number;
   page: number;
   pageSize: number;
+}
+
+export type DouyinRankingLevel = "group" | "service_center" | "district" | "area" | "store";
+
+export interface DouyinRankingRow {
+  rank: number | null;
+  key: string;
+  name: string;
+  storeCount: number;
+  orderCount: number;
+  orderAverage: number | null;
+  followNumerator: number;
+  followDenominator: number;
+  follow24hRate: number | null;
+  followRate?: number | null;
+  followAnyNumerator?: number | null;
+  verificationNumerator: number;
+  verificationDenominator: number;
+  verificationRate: number | null;
+}
+
+export interface DouyinRankingTotals {
+  storeCount: number;
+  orderCount: number;
+  orderAverage: number | null;
+  followNumerator: number;
+  followDenominator: number;
+  follow24hRate: number | null;
+  followRate?: number | null;
+  followAnyNumerator?: number | null;
+  verificationNumerator: number;
+  verificationDenominator: number;
+  verificationRate: number | null;
+}
+
+export interface DouyinRankingData {
+  qualityJson?: Record<string, number>;
+  dataMode?: string;
+  snapshotId?: string;
+  previewNote?: string;
+  eligibilityVersion?: string;
+  periodStart: string;
+  periodEnd: string;
+  level: DouyinRankingLevel;
+  total: number;
+  page: number;
+  pageSize: number;
+  rows: DouyinRankingRow[];
+  totals: DouyinRankingTotals;
+  latestObservedAt: string | null;
+  metricDefinitions: Record<string, string>;
+}
+
+export interface DouyinRankingConfigurationImportData {
+  missing_organization_count?: number;
+  mapping_version: string;
+  eligibility_version: string;
+  store_count: number;
+  eligible_store_count: number;
+  effective_from: string;
+  changed: boolean;
 }
 
 export interface SettlementStatementSummary {

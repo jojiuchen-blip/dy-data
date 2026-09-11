@@ -157,6 +157,10 @@ import type {
   SettlementFilterMetaData,
   SettlementMonthlyData,
   SettlementStoreRankingData,
+  DouyinRankingData,
+  DouyinRankingLevel,
+  DouyinStoreOrgImportData,
+  DouyinRankingConfigurationImportData,
   StoreScoreSnapshotData,
   UnactivatedStoreAccountListData,
 } from "../types/dashboard";
@@ -1360,6 +1364,78 @@ export function fetchSettlementStoreRanking({
   );
 }
 
+export function fetchDouyinRanking({
+  periodStart,
+  periodEnd,
+  level,
+  groupName,
+  serviceCenterName,
+  districtName,
+  areaName,
+  storeId,
+  page,
+  pageSize,
+  sortBy = "order_count",
+  sortOrder = "DESC",
+}: {
+  periodStart: string;
+  periodEnd: string;
+  level: DouyinRankingLevel;
+  groupName?: string;
+  serviceCenterName?: string;
+  districtName?: string;
+  areaName?: string;
+  storeId?: string;
+  page: number;
+  pageSize: number;
+  sortBy?: "order_count" | "order_average" | "follow_24h_rate" | "verification_rate";
+  sortOrder?: "ASC" | "DESC";
+}): Promise<ApiLoadResult<DouyinRankingData>> {
+  const emptyResponse = (): ApiResponse<DouyinRankingData> => ({
+    data: {
+      periodStart,
+      periodEnd,
+      level,
+      total: 0,
+      page,
+      pageSize,
+      rows: [],
+      totals: {
+        storeCount: 0,
+        orderCount: 0,
+        orderAverage: null,
+        followNumerator: 0,
+        followDenominator: 0,
+        follow24hRate: null,
+        verificationNumerator: 0,
+        verificationDenominator: 0,
+        verificationRate: null,
+      },
+      latestObservedAt: null,
+      metricDefinitions: {},
+    },
+    meta: { generatedAt: generatedAt(), source: "mock" },
+  });
+  return withMockFallback(
+    () => requestJson<DouyinRankingData>("/dashboard/douyin-ranking", {
+      periodStart,
+      periodEnd,
+      level,
+      groupName,
+      serviceCenterName,
+      districtName,
+      areaName,
+      storeId,
+      page,
+      pageSize,
+      sortBy,
+      sortOrder,
+    }),
+    emptyResponse,
+    { fallbackOnError: false },
+  );
+}
+
 export function fetchSettlementMonthly({
   storeId,
   month,
@@ -2399,6 +2475,32 @@ export async function fetchCommissionRulesSummary(): Promise<
 export async function fetchSyncAdmin(): Promise<ApiLoadResult<SyncAdminData>> {
   return {
     ...(await requestJson<SyncAdminData>("/admin/sync")),
+    usingMock: false,
+  };
+}
+
+export async function uploadDouyinRankingConfiguration(
+  organizationFile: File | null, eligibilityFile: File | null,
+): Promise<ApiLoadResult<DouyinRankingConfigurationImportData>> {
+  const form = new FormData();
+  if (organizationFile) form.append("organization_file", organizationFile);
+  if (eligibilityFile) form.append("eligibility_file", eligibilityFile);
+  return {
+    ...(await sendForm<DouyinRankingConfigurationImportData>("/admin/sync/douyin-ranking-configuration", form)),
+    usingMock: false,
+  };
+}
+
+export async function uploadDouyinStoreOrgMapping(
+  file: File,
+): Promise<ApiLoadResult<DouyinStoreOrgImportData>> {
+  const form = new FormData();
+  form.append("file", file);
+  return {
+    ...(await sendForm<DouyinStoreOrgImportData>(
+      "/admin/sync/douyin-store-org",
+      form,
+    )),
     usingMock: false,
   };
 }

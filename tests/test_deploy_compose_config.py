@@ -7,6 +7,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def test_web_proxy_allows_two_ranking_files_without_relaxing_other_routes():
+    dockerfile = (ROOT / "apps/web/Dockerfile").read_text(encoding="utf-8")
+    # The proxy variable itself contains a closing brace, so inspect the
+    # complete location prefix up to the next location instead.
+    location = dockerfile.split("location = /api/v1/admin/sync/douyin-ranking-configuration {", 1)[1].split("location /api/v1/", 1)[0]
+    assert "client_max_body_size 21m;" in location
+    assert "proxy_pass ${API_UPSTREAM};" in location
+    assert dockerfile.count("client_max_body_size 21m;") == 1
+
+
 def _compose_service(compose: str, name: str) -> str:
     match = re.search(
         rf"(?ms)^  {re.escape(name)}:\n(.*?)(?=^  [a-z0-9_-]+:\n|^networks:\n|\Z)",
@@ -257,7 +267,7 @@ def test_release_workflow_gates_target_database_and_keeps_migration_explicit():
 
 
 def test_postgres_release_gates_track_the_current_alembic_head():
-    expected_head = 'EXPECTED_HEAD = "20260910_0053"'
+    expected_head = 'EXPECTED_HEAD = "20260911_0058"'
     for relative_path in (
         "scripts/verify_postgres_release_gate.py",
         "scripts/verify_postgres_populated_release_gate.py",

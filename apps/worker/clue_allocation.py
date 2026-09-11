@@ -1733,6 +1733,7 @@ def import_store_locations(
         province = _text_cell(_cell(row, columns, "门店所在省份")) or _text_cell(_cell(row, columns, "省份"))
         city = _text_cell(_cell(row, columns, "门店所在城市"))
         city_code = normalize_city_code(city)
+        service_store_code = _text_cell(_cell(row, columns, "服务店代码"))
         status_note = _text_cell(_cell(row, columns, "状态备注"))
         has_coordinates_and_city = _valid_coordinates(latitude, longitude) and bool(city_code)
         if not has_coordinates_and_city:
@@ -1742,6 +1743,8 @@ def import_store_locations(
         store.standard_province = province or _clean(store.standard_province)
         store.standard_city = city or _clean(store.standard_city)
         store.city_code = city_code
+        if service_store_code:
+            store.service_store_code = service_store_code
         store.longitude = longitude if _valid_coordinates(latitude, longitude) else None
         store.latitude = latitude if _valid_coordinates(latitude, longitude) else None
         store.location_source = workbook_path.name

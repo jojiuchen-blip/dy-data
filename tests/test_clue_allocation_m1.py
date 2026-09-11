@@ -859,6 +859,7 @@ def test_imported_store_locations_use_poi_mapping_and_candidate_eligibility(
     assert open_store is not None
     assert open_store.city_code == "上海"
     assert open_store.standard_province == "上海"
+    assert open_store.service_store_code == "A"
     assert open_store.is_douyin_clue_applicable is True
     assert open_store.participates_in_clue_allocation is True
     assert closed_store is not None

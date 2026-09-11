@@ -73,7 +73,7 @@ def test_highest_admin_can_read_page_registry_and_role_defaults(client: TestClie
     assert response.status_code == 200
     data = response.json()["data"]
     assert [row["page_key"] for row in data["pages"]] == [
-        "A01", "A02", "B01", "B02", "B03", "C01",
+        "A01", "A02", "A03", "B01", "B02", "B03", "C01",
         "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
         "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06",
     ]
@@ -82,7 +82,7 @@ def test_highest_admin_can_read_page_registry_and_role_defaults(client: TestClie
     assert data["role_permissions"]["admin"][-6:] == [
         "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06"
     ]
-    assert data["role_permissions"]["store"] == ["A01", "A02", "B01", "B02", "B03", "C01"]
+    assert data["role_permissions"]["store"] == ["A01", "A02", "A03", "B01", "B02", "B03", "C01"]
 
 
 def test_admin_can_manage_store_accounts_but_not_admin_accounts(client: TestClient) -> None:
@@ -145,7 +145,7 @@ def test_page_override_is_effective_immediately_and_is_audited(client: TestClien
     )
     assert updated.status_code == 200
     assert updated.json()["data"]["effective_page_keys"] == [
-        "A01", "A02", "B01", "B02", "C01", "D09"
+        "A01", "A02", "A03", "B01", "B02", "C01", "D09"
     ]
 
     audits = client.get(
@@ -178,7 +178,7 @@ def test_page_override_is_effective_immediately_and_is_audited(client: TestClien
     _login(client, "store-user")
     me = client.get("/api/v1/auth/me")
     assert me.status_code == 200
-    assert me.json()["data"]["page_keys"] == ["A01", "A02", "B01", "B02", "C01", "D09"]
+    assert me.json()["data"]["page_keys"] == ["A01", "A02", "A03", "B01", "B02", "C01", "D09"]
     assert client.get("/api/v1/order-details").status_code == 403
 
 
@@ -201,6 +201,7 @@ def test_highest_admin_cannot_disable_or_downgrade_self(client: TestClient) -> N
 def test_all_current_business_api_families_are_registered_and_unknown_defaults_to_deny() -> None:
     assert required_page_key_for_api_path("/api/v1/clues/overview") == "A01"
     assert required_page_key_for_api_path("/api/v1/clues/orders/1") == "A02"
+    assert required_page_key_for_api_path("/api/v1/dashboard/douyin-ranking") == "A03"
     assert required_page_key_for_api_path("/api/v1/dashboard/store-ranking") == "B01"
     assert required_page_key_for_api_path("/api/v1/commission-rules/summary") is None
     assert required_page_key_for_api_path("/api/v1/stores/1/monthly-settlement") == "B02"
@@ -255,7 +256,7 @@ def test_role_default_change_updates_inheritors_and_preserves_customized_effecti
     accounts = client.get("/api/v1/admin/accounts").json()["data"]["rows"]
     store_user = next(row for row in accounts if row["user_id"] == "store-user")
     assert store_user["effective_page_keys"] == expected_effective
-    assert store_user["extra_allow"] == ["A02", "B02", "C01"]
+    assert store_user["extra_allow"] == ["A02", "A03", "B02", "C01"]
     assert store_user["extra_deny"] == ["D09"]
 
 

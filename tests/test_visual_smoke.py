@@ -40,6 +40,7 @@ VIEWPORTS = [
 
 RUNTIME_SURFACES = [
     ("home", "/", "抖音经营数据引擎", "heading"),
+    ("metrics-douyin-ranking", "/metrics/douyin-ranking", "抖音经营打榜看板", "heading"),
     ("ranking", "/ranking", "全国门店月度榜单", "heading"),
     ("sales", "/sales", "核销表现", "heading"),
     ("clues", "/clues", "经营线索概览", "text"),
@@ -83,6 +84,32 @@ RUNTIME_SURFACES = [
         "heading",
     ),
 ]
+
+
+def stop_process_tree(process: subprocess.Popen[str]) -> None:
+    """Stop Vite reliably on Windows without making fixture teardown fail."""
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        try:
+            process.kill()
+        except OSError:
+            pass
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            pass
 
 sys.path.insert(0, str(REPO_ROOT / "apps" / "api"))
 from dy_api.auth import AuthContext, get_current_user  # noqa: E402
@@ -395,21 +422,7 @@ def vite_base_url() -> Generator[str]:
         output = "\n".join(output_lines)
         raise RuntimeError(f"Vite dev server did not start.\n{output}") from None
     finally:
-        if os.name == "nt":
-            subprocess.run(
-                ["taskkill", "/PID", str(process.pid), "/T", "/F"],
-                check=False,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-            process.wait(timeout=10)
-        else:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=10)
+        stop_process_tree(process)
         output_thread.join(timeout=1)
 
 
@@ -451,12 +464,7 @@ def vite_real_api_base_url() -> Generator[str]:
             output = process.stdout.read()
         raise RuntimeError(f"Vite dev server did not start.\n{output}") from None
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        stop_process_tree(process)
 
 
 @pytest.fixture(scope="session")
@@ -485,12 +493,7 @@ def vite_clue_demo_base_url() -> Generator[str]:
         wait_for_url(base_url)
         yield base_url
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        stop_process_tree(process)
 
 
 @pytest.fixture(scope="session")
@@ -571,12 +574,7 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
         wait_for_url(base_url)
         yield base_url
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        stop_process_tree(process)
 
 
 @pytest.fixture(scope="session")
@@ -1070,12 +1068,7 @@ def vite_live_admin_api_base_url(live_admin_fastapi_base_url: str) -> Generator[
         wait_for_url(base_url)
         yield base_url
     finally:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        stop_process_tree(process)
 
 
 @pytest.fixture(scope="module")
@@ -1153,7 +1146,7 @@ def install_api_routes(page: Page) -> None:
         "store_ids": [],
         "store_scope_mode": "all",
         "page_keys": [
-            "A01", "A02", "B01", "B02", "B03", "C01",
+            "A01", "A02", "A03", "B01", "B02", "B03", "C01",
             "D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10",
             "FIN01", "FIN02", "FIN03", "FIN04", "FIN05", "FIN06",
         ],
@@ -2549,6 +2542,67 @@ def test_sales_chart_tokens_keep_runtime_contrast(
         assert contrast_ratio(colors["axisText"], colors["surface"]) >= 4.5
         assert contrast_ratio(colors["dataNeutralSoft"], colors["surface"]) >= 3
         assert contrast_ratio(colors["primary"], colors["surface"]) >= 3
+    finally:
+        context.close()
+
+
+@pytest.mark.parametrize("width", [390, 1440])
+def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_base_url, tmp_path, width):
+    from urllib.parse import urlparse, parse_qs
+    context = browser.new_context(viewport={"width": width, "height": 900})
+    page = context.new_page()
+    page_errors = []
+    page.on("pageerror", lambda error: page_errors.append(str(error)))
+    requested = []
+    try:
+        install_api_routes(page)
+
+        def ranking_response(route):
+            query = parse_qs(urlparse(route.request.url).query)
+            requested.append(query)
+            metrics = dict(storeCount=3, orderCount=10, orderAverage=3.333333,
+                followNumerator=3, followDenominator=10, follow24hRate=.3,
+                followRate=.4, followAnyNumerator=4,
+                verificationNumerator=2, verificationDenominator=4, verificationRate=.5)
+            route.fulfill(status=200, content_type="application/json", body=api_payload(dict(
+                dataMode="business", snapshotId="visual-sample", qualityJson={"followRoundsUnderObservation":449},
+                periodStart=query["periodStart"][0], periodEnd=query["periodEnd"][0], level=query["level"][0],
+                total=51, page=int(query["page"][0]), pageSize=50, totals=metrics,
+                rows=[dict(metrics, key="visual-group", name="第二页门店" if query["page"] == ["2"] else "测试集团", rank=51 if query["page"] == ["2"] else 1)],
+                latestObservedAt="2026-09-11T06:00:00Z", metricDefinitions={})))
+
+        page.route("**/api/v1/dashboard/douyin-ranking?*", ranking_response)
+        page.goto(f"{vite_real_api_base_url}/metrics/douyin-ranking?periodStart=2026-09-07&periodEnd=2026-09-10",
+                  wait_until="domcontentloaded")
+        expect(page.get_by_role("heading", name="抖音经营打榜看板", exact=True)).to_be_visible()
+        expect(page.get_by_role("link", name="测试集团", exact=True)).to_be_visible()
+        expect(page.get_by_label("开始日期", exact=True)).to_have_value("2026-09-07")
+        expect(page.get_by_label("结束日期", exact=True)).to_have_value("2026-09-10")
+        expect(page.get_by_text("当前排名仅供参考", exact=False)).to_have_count(0)
+        assert page.locator("small").filter(has_text="跟进率").count() >= 2
+        page.get_by_label("结束日期", exact=True).fill("2026-09-09")
+        expect(page.get_by_role("link", name="测试集团", exact=True)).to_have_attribute("href", re.compile("periodEnd=2026-09-09"))
+        page.get_by_label("查看层级", exact=True).click()
+        page.get_by_role("option", name="门店", exact=True).click()
+        expect(page.get_by_role("heading", name="门店排名", exact=True)).to_be_visible()
+        names = page.get_by_text("测试集团", exact=True)
+        assert any(names.nth(index).is_visible() for index in range(names.count()))
+        assert requested[-1]["level"] == ["store"]
+        assert requested[-1]["periodEnd"] == ["2026-09-09"]
+        page.get_by_role("button", name="下一页", exact=True).click()
+        expect(page.get_by_role("button", name="下一页", exact=True)).to_be_disabled()
+        names = page.get_by_text("第二页门店", exact=True)
+        expect(names.first).to_be_attached()
+        assert any(names.nth(index).is_visible() for index in range(names.count()))
+        assert requested[-1]["page"] == ["2"]
+        page.get_by_label("结束日期", exact=True).fill("2026-09-08")
+        expect(page.get_by_role("button", name="上一页", exact=True)).to_be_disabled()
+        assert requested[-1]["page"] == ["1"]
+        assert page.locator(".metric-card").evaluate_all(
+            "nodes => nodes.every(node => { const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })")
+        assert page.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth") <= 2
+        assert page_errors == []
+        page.screenshot(path=tmp_path / f"douyin-board-{width}.png", full_page=True)
     finally:
         context.close()
 

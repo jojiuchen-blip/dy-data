@@ -5,11 +5,13 @@ from hashlib import sha256
 import json
 import os
 import re
+import tempfile
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Query, Request, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import delete, exists, false, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
@@ -89,6 +91,7 @@ from apps.worker.clue_rule_versions import (
     update_rule_version,
 )
 from apps.worker.product_sync import PRODUCT_SYNC_JOB_NAME, run_product_sync_job
+from apps.worker.douyin_ranking import import_store_org_assignments
 from apps.worker.projection_lineage import (
     MAX_LINEAGE_DEPTH,
     LineageError,
@@ -3237,6 +3240,96 @@ def get_sync_admin(
     data = _sync_admin_data(store)
     return {
         "data": dump_model(data),
+        "meta": {"generated_at": generated_at(), "source": "postgres"},
+    }
+
+
+@router.post("/sync/douyin-ranking-configuration")
+def upload_douyin_ranking_configuration(
+    organization_file: UploadFile | None = File(default=None),
+    eligibility_file: UploadFile | None = File(default=None),
+    _current_user: AuthContext = Depends(_require_clue_super_admin_context),
+    store=Depends(get_data_store),
+):
+    """Publish validated organization and eligibility versions for the board."""
+    from apps.api.dy_api.ranking_configuration_upload import import_configuration_files
+
+    store = _require_available_store(store)
+    with tempfile.TemporaryDirectory(prefix="ranking-configuration-") as temp_dir:
+        paths = {}
+        for kind, upload in (("organization", organization_file), ("eligibility", eligibility_file)):
+            if upload is None:
+                paths[kind] = None
+                continue
+            suffix = Path(upload.filename or "").suffix.lower()
+            if suffix not in {".csv", ".xlsx", ".xlsm"}:
+                raise HTTPException(status_code=422, detail="名单必须为 CSV 或 XLSX 文件")
+            content = upload.file.read(10 * 1024 * 1024 + 1)
+            if len(content) > 10 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="每份名单不得超过10 MB")
+            path = Path(temp_dir) / f"{kind}{suffix}"
+            path.write_bytes(content)
+            paths[kind] = path
+        try:
+            result = import_configuration_files(store.session,
+                organization_path=paths["organization"], eligibility_path=paths["eligibility"])
+            store.session.commit()
+        except ValueError as exc:
+            store.session.rollback()
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except Exception:
+            store.session.rollback()
+            raise
+    return {"data": result, "meta": {"generated_at": generated_at(), "source": "postgres"}}
+
+
+@router.post("/sync/douyin-store-org")
+def upload_douyin_store_org_mapping(
+    file: UploadFile = File(...),
+    _current_user: AuthContext = Depends(_require_clue_super_admin_context),
+    store=Depends(get_data_store),
+):
+    """Replace the current Douyin leaderboard organization snapshot.
+
+    The latest CSV/XLSX is authoritative for active mappings. Missing codes
+    are retained in the table but marked inactive by the importer.
+    """
+    store = _require_available_store(store)
+    filename = (file.filename or "").strip()
+    suffix = Path(filename).suffix.lower()
+    if suffix not in {".csv", ".xlsx", ".xlsm"}:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Mapping file must be a .csv or .xlsx file",
+        )
+    content = file.file.read(10 * 1024 * 1024 + 1)
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Mapping file exceeds the 10 MB limit",
+        )
+    safe_name = re.sub(r"[^0-9A-Za-z_.\-\u4e00-\u9fff]", "_", filename)
+    with tempfile.TemporaryDirectory(prefix="douyin-store-org-") as temp_dir:
+        input_path = Path(temp_dir) / (safe_name or f"mapping{suffix}")
+        input_path.write_bytes(content)
+        try:
+            result = import_store_org_assignments(store.session, input_path)
+            store.session.commit()
+        except ValueError as exc:
+            store.session.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=str(exc),
+            ) from exc
+        except Exception:
+            store.session.rollback()
+            raise
+    return {
+        "data": {
+            "source_file": filename,
+            "snapshot": True,
+            **result,
+        },
         "meta": {"generated_at": generated_at(), "source": "postgres"},
     }
 
