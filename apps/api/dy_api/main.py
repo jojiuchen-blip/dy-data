@@ -35,6 +35,7 @@ from dy_api.routes import (
     mcp_auth,
     meta,
     operations,
+    ranking_sources,
 )
 
 
@@ -146,6 +147,7 @@ def create_app(
     app.include_router(cli.router, prefix="/api/v1", tags=["cli-readonly"])
     app.include_router(fee_admin.router, prefix="/api/v1/admin", tags=["fee-admin"])
     app.include_router(admin.router, prefix="/api/v1/admin", tags=["admin"])
+    app.include_router(ranking_sources.router, prefix="/api/v1/admin", tags=["ranking-sources"])
     app.include_router(
         operations.router,
         prefix="/api/v1/admin/operations",
@@ -204,3 +206,4 @@ def _fee_admin_http_error_code(status_code: int) -> str:
 
 
 app = create_app()
+
