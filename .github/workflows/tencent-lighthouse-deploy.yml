@@ -35,4 +35,17 @@ jobs:
           compose logs --no-color --since 12h --tail 1200 api 2>&1 \
             | grep -E '(Traceback|File "/app/.*ranking_|sqlalchemy.exc.|psycopg.errors.|TimeoutError|TypeError|AttributeError|UndefinedColumn|QueryCanceled|ProgrammingError)' \
             | tail -n 80 || true
+          compose exec -T postgres sh -c 'psql -X -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB"' <<'SQL'
+          BEGIN READ ONLY;
+          SET LOCAL statement_timeout = '10000';
+          EXPLAIN (ANALYZE, BUFFERS, TIMING OFF)
+          WITH rules AS MATERIALIZED (SELECT sku_id, product_id FROM dim_sku_product_rules WHERE product_scope = '精诚养车'),
+          products AS MATERIALIZED (SELECT sku_id AS id FROM rules UNION SELECT product_id FROM rules WHERE product_id IS NOT NULL)
+          SELECT count(*) FROM clue_assignment_rounds r
+          WHERE r.execution_mode = 'formal' AND r.assigned_at >= '2026-08-31 16:00:00+00' AND r.assigned_at < '2026-09-11 16:00:00+00'
+          AND (EXISTS (SELECT 1 FROM raw_douyin_orders o WHERE o.order_id = r.order_id AND o.sku_id IN (SELECT sku_id FROM rules))
+            OR EXISTS (SELECT 1 FROM raw_douyin_clues c WHERE c.order_id = r.order_id AND c.product_id IN (SELECT id FROM products))
+            OR EXISTS (SELECT 1 FROM clue_center_orders c WHERE c.order_id = r.order_id AND c.product_id IN (SELECT id FROM products)));
+          ROLLBACK;
+          SQL
           REMOTE
