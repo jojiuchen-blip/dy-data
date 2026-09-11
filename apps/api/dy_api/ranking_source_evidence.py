@@ -22,11 +22,26 @@ from dy_api.models import (
 DATASETS = frozenset({"orders", "cohort", "assignment_rounds", "follow_records",
     "bindings", "accounts", "poi_mappings", "coupons", "verifications", "sku_rules"})
 DIMENSIONS = frozenset({"bindings", "accounts", "poi_mappings", "sku_rules"})
-SCHEMA_VERSION = "ranking-source-observation-v1"
+SCHEMA_VERSION = "ranking-source-observation-v2"
 
 
 def _columns(model, names: str):
     return [getattr(model, name) for name in names.split()]
+
+
+def _protect_name_evidence(row: dict) -> dict:
+    """Exact-name comparison evidence, not anonymization or proof of ownership.
+
+    Keep this export highest-admin-only. A deterministic digest can be guessed
+    from known names; its purpose is to avoid distributing raw display names.
+    Never case-fold or fuzzy-match distinct source identities.
+    """
+    for private, public in (("_owner_name", "owner_name_key"),
+                            ("_account_name", "account_name_key")):
+        if private in row:
+            value = row.pop(private)
+            row[public] = hashlib.sha256(value.encode("utf-8")).hexdigest() if value and value.strip() else None
+    return row
 
 
 def _statement(dataset: str, start: datetime, end: datetime, cutoff: datetime):
@@ -53,7 +68,8 @@ def _statement(dataset: str, start: datetime, end: datetime, cutoff: datetime):
     if dataset == "cohort":
         return select(cohort.c.order_id), [cohort.c.order_id]
     if dataset == "orders":
-        return select(*_columns(RawDouyinOrder, "order_id sku_id sale_time pay_time create_order_time owner_account_id owner_douyin_uid sale_role sale_channel sale_channel_normalized order_status order_status_normalized source_run_id source_observed_at updated_at")).where(
+        return select(*_columns(RawDouyinOrder, "order_id sku_id sale_time pay_time create_order_time owner_account_id owner_douyin_uid sale_role sale_channel sale_channel_normalized order_status order_status_normalized source_run_id source_observed_at updated_at"),
+            RawDouyinOrder.owner_account_name.label("_owner_name")).where(
             RawDouyinOrder.order_id.in_(order_ids)), [RawDouyinOrder.order_id]
     if dataset == "assignment_rounds":
         return select(*_columns(ClueAssignmentRound, "assignment_round_id order_id lead_key round_no assigned_store_id assigned_at execution_mode")).where(
@@ -76,10 +92,14 @@ def _statement(dataset: str, start: datetime, end: datetime, cutoff: datetime):
             RawDouyinVerifyRecord.verify_time.is_(None))), [RawDouyinVerifyRecord.verify_id]
     if dataset == "bindings":
         return select(*_columns(RawAwemeBinding, "binding_key account_id douyin_id poi_id binding_status source_run_id updated_at"),
+            RawAwemeBinding.douyin_nickname.label("_account_name"),
+            RawAwemeBinding.raw_payload["bind_start_time"].as_string().label("source_bind_start_time"),
+            RawAwemeBinding.raw_payload["bind_end_time"].as_string().label("source_bind_end_time"),
             RawAwemeBinding.raw_payload["craftsman_uid"].as_string().label("source_craftsman_uid"),
             RawAwemeBinding.raw_payload["account_id_for_settlement"].as_string().label("source_settlement_account_id")), [RawAwemeBinding.binding_key]
     if dataset == "accounts":
-        return select(*_columns(DimAwemeAccount, "account_id store_id binding_status valid_from valid_to updated_at")), [DimAwemeAccount.account_id]
+        return select(*_columns(DimAwemeAccount, "account_id store_id binding_status valid_from valid_to updated_at"),
+            DimAwemeAccount.nickname.label("_account_name")), [DimAwemeAccount.account_id]
     if dataset == "poi_mappings":
         return select(*_columns(DimStorePoiMapping, "store_id poi_id mapping_source source_run_id source_observed_at"),
             getattr(DimStore, "service_store_code", literal(None)).label("service_store_code"), DimStore.is_active).outerjoin(
@@ -123,7 +143,7 @@ def read_source_page(session: Session, *, dataset: str, period_start: date, peri
             raise ValueError("Invalid cursor or query context") from exc
         statement = statement.where(tuple_(*keys) > tuple_(*after))
     with session.no_autoflush:
-        rows = [dict(row) for row in session.execute(statement.order_by(*keys).limit(page_size + 1)).mappings()]
+        rows = [_protect_name_evidence(dict(row)) for row in session.execute(statement.order_by(*keys).limit(page_size + 1)).mappings()]
     has_more = len(rows) > page_size
     rows = rows[:page_size]
     next_cursor = None
@@ -140,4 +160,5 @@ def read_source_page(session: Session, *, dataset: str, period_start: date, peri
             "scope": "current_dimensions" if dataset in DIMENSIONS else "sales_or_formal_assignments",
             "limitations": ["Current rows and current SKU whitelist; not historical row versions.",
                 "Unknown product assignments and unlinked verification events need separate coverage audit.",
+                "Name keys support exact comparison only; ambiguous names are not ownership evidence.",
                 "Event cutoff does not freeze mutable binding, deletion or cancellation state."]}}

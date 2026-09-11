@@ -4,6 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
 import pytest
+from sqlalchemy import select
 from fastapi.testclient import TestClient
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "apps/api"))
@@ -137,3 +138,43 @@ def test_sale_time_precedence_and_shanghai_boundaries(client, evidence, db_sessi
     ids = {row["order_id"] for row in rows}
     assert {"fallback", "at-start"} <= ids
     assert not {"at-end", "before"} & ids
+
+
+def test_identity_evidence_links_exact_names_without_exporting_names(client, evidence, db_session):
+    from apps.api.dy_api.models import RawAwemeBinding, DimAwemeAccount
+    name = "synthetic-private-store-name"
+    order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "A"))
+    order.owner_account_name = name
+    db_session.add(DimAwemeAccount(account_id="name-match-account", nickname=name))
+    db_session.add(RawAwemeBinding(binding_key="identity", douyin_nickname=name,
+        binding_status="105", raw_payload={"bind_start_time": 1788192000,
+        "bind_end_time": 0, "craftsman_uid": "craft", "real_name": "never-export-real-name"}))
+    db_session.commit()
+    results = {}
+    for dataset in ("orders", "accounts", "bindings"):
+        response = client.get(URL, params={**PARAMS, "dataset": dataset})
+        assert response.status_code == 200
+        assert name not in response.text and "never-export-real-name" not in response.text
+        results[dataset] = response.json()["data"]["rows"]
+    order_key = next(r for r in results["orders"] if r["order_id"] == "A")["owner_name_key"]
+    assert order_key and len(order_key) == 64
+    assert results["accounts"][0]["account_name_key"] == order_key
+    binding = results["bindings"][0]
+    assert binding["account_name_key"] == order_key
+    assert str(binding["source_bind_start_time"]) == "1788192000"
+    assert str(binding["source_bind_end_time"]) == "0"
+    assert binding["binding_status"] == "105"  # source states must not be reinterpreted
+
+
+def test_name_evidence_does_not_create_blank_or_fuzzy_matches(client, evidence, db_session):
+    for oid, name in (("A", None), ("B", ""), ("OLD", "CaseSensitive")):
+        db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == oid)).owner_account_name = name
+    db_session.commit()
+    rows = {r["order_id"]: r for r in client.get(URL, params=PARAMS).json()["data"]["rows"]}
+    assert rows["A"]["owner_name_key"] is None
+    assert rows["B"]["owner_name_key"] is None
+    previous = rows["OLD"]["owner_name_key"]
+    db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "OLD")).owner_account_name = "casesensitive"
+    db_session.commit()
+    current = next(r for r in client.get(URL, params=PARAMS).json()["data"]["rows"] if r["order_id"] == "OLD")
+    assert current["owner_name_key"] != previous
