@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：949
-- 文件关系：1069
+- 文件节点：953
+- 文件关系：1082
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -201,6 +201,7 @@
 | docs/devlog/20260907_refactor_log_Keith_Chen.md | links_to | docs/plans/execution-plan.md | docs/devlog/20260907_refactor_log_Keith_Chen.md:53 |
 | docs/devlog/20260908_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260908_refactor_log_jojiuchen-blip.md:70 |
 | docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
+| docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -218,7 +219,6 @@
 | docs/governance/authority-map.md | links_to | docs/plans/execution-plan.md | docs/governance/authority-map.md:21 |
 | docs/governance/authority-map.md | links_to | docs/prd/mainprd-dy-data.md | docs/governance/authority-map.md:44 |
 | docs/governance/authority-map.md | links_to | docs/runbook.md | docs/governance/authority-map.md:26 |
-| docs/governance/authority-map.md | links_to | docs/tencent-edgeone-migration.md | docs/governance/authority-map.md:33 |
 
 ## 4. 诊断问题
 

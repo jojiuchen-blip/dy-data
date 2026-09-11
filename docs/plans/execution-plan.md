@@ -16,6 +16,18 @@
 
 # 当前执行计划
 
+## 并行增量入口：DYDATA-93 管理员分账规则权限
+
+- 2026-09-10 用户明确同意联合修复发布；已合入aa3373a的运行时与测试，补入bab2612/52500ae的PG门禁和来源保护测试。两处最新线索文件与df33f73内容一致；独立整合审查0 Critical/Important，允许进入CI。旧全量84588已停止，仅重跑整合专项3976和最终全量1709；报告分别为logs/dydata93-integrated-targeted.xml、logs/dydata93-integrated-full.xml。尚未部署，PG并发由CI显式步骤验证，不把skip当通过。
+
+- 发布阻断（2026-09-10）：真实普通管理员浏览器验收已通过，全量pytest会话84588仍运行；生产1e91f4dc与主线df33f73缺少此前DYDATA-87的aa3373a采集分页/归属防覆盖修复，容器只读取证仍调用cursor分页。已回填DYDATA-87，未部署DYDATA-93；必须先协调保留旧修复再发布，不能回滚其他线索变更。
+
+- 2026-09-10 用户确认普通管理员可设置、发布分账规则并授权开始；Linear 已进入 In Progress，当前 AI 在独立分支负责。
+- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。
+- 静态定位单条发布和导入提交使用最高管理员依赖；拟仅开放这两类发布，保留 D03 准入、重建与结算范围的最高管理员限制。
+- 2026-09-10 用户回复“通过”，T0.1 三处状态已同步为进行中；一致性、环境与任务上下文检查通过。单条/文件发布的普通管理员真实登录红测均复现403，最小修复后首轮52项API/权限回归、12项前端契约通过；追加失效会话测试、构建和独立审查进行中。尚未部署。DYDATA-92 指引另行承接，DYDATA-87 补算不混入此分支。
+- 下方其他业务入口保留原状，不代表本增量接管其任务。
+
 > 本文件是当前执行驾驶舱，不复制 Linear Backlog，也不替代 S3 正式交付计划。
 
 ## 本轮当前入口：2026-09-10 线索任务交接

@@ -9,6 +9,8 @@ from typing import Any, Literal, TypeVar
 from uuid import uuid4
 
 from sqlalchemy import and_, case, exists, func, insert, literal, literal_column, or_, select, text, update
+from sqlalchemy.dialects.postgresql import insert as postgres_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session, aliased
 
 from apps.api.dy_api.models import (
@@ -1144,8 +1146,45 @@ def upsert_store_poi_mapping(
     session: Session,
     store_id: str,
     poi_id: str,
+    preserve_existing_store: bool = False,
     **values: Any,
 ) -> DimStorePoiMapping:
+    if preserve_existing_store:
+        dialect = session.get_bind().dialect.name
+        if dialect not in {"postgresql", "sqlite"}:
+            raise ValueError("Atomic POI mapping guard requires PostgreSQL or SQLite")
+        insert_mapping = postgres_insert if dialect == "postgresql" else sqlite_insert
+        payload = {
+            "store_id": store_id,
+            "poi_id": poi_id,
+            **{key: value for key, value in values.items() if key in DimStorePoiMapping.__table__.columns},
+        }
+        inserted = session.scalar(
+            insert_mapping(DimStorePoiMapping)
+            .values(**payload)
+            .on_conflict_do_nothing(index_elements=[DimStorePoiMapping.poi_id])
+            .returning(DimStorePoiMapping.poi_id)
+        )
+        row = session.scalar(
+            select(DimStorePoiMapping)
+            .where(DimStorePoiMapping.poi_id == poi_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if row is None or row.store_id != store_id:
+            raise ValueError("Shop POI mapping ownership conflict")
+        if inserted is not None:
+            _capture_job_impact(
+                session,
+                entity_type="store_poi_mapping",
+                entity_key=poi_id,
+                before={},
+                after=_canonical_values(row),
+                source_run_id=values.get("source_run_id"),
+                source_observed_at=values.get("source_observed_at"),
+                observation_key=values.get("observation_key"),
+            )
+        return row
     row = session.scalar(
         select(DimStorePoiMapping).where(DimStorePoiMapping.poi_id == poi_id)
     )

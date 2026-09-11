@@ -145,6 +145,7 @@ export function AdminSkuRulesPage() {
   const stepRefs = useRef<Array<HTMLElement | null>>([]);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authenticated, setAuthenticated] = useState(false);
+  const [canRebuild, setCanRebuild] = useState(false);
   const [password, setPassword] = useState("");
   const [activeTab, setActiveTab] = useState<RulesTab>("settings");
   const [skuListTab, setSkuListTab] = useState<SkuListTab>("enabled");
@@ -237,7 +238,11 @@ export function AdminSkuRulesPage() {
   useEffect(() => {
     let cancelled = false;
     fetchAdminSession()
-      .then(() => !cancelled && setAuthenticated(true))
+      .then((response) => {
+        if (cancelled) return;
+        setCanRebuild(response.data.is_highest_admin === true);
+        setAuthenticated(true);
+      })
       .catch(() => !cancelled && setAuthenticated(false))
       .finally(() => !cancelled && setCheckingSession(false));
     return () => { cancelled = true; };
@@ -356,6 +361,7 @@ export function AdminSkuRulesPage() {
   };
 
   const openRebuildConfirmation = () => {
+    if (!canRebuild) return;
     if (!effectiveRuleMap.size) {
       setNotice("当前没有已生效的分佣规则可供重建。");
       return;
@@ -370,6 +376,7 @@ export function AdminSkuRulesPage() {
   };
 
   const rebuildSettlementProjection = async () => {
+    if (!canRebuild) return;
     const updatedRuleCount = effectiveRuleMap.size;
     if (!updatedRuleCount) return;
     const fingerprint = JSON.stringify(
@@ -497,7 +504,14 @@ export function AdminSkuRulesPage() {
 
   const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    try { await loginAdmin(password); setAuthenticated(true); setPassword(""); setNotice(""); }
+    try {
+      await loginAdmin(password);
+      const response = await fetchAdminSession();
+      setCanRebuild(response.data.is_highest_admin === true);
+      setAuthenticated(true);
+      setPassword("");
+      setNotice("");
+    }
     catch { setNotice("密码不正确，或后端未配置管理密码。"); }
   };
 
@@ -564,7 +578,7 @@ export function AdminSkuRulesPage() {
               </section>
 
               <section className="content-section commission-step-card" data-step="4" ref={registerStep(4)}>
-                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p></div><div className="section-title-actions"><Button disabled={!effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重建结算投影</Button><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
+                <div className="section-title"><div><h2>4. 发布确认</h2><p>手工多 SKU 发布会逐个创建不可变版本；文件批量导入才使用原子提交。</p>{!canRebuild ? <p className="admin-muted">发布成功后系统自动安排重算；仅最高管理员可手动重建。</p> : null}</div><div className="section-title-actions"><Button disabled={!canRebuild || !effectiveRuleMap.size || working} onClick={openRebuildConfirmation} type="button">重建结算投影</Button><Button disabled={!rateApplied || working} onClick={openPublishConfirmation} type="button" variant="primary">确认发布</Button></div></div>
               </section>
             </main>
             <aside className="content-section commission-preselection"><h2>预选窗口</h2><p className="admin-muted">持续汇总当前选择。</p><strong>{selectedRows.length} 个 SKU</strong><span>推广 {promotionRate}%</span><span>管理 {managementRate}%</span></aside>

@@ -7,7 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from apps.api.dy_api.models import RawDouyinOrderCoupon
+from apps.api.dy_api.models import DimStorePoiMapping, RawDouyinOrderCoupon
 from apps.worker.collectors.normalizers import amount_cent, data_items, first, latest_source_time, next_cursor, source_datetime, text
 from apps.worker.collectors.types import CollectionWindow, PhaseStats
 from apps.worker.repositories import payload_fingerprint, upsert_store, upsert_store_poi_mapping, upsert_verify_record
@@ -20,59 +20,90 @@ def collect_shop_pois(
     source_run_id: str,
     relation_types: tuple[int, ...] = (0,),
 ) -> PhaseStats:
+    """Validate a complete source scan before applying non-conflicting mappings."""
     stats = PhaseStats(name="shop_pois")
+    collected: list[dict[str, Any]] = []
     for relation_type in relation_types:
-        cursor: str | None = None
-        seen_cursors: set[str | None] = set()
-        while cursor not in seen_cursors:
-            seen_cursors.add(cursor)
-            payload = client.query_shop_pois(relation_type=relation_type, cursor=cursor)
-            pois = data_items(payload, "pois", "poi_list", "shop_pois", "list")
+        expected_total: int | None = None
+        seen_pois: set[str] = set()
+        for page in range(1, 2001):
+            payload = client.query_shop_pois(relation_type=relation_type, page=page, size=50)
+            data = payload.get("data", {})
+            if not isinstance(data, dict):
+                raise ValueError("Shop POI source has an invalid envelope")
+            if data.get("error_code", 0) not in (0, "0"):
+                raise ValueError("Shop POI source reported an error")
+            total = data.get("total")
+            if isinstance(total, bool) or not isinstance(total, int) or not 0 <= total <= 100000:
+                raise ValueError("Shop POI source has an invalid total")
+            if expected_total is not None and expected_total != total:
+                raise ValueError("Shop POI total changed during collection")
+            expected_total = total
+            pois = data.get("pois")
+            if not isinstance(pois, list) or any(not isinstance(poi, dict) for poi in pois):
+                raise ValueError("Shop POI source has an invalid list")
+            if len(pois) != min(50, max(0, total - (page - 1) * 50)):
+                raise ValueError("Shop POI source scan is incomplete")
             for poi in pois:
-                stats.fetched += 1
                 poi_id = text(first(poi, "poi_id", "id", "poi.poi_id"))
-                if not poi_id:
-                    stats.skipped += 1
-                    continue
-                store_id = text(
-                    first(
-                        poi,
-                        "store_id",
-                        "store.store_id",
-                        "account.poi_account.account_id",
-                        "root_account.account_id",
-                    )
-                )
-                if not store_id:
-                    stats.skipped += 1
-                    continue
-                poi_name = text(first(poi, "poi_name", "name", "poi.poi_name"))
-                store_name = (
-                    text(
-                        first(
-                            poi,
-                            "store_name",
-                            "store.store_name",
-                            "account_name",
-                            "account.poi_account.account_name",
-                            "root_account.account_name",
-                        )
-                    )
-                    or store_id
-                )
-                upsert_store(session, store_id, store_name)
-                upsert_store_poi_mapping(
-                    session,
-                    store_id,
-                    poi_id,
-                    poi_name=poi_name,
-                    mapping_source="douyin_shop_poi",
-                    is_primary=False,
-                )
-                stats.upserted += 2
-            cursor = next_cursor(payload)
-            if not cursor:
+                if not poi_id or poi_id in seen_pois:
+                    raise ValueError("Shop POI source has a missing or duplicate POI")
+                seen_pois.add(poi_id)
+            collected.extend(pois)
+            if len(seen_pois) == total:
                 break
+            if len(seen_pois) > total or len(pois) != 50:
+                raise ValueError("Shop POI source scan is incomplete")
+        else:
+            raise ValueError("Shop POI page limit exceeded")
+
+    existing = {row.poi_id: row.store_id for row in session.scalars(select(DimStorePoiMapping))}
+    for poi in collected:
+        stats.fetched += 1
+        poi_id = text(first(poi, "poi_id", "id", "poi.poi_id"))
+        if not poi_id:
+            stats.skipped += 1
+            continue
+        store_id = text(
+            first(
+                poi,
+                "store_id",
+                "store.store_id",
+                "account.poi_account.account_id",
+            )
+        )
+        if not store_id:
+            stats.skipped += 1
+            continue
+        if poi_id in existing and existing[poi_id] != store_id:
+            stats.skipped += 1
+            continue
+        poi_name = text(first(poi, "poi_name", "name", "poi.poi_name"))
+        store_name = (
+            text(
+                first(
+                    poi,
+                    "store_name",
+                    "store.store_name",
+                    "account_name",
+                    "account.poi_account.account_name",
+                )
+            )
+            or store_id
+        )
+        upsert_store(session, store_id, store_name)
+        upsert_store_poi_mapping(
+            session,
+            store_id,
+            poi_id,
+            poi_name=poi_name,
+            mapping_source="douyin_shop_poi",
+            is_primary=False,
+            source_run_id=source_run_id,
+            preserve_existing_store=True,
+        )
+        stats.upserted += 2
+        existing[poi_id] = store_id
     return stats
 
 

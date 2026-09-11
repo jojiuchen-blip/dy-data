@@ -102,4 +102,3 @@ def test_postgres_recovery_advisory_lock_has_one_consumer(factory):
         assert first is True
         with recovery._phone_recovery_lock(factory) as second:
             assert second is False
-

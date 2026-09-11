@@ -110,8 +110,8 @@ class FakeDefaultCollectionClient:
         _ = (start, end, page_size)
         return iter(())
 
-    def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None):
-        return {"data": {"pois": [], "has_more": False}}
+    def query_shop_pois(self, *, relation_type: int = 0, page: int = 1, size: int = 50):
+        return {"data": {"pois": [], "total": 0, "has_more": False}}
 
     def query_craftsman_bind_info(self, *, cursor: str | int | None = None, size: int = 50):
         return {"data": {"openapi_merchat_craftsman_info": [], "has_more": False}}
@@ -1810,6 +1810,8 @@ def test_run_once_replay_preserves_successful_daily_child(monkeypatch):
 
 
 def test_run_once_does_not_fall_back_to_old_chunk_failure_path(monkeypatch):
+    # This unit tests range planning, not the independently scheduled product sync.
+    monkeypatch.setattr(scheduler, "run_scheduled_product_sync", lambda factory: None)
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},
@@ -1860,6 +1862,7 @@ def test_run_once_does_not_fall_back_to_old_chunk_failure_path(monkeypatch):
 
 
 def test_run_once_replay_does_not_execute_or_duplicate_pending_chunks(monkeypatch):
+    monkeypatch.setattr(scheduler, "run_scheduled_product_sync", lambda factory: None)
     engine = create_engine(
         "sqlite+pysqlite:///:memory:",
         connect_args={"check_same_thread": False},

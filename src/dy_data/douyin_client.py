@@ -305,13 +305,18 @@ class DouyinOpenApiClient:
         }
         return self._get_json(CERTIFICATE_QUERY_URL, params)
 
-    def query_shop_pois(self, *, relation_type: int = 0, cursor: str | int | None = None) -> dict[str, Any]:
+    def query_shop_pois(self, *, relation_type: int = 0, page: int = 1, size: int = 50) -> dict[str, Any]:
+        """Query one page of claimed POIs using the upstream page/size contract."""
+        if isinstance(page, bool) or not isinstance(page, int) or page < 1:
+            raise ValueError("Shop POI page must be a positive integer")
+        if isinstance(size, bool) or not isinstance(size, int) or not 1 <= size <= 50:
+            raise ValueError("Shop POI size must be between 1 and 50")
         params: dict[str, Any] = {
             "account_id": self.credentials.account_id,
             "relation_type": relation_type,
+            "page": page,
+            "size": size,
         }
-        if cursor not in (None, ""):
-            params["cursor"] = cursor
         return self._get_json(SHOP_POI_QUERY_URL, params)
 
     def query_craftsman_bind_info(self, *, cursor: str | int | None = None, size: int = 50) -> dict[str, Any]:
