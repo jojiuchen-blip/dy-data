@@ -83,7 +83,7 @@ def test_cli_access_token_reloads_current_user_scope(monkeypatch, db_session) ->
         store_ids=("current-store",),
         auth_type="user",
         store_scope_mode="specified",
-        page_keys=("A01", "A02", "B01", "B02", "B03", "C01"),
+        page_keys=("A01", "A02", "A03", "B01", "B02", "B03", "C01"),
     )
 
 
