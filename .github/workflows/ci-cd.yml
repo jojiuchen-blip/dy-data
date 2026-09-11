@@ -121,6 +121,16 @@ jobs:
               'https://archive.ubuntu.com/ubuntu' \
               | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
+          # Test the direct HTTPS transport rather than the runner mirror
+          # redirect layer, which has continued to hang despite its sole URL.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
+          done
+          sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
+            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
           timeout 10m python -m playwright install chromium --with-deps
 
       - name: Run tests

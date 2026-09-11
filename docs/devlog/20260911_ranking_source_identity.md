@@ -37,3 +37,5 @@ PR #28 的 CI run 34600707674 两次在 Playwright 系统依赖下载阶段达�
 
 后续 run 34603950582 仍在依赖安装阶段超时，日志显示基础字体包从 security.ubuntu.com 镜像请求被忽略并等待；测试尚未开始。本次将完整软件包镜像列表收敛到 archive.ubuntu.com，避免将安全更新站点当作完整基础包镜像。保留安全 suite、签名校验、连接和总体超时。
 官方完整归档提供 noble-security：https://archive.ubuntu.com/ubuntu/dists/noble-security/Release 。此修改是否消除托管 runner 下载故障，仍需下一次 CI 证明。
+
+Run 34606123933 再次在 APT 索引下载阶段达到10分钟上限；因此“只收敛镜像列表即可恢复”的假设未成立。下一次执行改为同一个官方 HTTPS 归档的直接 URI，去除 mirror+file 重定向层，并输出实际 APT 超时配置、用30秒有界 HTTPS 请求验证索引连通性。这是对传输层的定向诊断，不能提前宣称修复；仍须全部测试通过才合并。
