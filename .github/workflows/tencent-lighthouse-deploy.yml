@@ -48,4 +48,30 @@ jobs:
             OR EXISTS (SELECT 1 FROM clue_center_orders c WHERE c.order_id = r.order_id AND c.product_id IN (SELECT id FROM products)));
           ROLLBACK;
           SQL
+          compose exec -T api python - <<'PY'
+          from datetime import datetime, timezone
+          from sqlalchemy import select, text, or_
+          from sqlalchemy.orm import Session
+          from dy_api.db import get_engine
+          from apps.api.dy_api.models import ClueAssignmentRound as R, RawDouyinOrder as O, RawDouyinClue as C, ClueCenterOrder as E, DimSkuProductRule as S
+          engine = get_engine()
+          with Session(engine) as session:
+              session.execute(text('SET TRANSACTION READ ONLY'))
+              session.execute(text("SET LOCAL statement_timeout = '10000'"))
+              rules = list(session.scalars(select(S).where(S.product_scope == '精诚养车')))
+              skus = {r.sku_id for r in rules}
+              products = skus | {r.product_id for r in rules if r.product_id}
+              matches = [select(O.order_id).where(O.order_id == R.order_id, O.sku_id.in_(skus)).correlate(R).exists(),
+                  select(C.order_id).where(C.order_id == R.order_id, C.product_id.in_(products), C.order_id.is_not(None)).correlate(R).exists(),
+                  select(E.order_id).where(E.order_id == R.order_id, E.product_id.in_(products)).correlate(R).exists()]
+              query = select(R).where(R.execution_mode == 'formal',
+                  R.assigned_at >= datetime(2026,8,31,16,tzinfo=timezone.utc),
+                  R.assigned_at < datetime(2026,9,11,16,tzinfo=timezone.utc),
+                  R.assigned_at <= datetime.now(timezone.utc), or_(*matches)).limit(50001)
+              sql = str(query.compile(dialect=engine.dialect, compile_kwargs={'literal_binds':True}))
+              for line in session.scalars(text('EXPLAIN (ANALYZE, BUFFERS, TIMING OFF) '+sql)):
+                  if any(key in line for key in ('Execution Time:', 'Scan', 'SubPlan', 'actual rows=')):
+                      print('EXACT-PLAN '+line)
+              session.rollback()
+          PY
           REMOTE
