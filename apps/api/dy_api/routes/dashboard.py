@@ -16,7 +16,7 @@ from fastapi.responses import Response, StreamingResponse
 from cryptography.fernet import Fernet, InvalidToken
 from openpyxl import load_workbook
 from sqlalchemy import BigInteger, String, and_, func, not_, or_, select, text, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from dy_api.auth import AuthContext, get_current_user
@@ -589,6 +589,10 @@ def douyin_ranking(
     except ValueError as exc:
         session.rollback()
         _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
+    except DBAPIError:
+        session.rollback()
+        _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
+            "RANKING_QUERY_UNAVAILABLE", "指标查询暂时不可用，请稍后重试或缩短日期范围")
     return _reporting_success(request, data, definitions=DOUYIN_RANKING_DEFINITIONS)
 
 

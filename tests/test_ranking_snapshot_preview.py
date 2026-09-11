@@ -188,6 +188,34 @@ def test_scope_filter_pagination_and_no_global_quality_leak(preview):
     assert report(preview, group_name="does-not-exist")["total"] == 0
 
 
+def test_period_membership_keeps_three_sources_and_deduplicates_clues(preview):
+    from apps.api.dy_api.models import RawDouyinClue, ClueCenterOrder
+    from apps.api.dy_api.ranking_schema_v1 import samples
+    from apps.worker.ranking_preview_fixture import START, END
+    at = START + timedelta(hours=1)
+    for order in ('ORDER_ONLY', 'OVERLAP'):
+        preview.add(RawDouyinOrder(order_id=order, sku_id='TEST-JC', sale_time=at))
+    for index, order in enumerate(('RAW_ONLY', 'OVERLAP', 'OVERLAP', None)):
+        preview.add(RawDouyinClue(clue_row_key=f'PRODUCT-{index}', order_id=order, product_id='TEST-JC'))
+    for order in ('CENTER_ONLY', 'OVERLAP'):
+        preview.add(ClueCenterOrder(order_id=order, product_id='TEST-JC',
+            lead_status='assigned', current_round_status='active'))
+    for order in ('ORDER_ONLY', 'RAW_ONLY', 'CENTER_ONLY', 'OVERLAP', 'NO_PRODUCT'):
+        preview.add(ClueAssignmentRound(assignment_round_id='NEW-'+order, order_id=order,
+            assigned_store_id='A', assigned_at=at, execution_mode='formal', round_status='active'))
+    preview.add(ClueAssignmentRound(assignment_round_id='OUTSIDE-END', order_id='OVERLAP',
+        assigned_store_id='A', assigned_at=END, execution_mode='formal', round_status='active'))
+    preview.add(ClueAssignmentRound(assignment_round_id='NOT-FORMAL', order_id='OVERLAP',
+        assigned_store_id='A', assigned_at=at, execution_mode='shadow', round_status='active'))
+    preview.commit()
+    calculate(preview)
+    included = set(preview.scalars(select(samples.c.sample_key).where(
+        samples.c.metric_key == 'follow_24h', samples.c.sample_key.like('NEW-%'))))
+    assert included == {'NEW-ORDER_ONLY', 'NEW-RAW_ONLY', 'NEW-CENTER_ONLY', 'NEW-OVERLAP'}
+    assert not preview.scalar(select(func.count()).select_from(samples).where(
+        samples.c.sample_key.in_(['OUTSIDE-END', 'NOT-FORMAL'])))
+
+
 @pytest.mark.parametrize("level", ["group", "service_center", "district", "area", "store"])
 def test_sales_and_store_average_keep_period_start_organization(preview, level):
     from apps.api.dy_api.ranking_schema_v1 import org_history, samples
