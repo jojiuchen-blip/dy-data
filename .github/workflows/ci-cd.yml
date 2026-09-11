@@ -96,6 +96,11 @@ jobs:
           DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
         run: python -m pytest tests/test_billing_statement_generation.py tests/test_shop_poi_postgres.py -q
 
+      - name: Verify store geography recovery on PostgreSQL
+        env:
+          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
+        run: python -m pytest tests/test_clue_geo_recovery_postgres.py -q
+
       - name: Install frontend dependencies
         working-directory: apps/web
         run: npm ci
