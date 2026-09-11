@@ -28,3 +28,9 @@
 
 Foundation 漂移：源证据响应新增字段，已同步 API 契约；不修改持久化 schema。
 Linear 当前连接未提供 DYDATA 团队，需求以本地 LOCAL-RANKING-IDENTITY-001 草稿跟踪。
+
+## 发布检查网络超时修正
+
+PR #28 的 CI run 34600707674 两次在 Playwright 系统依赖下载阶段达到10分钟超时，退出124；完整测试未执行。
+日志分别显示 Ubuntu 镜像索引/包请求等待。为 CI 和腾讯部署验证阶段增加 APT 单连接30秒超时、有限2次重试，保留原10分钟总上限和失败退出，不切换到未验证镜像、不关闭签名验证、不跳过测试。
+新增部署配置检查先失败后通过；tests/test_deploy_compose_config.py 共25 passed。真实 CI 下载是否恢复，以新提交执行结果为准。

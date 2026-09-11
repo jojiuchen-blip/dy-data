@@ -87,6 +87,12 @@ jobs:
 
       - name: Install Playwright browser
         run: |
+          # Bound individual mirror connections; never bypass failed setup.
+          printf '%s\n' \
+            'Acquire::http::Timeout "30";' \
+            'Acquire::https::Timeout "30";' \
+            'Acquire::Retries "2";' \
+            | sudo tee /etc/apt/apt.conf.d/80-playwright-network >/dev/null
           # Playwright downloads its own Chromium; the runner's unrelated
           # Chrome apt feed can block dependency installation during CDN sync.
           for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do

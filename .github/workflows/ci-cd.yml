@@ -107,6 +107,13 @@ jobs:
 
       - name: Install Playwright browser
         run: |
+          # Bound each apt connection so one stalled mirror cannot consume the
+          # complete Playwright setup budget. Keep installation fail-closed.
+          printf '%s\n' \
+            'Acquire::http::Timeout "30";' \
+            'Acquire::https::Timeout "30";' \
+            'Acquire::Retries "2";' \
+            | sudo tee /etc/apt/apt.conf.d/80-playwright-network >/dev/null
           if [ -f /etc/apt/apt-mirrors.txt ]; then
             printf '%s\n' \
               'https://archive.ubuntu.com/ubuntu' \
