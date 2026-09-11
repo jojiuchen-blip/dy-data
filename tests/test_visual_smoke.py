@@ -24,7 +24,6 @@ from playwright.sync_api import Browser, Page, expect, sync_playwright
 from openpyxl import Workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import StaticPool
 import uvicorn
 
 
@@ -581,16 +580,18 @@ def vite_live_api_base_url(live_fastapi_base_url: str) -> Generator[str]:
 
 
 @pytest.fixture(scope="session")
-def live_admin_fastapi_base_url() -> Generator[str]:
+def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
     port = find_free_port()
     previous_cors = os.environ.get("DY_API_CORS_ORIGINS")
     previous_test_mode = os.environ.get("DY_API_TEST_MODE")
     os.environ["DY_API_CORS_ORIGINS"] = "*"
     os.environ["DY_API_TEST_MODE"] = "true"
+    # Browser pages issue concurrent API requests. Each session needs its own
+    # connection; StaticPool shared one in-memory connection across threads.
+    database_path = tmp_path_factory.mktemp("live-admin-api") / "admin.sqlite3"
     engine = create_engine(
-        "sqlite+pysqlite:///:memory:",
+        f"sqlite+pysqlite:///{database_path.as_posix()}",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
         future=True,
     )
     Base.metadata.create_all(engine)

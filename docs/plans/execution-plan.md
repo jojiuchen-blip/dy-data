@@ -1,3 +1,11 @@
+# 当前执行：DYDATA-90 T0.5 号码修复
+
+- 当前阶段：S4。
+- 当前正式计划：[号码恢复](delivery-plans/main-delivery-plan-dydata-90-phone-repair.md)。
+- 当前子开发计划：[T0.5](delivery-plans/sub-delivery-plan-dydata-90-phone-repair-T0.5.md)。
+- 当前 Task：T0.5，进行中，用户已授权修复与既有发布流程。
+- 下一步：有界worker恢复、真实号码验收；下方保留历史记录。
+
 # 当前执行计划
 
 ## 并行增量入口：DYDATA-93 管理员分账规则权限

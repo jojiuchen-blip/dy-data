@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import math
 import signal
@@ -477,19 +478,43 @@ def _formal_compensation_loop(factory, stop: Event) -> None:
         stop.wait(60)
 
 
+def _clue_phone_recovery_loop(factory, stop: Event) -> None:
+    """Run phone-only recovery beside allocation, never in its transaction."""
+
+    from apps.worker.clue_phone_recovery import run_clue_phone_recovery_batch
+
+    while not stop.is_set() and not _STOP:
+        try:
+            # The recovery worker is owned by priority_daily just like formal
+            # first allocation, while its network call gets its own thread so
+            # it cannot delay the allocation compensation loop.
+            if factory is not None and resolve_scheduler_mode() == "priority_daily":
+                result = run_clue_phone_recovery_batch(factory)
+                if any(result.get(key) for key in ("requested", "repaired", "failed", "deferred")):
+                    _log(f"clue_phone_recovery_result {json.dumps(result, sort_keys=True)}")
+        except Exception as exc:
+            _log(f"clue_phone_recovery_failed type={type(exc).__name__}")
+        stop.wait(60)
+
+
 def _run_priority_daily_mode(factory) -> None:
     # Allocation cannot wait behind a long history collection/settlement tick.
     stop = Event()
     thread = Thread(target=_formal_compensation_loop, args=(factory, stop), daemon=True,
                     name="formal-allocation-compensation")
+    phone_thread = Thread(target=_clue_phone_recovery_loop, args=(factory, stop), daemon=True,
+                          name="clue-phone-recovery")
     if not _truthy(os.getenv("WORKER_RUN_ONCE")):
         thread.start()
+        phone_thread.start()
     try:
         _run_priority_daily_ticks(factory)
     finally:
         stop.set()
         if thread.is_alive():
             thread.join(timeout=5)
+        if phone_thread.is_alive():
+            phone_thread.join(timeout=5)
 
 
 def _run_priority_daily_ticks(factory) -> None:

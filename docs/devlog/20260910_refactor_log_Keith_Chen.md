@@ -96,3 +96,12 @@
 - **操作**：推送1e91f4dc并触发受控流水线；保存回滚镜像，核对备份、源码哈希、健康状态和生产页面；只读复核补偿数据
 - **结果**：流水线34448207755成功，CI 2762 passed/158 skipped，真实PostgreSQL与全部发布构建通过；北京时间15:42:28部署完成。API及6份worker源码匹配目标提交，迁移仍20260910_0053。215条有效遗漏已处理：214条正式分配，1条因no_eligible_candidate进入总部池；九月正式分配1990增至2204，缺中心及待分配有效候选均0。跨月来源九月分配482条保留；浏览器八月查询0，清空回到九月默认范围。重复活动轮次及新增自动超期0，priority_daily且旧auto_sync_enabled=false。备份pre-production-cutover-20260910T073920Z.env与pre-migrate-20260910T073941Z.dump，回滚镜像rollback-handoff-20260910。5620条旧引擎退役轮次未重投；历史限流待9月11日00:02:47恢复，72小时观察和用户验收继续。本任务无foundation漂移。发布链接https://github.com/jojiuchen-blip/dy-data/actions/runs/34448207755；脱敏证据output/handoff-release-after.json、handoff-release-runtime-after.json与handoff-release-ci.log。
 - **涉及文件**：无
+---
+
+## 补充更新 9（16:35 · 窗口 9）
+
+### 任务 10：DYDATA-90 号码补偿专项验证
+- **目标**：恢复有效正式分配线索的号码缓存
+- **操作**：整合独立worker号码恢复模块，加入来源复核、独立调度、超时、游标与失败冷却；补充API无凭证读取验证
+- **结果**：专项及真实PG和API共50项通过，Web构建通过；全仓回归进行中，生产尚未应用本次修复，缺口仍为219条
+- **涉及文件**：无
