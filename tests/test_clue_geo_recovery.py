@@ -29,7 +29,11 @@ def seed(s):
                          first_seen_at=T, anchor_poi_id='poi', anchor_unavailable_reason='follow_poi_unmapped')
     hq = ClueHeadquartersPoolEntry(headquarters_pool_entry_id='hq', lead_key='lead',
                                    status='active', reason='follow_poi_unmapped', entered_at=T)
-    s.add_all([store, raw, lead, hq, DimStorePoiMapping(store_id='shop', poi_id='poi', is_primary=True)])
+    s.add_all([store, raw])
+    s.flush()
+    s.add(lead)
+    s.flush()
+    s.add_all([hq, DimStorePoiMapping(store_id='shop', poi_id='poi', is_primary=True)])
     s.commit()
     return store, raw, lead, hq
 
