@@ -154,6 +154,11 @@ def default_collectors() -> list[Collector]:
 def sanitize_error_message(message: str | None) -> str | None:
     if not message:
         return message
+    # Child-process tracebacks can exceed the display limit before the final
+    # exception. Return only the allowlisted code, even if earlier stack frames
+    # contain sensitive content; none of the original message is exposed.
+    if re.search(r"(?m)^(?:[\w.]*BrowserExportError: )?douyin_backend_login_required\s*$", message):
+        return "douyin_backend_login_required"
     if SENSITIVE_ERROR_RE.search(message):
         return "[redacted sensitive error]"
     return message[:1800]

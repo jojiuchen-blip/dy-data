@@ -1,10 +1,18 @@
-# 当前执行：DYDATA-90 T0.5 号码修复
+# 当前执行：DYDATA-94 登录失效提示
+
+- 当前阶段：S4。
+- 当前正式计划：[登录失效提示](delivery-plans/main-delivery-plan-dydata-94-login-error.md)。
+- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-94-login-error-T0.1.md)。
+- 当前 Task：T0.1，进行中（已部署，待用户验收）；`34a0f12f` 于2026-09-10 21:32:53部署，流水线34479348382成功，CI 2787 passed / 161 skipped，线上代码与文案核验通过。
+- 下一步：用户验收后台“数据同步”的登录失效提示；已有生产登录态保持不变。
+
+# 历史执行：DYDATA-90 T0.5 号码修复
 
 - 当前阶段：S4。
 - 当前正式计划：[号码恢复](delivery-plans/main-delivery-plan-dydata-90-phone-repair.md)。
 - 当前子开发计划：[T0.5](delivery-plans/sub-delivery-plan-dydata-90-phone-repair-T0.5.md)。
-- 当前 Task：T0.5，进行中，用户已授权修复与既有发布流程。
-- 下一步：有界worker恢复、真实号码验收；下方保留历史记录。
+- 当前 Task：T0.5，生产验证完成、等待用户验收；发布1ec89c0c，CI与部署34458749861成功，2204条有效可见线索号码缓存缺口219→0，页面完整号码读取通过。
+- 下一步：用户验收；DYDATA-90整体历史积压与72小时观察继续。绑定采集已在用户恢复登录后于9月10日19:58补同步成功：1107条绑定记录，失败0；登录过期误报接口地址缺失的问题已由DYDATA-94修复并部署34a0f12f。下方保留历史记录。
 
 # 当前执行计划
 
