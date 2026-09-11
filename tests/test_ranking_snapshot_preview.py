@@ -216,6 +216,46 @@ def test_period_membership_keeps_three_sources_and_deduplicates_clues(preview):
         samples.c.sample_key.in_(['OUTSIDE-END', 'NOT-FORMAL'])))
 
 
+@pytest.mark.parametrize('source_budget', [None, 1])
+def test_large_attribution_groups_are_shared_without_losing_evidence(preview, monkeypatch, source_budget):
+    from apps.api.dy_api.models import RawAwemeBinding
+    from apps.api.dy_api.ranking_schema_v1 import samples
+    for number in range(40):
+        preview.add(RawAwemeBinding(binding_key=f'SHARED-{number}', account_id=f'SHARED-ID-{number}',
+            account_name='shared ambiguous company', poi_id='TEST-POI-A' if number % 2 else 'TEST-POI-B',
+            binding_status='2', raw_payload={}))
+    for order in preview.scalars(select(RawDouyinOrder).where(RawDouyinOrder.order_id.in_(['O1','O2']))):
+        order.owner_account_id = None
+        order.owner_douyin_uid = None
+        order.owner_account_name = 'shared ambiguous company'
+    preview.commit()
+    if source_budget is not None:
+        from apps.api.dy_api import ranking_snapshots
+        from apps.api.dy_api.ranking_schema_v1 import runs
+        monkeypatch.setattr(ranking_snapshots, 'MAX_SHARED_SOURCE_BYTES', source_budget)
+        with pytest.raises(ValueError, match='归属证据超过'):
+            calculate(preview)
+        assert preview.scalar(select(func.count()).select_from(runs)) == 0
+        return
+    calculate(preview)
+    facts = list(preview.execute(select(samples).where(samples.c.metric_key=='order_count',
+        samples.c.sample_key.in_(['O1','O2']))).mappings())
+    assert len(facts) == 2
+    assert all(fact['reason_code']=='conflicting_name_binding' for fact in facts)
+    assert all(len(fact['evidence_json']['source_identifiers']) <= 16 for fact in facts)
+    keys = {fact['evidence_json']['source_group_key'] for fact in facts}
+    assert len(keys) == 1
+    group = preview.execute(select(samples).where(samples.c.metric_key=='order_attribution_sources',
+        samples.c.sample_key==next(iter(keys)))).mappings().one()
+    assert group['status']=='excluded' and group['numerator']==group['denominator']==0
+    identifiers = group['evidence_json']['source_identifiers']
+    assert len(identifiers)==40
+    assert all(fact['evidence_json']['source_identifier_count']==40 for fact in facts)
+    assert all(fact['evidence_json']['source_identifiers']==identifiers[:16] for fact in facts)
+    assert report(preview)['totals']['follow_denominator']==10
+    assert report(preview)['totals']['order_count']==8
+
+
 @pytest.mark.parametrize("level", ["group", "service_center", "district", "area", "store"])
 def test_sales_and_store_average_keep_period_start_organization(preview, level):
     from apps.api.dy_api.ranking_schema_v1 import org_history, samples

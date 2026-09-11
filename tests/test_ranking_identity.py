@@ -1,4 +1,4 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from time import perf_counter
 from types import SimpleNamespace
 
@@ -460,3 +460,126 @@ def test_reusable_index_handles_thousands_of_orders_without_rescanning_13000_dim
 
     assert all(result.store_id is not None for result in results)
     assert elapsed < 5.0
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_reason", "expected_sources"),
+    [
+        (
+            "ambiguous_latest",
+            "ambiguous_latest_binding",
+            (
+                "raw_aweme_binding:active:name",
+                "raw_aweme_binding:disabled:name",
+            ),
+        ),
+        (
+            "conflicting_poi",
+            "conflicting_poi_mapping",
+            ("raw_aweme_binding:duplicate-poi:name",),
+        ),
+        (
+            "cross_store",
+            "conflicting_name_binding",
+            (
+                "raw_aweme_binding:store-a:name",
+                "raw_aweme_binding:store-b:name",
+            ),
+        ),
+    ],
+)
+def test_static_name_conflicts_reuse_the_full_result_across_transaction_times(
+    case, expected_reason, expected_sources
+):
+    updated_at = datetime(2026, 9, 2, tzinfo=timezone.utc)
+    pois = {"poi-a": "store-a", "poi-b": "store-b"}
+    if case == "ambiguous_latest":
+        rows = [
+            binding(
+                "active",
+                "poi-a",
+                account_id="same",
+                nickname="shared",
+                status=2,
+                updated_at=updated_at,
+            ),
+            binding(
+                "disabled",
+                "poi-a",
+                account_id="same",
+                nickname="shared",
+                status=106,
+                updated_at=updated_at,
+            ),
+        ]
+    elif case == "conflicting_poi":
+        rows = [binding("duplicate-poi", "poi-a", nickname="shared")]
+        pois = [
+            SimpleNamespace(poi_id="poi-a", store_id="store-a"),
+            SimpleNamespace(poi_id="poi-a", store_id="store-b"),
+        ]
+    else:
+        rows = [
+            binding("store-a", "poi-a", nickname="shared"),
+            binding("store-b", "poi-b", nickname="shared"),
+        ]
+    index = ranking_identity.OrderAttributionIndex(
+        accounts=[], bindings=rows, poi_to_store=pois
+    )
+
+    first = index.resolve(occurred_at=SALE_AT, owner_account_name="shared")
+    later = index.resolve(
+        occurred_at=SALE_AT + timedelta(days=30), owner_account_name="shared"
+    )
+
+    assert first.reason == expected_reason
+    assert first.source_identifiers == expected_sources
+    assert later is first
+
+
+def test_date_dependent_name_result_is_not_cached():
+    start = int(SALE_AT.timestamp()) + 60
+    index = ranking_identity.OrderAttributionIndex(
+        accounts=[],
+        bindings=[
+            binding(
+                "dated",
+                "poi-a",
+                nickname="dated",
+                payload={"bind_start_time": start},
+            )
+        ],
+        poi_to_store={"poi-a": "store-a"},
+    )
+
+    before = index.resolve(occurred_at=SALE_AT, owner_account_name="dated")
+    after = index.resolve(
+        occurred_at=SALE_AT + timedelta(minutes=2), owner_account_name="dated"
+    )
+
+    assert (before.store_id, before.reason) == (None, "invalid_account_binding")
+    assert (after.store_id, after.reason) == ("store-a", "resolved_owner_name")
+
+
+def test_explicit_identifier_still_precedes_a_cached_name_conflict():
+    index = ranking_identity.OrderAttributionIndex(
+        accounts=[account("direct", "store-a", status=2)],
+        bindings=[
+            binding("name-a", "poi-a", nickname="shared"),
+            binding("name-b", "poi-b", nickname="shared"),
+        ],
+        poi_to_store={"poi-a": "store-a", "poi-b": "store-b"},
+    )
+    cached = index.resolve(occurred_at=SALE_AT, owner_account_name="shared")
+
+    explicit = index.resolve(
+        occurred_at=SALE_AT,
+        owner_account_id="direct",
+        owner_account_name="shared",
+    )
+
+    assert cached.reason == "conflicting_name_binding"
+    assert (explicit.store_id, explicit.reason) == (
+        "store-a",
+        "resolved_owner_account_id",
+    )
