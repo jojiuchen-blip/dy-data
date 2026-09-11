@@ -78,6 +78,25 @@ def test_douyin_ranking_route_returns_camel_case_contract_and_requires_a03(
     assert payload["definitions"][0]["key"] == "order_count"
 
 
+def test_ranking_database_failure_returns_safe_retry_response(client, monkeypatch, db_session):
+    from sqlalchemy.exc import OperationalError
+    from dy_api.routes import dashboard
+    assert client.post('/api/v1/auth/login', json={
+        'username':'system-admin', 'password':'test-password'}).status_code == 200
+    def fail(*args, **kwargs):
+        raise OperationalError('private SQL statement', {'secret':'private parameter'},
+                               Exception('canceling statement due to statement timeout'))
+    monkeypatch.setattr(dashboard, 'ensure_business_snapshot', fail)
+    with TestClient(client.app, raise_server_exceptions=False) as probe:
+        probe.cookies.update(client.cookies)
+        response = probe.get('/api/v1/dashboard/douyin-ranking', params={
+            'periodStart':'2026-09-01', 'periodEnd':'2026-09-11'})
+    assert response.status_code == 503
+    assert 'private' not in response.text
+    assert 'SQL' not in response.text
+    assert 'RANKING_QUERY_UNAVAILABLE' in response.text
+
+
 def test_highest_admin_can_upload_douyin_store_org_csv_snapshot(
     client: TestClient, db_session: Session
 ) -> None:

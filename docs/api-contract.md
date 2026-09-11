@@ -6,6 +6,8 @@
 
 ### 打榜源证据归属字段（2026-09-11）
 
+打榜看板查询遇到数据库执行失败时返回HTTP503及`RANKING_QUERY_UNAVAILABLE`，提示稍后重试或缩短日期范围，不返回SQL、连接信息或参数；业务校验错误仍为422。
+
 `GET /api/v1/admin/ranking-source-evidence` 的观察契约升级为
 `ranking-source-observation-v2`，仍仅最高管理员可用，保留最长 7 日、最多
 500 行、游标绑定查询上下文和只读约束。旧版本游标不可跨版本复用。

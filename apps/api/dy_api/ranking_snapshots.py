@@ -151,20 +151,24 @@ def calculate_snapshot(
         DimSkuProductRule.product_scope == "精诚养车"), MAX_DIMENSION_ROWS, scalar=True)
     skus = {row.sku_id for row in sku_rules}
     products = {row.product_id for row in sku_rules if row.product_id}
-    # Keep historical product membership in SQL. Only hydrate period sales;
-    # old orders assigned this period remain responsibility samples below.
-    known_orders = select(RawDouyinOrder.order_id).where(RawDouyinOrder.sku_id.in_(skus))
+    # Correlate membership to each period candidate. Independent IN subqueries
+    # under OR can repeatedly materialize historical product sets on PostgreSQL.
+    # Keep LIMIT after membership so unrelated brands do not consume the budget.
+    known_orders = select(RawDouyinOrder.order_id).where(
+        RawDouyinOrder.order_id == ClueAssignmentRound.order_id,
+        RawDouyinOrder.sku_id.in_(skus)).correlate(ClueAssignmentRound).exists()
     known_raw_clues = select(RawDouyinClue.order_id).where(
-        RawDouyinClue.product_id.in_(products | skus), RawDouyinClue.order_id.is_not(None))
+        RawDouyinClue.order_id == ClueAssignmentRound.order_id,
+        RawDouyinClue.product_id.in_(products | skus), RawDouyinClue.order_id.is_not(None)
+    ).correlate(ClueAssignmentRound).exists()
     known_center_clues = select(ClueCenterOrder.order_id).where(
-        ClueCenterOrder.product_id.in_(products | skus))
+        ClueCenterOrder.order_id == ClueAssignmentRound.order_id,
+        ClueCenterOrder.product_id.in_(products | skus)).correlate(ClueAssignmentRound).exists()
     selected = bounded(select(ClueAssignmentRound).where(
         ClueAssignmentRound.execution_mode == "formal",
         ClueAssignmentRound.assigned_at >= start, ClueAssignmentRound.assigned_at < end,
         ClueAssignmentRound.assigned_at <= cutoff,
-        or_(ClueAssignmentRound.order_id.in_(known_orders),
-            ClueAssignmentRound.order_id.in_(known_raw_clues),
-            ClueAssignmentRound.order_id.in_(known_center_clues)),
+        or_(known_orders, known_raw_clues, known_center_clues),
     ))
     sale_window = or_(
         and_(RawDouyinOrder.sale_time >= start, RawDouyinOrder.sale_time < end,
