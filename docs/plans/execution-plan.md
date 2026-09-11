@@ -1,4 +1,14 @@
-# 当前执行：DYDATA-94 登录失效提示
+# 当前执行：精诚养车抖音打榜看板生产接入
+
+- 当前阶段：S4。
+- 当前正式计划：[打榜看板生产接入](delivery-plans/main-delivery-plan-ranking-dashboard-production.md)。
+- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md)。
+- 当前 Task：T0.1，进行中；本地指标、权限、迁移与真实名单导入核验通过，完整看板尚未部署。
+- 用户已确认：适用名单以统计开始日固定；缺失组织层级单列“待补充归属”；更新保留历史快照。
+- 下一步：完成真实订单归属核验、完整看板 CI 和已授权服务器部署。
+- 下方保留其他任务历史与并行状态，不替代本轮计划。
+
+# 历史及并行执行：DYDATA-94 登录失效提示
 
 - 当前阶段：S4。
 - 当前正式计划：[登录失效提示](delivery-plans/main-delivery-plan-dydata-94-login-error.md)。

@@ -27,6 +27,7 @@ class PageDefinition:
 PAGE_DEFINITIONS = (
     PageDefinition("A01", "线索看板", "线索中心", ("/clues",)),
     PageDefinition("A02", "线索明细", "线索中心", ("/clues/:id",)),
+    PageDefinition("A03", "抖音打榜", "指标看板", ("/metrics/douyin-ranking",)),
     PageDefinition("B01", "全国门店榜单", "订单分佣", ("/ranking",)),
     PageDefinition("B02", "单店结算", "订单分佣", ("/settlement",)),
     PageDefinition("B03", "订单费用明细", "订单分佣", ("/details", "/invoice")),
@@ -55,7 +56,7 @@ PAGE_DEFINITIONS = (
 )
 ALL_PAGE_KEYS = tuple(page.page_key for page in PAGE_DEFINITIONS)
 ALL_PAGE_KEY_SET = frozenset(ALL_PAGE_KEYS)
-STORE_DEFAULT_PAGE_KEYS = frozenset({"A01", "A02", "B01", "B02", "B03", "C01"})
+STORE_DEFAULT_PAGE_KEYS = frozenset({"A01", "A02", "A03", "B01", "B02", "B03", "C01"})
 VALID_ROLES = frozenset({"highest_admin", "admin", "store"})
 VALID_SCOPE_MODES = frozenset({"all", "specified", "none"})
 
@@ -375,6 +376,8 @@ def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str
         return None
     if path.startswith("/api/v1/admin"):
         return ("D01",)
+    if path.startswith("/api/v1/dashboard/douyin-ranking"):
+        return ("A03",)
     if path.startswith("/api/v1/clues/filters") or path.startswith("/api/v1/clues/overview"):
         return ("A01",)
     if path.startswith("/api/v1/clues/"):

@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/Button";
 import { AdminProductSyncPanel } from "../components/AdminProductSyncPanel";
+import { DouyinStoreOrgMappingPanel } from "../components/DouyinStoreOrgMappingPanel";
 import { ComponentRoom } from "../components/admin-sync/ComponentRoom";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
@@ -429,6 +430,7 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         }
       />
       <AdminProductSyncPanel />
+      <DouyinStoreOrgMappingPanel />
       {remoteConfigChanged ? (
         <div
           aria-atomic="true"

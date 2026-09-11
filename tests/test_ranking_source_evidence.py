@@ -141,12 +141,13 @@ def test_sale_time_precedence_and_shanghai_boundaries(client, evidence, db_sessi
 
 
 def test_identity_evidence_links_exact_names_without_exporting_names(client, evidence, db_session):
+    from hashlib import sha256
     from apps.api.dy_api.models import RawAwemeBinding, DimAwemeAccount
     name = "synthetic-private-store-name"
     order = db_session.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "A"))
     order.owner_account_name = name
     db_session.add(DimAwemeAccount(account_id="name-match-account", nickname=name))
-    db_session.add(RawAwemeBinding(binding_key="identity", douyin_nickname=name,
+    db_session.add(RawAwemeBinding(binding_key="identity", douyin_nickname=name, account_name=name + "-alias",
         binding_status="105", raw_payload={"bind_start_time": 1788192000,
         "bind_end_time": 0, "craftsman_uid": "craft", "real_name": "never-export-real-name"}))
     db_session.commit()
@@ -161,6 +162,7 @@ def test_identity_evidence_links_exact_names_without_exporting_names(client, evi
     assert results["accounts"][0]["account_name_key"] == order_key
     binding = results["bindings"][0]
     assert binding["account_name_key"] == order_key
+    assert binding["source_account_name_key"] == sha256((name + "-alias").encode()).hexdigest()
     assert str(binding["source_bind_start_time"]) == "1788192000"
     assert str(binding["source_bind_end_time"]) == "0"
     assert binding["binding_status"] == "105"  # source states must not be reinterpreted

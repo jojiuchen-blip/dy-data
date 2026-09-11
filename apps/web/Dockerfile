@@ -26,6 +26,17 @@ RUN mkdir -p /etc/nginx/templates \
     '    root /usr/share/nginx/html;' \
     '    index index.html;' \
     '    limit_req_status 429;' \
+    '    location = /api/v1/admin/sync/douyin-ranking-configuration {' \
+    '        client_max_body_size 21m;' \
+    '        proxy_pass ${API_UPSTREAM};' \
+    '        proxy_http_version 1.1;' \
+    '        proxy_set_header Host $host;' \
+    '        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' \
+    '        proxy_set_header X-Forwarded-Proto $scheme;' \
+    '        proxy_connect_timeout 5s;' \
+    '        proxy_send_timeout 30s;' \
+    '        proxy_read_timeout 30s;' \
+    '    }' \
     '    location /api/v1/ {' \
     '        proxy_pass ${API_UPSTREAM};' \
     '        proxy_http_version 1.1;' \

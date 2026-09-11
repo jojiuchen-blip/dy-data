@@ -707,7 +707,7 @@ def test_dydata_81_finance_is_an_independent_primary_module_before_admin() -> No
     app = read_source("App.tsx")
     shell = read_source("components/Shell.tsx")
 
-    assert 'type NavSection = "settlement" | "verification" | "clues" | "finance" | "admin";' in shell
+    assert 'type NavSection = "settlement" | "verification" | "clues" | "metrics" | "finance" | "admin";' in shell
     assert 'const financePaths = new Set([' in shell
     assert 'section: "finance"' in shell
     assert 'href: "/finance/promotion"' in shell

@@ -37,7 +37,8 @@ def _protect_name_evidence(row: dict) -> dict:
     Never case-fold or fuzzy-match distinct source identities.
     """
     for private, public in (("_owner_name", "owner_name_key"),
-                            ("_account_name", "account_name_key")):
+                            ("_account_name", "account_name_key"),
+                            ("_source_account_name", "source_account_name_key")):
         if private in row:
             value = row.pop(private)
             row[public] = hashlib.sha256(value.encode("utf-8")).hexdigest() if value and value.strip() else None
@@ -93,6 +94,7 @@ def _statement(dataset: str, start: datetime, end: datetime, cutoff: datetime):
     if dataset == "bindings":
         return select(*_columns(RawAwemeBinding, "binding_key account_id douyin_id poi_id binding_status source_run_id updated_at"),
             RawAwemeBinding.douyin_nickname.label("_account_name"),
+            RawAwemeBinding.account_name.label("_source_account_name"),
             RawAwemeBinding.raw_payload["bind_start_time"].as_string().label("source_bind_start_time"),
             RawAwemeBinding.raw_payload["bind_end_time"].as_string().label("source_bind_end_time"),
             RawAwemeBinding.raw_payload["craftsman_uid"].as_string().label("source_craftsman_uid"),

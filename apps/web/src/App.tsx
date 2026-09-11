@@ -56,6 +56,11 @@ const ClueCenterPage = lazy(() =>
     default: module.ClueCenterPage,
   })),
 );
+const DouyinRankingPage = lazy(() =>
+  import("./pages/DouyinRankingPage").then((module) => ({
+    default: module.DouyinRankingPage,
+  })),
+);
 const FinanceDisputesPage = lazy(() =>
   import("./pages/FinanceDisputesPage").then((module) => ({
     default: module.FinanceDisputesPage,
@@ -173,6 +178,7 @@ const pageKeyByPath: Array<[string, string]> = [
   ["/finance/disputes", "FIN05"],
   ["/finance/imports", "FIN06"],
   ["/clues/details", "A02"],
+  ["/metrics/douyin-ranking", "A03"],
   ["/clues", "A01"],
   ["/ranking", "B01"],
   ["/settlement", "B02"],
@@ -184,7 +190,7 @@ const pageKeyByPath: Array<[string, string]> = [
 ];
 
 function firstAccessiblePath(user: AdminUser): string {
-  const preferred = ["/ranking", "/clues", "/settlement", "/details", "/sales", "/finance/promotion", "/finance/management", "/finance/orders/promotion", "/finance/stores", "/finance/disputes", "/finance/imports", "/admin"];
+  const preferred = ["/ranking", "/clues", "/metrics/douyin-ranking", "/settlement", "/details", "/sales", "/finance/promotion", "/finance/management", "/finance/orders/promotion", "/finance/stores", "/finance/disputes", "/finance/imports", "/admin"];
   return preferred.find((path) => hasPageAccess(user, path)) ?? "/login";
 }
 
@@ -441,6 +447,8 @@ export function App() {
               searchParams={searchParams}
               view="dashboard"
             />
+          ) : location.pathname === "/metrics/douyin-ranking" ? (
+            <DouyinRankingPage key={`douyin-ranking:${searchParams.toString()}`} searchParams={searchParams} />
           ) : location.pathname === "/clues/details" ? (
             <ClueCenterPage
               currentUser={user}

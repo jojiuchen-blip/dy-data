@@ -39,7 +39,7 @@ const adminPaths = new Set([
   "/sync-admin",
 ]);
 
-type NavSection = "settlement" | "verification" | "clues" | "finance" | "admin";
+type NavSection = "settlement" | "verification" | "clues" | "metrics" | "finance" | "admin";
 
 interface NavItem {
   href: string;
@@ -64,6 +64,15 @@ const moduleNavItems: ModuleNavItem[] = [
     label: "线索中心",
     section: "clues",
     description: "经营线索",
+  },
+  {
+    href: "/metrics/douyin-ranking",
+    pageKey: "A03",
+    pageKeys: ["A03"],
+    icon: "chart",
+    label: "指标看板",
+    section: "metrics",
+    description: "经营考核",
   },
   {
     href: "/sales",
@@ -115,6 +124,11 @@ const clueNavItems: NavItem[] = [
   { href: "/clues/details", label: "线索明细", pageKey: "A02" },
 ];
 
+const metricsNavItems: NavItem[] = [
+  { href: "/metrics/douyin-ranking", label: "抖音打榜", pageKey: "A03" },
+  // Future dashboards, such as 星评指标, should be added here with their own page key.
+];
+
 const financeNavItems: NavItem[] = [
   { href: "/finance/promotion", label: "推广服务费", pageKey: "FIN01" },
   { href: "/finance/management", label: "管理服务费", pageKey: "FIN02" },
@@ -147,6 +161,7 @@ const sectionLabels: Record<NavSection, string> = {
   settlement: "订单分佣结算中心",
   verification: "核销表现",
   clues: "线索中心",
+  metrics: "指标看板",
   finance: "财务中心",
   admin: "管理后台",
 };
@@ -197,6 +212,9 @@ function activeSection(currentPath: string): NavSection {
   if (currentPath === "/clues" || currentPath.startsWith("/clues/")) {
     return "clues";
   }
+  if (currentPath === "/metrics" || currentPath.startsWith("/metrics/")) {
+    return "metrics";
+  }
   if (settlementPaths.has(currentPath)) {
     return "settlement";
   }
@@ -213,6 +231,9 @@ function secondaryNav(section: NavSection): NavItem[] {
   if (section === "clues") {
     return clueNavItems;
   }
+  if (section === "metrics") {
+    return metricsNavItems;
+  }
   if (section === "verification") {
     return [];
   }
@@ -222,6 +243,7 @@ function secondaryNav(section: NavSection): NavItem[] {
 const pageKeyByNavHref: Record<string, string> = {
   "/clues": "A01",
   "/clues/details": "A02",
+  "/metrics/douyin-ranking": "A03",
   "/ranking": "B01",
   "/settlement": "B02",
   "/details": "B03",

@@ -4,7 +4,7 @@ import json
 import os
 from csv import DictReader, DictWriter
 from base64 import urlsafe_b64encode
-from datetime import date, datetime, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from hashlib import sha256
 from io import StringIO, TextIOWrapper
 from urllib.parse import quote
@@ -26,9 +26,13 @@ from dy_api.routes._data import (
     camelize,
     generated_at,
     get_data_store,
+    get_session_dependency,
     request_id,
     with_utf8_bom,
 )
+from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
+from apps.api.dy_api.ranking_snapshots import read_snapshot_report
+from apps.api.dy_api.ranking_business import ensure_business_snapshot
 from dy_api.schemas import (
     CommissionRulesSummaryData,
     OrderDetailsData,
@@ -93,6 +97,30 @@ STORE_FINANCE_RANKING_BASES = {
     "PROMOTION_FEE_MONTH",
     "PROMOTION_FEE_CUMULATIVE",
 }
+DOUYIN_RANKING_LEVELS = {"group", "service_center", "district", "area", "store"}
+DOUYIN_RANKING_SORT_FIELDS = {"order_count", "order_average", "follow_24h_rate", "verification_rate"}
+DOUYIN_RANKING_DEFINITIONS = [
+    {
+        "key": "order_count",
+        "label": "抖音订单量",
+        "description": "统计期内门店账号及所属职人账号卖出的全渠道精诚养车订单，按订单ID去重。",
+    },
+    {
+        "key": "order_average",
+        "label": "抖音店均订单量",
+        "description": "辖区抖音订单量除以辖区全部有效精诚养车门店数。",
+    },
+    {
+        "key": "follow_24h_rate",
+        "label": "抖音线索24小时有效跟进率",
+        "description": "精诚养车商品对应的正式分配线索中，分配后24小时内存在系统跟进记录的数量除以正式分配数量。",
+    },
+    {
+        "key": "verification_rate",
+        "label": "抖音订单核销率",
+        "description": "精诚养车商品对应的正式分配线索关联订单中，最终成功核销订单数除以关联订单总数。",
+    },
+]
 SORT_ORDERS = {"ASC", "DESC"}
 CONFIRMATION_DIRECTION_TO_DB = {"PROMOTION": 1, "MANAGEMENT": 2}
 CONFIRMATION_DIRECTION_FROM_DB = {value: key for key, value in CONFIRMATION_DIRECTION_TO_DB.items()}
@@ -480,6 +508,88 @@ def store_ranking(
     }
     data = _call_reporting_store(request, store.store_ranking_report, filters)
     return _reporting_success(request, data, definitions=STORE_RANKING_DEFINITIONS)
+
+
+@router.get("/dashboard/douyin-ranking")
+def douyin_ranking(
+    request: Request,
+    period_start: date = Query(alias="periodStart"),
+    period_end: date = Query(alias="periodEnd"),
+    level: str = Query(default="service_center"),
+    group_name: str | None = Query(default=None, alias="groupName"),
+    service_center_name: str | None = Query(default=None, alias="serviceCenterName"),
+    district_name: str | None = Query(default=None, alias="districtName"),
+    area_name: str | None = Query(default=None, alias="areaName"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=50, ge=1, le=200, alias="pageSize"),
+    sort_by: str = Query(default="order_count", alias="sortBy"),
+    sort_order: str = Query(default="DESC", alias="sortOrder"),
+    current_user: AuthContext = Depends(get_current_user),
+    session=Depends(get_session_dependency),
+):
+    """Return the independent indicator board using frozen business evidence."""
+    if period_end < period_start:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_PERIOD",
+            "结束日期不能早于开始日期",
+            field="periodEnd",
+        )
+    if (period_end - period_start).days >= 366:
+        _raise_reporting_error(
+            request,
+            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "PERIOD_TOO_LARGE",
+            "打榜查询时间范围不能超过366天",
+            field="periodEnd",
+        )
+    normalized_level = level.strip().lower()
+    normalized_sort = sort_by.strip().lower()
+    normalized_order = sort_order.strip().upper()
+    _validate_enum(normalized_level, DOUYIN_RANKING_LEVELS, "level", request)
+    _validate_enum(normalized_sort, DOUYIN_RANKING_SORT_FIELDS, "sortBy", request)
+    _validate_enum(normalized_order, SORT_ORDERS, "sortOrder", request)
+    if session is None:
+        _raise_reporting_error(
+            request,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "DATABASE_UNAVAILABLE",
+            "数据库暂不可用",
+        )
+
+    business_tz = ZoneInfo("Asia/Shanghai")
+    start_at = datetime.combine(period_start, time.min, tzinfo=business_tz)
+    end_at = datetime.combine(period_end + timedelta(days=1), time.min, tzinfo=business_tz)
+    preview = getattr(request.app.state, "ranking_snapshot_preview", False)
+    try:
+        run_id = None
+        if not preview:
+            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at)
+            session.commit()
+        data = read_snapshot_report(
+            session,
+            run_id=run_id,
+            data_mode="synthetic" if preview else "business",
+            period_start=start_at,
+            period_end=end_at,
+            level=normalized_level,
+            scope_store_ids=(None if current_user.has_global_data_access else current_user.store_ids),
+            group_name=(group_name or "").strip() or None,
+            service_center_name=(service_center_name or "").strip() or None,
+            district_name=(district_name or "").strip() or None,
+            area_name=(area_name or "").strip() or None,
+            store_id=(store_id or "").strip() or None,
+            page=page,
+            page_size=page_size,
+            sort_by=normalized_sort,
+            sort_order=normalized_order,
+        )
+    except ValueError as exc:
+        session.rollback()
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
+    return _reporting_success(request, data, definitions=DOUYIN_RANKING_DEFINITIONS)
 
 
 @router.get("/commission-rules/summary")

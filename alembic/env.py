@@ -14,7 +14,9 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 
-target_metadata = Base.metadata
+from apps.api.dy_api.ranking_schema_v1 import metadata as ranking_metadata
+
+target_metadata = [Base.metadata, ranking_metadata]
 MIGRATION_ADVISORY_LOCK_KEY = 294903237518183233
 MIGRATION_LOCK_TIMEOUT_SECONDS = 10 * 60
 MIGRATION_LOCK_RETRY_SECONDS = 0.25

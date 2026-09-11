@@ -12,6 +12,7 @@
 
 - `orders.owner_name_key`：原始订单归属账号名称的 SHA-256 匹配键，可空。
 - `accounts.account_name_key`、`bindings.account_name_key`：账号昵称的同算法匹配键，可空。
+- `bindings.source_account_name_key`：绑定表另一个账号名称 `account_name` 的同算法匹配键，可空；用于核验现有归属解析器的第二个精确名称，不改变归属规则。未包含此字段的旧导出不能视为完整名称归属核验。
 - 名称按原文精确比较，不转换大小写、不模糊匹配；空值、空字符串和全空白返回 null。
   匹配键不是匿名化保证，也不证明门店归属；相同昵称跨门店、有失效绑定或冲突时不得自动归属。
 - `bindings.source_bind_start_time`、`source_bind_end_time`：原始绑定起止值，未提供返回 null，

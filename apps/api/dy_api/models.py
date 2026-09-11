@@ -336,6 +336,7 @@ class DimStore(Base):
     standard_province: Mapped[str | None] = mapped_column(Text)
     standard_city: Mapped[str | None] = mapped_column(Text)
     city_code: Mapped[str | None] = mapped_column(Text, index=True)
+    service_store_code: Mapped[str | None] = mapped_column(String(128), index=True)
     longitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     latitude: Mapped[Decimal | None] = mapped_column(Numeric(10, 6))
     is_douyin_clue_applicable: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
@@ -345,6 +346,25 @@ class DimStore(Base):
     location_status_note: Mapped[str | None] = mapped_column(Text)
     location_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+class DimStoreOrgAssignment(Base):
+    """Current organization ownership imported from the service-store roster."""
+
+    __tablename__ = "dim_store_org_assignments"
+
+    service_store_code: Mapped[str] = mapped_column(String(128), primary_key=True)
+    service_store_name: Mapped[str | None] = mapped_column(Text)
+    group_code: Mapped[str | None] = mapped_column(String(128), index=True)
+    group_name: Mapped[str | None] = mapped_column(Text, index=True)
+    service_center_name: Mapped[str | None] = mapped_column(Text, index=True)
+    district_name: Mapped[str | None] = mapped_column(Text, index=True)
+    area_name: Mapped[str | None] = mapped_column(Text, index=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    source_workbook: Mapped[str | None] = mapped_column(Text)
+    source_row_number: Mapped[int | None] = mapped_column(Integer)
+    imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 
 
