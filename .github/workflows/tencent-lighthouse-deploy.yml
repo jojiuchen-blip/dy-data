@@ -1,234 +1,38 @@
-name: Tencent Lighthouse Deploy
-
+name: Ranking Read-only Production Diagnostics
 "on":
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
-concurrency:
-  group: tencent-lighthouse-${{ github.ref }}
-  cancel-in-progress: false
-
 permissions:
   contents: read
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  PYTHON_VERSION: "3.12"
-  NODE_VERSION: "22"
-
 jobs:
-  verify:
-    name: Verify
+  diagnose:
     runs-on: ubuntu-latest
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dydata_release
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres -d dydata_release"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
-    steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
-          cache-dependency-path: requirements.txt
-
-      - name: Install Python dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: apps/web/package-lock.json
-
-      - name: Select current formal delivery plan
-        run: node scripts/prepare_governance_plan.mjs .
-
-      - name: Run project governance gates
-        run: |
-          npm --prefix .agent/project-manager-suite run test:ai-pm
-          node .agent/project-manager-suite/tools/verify-suite-lock.mjs .
-          node .agent/project-manager-suite/tools/check-protocol-alignment.mjs .agent/project-manager-suite
-          node .agent/project-manager-suite/tools/validate-global-files.mjs .
-          node .agent/project-manager-suite/tools/route-check.mjs .
-
-      - name: Run real PostgreSQL release gate
-        env:
-          DY_RELEASE_POSTGRES_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/dydata_release
-        run: |
-          python scripts/verify_postgres_release_gate.py
-          python -m pytest -q tests/test_settlement_rebuild_postgres.py
-          python -m pytest -q tests/test_priority_budget_pause_postgres.py
-          python -m pytest -q tests/test_shop_poi_postgres.py
-
-      - name: Install frontend dependencies
-        working-directory: apps/web
-        run: npm ci
-
-      - name: Install Playwright browser
-        run: |
-          # Bound individual mirror connections; never bypass failed setup.
-          printf '%s\n' \
-            'Acquire::http::Timeout "30";' \
-            'Acquire::https::Timeout "30";' \
-            'Acquire::Retries "2";' \
-            | sudo tee /etc/apt/apt.conf.d/zzzz-codex-playwright-network >/dev/null
-          # Playwright downloads its own Chromium; the runner's unrelated
-          # Chrome apt feed can block dependency installation during CDN sync.
-          for source in /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            if grep -q 'dl.google.com/linux/chrome' "$source"; then
-              sudo mv -- "$source" "${source}.disabled"
-            fi
-          done
-          if [ -f /etc/apt/apt-mirrors.txt ]; then
-            # The full archive also publishes the signed security suites.
-            printf '%s\n' \
-              'https://archive.ubuntu.com/ubuntu' \
-              | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
-          fi
-          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
-            [ -f "$source" ] || continue
-            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
-          done
-          sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
-          sudo apt-config dump | grep -Fx 'Acquire::http::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::https::Timeout "30";'
-          sudo apt-config dump | grep -Fx 'Acquire::Retries "2";'
-          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
-            --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
-            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
-          timeout 10m python -m playwright install chromium --with-deps
-
-      - name: Run tests
-        run: python -m pytest
-
-      - name: Build frontend
-        working-directory: apps/web
-        run: npm run build
-
-      - name: Build API Docker image
-        run: docker build -f apps/api/Dockerfile -t dy-dashboard-api:ci .
-
-      - name: Build Worker Docker image
-        run: docker build -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
-
-      - name: Build Browser Docker image
-        run: docker build -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
-
-      - name: Build Web Docker image
-        run: docker build -f apps/web/Dockerfile -t dy-dashboard-web:ci apps/web
-
-  deploy:
-    name: Deploy Tencent Lighthouse
-    runs-on: ubuntu-latest
-    needs: verify
-    if: github.event_name == 'workflow_dispatch' || vars.TENCENT_DEPLOY_ON_PUSH == 'true'
-    timeout-minutes: 30
-
+    timeout-minutes: 5
     env:
       TENCENT_HOST: ${{ vars.TENCENT_HOST }}
       TENCENT_SSH_PORT: ${{ vars.TENCENT_SSH_PORT }}
       TENCENT_SSH_USER: ${{ vars.TENCENT_SSH_USER }}
-      TENCENT_APT_MIRROR: ${{ vars.TENCENT_APT_MIRROR }}
-      TENCENT_START_WORKER: ${{ vars.TENCENT_START_WORKER }}
-      DY_WEB_BASE_URL: ${{ vars.DY_WEB_BASE_URL }}
       TENCENT_SSH_KEY: ${{ secrets.TENCENT_SSH_KEY }}
       TENCENT_KNOWN_HOSTS: ${{ secrets.TENCENT_KNOWN_HOSTS }}
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v4
-
-      - name: Check required Tencent deployment settings
+      - name: Read bounded API error diagnostics
+        shell: bash
         run: |
-          required=(
-            TENCENT_HOST
-            TENCENT_SSH_USER
-            DY_WEB_BASE_URL
-            TENCENT_START_WORKER
-            TENCENT_SSH_KEY
-            TENCENT_KNOWN_HOSTS
-          )
-          for name in "${required[@]}"; do
-            if [ -z "${!name}" ]; then
-              echo "::error::$name is not configured"
-              exit 1
-            fi
-          done
-          if [ "$TENCENT_START_WORKER" != "true" ]; then
-            echo "::error::TENCENT_START_WORKER must be true for recoverable finance detection jobs"
-            exit 1
-          fi
-
-      - name: Configure SSH
-        run: |
+          set -euo pipefail
           install -m 700 -d ~/.ssh
           printf '%s\n' "$TENCENT_SSH_KEY" > ~/.ssh/tencent_lighthouse
           chmod 600 ~/.ssh/tencent_lighthouse
           printf '%s\n' "$TENCENT_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-
-      - name: Deploy on server
-        run: |
-          port="${TENCENT_SSH_PORT:-22}"
-          archive="/tmp/dy-dashboard-${GITHUB_SHA}.tar.gz"
-
-          git archive --format=tar "$GITHUB_SHA" | gzip > /tmp/dy-dashboard-source.tar.gz
-          scp -i ~/.ssh/tencent_lighthouse \
-            -P "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            /tmp/dy-dashboard-source.tar.gz \
-            "$TENCENT_SSH_USER@$TENCENT_HOST:$archive"
-
-          cat > /tmp/tencent-deploy-bootstrap.sh <<'REMOTE'
+          trap 'rm -f ~/.ssh/tencent_lighthouse ~/.ssh/known_hosts' EXIT
+          ssh -i ~/.ssh/tencent_lighthouse -p "${TENCENT_SSH_PORT:-22}" \
+            -o BatchMode=yes -o IdentitiesOnly=yes -o ConnectTimeout=15 \
+            -o ServerAliveInterval=15 -o ServerAliveCountMax=3 \
+            "$TENCENT_SSH_USER@$TENCENT_HOST" 'bash -s' <<'REMOTE'
           set -euo pipefail
-          target_sha="$1"
-          archive_path="$2"
-          web_base_url="$3"
-          start_worker="$4"
-          app_dir="${APP_DIR:-/opt/dy-dashboard/repo}"
-          log_dir="${LOG_DIR:-/opt/dy-dashboard/logs}"
-          apt_mirror="${TENCENT_APT_MIRROR:-http://mirrors.tencentyun.com}"
-
-          mkdir -p "$app_dir" "$log_dir"
-          cd "$app_dir"
-          if [ -d .git ] && (! git diff --quiet || ! git diff --cached --quiet); then
-            dirty_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-            git status --short > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.status"
-            git diff > "$log_dir/pre-bootstrap-dirty-$dirty_stamp.patch"
-          fi
-
-          find "$app_dir" -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
-          tar -xzf "$archive_path" -C "$app_dir"
-          rm -f "$archive_path"
-
-          SKIP_GIT_SYNC=true APT_MIRROR="$apt_mirror" DY_WEB_BASE_URL="$web_base_url" TENCENT_START_WORKER="$start_worker" bash deploy/tencent/deploy.sh "$target_sha"
+          cd /opt/dy-dashboard/repo
+          compose() { sudo docker compose --env-file /opt/dy-dashboard/env/production.env -f deploy/compose.yaml "$@"; }
+          compose ps --format '{{.Service}} {{.State}} {{.Health}}'
+          compose logs --no-color --since 12h --tail 1200 api 2>&1 \
+            | grep -E '(Traceback|File "/app/.*ranking_|sqlalchemy.exc.|psycopg.errors.|TimeoutError|TypeError|AttributeError|UndefinedColumn|QueryCanceled|ProgrammingError)' \
+            | tail -n 80 || true
           REMOTE
-          ssh -i ~/.ssh/tencent_lighthouse \
-            -p "$port" \
-            -o BatchMode=yes \
-            -o IdentitiesOnly=yes \
-            "$TENCENT_SSH_USER@$TENCENT_HOST" \
-            "bash -s -- '$GITHUB_SHA' '$archive' '$DY_WEB_BASE_URL' '$TENCENT_START_WORKER'" < /tmp/tencent-deploy-bootstrap.sh
