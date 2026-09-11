@@ -4,6 +4,21 @@
 
 ## 1. 基础约定
 
+### 打榜源证据归属字段（2026-09-11）
+
+`GET /api/v1/admin/ranking-source-evidence` 的观察契约升级为
+`ranking-source-observation-v2`，仍仅最高管理员可用，保留最长 7 日、最多
+500 行、游标绑定查询上下文和只读约束。旧版本游标不可跨版本复用。
+
+- `orders.owner_name_key`：原始订单归属账号名称的 SHA-256 匹配键，可空。
+- `accounts.account_name_key`、`bindings.account_name_key`：账号昵称的同算法匹配键，可空。
+- 名称按原文精确比较，不转换大小写、不模糊匹配；空值、空字符串和全空白返回 null。
+  匹配键不是匿名化保证，也不证明门店归属；相同昵称跨门店、有失效绑定或冲突时不得自动归属。
+- `bindings.source_bind_start_time`、`source_bind_end_time`：原始绑定起止值，未提供返回 null，
+  保留 0；不擅自推断单位、开放区间或历史有效状态。
+- 名称原文、完整 raw_payload、手机号和跟进正文不返回。接口不修改订单、绑定或结算逻辑。
+
+
 ### 财务已计算账单展示增量（DYDATA-87，2026-09-08 用户确认）
 
 - `/admin/finance/invoices` 及导出以当前已生成账单为基础，推广与管理方向均保留尚未确认、尚未提交发票的行；不存在的发票字段返回空值，不创建确认或发票事实。
