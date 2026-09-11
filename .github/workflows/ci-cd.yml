@@ -107,12 +107,33 @@ jobs:
 
       - name: Install Playwright browser
         run: |
+          # Bound each apt connection so one stalled mirror cannot consume the
+          # complete Playwright setup budget. Keep installation fail-closed.
+          printf '%s\n' \
+            'Acquire::http::Timeout "30";' \
+            'Acquire::https::Timeout "30";' \
+            'Acquire::Retries "2";' \
+            | sudo tee /etc/apt/apt.conf.d/zzzz-codex-playwright-network >/dev/null
           if [ -f /etc/apt/apt-mirrors.txt ]; then
+            # Use the full archive for mirror-selected base packages. It also
+            # publishes noble-security; apt still verifies signed metadata.
             printf '%s\n' \
               'https://archive.ubuntu.com/ubuntu' \
-              'https://security.ubuntu.com/ubuntu' \
               | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           fi
+          # Test the direct HTTPS transport rather than the runner mirror
+          # redirect layer, which has continued to hang despite its sole URL.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            [ -f "$source" ] || continue
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu|g' "$source"
+          done
+          sudo apt-config dump | grep -E '^Acquire::(http::Timeout|https::Timeout|Retries)'
+          sudo apt-config dump | grep -Fx 'Acquire::http::Timeout "30";'
+          sudo apt-config dump | grep -Fx 'Acquire::https::Timeout "30";'
+          sudo apt-config dump | grep -Fx 'Acquire::Retries "2";'
+          curl --fail --silent --show-error --connect-timeout 10 --max-time 30 \
+            --output /dev/null --write-out 'Ubuntu archive HTTP %{http_code} in %{time_total}s\n' \
+            https://archive.ubuntu.com/ubuntu/dists/noble/InRelease
           timeout 10m python -m playwright install chromium --with-deps
 
       - name: Run tests

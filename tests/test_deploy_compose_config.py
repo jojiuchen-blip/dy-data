@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+
 import re
 from pathlib import Path
 
@@ -506,3 +507,18 @@ def test_ops_agent_role_runbook_requires_audited_public_acl_prerequisite():
 def test_worker_image_contains_ops_agent_code():
     dockerfile = (ROOT / "apps" / "worker" / "Dockerfile").read_text(encoding="utf-8")
     assert "COPY apps/ops_agent ./apps/ops_agent" in dockerfile
+
+
+def test_browser_dependency_downloads_are_bounded_and_fail_closed():
+    for workflow_name in ("ci-cd.yml", "tencent-lighthouse-deploy.yml"):
+        content = (ROOT / ".github" / "workflows" / workflow_name).read_text(encoding="utf-8")
+        step = content.split("- name: Install Playwright browser", 1)[1].split("- name:", 1)[0]
+        assert 'Acquire::http::Timeout "30";' in step
+        assert 'Acquire::https::Timeout "30";' in step
+        assert 'Acquire::Retries "2";' in step
+        assert '/etc/apt/apt.conf.d/zzzz-codex-playwright-network' in step
+        for setting in ('Acquire::http::Timeout "30";', 'Acquire::https::Timeout "30";', 'Acquire::Retries "2";'):
+            assert f"sudo apt-config dump | grep -Fx '{setting}'" in step
+        assert "continue-on-error" not in step
+        assert "|| true" not in step
+        assert "timeout 10m python -m playwright install chromium --with-deps" in step

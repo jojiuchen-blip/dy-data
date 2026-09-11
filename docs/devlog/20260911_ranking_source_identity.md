@@ -1,0 +1,43 @@
+# 打榜订单归属证据核验
+
+用户已授权先进行有风险部分的本地核验，随后合并部署。源证据接口 v1 已上线；
+该事实不代表完整指标看板上线或真实销量验收。
+
+## 发现与修正
+
+- 只包含账号 ID 的导出不足以复核商家名称归属；增加跨订单、账号和绑定一致的精确名称匹配键，
+  不输出昵称原文。保留最高管理员权限。匹配键不是脱敏安全保证，不允许公开发布。
+- 增加原始绑定起止时间，避免仅凭当前绑定状态倒推历史归属。
+- 抖音官方文档展开响应字段后确认：2 绑定成功、5 已解绑、105 商家职人运营中、106 已停用。
+  1 为绑定待确认，不能作为正式职人绑定成功。
+  来源：[查询商家总户下所有职人绑定信息列表](https://partner.open-douyin.com/docs/resource/zh-CN/local-life/develop/OpenAPI/general-capabilities/employee-info/query-info-list)。
+- 本改动只补充源证据字段，尚未修改排名归属计算，也不修改结算中心。
+
+## 验证
+
+- 新用例先因缺失 owner_name_key 失败，确认重现字段缺口。
+- `tests/test_ranking_source_evidence.py`：24 passed。
+- 本地 Docker PostgreSQL 独立 schema：订单、账号、绑定的匹配键一致；JSON 数字起止值序列化正确；
+  响应不包含名称原文。仅合成样本写入新 schema，无生产写入或既有表修改。
+- 源真实数据 Python / SQL 对账结果保存在本地忽略目录；不把合成样本结果视为真实订单归属验收。
+
+## 尚需完成
+
+接口上线后核对真实名称候选覆盖率、冲突及成交时绑定证据，然后继续正式快照接线、组织/资格名单
+版本导入、日期筛选和主分支迁移接续。完整指标看板不能据此宣称已发布。
+
+Foundation 漂移：源证据响应新增字段，已同步 API 契约；不修改持久化 schema。
+Linear 当前连接未提供 DYDATA 团队，需求以本地 LOCAL-RANKING-IDENTITY-001 草稿跟踪。
+
+## 发布检查网络超时修正
+
+PR #28 的 CI run 34600707674 两次在 Playwright 系统依赖下载阶段达到10分钟超时，退出124；完整测试未执行。
+日志分别显示 Ubuntu 镜像索引/包请求等待。为 CI 和腾讯部署验证阶段增加 APT 单连接30秒超时、有限2次重试，保留原10分钟总上限和失败退出，不切换到未验证镜像、不关闭签名验证、不跳过测试。
+新增部署配置检查先失败后通过；tests/test_deploy_compose_config.py 共25 passed。真实 CI 下载是否恢复，以新提交执行结果为准。
+
+后续 run 34603950582 仍在依赖安装阶段超时，日志显示基础字体包从 security.ubuntu.com 镜像请求被忽略并等待；测试尚未开始。本次将完整软件包镜像列表收敛到 archive.ubuntu.com，避免将安全更新站点当作完整基础包镜像。保留安全 suite、签名校验、连接和总体超时。
+官方完整归档提供 noble-security：https://archive.ubuntu.com/ubuntu/dists/noble-security/Release 。此修改是否消除托管 runner 下载故障，仍需下一次 CI 证明。
+
+Run 34606123933 再次在 APT 索引下载阶段达到10分钟上限；因此“只收敛镜像列表即可恢复”的假设未成立。下一次执行改为同一个官方 HTTPS 归档的直接 URI，去除 mirror+file 重定向层，并输出实际 APT 超时配置、用30秒有界 HTTPS 请求验证索引连通性。这是对传输层的定向诊断，不能提前宣称修复；仍须全部测试通过才合并。
+
+诊断 run 34607543733 已发现可证实的配置覆盖：apt-config dump 实际输出 HTTP/HTTPS Timeout=600、Retries=1，而非本步骤写入的30/2；同一 runner 的 curl 请求官方索引200，仅0.207秒。运行器后加载的配置覆盖了80-playwright-network。改为末序 zzzz-codex-playwright-network，并以三条精确 apt-config 断言验证实际生效值；不再仅靠工作流源码包含配置判断有效。
