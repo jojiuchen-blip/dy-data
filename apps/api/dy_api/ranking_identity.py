@@ -14,6 +14,9 @@ _SUCCESS_CODES = {"2", "105"}
 _SUCCESS_TEXT = {"active", "bound", "认证成功", "绑定成功", "已绑定"}
 _UNBOUND_CODES = {"5"}
 _UNBOUND_TEXT = {"unbound", "已解绑", "解绑"}
+_STATIC_NAME_CONFLICTS = frozenset(
+    {"ambiguous_latest_binding", "conflicting_poi_mapping", "conflicting_name_binding"}
+)
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,7 @@ class OrderAttributionIndex:
         poi_to_store: Mapping[object, object] | Iterable[Any],
     ) -> None:
         self._poi_stores = _collect_poi_stores(poi_to_store)
+        self._static_name_conflicts: dict[str, OrderAttributionResult] = {}
         latest_accounts, ambiguous_accounts = _latest_rows(
             accounts, _account_identity, _account_material_signature
         )
@@ -137,6 +141,9 @@ class OrderAttributionIndex:
 
         if owner_name is None or owner_name.strip() == "":
             return _unresolved("missing_account_binding")
+        cached_conflict = self._static_name_conflicts.get(owner_name)
+        if cached_conflict is not None:
+            return cached_conflict
 
         by_name = [
             _account_candidate(row, at, method="owner_name", ambiguous=ambiguous)
@@ -152,9 +159,14 @@ class OrderAttributionIndex:
             )
             for row, ambiguous in self._bindings_by_name.get(owner_name, ())
         )
-        return _resolve_candidates(by_name, by_name=True) if by_name else _unresolved(
-            "missing_account_binding"
+        result = (
+            _resolve_candidates(by_name, by_name=True)
+            if by_name
+            else _unresolved("missing_account_binding")
         )
+        if result.reason in _STATIC_NAME_CONFLICTS:
+            return self._static_name_conflicts.setdefault(owner_name, result)
+        return result
 
 
 def resolve_order_attribution(

@@ -6,6 +6,7 @@ uses bounded period queries; historical snapshots remain immutable.
 """
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
+from hashlib import sha256
 import json
 from typing import Any
 
@@ -26,6 +27,8 @@ METRIC_VERSION = "douyin-ranking-self-store-v5-period-start-sales-org"
 MAX_DIMENSION_ROWS = 50000
 MAX_ORG_HISTORY_ROWS = 250000
 MAX_REPORT_ROWS = 250000
+MAX_INLINE_SOURCE_IDENTIFIERS = 16
+MAX_SHARED_SOURCE_BYTES = 16 * 1024 * 1024
 LEVEL_FIELDS = {
     "group": ("group_key", "group_name"),
     "service_center": ("service_center_key", "service_center_name"),
@@ -128,6 +131,29 @@ def calculate_snapshot(
 
     pending: list[dict[str, Any]] = []
     quality: defaultdict[str, int] = defaultdict(int)
+    source_groups: dict[tuple[str, ...], str] = {}
+    shared_source_bytes = 0
+
+    def attribution_evidence(identifiers: tuple[str, ...]) -> dict[str, Any]:
+        """Store large immutable source groups once per run, not once per order."""
+        nonlocal shared_source_bytes
+        if len(identifiers) <= MAX_INLINE_SOURCE_IDENTIFIERS:
+            return {"source_identifiers": list(identifiers)}
+        group_key = source_groups.get(identifiers)
+        if group_key is None:
+            payload = json.dumps(identifiers, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+            shared_source_bytes += len(payload)
+            if shared_source_bytes > MAX_SHARED_SOURCE_BYTES:
+                raise ValueError("指标归属证据超过单批上限，请缩短日期范围或核对账号绑定")
+            group_key = "sources:" + sha256(payload).hexdigest()
+            source_groups[identifiers] = group_key
+            pending.append(dict(run_id=run_id, metric_key="order_attribution_sources",
+                sample_key=group_key, store_id=None, mapping_version=None, sample_time=None,
+                numerator=0, denominator=0, status="excluded", reason_code="shared_source_evidence",
+                evidence_json={"source_identifiers": list(identifiers), "source_identifier_count": len(identifiers)}))
+        return {"source_identifiers": list(identifiers[:MAX_INLINE_SOURCE_IDENTIFIERS]),
+                "source_group_key": group_key, "source_identifier_count": len(identifiers),
+                "source_identifiers_truncated": True}
 
     def add(metric: str, key: str, store: str | None, version: str | None,
             at: datetime | None, numerator: int, denominator: int, evidence: dict,
@@ -209,7 +235,7 @@ def calculate_snapshot(
             {"order_id": order.order_id, "owner_account_id": order.owner_account_id,
              "sale_role": order.sale_role, "sale_channel": order.sale_channel,
              "sku_id": order.sku_id, "attribution_reason": owner.reason,
-             "source_identifiers": list(owner.source_identifiers),
+             **attribution_evidence(owner.source_identifiers),
              "historical_period_unverified": owner.historical_period_unverified}, reason)
         if store and (version, store) in by_org and by_org[(version, store)]["service_store_code"] not in eligible_codes:
             quality["orders_outside_eligibility"] += 1
