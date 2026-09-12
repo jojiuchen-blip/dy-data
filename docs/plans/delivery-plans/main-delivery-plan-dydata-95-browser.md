@@ -44,7 +44,7 @@ Entry Criteria：DYDATA-95授权且采集已恢复。Exit Criteria：针对性�
 
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T0.1 | [T0.1](sub-delivery-plan-dydata-95-browser-T0.1.md) | 进行中 |
+| T0.1 | [T0.1](sub-delivery-plan-dydata-95-browser-T0.1.md) | 进行中（已部署，待用户验收） |
 
 ## 4. 任务看板
 
@@ -52,7 +52,13 @@ Entry Criteria：DYDATA-95授权且采集已恢复。Exit Criteria：针对性�
 
 ## 5. 发布闸门
 
-相关回归、Linux容器验证、完整CI、部署前活跃导出检查、回滚镜像。未验证不可声称上线。
+2026-09-12 发布验收：提交 `3d5ac35a` 已推送main，15:53:29（上海时间）部署完成。主CI [34679602345](https://github.com/jojiuchen-blip/dy-data/actions/runs/34679602345) 全部通过，3013 passed / 167 skipped，Web与四个镜像构建成功；81项本地相关回归及隔离Linux桌面退出恢复验证通过。
+
+重复发布流水线34679602374的镜像构建耗时较长，在服务器部署前取消；复用同一SHA的完整绿色CI，使用项目现有 `deploy/tencent/deploy.sh` 发布。服务器日志 `deploy-dydata95-20260912.log`，退出码0，last-deploy.json SHA一致。源码上传后SHA256一致才解包执行。新runtime模块SHA256为 `9f972b34e4bd86f5702d905b0bfcb7095a57e06f032375a953903700ff3f09fa`，与线上相符。
+
+浏览器、API、worker、ops-agent、Postgres健康；完整CDP/VNC/WebSocket探针通过；网站200。部署后受控绑定导出2956条、失败0，实际落库已核验。未修改密码或持久化profile。
+
+保留五个服务的 `rollback-dydata95-20260912` 镜像；环境备份由部署脚本完成，数据库备份 `pre-migrate-20260912T074524Z.dump` 为829809883字节、0600。等待用户验收，交换内存保护恢复条件继续由DYDATA-90承接。
 
 ## 6. 风险与应对
 
