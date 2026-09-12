@@ -1,4 +1,13 @@
-# 当前执行：精诚养车抖音打榜看板生产接入
+# 当前执行：DYDATA-95 虚拟浏览器连接可靠性
+
+- 当前阶段：S4。
+- 当前正式计划：[浏览器连接可靠性](delivery-plans/main-delivery-plan-dydata-95-browser.md)。
+- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-95-browser-T0.1.md)。
+- 当前 Task：T0.1，进行中；81项相关回归通过，隔离Linux容器启动、三次VNC自动恢复、耗尽后不健康及Chromium会话保持验证通过。
+- 运行恢复：9月12日13:39绑定导出2956条成功；9月9—11日all日批成功。另发现host swap残留导致资源保护暂停领取新任务，在足够内存余量下回收并重新启用swap，阈值未变。
+- 下一步：核验自动调度推进，完成审查及发布；不把恢复操作等同根因代码已上线。
+
+# 历史与并行：精诚养车抖音打榜看板生产接入
 
 - 当前阶段：S4。
 - 当前正式计划：[打榜看板生产接入](delivery-plans/main-delivery-plan-ranking-dashboard-production.md)。

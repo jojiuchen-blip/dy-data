@@ -70,6 +70,7 @@ COPY apps/api ./apps/api
 COPY apps/worker ./apps/worker
 
 COPY deploy/browser/entrypoint.sh /usr/local/bin/browser-entrypoint.sh
+COPY deploy/browser/runtime.py /usr/local/bin/browser-runtime.py
 
 RUN sed -i 's/\r$//' /usr/local/bin/browser-entrypoint.sh \
     && chmod +x /usr/local/bin/browser-entrypoint.sh

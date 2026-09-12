@@ -1,5 +1,13 @@
 # dy-data 生产运行手册
 
+## 虚拟桌面可靠性（DYDATA-95）
+
+browser 启动先以真实 XOpenDisplay 验证显示器就绪，最多等待30秒；未就绪则启动失败。桌面、窗口管理器和WebSocket转发由独立监督器管理，退出后按1/2/4秒最多重试三次，稳定运行60秒重置重试预算。该恢复不会重启 Chromium 或更换 profile、密码。
+
+连续恢复失败写入 `/tmp/browser-runtime.failed` 并保持不健康，避免无限快速重启。检查 `/tmp/x11vnc.log`、`/tmp/fluxbox.log`、`/tmp/websockify.log` 及容器监督器日志；经定位并排除活动导出后再受控重建容器。容器健康检查验证 CDP JSON、VNC RFB握手及WebSocket转发RFB；单纯端口监听不等于桌面可连接。
+
+桌面连接与抖音登录态分别验收：VNC恢复不代表抖音已登录，采集仍需成功批次和源记录落库证据。桌面故障演练必须在无生产profile、无生产网络的隔离容器中进行。
+
 本文档面向 Linux Docker Compose 部署，覆盖 PostgreSQL、FastAPI、worker、React 静态构建、受最高管理员保护的 noVNC Chromium 采集容器、反向代理、迁移和数据刷新任务。业务范围包括经营结算、线索运营和后台管理，产品定义以 `docs/项目产品介绍书.md` 为准。
 
 ## 1. 配置原则

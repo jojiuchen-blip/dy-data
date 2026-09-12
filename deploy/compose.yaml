@@ -182,7 +182,7 @@ services:
     security_opt:
       - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 9223), 2).close()"]
+      test: ["CMD", "python3", "/usr/local/bin/browser-runtime.py", "healthcheck"]
       interval: 15s
       timeout: 5s
       retries: 10

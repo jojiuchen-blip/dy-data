@@ -118,16 +118,10 @@ rm -f \
   "$XDG_CONFIG_HOME/chromium/SingletonSocket"
 
 Xvfb "$DISPLAY" -screen 0 "${SCREEN_WIDTH}x${SCREEN_HEIGHT}x24" -nolisten tcp >/tmp/xvfb.log 2>&1 &
-fluxbox >/tmp/fluxbox.log 2>&1 &
-x11vnc -display "$DISPLAY" -forever -shared -rfbauth "$HOME/.vnc/passwd" -rfbport 5900 -localhost >/tmp/x11vnc.log 2>&1 &
-
-display_number="${DISPLAY#:}"
-for attempt in $(seq 1 30); do
-  if [ -S "/tmp/.X11-unix/X${display_number}" ]; then
-    break
-  fi
-  sleep 1
-done
+# A socket alone can exist before X accepts clients. Fail startup if X never
+# becomes ready, rather than continuing with a permanently disconnected desktop.
+python3 /usr/local/bin/browser-runtime.py wait-display
+rm -f /tmp/browser-runtime.failed
 
 chromium \
   --no-first-run \
@@ -144,4 +138,4 @@ chromium \
 chromium_pid="$!"
 echo "chromium_pid=${chromium_pid} cdp_port=${CHROMIUM_REMOTE_DEBUGGING_INTERNAL_PORT}"
 
-exec websockify --web=/usr/share/novnc/ "0.0.0.0:${NOVNC_PORT}" localhost:5900
+exec python3 /usr/local/bin/browser-runtime.py serve
