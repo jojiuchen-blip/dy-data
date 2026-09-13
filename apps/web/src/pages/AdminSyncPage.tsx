@@ -135,12 +135,29 @@ const resourceGuardReasonLabels: Record<string, string> = {
   pressure_sustained: "内存压力持续超过阈值",
   recovery_observation: "正在观察资源恢复稳定性",
   swap_used: "检测到交换内存占用",
-  resource_guard_heartbeat_missing: "没有收到 worker 资源监控心跳",
-  resource_guard_heartbeat_stale: "worker 资源监控心跳已超过 30 秒",
-  resource_guard_sampled_at_missing: "worker 资源采样时间缺失",
-  resource_guard_sampled_at_stale: "worker 资源采样已超过 30 秒",
-  resource_guard_payload_missing: "worker 心跳未包含资源保护状态",
-  resource_guard_state_invalid: "worker 报告了无法识别的保护状态",
+  resource_guard_heartbeat_missing: "尚未收到采集服务的资源状态",
+  resource_guard_heartbeat_stale: "采集服务的资源状态已超过 30 秒未更新",
+  resource_guard_sampled_at_missing: "采集服务的资源采样时间缺失",
+  resource_guard_sampled_at_stale: "采集服务的资源采样已超过 30 秒未更新",
+  resource_guard_payload_missing: "采集服务尚未报告资源保护状态",
+  resource_guard_state_invalid: "采集服务报告的保护状态无法识别",
+  host_available_below_protected_threshold: "主机可用内存低于保护阈值",
+  host_available_below_constrained_threshold: "主机可用内存低于限流阈值",
+  cgroup_usage_above_protected_ratio: "采集服务内存使用率超过保护阈值",
+  cgroup_usage_above_constrained_ratio: "采集服务内存使用率超过限流阈值",
+  host_memory_unavailable: "暂时无法读取主机内存",
+  cgroup_memory_ratio_unavailable: "暂时无法读取采集服务内存使用率",
+  swap_activity_above_threshold: "内存不足且交换读写持续偏高",
+  process_tree_rss_hard_limit: "采集进程内存达到硬上限",
+  cgroup_memory_hard_limit: "采集服务内存达到硬上限",
+  awaiting_recovery_window: "资源已回落，正在等待连续健康观察完成",
+  recovery_window_complete: "健康观察已完成，优先恢复日批",
+  pressure_reappeared: "恢复期间再次出现内存压力",
+  awaiting_healthy_window: "恢复条件未持续满足，重新观察",
+  stabilizing_after_recovery: "日批已放行，历史补拉等待稳定观察完成",
+  resource_sample_unavailable: "暂时无法采集资源状态",
+  resource_monitor_unavailable: "资源监控尚未就绪",
+  resource_monitor_stale: "资源监控数据已过期",
 };
 
 const syncTaskTypeLabels: Record<string, string> = {
@@ -178,7 +195,7 @@ function resourceGuardTone(
 function resourceReasonText(reasons: string[]): string {
   if (!reasons.length) return "暂无保护原因";
   return reasons
-    .map((reason) => resourceGuardReasonLabels[reason] ?? `资源保护条件：${reason}`)
+    .map((reason) => resourceGuardReasonLabels[reason] ?? "资源状态异常，等待重新检查")
     .filter((label, index, labels) => labels.indexOf(label) === index)
     .join("、");
 }
@@ -241,7 +258,7 @@ function ResourceGuardPanel({
         <div>
           <h2 id="resource-guard-title">资源保护与同步时效</h2>
           <p>
-            资源状态只读取 worker 的资源监控心跳；心跳缺失或超过 30 秒时按未知处理，不把 API 进程的即时采样当作 worker 状态。
+            资源状态来自采集服务的持续监测；超过 30 秒未更新时显示为未知。满足恢复条件后自动继续同步。
           </p>
         </div>
         {guard ? (
@@ -300,7 +317,7 @@ function ResourceGuardPanel({
           </div>
         </dl>
       ) : (
-        <div className="resource-panel">资源监控状态暂不可用，等待 worker 资源监控心跳。</div>
+        <div className="resource-panel">资源监控状态暂不可用，等待采集服务更新。</div>
       )}
       {daily ? (
         <div className={`resource-notice ${daily.is_overdue ? "resource-notice--warning" : daily.status === "failed" ? "resource-notice--error" : ""}`}>

@@ -169,7 +169,7 @@ def test_sync_console_renders_worker_resource_guard_and_daily_freshness() -> Non
     assert "ResourceGuardPanel" in page
     assert "resource_guard" in page
     assert "sync_freshness" in page
-    assert "worker 的资源监控心跳" in page
+    assert "资源状态来自采集服务的持续监测" in page
     assert "受影响任务类型" in page
     assert "交换活动速率" in page
     assert "最后成功批次" in page
