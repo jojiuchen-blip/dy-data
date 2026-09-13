@@ -192,10 +192,12 @@ def test_resource_drain_admits_daily_and_blocks_history_and_legacy() -> None:
     assert repositories.resource_admission_allows_job(daily, ResourceDecision(ResourceAction.STOP, ())) is False
 
 
+@pytest.mark.parametrize("version", ["priority-daily-v1", "priority-daily-v1-dimensions-2026091310"])
 def test_scheduler_marker_classification_keeps_hard_rss_as_memory_guard(
     db_session: Session,
+    version: str,
 ) -> None:
-    job = _seed_priority_job(db_session, start=date(2026, 9, 7))
+    job = _seed_priority_job(db_session, start=date(2026, 9, 7), config_version=version)
     summary = "worker_resource_pause retry_after_seconds=60"
     assert (
         _scheduler_pause_marker(
@@ -236,11 +238,13 @@ def test_scheduler_marker_classification_keeps_hard_rss_as_memory_guard(
     ).delay_seconds == 60
 
 
+@pytest.mark.parametrize("version", ["priority-daily-v1", "priority-daily-v1-dimensions-2026091310"])
 def test_supervisor_persists_resource_pause_as_a_scheduler_yield(
     db_session: Session,
     monkeypatch,
+    version: str,
 ) -> None:
-    job = _seed_priority_job(db_session, start=date(2026, 9, 5))
+    job = _seed_priority_job(db_session, start=date(2026, 9, 5), config_version=version)
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, future=True)
     monkeypatch.delenv("WORKER_RESOURCE_GUARD_ENABLED", raising=False)
 

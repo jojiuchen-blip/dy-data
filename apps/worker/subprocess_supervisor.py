@@ -947,7 +947,7 @@ def _scheduler_pause_marker(
     if retry_after_match is None or int(retry_after_match.group(1)) <= 0:
         return None
     job = session.get(JobRun, job_id)
-    if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+    if job is None or not repositories.is_priority_resource_config(job.config_version):
         return None
     return marker
 
