@@ -45,6 +45,51 @@ ModelT = TypeVar("ModelT")
 HEAVY_SYNC_CLAIM_LOCK_KEY = 661893198734880846
 DOUYIN_RATE_LIMIT_ERROR_CODE = "douyin_rate_limited"
 MAX_CONTROL_HISTORY_ROWS = 10000
+PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
+DAILY_REQUIRED_PURPOSE = "daily_required"
+SCHEDULER_PAUSE_MARKERS = frozenset(
+    {"priority_budget_pause", "worker_resource_pause"}
+)
+
+
+def is_priority_resource_config(config_version: str | None) -> bool:
+    return isinstance(config_version, str) and (
+        config_version == PRIORITY_DAILY_CONFIG_VERSION
+        or config_version.startswith(f"{PRIORITY_DAILY_CONFIG_VERSION}-dimensions-")
+    )
+
+
+def _resource_action_value(resource_decision: Any | None) -> str | None:
+    if resource_decision is None:
+        return None
+    action = getattr(resource_decision, "action", resource_decision)
+    value = getattr(action, "value", action)
+    return value if isinstance(value, str) else None
+
+
+def resource_admission_allows_job(job: JobRun, resource_decision: Any | None) -> bool:
+    """Return whether a sampled resource decision admits one heavy job.
+
+    ``DRAIN`` is intentionally a job-level decision: priority-daily work that
+    carries the explicit ``daily_required`` purpose may start, while history
+    and legacy/unmarked work must wait.  ``STOP`` is a global admission stop.
+    The helper accepts the monitor's decision object structurally so the
+    worker control plane stays compatible with both the old and new monitor
+    modules without importing either one here.
+    """
+
+    if resource_decision is None:
+        return True
+    action_value = _resource_action_value(resource_decision)
+    if action_value == "allow":
+        return True
+    if action_value != "drain":
+        return False
+    metadata = job.metadata_json if isinstance(job.metadata_json, dict) else {}
+    return (
+        is_priority_resource_config(job.config_version)
+        and metadata.get("priority_purpose") == DAILY_REQUIRED_PURPOSE
+    )
 
 
 def heavy_sync_rate_limit_cooldown_active(
@@ -1696,6 +1741,7 @@ def claim_next_heavy_job(
     lease_seconds: int,
     job_kinds: tuple[str, ...] = ("parent_sync", "date_sync", "finalize"),
     job_id: str | None = None,
+    resource_decision: Any | None = None,
 ) -> ClaimedJobRecord | None:
     """Atomically claim the earliest executable heavy-slot job on PostgreSQL.
 
@@ -1704,6 +1750,8 @@ def claim_next_heavy_job(
     """
 
     _require_postgresql(session)
+    if _resource_action_value(resource_decision) == "stop":
+        return None
     global_lock_acquired = session.scalar(
         select(func.pg_try_advisory_xact_lock(HEAVY_SYNC_CLAIM_LOCK_KEY))
     )
@@ -1910,6 +1958,12 @@ def claim_next_heavy_job(
                     return None
                 last_order_key = candidate_key
                 continue
+            if not resource_admission_allows_job(candidate, resource_decision):
+                savepoint.rollback()
+                if job_id is not None:
+                    return None
+                last_order_key = candidate_key
+                continue
             if candidate.job_kind == "date_sync":
                 assert candidate.business_date is not None
                 assert candidate.data_source is not None
@@ -2054,6 +2108,7 @@ def claim_next_date_sync(
     component_instance_id: str,
     lease_seconds: int,
     job_id: str | None = None,
+    resource_decision: Any | None = None,
 ) -> ClaimedJobRecord | None:
     """Backward-compatible date-only wrapper around the heavy queue claim."""
 
@@ -2064,6 +2119,7 @@ def claim_next_date_sync(
         lease_seconds=lease_seconds,
         job_kinds=("date_sync",),
         job_id=job_id,
+        resource_decision=resource_decision,
     )
 
 
@@ -2294,6 +2350,7 @@ def fail_claim(
     error_code: str,
     error_summary: str,
     increment_quota_pause_count: bool = False,
+    increment_failed_count: bool = True,
 ) -> bool:
     """Apply one fenced retry/fatal failure with attempt and event atomically."""
 
@@ -2314,7 +2371,6 @@ def fail_claim(
     )
     values = {
         "status": status,
-        "failed_count": 1,
         "finished_at": func.statement_timestamp() if status == "failed" else None,
         "lease_owner": None,
         "lease_expires_at": None,
@@ -2323,6 +2379,8 @@ def fail_claim(
         "error_summary": error_summary,
         "error_message": error_summary,
     }
+    if increment_failed_count:
+        values["failed_count"] = 1
     if increment_quota_pause_count:
         values["quota_pause_count"] = func.coalesce(JobRun.quota_pause_count, 0) + 1
     failed = False
@@ -2612,20 +2670,18 @@ def _inspect_expired_running_control(
         history_anomaly = True
         reasons.append("history_component_type_invalid")
     if attempt_count + 1 <= MAX_CONTROL_HISTORY_ROWS:
-        budget_pause_attempt_count = sum(
+        scheduler_pause_attempt_count = sum(
             1
             for attempt in attempts
-            if (
-                attempt.finished_at is not None
-                and attempt.error_code == "priority_budget_pause"
-            )
+            if attempt.finished_at is not None
+            and attempt.error_code in SCHEDULER_PAUSE_MARKERS
         )
         expected_budget_pause_count = (
             quota_pause_count
-            if job.config_version == "priority-daily-v1"
+            if is_priority_resource_config(job.config_version)
             else 0
         )
-        if budget_pause_attempt_count != expected_budget_pause_count:
+        if scheduler_pause_attempt_count != expected_budget_pause_count:
             counter_anomaly = True
             reasons.append("quota_pause_count_history_mismatch")
 

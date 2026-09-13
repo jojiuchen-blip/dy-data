@@ -117,6 +117,7 @@ const syncPhaseNameLabels: LabelMap = {
 };
 
 const syncFailureReasonLabels: LabelMap = {
+  worker_resource_pause: "资源保护暂停，恢复后自动续跑",
   douyin_backend_login_required: "抖音后台登录已失效，请在受保护的浏览器中重新登录后重试",
   "douyin backend login required. log in through the protected novnc browser first.":
     "抖音后台登录已失效，请在受保护的浏览器中重新登录后重试",
@@ -390,7 +391,11 @@ export function displaySyncFailureReason(value: string | null | undefined): stri
   if (!normalized) {
     return "-";
   }
-  const label = syncFailureReasonLabels[normalized.toLowerCase()];
+  const normalizedLower = normalized.toLowerCase();
+  if (normalizedLower.startsWith("worker_resource_pause")) {
+    return syncFailureReasonLabels.worker_resource_pause;
+  }
+  const label = syncFailureReasonLabels[normalizedLower];
   if (label) {
     return label;
   }

@@ -397,6 +397,9 @@ def _daily_page_fence(session: Session, job: Any) -> Callable[[Session], bool]:
     lease_epoch = int(lease_epoch_raw) if lease_epoch_raw else None
 
     def fence(page_session: Session) -> bool:
+        from apps.worker.resource_monitor import require_resource_admission
+
+        require_resource_admission(page_session, job)
         return is_daily_execution_lease_live(
             page_session,
             job_id=str(job.job_id),

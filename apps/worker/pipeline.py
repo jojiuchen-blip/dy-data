@@ -154,6 +154,8 @@ def default_collectors() -> list[Collector]:
 def sanitize_error_message(message: str | None) -> str | None:
     if not message:
         return message
+    if re.search(r"(?m)^(?:[\w.]*ResourcePauseError: )?worker_resource_pause retry_after_seconds=60\s*$", message):
+        return "worker_resource_pause retry_after_seconds=60"
     # Child-process tracebacks can exceed the display limit before the final
     # exception. Return only the allowlisted code, even if earlier stack frames
     # contain sensitive content; none of the original message is exposed.

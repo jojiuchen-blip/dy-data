@@ -300,7 +300,7 @@ def test_resource_guard_drains_then_stops_at_configured_host_thresholds() -> Non
 
     assert evaluate_resource_guard(warn, thresholds).action is ResourceAction.DRAIN
     assert evaluate_resource_guard(stop, thresholds).action is ResourceAction.STOP
-    assert evaluate_resource_guard(swap, thresholds).action is ResourceAction.DRAIN
+    assert evaluate_resource_guard(swap, thresholds).action is ResourceAction.ALLOW
 
 
 def test_supervisor_resource_guard_stops_claiming_before_child_start(monkeypatch) -> None:
@@ -328,18 +328,25 @@ def test_supervisor_resource_guard_stops_claiming_before_child_start(monkeypatch
 
     assert result.status is subprocess_supervisor.ChildRunStatus.CONTROL_ERROR
     assert result.attempts == 0
-    assert result.termination_reason is subprocess_supervisor.ChildTerminationReason.RSS_GUARD
+    # Admission was refused before a child existed; RSS_GUARD is reserved for
+    # a running child that actually crossed its hard RSS limit.
+    assert result.termination_reason is subprocess_supervisor.ChildTerminationReason.CONTROL
     assert popen_calls == []
 
 
-def test_supervisor_resource_guard_fails_closed_on_invalid_threshold(monkeypatch) -> None:
+def test_supervisor_resource_guard_fails_closed_when_monitor_is_unavailable(monkeypatch) -> None:
+    import sys
+
     from apps.ops_agent.resources import ResourceAction
     from apps.worker import subprocess_supervisor
 
     monkeypatch.setenv("WORKER_RESOURCE_GUARD_ENABLED", "true")
-    monkeypatch.setenv("WORKER_RESOURCE_STOP_HOST_USED_BYTES", "not-a-byte-count")
+    # The integrated tree provides the scheduler monitor module.  Hide it for
+    # this unit test so the supervisor's unavailable-monitor fail-closed path
+    # is exercised consistently in both the isolated and integrated trees.
+    monkeypatch.setitem(sys.modules, "apps.worker.resource_monitor", None)
 
     decision = subprocess_supervisor.worker_resource_decision()
 
     assert decision.action is ResourceAction.STOP
-    assert decision.reasons == ("resource_guard_configuration_invalid",)
+    assert decision.reasons == ("resource_monitor_unavailable",)

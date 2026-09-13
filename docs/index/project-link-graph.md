@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：953
-- 文件关系：1082
+- 文件节点：1023
+- 文件关系：1127
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -90,10 +90,10 @@
 | 20260909_0051_fee_result_verification_provenance.py | source_code | coding-standards | [[alembic/versions/20260909_0051_fee_result_verification_provenance.py|20260909_0051_fee_result_verification_provenance.py]] | [20260909_0051_fee_result_verification_provenance.py](../../alembic/versions/20260909_0051_fee_result_verification_provenance.py) |
 | 20260909_0052_merge_clue_and_fee_provenance.py | source_code | coding-standards | [[alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py|20260909_0052_merge_clue_and_fee_provenance.py]] | [20260909_0052_merge_clue_and_fee_provenance.py](../../alembic/versions/20260909_0052_merge_clue_and_fee_provenance.py) |
 | 20260910_0053_quota_pause_attempts.py | source_code | coding-standards | [[alembic/versions/20260910_0053_quota_pause_attempts.py|20260910_0053_quota_pause_attempts.py]] | [20260910_0053_quota_pause_attempts.py](../../alembic/versions/20260910_0053_quota_pause_attempts.py) |
-| __init__.py | source_code | coding-standards | [[apps/api/dy_api/__init__.py|__init__.py]] | [__init__.py](../../apps/api/dy_api/__init__.py) |
-| access_control.py | source_code | coding-standards | [[apps/api/dy_api/access_control.py|access_control.py]] | [access_control.py](../../apps/api/dy_api/access_control.py) |
-| agent_capabilities.py | source_code | coding-standards | [[apps/api/dy_api/agent_capabilities.py|agent_capabilities.py]] | [agent_capabilities.py](../../apps/api/dy_api/agent_capabilities.py) |
-| dydata read-only Agent Skill | source_code | coding-standards | [[apps/api/dy_api/agent_contract.py|dydata read-only Agent Skill]] | [dydata read-only Agent Skill](../../apps/api/dy_api/agent_contract.py) |
+| 20260911_0054_dim_store_service_code.py | source_code | coding-standards | [[alembic/versions/20260911_0054_dim_store_service_code.py|20260911_0054_dim_store_service_code.py]] | [20260911_0054_dim_store_service_code.py](../../alembic/versions/20260911_0054_dim_store_service_code.py) |
+| 20260911_0055_douyin_store_org_assignments.py | source_code | coding-standards | [[alembic/versions/20260911_0055_douyin_store_org_assignments.py|20260911_0055_douyin_store_org_assignments.py]] | [20260911_0055_douyin_store_org_assignments.py](../../alembic/versions/20260911_0055_douyin_store_org_assignments.py) |
+| 20260911_0056_store_org_assignment_active.py | source_code | coding-standards | [[alembic/versions/20260911_0056_store_org_assignment_active.py|20260911_0056_store_org_assignment_active.py]] | [20260911_0056_store_org_assignment_active.py](../../alembic/versions/20260911_0056_store_org_assignment_active.py) |
+| 20260911_0057_douyin_store_org_group.py | source_code | coding-standards | [[alembic/versions/20260911_0057_douyin_store_org_group.py|20260911_0057_douyin_store_org_group.py]] | [20260911_0057_douyin_store_org_group.py](../../alembic/versions/20260911_0057_douyin_store_org_group.py) |
 
 ## 3. 关系
 
@@ -202,6 +202,8 @@
 | docs/devlog/20260908_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260908_refactor_log_jojiuchen-blip.md:70 |
 | docs/devlog/20260909_refactor_log_jojiuchen-blip.md | links_to | project-rules.md | docs/devlog/20260909_refactor_log_jojiuchen-blip.md:84 |
 | docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
+| docs/devlog/20260912_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260912_refactor_log_Keith_Chen.md:71 |
+| docs/devlog/20260913_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260913_refactor_log_Keith_Chen.md:69 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -217,8 +219,6 @@
 | docs/governance/authority-map.md | links_to | docs/design-system/README.md | docs/governance/authority-map.md:24 |
 | docs/governance/authority-map.md | links_to | docs/github-cicd.md | docs/governance/authority-map.md:32 |
 | docs/governance/authority-map.md | links_to | docs/plans/execution-plan.md | docs/governance/authority-map.md:21 |
-| docs/governance/authority-map.md | links_to | docs/prd/mainprd-dy-data.md | docs/governance/authority-map.md:44 |
-| docs/governance/authority-map.md | links_to | docs/runbook.md | docs/governance/authority-map.md:26 |
 
 ## 4. 诊断问题
 

@@ -1,4 +1,14 @@
-# 当前执行：DYDATA-95 虚拟浏览器连接可靠性
+# 当前执行：DYDATA-96 分级内存保护与自动恢复
+
+- 当前阶段：S4。
+- 当前正式计划：[分级资源保护](delivery-plans/main-delivery-plan-dydata-96-memory.md)。
+- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-96-memory-T0.1.md)。
+- 当前 Task：T0.1，进行中；用户2026-09-13确认策略并授权开发。
+- 实施：独立采样、分级保护、持续恢复、安全检查点让出、非失败计数、后台资源与时效状态。
+- 验证：专项97通过；修正旧swap预期后资源指标13项通过；Web构建与治理122项通过。全量和真实PostgreSQL由发布流水线执行。
+- 发布边界：用户已授权提交、推送、部署及监控；发布验证通过后部署，线上同步恢复须以实际采集和发布记录验收。
+
+# 历史执行：DYDATA-95 虚拟浏览器连接可靠性
 
 - 当前阶段：S4。
 - 当前正式计划：[浏览器连接可靠性](delivery-plans/main-delivery-plan-dydata-95-browser.md)。

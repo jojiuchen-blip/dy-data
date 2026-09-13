@@ -498,6 +498,9 @@ def _clue_phone_recovery_loop(factory, stop: Event) -> None:
 
 
 def _run_priority_daily_mode(factory) -> None:
+    from apps.worker.resource_monitor import start_resource_monitor
+
+    resource_monitor = start_resource_monitor(factory)
     # Allocation cannot wait behind a long history collection/settlement tick.
     stop = Event()
     thread = Thread(target=_formal_compensation_loop, args=(factory, stop), daemon=True,
@@ -510,6 +513,8 @@ def _run_priority_daily_mode(factory) -> None:
     try:
         _run_priority_daily_ticks(factory)
     finally:
+        if resource_monitor is not None:
+            resource_monitor.stop()
         stop.set()
         if thread.is_alive():
             thread.join(timeout=5)
@@ -535,7 +540,10 @@ def _run_priority_daily_ticks(factory) -> None:
             _log(f"priority_daily_tick_failed error={sanitize_error_message(str(exc))}")
 
     while not _STOP:
-        if factory is not None:
+        from apps.worker.resource_monitor import current_resource_decision
+        from apps.ops_agent.resources import ResourceAction
+
+        if factory is not None and current_resource_decision().action is not ResourceAction.STOP:
             _process_queued_jobs(factory)
         try:
             run_priority_daily_tick(factory)
@@ -556,6 +564,17 @@ def main() -> None:
         _run_priority_daily_mode(factory)
         return
 
+    from apps.worker.resource_monitor import start_resource_monitor
+
+    monitor = start_resource_monitor(factory)
+    try:
+        _run_legacy_scheduler(factory, run_once_only=run_once_only, run_on_start=run_on_start)
+    finally:
+        if monitor is not None:
+            monitor.stop()
+
+
+def _run_legacy_scheduler(factory, *, run_once_only: bool, run_on_start: bool) -> None:
     if run_once_only:
         run_once()
         return

@@ -41,6 +41,8 @@ def test_detail_drawer_reuses_accessible_dialog_and_restores_focus() -> None:
     assert 'panelClassName="sync-detail-drawer"' in drawer
     assert "lastTriggerRef" in room
     assert "Escape" not in drawer
+    assert "displaySyncFailureReason" in drawer
+    assert "worker_resource_pause" in drawer
     assert "prefers-reduced-motion" in read_source("styles.css")
 
 
@@ -158,3 +160,30 @@ def test_mature_sync_workflow_remains_wired_below_the_control_console() -> None:
     assert "saveSyncConfig" in page
     assert 'id="manual-sync-task"' in page
     assert "手动补拉" in page
+
+
+def test_sync_console_renders_worker_resource_guard_and_daily_freshness() -> None:
+    page = read_source("pages/AdminSyncPage.tsx")
+    types = read_source("types/dashboard.ts")
+
+    assert "ResourceGuardPanel" in page
+    assert "resource_guard" in page
+    assert "sync_freshness" in page
+    assert "worker 的资源监控心跳" in page
+    assert "受影响任务类型" in page
+    assert "交换活动速率" in page
+    assert "最后成功批次" in page
+    assert "最近完成业务日" in page
+    assert "latest_completed_business_date" in page
+    assert "可配置" in page
+    assert "SyncResourceGuardData" in types
+    assert "SyncFreshnessData" in types
+    assert "SyncDailyBatchData" in types
+
+
+def test_resource_pause_error_is_presented_as_recoverable_protection() -> None:
+    labels = read_source("utils/userFacingLabels.ts")
+
+    assert "worker_resource_pause" in labels
+    assert "恢复后自动续跑" in labels
+    assert 'startsWith("worker_resource_pause")' in labels

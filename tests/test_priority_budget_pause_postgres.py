@@ -177,6 +177,21 @@ def _pause(factory: sessionmaker[Session], token) -> None:
         assert decision.delay_seconds == 60
 
 
+def _resource_pause(factory: sessionmaker[Session], token) -> None:
+    with factory.begin() as session:
+        decision = fail_job(
+            session,
+            token,
+            failure_kind=FailureKind.RESOURCE_PAUSE,
+            error_code="ignored-by-classification",
+            error_summary="worker_resource_pause retry_after_seconds=60",
+            fixed_delay_seconds=60,
+        )
+        assert decision is not None
+        assert decision.status == "retry_wait"
+        assert decision.delay_seconds == 60
+
+
 def _run_budget_pauses(
     factory: sessionmaker[Session],
     job_id: str,
@@ -287,3 +302,61 @@ def test_postgres_expired_lease_rejects_budget_pause_counter_change(
         assert decision is None
 
     assert _job_snapshot(factory, job_id) == ("running", 1, 1, 0)
+
+
+def test_postgres_resource_pauses_share_yield_counter_without_failed_count(
+    postgres_stack: tuple[object, sessionmaker[Session]],
+) -> None:
+    _engine, factory = postgres_stack
+    job_id = _seed_priority_job(factory)
+
+    for _ in range(4):
+        _resource_pause(factory, _claim(factory, job_id))
+        _make_retry_ready(factory, job_id)
+
+    assert _job_snapshot(factory, job_id) == ("retry_wait", 4, 4, 4)
+    with factory() as session:
+        job = session.get(JobRun, job_id)
+        assert job is not None and job.failed_count == 0
+        attempts = list(
+            session.scalars(
+                select(JobAttempt)
+                .where(JobAttempt.job_id == job_id)
+                .order_by(JobAttempt.attempt_number)
+            )
+        )
+        assert [attempt.error_code for attempt in attempts] == [
+            "worker_resource_pause"
+        ] * 4
+
+    # Reclaiming after the mixed marker history exercises the PG audit check
+    # that quota_pause_count now counts both scheduler-yield markers.
+    token = _claim(factory, job_id)
+    assert token.attempt_number == 5
+
+
+def test_postgres_budget_and_resource_markers_match_one_shared_counter(
+    postgres_stack: tuple[object, sessionmaker[Session]],
+) -> None:
+    _engine, factory = postgres_stack
+    job_id = _seed_priority_job(factory)
+
+    _resource_pause(factory, _claim(factory, job_id))
+    _make_retry_ready(factory, job_id)
+    _pause(factory, _claim(factory, job_id))
+    _make_retry_ready(factory, job_id)
+    assert _job_snapshot(factory, job_id) == ("retry_wait", 2, 2, 2)
+
+    with factory() as session:
+        attempts = list(
+            session.scalars(
+                select(JobAttempt)
+                .where(JobAttempt.job_id == job_id)
+                .order_by(JobAttempt.attempt_number)
+            )
+        )
+        assert [attempt.error_code for attempt in attempts] == [
+            "worker_resource_pause",
+            "priority_budget_pause",
+        ]
+    assert _claim(factory, job_id).attempt_number == 3

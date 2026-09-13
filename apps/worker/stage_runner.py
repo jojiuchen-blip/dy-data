@@ -145,6 +145,13 @@ def run_daily_stages(
                 # checkpoint after the handler returns.
                 stage_session.expunge(job)
                 stage_session.rollback()
+            from apps.worker.resource_monitor import require_resource_admission
+
+            require_resource_admission(stage_session, job)
+            if isolated_handler:
+                # The guard read must not hold a transaction while an
+                # independent handler commits its own page transactions.
+                stage_session.rollback()
             output = _call_handler(handlers[stage_name], stage_session, job)
             if isolated_handler:
                 stage_session.begin()

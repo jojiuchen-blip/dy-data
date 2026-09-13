@@ -313,6 +313,9 @@ def run_priority_daily_tick(
             purpose = None
 
     if selected_job is not None:
+        blocked = _resource_wait(selected_date, job_id, purpose)
+        if blocked is not None:
+            return _snapshot(blocked)
         active_runner = child_runner or _default_child_runner
         result = active_runner(factory, job_id)
         return _snapshot(
@@ -327,6 +330,9 @@ def run_priority_daily_tick(
             )
         )
 
+    blocked = _resource_wait(daily_date, None, DAILY_REQUIRED_PURPOSE)
+    if blocked is not None:
+        return _snapshot(blocked)
     active_product_runner = product_sync_runner or _default_product_sync_runner
     product_job_id = _run_product_sync(
         active_product_runner,
@@ -470,6 +476,9 @@ def run_priority_daily_tick(
             purpose = _priority_purpose(history_candidate, HISTORY_PURPOSE)
         job_id = selected_job.job_id
 
+    blocked = _resource_wait(selected_date, job_id, purpose)
+    if blocked is not None:
+        return _snapshot(blocked)
     active_runner = child_runner or _default_child_runner
     result = active_runner(factory, job_id)
     return _snapshot(
@@ -483,6 +492,22 @@ def run_priority_daily_tick(
             reason=_result_reason(result),
         )
     )
+
+
+def _resource_wait(business_date, job_id, purpose) -> PriorityTickResult | None:
+    from apps.ops_agent.resources import ResourceAction
+    from apps.worker.resource_monitor import current_resource_decision
+
+    decision = current_resource_decision()
+    if decision.action is ResourceAction.STOP or (
+        decision.action is ResourceAction.DRAIN and purpose == HISTORY_PURPOSE
+    ):
+        return PriorityTickResult(
+            mode=PRIORITY_DAILY_MODE, action="waiting", business_date=business_date,
+            selected_job_id=job_id, selected_purpose=purpose, status="resource_wait",
+            reason="worker_resource_pause",
+        )
+    return None
 
 
 def ensure_history_priority_plan(

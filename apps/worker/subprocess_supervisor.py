@@ -22,9 +22,6 @@ from apps.api.dy_api.models import ComponentHeartbeat, JobAttempt, JobRun, JobSt
 from apps.ops_agent.resources import (
     ResourceAction,
     ResourceDecision,
-    ResourceThresholds,
-    collect_resource_snapshot,
-    evaluate_resource_guard,
 )
 from apps.worker import repositories
 from apps.worker.pipeline import sanitize_error_message
@@ -89,6 +86,10 @@ MIN_LEASE_SECONDS = 1
 MAX_LEASE_SECONDS = 3600
 PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
 PRIORITY_BUDGET_PAUSE_MARKER = "priority_budget_pause"
+WORKER_RESOURCE_PAUSE_MARKER = "worker_resource_pause"
+SCHEDULER_PAUSE_MARKERS = frozenset(
+    {PRIORITY_BUDGET_PAUSE_MARKER, WORKER_RESOURCE_PAUSE_MARKER}
+)
 
 
 def _truthy(value: str | None) -> bool:
@@ -96,17 +97,18 @@ def _truthy(value: str | None) -> bool:
 
 
 def worker_resource_decision() -> ResourceDecision:
-    """Evaluate the benchmark-tuned guard before claiming a heavy child."""
+    """Read the scheduler-owned resource decision before claiming a child."""
 
     if not _truthy(os.getenv("WORKER_RESOURCE_GUARD_ENABLED")):
         return ResourceDecision(ResourceAction.ALLOW, ())
     try:
-        snapshot = collect_resource_snapshot(os.getpid())
-        return evaluate_resource_guard(snapshot, ResourceThresholds.from_env())
+        from apps.worker.resource_monitor import current_resource_decision
+
+        return current_resource_decision()
     except Exception:
-        # A malformed threshold or unreadable sampler must not start another
-        # memory-heavy child with an unknown safety posture.
-        return ResourceDecision(ResourceAction.STOP, ("resource_guard_configuration_invalid",))
+        # An unavailable monitor must not start another memory-heavy child
+        # with an unknown safety posture.
+        return ResourceDecision(ResourceAction.STOP, ("resource_monitor_unavailable",))
 
 
 class SubprocessSupervisor:
@@ -163,17 +165,6 @@ class SubprocessSupervisor:
         if max_attempts <= 0 or max_attempts > 3:
             raise ValueError("max_attempts must be between 1 and 3")
 
-        resource_decision = worker_resource_decision()
-        if resource_decision.action is not ResourceAction.ALLOW:
-            reasons = ",".join(resource_decision.reasons) or "resource_guard_blocked"
-            return ChildRunResult(
-                job_id=job_id or "",
-                status=ChildRunStatus.CONTROL_ERROR,
-                attempts=0,
-                error_summary=f"worker resource guard blocked child claim: {reasons}",
-                termination_reason=ChildTerminationReason.RSS_GUARD,
-            )
-
         if not self._heavy_child_lock.acquire(blocking=False):
             return ChildRunResult(
                 job_id=job_id,
@@ -214,9 +205,27 @@ class SubprocessSupervisor:
         deferred_retry = False
 
         for attempt_number in range(1, max_attempts + 1):
-            claim = self._start_attempt(job_id, attempt_number=attempt_number)
+            resource_decision = worker_resource_decision()
+            claim = self._start_attempt(
+                job_id,
+                attempt_number=attempt_number,
+                resource_decision=resource_decision,
+            )
             if claim is None:
                 status = self._claim_failure_status(job_id)
+                action = getattr(resource_decision.action, "value", resource_decision.action)
+                if action != ResourceAction.ALLOW.value:
+                    reasons = ",".join(resource_decision.reasons) or "resource_guard_blocked"
+                    return ChildRunResult(
+                        job_id=job_id or "",
+                        status=ChildRunStatus.CONTROL_ERROR,
+                        attempts=attempts_completed,
+                        error_summary=(
+                            "worker resource guard blocked child claim: "
+                            f"{reasons}"
+                        ),
+                        termination_reason=ChildTerminationReason.CONTROL,
+                    )
                 return ChildRunResult(
                     job_id=job_id or "",
                     status=status,
@@ -494,7 +503,13 @@ class SubprocessSupervisor:
         except Exception:
             pass
 
-    def _start_attempt(self, job_id: str | None, *, attempt_number: int) -> LeaseToken | None:
+    def _start_attempt(
+        self,
+        job_id: str | None,
+        *,
+        attempt_number: int,
+        resource_decision: ResourceDecision | None = None,
+    ) -> LeaseToken | None:
         component_id = self.component_instance_id
         lease_owner = self.lease_owner
         if self.control_session_factory is None:
@@ -520,27 +535,42 @@ class SubprocessSupervisor:
                         lease_owner=lease_owner,
                         component_instance_id=component_id,
                         lease_seconds=self.lease_seconds,
+                        resource_decision=resource_decision,
                     )
                 else:
-                    candidate = session.scalar(
-                        select(JobRun)
-                        .where(
-                            JobRun.job_kind.in_(("parent_sync", "date_sync", "finalize")),
-                            JobRun.execution_slot == "heavy_sync",
-                            or_(
-                                JobRun.status == "pending",
-                                and_(
-                                    JobRun.status == "retry_wait",
-                                    JobRun.next_retry_at.is_not(None),
-                                    JobRun.next_retry_at <= datetime.now(UTC),
+                    candidates = list(
+                        session.scalars(
+                            select(JobRun)
+                            .where(
+                                JobRun.job_kind.in_(
+                                    ("parent_sync", "date_sync", "finalize")
                                 ),
-                            ),
+                                JobRun.execution_slot == "heavy_sync",
+                                or_(
+                                    JobRun.status == "pending",
+                                    and_(
+                                        JobRun.status == "retry_wait",
+                                        JobRun.next_retry_at.is_not(None),
+                                        JobRun.next_retry_at <= datetime.now(UTC),
+                                    ),
+                                ),
+                            )
+                            .order_by(
+                                case((JobRun.job_kind == "parent_sync", 0), else_=1),
+                                JobRun.business_date,
+                                JobRun.job_id,
+                            )
                         )
-                        .order_by(
-                            case((JobRun.job_kind == "parent_sync", 0), else_=1),
-                            JobRun.business_date,
-                            JobRun.job_id,
-                        )
+                    )
+                    candidate = next(
+                        (
+                            row
+                            for row in candidates
+                            if repositories.resource_admission_allows_job(
+                                row, resource_decision
+                            )
+                        ),
+                        None,
                     )
                     token = (
                         claim_job(
@@ -549,6 +579,7 @@ class SubprocessSupervisor:
                             lease_owner=lease_owner,
                             component_instance_id=component_id,
                             lease_seconds=self.lease_seconds,
+                            resource_decision=resource_decision,
                         )
                         if candidate is not None
                         else None
@@ -560,6 +591,7 @@ class SubprocessSupervisor:
                     lease_owner=lease_owner,
                     component_instance_id=component_id,
                     lease_seconds=self.lease_seconds,
+                    resource_decision=resource_decision,
                 )
             if token is None:
                 # PostgreSQL may have durably finalized an expired last
@@ -741,7 +773,7 @@ class SubprocessSupervisor:
             session.begin()
             summary = sanitize_error_message(error_summary) or "daily child failed"
             reason = termination_reason or ChildTerminationReason.PROCESS_EXIT
-            is_priority_budget_pause = _is_priority_budget_pause(
+            scheduler_pause_marker = _scheduler_pause_marker(
                 session,
                 job_id=job_id,
                 exit_code=exit_code,
@@ -758,8 +790,8 @@ class SubprocessSupervisor:
                 exit_code=exit_code,
                 rss_peak_bytes=rss_peak_bytes,
                 error_code=(
-                    PRIORITY_BUDGET_PAUSE_MARKER
-                    if is_priority_budget_pause
+                    scheduler_pause_marker
+                    if scheduler_pause_marker is not None
                     else _failure_error_code(
                         exit_code,
                         termination_reason=termination_reason,
@@ -790,8 +822,8 @@ class SubprocessSupervisor:
                         )
                         .values(
                             error_code=(
-                                PRIORITY_BUDGET_PAUSE_MARKER
-                                if is_priority_budget_pause
+                                scheduler_pause_marker
+                                if scheduler_pause_marker is not None
                                 else _failure_error_code(
                                     exit_code,
                                     termination_reason=termination_reason,
@@ -810,9 +842,13 @@ class SubprocessSupervisor:
                 error_code = "stage_checkpoint_incomplete"
                 summary = "daily child exited successfully before all stage checkpoints completed"
             else:
-                if is_priority_budget_pause:
-                    failure_kind = FailureKind.BUDGET_PAUSE
-                    error_code = PRIORITY_BUDGET_PAUSE_MARKER
+                if scheduler_pause_marker is not None:
+                    failure_kind = (
+                        FailureKind.RESOURCE_PAUSE
+                        if scheduler_pause_marker == WORKER_RESOURCE_PAUSE_MARKER
+                        else FailureKind.BUDGET_PAUSE
+                    )
+                    error_code = scheduler_pause_marker
                 else:
                     failure_kind = _failure_kind(
                         exit_code,
@@ -878,6 +914,44 @@ def _is_douyin_rate_limit_error(error_summary: str | None) -> bool:
 _RETRY_AFTER_SECONDS_RE = re.compile(r"retry_after_seconds=(\d+)", re.IGNORECASE)
 
 
+def _scheduler_pause_marker(
+    session: Session,
+    *,
+    job_id: str,
+    exit_code: int | None,
+    termination_reason: ChildTerminationReason | None,
+    error_summary: str | None,
+) -> str | None:
+    """Recognize an intentional scheduler yield only for priority-daily jobs."""
+
+    if exit_code in (None, 0) or termination_reason is not ChildTerminationReason.PROCESS_EXIT:
+        return None
+    summary = error_summary or ""
+    # Keep classification deterministic if a malformed child summary happens
+    # to contain both scheduler markers.  Budget remains the historical
+    # precedence and resource pause remains the new independent marker.
+    marker = next(
+        (
+            candidate
+            for candidate in (
+                PRIORITY_BUDGET_PAUSE_MARKER,
+                WORKER_RESOURCE_PAUSE_MARKER,
+            )
+            if candidate in summary
+        ),
+        None,
+    )
+    if marker is None:
+        return None
+    retry_after_match = _RETRY_AFTER_SECONDS_RE.search(error_summary or "")
+    if retry_after_match is None or int(retry_after_match.group(1)) <= 0:
+        return None
+    job = session.get(JobRun, job_id)
+    if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+        return None
+    return marker
+
+
 def _is_priority_budget_pause(
     session: Session,
     *,
@@ -886,17 +960,18 @@ def _is_priority_budget_pause(
     termination_reason: ChildTerminationReason | None,
     error_summary: str | None,
 ) -> bool:
-    """Recognize an intentional budget yield only for priority-daily jobs."""
+    """Backward-compatible budget-only marker predicate."""
 
-    if exit_code in (None, 0) or termination_reason is not ChildTerminationReason.PROCESS_EXIT:
-        return False
-    if PRIORITY_BUDGET_PAUSE_MARKER not in (error_summary or ""):
-        return False
-    retry_after_match = _RETRY_AFTER_SECONDS_RE.search(error_summary or "")
-    if retry_after_match is None or int(retry_after_match.group(1)) <= 0:
-        return False
-    job = session.get(JobRun, job_id)
-    return bool(job is not None and job.config_version == PRIORITY_DAILY_CONFIG_VERSION)
+    return (
+        _scheduler_pause_marker(
+            session,
+            job_id=job_id,
+            exit_code=exit_code,
+            termination_reason=termination_reason,
+            error_summary=error_summary,
+        )
+        == PRIORITY_BUDGET_PAUSE_MARKER
+    )
 
 
 def _quota_retry_after_seconds(error_summary: str | None) -> int | None:

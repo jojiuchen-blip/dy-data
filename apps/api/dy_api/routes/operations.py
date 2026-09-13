@@ -195,6 +195,17 @@ def _component_rows(session: Session, now: datetime) -> list[dict[str, Any]]:
         observed_status = row.status
         if heartbeat is None or now - heartbeat > COMPONENT_LOST_AFTER:
             observed_status = "lost"
+        # The long-lived resource monitor proves scheduler liveness, while
+        # the attempt supervisor owns the current job and its RSS. Do not let
+        # a newer idle monitor sample hide an active fenced child.
+        execution = row
+        if component_type == "worker" and row.component_instance_id.startswith("worker-resource-monitor-"):
+            execution = next((candidate for candidate in rows if (
+                candidate.component_type == "worker"
+                and candidate.current_job_id is not None
+                and _as_utc(candidate.last_heartbeat_at) is not None
+                and now - _as_utc(candidate.last_heartbeat_at) <= COMPONENT_LOST_AFTER
+            )), row)
         result.append(
             {
                 "component_type": component_type,
@@ -203,15 +214,15 @@ def _component_rows(session: Session, now: datetime) -> list[dict[str, Any]]:
                 "observed_status": observed_status,
                 "last_heartbeat_at": row.last_heartbeat_at,
                 "allow_restart": component_type in RESTARTABLE_COMPONENTS,
-                "current_job_id": row.current_job_id,
-                "current_attempt_id": row.current_attempt_id,
-                "activity": _sanitize(row.activity_json or {}),
+                "current_job_id": execution.current_job_id,
+                "current_attempt_id": execution.current_attempt_id,
+                "activity": _sanitize({**(execution.activity_json or {}), **(row.activity_json or {})}),
                 "queue_summary": _sanitize(row.queue_summary_json or {}),
                 "resources": {
                     "cpu_percent": row.cpu_percent,
-                    "rss_bytes": row.rss_bytes,
-                    "rss_peak_bytes": row.rss_peak_bytes,
-                    "memory_limit_bytes": row.memory_limit_bytes,
+                    "rss_bytes": execution.rss_bytes,
+                    "rss_peak_bytes": execution.rss_peak_bytes,
+                    "memory_limit_bytes": execution.memory_limit_bytes,
                     "queue_depth": row.queue_depth,
                 },
             }

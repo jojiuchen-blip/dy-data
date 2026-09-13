@@ -23,6 +23,7 @@ const display = sandbox.exports.displaySyncFailureReason;
 const expected = '抖音后台登录已失效，请在受保护的浏览器中重新登录后重试';
 assert.equal(display('douyin_backend_login_required'), expected);
 assert.equal(display('Douyin backend login required. Log in through the protected noVNC browser first.'), expected);
+assert.equal(display('worker_resource_pause retry_after_seconds=60'), '资源保护暂停，恢复后自动续跑');
 assert.equal(display('Backend aweme bind list API failed with HTTP 500.'), '任务执行失败，请查看服务日志');
 assert.equal(display(null), '-');
 """

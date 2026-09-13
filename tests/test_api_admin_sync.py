@@ -18,6 +18,7 @@ from dy_api.routes._data import get_session_dependency  # noqa: E402
 from apps.worker.collectors.types import CollectionWindow  # noqa: E402
 from apps.worker.repositories import finish_job_run, queue_job_run, start_job_run  # noqa: E402
 from dy_api.models import (  # noqa: E402
+    ComponentHeartbeat,
     DataQualityIssue,
     DimSkuProductRule,
     JobRun,
@@ -762,3 +763,451 @@ def test_admin_can_page_sku_product_sync_history_without_raw_payload(
     assert payload["list"][0]["productStatus"] == "INACTIVE"
     assert "raw_payload" not in str(response.json())
     assert "must-not-leak" not in str(response.json())
+
+
+def _resource_heartbeat(
+    session: Session,
+    *,
+    state: str = "normal",
+    last_heartbeat_at: datetime | None = None,
+    sampled_at: datetime | None = None,
+    allow_daily: bool = True,
+    allow_history: bool = True,
+    reasons: list[str] | None = None,
+    guard_overrides: dict[str, object] | None = None,
+) -> None:
+    now = datetime.now(timezone.utc)
+    guard_payload: dict[str, object] = {
+        "state": state,
+        "reasons": reasons or [],
+        "allow_daily": allow_daily,
+        "allow_history": allow_history,
+        "since": (now - timedelta(minutes=2)).isoformat(),
+        "duration_seconds": 120,
+        "recovery_condition": "连续稳定 180 秒",
+        "sampled_at": (sampled_at or now).isoformat(),
+        "host_available_bytes": 3 * 1024**3,
+        "cgroup_used_ratio": 0.62,
+        "swap_used_bytes": 553 * 1024**2,
+        "swap_activity_bytes_per_second": 32 * 1024**2,
+    }
+    guard_payload.update(guard_overrides or {})
+    session.add(
+        ComponentHeartbeat(
+            component_instance_id="worker-resource-monitor-test",
+            component_type="worker",
+            status="healthy",
+            started_at=now - timedelta(minutes=5),
+            last_heartbeat_at=last_heartbeat_at or now,
+            activity_json={
+                "resource_guard": guard_payload,
+            },
+            queue_summary_json={},
+        )
+    )
+    session.commit()
+
+
+def _priority_job(
+    job_id: str,
+    job_kind: str,
+    status: str,
+    *,
+    started_at: datetime,
+    window_start: datetime,
+    window_end: datetime,
+    parent_job_id: str | None = None,
+    business_date=None,
+    priority_purpose: str = "daily_required",
+) -> JobRun:
+    return JobRun(
+        job_id=job_id,
+        job_name=job_kind,
+        job_kind=job_kind,
+        parent_job_id=parent_job_id,
+        execution_slot="heavy_sync" if job_kind != "range_sync" else None,
+        status=status,
+        started_at=started_at,
+        finished_at=started_at + timedelta(minutes=5) if status == "success" else None,
+        metadata_json={
+            "target": "all",
+            "priority_purpose": priority_purpose,
+        },
+        data_source="douyin",
+        config_version="priority-daily-v1",
+        business_date=business_date if job_kind == "date_sync" else None,
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+
+def test_admin_sync_exposes_fresh_worker_resource_guard(client: TestClient, db_session: Session):
+    _resource_heartbeat(db_session)
+    _login(client)
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    guard = response.json()["data"]["resource_guard"]
+    assert guard["state"] == "normal"
+    assert guard["allow_daily"] is True
+    assert guard["allow_history"] is True
+    assert guard["duration_seconds"] == 120
+    assert guard["host_available_bytes"] == 3 * 1024**3
+    assert guard["cgroup_used_ratio"] == 0.62
+    assert guard["swap_activity_bytes_per_second"] == 32 * 1024**2
+
+
+def test_admin_sync_exposes_protected_worker_resource_guard(
+    client: TestClient,
+    db_session: Session,
+):
+    _resource_heartbeat(
+        db_session,
+        state="protected",
+        allow_daily=False,
+        allow_history=False,
+        reasons=["host_available_low", "unknown_pressure_code"],
+        guard_overrides={"cgroup_used_ratio": 1.2},
+    )
+    _login(client)
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    guard = response.json()["data"]["resource_guard"]
+    assert guard["state"] == "protected"
+    assert guard["allow_daily"] is False
+    assert guard["allow_history"] is False
+    assert guard["reasons"] == ["host_available_low", "unknown_pressure_code"]
+    assert guard["cgroup_used_ratio"] == 1.2
+
+
+def test_admin_sync_fails_closed_for_missing_or_stale_resource_guard(
+    client: TestClient,
+    db_session: Session,
+):
+    _login(client)
+    missing = client.get("/api/v1/admin/sync")
+    assert missing.status_code == 200
+    missing_guard = missing.json()["data"]["resource_guard"]
+    assert missing_guard["state"] == "unknown"
+    assert missing_guard["allow_daily"] is False
+    assert missing_guard["allow_history"] is False
+    assert "resource_guard_heartbeat_missing" in missing_guard["reasons"]
+
+    _resource_heartbeat(
+        db_session,
+        last_heartbeat_at=datetime.now(timezone.utc) - timedelta(seconds=31),
+    )
+    stale = client.get("/api/v1/admin/sync")
+    assert stale.status_code == 200
+    stale_guard = stale.json()["data"]["resource_guard"]
+    assert stale_guard["state"] == "unknown"
+    assert stale_guard["allow_daily"] is False
+    assert stale_guard["allow_history"] is False
+    assert "resource_guard_heartbeat_stale" in stale_guard["reasons"]
+
+
+def test_admin_sync_fails_closed_for_stale_sample_and_invalid_resource_state(
+    client: TestClient,
+    db_session: Session,
+):
+    now = datetime.now(timezone.utc)
+    _resource_heartbeat(
+        db_session,
+        sampled_at=now - timedelta(seconds=31),
+    )
+    _login(client)
+
+    stale_sample = client.get("/api/v1/admin/sync")
+
+    assert stale_sample.status_code == 200
+    stale_guard = stale_sample.json()["data"]["resource_guard"]
+    assert stale_guard["state"] == "unknown"
+    assert stale_guard["allow_daily"] is False
+    assert "resource_guard_sampled_at_stale" in stale_guard["reasons"]
+
+    db_session.query(ComponentHeartbeat).delete()
+    db_session.commit()
+    _resource_heartbeat(
+        db_session,
+        state="unexpected_state",
+        allow_daily=True,
+        allow_history=True,
+        guard_overrides={
+            "duration_seconds": "NaN",
+            "cgroup_used_ratio": "Infinity",
+            "swap_activity_bytes_per_second": "Infinity",
+        },
+    )
+    invalid_state = client.get("/api/v1/admin/sync")
+
+    assert invalid_state.status_code == 200
+    invalid_guard = invalid_state.json()["data"]["resource_guard"]
+    assert invalid_guard["state"] == "unknown"
+    assert invalid_guard["allow_daily"] is False
+    assert invalid_guard["allow_history"] is False
+    assert "resource_guard_state_invalid" in invalid_guard["reasons"]
+    assert invalid_guard["duration_seconds"] == 0
+    assert invalid_guard["cgroup_used_ratio"] is None
+    assert invalid_guard["swap_activity_bytes_per_second"] is None
+
+
+def test_admin_sync_reports_priority_daily_freshness_from_job_runs(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    local_now = datetime.now(admin_routes.SHANGHAI_TZ)
+    business_date = local_now.date() - timedelta(days=1 if local_now.hour >= 2 else 2)
+    window_start = datetime(
+        business_date.year,
+        business_date.month,
+        business_date.day,
+        tzinfo=admin_routes.SHANGHAI_TZ,
+    )
+    window_end = window_start + timedelta(days=1)
+    started_at = window_start.astimezone(timezone.utc)
+    jobs = [
+        JobRun(
+            job_id="freshness-range",
+            job_name="range_sync",
+            job_kind="range_sync",
+            status="success",
+            started_at=started_at,
+            finished_at=started_at + timedelta(minutes=20),
+            metadata_json={"target": "all"},
+            data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_start,
+            window_end=window_end,
+        ),
+        JobRun(
+            job_id="freshness-parent",
+            job_name="parent_sync",
+            job_kind="parent_sync",
+            parent_job_id="freshness-range",
+            execution_slot="heavy_sync",
+            status="success",
+            started_at=started_at,
+            finished_at=started_at + timedelta(minutes=10),
+            metadata_json={"target": "all"},
+            data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_start,
+            window_end=window_end,
+        ),
+        JobRun(
+            job_id="freshness-date",
+            job_name="date_sync",
+            job_kind="date_sync",
+            parent_job_id="freshness-range",
+            execution_slot="heavy_sync",
+            business_date=business_date,
+            status="success",
+            started_at=started_at,
+            finished_at=started_at + timedelta(minutes=15),
+            metadata_json={"target": "all"},
+            data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_start,
+            window_end=window_end,
+        ),
+        JobRun(
+            job_id="freshness-finalize",
+            job_name="finalize",
+            job_kind="finalize",
+            parent_job_id="freshness-range",
+            execution_slot="heavy_sync",
+            status="success",
+            started_at=started_at,
+            finished_at=started_at + timedelta(minutes=20),
+            metadata_json={"target": "all"},
+            data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_start,
+            window_end=window_end,
+        ),
+    ]
+    db_session.add_all(jobs)
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    freshness = response.json()["data"]["sync_freshness"]
+    assert freshness["latest_successful_sync_job_id"] == "freshness-range"
+    assert freshness["latest_successful_sync_business_date"] == business_date.isoformat()
+    assert freshness["latest_successful_sync_window_start"] is not None
+    assert freshness["latest_successful_sync_window_end"] is not None
+    assert freshness["latest_completed_business_date"] == business_date.isoformat()
+    assert freshness["daily_batch"]["business_date"] == business_date.isoformat()
+    assert freshness["daily_batch"]["status"] == "success"
+    assert freshness["daily_batch"]["is_overdue"] is False
+    assert freshness["daily_batch"]["deadline_local_time"] == "06:00"
+    assert freshness["daily_batch"]["deadline_configurable"] is True
+
+    # Collection completion cannot advance freshness before its range publishes.
+    db_session.add_all([
+        JobRun(
+            job_id="unpublished-range", job_name="range_sync", job_kind="range_sync",
+            status="running", started_at=started_at + timedelta(days=1),
+            metadata_json={"target": "all"}, data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_end, window_end=window_end + timedelta(days=1),
+        ),
+        JobRun(
+            job_id="unpublished-date", job_name="date_sync", job_kind="date_sync",
+            parent_job_id="unpublished-range", status="success",
+            business_date=business_date + timedelta(days=1),
+            started_at=started_at + timedelta(days=1),
+            finished_at=started_at + timedelta(days=1, minutes=15),
+            metadata_json={"target": "all"}, data_source="douyin",
+            config_version="priority-daily-v1",
+            window_start=window_end, window_end=window_end + timedelta(days=1),
+        ),
+    ])
+    db_session.commit()
+    freshness = client.get("/api/v1/admin/sync").json()["data"]["sync_freshness"]
+    assert freshness["latest_completed_business_date"] == business_date.isoformat()
+
+
+def test_admin_sync_uses_newest_formal_daily_root_and_ignores_old_cancelled_plan(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    local_now = datetime.now(admin_routes.SHANGHAI_TZ)
+    business_date = local_now.date() - timedelta(days=1 if local_now.hour >= 2 else 2)
+    window_start = datetime(
+        business_date.year,
+        business_date.month,
+        business_date.day,
+        tzinfo=admin_routes.SHANGHAI_TZ,
+    )
+    window_end = window_start + timedelta(days=1)
+    old_started_at = window_start.astimezone(timezone.utc)
+    new_started_at = old_started_at + timedelta(hours=1)
+    old_root = _priority_job(
+        "old-daily-root",
+        "range_sync",
+        "cancelled",
+        started_at=old_started_at,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    old_child = _priority_job(
+        "old-daily-date",
+        "date_sync",
+        "cancelled",
+        started_at=old_started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=old_root.job_id,
+        business_date=business_date,
+    )
+    new_root = _priority_job(
+        "new-daily-root",
+        "range_sync",
+        "success",
+        started_at=new_started_at,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    new_parent = _priority_job(
+        "new-daily-parent",
+        "parent_sync",
+        "success",
+        started_at=new_started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=new_root.job_id,
+    )
+    new_date = _priority_job(
+        "new-daily-date",
+        "date_sync",
+        "success",
+        started_at=new_started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=new_root.job_id,
+        business_date=business_date,
+    )
+    new_finalize = _priority_job(
+        "new-daily-finalize",
+        "finalize",
+        "success",
+        started_at=new_started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=new_root.job_id,
+    )
+    db_session.add_all([old_root, old_child, new_root, new_parent, new_date, new_finalize])
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    daily_batch = response.json()["data"]["sync_freshness"]["daily_batch"]
+    assert daily_batch["status"] == "success"
+    assert daily_batch["job_id"] == new_root.job_id
+
+
+def test_admin_sync_does_not_mark_daily_batch_success_without_required_child_kind(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("WORKER_SCHEDULER_MODE", "priority_daily")
+    local_now = datetime.now(admin_routes.SHANGHAI_TZ)
+    business_date = local_now.date() - timedelta(days=1 if local_now.hour >= 2 else 2)
+    window_start = datetime(
+        business_date.year,
+        business_date.month,
+        business_date.day,
+        tzinfo=admin_routes.SHANGHAI_TZ,
+    )
+    window_end = window_start + timedelta(days=1)
+    started_at = window_start.astimezone(timezone.utc)
+    root = _priority_job(
+        "missing-parent-root",
+        "range_sync",
+        "success",
+        started_at=started_at,
+        window_start=window_start,
+        window_end=window_end,
+    )
+    date_job = _priority_job(
+        "missing-parent-date",
+        "date_sync",
+        "success",
+        started_at=started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=root.job_id,
+        business_date=business_date,
+    )
+    finalize = _priority_job(
+        "missing-parent-finalize",
+        "finalize",
+        "success",
+        started_at=started_at,
+        window_start=window_start,
+        window_end=window_end,
+        parent_job_id=root.job_id,
+    )
+    db_session.add_all([root, date_job, finalize])
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/admin/sync")
+
+    assert response.status_code == 200
+    daily_batch = response.json()["data"]["sync_freshness"]["daily_batch"]
+    assert daily_batch["status"] == "incomplete"
+    assert "parent_sync" in daily_batch["incomplete_task_types"]

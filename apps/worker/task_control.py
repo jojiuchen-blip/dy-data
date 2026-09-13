@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from enum import Enum
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import select, update
@@ -35,6 +36,8 @@ DEFAULT_MAX_ATTEMPTS = 3
 DEFAULT_RETRY_BASE_DELAY_SECONDS = 30
 MAX_BUDGET_PAUSE_DELAY_SECONDS = 172800
 PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
+PRIORITY_BUDGET_PAUSE_MARKER = "priority_budget_pause"
+WORKER_RESOURCE_PAUSE_MARKER = "worker_resource_pause"
 
 
 class FailureKind(str, Enum):
@@ -46,6 +49,15 @@ class FailureKind(str, Enum):
     MEMORY_GUARD = "memory_guard"
     CRASHED = "crashed"
     BUDGET_PAUSE = "budget_pause"
+    RESOURCE_PAUSE = "resource_pause"
+
+
+def _scheduler_pause_error_code(failure_kind: FailureKind) -> str:
+    if failure_kind is FailureKind.BUDGET_PAUSE:
+        return PRIORITY_BUDGET_PAUSE_MARKER
+    if failure_kind is FailureKind.RESOURCE_PAUSE:
+        return WORKER_RESOURCE_PAUSE_MARKER
+    raise ValueError("failure kind is not a scheduler pause")
 
 
 @dataclass(frozen=True)
@@ -93,10 +105,14 @@ def retry_policy(
     if fixed_delay_seconds is not None and fixed_delay_seconds <= 0:
         raise ValueError("fixed_delay_seconds must be positive")
 
-    if failure_kind is FailureKind.BUDGET_PAUSE:
-        # A quota pause is a durable scheduling yield.  It must never consume
-        # one of the three genuine failure attempts, and its delay is fixed so
-        # repeated quota exhaustion cannot be exponentially amplified.
+    if failure_kind in {
+        FailureKind.BUDGET_PAUSE,
+        FailureKind.RESOURCE_PAUSE,
+    }:
+        # A scheduler pause is a durable scheduling yield.  It must never
+        # consume one of the three genuine failure attempts, and its delay is
+        # fixed so repeated pressure/quota yields cannot be exponentially
+        # amplified.
         delay_seconds = fixed_delay_seconds or base_delay_seconds
         return RetryDecision(
             status="retry_wait",
@@ -140,6 +156,7 @@ def claim_next_job(
     lease_owner: str,
     component_instance_id: str,
     lease_seconds: int,
+    resource_decision: Any | None = None,
 ) -> LeaseToken | None:
     """Claim the earliest executable heavy job without committing the transaction."""
 
@@ -153,6 +170,7 @@ def claim_next_job(
         lease_owner=lease_owner,
         component_instance_id=component_instance_id,
         lease_seconds=lease_seconds,
+        resource_decision=resource_decision,
     )
     if record is None:
         return None
@@ -175,6 +193,7 @@ def claim_job(
     lease_owner: str,
     component_instance_id: str,
     lease_seconds: int,
+    resource_decision: Any | None = None,
 ) -> LeaseToken | None:
     """Claim one planned heavy job using the same fenced state machine.
 
@@ -196,6 +215,7 @@ def claim_job(
             component_instance_id=component_instance_id,
             lease_seconds=lease_seconds,
             job_id=job_id,
+            resource_decision=resource_decision,
         )
     else:
         record = _claim_job_sqlite(
@@ -204,6 +224,7 @@ def claim_job(
             lease_owner=lease_owner,
             component_instance_id=component_instance_id,
             lease_seconds=lease_seconds,
+            resource_decision=resource_decision,
         )
     if record is None:
         return None
@@ -226,6 +247,7 @@ def _claim_job_sqlite(
     lease_owner: str,
     component_instance_id: str,
     lease_seconds: int,
+    resource_decision: Any | None = None,
 ) -> repositories.ClaimedJobRecord | None:
     from datetime import UTC, datetime, timedelta
     from uuid import uuid4
@@ -238,6 +260,8 @@ def _claim_job_sqlite(
         or job.job_kind not in {"date_sync", "parent_sync", "finalize"}
         or job.execution_slot != "heavy_sync"
     ):
+        return None
+    if not repositories.resource_admission_allows_job(job, resource_decision):
         return None
     if not repositories.parent_sync_gate_allows_claim(session, job):
         return None
@@ -471,15 +495,19 @@ def fail_job(
         raise ValueError("error_code is required")
     if not error_summary.strip():
         raise ValueError("error_summary is required")
-    if failure_kind is FailureKind.BUDGET_PAUSE:
+    is_scheduler_pause = failure_kind in {
+        FailureKind.BUDGET_PAUSE,
+        FailureKind.RESOURCE_PAUSE,
+    }
+    if is_scheduler_pause:
         if fixed_delay_seconds is None or fixed_delay_seconds <= 0:
-            raise ValueError("budget pause requires a positive fixed delay")
+            raise ValueError("scheduler pause requires a positive fixed delay")
         from apps.api.dy_api.models import JobRun
 
         job = session.get(JobRun, token.job_id)
-        if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+        if job is None or not repositories.is_priority_resource_config(job.config_version):
             return None
-        error_code = "priority_budget_pause"
+        error_code = _scheduler_pause_error_code(failure_kind)
     if session.get_bind().dialect.name == "postgresql":
         retry_state = repositories.lock_active_execution_state(
             session,
@@ -491,11 +519,11 @@ def fail_job(
         )
         if retry_state is None:
             return None
-        if failure_kind is FailureKind.BUDGET_PAUSE:
+        if is_scheduler_pause:
             from apps.api.dy_api.models import JobRun
 
             job = session.get(JobRun, token.job_id)
-            if job is None or job.config_version != PRIORITY_DAILY_CONFIG_VERSION:
+            if job is None or not repositories.is_priority_resource_config(job.config_version):
                 return None
         previous_exit_type = repositories.previous_attempt_exit_type(
             session,
@@ -524,7 +552,8 @@ def fail_job(
             attempt_exit_type=attempt_exit_type,
             error_code=error_code.strip(),
             error_summary=error_summary.strip(),
-            increment_quota_pause_count=failure_kind is FailureKind.BUDGET_PAUSE,
+            increment_quota_pause_count=is_scheduler_pause,
+            increment_failed_count=not is_scheduler_pause,
         )
         return decision if updated else None
     return _fail_job_sqlite(
@@ -558,7 +587,10 @@ def _attempt_exit_type(
     failure_kind: FailureKind,
     decision: RetryDecision,
 ) -> str:
-    if failure_kind is FailureKind.BUDGET_PAUSE:
+    if failure_kind in {
+        FailureKind.BUDGET_PAUSE,
+        FailureKind.RESOURCE_PAUSE,
+    }:
         return "retryable_failure"
     if failure_kind is FailureKind.MEMORY_GUARD:
         return "resource_guard"
@@ -644,10 +676,11 @@ def _fail_job_sqlite(
     if active is None:
         return None
     job, attempt, component = active
-    if (
-        failure_kind is FailureKind.BUDGET_PAUSE
-        and job.config_version != PRIORITY_DAILY_CONFIG_VERSION
-    ):
+    is_scheduler_pause = failure_kind in {
+        FailureKind.BUDGET_PAUSE,
+        FailureKind.RESOURCE_PAUSE,
+    }
+    if is_scheduler_pause and not repositories.is_priority_resource_config(job.config_version):
         return None
     previous_exit_type = session.scalar(
         select(repositories.JobAttempt.exit_type).where(
@@ -665,9 +698,9 @@ def _fail_job_sqlite(
         fixed_delay_seconds=fixed_delay_seconds,
     )
     now = datetime.now(UTC)
-    if failure_kind is FailureKind.BUDGET_PAUSE:
+    if is_scheduler_pause:
         job.quota_pause_count = int(job.quota_pause_count or 0) + 1
-        error_code = "priority_budget_pause"
+        error_code = _scheduler_pause_error_code(failure_kind)
     job.status = decision.status
     job.finished_at = now if decision.status == "failed" else None
     job.lease_owner = None
@@ -677,7 +710,8 @@ def _fail_job_sqlite(
         if decision.delay_seconds is not None
         else None
     )
-    job.failed_count = max(1, int(job.failed_count or 0))
+    if not is_scheduler_pause:
+        job.failed_count = max(1, int(job.failed_count or 0))
     job.error_code = error_code
     job.error_summary = error_summary
     job.error_message = error_summary

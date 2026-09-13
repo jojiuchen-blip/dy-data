@@ -20,6 +20,8 @@ import type {
   ManualSyncTarget,
   SyncAdminData,
   SyncConfigData,
+  SyncDailyBatchData,
+  SyncResourceGuardData,
 } from "../types/dashboard";
 import { formatDateTime, formatInteger } from "../utils/format";
 import {
@@ -116,6 +118,205 @@ function jobStatusLine(job: JobRun | null | undefined): string {
     ? `完成于 ${formatDateTime(job.finished_at)}`
     : `开始于 ${formatDateTime(job.started_at)}`;
   return `${statusLabel(job.status)}，${finishedAt}`;
+}
+
+const resourceGuardLabels: Record<SyncResourceGuardData["state"], string> = {
+  normal: "正常放行",
+  constrained: "资源收紧",
+  protected: "保护暂停",
+  recovering: "恢复观察",
+  unknown: "状态未知",
+  disabled: "监控未启用",
+};
+
+const resourceGuardReasonLabels: Record<string, string> = {
+  host_available_low: "主机可用内存偏低",
+  cgroup_used_high: "工作进程内存使用率偏高",
+  pressure_sustained: "内存压力持续超过阈值",
+  recovery_observation: "正在观察资源恢复稳定性",
+  swap_used: "检测到交换内存占用",
+  resource_guard_heartbeat_missing: "没有收到 worker 资源监控心跳",
+  resource_guard_heartbeat_stale: "worker 资源监控心跳已超过 30 秒",
+  resource_guard_sampled_at_missing: "worker 资源采样时间缺失",
+  resource_guard_sampled_at_stale: "worker 资源采样已超过 30 秒",
+  resource_guard_payload_missing: "worker 心跳未包含资源保护状态",
+  resource_guard_state_invalid: "worker 报告了无法识别的保护状态",
+};
+
+const syncTaskTypeLabels: Record<string, string> = {
+  range_sync: "日批总任务",
+  parent_sync: "维度采集",
+  date_sync: "业务日采集",
+  finalize: "日批发布",
+};
+
+const dailyBatchLabels: Record<SyncDailyBatchData["status"], string> = {
+  not_applicable: "不适用",
+  missing: "尚未创建",
+  incomplete: "未完成",
+  pending: "等待执行",
+  queued: "已排队",
+  running: "运行中",
+  retry_wait: "等待重试",
+  success: "已完成",
+  partial: "部分完成",
+  failed: "失败",
+  cancelled: "已取消",
+  unknown: "状态未知",
+};
+
+function resourceGuardTone(
+  state: SyncResourceGuardData["state"],
+): "neutral" | "info" | "warning" | "danger" | "success" {
+  if (state === "normal") return "success";
+  if (state === "recovering") return "info";
+  if (state === "protected") return "danger";
+  if (state === "constrained" || state === "unknown") return "warning";
+  return "neutral";
+}
+
+function resourceReasonText(reasons: string[]): string {
+  if (!reasons.length) return "暂无保护原因";
+  return reasons
+    .map((reason) => resourceGuardReasonLabels[reason] ?? `资源保护条件：${reason}`)
+    .filter((label, index, labels) => labels.indexOf(label) === index)
+    .join("、");
+}
+
+function resourceDurationText(seconds: number): string {
+  const duration = Math.max(0, Math.floor(seconds));
+  if (duration < 60) return `${formatInteger(duration)} 秒`;
+  const minutes = Math.floor(duration / 60);
+  const remain = duration % 60;
+  if (minutes < 60) return `${formatInteger(minutes)} 分 ${formatInteger(remain)} 秒`;
+  return `${formatInteger(Math.floor(minutes / 60))} 小时 ${formatInteger(minutes % 60)} 分`;
+}
+
+function resourceAffectedTasks(guard: SyncResourceGuardData): string {
+  const affected = [
+    !guard.allow_daily ? "当日日批" : null,
+    !guard.allow_history ? "历史补拉" : null,
+  ].filter(Boolean);
+  return affected.length ? affected.join("、") : "无（当前任务类型均放行）";
+}
+
+function bytesText(value: number | null): string {
+  if (value === null) return "-";
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(1)} GB`;
+  if (value >= 1024 ** 2) return `${Math.round(value / 1024 ** 2)} MB`;
+  return `${formatInteger(value)} B`;
+}
+
+function byteRateText(value: number | null): string {
+  return value === null ? "-" : `${bytesText(value)}/秒`;
+}
+
+function dailyTaskTypesText(types: string[]): string {
+  if (!types.length) return "暂无待完成任务";
+  return types.map((type) => syncTaskTypeLabels[type] ?? "日批任务").filter((label, index, labels) => labels.indexOf(label) === index).join("、");
+}
+
+function syncBatchScopeText(freshness: SyncAdminData["sync_freshness"]): string {
+  if (!freshness) return "没有可用的成功批次记录";
+  if (freshness.latest_successful_sync_window_start && freshness.latest_successful_sync_window_end) {
+    return `批次窗口：${formatDateTime(freshness.latest_successful_sync_window_start)} 至 ${formatDateTime(freshness.latest_successful_sync_window_end)}`;
+  }
+  if (freshness.latest_successful_sync_business_date) {
+    return `业务日：${freshness.latest_successful_sync_business_date}`;
+  }
+  return "业务日或批次窗口未知";
+}
+
+function ResourceGuardPanel({
+  guard,
+  freshness,
+}: {
+  guard?: SyncResourceGuardData | null;
+  freshness?: SyncAdminData["sync_freshness"];
+}) {
+  const daily = freshness?.daily_batch ?? null;
+  return (
+    <section className="content-section" aria-labelledby="resource-guard-title">
+      <div className="section-title">
+        <div>
+          <h2 id="resource-guard-title">资源保护与同步时效</h2>
+          <p>
+            资源状态只读取 worker 的资源监控心跳；心跳缺失或超过 30 秒时按未知处理，不把 API 进程的即时采样当作 worker 状态。
+          </p>
+        </div>
+        {guard ? (
+          <StatusChip tone={resourceGuardTone(guard.state)}>
+            {resourceGuardLabels[guard.state]}
+          </StatusChip>
+        ) : null}
+      </div>
+      {guard ? (
+        <dl className="worker-status-grid">
+          <div className="worker-status-item">
+            <dt>保护等级</dt>
+            <dd>{resourceGuardLabels[guard.state]}</dd>
+            <small>监控采样：{formatDateTime(guard.sampled_at)}</small>
+          </div>
+          <div className="worker-status-item">
+            <dt>保护原因</dt>
+            <dd>{resourceReasonText(guard.reasons)}</dd>
+            <small>
+              主机可用内存 {bytesText(guard.host_available_bytes)}；交换内存 {bytesText(guard.swap_used_bytes)}；交换活动速率 {byteRateText(guard.swap_activity_bytes_per_second)}
+            </small>
+          </div>
+          <div className="worker-status-item">
+            <dt>持续时长</dt>
+            <dd>{resourceDurationText(guard.duration_seconds)}</dd>
+            <small>状态开始：{formatDateTime(guard.since)}</small>
+          </div>
+          <div className="worker-status-item">
+            <dt>恢复条件</dt>
+            <dd>{guard.recovery_condition || "暂无恢复条件"}</dd>
+            <small>
+              工作进程内存使用率 {guard.cgroup_used_ratio === null ? "-" : `${Math.round(guard.cgroup_used_ratio * 100)}%`}
+            </small>
+          </div>
+          <div className="worker-status-item">
+            <dt>受影响任务类型</dt>
+            <dd>{resourceAffectedTasks(guard)}</dd>
+            <small>
+              当日日批：{yesNo(guard.allow_daily)}；历史补拉：{yesNo(guard.allow_history)}
+            </small>
+          </div>
+          <div className="worker-status-item">
+            <dt>最后成功批次</dt>
+            <dd>{formatDateTime(freshness?.latest_successful_sync_at)}</dd>
+            <small>
+              {syncBatchScopeText(freshness)}；
+              {freshness?.latest_successful_sync_job_name
+                ? `任务类型：${syncTaskTypeLabels[freshness.latest_successful_sync_job_name] ?? "同步任务"}`
+                : "任务类型未知"}
+            </small>
+          </div>
+          <div className="worker-status-item">
+            <dt>最近完成业务日</dt>
+            <dd>{freshness?.latest_completed_business_date ?? "-"}</dd>
+            <small>按成功 date_sync 的业务日期统计，不代表昨日批次一定已发布。</small>
+          </div>
+        </dl>
+      ) : (
+        <div className="resource-panel">资源监控状态暂不可用，等待 worker 资源监控心跳。</div>
+      )}
+      {daily ? (
+        <div className={`resource-notice ${daily.is_overdue ? "resource-notice--warning" : daily.status === "failed" ? "resource-notice--error" : ""}`}>
+          <strong>
+            目标业务日（{daily.business_date ?? "-"}）02:00 日批：{dailyBatchLabels[daily.status]}
+          </strong>
+          <span>
+            目标截止 {formatDateTime(daily.deadline_at)}（上海时间，可配置）；
+            {daily.status === "success" ? `完成于 ${formatDateTime(daily.completed_at)}` : daily.is_overdue ? "已超过目标截止时间" : `待完成：${dailyTaskTypesText(daily.incomplete_task_types)}`}
+          </span>
+        </div>
+      ) : freshness ? (
+        <div className="resource-notice">当前调度模式没有优先日批状态。</div>
+      ) : null}
+    </section>
+  );
 }
 
 interface AdminSyncPageProps {
@@ -428,6 +629,10 @@ export function AdminSyncPage({ isHighestAdmin }: AdminSyncPageProps) {
         onCreateTask={() =>
           manualTaskRef.current?.scrollIntoView({ behavior: "smooth", block: "start" })
         }
+      />
+      <ResourceGuardPanel
+        guard={data?.resource_guard}
+        freshness={data?.sync_freshness}
       />
       <AdminProductSyncPanel />
       <DouyinStoreOrgMappingPanel />

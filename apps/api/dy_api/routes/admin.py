@@ -3,18 +3,21 @@
 from collections import Counter
 from hashlib import sha256
 import json
+import math
 import os
 import re
 import tempfile
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
-from sqlalchemy import delete, exists, false, func, or_, select, text
+from sqlalchemy import and_, delete, exists, false, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import aliased
 
 from apps.api.dy_api.models import (
     AccessPage,
@@ -32,6 +35,7 @@ from apps.api.dy_api.models import (
     ClueHeadquartersPoolEntry,
     ClueStoreGroup,
     ClueStoreGroupMember,
+    ComponentHeartbeat,
     DimAwemeAccount,
     DimSkuProductRule,
     DimStore,
@@ -183,6 +187,9 @@ from dy_api.schemas import (
     SyncAdminData,
     SyncConfigData,
     SyncConfigUpdate,
+    SyncDailyBatchData,
+    SyncFreshnessData,
+    SyncResourceGuardData,
     SyncProgressData,
     SyncScheduleData,
     SyncWorkerStatusData,
@@ -243,6 +250,19 @@ WORKER_STATUS_JOB_NAMES = (
 )
 DEFAULT_WORKER_CHUNK_MAX_ATTEMPTS = 2
 DISABLED_WORKER_POLL_SECONDS = 60
+RESOURCE_GUARD_HEARTBEAT_PREFIX = "worker-resource-monitor-"
+RESOURCE_GUARD_STALE_AFTER = timedelta(seconds=30)
+RESOURCE_GUARD_STATES = {
+    "normal",
+    "constrained",
+    "protected",
+    "recovering",
+    "unknown",
+    "disabled",
+}
+PRIORITY_DAILY_CONFIG_VERSION = "priority-daily-v1"
+PRIORITY_DAILY_JOB_KINDS = {"range_sync", "parent_sync", "date_sync", "finalize"}
+DEFAULT_DAILY_DEADLINE_HOUR = 6
 FEEDBACK_CATEGORIES = {"experience", "data", "feature", "other"}
 FEEDBACK_STATUSES = {"new", "reviewed", "resolved", "ignored"}
 
@@ -3350,6 +3370,8 @@ def update_sync_config(
         schedule=schedule,
         worker_status=_sync_worker_status(store.session, config_data, schedule),
         jobs=store.recent_jobs(20),
+        resource_guard=_resource_guard_from_store(store),
+        sync_freshness=_sync_freshness_from_store(store),
     )
     return {
         "data": dump_model(data),
@@ -3536,6 +3558,441 @@ def _non_negative_int(value: object) -> int:
         return 0
 
 
+def _resource_guard_unknown(reason: str) -> SyncResourceGuardData:
+    return SyncResourceGuardData(
+        state="unknown",
+        reasons=[reason],
+        allow_daily=False,
+        allow_history=False,
+        recovery_condition="等待 worker 资源监控心跳恢复后再判断是否放行",
+    )
+
+
+def _resource_datetime(value: object) -> datetime | None:
+    if isinstance(value, datetime):
+        return _aware_utc(value)
+    if not isinstance(value, str) or not value.strip():
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return _aware_utc(parsed)
+
+
+def _resource_int(value: object) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return parsed if parsed >= 0 else None
+
+
+def _resource_float(value: object) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = float(value)
+    except (OverflowError, TypeError, ValueError):
+        return None
+    return parsed if math.isfinite(parsed) and parsed >= 0 else None
+
+
+def _resource_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value) if isinstance(value, int) else False
+
+
+def _resource_reasons(value: object) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    reasons: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        reason = item.strip()
+        if reason and reason not in reasons:
+            reasons.append(reason[:128])
+    return reasons
+
+
+def _resource_guard_from_session(session: Any) -> SyncResourceGuardData:
+    heartbeat = session.scalar(
+        select(ComponentHeartbeat)
+        .where(ComponentHeartbeat.component_type == "worker")
+        .where(
+            ComponentHeartbeat.component_instance_id.like(
+                f"{RESOURCE_GUARD_HEARTBEAT_PREFIX}%"
+            )
+        )
+        .order_by(ComponentHeartbeat.last_heartbeat_at.desc())
+        .limit(1)
+    )
+    if heartbeat is None:
+        return _resource_guard_unknown("resource_guard_heartbeat_missing")
+
+    activity = heartbeat.activity_json if isinstance(heartbeat.activity_json, dict) else {}
+    raw_guard = activity.get("resource_guard")
+    if not isinstance(raw_guard, dict):
+        return _resource_guard_unknown("resource_guard_payload_missing")
+
+    state = str(raw_guard.get("state") or "unknown").strip().lower()
+    reasons = _resource_reasons(raw_guard.get("reasons"))
+    state_valid = state in RESOURCE_GUARD_STATES
+    if not state_valid:
+        state = "unknown"
+        reasons.insert(0, "resource_guard_state_invalid")
+    try:
+        duration_value = float(raw_guard.get("duration_seconds") or 0)
+        duration_seconds = max(0.0, duration_value) if math.isfinite(duration_value) else 0.0
+    except (OverflowError, TypeError, ValueError):
+        duration_seconds = 0.0
+    recovery_condition = str(raw_guard.get("recovery_condition") or "").strip()[:256]
+    allow_daily = _resource_bool(raw_guard.get("allow_daily")) if state_valid else False
+    allow_history = _resource_bool(raw_guard.get("allow_history")) if state_valid else False
+    sampled_at = _resource_datetime(raw_guard.get("sampled_at"))
+    guard = SyncResourceGuardData(
+        state=state,
+        reasons=reasons,
+        allow_daily=allow_daily,
+        allow_history=allow_history,
+        since=_resource_datetime(raw_guard.get("since")),
+        duration_seconds=duration_seconds,
+        recovery_condition=recovery_condition,
+        sampled_at=sampled_at,
+        host_available_bytes=_resource_int(raw_guard.get("host_available_bytes")),
+        cgroup_used_ratio=_resource_float(raw_guard.get("cgroup_used_ratio")),
+        swap_used_bytes=_resource_int(raw_guard.get("swap_used_bytes")),
+        swap_activity_bytes_per_second=_resource_int(
+            raw_guard.get("swap_activity_bytes_per_second")
+        ),
+    )
+    heartbeat_at = _aware_utc(heartbeat.last_heartbeat_at)
+    now = datetime.now(timezone.utc)
+    stale_reasons: list[str] = []
+    if heartbeat_at is None or now - heartbeat_at > RESOURCE_GUARD_STALE_AFTER:
+        stale_reasons.append("resource_guard_heartbeat_stale")
+    if sampled_at is None:
+        stale_reasons.append("resource_guard_sampled_at_missing")
+    elif now - sampled_at > RESOURCE_GUARD_STALE_AFTER:
+        stale_reasons.append("resource_guard_sampled_at_stale")
+    if stale_reasons:
+        stale_reasons.extend(guard.reasons)
+        return SyncResourceGuardData(
+            state="unknown",
+            reasons=list(dict.fromkeys(stale_reasons)),
+            allow_daily=False,
+            allow_history=False,
+            since=guard.since,
+            duration_seconds=guard.duration_seconds,
+            recovery_condition="等待 worker 资源监控心跳恢复（超过30秒视为未知）",
+            sampled_at=guard.sampled_at,
+            host_available_bytes=guard.host_available_bytes,
+            cgroup_used_ratio=guard.cgroup_used_ratio,
+            swap_used_bytes=guard.swap_used_bytes,
+            swap_activity_bytes_per_second=guard.swap_activity_bytes_per_second,
+        )
+    if not guard.recovery_condition:
+        recovery_condition = (
+            "无需恢复" if guard.state in {"normal", "disabled"} else "等待 worker 报告恢复条件"
+        )
+        return SyncResourceGuardData(
+            state=guard.state,
+            reasons=guard.reasons,
+            allow_daily=guard.allow_daily,
+            allow_history=guard.allow_history,
+            since=guard.since,
+            duration_seconds=guard.duration_seconds,
+            recovery_condition=recovery_condition,
+            sampled_at=guard.sampled_at,
+            host_available_bytes=guard.host_available_bytes,
+            cgroup_used_ratio=guard.cgroup_used_ratio,
+            swap_used_bytes=guard.swap_used_bytes,
+            swap_activity_bytes_per_second=guard.swap_activity_bytes_per_second,
+        )
+    return guard
+
+
+def _resource_guard_from_store(store) -> SyncResourceGuardData | None:
+    """Keep older MemoryStore-like callers compatible with the optional field."""
+
+    session = getattr(store, "session", None)
+    if session is None:
+        return None
+    return _resource_guard_from_session(session)
+
+
+def _sync_job_business_date(job: JobRun) -> date | None:
+    if job.business_date is not None:
+        return job.business_date
+    if job.window_start is None:
+        return None
+    window_start = _aware_utc(job.window_start)
+    return window_start.astimezone(SHANGHAI_TZ).date() if window_start else None
+
+
+def _sync_job_latest_business_date(job: JobRun) -> date | None:
+    if job.business_date is not None:
+        return job.business_date
+    if job.window_end is None:
+        return _sync_job_business_date(job)
+    window_end = _aware_utc(job.window_end)
+    if window_end is None:
+        return _sync_job_business_date(job)
+    return (window_end.astimezone(SHANGHAI_TZ) - timedelta(microseconds=1)).date()
+
+
+def _sync_job_metadata(job: JobRun) -> dict[str, Any]:
+    return job.metadata_json if isinstance(job.metadata_json, dict) else {}
+
+
+def _daily_deadline_hour() -> int:
+    try:
+        value = int(os.getenv("WORKER_DAILY_SYNC_DEADLINE_HOUR", str(DEFAULT_DAILY_DEADLINE_HOUR)))
+    except (TypeError, ValueError):
+        return DEFAULT_DAILY_DEADLINE_HOUR
+    return value if 3 <= value <= 23 else DEFAULT_DAILY_DEADLINE_HOUR
+
+
+def _priority_daily_rows(session: Any, business_date: date) -> list[JobRun]:
+    window_start = datetime(
+        business_date.year,
+        business_date.month,
+        business_date.day,
+        tzinfo=SHANGHAI_TZ,
+    )
+    window_end = window_start + timedelta(days=1)
+    rows = list(
+        session.scalars(
+            select(JobRun)
+            .where(JobRun.config_version == PRIORITY_DAILY_CONFIG_VERSION)
+            .where(JobRun.job_kind.in_(PRIORITY_DAILY_JOB_KINDS))
+            .where(JobRun.metadata_json["target"].as_string() == "all")
+            .where(
+                or_(
+                    JobRun.business_date == business_date,
+                    and_(
+                        JobRun.business_date.is_(None),
+                        JobRun.window_start >= window_start,
+                        JobRun.window_start < window_end,
+                    ),
+                )
+            )
+            .order_by(JobRun.started_at.desc(), JobRun.job_id.desc())
+            .limit(2000)
+        )
+    )
+    return [
+        row
+        for row in rows
+        if _sync_job_business_date(row) == business_date
+        and _sync_job_metadata(row).get("target") == "all"
+    ]
+
+
+def _job_creation_key(job: JobRun) -> tuple[datetime, str]:
+    return (
+        _aware_utc(job.started_at) or datetime.min.replace(tzinfo=timezone.utc),
+        job.job_id,
+    )
+
+
+def _sync_priority_purpose(job: JobRun, default: str = "") -> str:
+    value = _sync_job_metadata(job).get("priority_purpose")
+    return value if isinstance(value, str) and value in {"daily_required", "history"} else default
+
+
+def _select_daily_root(rows: list[JobRun]) -> JobRun | None:
+    roots = [row for row in rows if row.job_kind == "range_sync"]
+    required_roots = [
+        row for row in roots if _sync_priority_purpose(row) == "daily_required"
+    ]
+    return max(required_roots or roots, key=_job_creation_key, default=None)
+
+
+def _daily_incomplete_types(children: list[JobRun]) -> list[str]:
+    expected_types = ["parent_sync", "date_sync", "finalize"]
+    return [
+        job_type
+        for job_type in expected_types
+        if not any(
+            row.job_kind == job_type and row.status == "success"
+            for row in children
+        )
+    ]
+
+
+def _daily_batch_status(rows: list[JobRun]) -> tuple[str, str | None, list[str], datetime | None]:
+    parent = _select_daily_root(rows)
+    expected_types = ["parent_sync", "date_sync", "finalize"]
+    if parent is None:
+        return "missing", None, ["range_sync", *expected_types], None
+
+    # A same-day retry or historical plan must never contribute children to a
+    # different root.  The root's parent_job_id is the durable plan boundary.
+    children = [
+        row
+        for row in rows
+        if row.parent_job_id == parent.job_id
+        and row.job_kind in set(expected_types)
+    ]
+    all_jobs = [parent, *children]
+    failed = [row for row in all_jobs if row.status in {"failed", "cancelled"}]
+    if failed:
+        return (
+            "cancelled" if all(row.status == "cancelled" for row in failed) else "failed",
+            parent.job_id,
+            sorted({row.job_kind or row.job_name for row in failed}),
+            None,
+        )
+    finalize = [row for row in children if row.job_kind == "finalize"]
+    required_kinds_present = all(
+        any(row.job_kind == job_type for row in children)
+        for job_type in expected_types
+    )
+    published = (
+        parent.status == "success"
+        and required_kinds_present
+        and len(finalize) == 1
+        and finalize[0].status == "success"
+        and all(row.status == "success" for row in children)
+    )
+    if published:
+        completed_at = max(
+            (row.finished_at for row in all_jobs if row.finished_at is not None),
+            default=None,
+        )
+        return "success", parent.job_id, [], completed_at
+    missing = _daily_incomplete_types(children)
+    active = next(
+        (
+            row
+            for row in sorted(all_jobs, key=_job_creation_key, reverse=True)
+            if row.status in {"running", "queued", "pending", "retry_wait"}
+        ),
+        None,
+    )
+    if active is not None:
+        return active.status, parent.job_id, missing, None
+    return "incomplete", parent.job_id, missing, None
+
+
+def _sync_freshness_from_session(session: Any) -> SyncFreshnessData:
+    priority_mode = _worker_mode_from_env() == "priority_daily"
+    if priority_mode:
+        latest = session.scalar(
+            select(JobRun)
+            .where(JobRun.job_kind == "range_sync")
+            .where(JobRun.config_version == PRIORITY_DAILY_CONFIG_VERSION)
+            .where(JobRun.status == "success")
+            .where(JobRun.finished_at.is_not(None))
+            .where(JobRun.metadata_json["target"].as_string() == "all")
+            .order_by(JobRun.finished_at.desc(), JobRun.job_id.desc())
+            .limit(1)
+        )
+    else:
+        latest = session.scalar(
+            select(JobRun)
+            .where(JobRun.job_name.in_(WORKER_STATUS_JOB_NAMES))
+            .where(JobRun.status == "success")
+            .where(JobRun.finished_at.is_not(None))
+            .order_by(JobRun.finished_at.desc(), JobRun.job_id.desc())
+            .limit(1)
+        )
+    latest_completed_statement = (
+        select(JobRun)
+        .where(JobRun.job_kind == "date_sync")
+        .where(JobRun.status == "success")
+        .where(JobRun.business_date.is_not(None))
+    )
+    if priority_mode:
+        published_parent = aliased(JobRun)
+        latest_completed_statement = latest_completed_statement.join(
+            published_parent, JobRun.parent_job_id == published_parent.job_id
+        ).where(
+            JobRun.config_version == PRIORITY_DAILY_CONFIG_VERSION,
+            JobRun.metadata_json["target"].as_string() == "all",
+            published_parent.job_kind == "range_sync",
+            published_parent.status == "success",
+            published_parent.config_version == PRIORITY_DAILY_CONFIG_VERSION,
+            published_parent.metadata_json["target"].as_string() == "all",
+        )
+    latest_completed = session.scalar(
+        latest_completed_statement
+        .order_by(
+            JobRun.business_date.desc(),
+            JobRun.finished_at.desc(),
+            JobRun.job_id.desc(),
+        )
+        .limit(1)
+    )
+    if latest_completed is not None:
+        latest_completed_business_date = latest_completed.business_date
+    elif latest is not None:
+        latest_completed_business_date = _sync_job_latest_business_date(latest)
+    else:
+        latest_completed_business_date = None
+    daily_batch = None
+    if priority_mode:
+        now = datetime.now(SHANGHAI_TZ)
+        business_date = now.date() - timedelta(days=1 if now.hour >= 2 else 2)
+        scheduled_at = datetime(
+            business_date.year,
+            business_date.month,
+            business_date.day,
+            2,
+            tzinfo=SHANGHAI_TZ,
+        ) + timedelta(days=1)
+        deadline_hour = _daily_deadline_hour()
+        deadline_at = scheduled_at.replace(hour=deadline_hour)
+        daily_status, job_id, incomplete, completed_at = _daily_batch_status(
+            _priority_daily_rows(session, business_date)
+        )
+        daily_batch = SyncDailyBatchData(
+            business_date=business_date,
+            target="all",
+            status=daily_status,
+            job_id=job_id,
+            scheduled_at=scheduled_at,
+            deadline_at=deadline_at,
+            completed_at=_aware_utc(completed_at),
+            is_overdue=daily_status != "success" and now >= deadline_at,
+            deadline_local_time=f"{deadline_hour:02d}:00",
+            deadline_configurable=True,
+            incomplete_task_types=incomplete,
+        )
+    return SyncFreshnessData(
+        latest_successful_sync_at=_aware_utc(latest.finished_at) if latest else None,
+        latest_successful_sync_job_id=latest.job_id if latest else None,
+        latest_successful_sync_job_name=latest.job_name if latest else None,
+        latest_successful_sync_business_date=(
+            _sync_job_business_date(latest) if latest else None
+        ),
+        latest_successful_sync_window_start=(
+            _aware_utc(latest.window_start) if latest else None
+        ),
+        latest_successful_sync_window_end=(
+            _aware_utc(latest.window_end) if latest else None
+        ),
+        latest_completed_business_date=latest_completed_business_date,
+        daily_batch=daily_batch,
+    )
+
+
+def _sync_freshness_from_store(store) -> SyncFreshnessData | None:
+    """Return job-backed freshness when a database session exists."""
+
+    session = getattr(store, "session", None)
+    if session is None:
+        return None
+    return _sync_freshness_from_session(session)
+
+
 def _sync_admin_data(store) -> SyncAdminData:
     config = load_sync_config(store.session)
     config_data = config.as_dict()
@@ -3546,6 +4003,8 @@ def _sync_admin_data(store) -> SyncAdminData:
         schedule=schedule,
         worker_status=_sync_worker_status(store.session, config_data, schedule),
         jobs=store.recent_jobs(20),
+        resource_guard=_resource_guard_from_store(store),
+        sync_freshness=_sync_freshness_from_store(store),
     )
 
 

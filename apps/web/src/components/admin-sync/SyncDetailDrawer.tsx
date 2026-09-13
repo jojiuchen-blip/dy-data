@@ -6,6 +6,7 @@ import type {
   AdminOperationJobDetail,
 } from "../../types/dashboard";
 import { formatDateTime, formatInteger } from "../../utils/format";
+import { displaySyncFailureReason } from "../../utils/userFacingLabels";
 import { Button } from "../Button";
 import { StatusChip } from "../Chips";
 import { Dialog } from "../Dialog";
@@ -53,6 +54,18 @@ function JsonFacts({ value }: { value: Record<string, unknown> }) {
 
 function heartbeatText(value: string | null): string {
   return value ? formatDateTime(value) : "未知";
+}
+
+function jobErrorText(job: AdminOperationJob): string {
+  const errorCode = job.error_code?.trim().toLowerCase();
+  const errorSummary = job.error_summary?.trim();
+  const isResourcePause =
+    errorCode?.startsWith("worker_resource_pause") ||
+    errorSummary?.toLowerCase().startsWith("worker_resource_pause");
+  if (isResourcePause) {
+    return displaySyncFailureReason(errorSummary || job.error_code);
+  }
+  return `${job.error_code ?? "任务错误"}：${job.error_summary ?? ""}`;
 }
 
 export function SyncDetailDrawer({
@@ -141,7 +154,7 @@ export function SyncDetailDrawer({
           </dl>
           {job.error_summary ? (
             <p className="resource-notice resource-notice--warning">
-              {job.error_code ?? "任务错误"}：{job.error_summary}
+              {jobErrorText(job)}
             </p>
           ) : null}
           <div className="sync-detail-actions">

@@ -174,6 +174,11 @@ class FinalizeInput:
 
 
 def _assert_live_fence(session: Session, fence_token: FenceToken, *, lock: bool) -> None:
+    from apps.worker.resource_monitor import require_resource_admission
+
+    job = session.get(JobRun, fence_token.finalize_job_id)
+    if job is not None:
+        require_resource_admission(session, job)
     if not is_daily_execution_lease_live(
         session,
         job_id=fence_token.finalize_job_id,

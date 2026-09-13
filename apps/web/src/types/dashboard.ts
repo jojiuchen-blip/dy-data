@@ -293,12 +293,76 @@ export interface SyncProgressData {
   latest_completed_window: SyncWindow | null;
 }
 
+export type SyncResourceGuardState =
+  | "normal"
+  | "constrained"
+  | "protected"
+  | "recovering"
+  | "unknown"
+  | "disabled";
+
+export interface SyncResourceGuardData {
+  state: SyncResourceGuardState;
+  reasons: string[];
+  allow_daily: boolean;
+  allow_history: boolean;
+  since: string | null;
+  duration_seconds: number;
+  recovery_condition: string;
+  sampled_at: string | null;
+  host_available_bytes: number | null;
+  cgroup_used_ratio: number | null;
+  swap_used_bytes: number | null;
+  swap_activity_bytes_per_second: number | null;
+}
+
+export type SyncDailyBatchStatus =
+  | "not_applicable"
+  | "missing"
+  | "incomplete"
+  | "pending"
+  | "queued"
+  | "running"
+  | "retry_wait"
+  | "success"
+  | "partial"
+  | "failed"
+  | "cancelled"
+  | "unknown";
+
+export interface SyncDailyBatchData {
+  business_date: string | null;
+  target: string;
+  status: SyncDailyBatchStatus;
+  job_id: string | null;
+  scheduled_at: string | null;
+  deadline_at: string | null;
+  completed_at: string | null;
+  is_overdue: boolean;
+  deadline_local_time: string;
+  deadline_configurable: boolean;
+  incomplete_task_types: string[];
+}
+
+export interface SyncFreshnessData {
+  latest_successful_sync_at: string | null;
+  latest_successful_sync_job_id: string | null;
+  latest_successful_sync_job_name: string | null;
+  latest_successful_sync_business_date: string | null;
+  latest_successful_sync_window_start: string | null;
+  latest_successful_sync_window_end: string | null;
+  latest_completed_business_date: string | null;
+  daily_batch: SyncDailyBatchData | null;
+}
+
 export interface SyncAdminData {
   config: SyncConfigData;
   progress: SyncProgressData;
   schedule: SyncScheduleData;
   worker_status: SyncWorkerStatusData;
   jobs: JobRun[];
+  resource_guard?: SyncResourceGuardData | null;
+  sync_freshness?: SyncFreshnessData | null;
 }
 
 export interface DouyinStoreOrgImportData {

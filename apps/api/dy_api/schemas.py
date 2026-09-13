@@ -529,12 +529,80 @@ class SyncWorkerStatusData(BaseModel):
     next_scheduled_sync_at: datetime | None = None
 
 
+class SyncResourceGuardData(BaseModel):
+    """Latest resource decision declared by the worker resource monitor."""
+
+    state: Literal[
+        "normal",
+        "constrained",
+        "protected",
+        "recovering",
+        "unknown",
+        "disabled",
+    ] = "unknown"
+    reasons: list[str] = Field(default_factory=list)
+    allow_daily: bool = False
+    allow_history: bool = False
+    since: datetime | None = None
+    duration_seconds: float = Field(default=0, ge=0)
+    recovery_condition: str = ""
+    sampled_at: datetime | None = None
+    host_available_bytes: int | None = Field(default=None, ge=0)
+    cgroup_used_ratio: float | None = Field(default=None, ge=0)
+    swap_used_bytes: int | None = Field(default=None, ge=0)
+    swap_activity_bytes_per_second: int | None = Field(default=None, ge=0)
+
+
+class SyncDailyBatchData(BaseModel):
+    """Freshness of the priority scheduler's all-domain daily publication."""
+
+    business_date: date | None = None
+    target: str = "all"
+    status: Literal[
+        "not_applicable",
+        "missing",
+        "incomplete",
+        "pending",
+        "queued",
+        "running",
+        "retry_wait",
+        "success",
+        "partial",
+        "failed",
+        "cancelled",
+        "unknown",
+    ] = "unknown"
+    job_id: str | None = None
+    scheduled_at: datetime | None = None
+    deadline_at: datetime | None = None
+    completed_at: datetime | None = None
+    is_overdue: bool = False
+    deadline_local_time: str = "06:00"
+    deadline_configurable: bool = True
+    incomplete_task_types: list[str] = Field(default_factory=list)
+
+
+class SyncFreshnessData(BaseModel):
+    """JobRun-backed sync freshness facts shown in the admin console."""
+
+    latest_successful_sync_at: datetime | None = None
+    latest_successful_sync_job_id: str | None = None
+    latest_successful_sync_job_name: str | None = None
+    latest_successful_sync_business_date: date | None = None
+    latest_successful_sync_window_start: datetime | None = None
+    latest_successful_sync_window_end: datetime | None = None
+    latest_completed_business_date: date | None = None
+    daily_batch: SyncDailyBatchData | None = None
+
+
 class SyncAdminData(BaseModel):
     config: SyncConfigData
     progress: SyncProgressData
     schedule: SyncScheduleData
     worker_status: SyncWorkerStatusData
     jobs: list[JobRun] = Field(default_factory=list)
+    resource_guard: SyncResourceGuardData | None = None
+    sync_freshness: SyncFreshnessData | None = None
 
 
 class AdminOperationCreateJobRequest(BaseModel):
