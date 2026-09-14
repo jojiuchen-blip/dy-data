@@ -2584,7 +2584,7 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         expect(page.get_by_role("link", name="测试集团", exact=True)).to_have_attribute("href", re.compile("periodEnd=2026-09-09"))
         page.get_by_label("查看层级", exact=True).click()
         page.get_by_role("option", name="门店", exact=True).click()
-        expect(page.get_by_role("heading", name="门店排名", exact=True)).to_be_visible()
+        expect(page.get_by_role("heading", name="门店排名 · 抖音店均订单量", exact=True)).to_be_visible()
         names = page.get_by_text("测试集团", exact=True)
         assert any(names.nth(index).is_visible() for index in range(names.count()))
         assert requested[-1]["level"] == ["store"]
@@ -2598,6 +2598,23 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         page.get_by_label("结束日期", exact=True).fill("2026-09-08")
         expect(page.get_by_role("button", name="上一页", exact=True)).to_be_disabled()
         assert requested[-1]["page"] == ["1"]
+        page.get_by_label("排名依据", exact=True).click()
+        page.get_by_role("option", name="24小时有效跟进率", exact=True).click()
+        expect(page.get_by_role("heading", name="门店排名 · 24小时有效跟进率", exact=True)).to_be_visible()
+        assert requested[-1]["sortBy"] == ["follow_24h_rate"]
+        assert requested[-1]["page"] == ["1"]
+        page.get_by_role("button", name="导出排行", exact=True).click()
+        dialog = page.get_by_role("dialog")
+        expect(dialog).to_be_visible()
+        expect(dialog.get_by_label("导出开始日期", exact=True)).to_have_value("2026-09-07")
+        expect(dialog.get_by_label("导出结束日期", exact=True)).to_have_value("2026-09-08")
+        dialog.get_by_role("checkbox", name="大区", exact=True).check()
+        dialog.get_by_role("checkbox", name="区域", exact=True).check()
+        dialog.get_by_role("checkbox", name="门店", exact=True).uncheck()
+        expect(dialog.get_by_text("将生成 3 个工作表，每个工作表包含 2 张层级排行附表。", exact=False)).to_be_visible()
+        dialog.get_by_label("导出结束日期", exact=True).fill("2026-09-06")
+        expect(dialog.get_by_role("button", name="导出 Excel", exact=True)).to_be_disabled()
+        dialog.get_by_role("button", name="取消", exact=True).click()
         assert page.locator(".metric-card").evaluate_all(
             "nodes => nodes.every(node => { const r = node.getBoundingClientRect(); return r.left >= 0 && r.right <= innerWidth; })")
         assert page.evaluate("Math.max(document.documentElement.scrollWidth, document.body.scrollWidth) - innerWidth") <= 2
