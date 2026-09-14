@@ -36,6 +36,10 @@ from apps.worker.settlement import (
     SettlementStats,
     _projection_months,
     _sparse_base_chain,
+    _sparse_expand_affected_months,
+    _sparse_latest_authoritative_month,
+    _sparse_month,
+    _sparse_month_range,
     build_settlement_sparse_overlay,
     mark_settlement_sparse_overlay_ready,
     rebuild_settlement,
@@ -52,6 +56,72 @@ _SETTLEMENT_REBUILD_CLAIM_PROCESS_LOCK = Lock()
 
 class SettlementRebuildLeaseLost(RuntimeError):
     """The rebuild may no longer mutate state after losing its durable claim."""
+
+
+def validate_bounded_settlement_scope(
+    session: Session,
+    *,
+    base_generation_id: str,
+    affected_months: tuple[str, ...],
+    allowed_months: tuple[str, ...],
+    generation_id: str | None = None,
+) -> tuple[str, ...]:
+    """Read-only check of a limited repair's complete month write scope.
+
+    Args:
+        session: Session whose pending business writes have already been flushed.
+        base_generation_id: Published base selected by the repair preflight.
+        affected_months: Requested monthly partitions.
+        allowed_months: Explicitly authorized months; never inferred from data.
+        generation_id: Optional staging generation whose actual partitions are checked.
+
+    Returns:
+        All required months, including adjustment closure and cumulative suffix.
+
+    Raises:
+        ValueError: The base is stale, inputs are invalid or the scope expands.
+
+    This is not a lease or concurrency fence. The repair coordinator must call
+    it within its guarded commits and retain the existing publication CAS.
+    """
+    if not isinstance(allowed_months, tuple) or not allowed_months:
+        raise ValueError("authorized months must be a nonempty tuple")
+    if not isinstance(affected_months, tuple) or not affected_months:
+        raise ValueError("affected months must be a nonempty tuple")
+    allowed = {_sparse_month(month, label="authorized month") for month in allowed_months}
+    requested = {_sparse_month(month, label="affected month") for month in affected_months}
+    if not requested.issubset(allowed):
+        raise ValueError("repair exceeds authorized months")
+    with session.no_autoflush:
+        active = session.scalar(select(SettlementProjectionActive).where(
+            SettlementProjectionActive.projection_name == "settlement",
+        ).execution_options(populate_existing=True))
+        if active is None or active.generation_id != base_generation_id:
+            raise ValueError("repair active generation changed or is missing")
+        _base, lineage_ids = _sparse_base_chain(session, base_generation_id)
+        expanded = _sparse_expand_affected_months(session, requested)
+        if not set(expanded).issubset(allowed):
+            raise ValueError("adjustment closure exceeds authorized months")
+        latest = _sparse_latest_authoritative_month(
+            session, affected_months=expanded, base_lineage_ids=lineage_ids,
+        )
+        required = _sparse_month_range(min(expanded), latest)
+        if not set(required).issubset(allowed):
+            raise ValueError("cumulative suffix exceeds authorized months")
+        if generation_id is not None:
+            partitions = session.scalars(select(
+                SettlementProjectionPartitionManifest.partition_key,
+            ).where(
+                SettlementProjectionPartitionManifest.generation_id == generation_id,
+                SettlementProjectionPartitionManifest.artifact.in_(("monthly", "ranking")),
+            ))
+            for partition in partitions:
+                month = str(partition)
+                if month.startswith(("monthly:", "cumulative:")):
+                    month = month.split(":", 1)[1]
+                if _sparse_month(month, label="actual partition month") not in allowed:
+                    raise ValueError("actual generation partitions exceed authorized months")
+        return required
 
 
 @dataclass(frozen=True)
@@ -461,8 +531,15 @@ def refresh_active_settlement_lineage(
     claim_id: str,
     progress_callback: Callable[[str, int, int | None], None] | None = None,
     lease_duration: timedelta = DEFAULT_SETTLEMENT_REBUILD_LEASE,
+    allowed_months: tuple[str, ...] | None = None,
+    validation_callback: Callable[[Session], None] | None = None,
 ) -> dict[str, object] | None:
-    """Build and publish the active settlement overlay after a full rebuild."""
+    """Publish an overlay with optional fail-closed repair validation.
+
+    A limited repair must pass explicit allowed months and a read-only business
+    validator. Existing general rebuild callers retain their original scope.
+    These hooks do not replace the repair's own guarded facts transaction.
+    """
 
     plan = _lineage_refresh_plan(factory, job_id=job_id)
     if plan is None:
@@ -470,8 +547,32 @@ def refresh_active_settlement_lineage(
             factory,
             job_id=job_id,
             claim_id=claim_id,
+            allowed_months=allowed_months,
+            validation_callback=validation_callback,
         )
         return None
+
+    def commit_guard(session: Session, *, published: bool = False) -> None:
+        _fence_settlement_rebuild_commit(
+            session, job_id=job_id, claim_id=claim_id,
+            stage="build_sparse_projection", lease_duration=lease_duration,
+        )
+        if allowed_months is not None:
+            validate_bounded_settlement_scope(
+                session,
+                base_generation_id=plan.generation_id if published else plan.base_generation_id,
+                affected_months=plan.affected_months, allowed_months=allowed_months,
+                generation_id=plan.generation_id,
+            )
+        if validation_callback is not None:
+            validation_callback(session)
+        # A slow validator must not allow a now-expired lease to commit.
+        if allowed_months is not None or validation_callback is not None:
+            _assert_active_settlement_rebuild_claim(session, job_id=job_id, claim_id=claim_id)
+
+    if allowed_months is not None or validation_callback is not None:
+        with factory() as session:
+            commit_guard(session)
 
     _supersede_obsolete_settlement_generations(
         factory,
@@ -480,14 +581,6 @@ def refresh_active_settlement_lineage(
         generation_id=plan.generation_id,
         lease_duration=lease_duration,
     )
-    commit_guard = lambda session: _fence_settlement_rebuild_commit(
-        session,
-        job_id=job_id,
-        claim_id=claim_id,
-        stage="build_sparse_projection",
-        lease_duration=lease_duration,
-    )
-
     with session_scope(factory) as session:
         commit_guard(session)
         _lock_billing_publication_base(session, plan.base_generation_id)
@@ -566,6 +659,8 @@ def refresh_active_settlement_lineage(
             "row_count": manifest.row_count,
         }
         job.metadata_json = metadata
+        if allowed_months is not None or validation_callback is not None:
+            commit_guard(session, published=True)
         return publication
 
 
@@ -574,6 +669,8 @@ def _record_settlement_projection_noop(
     *,
     job_id: str,
     claim_id: str,
+    allowed_months: tuple[str, ...] | None = None,
+    validation_callback: Callable[[Session], None] | None = None,
 ) -> None:
     with session_scope(factory) as session:
         job = _assert_active_settlement_rebuild_claim(
@@ -582,12 +679,29 @@ def _record_settlement_projection_noop(
             claim_id=claim_id,
         )
 
-        active = session.get(SettlementProjectionActive, "settlement")
+        active = session.scalar(select(SettlementProjectionActive).where(
+            SettlementProjectionActive.projection_name == "settlement",
+        ).with_for_update().execution_options(populate_existing=True))
         generation = (
             session.get(SettlementProjectionGeneration, active.generation_id)
             if active is not None and active.generation_id is not None
             else None
         )
+        if allowed_months is not None or validation_callback is not None:
+            if (
+                generation is None or generation.state != "published"
+                or generation.source_job_id != job_id
+            ):
+                raise ValueError("bounded repair requires an active published job generation")
+            if allowed_months is not None:
+                validate_bounded_settlement_scope(
+                    session, base_generation_id=generation.generation_id,
+                    affected_months=allowed_months, allowed_months=allowed_months,
+                    generation_id=generation.generation_id,
+                )
+            if validation_callback is not None:
+                validation_callback(session)
+            _assert_active_settlement_rebuild_claim(session, job_id=job_id, claim_id=claim_id)
         if (
             generation is not None
             and generation.state == "published"

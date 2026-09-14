@@ -279,6 +279,20 @@ def test_github_workflows_bound_playwright_setup_and_use_stable_ubuntu_mirror():
         assert "timeout 10m python -m playwright install chromium --with-deps" in workflow
 
 
+def test_repair_lock_tests_run_in_explicit_disposable_postgres_gates():
+    for name in ("ci-cd.yml", "tencent-lighthouse-deploy.yml"):
+        workflow = (ROOT / ".github" / "workflows" / name).read_text(encoding="utf-8")
+        gate = next(
+            (step for step in workflow.split("      - name:")
+             if "tests/test_settlement_repair_lock.py" in step),
+            "",
+        )
+        assert gate, "repair concurrency tests must not only run in the skipped default suite"
+        assert "DY_RELEASE_POSTGRES_URL:" in gate
+        assert "@127.0.0.1:5432/dydata_release" in gate
+        assert "python -m pytest" in gate
+
+
 def test_tencent_deploy_recovers_missing_production_revision_before_migration():
     deploy_script = (ROOT / "deploy" / "tencent" / "deploy.sh").read_text(
         encoding="utf-8"

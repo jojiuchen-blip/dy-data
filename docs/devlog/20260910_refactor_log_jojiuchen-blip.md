@@ -67,3 +67,45 @@
 ### 发布与数据边界
 
 本记录不代表已部署。协调前只读观测生产版本为 e35787ff，91 条映射尚未由本任务写入。本次数据修复仅限原确认的 2026-08、10 个 SKU；保留 4 条其他归属冲突以及已有真实确认、发票和财务历史。发布前须通过 CI、真实 PostgreSQL、安全及备份检查；回填后必须回读并验证受影响券、两费、榜单、单店和财务，不能以采集成功替代结算验收。禁止隐式启用 9 月结算或重新运行无界全量重建。
+
+## 补充更新（13:22）
+
+- 目标：恢复自动跟进并核验最终发布制品；既有每 15 分钟 heartbeat 保持 ACTIVE，不重复创建。
+- 结果：65ee07b 的 CI 34433601182 已成功；生产 last-deploy 仍为 93ace560，没有新的执行中腾讯部署记录。五个候选镜像摘要核对一致，数据库备份 681896902 字节及摘要核对通过、TOC 可读，未进行隔离恢复演练。
+- 配置核验：候选与当前生产 Compose/Nginx 无差异；浏览器 profile 和导出数据保存在命名卷，不删除卷或清空登录。代理配置使用现有部署路径；切换应沿用该 Compose 并固定已核验镜像。
+- 尚未执行：服务切换、91 条映射回填、120 券补算及最终验收。安全报告已更新真实缺口；下一步完成回滚记录和切换前任务检查，不能以备份完成代替补算安全验证。
+- 涉及文件：docs/security/2026-09-10-dydata-87-poi-pagination.md、docs/plans/execution-plan.md、本日志。
+
+## 补充更新（13:55）
+
+- 已完成 65ee07b runtime-only 代码部署：先优雅退出旧 worker，固定五个回滚镜像并持发布锁，沿用生产 Compose，禁止 build/pull/migrate，切换 API、支持服务和 proxy 后恢复 worker。数据库、命名卷及环境文件未替换。
+- 验证：五服务实际摘要与审计制品一致，四个修复文件 SHA256 一致；API/worker/browser/ops healthy，公网首页/榜单/单店 200，匿名 auth/me 401，CDP 协议与 worker SELECT 1/队列导入通过，未执行队列处理函数。
+- 认证差异排查：Compose JSON 对美元符号的序列化导致两密码哈希看似不同，未修改密码或 env。实际登录会话仍需后续 UI 验收，不能把匿名保护验证称为登录验收。
+- 首次自编 smoke 错用 dy_data 顶级模块路径导致单次检查失败，按实际镜像结构修正检查后通过；服务启动日志未出现 Traceback。生产源码 checkout 的 Git HEAD 仍为 ba3976ca，运行版本已在 last-deploy 连同五镜像摘要记为 65ee07b，不以 checkout HEAD 推断线上代码。
+- 尚未完成：91 映射和 120 券限定补算、完整发布/恢复保护验证及三页面登录后对账；不自动确认真实账单或开票，正常 priority_daily 已恢复。下一轮直接进入受控修复实现/测试，不重复部署。
+
+## 补充更新（14:20）
+
+- 生产仍运行 65ee07b，各服务健康；目标清单的 91 条映射现存数为 0，真实确认仍为 2。未额外触发采集、补算或发布。
+- 新增两项隔离全链路用例：从真实初次发布生成推广账单，加入合成确认，补 POI 后真实冻结来源、构建投影、生成管理账单；核验推广账单、entry、confirmation 完整快照不变。另一用例在实际账单写入后抛异常，验证发布指针及管理账单回滚，同 job 重试恢复。
+- 新测试首轮因测试自身误用 statement_id 作为 ORM 主键失败，改为按业务键查询后通过；不是生产代码缺陷或 TDD 根因失败证据。未改生产计算代码。
+- 联合 source capture/billing generation/publication locks：37 passed / 2 skipped / 3 warnings，34.37 秒；PG opt-in 两项未执行，不算并发通过。独立复审后补强“异常前确有管理账单写入”、发布月份为 8 月、noop 后账单快照/指针不变；最终 POI 修复专项 4 passed / 2 warnings，12.93 秒。
+- 当前数据写入门禁仍未放行：真实 claim/失租、月份扩张拒绝、PG 并发确认和发布恢复需通过实际受控 driver 验证，不能直接套用测试中 running job helper。下一步默认 dry-run 固定清单及 source/base 指纹，在数据提交与最终发布事务加入组合 guard，并复用已有冻结/构建/发布/账单接口。无 foundation 契约变更。
+
+## 补充更新（14:50）
+
+- TDD 新增受控月份 guard：11 个范围测试先因缺实现失败，再全部通过；覆盖空/非法授权、9 月当前费用、累计分区、7/9 月调整闭包、缺失/变化的 active。查询不写业务数据；driver 仍须先 flush 并在受保护事务中调用。
+- 在既有 refresh_active_settlement_lineage 增加可选 allowed_months 与只读 validation_callback，构建提交和最终账单写入后组合验证，回调后复核 lease；未复制计算或发布引擎，普通调用保持原范围。
+- 新增最终真实账单写入后业务拒绝回滚的 RED/GREEN 回归。独立复审发现 bounded noop 检查/记录分事务竞态，回归先出现 DID NOT RAISE，再改为同事务 job → active 锁、校验/回调、lease 复查和 marker。
+- 实际分区补强：构建/发布 guard 检查本 generation 已 flush 的 monthly/ranking manifest，拒绝源数据恢复为 8 月但实际 staging 仍有 9 月的情况；noop 同样检查实际分区，7 月残留的回归先复现漏拒绝后修正。
+- 较广发布回归在最后 noop 分区补强前为 124 passed，71.39 秒；最后范围及 POI 修复专项为 20 passed / 22 warnings，19.59 秒。当前均为本地隔离测试，不是 PostgreSQL 并发或生产验收。
+- 生产保持已部署 65ee07b，本轮新代码未部署、未补算。剩余门禁：真实 PG 并发隔离/来源幻读、实际 driver 的固定 91/120 清单、来源/金融快照、真实领取与 heartbeat、事实提交及发布失败恢复。不能将普通 SELECT 或只由本 driver 使用的 advisory lock 当作全部写入方的并发隔离。
+---
+
+## 补充更新 5（15:43 · 窗口 5）
+
+### 任务 6：DYDATA-87 固定清单与并发门禁实现
+- **目标**：推进91映射120券限定补算保护，不执行生产数据写入
+- **操作**：新增不可变清单及30项红绿测试；复跑125项发布回归；为两套CI接入显式PG锁测试；Mendel独立实现锁模块，主控运行全量和Web构建
+- **结果**：125项发布回归通过；清单及部署配置55项通过；Web build通过且保留既有大chunk警告。生产last-deploy仍65ee07b、data_repair_executed=false。本地完整pytest会话20883仍运行，JUnit目标logs/dydata87-bounded-local-tests.xml；新PG锁尚待独立复审及真实PG执行。manifest不等于数据库指纹验证或写入授权，driver真实claim/heartbeat、事实提交与发布恢复尚未完成。新增均未提交未部署，无foundation业务契约漂移。
+- **涉及文件**：无

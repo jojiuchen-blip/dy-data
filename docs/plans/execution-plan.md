@@ -6,8 +6,11 @@
 
 - 当前正式计划文件组：[结算与门店财务发布](delivery-plans/main-delivery-plan-dy-data.md)
 - 当前活跃任务：T5.7；[任务看板](delivery-plans/task-kanban-dy-data.md)与[当前子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)均为进行中，承接用户已授权的 DYDATA-87 发布与数据验收。
-- 下一步：通过精确候选 CI、生产备份与发布验证，再执行限定 2026-08 的映射补齐和管理费修复；不变更真实账单确认或其他任务状态。
+- 当前证据（2026-09-10 13:55）：65ee07b 已受控部署，五个实际运行镜像摘要和四个根因修复文件哈希一致；HTTP/CDP/worker 数据库检查通过。部署为 runtime-only，服务器旧源码 checkout 未覆盖，不得直接以其 HEAD 重建当前版本。尚未执行 91 映射/120 券限定修复；下一步补齐完整发布、并发确认、幂等与失败恢复测试，再补算并逐页对账，不变更真实账单确认或其他任务状态。
 - 此入口供本候选发布检查选择计划；下方 DYDATA-90 正式分配的完成记录保持不变，不将其重新标记进行中。
+- 补算保护进展（14:20）：新增真实发布/已确认推广保护/中断恢复用例，专项 4 passed；联合账单保护 37 passed、2 PG skipped。目标 91 映射仍缺、真实确认 2。下一步实现默认 dry-run、固定范围/source/base 指纹、真实 claim 和提交/发布组合 guard；失租、跨月拒绝和真实 PG 并发验证未齐，禁止据测试 helper 直接生产补算。
+- 补算保护实现（14:50，本地未部署）：已增加授权月份/调整闭包/累计后缀/实际分区 guard，refresh 支持事务内只读业务校验，bounded noop 改为 job → active 同事务校验和记录；124 项较广发布回归通过，末次分区补强专项另见日志。下一步直接实现受控 driver 的固定清单、真实 claim/heartbeat 和 PG 隔离测试；不要重复开发 guard，也不要忽略仍未解决的并发来源插入窗口。
+- 补算输入与并发门禁（15:43，本地未部署）：不可变 manifest 的30项红→绿、部署配置联合55项、更新后的发布回归125项及Web build通过。Mendel持有新lock模块及专属测试（非PG失败关闭、固定表清单短事务锁），主控持有manifest/CI/集成；写集见控制规格。完整pytest仍运行，结果目标`logs/dydata87-bounded-local-tests.xml`，不能记为全绿。下一步复审锁与manifest，接入真实claim和每事务首读前锁/指纹检查、默认dry-run及恢复driver；PG须显式CI门禁通过，不在生产试验。当前仍未补91映射或120券。
 
 ## 0. 当前增量交付：DYDATA-81 G5
 
