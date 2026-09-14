@@ -10,6 +10,9 @@ import {
   submitStoreBillingDispute,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { GuidedTour } from "../components/GuidedTour";
+import { usePageOnboarding } from "../hooks/usePageOnboarding";
+import "./ClueOnboarding.css";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -38,6 +41,13 @@ interface StoreSettlementPageProps {
 }
 
 const FEE_DIRECTIONS: readonly FeeDirection[] = ["PROMOTION", "MANAGEMENT"];
+const settlementTourSteps = [
+  { id: "settlement-filters", title: "选择账期和门店", description: "先核对账期和门店。门店账号只能查看授权门店；本次引导不会改变当前筛选。", target: "#settlement-tour-filters" },
+  { id: "settlement-metrics", title: "核对两方向金额", description: "推广服务费和管理服务费分别展示。暂无数据不等于已经确认或已经结算，请结合账期、明细与账单状态核对。", target: '[aria-label="分账指标"]' },
+  { id: "settlement-details", title: "查看订单费用明细", description: "从推广费明细和管理费明细分别核对订单、核销时间、实收金额及费率。引导不会切换你的明细选项。", target: ".store-finance-fee-tabs" },
+  { id: "settlement-confirm", title: "分别确认账单", description: "核对正式账单金额和版本后，再分别确认费用方向。尚未生成时不能确认；引导不会替你提交。", target: ".store-finance-direction-card" },
+  { id: "settlement-invoice", title: "异议与后续开票", description: "有疑问时通过账单异议入口反馈；推广费确认后，在对应卡片进入推广费开票。开票资料必须按真实发票填写，本次引导不会确认或开票。", target: ".store-finance-dispute-entry" },
+];
 const DISPUTE_TYPES: Array<{ value: StoreDisputeType; label: string }> = [
   { value: "RATE_ERROR", label: "费率错误" },
   { value: "DATA_MISSING", label: "订单/数据遗漏" },
@@ -85,6 +95,10 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
   const confirmationInFlight = useRef(false);
   const confirmationRequest = useRef(createPendingRequestKey());
   const disputeRequest = useRef(createPendingRequestKey());
+  const onboarding = usePageOnboarding({
+    currentUser, page: "store-settlement", steps: settlementTourSteps,
+    busy: confirmationDirection !== null || disputeConfirmationOpen || disputeOpen || disputeSubmitting || pendingDirection !== null,
+  });
 
   const metaResource = useApiResource(fetchSettlementFilterMeta, []);
   const meta = metaResource.data?.data;
@@ -291,12 +305,25 @@ export function StoreSettlementPage({ currentUser, searchParams }: StoreSettleme
           <h1>单店分账</h1>
           <p>推广服务费与管理服务费按同一门店、账期分别确认。</p>
         </div>
+        <div ref={(element) => { onboarding.replayRef.current = element?.querySelector("button") ?? null; }}>
+          <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch">新手引导</Button>
+        </div>
       </section>
+      {onboarding.showInvitation ? (
+        <section className="clue-onboarding-invitation" aria-label="单店分账新手引导邀请">
+          <div><strong>第一次核对分账？</strong><p>了解金额、明细、账单确认和后续开票的操作顺序。</p></div>
+          <div className="clue-onboarding-invitation__actions">
+            <Button onClick={onboarding.dismissInvitation} size="touch" variant="text">稍后再看</Button>
+            <Button onClick={onboarding.start} size="touch" variant="primary">开始引导</Button>
+          </div>
+        </section>
+      ) : null}
+      {onboarding.running ? <GuidedTour {...onboarding.tourProps} /> : null}
       <ResourceNotice
         loading={metaResource.loading || settlementResource.loading || billingResource.loading}
         error={metaError ?? settlementError ?? billingError}
       />
-      <FilterBar>
+      <FilterBar id="settlement-tour-filters">
         <SelectField
           disabled={!meta}
           label="账期"

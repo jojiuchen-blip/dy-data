@@ -10,11 +10,15 @@ import {
   uploadSkuProductImport,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { GuidedTour, type GuidedTourStep } from "../components/GuidedTour";
+import { usePageOnboarding } from "../hooks/usePageOnboarding";
+import "./ClueOnboarding.css";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FieldInput, SelectField, TextField } from "../components/FormControls";
 import { TablePagination } from "../components/TablePagination";
 import type {
+  AdminUser,
   SkuProductConfigurationStatus,
   SkuProductImportUploadData,
   SkuProductItem,
@@ -28,6 +32,13 @@ type EditorMode = "single" | "bulk" | null;
 type FieldMode = "keep" | "set";
 
 const PAGE_SIZE = 50;
+
+const productTourSteps: readonly GuidedTourStep[] = [
+  { id: "product-status", title: "先看配置状态", target: ".product-types-tabs", description: "待完善包含未配置和部分配置的商品；已配置表示分类字段完整，不等于订单已具备分佣资格。" },
+  { id: "product-filter", title: "找到需要配置的商品", target: ".product-types-filters", description: "按 SKU、商品名称、产品范围或商品类型筛选。本引导不会替你修改筛选条件。" },
+  { id: "product-select", title: "选择单条或批量设置", target: ".product-types-selection", description: "在列表勾选后可批量设置，选择会跨页保留；单条商品可从行内“设置”进入。开始前核对已选数量。" },
+  { id: "product-save", title: "保留原值并核对结果", target: ".product-types-hint", description: "设置窗口中，不修改的字段保持原值，仅对需要修改的字段选择设置新值。自行确认保存后，核对列表中的产品范围、商品类型及最后修改记录。引导不会打开编辑窗口或保存数据。" },
+];
 
 const statusLabels: Record<SkuProductConfigurationStatus, string> = {
   UNCONFIGURED: "未配置",
@@ -53,7 +64,7 @@ function errorMessage(error: unknown): string {
   return userFacingError(error, "操作未完成，请稍后重试。");
 }
 
-export function AdminProductTypeVisibilityPage() {
+export function AdminProductTypeVisibilityPage({ currentUser }: { currentUser: AdminUser }) {
   const [viewMode, setViewMode] = useState<ViewMode>(modeFromUrl);
   const [rows, setRows] = useState<SkuProductItem[]>([]);
   const [page, setPage] = useState(() => Math.max(1, Number(urlValue("page")) || 1));
@@ -76,6 +87,7 @@ export function AdminProductTypeVisibilityPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importPreview, setImportPreview] = useState<SkuProductImportUploadData | null>(null);
+  const onboarding = usePageOnboarding({ currentUser, page: "admin-product-types", steps: productTourSteps, busy: editorMode !== null || importOpen || saving });
 
   const loadRows = useCallback(async () => {
     setLoading(true);
@@ -238,8 +250,24 @@ export function AdminProductTypeVisibilityPage() {
           <h1>商品口径</h1>
           <p className="admin-muted">产品范围和商品类型会同时用于线索中心、核销表现和订单分佣。所有商品都可展示；订单分佣还要求商品存在有效分佣规则。</p>
         </div>
-        <Button onClick={() => setImportOpen(true)} variant="secondary">批量导入</Button>
+        <div className="clue-onboarding-invitation__actions">
+          <div ref={(element) => { onboarding.replayRef.current = element?.querySelector("button") ?? null; }}>
+            <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch">新手引导</Button>
+          </div>
+          <Button onClick={() => setImportOpen(true)} variant="secondary">批量导入</Button>
+        </div>
       </section>
+
+      {onboarding.showInvitation ? (
+        <section className="clue-onboarding-invitation" aria-label="商品口径新手引导邀请">
+          <div><strong>第一次设置商品口径？</strong><p>了解筛选、选择、保留原值和保存后核对的步骤。</p></div>
+          <div className="clue-onboarding-invitation__actions">
+            <Button onClick={onboarding.dismissInvitation} size="touch" variant="text">稍后再看</Button>
+            <Button onClick={onboarding.start} size="touch" variant="primary">开始引导</Button>
+          </div>
+        </section>
+      ) : null}
+      {onboarding.running ? <GuidedTour {...onboarding.tourProps} /> : null}
 
       <nav aria-label="商品口径配置状态" className="product-types-tabs">
         <Button onClick={() => switchView("pending")} variant={viewMode === "pending" ? "primary" : "secondary"}>待完善 <span>{counts.unconfigured + counts.partial}</span></Button>

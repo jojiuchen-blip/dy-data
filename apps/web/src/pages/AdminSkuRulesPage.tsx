@@ -15,12 +15,16 @@ import {
 } from "../api/client";
 import { AdminSkuRuleImportDrawer } from "../components/AdminSkuRuleImportDrawer";
 import { Button } from "../components/Button";
+import { GuidedTour, type GuidedTourStep } from "../components/GuidedTour";
+import { usePageOnboarding } from "../hooks/usePageOnboarding";
+import "./ClueOnboarding.css";
 import { StatusChip, type ChipTone } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
 import { FieldInput, FieldTextarea, SelectField } from "../components/FormControls";
 import { SegmentedControl, Tabs } from "../components/SelectionControls";
 import type {
+  AdminUser,
   ImportBatchItem,
   SkuFeeRuleItem,
   SkuProductCommissionRule,
@@ -45,6 +49,19 @@ const COMMISSION_STEPS = [
   "2 确认分佣比例",
   "3 检查预选",
   "4 确认发布",
+];
+
+const ruleNavigationStep: GuidedTourStep = {
+  id: "rule-history", title: "核对发布记录与重算结果", target: '[aria-label="分佣规则页面"]',
+  description: "发布记录用于核对版本、比例、生效日期和操作时间；记录存在不代表重算已完成。发布成功会自动安排重算，完成后还需核对门店分账结果。引导不切换标签、不保存例外账号，也不触发重建。",
+};
+const ruleTourSteps: readonly GuidedTourStep[] = [
+  { id: "rule-select", title: "查询并选择 SKU", target: '[data-step="1"] h2', description: "输入 SKU ID 后自行查询并选择，核对预选数量。批量导入是另一种录入方式，引导不会查询、导入或替你勾选商品。" },
+  { id: "rule-rates", title: "设置双费率与生效条件", target: '[data-step="2"] h2', description: "核对推广和管理两项比例、生效日期、启用状态及变更原因。“两项费率一致”会同步比例；引导不会更改当前草稿。" },
+  { id: "rule-preview", title: "应用比例后检查预选", target: '[data-step="3"] h2', description: "自行应用比例后，逐项核对 SKU、两项比例和生效日期；未完成应用时，此处会提示尚未准备好，不能直接发布。" },
+  { id: "rule-publish", title: "核对后自行确认发布", target: '[data-step="4"] h2', description: "确认发布会创建不可变版本；手工多 SKU 逐个提交，文件批量导入使用原子提交。引导只说明入口，不会点击发布或重建。" },
+  { id: "rule-enabled", title: "查看已启用商品", target: ".commission-sku-catalog h2", description: "已启用列表按当前已生效且启用的双费率规则判断，未来生效版本不会提前进入。订单还需满足核销、归属及其他结算条件，不能只看商品已启用。" },
+  ruleNavigationStep,
 ];
 
 interface HistoryRow {
@@ -138,7 +155,7 @@ function latestEffectiveRules(rules: SkuFeeRuleItem[]): Map<string, SkuFeeRuleIt
   return new Map(Array.from(latestBySku).filter(([, rule]) => rule.ruleStatus === "ACTIVE"));
 }
 
-export function AdminSkuRulesPage() {
+export function AdminSkuRulesPage({ currentUser }: { currentUser: AdminUser }) {
   const publishIntent = useRef<Map<string, string>>(new Map());
   const manualRebuildIntent = useRef<{ fingerprint: string; key: string } | null>(null);
   const previewRef = useRef<HTMLElement | null>(null);
@@ -175,6 +192,11 @@ export function AdminSkuRulesPage() {
   const [publishProgress, setPublishProgress] = useState<{ completed: number; total: number } | null>(null);
   const [publishFeedback, setPublishFeedback] = useState("");
   const [rebuildFeedback, setRebuildFeedback] = useState("");
+  const onboarding = usePageOnboarding({
+    currentUser, page: "admin-rules",
+    steps: activeTab === "settings" ? ruleTourSteps : [ruleNavigationStep],
+    busy: checkingSession || !authenticated || working || confirmOpen || rebuildConfirmOpen || importDrawerOpen,
+  });
 
   const handleAuthError = (error: unknown): boolean => {
     if (error instanceof ApiRequestError && error.status === 401) {
@@ -531,7 +553,20 @@ export function AdminSkuRulesPage() {
     <div className="admin-page commission-rules-page">
       <section className="admin-header">
         <div><h1>商品分账规则管理</h1><p className="admin-muted">先批量选择商品规格（SKU），再确认分佣比例，检查预选后发布不可变规则版本。</p></div>
+        <div ref={(element) => { onboarding.replayRef.current = element?.querySelector("button") ?? null; }}>
+          <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch">新手引导</Button>
+        </div>
       </section>
+      {onboarding.showInvitation ? (
+        <section className="clue-onboarding-invitation" aria-label="分佣规则新手引导邀请">
+          <div><strong>第一次发布分佣规则？</strong><p>了解选择、费率、预选和发布后核对的顺序；不会代你发布。</p></div>
+          <div className="clue-onboarding-invitation__actions">
+            <Button onClick={onboarding.dismissInvitation} size="touch" variant="text">稍后再看</Button>
+            <Button onClick={onboarding.start} size="touch" variant="primary">开始引导</Button>
+          </div>
+        </section>
+      ) : null}
+      {onboarding.running ? <GuidedTour {...onboarding.tourProps} /> : null}
       {notice ? <div aria-live="polite" className="resource-notice" role="status">{notice}</div> : null}
 
       <Tabs<RulesTab> ariaLabel="分佣规则页面" onChange={setActiveTab} options={[

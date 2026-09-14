@@ -14,6 +14,9 @@ import {
   updateRolePagePermissions,
 } from "../api/client";
 import { Button } from "../components/Button";
+import { GuidedTour, type GuidedTourStep } from "../components/GuidedTour";
+import { usePageOnboarding } from "../hooks/usePageOnboarding";
+import "./ClueOnboarding.css";
 import { StatusChip } from "../components/Chips";
 import { DataTable, type Column } from "../components/DataTable";
 import { Dialog } from "../components/Dialog";
@@ -171,6 +174,17 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     () => accounts.find((account) => account.user_id === editingUserId) ?? null,
     [accounts, editingUserId],
   );
+  const accountTourSteps: readonly GuidedTourStep[] = activeTab === "accounts" ? [
+    { id: "account-list", title: "选择要管理的账号", target: ".account-admin-main h2", description: "在列表核对账号、角色、状态和门店范围后，可选择编辑；新建账号会开始新的录入。引导不会替你选择账号或重置当前草稿。" },
+    { id: "account-editor", title: "填写或核对账号资料", target: ".account-editor .section-title", description: "核对显示名称、所属账户编号和账号状态。新建与编辑共用此处表单，先看标题确认当前操作对象。不要在共享屏幕上展示密码。" },
+    { id: "account-role", title: "按职责选择角色", target: "#account-tour-role", description: currentUser.is_highest_admin ? "按实际职责选择门店账号或管理员，谨慎授予最高管理员角色。角色不等同于具体门店数据范围。" : "当前管理员只能在已有授权范围内管理门店账号；不能通过本页引导提升为管理员或最高管理员。" },
+    { id: "account-scope", title: "核对门店数据范围", target: "#account-tour-scope", description: "门店账号须绑定指定门店，页面权限不会自动补齐门店绑定。核对门店权限中的名称与编号；引导不会改变任何勾选。" },
+    { id: "account-permissions", title: "区分页面权限与门店范围", target: editingAccount && editingAccount.role !== "highest_admin" && accessControl ? ".permission-editor h2" : '[aria-label="账号权限管理视图"]', description: "编辑已有账号时可核对页面权限：角色默认加额外允许，再减额外禁止。角色权限页修改的是默认权限，影响范围不同；本引导不切换视图或修改权限。" },
+    { id: "account-save", title: "自行保存并核对记录", target: "#account-tour-save", description: "核对无误后自行保存，新建还需确认信息。账号页面权限有独立保存按钮，不随账号资料一起保存。保存成功后检查列表和变更记录；引导不会保存、重置密码或查询记录。" },
+  ] : [
+    { id: "account-role-defaults", title: "谨慎修改角色默认权限", target: "#account-tour-role-defaults", description: "这里修改角色默认页面权限，并非单个账号的门店范围。保存前会提示受影响的继承账号数量，已自定义账号保持当前有效权限。引导不会更改勾选或保存。" },
+  ];
+  const onboarding = usePageOnboarding({ currentUser, page: "admin-accounts", steps: accountTourSteps, busy: saving || pendingCreatePayload !== null || resetTarget !== null });
   const filteredStores = useMemo(() => {
     const keyword = storeQuery.trim().toLocaleLowerCase("zh-CN");
     if (!keyword) return stores;
@@ -678,6 +692,9 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
           </p>
         </div>
         <div className="admin-header-actions">
+          <div ref={(element) => { onboarding.replayRef.current = element?.querySelector("button") ?? null; }}>
+            <Button disabled={onboarding.disabled} onClick={onboarding.start} size="touch">新手引导</Button>
+          </div>
           <Button
             onClick={() => {
               setAuditOpen((current) => !current);
@@ -691,6 +708,17 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
           </Button>
         </div>
       </section>
+
+      {onboarding.showInvitation ? (
+        <section className="clue-onboarding-invitation" aria-label="账号管理新手引导邀请">
+          <div><strong>第一次管理账号？</strong><p>了解资料、角色、门店范围和页面权限的区别，保留当前草稿。</p></div>
+          <div className="clue-onboarding-invitation__actions">
+            <Button onClick={onboarding.dismissInvitation} size="touch" variant="text">稍后再看</Button>
+            <Button onClick={onboarding.start} size="touch" variant="primary">开始引导</Button>
+          </div>
+        </section>
+      ) : null}
+      {onboarding.running ? <GuidedTour {...onboarding.tourProps} /> : null}
 
       <SegmentedControl
         ariaLabel="账号权限管理视图"
@@ -853,6 +881,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               />
             </label>
             <SelectField
+              id="account-tour-role"
               label="角色"
               onChange={(value) => {
                 const role = value as UserRole;
@@ -883,6 +912,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               value={draft.status}
             />
             <SelectField
+              id="account-tour-scope"
               label="门店范围模式"
               onChange={(value) =>
                 setDraftField(
@@ -968,6 +998,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               />
             </label>
             <Button
+              id="account-tour-save"
               disabled={saving}
               type="submit"
               variant="primary"
@@ -1064,7 +1095,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
       <section className="content-section" hidden={activeTab !== "roles"}>
         <div className="section-title">
           <div>
-            <h2>角色默认页面权限</h2>
+            <h2 id="account-tour-role-defaults">角色默认页面权限</h2>
             <p>最高管理员固定拥有全部页面；已自定义账号在角色默认值变化后保持当前有效权限。</p>
           </div>
         </div>

@@ -374,7 +374,7 @@ export function App() {
             <AdminAccountsPage currentUser={user} />
           ) : location.pathname === "/rule-admin" ||
             location.pathname === "/admin/rules" ? (
-            <AdminSkuRulesPage />
+            <AdminSkuRulesPage currentUser={user} />
           ) : location.pathname === "/sync-admin" ||
             location.pathname === "/admin/sync" ? (
             <AdminSyncPage isHighestAdmin={user.is_highest_admin === true} />
@@ -386,7 +386,7 @@ export function App() {
           ) : location.pathname === "/admin/feedback" ? (
             <AdminFeedbackPage />
           ) : location.pathname === "/admin/product-types" ? (
-            <AdminProductTypeVisibilityPage />
+            <AdminProductTypeVisibilityPage currentUser={user} />
           ) : null;
 
         if (adminPage) {
