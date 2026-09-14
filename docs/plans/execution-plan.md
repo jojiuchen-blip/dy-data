@@ -1,4 +1,14 @@
-# 当前执行：DYDATA-96 分级内存保护与自动恢复
+# 当前执行：指标看板排序与分指标导出
+
+- 当前阶段：S4。
+- 当前正式计划：[排序与导出](delivery-plans/main-delivery-plan-ranking-export.md)。
+- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-export-T0.1.md)。
+- 当前 Task：T0.1，进行中。
+- 用户确认：店均、24小时跟进、订单核销三个排行；每指标一工作表，所选层级各成附表；已授权同步main与服务器部署，并明确跳过Linear建票。
+- 验证：90项专项测试、前端构建、122项套包测试、本地真实后端浏览器导出及窄屏验证通过。全量pytest运行中，尚未合并部署。
+- 记录：[开发日志](../devlog/20260914_ranking_export.md)。
+- 下一步：审查、完整验证、GitHub主分支同步及服务器部署验收。
+# 历史及并行执行：DYDATA-96 分级内存保护与自动恢复
 
 - 当前阶段：S4。
 - 当前正式计划：[分级资源保护](delivery-plans/main-delivery-plan-dydata-96-memory.md)。

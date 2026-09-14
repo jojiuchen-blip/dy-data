@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "../components/Button";
+import { DouyinRankingExportDialog } from "../components/DouyinRankingExportDialog";
+import { RANKING_METRIC_OPTIONS, type RankingMetric } from "../utils/rankingOptions";
 import { fetchDouyinRanking } from "../api/client";
 import { DataTable, type Column } from "../components/DataTable";
 import { FilterBar, FilterField } from "../components/Filters";
@@ -48,8 +50,9 @@ function drilldownHref(
   serviceCenterName: string,
   districtName: string,
   areaName: string,
+  sortBy: RankingMetric,
 ) {
-  const params = new URLSearchParams({ periodStart, periodEnd });
+  const params = new URLSearchParams({ periodStart, periodEnd, sortBy });
   if (level === "group") {
     params.set("level", "service_center");
     params.set("groupName", row.name);
@@ -86,6 +89,8 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
   const [districtName, setDistrictName] = useState(searchParams.get("districtName") ?? "");
   const [areaName, setAreaName] = useState(searchParams.get("areaName") ?? "");
   const [page, setPage] = useState(1);
+  const [sortBy, setSortBy] = useState<RankingMetric>(() => RANKING_METRIC_OPTIONS.find((item) => item.value === searchParams.get("sortBy"))?.value ?? "order_average");
+  const [exportOpen, setExportOpen] = useState(false);
 
   const rankingResource = useApiResource(
     () => fetchDouyinRanking({
@@ -98,10 +103,10 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       areaName: areaName || undefined,
       page,
       pageSize: PAGE_SIZE,
-      sortBy: "order_average",
+      sortBy,
       sortOrder: "DESC",
     }),
-    [periodStart, periodEnd, level, groupName, serviceCenterName, districtName, areaName, page],
+    [periodStart, periodEnd, level, groupName, serviceCenterName, districtName, areaName, page, sortBy],
   );
   const ranking = rankingResource.data?.data;
   const hasQualityIssues = Object.entries(ranking?.qualityJson ?? {}).some(
@@ -130,7 +135,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       title: LEVEL_OPTIONS.find((item) => item.value === level)?.label ?? "组织",
       minWidth: 180,
       render: (row) => {
-        const href = drilldownHref(row, level, periodStart, periodEnd, groupName, serviceCenterName, districtName, areaName);
+        const href = drilldownHref(row, level, periodStart, periodEnd, groupName, serviceCenterName, districtName, areaName, sortBy);
         return href ? <a href={href}>{row.name}</a> : row.name;
       },
     },
@@ -150,6 +155,8 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
           <p>按集团、服务中心、大区、区域和门店查看抖音订单、线索跟进与核销表现。</p>
         </div>
       </section>
+      {exportOpen && <DouyinRankingExportDialog periodStart={periodStart} periodEnd={periodEnd} today={initialRange.today} level={level}
+        filters={{ groupName, serviceCenterName, districtName, areaName }} onClose={() => setExportOpen(false)} />}
       <ResourceNotice loading={rankingResource.loading} error={error} fallbackReason={rankingResource.data?.fallbackReason} />
       {ranking?.dataMode === "synthetic" && <ResourcePanel>{ranking.previewNote} 快照：{ranking.snapshotId}</ResourcePanel>}
       {ranking?.dataMode === "business" && hasQualityIssues && <ResourcePanel>部分数据的门店归属或历史绑定资料尚待核验，当前排名仅供参考；未能唯一归属的数据暂未计入。</ResourcePanel>}
@@ -157,6 +164,8 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
         <FilterField label="开始日期"><FieldInput type="date" min={RANKING_EARLIEST_DATE} max={initialRange.today} value={periodStart} onChange={(event) => { const next = updateRankingPeriodStart(event.target.value, periodEnd, initialRange.today); setPeriodStart(next.periodStart); setPeriodEnd(next.periodEnd); setPage(1); }} /></FilterField>
         <FilterField label="结束日期"><FieldInput type="date" min={periodStart} max={initialRange.today} value={periodEnd} onChange={(event) => { setPeriodEnd(updateRankingPeriodEnd(event.target.value, periodStart, initialRange.today)); setPage(1); }} /></FilterField>
         <SelectField label="查看层级" value={level} onChange={(value) => { setLevel(value as DouyinRankingLevel); setPage(1); }} options={LEVEL_OPTIONS} />
+        <SelectField label="排名依据" value={sortBy} onChange={(value) => { setSortBy(value as RankingMetric); setPage(1); }} options={RANKING_METRIC_OPTIONS} />
+        <Button onClick={() => setExportOpen(true)}>导出排行</Button>
         <FilterField label="集团"><FieldInput value={groupName} placeholder="按名称筛选" onChange={(event) => { setGroupName(event.target.value); setPage(1); }} /></FilterField>
         <FilterField label="服务中心"><FieldInput value={serviceCenterName} placeholder="按名称筛选" onChange={(event) => { setServiceCenterName(event.target.value); setPage(1); }} /></FilterField>
         <FilterField label="大区"><FieldInput value={districtName} placeholder="按名称筛选" onChange={(event) => { setDistrictName(event.target.value); setPage(1); }} /></FilterField>
@@ -173,7 +182,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
           <section className="content-section">
             <div className="section-title">
               <div>
-                <h2>{LEVEL_OPTIONS.find((item) => item.value === level)?.label ?? "组织"}排名</h2>
+                <h2>{LEVEL_OPTIONS.find((item) => item.value === level)?.label ?? "组织"}排名 · {RANKING_METRIC_OPTIONS.find((item) => item.value === sortBy)?.label}</h2>
                 <p>共 {ranking.total} 个结果 · 统计 {ranking.periodStart.slice(0, 10)} 至 {ranking.periodEnd.slice(0, 10)} · 数据源：{sourceLabel}</p>
               </div>
               <div className="section-title__meta">最近数据：{formatDateTime(ranking.latestObservedAt)}</div>

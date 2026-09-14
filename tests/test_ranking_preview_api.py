@@ -87,3 +87,87 @@ def test_snapshot_read_never_creates_another_batch(preview_client, db_session):
     for _ in range(2):
         assert preview_client.get("/api/v1/dashboard/douyin-ranking", params=PARAMS).status_code == 200
     assert db_session.scalar(select(func.count()).select_from(runs)) == before
+
+
+EXPORT = "/api/v1/dashboard/douyin-ranking/export"
+
+
+def workbook(response):
+    from io import BytesIO
+    from openpyxl import load_workbook
+    assert response.status_code == 200, response.text[:200] if response.status_code != 200 else ""
+    assert "spreadsheetml" in response.headers["content-type"]
+    return load_workbook(BytesIO(response.content))
+
+
+def test_export_three_metric_sheets_with_two_level_sections(preview_client):
+    login(preview_client)
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "district,area"}))
+    assert book.sheetnames == ["抖音店均订单量排行", "24小时有效跟进率排行", "订单核销率排行"]
+    for sheet in book:
+        values = [cell.value for row in sheet for cell in row]
+        assert "大区排行" in values and "区域排行" in values
+        assert "baseline" in str(values) and "2026-09-01" in str(values)
+    assert "抖音订单量（辅助）" in [c.value for row in book.worksheets[0] for c in row]
+    assert "不限24小时跟进率（辅助）" in [c.value for row in book.worksheets[1] for c in row]
+
+
+def test_export_rankings_match_board_and_include_all_rows(preview_client):
+    login(preview_client)
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "pageSize": 1}))
+    for sheet, metric in zip(book, ["order_average", "follow_24h_rate", "verification_rate"]):
+        board = preview_client.get("/api/v1/dashboard/douyin-ranking", params={**PARAMS, "sortBy": metric}).json()["data"]
+        export_rows = [row for row in sheet.iter_rows(values_only=True) if isinstance(row[0], int) or row[0] == "—"]
+        assert len(export_rows) == board["total"]
+        assert [(row[0], row[1]) for row in export_rows] == [(row["rank"] if row["rank"] is not None else "—", row["name"]) for row in board["rows"]]
+
+
+@pytest.mark.parametrize("params", [{"levels": ""}, {"levels": "invalid"}, {"metrics": "order_count"},
+    {"metrics": ""}, {"periodEnd": "2026-08-01"}, {"periodEnd": "2028-01-01"}])
+def test_export_rejects_invalid_options(preview_client, params):
+    login(preview_client)
+    assert preview_client.get(EXPORT, params={**PARAMS, **params}).status_code == 422
+
+
+def test_export_requires_login_and_obeys_scope(preview_client):
+    assert preview_client.get(EXPORT, params=PARAMS).status_code == 401
+    auth = AuthContext(user_id=None, username="store-a", display_name="A", role="store",
+        store_ids=("A",), auth_type="env_admin", store_scope_mode="explicit", page_keys=("A03",))
+    preview_client.app.dependency_overrides[get_current_user] = lambda: auth
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "metrics": "order_average"}))
+    rows = [row for row in book.active.iter_rows(values_only=True) if isinstance(row[0], int)]
+    assert len(rows) == 1 and rows[0][2] == "A"
+    empty = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "storeId": "B"}))
+    assert not any(isinstance(row[0], int) for row in empty.active.iter_rows(values_only=True))
+
+
+def test_export_over_200_rows_and_formula_like_names_are_literal(preview_client, db_session):
+    from apps.api.dy_api.ranking_schema_v1 import org_history, snapshots
+    original = dict(db_session.execute(select(org_history).where(org_history.c.store_id == "A")).mappings().first())
+    facts = [dict(row) for row in db_session.execute(select(snapshots).where(snapshots.c.store_id == "A")).mappings()]
+    for index in range(205):
+        store_id = f"extra-{index}"
+        db_session.execute(org_history.insert().values(**{**original, "store_id": store_id,
+            "service_store_code": store_id, "store_name": "=1+1" if index == 0 else store_id}))
+        db_session.execute(snapshots.insert(), [{**row, "store_id": store_id} for row in facts])
+    db_session.commit()
+    login(preview_client)
+    book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "metrics": "order_average"}))
+    rows = [row for row in book.active if isinstance(row[0].value, int)]
+    assert len(rows) == 208
+    formula_name = next(row[1] for row in rows if row[1].value == "=1+1")
+    assert formula_name.data_type == "s"
+    assert all(cell.data_type != "f" for row in book.active for cell in row)
+
+
+def test_shared_metric_ranking_ties_nulls_and_auxiliary_values():
+    from apps.api.dy_api.ranking_snapshots import sort_ranking_rows
+    rows = [dict(name="A", order_average=2, order_count=100, follow_24h_rate=.1, follow_rate=.9, verification_rate=None),
+            dict(name="B", order_average=4, order_count=8, follow_24h_rate=.5, follow_rate=.6, verification_rate=.2),
+            dict(name="C", order_average=4, order_count=12, follow_24h_rate=None, follow_rate=None, verification_rate=.8)]
+    for metric, names in [("order_average", ["B", "C", "A"]), ("follow_24h_rate", ["B", "A", "C"]), ("verification_rate", ["C", "B", "A"])]:
+        ranked = sort_ranking_rows(rows, metric)
+        assert [row["name"] for row in ranked] == names
+    assert [row["rank"] for row in sort_ranking_rows(rows, "order_average")] == [1, 1, 3]
+    assert sort_ranking_rows(rows, "follow_24h_rate")[-1]["rank"] is None
+    assert "rank" not in rows[0]

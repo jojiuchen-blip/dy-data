@@ -341,7 +341,7 @@ def read_snapshot_report(
     scope_store_ids: tuple[str, ...] | None = None, group_name: str | None = None,
     service_center_name: str | None = None, district_name: str | None = None,
     area_name: str | None = None, store_id: str | None = None,
-    page: int = 1, page_size: int = 50, sort_by: str = "order_count", sort_order: str = "DESC",
+    page: int = 1, page_size: int | None = 50, sort_by: str = "order_count", sort_order: str = "DESC",
     run_id: str | None = None, data_mode: str | None = None,
 ) -> dict[str, Any]:
     """Aggregate only authorized frozen store fragments, then rank and paginate."""
@@ -407,8 +407,20 @@ def read_snapshot_report(
             item[result] = round(item[num] / item[den], 6) if item[den] else None
         return item
 
-    rows = [finish(item) for item in grouped.values()]
-    rows.sort(key=lambda row: row["name"])
+    rows = sort_ranking_rows([finish(item) for item in grouped.values()], sort_by, sort_order)
+    return dict(period_start=period_start, period_end=period_end - timedelta(days=1), level=level,
+        total=len(rows), page=page, page_size=page_size,
+        rows=rows if page_size is None else rows[(page - 1)*page_size:page*page_size],
+        totals=finish(totals), latest_observed_at=run["observed_through"], metric_definitions=DEFINITIONS,
+        data_mode=run["data_mode"], snapshot_id=run["run_id"], eligibility_version=run["eligibility_version"],
+        quality_json=run["quality_json"] if scope_store_ids is None else {},
+        preview_note=("虚拟测试数据，仅用于验证计算逻辑；有效门店数为测试名单，不是实际1531家。"
+                      if run["data_mode"] == "synthetic" else ""))
+
+
+def sort_ranking_rows(rows: list[dict], sort_by: str, sort_order: str = "DESC") -> list[dict]:
+    """Shared board/export competition ranking; null samples always come last."""
+    rows = sorted((dict(row) for row in rows), key=lambda row: row["name"])
     non_null = [row for row in rows if row[sort_by] is not None]
     non_null.sort(key=lambda row: row[sort_by], reverse=sort_order.upper() != "ASC")
     rows = non_null + [row for row in rows if row[sort_by] is None]
@@ -417,10 +429,4 @@ def read_snapshot_report(
         if row[sort_by] != previous:
             rank, previous = index, row[sort_by]
         row["rank"] = rank if row[sort_by] is not None else None
-    return dict(period_start=period_start, period_end=period_end - timedelta(days=1), level=level,
-        total=len(rows), page=page, page_size=page_size, rows=rows[(page - 1)*page_size:page*page_size],
-        totals=finish(totals), latest_observed_at=run["observed_through"], metric_definitions=DEFINITIONS,
-        data_mode=run["data_mode"], snapshot_id=run["run_id"], eligibility_version=run["eligibility_version"],
-        quality_json=run["quality_json"] if scope_store_ids is None else {},
-        preview_note=("虚拟测试数据，仅用于验证计算逻辑；有效门店数为测试名单，不是实际1531家。"
-                      if run["data_mode"] == "synthetic" else ""))
+    return rows

@@ -1364,6 +1364,13 @@ export function fetchSettlementStoreRanking({
   );
 }
 
+export function downloadDouyinRanking(query: {
+  periodStart: string; periodEnd: string; levels: string; metrics: string;
+  groupName?: string; serviceCenterName?: string; districtName?: string; areaName?: string;
+}): Promise<void> {
+  return requestDownload("/dashboard/douyin-ranking/export", query);
+}
+
 export function fetchDouyinRanking({
   periodStart,
   periodEnd,
