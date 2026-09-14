@@ -1,5 +1,5 @@
 <!-- DYDATA-96 current work: 2026-09-13 -->
-> 当前增量：DYDATA-96 分级资源保护与自动恢复，S4实施中。正式计划见 [主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-96-memory.md)；本轮尚未部署，线上仍为3d5ac35a。
+> 当前增量：DYDATA-96 分级资源保护与自动恢复，S4已部署、待用户验收。正式计划见 [主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-96-memory.md)；1de306c6于2026-09-14 01:01部署，9月12—13日日批和绑定同步已恢复，历史补拉继续。证据见 [开发日志](docs/devlog/20260914_refactor_log_Keith_Chen.md)。
 
 # 项目画像
 

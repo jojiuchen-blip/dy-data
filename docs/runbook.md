@@ -301,7 +301,7 @@ docker compose -f deploy/compose.yaml -f deploy/compose.acceptance.yaml config
 4C/8GB Linux 主机上的三轮 acceptance、Docker socket 的宿主机权限隔离、目标 PostgreSQL 上执行并核验最小权限脚本、生产 canary、回滚和真实 worker/browser replacement heartbeat 均是未验证门禁；未完成这些门禁前，不得把阈值或 Ops Agent 标记为生产验证结论。
 # DYDATA-96：分级资源保护与自动恢复
 
-本节描述候选实现；发布版本与线上验收以对应发布记录为准。不能把本地测试通过或容器 healthy 当作数据同步已恢复。
+本节实现已随1de306c6于2026-09-14部署；首轮生产恢复验收见[开发日志](devlog/20260914_refactor_log_Keith_Chen.md)。日常验收仍须同时核对采集、最终发布和资源状态，不能仅凭容器 healthy 判断同步恢复。
 
 资源监控线程每 5 秒采样一次，独立于重任务执行，写入 `component_heartbeats` 中 `worker-resource-monitor-*` 的 `activity_json.resource_guard`。子进程只读取其父调度器的监控实例，不各自重新计时。超过 30 秒没有新心跳时禁止启动或继续新的分页；采样间隔超过 15 秒不计作连续健康观察。
 

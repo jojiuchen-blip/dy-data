@@ -20,6 +20,8 @@
 
 **Evidence**：生产12:41采样swap_used导致DRAIN；日批pending、绑定停止更新。
 
+2026-09-14生产验证：1de306c6部署成功，全量3054通过169跳过，真实PG门禁及17项专项通过；9月12—13日日批发布成功、绑定更新至08:42，资源连续normal约7.6小时，历史补拉正在处理8月17日。详见[开发日志](../../devlog/20260914_refactor_log_Keith_Chen.md)。用户验收及foundation GAP评审仍待完成。
+
 **Failure Handling**：保留硬内存上限和租约；资源未知不可默认为安全；测试失败停止发布。
 
 **Owner**：AI
