@@ -6,6 +6,7 @@ from xml.etree.ElementTree import ParseError
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
+from openpyxl.formatting.rule import FormulaRule
 
 HEADERS = ['登录账号', '显示名称', '账号类型', '集团', '服务中心', '大区', '区域', '门店ID（多个用英文分号分隔）', '所属账户编号（选填）']
 INITIAL_ACCOUNT_PASSWORD = '123456'
@@ -27,9 +28,11 @@ def _save(book):
             sheet.column_dimensions[column].width = 25
         sheet.row_dimensions[1].height = 36
         if sheet.title == '填写说明':
-            sheet.column_dimensions['B'].width = 95
-            for number in range(2, sheet.max_row + 1):
-                sheet.row_dimensions[number].height = 44
+            for column in 'ABCDEFGH':
+                sheet.column_dimensions[column].width = 17
+            sheet.column_dimensions['A'].width = 22
+            for number in range(1, sheet.max_row + 1):
+                sheet.row_dimensions[number].height = 40
     output = BytesIO(); book.save(output)
     return output.getvalue()
 
@@ -44,31 +47,44 @@ def account_template(catalog=None):
     choices.errorTitle = '请选择账号类型'; choices.error = '请使用下拉列表中的账号类型'; choices.showErrorMessage = True
     sheet.add_data_validation(choices); choices.add('C2:C201')
     guide = book.create_sheet('填写说明')
-    guide.append(['项目', '填写要求'])
-    for values in [
-        ('填写位置', '仅“账号开通”工作表会被导入，每行一个账号；其他工作表用于说明和查阅。每批最多200个账号。'),
-        ('登录账号', '必填且唯一，建议手机号或英文账号；按文本填写，保留前导零。不要填写密码。'),
-        ('显示名称', '必填，填写人员姓名或岗位名称。'),
-        ('账号类型', '从下拉列表选择：最高管理员、管理员、集团账号、服务中心账号、大区账号、区域账号、门店账号。'),
-        ('最高管理员/管理员', '拥有全部门店数据范围。组织管理人员请选对应组织账号类型，不要选全局管理员。'),
-        ('集团账号', '填写集团；自动覆盖该集团下属门店。'),
-        ('服务中心账号', '填写集团、服务中心。'),
-        ('大区账号', '填写集团、服务中心、大区。'),
-        ('区域账号', '填写集团、服务中心、大区、区域。必须填写完整路径以区分同名组织。'),
-        ('门店账号', '填写系统门店ID，多个ID用英文分号分隔，例如00123;00456；组织列可留空。'),
-        ('所属账户编号', '选填，如填写则必须唯一；不是门店ID。'),
-        ('组织与门店名称', '必须与后台现有组织归属一致，可从“可选门店”工作表复制。无名单时从后台重新下载最新模板。'),
-        ('开通流程', '最高管理员上传→校验预览→修正所有错误→确认批量创建。任一行无效则整批不创建。'),
-        ('密码与结果', f'初始密码统一为{INITIAL_ACCOUNT_PASSWORD}，无需在表格填写。登录后请在账号菜单中选择“修改密码”。创建成功后可下载开通结果。'),
-        ('重复提交', '已有账号会报错，不覆盖已有账号；如网络中断请先查账号列表，已创建账号通过重置密码处理。'),
-        ('排行榜', '三个打榜指标对全部有效登录账号开放全量排名；线索和结算明细受账号组织范围限制。'),
-    ]: guide.append(values)
+    guide.append(['账号类型', '登录账号', '显示名称', '集团', '服务中心', '大区', '区域', '门店ID'])
+    required = {
+        '集团账号': {'集团'}, '服务中心账号': {'服务中心'}, '大区账号': {'服务中心', '大区'},
+        '区域账号': {'服务中心', '大区', '区域'}, '门店账号': {'门店ID'}, '管理员': set(), '最高管理员': set(),
+    }
+    for kind, names in required.items():
+        guide.append([kind, '必填', '必填', *['必填' if name in names else '留空' for name in ['集团', '服务中心', '大区', '区域', '门店ID']]])
+        for cell in guide[guide.max_row][1:]:
+            cell.fill = PatternFill('solid', fgColor='E9F3E7' if cell.value == '必填' else 'F2F2F2')
+    notes = [
+        ('填写顺序', '先看上方必填表，再打开“账号开通”填写；每行一人，最多200人。账号类型从下拉列表选择。'),
+        ('组织关系', '集团与服务中心互不隶属。大区、区域属于“服务中心→大区→区域”这条路径。'),
+        ('登录账号 / 名称', '建议登录账号用手机号或英文账号；显示名称填真实姓名或岗位名称。账号必须唯一。'),
+        ('组织名称', '填写系统完整名称，可从“可选门店”复制。区域账号须同时填服务中心、大区，避免同名区域混淆。'),
+        ('门店ID', '仅门店账号填写；多个ID用英文分号分隔，如00123;00456。不要填门店名称，ID按文本填写。'),
+        ('所属账户编号', '所有类型都可留空。不清楚含义就留空；它不是登录账号，也不是门店ID。填写时必须唯一。'),
+        ('密码', f'无需填写。初始密码统一为{INITIAL_ACCOUNT_PASSWORD}；开通后在“我的→修改密码”自行修改。'),
+        ('怎么交表', '填完后把原xlsx发回管理员。只导入“账号开通”；示例表不导入，不要改表头或工作表名称。'),
+        ('发现错误', '先校验再开通；错误按行号和原因提示。任一行有误整批不创建，修正后再上传，不覆盖已有账号。'),
+        ('权限提醒', '管理员及最高管理员是全局权限；组织管理人员请选对应组织账号类型。三个打榜指标始终全量可见。'),
+        ('先看示例', '“示例（不导入）”展示各类型正确填法，请替换示例名称。创建成功后可下载含初始密码的开通结果。'),
+    ]
+    for number, (label, note) in enumerate(notes, 10):
+        guide.cell(number, 1, label)
+        guide.merge_cells(start_row=number, start_column=2, end_row=number, end_column=8)
+        guide.cell(number, 2, note)
+    for column, formula in {
+        'D': '$C2="集团账号"', 'E': 'OR($C2="服务中心账号",$C2="大区账号",$C2="区域账号")',
+        'F': 'OR($C2="大区账号",$C2="区域账号")', 'G': '$C2="区域账号"', 'H': '$C2="门店账号"',
+    }.items():
+        sheet.conditional_formatting.add(f'{column}2:{column}201', FormulaRule(formula=[f'AND($C2<>"",{formula})'], fill=PatternFill('solid', fgColor='E9F3E7')))
+        sheet.conditional_formatting.add(f'{column}2:{column}201', FormulaRule(formula=[f'AND($C2<>"",NOT({formula}))'], fill=PatternFill('solid', fgColor='F2F2F2')))
     examples = book.create_sheet('示例（不导入）'); examples.append(HEADERS)
     for values in [
         ['group_zhang', '张经理', '集团账号', '示例集团', '', '', '', '', ''],
-        ['center_li', '李经理', '服务中心账号', '示例集团', '示例中心', '', '', '', ''],
-        ['district_wang', '王经理', '大区账号', '示例集团', '示例中心', '示例大区', '', '', ''],
-        ['area_zhao', '赵经理', '区域账号', '示例集团', '示例中心', '示例大区', '示例区域', '', ''],
+        ['center_li', '李经理', '服务中心账号', '', '示例中心', '', '', '', ''],
+        ['district_wang', '王经理', '大区账号', '', '示例中心', '示例大区', '', '', ''],
+        ['area_zhao', '赵经理', '区域账号', '', '示例中心', '示例大区', '示例区域', '', ''],
         ['store_qian', '钱店长', '门店账号', '', '', '', '', '00123;00456', ''],
     ]: examples.append(values)
     options = book.create_sheet('可选门店'); options.append(['门店ID', '门店名称', '集团', '服务中心', '大区', '区域'])
