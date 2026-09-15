@@ -17,6 +17,10 @@
 
 ## API
 
+## 2026-09-15 续跑验证
+
+PR #32 的 CI（34833837710）完成全量测试：3065 passed、169 skipped，前端构建通过。后续 API Docker 构建因清华 PyPI 镜像未返回 requests 包失败。将 GitHub CI 与腾讯部署验证中的三个 Python 镜像构建显式使用官方 PyPI，保留服务器 Dockerfile 默认源。部署配置专项测试32项通过，等待新提交完整流水线通过后合并和部署。
+
 新增GET /api/v1/dashboard/douyin-ranking/export，periodStart/periodEnd必填，levels与metrics逗号分隔。metrics允许order_average、follow_24h_rate、verification_rate。继承A03页面权限及服务端门店范围。返回xlsx附件；非法选择或日期422，数据查询故障503。
 
 ## Foundation

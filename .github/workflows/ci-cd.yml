@@ -144,13 +144,13 @@ jobs:
         run: npm run build
 
       - name: Build API Docker image
-        run: docker build -f apps/api/Dockerfile -t dy-dashboard-api:ci .
+        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/api/Dockerfile -t dy-dashboard-api:ci .
 
       - name: Build Worker Docker image
-        run: docker build -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
+        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f apps/worker/Dockerfile -t dy-dashboard-worker:ci .
 
       - name: Build Browser Docker image
-        run: docker build -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
+        run: docker build --build-arg PIP_INDEX_URL=https://pypi.org/simple -f deploy/browser/Dockerfile -t dy-dashboard-browser:ci .
 
       - name: Build Web Docker image
         run: docker build -f apps/web/Dockerfile -t dy-dashboard-web:ci apps/web
