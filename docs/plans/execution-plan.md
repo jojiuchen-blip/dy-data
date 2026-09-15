@@ -1,5 +1,8 @@
 ## 本轮账号改造（2026-09-15）
 
+- 当前正式计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。
+- 当前追加任务：T0.2，进行中；批量开户初始密码统一123456，后续自行修改。记录见[日志](../devlog/20260915_account_default_password.md)。
+
 - 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。
 - 当前任务：T0.1，已完成。PR #33合并，生产eeca61e部署成功（运行34928814248），3079项测试通过；记录见[交付日志](../devlog/20260915_account_org_scope.md)。Linear 团队不可访问，本地需求与证据已保存。
 

@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.worksheet.datavalidation import DataValidation
 
 HEADERS = ['登录账号', '显示名称', '账号类型', '集团', '服务中心', '大区', '区域', '门店ID（多个用英文分号分隔）', '所属账户编号（选填）']
+INITIAL_ACCOUNT_PASSWORD = '123456'
 TYPES = {'最高管理员': None, '管理员': None, '集团账号': 'group', '服务中心账号': 'service_center', '大区账号': 'district', '区域账号': 'area', '门店账号': 'store'}
 
 
@@ -58,7 +59,7 @@ def account_template(catalog=None):
         ('所属账户编号', '选填，如填写则必须唯一；不是门店ID。'),
         ('组织与门店名称', '必须与后台现有组织归属一致，可从“可选门店”工作表复制。无名单时从后台重新下载最新模板。'),
         ('开通流程', '最高管理员上传→校验预览→修正所有错误→确认批量创建。任一行无效则整批不创建。'),
-        ('密码与结果', '系统为每个账号生成独立初始密码，创建成功后下载开通结果并妥善分发。结果不写入权限审计。'),
+        ('密码与结果', f'初始密码统一为{INITIAL_ACCOUNT_PASSWORD}，无需在表格填写。登录后请在账号菜单中选择“修改密码”。创建成功后可下载开通结果。'),
         ('重复提交', '已有账号会报错，不覆盖已有账号；如网络中断请先查账号列表，已创建账号通过重置密码处理。'),
         ('排行榜', '三个打榜指标对全部有效登录账号开放全量排名；线索和结算明细受账号组织范围限制。'),
     ]: guide.append(values)

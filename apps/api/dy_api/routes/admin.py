@@ -614,8 +614,7 @@ def preview_bulk_accounts(file: UploadFile = File(...), actor: AuthContext = Dep
 @router.post("/account-bulk-import/commit")
 def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
     from fastapi.responses import Response
-    from apps.api.dy_api.account_bulk_import import credential_workbook
-    import secrets
+    from apps.api.dy_api.account_bulk_import import credential_workbook, INITIAL_ACCOUNT_PASSWORD
     store = _require_available_store(store)
     if not actor.is_highest_admin:
         raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
@@ -628,7 +627,7 @@ def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), 
     credentials = []
     try:
         for payload, row in zip(payloads, preview['rows']):
-            password = secrets.token_urlsafe(15)
+            password = INITIAL_ACCOUNT_PASSWORD
             user = User(user_id=uuid4().hex, username=payload.username, display_name=payload.display_name,
                 external_account_id=payload.external_account_id, role=payload.role, store_scope_mode=payload.store_scope_mode,
                 org_scope=payload.org_scope, status="active", is_initialized=True, password_hash=hash_password_pbkdf2(password))

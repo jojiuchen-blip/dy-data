@@ -34,7 +34,8 @@ def test_batch_preview_create_passwords_and_repeat_protection(client, db_session
     book = load_workbook(BytesIO(created.content))
     credentials = list(book.active.iter_rows(min_row=2, values_only=True))
     assert credentials[0][0] == '00123'
-    assert len(credentials[0][3]) >= 16 and credentials[0][3] != credentials[1][3]
+    assert [row[3] for row in credentials] == ['123456', '123456']
+    assert db_session.scalar(select(User).where(User.username == '00123')).password_hash != '123456'
     audits = db_session.scalars(select(AccountPermissionAuditLog)).all()
     for audit in audits:
         assert credentials[0][3] not in repr(audit.__dict__)
@@ -43,6 +44,11 @@ def test_batch_preview_create_passwords_and_repeat_protection(client, db_session
     _login(client, '00123', credentials[0][3])
     assert set(client.get('/api/v1/auth/me').json()['data']['store_ids']) == {'store-1', 'store-2'}
     assert client.get('/api/v1/admin/account-bulk-import/template').status_code == 403
+    changed = client.post('/api/v1/auth/change-password', json={'password': 'PersonalPass789!', 'password_confirm': 'PersonalPass789!'})
+    assert changed.status_code == 200
+    client.post('/api/v1/auth/logout')
+    assert client.post('/api/v1/auth/login', json={'username': '00123', 'password': '123456'}).status_code == 401
+    _login(client, '00123', 'PersonalPass789!')
 
 
 def test_invalid_batch_is_atomic_and_changed_file_refused(client, db_session):
