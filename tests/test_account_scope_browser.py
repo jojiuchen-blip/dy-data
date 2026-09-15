@@ -72,3 +72,29 @@ def test_bulk_account_import_real_api(browser, vite_live_admin_api_base_url, liv
         assert len(next(row for row in rows if row['username'] == 'bulk-browser-001')['stores']) == 2
     finally:
         context.close()
+
+
+def test_org_picker_does_not_require_group_for_service_hierarchy(browser, vite_live_admin_api_base_url, live_admin_fastapi_base_url):
+    context = browser.new_context(viewport={'width': 1440, 'height': 900})
+    context.add_cookies([{'name': 'dy_e2e_role', 'value': 'highest_admin', 'url': live_admin_fastapi_base_url}])
+    page = context.new_page()
+    catalog = [{'store_id': f'org-{i}', 'store_name': f'门店{i}', 'group_name': group, 'service_center_name': '共同中心', 'district_name': '共同大区', 'area_name': '共同区域'} for i, group in enumerate(['集团甲', '集团乙'])]
+    page.route('**/api/v1/admin/account-store-catalog', lambda route: route.fulfill(json={'data': {'stores': catalog}}))
+    try:
+        page.goto(vite_live_admin_api_base_url + '/admin/accounts')
+        def choose(label, option):
+            page.get_by_label(label, exact=True).click()
+            page.get_by_role('option', name=option, exact=True).click()
+        choose('角色', '管理员')
+        choose('数据可见范围', '区域')
+        expect(page.get_by_label('集团', exact=True)).to_have_count(0)
+        choose('服务中心', '共同中心')
+        choose('大区', '共同大区')
+        choose('区域', '共同区域')
+        expect(page.get_by_text('当前覆盖 2 家门店，门店归属调整后自动更新。')).to_be_visible()
+        choose('数据可见范围', '集团')
+        expect(page.get_by_label('服务中心', exact=True)).to_have_count(0)
+        choose('集团', '集团甲')
+        expect(page.get_by_text('当前覆盖 1 家门店，门店归属调整后自动更新。')).to_be_visible()
+    finally:
+        context.close()

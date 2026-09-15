@@ -9,6 +9,10 @@ import './AccountScopePicker.css';
 const levels = ['group', 'service_center', 'district', 'area'];
 const fields = ['group_name', 'service_center_name', 'district_name', 'area_name'] as const;
 const labels = ['集团', '服务中心', '大区', '区域'];
+const scopeFields: Record<string, readonly typeof fields[number][]> = {
+  group: ['group_name'], service_center: ['service_center_name'],
+  district: ['service_center_name', 'district_name'], area: ['service_center_name', 'district_name', 'area_name'],
+};
 
 export function AccountScopePicker({ draft, stores, onChange }: {
   draft: AccountUpsertPayload; stores: AccountStoreOption[]; onChange: (draft: AccountUpsertPayload) => void;
@@ -34,7 +38,8 @@ export function AccountScopePicker({ draft, stores, onChange }: {
     catch (error) { setMessage(error instanceof Error ? error.message : '导入失败，请检查文件后重试'); }
     finally { setBusy(false); }
   };
-  const covered = draft.org_scope ? stores.filter(store => fields.slice(0, levels.indexOf(mode) + 1).every(field => draft.org_scope?.[field] && store[field] === draft.org_scope[field])) : [];
+  const activeFields = scopeFields[mode] ?? [];
+  const covered = draft.org_scope ? stores.filter(store => activeFields.every(field => draft.org_scope?.[field] && store[field] === draft.org_scope[field])) : [];
   return <div className="account-scope-picker">
     <SelectField label="数据可见范围" value={mode} options={draft.role === 'highest_admin' ? [{ value: 'all', label: '全部门店' }] : [
       ...(draft.role === 'admin' ? [{ value: 'all', label: '全部门店' }, ...levels.map((value, index) => ({ value, label: labels[index] }))] : []),
@@ -44,15 +49,17 @@ export function AccountScopePicker({ draft, stores, onChange }: {
       onChange({ ...draft, store_scope_mode: value === 'all' ? 'all' : 'specified',
         org_scope: levels.includes(value) ? { level: value } : null, store_ids: [] });
     }} />
-    {levels.includes(mode) && fields.slice(0, levels.indexOf(mode) + 1).map((field, index) => {
-      const parents = fields.slice(0, index);
+    {levels.includes(mode) && activeFields.map((field, index) => {
+      const parents = activeFields.slice(0, index);
+      const label = labels[fields.indexOf(field)];
       const options = Array.from(new Set(stores.filter(store => parents.every(parent => store[parent] === draft.org_scope?.[parent]))
         .map(store => store[field]).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
-      return <SelectField key={field} label={labels[index]} value={draft.org_scope?.[field] ?? ''}
-        options={[{ value: '', label: `请选择${labels[index]}` }, ...options.map(value => ({ value, label: value }))]}
+      return <SelectField key={field} label={label} value={draft.org_scope?.[field] ?? ''}
+        options={[{ value: '', label: `请选择${label}` }, ...options.map(value => ({ value, label: value }))]}
         onChange={value => onChange({ ...draft, org_scope: { level: mode, ...Object.fromEntries(parents.map(parent => [parent, draft.org_scope?.[parent] ?? ''])), [field]: value } })} />;
     })}
     {levels.includes(mode) && <p>当前覆盖 {covered.length} 家门店，门店归属调整后自动更新。</p>}
+    {levels.includes(mode) && <small>集团单独选择；服务中心、大区、区域不需要填写集团。</small>}
     {mode === 'store' && <>
       <Button type="button" onClick={() => setOpen(true)}>门店权限 · 已选 {draft.store_ids.length} 家</Button>
       <Dialog open={open} title="选择门店权限" onClose={() => setOpen(false)}>

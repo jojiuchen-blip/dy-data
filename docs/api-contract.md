@@ -146,7 +146,7 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 
 ## 账号组织范围与批量开通（2026-09-15）
 
-- `AccountUpsertRequest` / `AccountRow` 增加可空 `org_scope`：`level` 为 group/service_center/district/area，依次要求 group_name/service_center_name/district_name/area_name 的完整祖先路径。仅admin+specified可绑定，最高管理员创建。
+- `AccountUpsertRequest` / `AccountRow` 增加可空 `org_scope`：group需group_name；service_center需service_center_name；district需service_center_name+district_name；area需service_center_name+district_name+area_name。集团与服务中心互不隶属；旧服务层级绑定的额外group_name读取时忽略。仅admin+specified可绑定，最高管理员创建。批量表格对不适用列报错并要求留空。
 - `GET /api/v1/admin/account-store-catalog` 返回可分配门店及组织路径；账号管理鉴权。
 - `GET /api/v1/admin/account-store-import/template` 下载门店名单xlsx；`POST .../preview` 接收multipart file，返回store_ids、stores、duplicate_count、errors（row/store_id/reason）；不写入账号。
 - `GET /api/v1/admin/account-bulk-import/template` 下载账号开通xlsx；仅最高管理员。

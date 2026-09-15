@@ -537,7 +537,7 @@ def preview_account_store_import(file: UploadFile = File(...), actor: AuthContex
 
 def _preview_bulk_accounts(content, filename, session, actor):
     from apps.api.dy_api.account_bulk_import import read_account_rows, TYPES
-    from apps.api.dy_api.account_scope import ORG_FIELDS, ORG_LEVELS
+    from apps.api.dy_api.account_scope import ORG_FIELDS, ORG_LEVELS, ORG_SCOPE_FIELDS, ORG_FIELD_LABELS
     from pydantic import ValidationError
     rows, errors, payloads, seen = [], [], [], set()
     try:
@@ -563,8 +563,12 @@ def _preview_bulk_accounts(content, filename, session, actor):
                 raise ValueError("全局管理员不能填写组织或门店限制，请改选对应组织账号类型")
             if level == "store" and any(path_values):
                 raise ValueError("门店账号仅填写门店ID，组织列请留空")
-            if level in ORG_LEVELS and (ids or any(path_values[ORG_LEVELS.index(level) + 1:])):
-                raise ValueError("组织层级与填写范围不一致，请清空更下级组织和门店ID")
+            if level in ORG_LEVELS:
+                extra_fields = [ORG_FIELD_LABELS[field] for field, value in zip(ORG_FIELDS, path_values) if value and field not in ORG_SCOPE_FIELDS[level]]
+                if ids:
+                    extra_fields.append('门店ID')
+                if extra_fields:
+                    raise ValueError(f"{kind}的{'、'.join(extra_fields)}请留空")
             scope = None
             if level in ORG_LEVELS:
                 scope = {'level': level, **dict(zip(ORG_FIELDS, [group, center, district, area]))}
@@ -614,8 +618,7 @@ def preview_bulk_accounts(file: UploadFile = File(...), actor: AuthContext = Dep
 @router.post("/account-bulk-import/commit")
 def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
     from fastapi.responses import Response
-    from apps.api.dy_api.account_bulk_import import credential_workbook
-    import secrets
+    from apps.api.dy_api.account_bulk_import import credential_workbook, INITIAL_ACCOUNT_PASSWORD
     store = _require_available_store(store)
     if not actor.is_highest_admin:
         raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
@@ -628,7 +631,7 @@ def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), 
     credentials = []
     try:
         for payload, row in zip(payloads, preview['rows']):
-            password = secrets.token_urlsafe(15)
+            password = INITIAL_ACCOUNT_PASSWORD
             user = User(user_id=uuid4().hex, username=payload.username, display_name=payload.display_name,
                 external_account_id=payload.external_account_id, role=payload.role, store_scope_mode=payload.store_scope_mode,
                 org_scope=payload.org_scope, status="active", is_initialized=True, password_hash=hash_password_pbkdf2(password))
@@ -4159,6 +4162,12 @@ def _account_row(session, user: User) -> AccountRow:
         .order_by(DimStore.store_name, DimStore.store_id)
     ).all()
     allow, deny = user_override_sets(session, user.user_id)
+    scope = user.org_scope
+    if scope:
+        try:
+            scope = normalize_org_scope(scope)
+        except (ValueError, TypeError, AttributeError):
+            pass  # Preserve invalid bindings for repair; authorization stays empty.
     return AccountRow(
         user_id=user.user_id,
         username=user.username,
@@ -4167,7 +4176,7 @@ def _account_row(session, user: User) -> AccountRow:
         role=user.role,
         status=user.status,
         store_scope_mode=user.store_scope_mode,
-        org_scope=user.org_scope,
+        org_scope=scope,
         is_initialized=user.is_initialized,
         stores=[
             AccountStoreScopeRow(store_id=row.store_id, store_name=row.store_name)

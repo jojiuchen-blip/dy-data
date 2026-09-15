@@ -47,16 +47,33 @@ def test_catalog_and_import_preview(client):
     assert data['errors'][0]['row'] == 4
 
 
-@pytest.mark.parametrize('level,fields', [('group', 1), ('service_center', 2), ('district', 3), ('area', 4)])
+@pytest.mark.parametrize('level,fields', [('group', ('group_name',)), ('service_center', ('service_center_name',)), ('district', ('service_center_name', 'district_name')), ('area', ('service_center_name', 'district_name', 'area_name'))])
 def test_all_organization_levels_and_invalid_paths(client, db_session, level, fields):
     from apps.api.dy_api.account_scope import ORG_FIELDS, organization_store_ids
     path = dict(zip(ORG_FIELDS, ['集团一', '中心一', '大区一', '区域一']))
     db_session.get(DimStore, 'store-1').service_store_code = '001'
     db_session.add(DimStoreOrgAssignment(service_store_code='001', is_active=True, **path))
     db_session.commit()
-    scope = {'level': level, **{field: path[field] for field in ORG_FIELDS[:fields]}}
+    scope = {'level': level, **{field: path[field] for field in fields}}
     assert organization_store_ids(db_session, scope) == ('store-1',)
     assert organization_store_ids(db_session, {'level': level}) == ()
+
+
+def test_service_hierarchy_is_independent_of_group(client, db_session):
+    from apps.api.dy_api.account_scope import organization_store_ids, normalize_org_scope
+    for index, group in [(1, '集团甲'), (2, '集团乙')]:
+        db_session.get(DimStore, f'store-{index}').service_store_code = f'independent-{index}'
+        db_session.add(DimStoreOrgAssignment(service_store_code=f'independent-{index}', group_name=group, service_center_name='共同中心', district_name='共同大区', area_name='共同区域', is_active=True))
+    db_session.commit()
+    scope = {'level': 'area', 'service_center_name': '共同中心', 'district_name': '共同大区', 'area_name': '共同区域'}
+    assert organization_store_ids(db_session, scope) == ('store-1', 'store-2')
+    assert organization_store_ids(db_session, {'level': 'group', 'group_name': '集团甲'}) == ('store-1',)
+    assert normalize_org_scope({**scope, 'group_name': '历史多填集团'}) == scope
+    from dy_api.routes.admin import _account_row
+    user = db_session.get(User, 'store-user')
+    user.org_scope = {**scope, 'group_name': '历史多填集团'}
+    db_session.commit()
+    assert _account_row(db_session, user).org_scope == scope
 
 
 def test_ranking_and_export_ignore_scope_and_a03_deny_but_require_login(client, db_session, monkeypatch):

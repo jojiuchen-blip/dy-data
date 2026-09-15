@@ -49,6 +49,6 @@ export function AccountBulkImport({ onCreated }: { onCreated: () => void }) {
     </>}
     {message && <p role="status">{message}</p>}
     {results.map((result, index) => <a key={result.url} className="ui-button ui-button--primary" href={result.url} download={`账号开通结果-${index + 1}.xlsx`}>下载第 {index + 1} 批开通结果（{result.count} 个账号，含初始密码）</a>)}
-    <small>初始密码由系统随机生成。开通结果仅在本页保留，离开前请下载并妥善分发。</small>
+    <small>初始密码统一为 123456，登录后请在账号菜单中修改密码。开通结果仅在本页保留，离开前请下载并妥善分发。</small>
   </section>;
 }

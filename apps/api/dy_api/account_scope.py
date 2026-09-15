@@ -4,18 +4,25 @@ from apps.api.dy_api.models import DimStore, DimStoreOrgAssignment
 
 ORG_FIELDS = ('group_name', 'service_center_name', 'district_name', 'area_name')
 ORG_LEVELS = ('group', 'service_center', 'district', 'area')
+ORG_SCOPE_FIELDS = {
+    'group': ('group_name',),
+    'service_center': ('service_center_name',),
+    'district': ('service_center_name', 'district_name'),
+    'area': ('service_center_name', 'district_name', 'area_name'),
+}
+ORG_FIELD_LABELS = dict(zip(ORG_FIELDS, ('集团', '服务中心', '大区', '区域')))
 
 
 def normalize_org_scope(scope: dict) -> dict:
     level = scope.get('level')
     if level not in ORG_LEVELS:
         raise ValueError('请选择有效的组织层级')
-    fields = ORG_FIELDS[:ORG_LEVELS.index(level) + 1]
+    fields = ORG_SCOPE_FIELDS[level]
     result = {'level': level}
     for field in fields:
         value = scope.get(field)
         if not isinstance(value, str) or not value.strip():
-            raise ValueError('请完整选择组织归属路径')
+            raise ValueError(f'请填写{ORG_FIELD_LABELS[field]}')
         result[field] = value.strip()
     return result
 
