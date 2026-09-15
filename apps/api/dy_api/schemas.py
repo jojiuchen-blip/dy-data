@@ -176,6 +176,7 @@ class AccountStoreScopeRow(BaseModel):
 
 
 class AccountRow(BaseModel):
+    org_scope: dict[str, str] | None = None
     user_id: str
     username: str
     external_account_id: str | None = None
@@ -212,6 +213,7 @@ class UnactivatedStoreAccountListData(BaseModel):
 
 
 class AccountUpsertRequest(BaseModel):
+    org_scope: dict[str, str] | None = None
     username: str | None = None
     display_name: str
     role: Literal["highest_admin", "admin", "store"] = "store"

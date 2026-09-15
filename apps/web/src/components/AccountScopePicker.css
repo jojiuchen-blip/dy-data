@@ -1,0 +1,7 @@
+.account-scope-picker, .account-scope-dialog { display: grid; gap: 14px; min-width: 0; }
+.account-scope-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.account-scope-list { max-height: 42vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
+.account-scope-row { display: flex; align-items: flex-start; gap: 12px; padding: 10px 6px; cursor: pointer; border-bottom: 1px solid var(--line); }
+.account-scope-row span { display: grid; gap: 3px; overflow-wrap: anywhere; }
+.account-scope-row input { margin-top: 5px; width: 18px; height: 18px; flex-shrink: 0; }
+.account-scope-preview { display: grid; gap: 8px; }

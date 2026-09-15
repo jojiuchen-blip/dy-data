@@ -10,7 +10,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 
 
-EXPECTED_HEAD = "20260911_0058"
+EXPECTED_HEAD = "20260915_0059"
 
 
 def _run_alembic(database_url: str, revision: str) -> None:

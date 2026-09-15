@@ -1,3 +1,7 @@
+import { AccountBulkImport } from "../components/AccountBulkImport";
+import { AccountScopePicker } from "../components/AccountScopePicker";
+import { fetchAccountStoreCatalog } from "../api/client";
+import type { AccountStoreOption } from "../types/dashboard";
 import { useEffect, useMemo, useState } from "react";
 import {
   createAccount,
@@ -52,6 +56,7 @@ function accountDraft(account?: AccountRow | null): AccountUpsertPayload {
     username: account.username,
     display_name: account.display_name,
     role: account.role,
+    org_scope: account.org_scope ?? null,
     status: account.status,
     store_scope_mode: account.store_scope_mode,
     external_account_id: account.external_account_id ?? "",
@@ -72,6 +77,7 @@ function compactPayload(
     ...(username ? { username } : {}),
     display_name: draft.display_name.trim(),
     role: draft.role,
+    org_scope: draft.role === "admin" ? draft.org_scope ?? null : null,
     status: draft.status,
     store_scope_mode:
       draft.role === "highest_admin" ? "all" : draft.store_scope_mode,
@@ -94,6 +100,7 @@ function roleLabel(role: UserRole): string {
 }
 
 function storesLabel(account: AccountRow): string {
+  if (account.org_scope) return Object.entries(account.org_scope).filter(([key]) => key !== "level").map(([, value]) => value).join(" / ") + `（${account.stores.length}家门店）`;
   if (account.store_scope_mode === "all") {
     return "全部门店";
   }
@@ -148,12 +155,11 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
   );
   const [extraAllow, setExtraAllow] = useState<Set<string>>(new Set());
   const [extraDeny, setExtraDeny] = useState<Set<string>>(new Set());
-  const [stores, setStores] = useState<StoreOption[]>([]);
+  const [stores, setStores] = useState<AccountStoreOption[]>([]);
   const [unactivatedStores, setUnactivatedStores] = useState<
     UnactivatedStoreAccountRow[]
   >([]);
   const [unactivatedQuery, setUnactivatedQuery] = useState("");
-  const [storeQuery, setStoreQuery] = useState("");
   const [editingUserId, setEditingUserId] = useState<string | null>(null);
   const [draft, setDraft] = useState<AccountUpsertPayload>(accountDraft());
   const [resetTarget, setResetTarget] = useState<AccountRow | null>(null);
@@ -171,31 +177,6 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     () => accounts.find((account) => account.user_id === editingUserId) ?? null,
     [accounts, editingUserId],
   );
-  const filteredStores = useMemo(() => {
-    const keyword = storeQuery.trim().toLocaleLowerCase("zh-CN");
-    if (!keyword) return stores;
-    return stores.filter((store) =>
-      store.store_id.toLocaleLowerCase("zh-CN").includes(keyword)
-      || store.store_name.toLocaleLowerCase("zh-CN").includes(keyword),
-    );
-  }, [storeQuery, stores]);
-  const selectedStoreIds = useMemo(
-    () => new Set(draft.store_ids),
-    [draft.store_ids],
-  );
-  const selectedStores = useMemo(
-    () => stores.filter((store) => selectedStoreIds.has(store.store_id)),
-    [selectedStoreIds, stores],
-  );
-  const selectableStores = useMemo(() => {
-    const seen = new Set<string>();
-    return [...selectedStores, ...filteredStores].filter((store) => {
-      if (seen.has(store.store_id)) return false;
-      seen.add(store.store_id);
-      return true;
-    });
-  }, [filteredStores, selectedStores]);
-
   const queryAuditRows = async (filters = auditFilters) => {
     setAuditLoading(true);
     try {
@@ -241,7 +222,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     setStatusText("");
     Promise.all([
       fetchAccounts(),
-      fetchFilterMeta(),
+      fetchAccountStoreCatalog(),
       fetchUnactivatedAccountStores(),
       fetchAccessControl(),
       fetchAccountPermissionAuditLogs(),
@@ -283,7 +264,6 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     setExtraDeny(new Set());
     setPendingCreatePayload(null);
     setShowCreatePassword(false);
-    setStoreQuery("");
   };
 
   const startEdit = (account: AccountRow) => {
@@ -292,50 +272,6 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
     setExtraAllow(new Set(account.extra_allow));
     setExtraDeny(new Set(account.extra_deny));
     setStatusText("");
-    setStoreQuery("");
-  };
-
-  const downloadAccountStoreTemplate = () => {
-    const blob = new Blob(["storeId\nstore-001\nstore-002\n"], {
-      type: "text/csv;charset=utf-8",
-    });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = "account-store-import-template.csv";
-    link.click();
-    URL.revokeObjectURL(url);
-  };
-
-  const importAccountStores = async (file: File | null) => {
-    if (!file) return;
-    const text = await file.text();
-    const values = text
-      .replace(/^\uFEFF/, "")
-      .split(/\r?\n/)
-      .map((line) => line.split(",")[0]?.trim() ?? "")
-      .filter(Boolean)
-      .filter((value, index) => !(index === 0 && /^(storeId|门店ID)$/i.test(value)));
-    const duplicateIds = Array.from(new Set(values.filter((value, index) => values.indexOf(value) !== index)));
-    const allowedStoreIds = new Set(stores.map((store) => store.store_id));
-    const unknownIds = Array.from(new Set(values.filter((value) => !allowedStoreIds.has(value))));
-    if (!values.length) {
-      setStatusText("门店导入文件没有可用的门店 ID。");
-      return;
-    }
-    if (duplicateIds.length || unknownIds.length) {
-      const details = [
-        duplicateIds.length ? `重复：${duplicateIds.join("、")}` : "",
-        unknownIds.length ? `不存在或无权分配：${unknownIds.join("、")}` : "",
-      ].filter(Boolean).join("；");
-      setStatusText(`门店导入未应用。${details}`);
-      return;
-    }
-    setDraft((current) => ({
-      ...current,
-      store_ids: Array.from(new Set([...current.store_ids, ...values])),
-    }));
-    setStatusText(`已将 ${values.length} 个门店加入当前账号草稿，请继续复核后保存。`);
   };
 
   const handleUnactivatedSearch = async (
@@ -434,7 +370,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         <span className="mono-cell">{account.external_account_id || "-"}</span>
       ),
     },
-    { key: "role", title: "角色", render: (account) => roleLabel(account.role) },
+    { key: "role", title: "角色", render: (account) => account.org_scope ? ({ group: "集团账号", service_center: "服务中心账号", district: "大区账号", area: "区域账号" }[account.org_scope.level] ?? roleLabel(account.role)) : roleLabel(account.role) },
     {
       key: "status",
       title: "状态",
@@ -806,6 +742,10 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
         </section>
       ) : null}
 
+      {currentUser.is_highest_admin && <div hidden={activeTab !== "accounts"}><AccountBulkImport onCreated={() => {
+        void fetchAccounts().then(response => setAccounts(response.data.rows)).catch(() => setStatusText("账号列表刷新失败，请刷新页面核对创建结果"));
+      }} /></div>}
+
       <section className="content-section account-admin-layout" hidden={activeTab !== "accounts"}>
         <div className="account-admin-main">
           <div className="section-title">
@@ -857,6 +797,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               onChange={(value) => {
                 const role = value as UserRole;
                 setDraftField("role", role);
+                setDraftField("org_scope", null);
                 setDraftField(
                   "store_scope_mode",
                   role === "highest_admin" || role === "admin" ? "all" : "specified",
@@ -882,71 +823,7 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
               ]}
               value={draft.status}
             />
-            <SelectField
-              label="门店范围模式"
-              onChange={(value) =>
-                setDraftField(
-                  "store_scope_mode",
-                  value as AccountUpsertPayload["store_scope_mode"],
-                )
-              }
-              options={
-                draft.role === "highest_admin"
-                  ? [{ value: "all", label: "全部门店" }]
-                  : draft.role === "admin"
-                    ? [
-                        { value: "all", label: "全部门店" },
-                        { value: "specified", label: "指定门店" },
-                      ]
-                    : [{ value: "specified", label: "指定门店" }]
-              }
-              value={draft.store_scope_mode}
-            />
-            <MultiSelectField
-              disabled={draft.store_scope_mode !== "specified"}
-              emptyLabel={draft.store_scope_mode === "specified" ? "未绑定门店" : "全部门店"}
-              helperText={
-                draft.role === "store"
-                  ? "门店账号只能查看和操作已绑定门店。"
-                  : "全局角色默认拥有全部门店范围。"
-              }
-              label="门店权限"
-              onChange={(value) => setDraftField("store_ids", value)}
-              options={selectableStores.map((store) => ({
-                label: `${store.store_name} (${store.store_id})`,
-                value: store.store_id,
-              }))}
-              value={draft.store_scope_mode === "specified" ? draft.store_ids : []}
-            />
-            {draft.store_scope_mode === "specified" ? (
-              <div className="account-store-tools">
-                <label className="filter-field">
-                  <span>搜索门店</span>
-                  <FieldInput
-                    onChange={(event) => setStoreQuery(event.target.value)}
-                    placeholder="门店名称或门店 ID"
-                    value={storeQuery}
-                  />
-                </label>
-                <div className="account-store-import">
-                  <Button onClick={downloadAccountStoreTemplate} type="button" variant="secondary">
-                    下载门店导入模板
-                  </Button>
-                  <label className="ui-button ui-button--secondary account-store-import__file">
-                    批量导入门店
-                    <FieldInput
-                      accept=".csv,.txt"
-                      aria-label="批量导入门店"
-                      onChange={(event) => {
-                        void importAccountStores(event.target.files?.[0] ?? null);
-                        event.target.value = "";
-                      }}
-                      type="file"
-                    />
-                  </label>
-                </div>
-              </div>
-            ) : null}
+            <AccountScopePicker key={editingUserId ?? "new"} draft={draft} stores={stores} onChange={setDraft} />
             <label className="filter-field">
               <span>{editingAccount ? "新密码（可选）" : "密码"}</span>
               <FieldInput
@@ -998,7 +875,8 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                     </label>
                     <label>
                       <FieldInput
-                        checked={extraDeny.has(page.page_key)}
+                        disabled={page.page_key === "A03"}
+                        checked={page.page_key !== "A03" && extraDeny.has(page.page_key)}
                         onChange={() => toggleAccountPermission(page.page_key, "deny")}
                         type="checkbox"
                       />
@@ -1082,14 +960,15 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
                 <FieldInput aria-label={`${page.page_name} 最高管理员`} checked disabled readOnly type="checkbox" />
                 <FieldInput
                   aria-label={`${page.page_name} 管理员`}
-                  checked={roleDrafts.admin.has(page.page_key)}
-                  disabled={!currentUser.is_highest_admin}
+                  checked={page.page_key === "A03" || roleDrafts.admin.has(page.page_key)}
+                  disabled={!currentUser.is_highest_admin || page.page_key === "A03"}
                   onChange={() => toggleRolePermission("admin", page.page_key)}
                   type="checkbox"
                 />
                 <FieldInput
                   aria-label={`${page.page_name} 门店账号`}
-                  checked={roleDrafts.store.has(page.page_key)}
+                  disabled={page.page_key === "A03"}
+                  checked={page.page_key === "A03" || roleDrafts.store.has(page.page_key)}
                   onChange={() => toggleRolePermission("store", page.page_key)}
                   type="checkbox"
                 />
@@ -1209,7 +1088,9 @@ export function AdminAccountsPage({ currentUser }: AdminAccountsPageProps) {
             <div>
               <dt>指定门店</dt>
               <dd>
-                {pendingCreatePayload.store_scope_mode === "all"
+                {pendingCreatePayload.org_scope
+                  ? Object.entries(pendingCreatePayload.org_scope).filter(([key]) => key !== "level").map(([, value]) => value).join(" / ") + "（动态包含下属门店）"
+                  : pendingCreatePayload.store_scope_mode === "all"
                   ? "全部门店"
                   : stores
                       .filter((store) => pendingCreatePayload.store_ids.includes(store.store_id))

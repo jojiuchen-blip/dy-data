@@ -135,6 +135,7 @@ def role_default_page_keys(session: Any, role: str) -> tuple[str, ...]:
             .where(AccessPage.is_active.is_(True))
         ).all()
     )
+    values.add("A03")
     values.discard("D10")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
@@ -160,7 +161,11 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
         return tuple(key for key in ALL_PAGE_KEYS if key in defaults)
     allow, deny = user_override_sets(session, user.user_id)
     values = (defaults | allow) - deny
+    values.add("A03")
     values.discard("D10")
+    # Legacy viewers are normalized to global admins by authentication.
+    if user.role != "viewer" and user.store_scope_mode != "all" and resolved_role == "admin":
+        values.discard("D02")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 
 
@@ -308,7 +313,7 @@ def account_permission_snapshot(session: Any, user: User) -> dict[str, Any]:
 def required_page_keys_for_api_path(path: str, method: str = "GET") -> tuple[str, ...] | None:
     if path.startswith("/api/v1/auth/") or path.startswith("/api/v1/meta/") or path == "/api/v1/feedback":
         return None
-    if path.startswith("/api/v1/admin/accounts") or path.startswith("/api/v1/admin/access-control"):
+    if path.startswith("/api/v1/admin/account") or path.startswith("/api/v1/admin/access-control"):
         return ("D02",)
     if path.startswith("/api/v1/admin/feedback"):
         return ("D09",)

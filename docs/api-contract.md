@@ -142,3 +142,14 @@ DYDATA-88 修复后的运行约定：
 GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号门店范围。必填`periodStart`、`periodEnd`（北京时间、结束日包含，最多366天）；`levels`为逗号分隔的group/service_center/district/area/store，默认group；`metrics`为逗号分隔的order_average/follow_24h_rate/verification_rate，默认全部。继承groupName/serviceCenterName/districtName/areaName/storeId组织过滤。
 
 返回Excel附件：每个指标一个工作表、每个层级一张独立排行附表；全部结果、同一快照、降序、同值并列、无样本不排名。订单总量及不限24小时跟进率仅作辅助。非法输入422，未登录401，无页面权限403，数据库查询故障503；没有结果时仍返回标注空数据的工作表。详见[开发记录](devlog/20260914_ranking_export.md)。
+
+
+## 账号组织范围与批量开通（2026-09-15）
+
+- `AccountUpsertRequest` / `AccountRow` 增加可空 `org_scope`：`level` 为 group/service_center/district/area，依次要求 group_name/service_center_name/district_name/area_name 的完整祖先路径。仅admin+specified可绑定，最高管理员创建。
+- `GET /api/v1/admin/account-store-catalog` 返回可分配门店及组织路径；账号管理鉴权。
+- `GET /api/v1/admin/account-store-import/template` 下载门店名单xlsx；`POST .../preview` 接收multipart file，返回store_ids、stores、duplicate_count、errors（row/store_id/reason）；不写入账号。
+- `GET /api/v1/admin/account-bulk-import/template` 下载账号开通xlsx；仅最高管理员。
+- `POST /api/v1/admin/account-bulk-import/preview` 接收multipart file，返回rows、errors、digest；不创建账号。
+- `POST /api/v1/admin/account-bulk-import/commit` 接收multipart file和digest；确认时重新校验，成功返回含初始密码的xlsx（Cache-Control: no-store），错误整批回滚。超过5MB/200账号或格式错误422，文件变化409，权限不足403。
+- 所有有效登录账号对A03排行与导出固定允许，使用全量scope；其他业务端点继续校验所选范围。
