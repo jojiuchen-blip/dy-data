@@ -32,6 +32,7 @@ from dy_api.routes._data import (
 )
 from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
 from apps.api.dy_api.ranking_snapshots import read_snapshot_report
+from apps.api.dy_api.ranking_export import build_ranking_workbook, parse_export_choices, LEVEL_LABELS, METRIC_LABELS
 from apps.api.dy_api.ranking_business import ensure_business_snapshot
 from dy_api.schemas import (
     CommissionRulesSummaryData,
@@ -594,6 +595,62 @@ def douyin_ranking(
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标查询暂时不可用，请稍后重试或缩短日期范围")
     return _reporting_success(request, data, definitions=DOUYIN_RANKING_DEFINITIONS)
+
+
+@router.get("/dashboard/douyin-ranking/export")
+def export_douyin_ranking(
+    request: Request,
+    period_start: date = Query(alias="periodStart"),
+    period_end: date = Query(alias="periodEnd"),
+    levels: str = Query(default="group"),
+    metrics: str = Query(default="order_average,follow_24h_rate,verification_rate"),
+    group_name: str | None = Query(default=None, alias="groupName"),
+    service_center_name: str | None = Query(default=None, alias="serviceCenterName"),
+    district_name: str | None = Query(default=None, alias="districtName"),
+    area_name: str | None = Query(default=None, alias="areaName"),
+    store_id: str | None = Query(default=None, alias="storeId"),
+    current_user: AuthContext = Depends(get_current_user),
+    session=Depends(get_session_dependency),
+):
+    """Export authorized full rankings from one frozen snapshot."""
+    if period_end < period_start or (period_end - period_start).days >= 366:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY,
+            "INVALID_PERIOD", "结束日期不能早于开始日期，统计范围不能超过366天", field="periodEnd")
+    try:
+        selected_levels = parse_export_choices(levels, LEVEL_LABELS)
+        selected_metrics = parse_export_choices(metrics, METRIC_LABELS)
+    except ValueError as exc:
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "INVALID_EXPORT_OPTIONS", str(exc))
+    if session is None:
+        _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE, "DATABASE_UNAVAILABLE", "数据库暂不可用")
+    business_tz = ZoneInfo("Asia/Shanghai")
+    start_at = datetime.combine(period_start, time.min, tzinfo=business_tz)
+    end_at = datetime.combine(period_end + timedelta(days=1), time.min, tzinfo=business_tz)
+    preview = getattr(request.app.state, "ranking_snapshot_preview", False)
+    try:
+        run_id = None
+        if not preview:
+            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at)
+            session.commit()
+        content = build_ranking_workbook(session, levels=selected_levels, metrics=selected_metrics,
+            run_id=run_id, data_mode="synthetic" if preview else "business",
+            period_start=start_at, period_end=end_at,
+            scope_store_ids=None if current_user.has_global_data_access else current_user.store_ids,
+            group_name=(group_name or "").strip() or None,
+            service_center_name=(service_center_name or "").strip() or None,
+            district_name=(district_name or "").strip() or None,
+            area_name=(area_name or "").strip() or None,
+            store_id=(store_id or "").strip() or None)
+    except ValueError as exc:
+        session.rollback()
+        _raise_reporting_error(request, status.HTTP_422_UNPROCESSABLE_ENTITY, "RANKING_SNAPSHOT_UNAVAILABLE", str(exc))
+    except DBAPIError:
+        session.rollback()
+        _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
+            "RANKING_QUERY_UNAVAILABLE", "指标导出暂时不可用，请稍后重试或缩短日期范围")
+    return Response(content, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="douyin-ranking-{period_start}-{period_end}.xlsx"',
+                 "Cache-Control": "no-store"})
 
 
 @router.get("/commission-rules/summary")

@@ -136,3 +136,9 @@ DYDATA-88 修复后的运行约定：
 `GET /api/v1/admin/sync` 的 `data.resource_guard` 是可选的 worker 资源监控快照。它只读取 `component_heartbeats` 中实例 ID 以 `worker-resource-monitor-` 开头、类型为 `worker` 的最新心跳；API 不从自身进程重新采样资源。快照包含 `state`（`normal`、`constrained`、`protected`、`recovering`、`unknown`、`disabled`）、`reasons`、`allow_daily`、`allow_history`、`since`、`duration_seconds`、`recovery_condition`、`sampled_at`、`host_available_bytes`、`cgroup_used_ratio`（有限非负比值，短暂超过100%仍保留）和 `swap_used_bytes`，以及可选的 `swap_activity_bytes_per_second`（交换活动速率，单位 bytes/s）。没有心跳、心跳超过30秒、采样时间超过30秒或心跳内容缺失时返回 `unknown`，并将 `allow_daily` 与 `allow_history` 置为 `false`；旧 MemoryStore 或没有数据库会话时该字段可以为 `null`。
 
 同一响应的可选 `data.sync_freshness` 由真实 `job_runs` 汇总。它包含最后成功批次的时间、任务编号、任务类型、业务日期或窗口，以及按成功 `date_sync` 统计的 `latest_completed_business_date`；“最后成功批次”可能是历史补拉范围，不能单独推断昨日已发布。在 `priority_daily` 模式下，`daily_batch` 还返回目标业务日、上海时间02:00调度时间、完成状态、实际完成时间、未完成任务类型和是否超过目标截止时间。初始目标截止时间为上海时间06:00，响应中的 `deadline_configurable` 为 `true`，可通过 `WORKER_DAILY_SYNC_DEADLINE_HOUR` 调整（有效范围03:00至23:00）。这部分只做后台展示，不发送外部通知。
+
+## 指标看板排行导出（2026-09-14）
+
+GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号门店范围。必填`periodStart`、`periodEnd`（北京时间、结束日包含，最多366天）；`levels`为逗号分隔的group/service_center/district/area/store，默认group；`metrics`为逗号分隔的order_average/follow_24h_rate/verification_rate，默认全部。继承groupName/serviceCenterName/districtName/areaName/storeId组织过滤。
+
+返回Excel附件：每个指标一个工作表、每个层级一张独立排行附表；全部结果、同一快照、降序、同值并列、无样本不排名。订单总量及不限24小时跟进率仅作辅助。非法输入422，未登录401，无页面权限403，数据库查询故障503；没有结果时仍返回标注空数据的工作表。详见[开发记录](devlog/20260914_ranking_export.md)。
