@@ -163,7 +163,8 @@ def effective_page_keys(session: Any, user: User | None, *, role: str | None = N
     values = (defaults | allow) - deny
     values.add("A03")
     values.discard("D10")
-    if user.store_scope_mode != "all" and resolved_role == "admin":
+    # Legacy viewers are normalized to global admins by authentication.
+    if user.role != "viewer" and user.store_scope_mode != "all" and resolved_role == "admin":
         values.discard("D02")
     return tuple(key for key in ALL_PAGE_KEYS if key in values)
 

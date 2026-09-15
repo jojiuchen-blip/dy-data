@@ -24,6 +24,7 @@ Linear当前只能访问其他团队，用户知晓后再次要求直接执行�
 - 全量视觉回归261 passed；相关回归331 passed；剩余CLI专项20 passed。
 - 初次全仓运行2793 passed、169 skipped、13 failed、1 teardown error。13项失败已修正旧断言或切换正常Python运行时并在上述专项全部复验通过；Windows Vite退出超时需由Linux CI复核。未将初次运行报告为全绿。
 - CI、主分支合并与生产部署待执行，未宣称上线。
+- PR #33首轮Linux CI：3078 passed、169 skipped、1 failed，无Windows退出错误。失败为历史viewer映射全局管理员时D02被误拒绝；已与认证兼容规则对齐，64项相关测试通过，并补充区域管理员账号管理拒绝断言。
 
 ## Foundation漂移
 

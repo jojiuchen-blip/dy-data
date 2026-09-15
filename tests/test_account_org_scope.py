@@ -20,6 +20,8 @@ def test_area_scope_is_dynamic_and_path_specific(client, db_session):
     assert [s['store_id'] for s in response.json()['data']['stores']] == ['store-1']
     _login(client, 'area-admin')
     assert client.get('/api/v1/auth/me').json()['data']['store_ids'] == ['store-1']
+    assert client.get('/api/v1/admin/accounts').status_code == 403
+    assert client.get('/api/v1/admin/account-store-catalog').status_code == 403
     params = {'storeId': 'store-2', 'month': '2026-09', 'metricScope': 'MONTH'}
     assert client.get('/api/v1/store-settlements', params=params).status_code == 403
     assert [s['storeId'] for s in client.get('/api/v1/meta/filters').json()['data']['stores']] == ['store-1']
