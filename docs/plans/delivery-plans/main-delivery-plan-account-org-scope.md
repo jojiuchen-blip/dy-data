@@ -59,7 +59,7 @@
 | Task | 子开发计划 | 状态 | 完成日期 |
 |---|---|---|---|
 | T0.1 | [sub-delivery-plan-account-org-scope-T0.1-account-scope.md](sub-delivery-plan-account-org-scope-T0.1-account-scope.md) | 已完成 | 2026-09-15 |
-| T0.2 | [sub-delivery-plan-account-org-scope-T0.2-default-password.md](sub-delivery-plan-account-org-scope-T0.2-default-password.md) | 进行中 | - |
+| T0.2 | [sub-delivery-plan-account-org-scope-T0.2-default-password.md](sub-delivery-plan-account-org-scope-T0.2-default-password.md) | 已完成 | 2026-09-15 |
 
 ## 4. 任务看板
 
