@@ -26,3 +26,30 @@ def test_roster_repair_previews_disabled_store_and_reports_unmapped_without_muta
     assert changes[0][1]["participates_in_clue_allocation"] is True
     assert issues[0]["reason"] == "poi_unmapped_or_store_missing"
     assert store.participates_in_clue_allocation is False
+
+
+def test_roster_repair_requires_explicit_reopening_for_closed_store(db_session):
+    store = _store("closed-account", candidate=False)
+    store.location_status = "closed"
+    store.location_status_note = "关闭"
+    db_session.add_all([store, DimStorePoiMapping(poi_id="closed-poi", store_id=store.store_id)])
+    db_session.flush()
+    row = {"所属账户关联poi_ID": "closed-poi", "经度": 120, "纬度": 30, "省份": "浙江", "城市": "杭州市"}
+    changes, issues = prepare(db_session, [row])
+    assert changes == []
+    assert issues[0]["reason"] == "closed_store_requires_business_confirmation"
+    changes, issues = prepare(db_session, [row], reopen_closed=True)
+    assert not issues
+    assert changes[0][1]["participates_in_clue_allocation"] is True
+    assert store.location_status == "closed"
+
+
+def test_roster_repair_preserves_non_closure_business_note(db_session):
+    store = _store("renamed-account", candidate=True)
+    store.location_status_note = "服务店改名"
+    db_session.add_all([store, DimStorePoiMapping(poi_id="renamed-poi", store_id=store.store_id)])
+    db_session.flush()
+    row = {"所属账户关联poi_ID": "renamed-poi", "经度": 120, "纬度": 30, "省份": "浙江", "城市": "杭州市"}
+    changes, issues = prepare(db_session, [row])
+    assert not issues
+    assert changes[0][1]["location_status_note"] == "服务店改名"

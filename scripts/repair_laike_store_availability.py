@@ -33,7 +33,7 @@ def load_roster(path):
     return rows, digest
 
 
-def prepare(session, rows):
+def prepare(session, rows, *, reopen_closed=False):
     mappings = {row.poi_id: row.store_id for row in session.scalars(select(DimStorePoiMapping)).all()}
     ids = {mappings.get(str(row.get("所属账户关联poi_ID", "")).strip()) for row in rows}
     stores = {row.store_id: row for row in session.scalars(
@@ -50,6 +50,8 @@ def prepare(session, rows):
             reason = "poi_unmapped_or_store_missing"
         elif store.store_id in seen_stores:
             reason = "multiple_roster_pois_for_one_store"
+        elif not reopen_closed and (store.location_status == "closed" or "关闭" in (store.location_status_note or "")):
+            reason = "closed_store_requires_business_confirmation"
         seen_pois.add(poi)
         try:
             lon, lat = Decimal(str(row["经度"])), Decimal(str(row["纬度"]))
@@ -64,7 +66,7 @@ def prepare(session, rows):
             continue
         seen_stores.add(store.store_id)
         changes.append((store, {"is_active": True, "is_douyin_clue_applicable": True,
-            "participates_in_clue_allocation": True, "location_status": "valid", "location_status_note": None,
+            "participates_in_clue_allocation": True, "location_status": "valid", "location_status_note": store.location_status_note,
             "longitude": lon, "latitude": lat, "standard_province": province, "standard_city": city,
             "city_code": normalize_city_code(city)}))
     return changes, issues
@@ -76,12 +78,13 @@ def main():
     parser.add_argument("--backup", required=True, type=Path)
     parser.add_argument("--expected-count", required=True, type=int)
     parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--reopen-closed", action="store_true", help="Only after confirming the listed closed stores have reopened")
     args = parser.parse_args()
     rows, digest = load_roster(args.input)
     if len(rows) != args.expected_count:
         raise ValueError("roster count differs from reviewed count")
     with make_session_factory(make_engine())() as session:
-        changes, issues = prepare(session, rows)
+        changes, issues = prepare(session, rows, reopen_closed=args.reopen_closed)
         report = {"roster_count": len(rows), "ready_count": len(changes), "issues": issues, "sha256": digest}
         if args.apply:
             if issues:
