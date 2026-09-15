@@ -519,6 +519,15 @@ def _validate_for_publish(
         raise RuleValidationError("all three fixed strategy types must be present exactly once")
 
     orders: list[int] = []
+    by_type = {config.strategy_type: config for config in configs}
+    selection_mode = (by_type["nearby_city_optimization"].params_json or {}).get("selection_mode", "score")
+    if selection_mode not in {"score", "douyin_source_store"}:
+        raise RuleValidationError("unsupported selection_mode")
+    if selection_mode == "douyin_source_store":
+        if not by_type["nearby_city_optimization"].enabled or by_type["city_fallback"].enabled:
+            raise RuleValidationError("source-store mode requires the source strategy and disables city fallback")
+        if [c.strategy_type for c in configs] != ["sales_store_priority", "nearby_city_optimization", "city_fallback"]:
+            raise RuleValidationError("source-store mode requires sales priority before source store")
     for config in configs:
         if not isinstance(config.enabled, bool):
             raise RuleValidationError("strategy enabled must be a boolean")

@@ -153,7 +153,7 @@ function displayValue(value: string | null | undefined): string {
 }
 
 function roundLabel(value: number | null | undefined): string {
-  return value ? `第${value}轮` : "-";
+  return value !== null && value !== undefined ? `第${value}轮` : "-";
 }
 
 function optionList(values: string[] | undefined, labels?: Record<string, string>) {

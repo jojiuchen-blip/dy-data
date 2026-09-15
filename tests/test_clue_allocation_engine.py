@@ -36,6 +36,81 @@ def _dt(day: int, hour: int = 9) -> datetime:
     return datetime(2026, 7, day, hour, tzinfo=timezone.utc)
 
 
+def _source_configs():
+    configs = _strategy_configs(fallback_enabled=False)
+    configs[1]["params"]["selection_mode"] = "douyin_source_store"
+    return configs
+
+
+def test_source_rule_uses_original_store_without_reading_scores(db_session, monkeypatch):
+    db_session.add_all([_store("anchor"), _store("neighbor"), _lead()])
+    _publish_global_rule(db_session, strategy_configs=_source_configs())
+    def no_scores(*args, **kwargs):
+        pytest.fail("source-store allocation must not load scores")
+    monkeypatch.setattr(clue_allocation_engine, "_latest_scores", no_scores)
+    result = allocate_lead(db_session, "lead-1", now=_dt(2))
+    assert result.selected_store_id == "anchor"
+    assert db_session.get(ClueAssignmentRound, result.assignment_round_id).round_no == 1
+    assert allocate_lead(db_session, "lead-1", now=_dt(2)).assignment_round_id == result.assignment_round_id
+
+
+def test_source_rule_sales_priority_is_round_zero(db_session):
+    db_session.add_all([_store("anchor"), _store("sale"), _lead()])
+    _publish_global_rule(db_session, strategy_configs=_source_configs())
+    _add_sale_store(db_session, order_id="order-1", store_id="sale", coupon_id="coupon")
+    result = allocate_lead(db_session, "lead-1", now=_dt(2))
+    assert result.selected_store_id == "sale"
+    assert db_session.get(ClueAssignmentRound, result.assignment_round_id).round_no == 0
+
+
+def test_source_rule_continues_from_sales_round_zero_to_original_round_one(db_session):
+    lead = _lead()
+    db_session.add_all([_store("anchor"), _store("sale"), lead])
+    _publish_global_rule(db_session, strategy_configs=_source_configs())
+    _add_sale_store(db_session, order_id="order-1", store_id="sale", coupon_id="coupon")
+    first = allocate_lead(db_session, "lead-1", now=_dt(2))
+    db_session.get(ClueAssignmentRound, first.assignment_round_id).round_status = "expired"
+    lead.current_assignment_round_id = None
+    db_session.flush()
+    second = allocate_lead(db_session, "lead-1", now=_dt(3), transition_key="sales-expired")
+    assert second.selected_store_id == "anchor"
+    assert db_session.get(ClueAssignmentRound, second.assignment_round_id).round_no == 1
+
+
+def test_source_rule_never_substitutes_neighbor_for_missing_original(db_session):
+    db_session.add_all([_store("neighbor"), _lead()])
+    _publish_global_rule(db_session, strategy_configs=_source_configs())
+    result = allocate_lead(db_session, "lead-1", now=_dt(2))
+    assert result.status == "headquarters"
+    assert result.selected_store_id is None
+
+
+def test_source_rule_does_not_require_geography_for_direct_assignment(db_session):
+    store = _store("anchor")
+    store.longitude = store.latitude = None
+    store.location_status = "missing"
+    store.is_douyin_clue_applicable = False
+    lead = _lead()
+    lead.anchor_longitude = lead.anchor_latitude = None
+    lead.anchor_unavailable_reason = "anchor_coordinates_unavailable"
+    db_session.add_all([store, lead])
+    _publish_global_rule(db_session, strategy_configs=_source_configs())
+    result = allocate_lead(db_session, "lead-1", now=_dt(2))
+    assert result.selected_store_id == "anchor"
+
+
+def test_geography_refresh_does_not_permanently_disable_participation(db_session):
+    store = _store("anchor")
+    store.longitude = store.latitude = None
+    mapping = DimStorePoiMapping(poi_id="poi-anchor", store_id="anchor")
+    raw = RawDouyinClue(follow_poi_id="poi-anchor", auto_province_name="CN-SH", auto_city_name="CN-SH")
+    clue_allocation._enrich_store_locations_from_raw_evidence(
+        db_session, [raw], {"poi-anchor": mapping}, {"anchor": store}, _dt(2)
+    )
+    assert store.participates_in_clue_allocation is True
+    assert store.is_douyin_clue_applicable is False
+
+
 def _store(
     store_id: str,
     *,

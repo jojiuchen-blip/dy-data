@@ -85,6 +85,7 @@ const allocationSubviewItems: Array<{
 ];
 
 interface RuleVersionDraft {
+  sourceStoreOnly: boolean;
   auto_expiry_enabled: boolean;
   first_follow_up_sla_hours: number;
   protection_days: number;
@@ -100,6 +101,7 @@ interface RuleVersionDraft {
 }
 
 const defaultRuleVersionDraft: RuleVersionDraft = {
+  sourceStoreOnly: false,
   auto_expiry_enabled: false,
   first_follow_up_sla_hours: 24,
   protection_days: 7,
@@ -273,6 +275,7 @@ function ruleVersionToDraft(version?: ClueAllocationRuleVersion): RuleVersionDra
   const nearbyCity = strategies.get("nearby_city_optimization");
   const cityFallback = strategies.get("city_fallback");
   return {
+    sourceStoreOnly: nearbyCity?.params.selection_mode === "douyin_source_store",
     auto_expiry_enabled: version.auto_expiry_enabled ?? true,
     first_follow_up_sla_hours: version.first_follow_up_sla_hours ?? 24,
     protection_days: version.protection_days ?? 7,
@@ -306,13 +309,16 @@ function buildRuleVersionPayload(draft: RuleVersionDraft): ClueAllocationRuleVer
       },
       {
         strategy_type: "nearby_city_optimization",
-        enabled: draft.nearbyCityEnabled,
+        enabled: draft.sourceStoreOnly || draft.nearbyCityEnabled,
         execution_order: 2,
-        params: { max_distance_km: draft.nearbyCityDistanceKm },
+        params: {
+          max_distance_km: draft.nearbyCityDistanceKm,
+          selection_mode: draft.sourceStoreOnly ? "douyin_source_store" : "score",
+        },
       },
       {
         strategy_type: "city_fallback",
-        enabled: draft.cityFallbackEnabled,
+        enabled: !draft.sourceStoreOnly && draft.cityFallbackEnabled,
         execution_order: 3,
         params: {},
       },
@@ -1780,7 +1786,16 @@ export function AdminClueAllocationPage({
               <div className="clue-allocation-rule-editor__divider" />
               <div>
                 <h3>新建草案版本</h3>
-                <p>策略类型固定，只能调整启停、参数和评分权重。</p>
+                <p>新建版本保留历史规则。原始门店模式按第0轮销售店优先、第1轮抖音原始门店分配，不使用评分或城市兜底。</p>
+                <label className="filter-field checkbox-field">
+                  <span>按抖音原始门店分配（不评分）</span>
+                  <FieldInput
+                    type="checkbox"
+                    checked={ruleVersionDraft.sourceStoreOnly}
+                    onChange={(event) => setRuleVersionDraft((current) => ({ ...current, sourceStoreOnly: event.target.checked }))}
+                  />
+                </label>
+                {ruleVersionDraft.sourceStoreOnly && <p>下方评分权重与城市距离仅保留作旧规则参考，本模式不使用；销售店距离限制仍生效。</p>}
               </div>
               <div className="clue-allocation-rule-editor__fields clue-allocation-rule-editor__fields--dense">
                 <label className="filter-field checkbox-field">
@@ -1916,6 +1931,7 @@ export function AdminClueAllocationPage({
                   <span>城市优选</span>
                   <FieldInput
                     checked={ruleVersionDraft.nearbyCityEnabled}
+                    disabled={ruleVersionDraft.sourceStoreOnly}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
                         ...current,
@@ -1944,6 +1960,7 @@ export function AdminClueAllocationPage({
                   <span>城市兜底</span>
                   <FieldInput
                     checked={ruleVersionDraft.cityFallbackEnabled}
+                    disabled={ruleVersionDraft.sourceStoreOnly}
                     onChange={(event) =>
                       setRuleVersionDraft((current) => ({
                         ...current,

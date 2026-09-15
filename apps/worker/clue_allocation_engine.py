@@ -184,7 +184,20 @@ def allocate_lead(
         session.flush()
         return AllocationResult(lead.lead_key, "headquarters", decision.reason, None, None, (decision.decision_id,))
 
+    source_store_mode = any(
+        config["strategy_type"] == "nearby_city_optimization"
+        and config["params"].get("selection_mode") == "douyin_source_store"
+        for config in _strategy_configs(binding.rule_version_snapshot or {})
+    )
     anchor_reason = _anchor_unavailable_reason(lead)
+    if source_store_mode:
+        # Identity-based assignment does not require geographic eligibility.
+        anchor_reason = (
+            "follow_poi_missing" if not _clean(lead.anchor_poi_id)
+            else "follow_poi_unmapped" if not _clean(lead.anchor_store_id)
+            else "follow_poi_source_invalid" if lead.anchor_source != "douyin_follow_poi"
+            else None
+        )
     if anchor_reason:
         snapshot = _base_snapshot(
             lead=lead,
@@ -259,7 +272,7 @@ def allocate_lead(
     if _batch_context is None:
         stores = session.scalars(select(DimStore).order_by(DimStore.store_id)).all()
         stores_by_id, stores_by_city = _index_stores(stores)
-        scores = _latest_scores(
+        scores = {} if source_store_mode else _latest_scores(
             session,
             {store.store_id for store in stores},
             rule_version_id=binding.rule_version_id,
@@ -274,7 +287,7 @@ def allocate_lead(
         stores_by_id = _batch_context.stores_by_id
         stores_by_city = _batch_context.stores_by_city
         if binding.rule_version_id not in _batch_context.scores_by_rule_version:
-            _batch_context.scores_by_rule_version[binding.rule_version_id] = _latest_scores(
+            _batch_context.scores_by_rule_version[binding.rule_version_id] = {} if source_store_mode else _latest_scores(
                 session,
                 {store.store_id for store in stores},
                 rule_version_id=binding.rule_version_id,
@@ -334,6 +347,7 @@ def allocate_lead(
             scores=scores,
             historical_store_ids=historical_store_ids,
             max_distance_km=max_distance_km,
+            source_store_mode=source_store_mode,
         )
         selected = next((candidate for candidate in candidates if candidate["rank"] == 1), None)
         if selected is None:
@@ -369,6 +383,8 @@ def allocate_lead(
             continue
 
         round_no = _next_round_no(session, lead.lead_key, normalized_mode)
+        if source_store_mode and strategy_type == "sales_store_priority" and not historical_store_ids:
+            round_no = 0
         assignment_round_id = _assignment_round_id(
             lead_key=lead.lead_key,
             execution_mode=normalized_mode,
@@ -561,7 +577,35 @@ def _strategy_candidates(
     scores: dict[str, StoreScoreSnapshot],
     historical_store_ids: set[str],
     max_distance_km: float | None,
+    source_store_mode: bool = False,
 ) -> tuple[list[dict[str, Any]], str | None, dict[str, int]]:
+    if source_store_mode and strategy_type != "sales_store_priority":
+        # No city fallback may silently replace the exact Douyin source store.
+        if strategy_type != "nearby_city_optimization":
+            return [], "source_store_only", _candidate_summary(stores, [], in_scope_count=0)
+        store = stores_by_id.get(lead.anchor_store_id)
+        if store is None:
+            candidate = _unknown_store_candidate(
+                store_id=lead.anchor_store_id, reason="follow_poi_store_missing", used_for_ranking=False
+            )
+        else:
+            reasons = []
+            if not store.is_active:
+                reasons.append("store_inactive")
+            if not store.participates_in_clue_allocation:
+                reasons.append("allocation_participation_disabled")
+            if store.store_id in historical_store_ids:
+                reasons.append("historically_self_owned")
+            candidate = {
+                "store_id": store.store_id, "store_name": store.store_name,
+                "city_code": normalize_city_code(store.city_code),
+                "eligible": not reasons, "exclusion_reasons": reasons,
+                "distance_km": None, "score": _score_snapshot_payload(None, used_for_ranking=False),
+                "rank": None if reasons else 1,
+            }
+        return [candidate], None if candidate["eligible"] else "source_store_ineligible", _candidate_summary(
+            stores, [candidate], in_scope_count=1
+        )
     if strategy_type == "sales_store_priority":
         if sale_store["status"] != "resolved":
             return [], str(sale_store["status"]), _candidate_summary(stores, [], in_scope_count=0)
