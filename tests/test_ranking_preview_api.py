@@ -69,15 +69,15 @@ def test_preview_still_requires_login(preview_client):
     assert preview_client.get("/api/v1/dashboard/douyin-ranking", params=PARAMS).status_code == 401
 
 
-def test_preview_store_scope_applied_before_aggregation(preview_client):
+def test_preview_ranking_is_global_for_store_accounts(preview_client):
     auth = AuthContext(user_id=None, username="store-a", display_name="A", role="store",
         store_ids=("A",), auth_type="env_admin", store_scope_mode="explicit", page_keys=("A03",))
     preview_client.app.dependency_overrides[get_current_user] = lambda: auth
     response = preview_client.get("/api/v1/dashboard/douyin-ranking", params=PARAMS)
     assert response.status_code == 200
     data = response.json()["data"]
-    assert len(data["rows"]) == 1 and data["rows"][0]["key"] == "A"
-    assert data["totals"]["orderCount"] == 4
+    assert {row["key"] for row in data["rows"]} == {"A", "B", "C"}
+    assert data["totals"]["orderCount"] == 10
     assert data["totals"]["verificationRate"] == .5
 
 
@@ -129,16 +129,16 @@ def test_export_rejects_invalid_options(preview_client, params):
     assert preview_client.get(EXPORT, params={**PARAMS, **params}).status_code == 422
 
 
-def test_export_requires_login_and_obeys_scope(preview_client):
+def test_export_requires_login_and_allows_global_ranking(preview_client):
     assert preview_client.get(EXPORT, params=PARAMS).status_code == 401
     auth = AuthContext(user_id=None, username="store-a", display_name="A", role="store",
         store_ids=("A",), auth_type="env_admin", store_scope_mode="explicit", page_keys=("A03",))
     preview_client.app.dependency_overrides[get_current_user] = lambda: auth
     book = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "metrics": "order_average"}))
     rows = [row for row in book.active.iter_rows(values_only=True) if isinstance(row[0], int)]
-    assert len(rows) == 1 and rows[0][2] == "A"
+    assert len(rows) == 3
     empty = workbook(preview_client.get(EXPORT, params={**PARAMS, "levels": "store", "storeId": "B"}))
-    assert not any(isinstance(row[0], int) for row in empty.active.iter_rows(values_only=True))
+    assert any(isinstance(row[0], int) and row[2] == "B" for row in empty.active.iter_rows(values_only=True))
 
 
 def test_export_over_200_rows_and_formula_like_names_are_literal(preview_client, db_session):

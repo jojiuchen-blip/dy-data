@@ -3368,3 +3368,29 @@ export function downloadFinanceImportErrors(batchId: string): Promise<void> {
     `/admin/finance-imports/${encodeURIComponent(batchId)}/error-file`,
   );
 }
+
+export async function fetchAccountStoreCatalog() {
+  return requestJson<{ stores: import('../types/dashboard').AccountStoreOption[] }>("/admin/account-store-catalog");
+}
+export function downloadAccountStoreTemplate() { return requestDownload("/admin/account-store-import/template"); }
+export function previewAccountStoreImport(file: File) {
+  const form = new FormData(); form.append("file", file);
+  return sendForm<import('../types/dashboard').AccountStorePreview>("/admin/account-store-import/preview", form);
+}
+
+export interface BulkAccountPreview {
+  rows: { row: number; username: string; display_name: string; account_type: string; scope: string; store_count: number }[];
+  errors: { row: number; reason: string }[]; digest: string;
+}
+export function downloadBulkAccountTemplate() { return requestDownload("/admin/account-bulk-import/template"); }
+export function previewBulkAccounts(file: File) {
+  const form = new FormData(); form.append("file", file);
+  return sendForm<BulkAccountPreview>("/admin/account-bulk-import/preview", form);
+}
+export async function commitBulkAccounts(file: File, digest: string) {
+  const body = new FormData(); body.append("file", file); body.append("digest", digest);
+  const response = await fetch(apiUrl("/admin/account-bulk-import/commit"), { method: "POST", credentials: "include", body });
+  if (!response.ok) throw await apiRequestError(response);
+  clearRequestJsonCache();
+  return response.blob();
+}

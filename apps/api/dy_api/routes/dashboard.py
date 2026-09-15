@@ -483,14 +483,7 @@ def store_ranking(
             request,
         )
     _validate_product_selection(store, product_scope, product_type, request)
-    scope_mode = (
-        "AUTHORIZED"
-        if current_user.has_global_data_access
-        else "GLOBAL_TOP_20_EXCEPTION"
-    )
-    if scope_mode == "GLOBAL_TOP_20_EXCEPTION":
-        page = 1
-        page_size = min(page_size, 20)
+    scope_mode = "AUTHORIZED"
     filters = {
         "period_type": period_type,
         "period_key": period_key,
@@ -576,7 +569,7 @@ def douyin_ranking(
             period_start=start_at,
             period_end=end_at,
             level=normalized_level,
-            scope_store_ids=(None if current_user.has_global_data_access else current_user.store_ids),
+            scope_store_ids=None,
             group_name=(group_name or "").strip() or None,
             service_center_name=(service_center_name or "").strip() or None,
             district_name=(district_name or "").strip() or None,
@@ -635,7 +628,7 @@ def export_douyin_ranking(
         content = build_ranking_workbook(session, levels=selected_levels, metrics=selected_metrics,
             run_id=run_id, data_mode="synthetic" if preview else "business",
             period_start=start_at, period_end=end_at,
-            scope_store_ids=None if current_user.has_global_data_access else current_user.store_ids,
+            scope_store_ids=None,
             group_name=(group_name or "").strip() or None,
             service_center_name=(service_center_name or "").strip() or None,
             district_name=(district_name or "").strip() or None,

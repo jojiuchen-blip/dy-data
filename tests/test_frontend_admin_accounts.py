@@ -98,15 +98,12 @@ def test_account_create_hides_technical_username_and_supports_store_batch_select
     assert "<span>账号名</span>" not in create_form
     assert "<dt>账号名</dt>" not in confirmation
     assert "username?: string" in types_source
-    assert "storeQuery" in page_source
-    assert "filteredStores" in page_source
-    assert "selectedStoreIds" in page_source
-    assert "selectedStores" in page_source
-    assert "[...selectedStores, ...filteredStores]" in page_source
-    assert "importAccountStores" in page_source
-    assert "下载门店导入模板" in page_source
-    assert "批量导入门店" in page_source
-    assert "门店名称或门店 ID" in page_source
+    assert "AccountScopePicker" in create_form
+    picker_source = read_source("components/AccountScopePicker.tsx")
+    assert "下载门店导入模板" in picker_source
+    assert "批量导入门店" in picker_source
+    assert "输入名称关键词或部分 ID" in picker_source
+    assert "全选搜索结果" in picker_source
     assert "指定门店" in confirmation
 
 

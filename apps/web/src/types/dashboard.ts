@@ -74,6 +74,7 @@ export interface AccountStoreScope {
 }
 
 export interface AccountRow {
+  org_scope?: Record<string, string> | null;
   user_id: string;
   username: string;
   external_account_id: string | null;
@@ -110,6 +111,7 @@ export interface UnactivatedStoreAccountListData {
 }
 
 export interface AccountUpsertPayload {
+  org_scope?: Record<string, string> | null;
   username?: string;
   display_name: string;
   role: UserRole;
@@ -2514,4 +2516,12 @@ export interface SapSuggestionListData {
   total: number;
   currentVersion: number;
   confirmedVersion: number;
+}
+
+export interface AccountStoreOption extends StoreOption {
+  group_name: string; service_center_name: string; district_name: string; area_name: string;
+}
+export interface AccountStorePreview {
+  store_ids: string[]; stores: AccountStoreOption[]; duplicate_count: number;
+  errors: { row: number; store_id: string; reason: string }[];
 }

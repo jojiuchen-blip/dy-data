@@ -1,5 +1,7 @@
 ﻿from __future__ import annotations
 
+from apps.api.dy_api.account_scope import normalize_org_scope, organization_store_ids, account_store_catalog
+from apps.api.dy_api.auth import user_store_ids
 from collections import Counter
 from hashlib import sha256
 import json
@@ -13,7 +15,7 @@ from typing import Any
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Header, HTTPException, Query, Request, UploadFile, status
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import and_, delete, exists, false, func, or_, select, text
 from sqlalchemy.exc import IntegrityError
@@ -502,6 +504,150 @@ def list_unactivated_store_accounts(
     }
 
 
+@router.get("/account-store-catalog")
+def get_account_store_catalog(actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    return {"data": {"stores": account_store_catalog(store.session, actor)}}
+
+
+@router.get("/account-store-import/template")
+def download_account_store_template(actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    from fastapi.responses import Response
+    from apps.api.dy_api.account_store_import import store_template
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    return Response(store_template(account_store_catalog(store.session, actor)),
+                    media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    headers={"Content-Disposition": 'attachment; filename="account-store-template.xlsx"', "Cache-Control": "no-store"})
+
+
+@router.post("/account-store-import/preview")
+def preview_account_store_import(file: UploadFile = File(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    from apps.api.dy_api.account_store_import import preview_store_import
+    store = _require_available_store(store)
+    _require_account_manager(actor)
+    content = file.file.read(5 * 1024 * 1024 + 1)
+    try:
+        data = preview_store_import(content, file.filename or "", account_store_catalog(store.session, actor))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"data": data}
+
+
+def _preview_bulk_accounts(content, filename, session, actor):
+    from apps.api.dy_api.account_bulk_import import read_account_rows, TYPES
+    from apps.api.dy_api.account_scope import ORG_FIELDS, ORG_LEVELS
+    from pydantic import ValidationError
+    rows, errors, payloads, seen = [], [], [], set()
+    try:
+        source_rows = read_account_rows(content, filename)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    for number, row in source_rows:
+        try:
+            for index in (0, 7, 8):
+                if row[index] is not None and not isinstance(row[index], str):
+                    raise ValueError("登录账号、门店ID和所属账户编号必须为文本")
+            username, name, kind, group, center, district, area, ids, external = [str(value).strip() if value is not None else "" for value in row]
+            username = normalize_account_value(username)
+            external = _optional_account_value(external) or ""
+            if not username or not name or kind not in TYPES:
+                raise ValueError("请填写登录账号、显示名称，并选择有效账号类型")
+            identifiers = {username, external} - {""}
+            if seen & identifiers:
+                raise ValueError("表内登录账号或所属账户编号重复")
+            level = TYPES[kind]
+            path_values = [group, center, district, area]
+            if level is None and any([*path_values, ids]):
+                raise ValueError("全局管理员不能填写组织或门店限制，请改选对应组织账号类型")
+            if level == "store" and any(path_values):
+                raise ValueError("门店账号仅填写门店ID，组织列请留空")
+            if level in ORG_LEVELS and (ids or any(path_values[ORG_LEVELS.index(level) + 1:])):
+                raise ValueError("组织层级与填写范围不一致，请清空更下级组织和门店ID")
+            scope = None
+            if level in ORG_LEVELS:
+                scope = {'level': level, **dict(zip(ORG_FIELDS, [group, center, district, area]))}
+            payload = AccountUpsertRequest(username=username, display_name=name,
+                role="highest_admin" if kind == "最高管理员" else "store" if kind == "门店账号" else "admin",
+                store_scope_mode="all" if level is None else "specified", org_scope=scope,
+                external_account_id=external or None, store_ids=[value.strip() for value in ids.replace("；", ";").split(";") if value.strip()])
+            _ensure_actor_can_manage_role(actor, payload.role)
+            store_ids = _resolve_account_scope(session, actor, payload)
+            _ensure_store_ids_exist(session, store_ids)
+            _ensure_unique_user_fields(session, username=payload.username, external_account_id=payload.external_account_id, exclude_user_id=None)
+            seen.update(identifiers)
+            payload.store_ids = store_ids
+            scope_label = "全部门店" if payload.store_scope_mode == "all" else " / ".join(value for key, value in (payload.org_scope or {}).items() if key != "level") or ";".join(store_ids)
+            rows.append({'row': number, 'username': username, 'display_name': name, 'account_type': kind, 'scope': scope_label, 'store_count': len(store_ids)})
+            payloads.append(payload)
+        except (ValueError, ValidationError, HTTPException) as exc:
+            reason = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
+            errors.append({'row': number, 'reason': reason})
+    if not source_rows:
+        errors.append({'row': 2, 'reason': '账号开通表没有填写账号'})
+    return {'rows': rows, 'errors': errors, 'digest': sha256(content).hexdigest()}, payloads
+
+
+@router.get("/account-bulk-import/template")
+def download_bulk_account_template(actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    from fastapi.responses import Response
+    from apps.api.dy_api.account_bulk_import import account_template
+    store = _require_available_store(store)
+    if not actor.is_highest_admin:
+        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
+    return Response(account_template(account_store_catalog(store.session, actor)),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="account-onboarding-template.xlsx"', "Cache-Control": "no-store"})
+
+
+@router.post("/account-bulk-import/preview")
+def preview_bulk_accounts(file: UploadFile = File(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    store = _require_available_store(store)
+    if not actor.is_highest_admin:
+        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
+    content = file.file.read(5 * 1024 * 1024 + 1)
+    preview, _ = _preview_bulk_accounts(content, file.filename or "", store.session, actor)
+    return {"data": preview}
+
+
+@router.post("/account-bulk-import/commit")
+def commit_bulk_accounts(file: UploadFile = File(...), digest: str = Form(...), actor: AuthContext = Depends(get_current_user), store=Depends(get_data_store)):
+    from fastapi.responses import Response
+    from apps.api.dy_api.account_bulk_import import credential_workbook
+    import secrets
+    store = _require_available_store(store)
+    if not actor.is_highest_admin:
+        raise HTTPException(status_code=403, detail="批量开通账号仅限最高管理员")
+    content = file.file.read(5 * 1024 * 1024 + 1)
+    if sha256(content).hexdigest() != digest:
+        raise HTTPException(status_code=409, detail="文件已变化，请重新校验")
+    preview, payloads = _preview_bulk_accounts(content, file.filename or "", store.session, actor)
+    if preview['errors']:
+        raise HTTPException(status_code=422, detail={'message': '校验失败，整批未创建', 'errors': preview['errors']})
+    credentials = []
+    try:
+        for payload, row in zip(payloads, preview['rows']):
+            password = secrets.token_urlsafe(15)
+            user = User(user_id=uuid4().hex, username=payload.username, display_name=payload.display_name,
+                external_account_id=payload.external_account_id, role=payload.role, store_scope_mode=payload.store_scope_mode,
+                org_scope=payload.org_scope, status="active", is_initialized=True, password_hash=hash_password_pbkdf2(password))
+            store.session.add(user); store.session.flush()
+            _replace_user_scopes(store.session, user.user_id, payload.store_ids)
+            add_audit_log(store.session, action="account.created", actor=actor, target=user, after=_account_audit_snapshot(store.session, user))
+            credentials.append([user.username, user.display_name, row['account_type'], password, row['scope']])
+        result = credential_workbook(credentials)
+        store.session.commit()
+    except IntegrityError as exc:
+        store.session.rollback()
+        raise HTTPException(status_code=409, detail="账号已存在或被同时创建，整批未应用，请重新校验") from exc
+    except Exception:
+        store.session.rollback()
+        raise
+    return Response(result, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="account-onboarding-result.xlsx"', "Cache-Control": "no-store"})
+
+
 @router.post("/accounts")
 def create_account(
     payload: AccountUpsertRequest,
@@ -519,9 +665,7 @@ def create_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=None,
     )
-    store_ids = _validated_scope_store_ids(
-        payload.role, payload.store_scope_mode, payload.store_ids
-    )
+    store_ids = _resolve_account_scope(store.session, actor, payload)
     _ensure_store_ids_exist(store.session, store_ids)
     now = generated_at()
     user = User(
@@ -531,6 +675,7 @@ def create_account(
         display_name=normalize_account_value(payload.display_name),
         role=payload.role,
         store_scope_mode=_normalized_scope_mode(payload.role, payload.store_scope_mode),
+        org_scope=payload.org_scope,
         status=payload.status,
         is_initialized=True,
         password_hash=hash_password_pbkdf2(payload.password or ""),
@@ -588,15 +733,14 @@ def update_account(
         external_account_id=payload.external_account_id,
         exclude_user_id=user_id,
     )
-    store_ids = _validated_scope_store_ids(
-        payload.role, payload.store_scope_mode, payload.store_ids
-    )
+    store_ids = _resolve_account_scope(store.session, actor, payload)
     _ensure_store_ids_exist(store.session, store_ids)
     user.username = normalize_account_value(technical_username)
     user.external_account_id = _optional_account_value(payload.external_account_id)
     user.display_name = normalize_account_value(payload.display_name)
     user.role = payload.role
     user.store_scope_mode = _normalized_scope_mode(payload.role, payload.store_scope_mode)
+    user.org_scope = payload.org_scope
     user.status = payload.status
     user.is_initialized = True if payload.password else user.is_initialized
     if payload.password:
@@ -4010,10 +4154,9 @@ def _sync_admin_data(store) -> SyncAdminData:
 
 def _account_row(session, user: User) -> AccountRow:
     rows = session.execute(
-        select(UserStoreScope.store_id, DimStore.store_name)
-        .join(DimStore, DimStore.store_id == UserStoreScope.store_id)
-        .where(UserStoreScope.user_id == user.user_id)
-        .order_by(DimStore.store_name, UserStoreScope.store_id)
+        select(DimStore.store_id, DimStore.store_name)
+        .where(DimStore.store_id.in_(user_store_ids(session, user.user_id)))
+        .order_by(DimStore.store_name, DimStore.store_id)
     ).all()
     allow, deny = user_override_sets(session, user.user_id)
     return AccountRow(
@@ -4024,6 +4167,7 @@ def _account_row(session, user: User) -> AccountRow:
         role=user.role,
         status=user.status,
         store_scope_mode=user.store_scope_mode,
+        org_scope=user.org_scope,
         is_initialized=user.is_initialized,
         stores=[
             AccountStoreScopeRow(store_id=row.store_id, store_name=row.store_name)
@@ -4210,9 +4354,8 @@ def _ensure_unique_user_fields(
 ) -> None:
     username = normalize_account_value(username)
     external_account_id = _optional_account_value(external_account_id)
-    clauses = [User.username == username]
-    if external_account_id:
-        clauses.append(User.external_account_id == external_account_id)
+    identifiers = {username, external_account_id} - {None, ""}
+    clauses = [User.username.in_(identifiers), User.external_account_id.in_(identifiers)]
     query = select(User).where(or_(*clauses))
     for user in session.execute(query).scalars().all():
         if user.user_id != exclude_user_id:
@@ -4240,7 +4383,7 @@ def _ensure_store_ids_exist(session, store_ids: list[str]) -> None:
 
 
 def _require_account_manager(actor: AuthContext) -> None:
-    if actor.role not in {"highest_admin", "admin"}:
+    if actor.role not in {"highest_admin", "admin"} or not actor.has_global_data_access:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Account management access required",
@@ -4287,6 +4430,24 @@ def _normalized_scope_mode(role: str, scope_mode: str) -> str:
     return "all" if role == "highest_admin" else scope_mode
 
 
+def _resolve_account_scope(session, actor, payload):
+    if payload.org_scope is not None:
+        if not actor.is_highest_admin or payload.role != "admin" or payload.store_scope_mode != "specified":
+            raise HTTPException(status_code=403, detail="组织账号必须由最高管理员创建并选择指定范围")
+        try:
+            payload.org_scope = normalize_org_scope(payload.org_scope)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        ids = list(organization_store_ids(session, payload.org_scope))
+        if not ids:
+            raise HTTPException(status_code=422, detail="所选组织没有有效门店，请核对组织归属")
+    else:
+        ids = _validated_scope_store_ids(payload.role, payload.store_scope_mode, payload.store_ids)
+    if not actor.has_global_data_access and (payload.store_scope_mode == "all" or not set(ids).issubset(actor.store_ids)):
+        raise HTTPException(status_code=403, detail="只能分配本人权限范围内的门店")
+    return ids
+
+
 def _validated_scope_store_ids(
     role: str, scope_mode: str, store_ids: list[str]
 ) -> list[str]:
@@ -4321,6 +4482,7 @@ def _account_audit_snapshot(session, user: User) -> dict:
         "role": user.role,
         "status": user.status,
         "store_scope_mode": user.store_scope_mode,
+        "org_scope": user.org_scope,
         "store_ids": list(
             session.scalars(
                 select(UserStoreScope.store_id)

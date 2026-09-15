@@ -386,6 +386,7 @@ class User(Base):
     display_name: Mapped[str] = mapped_column(Text)
     role: Mapped[str] = mapped_column(String(32), default="store", index=True)
     store_scope_mode: Mapped[str] = mapped_column(String(16), default="specified", index=True)
+    org_scope: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     auth_version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(32), default="active", index=True)
     is_initialized: Mapped[bool] = mapped_column(Boolean, default=False, index=True)

@@ -330,6 +330,10 @@ def verify_user_credentials(
 def user_store_ids(session: Any | None, user_id: str | None) -> tuple[str, ...]:
     if session is None or not user_id:
         return ()
+    user = session.get(User, user_id)
+    if user is not None and user.org_scope is not None:
+        from apps.api.dy_api.account_scope import organization_store_ids
+        return organization_store_ids(session, user.org_scope)
     rows = session.execute(
         select(UserStoreScope.store_id)
         .where(UserStoreScope.user_id == user_id)
