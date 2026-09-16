@@ -346,8 +346,9 @@ def _load_clue_metrics(
         if assigned_at is not None:
             if any(at >= assigned_at and store == assigned_store_id for at, store in follow_any_by_round[row.assignment_round_id]):
                 facts.follow_any_numerator += 1
-            deadline = assigned_at + timedelta(hours=24)
-            if any(assigned_at <= item <= deadline for item in follow_by_round.get(row.assignment_round_id, [])):
+            follow_24h_start = _aware(row.metric_follow_24h_start_at) or assigned_at
+            deadline = follow_24h_start + timedelta(hours=24)
+            if any(follow_24h_start <= item <= deadline for item in follow_by_round.get(row.assignment_round_id, [])):
                 facts.follow_numerator += 1
         facts.verification_order_ids.add(row.order_id)
         if row.order_id in attributed_stores_by_order and assigned_store_id in attributed_stores_by_order[row.order_id]:
