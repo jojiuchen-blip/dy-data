@@ -76,6 +76,54 @@ def test_import_store_org_assignments_accepts_business_csv_aliases_and_deactivat
     assert db_session.get(DimStoreOrgAssignment, "SVC-001").is_active is False
 
 
+def test_ranking_uses_historical_correction_time_for_follow_24h_window(db_session) -> None:
+    original_assignment = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
+    corrected_assignment = datetime(2026, 1, 10, 10, tzinfo=timezone.utc)
+    db_session.add_all(
+        [
+            DimStore(store_id="corrected-store", store_name="更正门店", is_active=True),
+            DimSkuProductRule(sku_id="sku-corrected", product_id="product-corrected", product_scope="精诚养车"),
+            RawDouyinOrder(
+                order_id="corrected-order",
+                sku_id="sku-corrected",
+                sale_time=original_assignment,
+                updated_at=original_assignment,
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="corrected-round",
+                order_id="corrected-order",
+                round_no=1,
+                round_status="active_unfollowed",
+                execution_mode="formal",
+                assigned_store_id="corrected-store",
+                assigned_at=original_assignment,
+                metric_follow_24h_start_at=corrected_assignment,
+            ),
+            ClueFollowUpRecord(
+                follow_up_record_id="corrected-follow",
+                order_id="corrected-order",
+                assignment_round_id="corrected-round",
+                round_no=1,
+                assigned_store_id="corrected-store",
+                follow_result="connected",
+                created_at=corrected_assignment + timedelta(hours=1),
+            ),
+        ]
+    )
+    db_session.commit()
+
+    report = build_douyin_ranking_report(
+        db_session,
+        period_start=original_assignment - timedelta(hours=1),
+        period_end=corrected_assignment + timedelta(days=1),
+        level="store",
+    )
+
+    row = next(item for item in report["rows"] if item["name"] == "更正门店")
+    assert row["follow_numerator"] == 1
+    assert row["follow_denominator"] == 1
+
+
 def test_ranking_orders_include_store_professional_accounts_and_all_channels(db_session) -> None:
     timestamp = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
     db_session.add_all(

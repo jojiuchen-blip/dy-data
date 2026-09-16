@@ -4347,6 +4347,11 @@ class ClueAssignmentRound(Base):
     round_no: Mapped[int] = mapped_column(Integer, default=1)
     assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     assigned_at_source: Mapped[str] = mapped_column(Text, default="clue_create_time_detail")
+    # Optional KPI-only start for historical assignment corrections.  The
+    # original assignment timestamp remains the source of truth for flow,
+    # SLA, audit and period membership; ranking may use this value only for
+    # the 24-hour follow-up window.
+    metric_follow_24h_start_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     assigned_store_id: Mapped[str | None] = mapped_column(Text, index=True)
     assigned_store_name: Mapped[str | None] = mapped_column(Text)
     followed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
