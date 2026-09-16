@@ -1768,7 +1768,6 @@ def import_store_locations(
             store.participates_in_clue_allocation = bool(enable_participation or store.participates_in_clue_allocation)
         else:
             store.is_douyin_clue_applicable = False
-            store.participates_in_clue_allocation = False
             if store.location_status == "partial":
                 _record_store_location_issue(session, poi_id, "store_location_missing_province", now)
 
@@ -1829,7 +1828,6 @@ def _enrich_store_locations_from_raw_evidence(
             changed = True
         if location_status != "valid" and store.is_douyin_clue_applicable:
             store.is_douyin_clue_applicable = False
-            store.participates_in_clue_allocation = False
             changed = True
         if changed:
             store.location_updated_at = now
@@ -1850,8 +1848,6 @@ def _enrich_store_locations_from_raw_evidence(
         location_status = _store_location_status(store)
         store.location_status = location_status
         store.is_douyin_clue_applicable = location_status == "valid"
-        if location_status != "valid":
-            store.participates_in_clue_allocation = False
         store.location_updated_at = now
 
 
