@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1023
-- 文件关系：1127
+- 文件节点：1085
+- 文件关系：1168
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -115,6 +115,7 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:144 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
 | docs/architecture.md | links_to | docs/项目产品介绍书.md | docs/architecture.md:81 |
 | docs/architecture.md | links_to | docs/runbook.md | docs/architecture.md:74 |
@@ -204,6 +205,7 @@
 | docs/devlog/20260910_refactor_log_jojiuchen-blip.md | links_to | docs/plans/delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md | docs/devlog/20260910_refactor_log_jojiuchen-blip.md:5 |
 | docs/devlog/20260912_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260912_refactor_log_Keith_Chen.md:71 |
 | docs/devlog/20260913_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260913_refactor_log_Keith_Chen.md:69 |
+| docs/devlog/20260914_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260914_refactor_log_Keith_Chen.md:69 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
@@ -217,8 +219,6 @@
 | docs/governance/authority-map.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/governance/authority-map.md:39 |
 | docs/governance/authority-map.md | links_to | docs/data-model.md | docs/governance/authority-map.md:34 |
 | docs/governance/authority-map.md | links_to | docs/design-system/README.md | docs/governance/authority-map.md:24 |
-| docs/governance/authority-map.md | links_to | docs/github-cicd.md | docs/governance/authority-map.md:32 |
-| docs/governance/authority-map.md | links_to | docs/plans/execution-plan.md | docs/governance/authority-map.md:21 |
 
 ## 4. 诊断问题
 

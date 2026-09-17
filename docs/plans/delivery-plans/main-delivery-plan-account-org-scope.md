@@ -60,8 +60,11 @@
 |---|---|---|---|
 | T0.1 | [sub-delivery-plan-account-org-scope-T0.1-account-scope.md](sub-delivery-plan-account-org-scope-T0.1-account-scope.md) | 已完成 | 2026-09-15 |
 | T0.2 | [sub-delivery-plan-account-org-scope-T0.2-default-password.md](sub-delivery-plan-account-org-scope-T0.2-default-password.md) | 已完成 | 2026-09-15 |
+| T0.3 | [sub-delivery-plan-account-org-scope-T0.3-current-org.md](sub-delivery-plan-account-org-scope-T0.3-current-org.md) | 进行中 | - |
 
 ## 4. 任务看板
+
+当前任务：T0.3，进行中。子计划：[当前正式组织目录](sub-delivery-plan-account-org-scope-T0.3-current-org.md)。
 
 - 看板入口：[task-kanban-account-org-scope.md](task-kanban-account-org-scope.md)
 
