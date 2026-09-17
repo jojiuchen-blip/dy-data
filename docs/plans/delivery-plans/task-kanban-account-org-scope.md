@@ -4,3 +4,4 @@
 |---|---|---|---|---|---|---|
 | T0.1 | [sub-delivery-plan-account-org-scope-T0.1-account-scope.md](sub-delivery-plan-account-org-scope-T0.1-account-scope.md) | AI | 无 | 已完成 | 2026-09-15 | PR #33、生产eeca61e、部署34928814248成功 |
 | T0.2 | [sub-delivery-plan-account-org-scope-T0.2-default-password.md](sub-delivery-plan-account-org-scope-T0.2-default-password.md) | AI | T0.1 | 已完成 | 2026-09-15 | 用户追加：批量开户初始密码统一123456，后续自行修改 |
+| T0.3 | [sub-delivery-plan-account-org-scope-T0.3-current-org.md](sub-delivery-plan-account-org-scope-T0.3-current-org.md) | AI | T0.2 | 进行中 | - | 正式组织目录、权限与开户统一 |

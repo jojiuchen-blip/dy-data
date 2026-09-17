@@ -1,3 +1,13 @@
+# 当前执行：账号组织目录修复（2026-09-17）
+
+- 当前阶段：S4。
+- 当前正式计划：[账号组织权限](delivery-plans/main-delivery-plan-account-org-scope.md)。
+- 当前子开发计划：[T0.3](delivery-plans/sub-delivery-plan-account-org-scope-T0.3-current-org.md)。
+- 当前 Task：T0.3，进行中。
+- 用户已授权跳过Linear建票，直接修复部署并继续开户。
+- 根因：账号权限只读取旧归属表，正式名单仅发布到组织历史表。
+- 验证：新增用例先失败复现，修复后43项专项通过；完整测试和构建进行中。
+
 ## 本轮账号改造（2026-09-15）
 
 - 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。
