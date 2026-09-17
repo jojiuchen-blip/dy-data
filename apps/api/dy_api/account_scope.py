@@ -1,6 +1,6 @@
 """Organization bindings resolve against current store ownership on every request."""
 from datetime import datetime, timezone
-from sqlalchemy import inspect, select
+from sqlalchemy import false, inspect, select
 from apps.api.dy_api.models import DimStore, DimStoreOrgAssignment
 from apps.api.dy_api.ranking_schema_v1 import org_history
 
@@ -39,6 +39,9 @@ def _current_organization_source(session):
         if version is not None:
             source = select(org_history).where(
                 org_history.c.mapping_version == version).subquery()
+            return source, source.c.store_id == DimStore.store_id
+        if session.scalar(select(org_history.c.mapping_version).limit(1)) is not None:
+            source = select(org_history).where(false()).subquery()
             return source, source.c.store_id == DimStore.store_id
     # Compatibility for installations which have not published a formal roster.
     source = select(DimStoreOrgAssignment).where(

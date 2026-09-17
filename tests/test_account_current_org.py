@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from test_api_access_control import client, _login
 from test_account_bulk_import import workbook
-from apps.api.dy_api.models import DimStore
+from apps.api.dy_api.models import DimStore, DimStoreOrgAssignment
 from apps.api.dy_api.ranking_schema_v1 import org_history
 from apps.api.dy_api.account_scope import organization_store_ids
 
@@ -46,3 +46,12 @@ def test_complete_effective_version_excludes_removed_future_and_inactive(client,
     db_session.get(DimStore, 'store-2').is_active = False
     db_session.commit()
     assert organization_store_ids(db_session, scope) == ()
+
+
+def test_future_only_formal_roster_does_not_revive_legacy(client, db_session):
+    db_session.get(DimStore, 'store-1').service_store_code = 'legacy'
+    db_session.add(DimStoreOrgAssignment(service_store_code='legacy', is_active=True,
+                                       service_center_name='旧中心'))
+    publish(db_session, 'future', datetime.now(timezone.utc)+timedelta(days=1),
+            [('store-2', '新中心')])
+    assert organization_store_ids(db_session, {'level':'service_center', 'service_center_name':'旧中心'}) == ()
