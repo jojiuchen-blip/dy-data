@@ -64,7 +64,7 @@
 
 ## 4. 任务看板
 
-当前任务：T0.3，进行中。子计划：[当前正式组织目录](sub-delivery-plan-account-org-scope-T0.3-current-org.md)。
+当前任务：T0.3，进行中（已部署并开通70个账号，待用户验收）。子计划：[当前正式组织目录](sub-delivery-plan-account-org-scope-T0.3-current-org.md)。
 
 - 看板入口：[task-kanban-account-org-scope.md](task-kanban-account-org-scope.md)
 
