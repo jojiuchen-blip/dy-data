@@ -163,7 +163,49 @@ def test_dimension_refresh_can_start_before_daily_cutoff(factory) -> None:
         selected = session.get(JobRun, result.selected_job_id)
         assert selected is not None
         assert selected.metadata_json.get("priority_kind") == "dimensions"
-        assert selected.metadata_json.get("priority_refresh_slot") == "2026091000"
+        assert selected.metadata_json.get("priority_refresh_slot") == "202609100000"
+
+
+@pytest.mark.parametrize("elapsed_seconds, due", [(1799, False), (1800, True), (1801, True)])
+def test_dimension_refresh_half_hour_boundary_includes_legacy_success(
+    factory, elapsed_seconds, due
+) -> None:
+    finished = datetime.fromisoformat("2026-09-10T12:13:00+08:00")
+    with factory.begin() as session:
+        plan = plan_daily_sync(
+            session,
+            start=finished.replace(hour=0, minute=0),
+            end=finished.replace(hour=0, minute=0) + timedelta(days=1),
+            target="backend_aweme_export",
+            requested_by="test",
+            trigger_source="dimension_refresh",
+            config_version="priority-daily-v1-dimensions-2026091012",
+        )
+        execution = session.scalar(select(JobRun).where(
+            JobRun.parent_job_id == plan.parent_job_id,
+            JobRun.job_kind == "parent_sync",
+        ))
+        assert execution is not None
+        execution.status = "success"
+        execution.finished_at = finished
+    with factory() as session:
+        assert priority_scheduler._dimension_refresh_due(
+            session, finished + timedelta(seconds=elapsed_seconds)
+        ) is due
+
+
+@pytest.mark.parametrize("start", ["2026-09-10T12:00:00+08:00", "2026-09-10T23:30:00+08:00"])
+def test_dimension_plans_deduplicate_within_slot_and_allow_next_half_hour(factory, start) -> None:
+    now = datetime.fromisoformat(start)
+    with factory.begin() as session:
+        first = priority_scheduler._plan_due_dimensions(session, now)
+        repeated = priority_scheduler._plan_due_dimensions(session, now + timedelta(minutes=1))
+        following = priority_scheduler._plan_due_dimensions(session, now + timedelta(minutes=30))
+        first_ids = {plan.parent_job_id for plan in first}
+        assert len(first_ids) == 3
+        assert first_ids == {plan.parent_job_id for plan in repeated}
+        assert first_ids.isdisjoint({plan.parent_job_id for plan in following})
+        assert len(following) == 3
 
 
 def test_daily_failure_blocks_history_and_does_not_run_child(

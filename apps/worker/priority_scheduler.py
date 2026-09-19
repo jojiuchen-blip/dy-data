@@ -33,7 +33,7 @@ SHANGHAI_TIMEZONE = ZoneInfo(SHANGHAI_TIMEZONE_NAME)
 PRIORITY_DAILY_MODE = "priority_daily"
 PRIORITY_CONFIG_VERSION = "priority-daily-v1"
 PRIORITY_DAILY_CUTOFF = time(2, 0)
-DIMENSION_REFRESH_INTERVAL = timedelta(hours=2)
+DIMENSION_REFRESH_INTERVAL = timedelta(minutes=30)
 MAX_HISTORY_SCAN_DAYS = 3_660
 MAX_PRIORITY_ROWS = 2_000
 DIMENSION_TARGETS = ("shop_pois", "aweme_bindings", "backend_aweme_export")
@@ -192,7 +192,7 @@ def run_priority_daily_tick(
         target_date = _resolve_daily_target_date(session, daily_date, local_now)
         if target_date is None:
             # There is no daily plan to create before 02:00.  Keep the clock
-            # date for the ancillary two-hour dimension cadence; daily state
+            # date for the ancillary half-hour dimension cadence; daily state
             # remains ``missing`` and therefore cannot unlock history.
             target_date = daily_date
 
@@ -790,8 +790,8 @@ def _plan_due_dimensions(
 ) -> tuple[DailySyncPlan, ...]:
     if not _dimension_refresh_due(session, now):
         return ()
-    slot_hour = (now.hour // 2) * 2
-    slot = f"{now:%Y%m%d}{slot_hour:02d}"
+    slot_minute = (now.minute // 30) * 30
+    slot = f"{now:%Y%m%d%H}{slot_minute:02d}"
     config_version = f"{PRIORITY_CONFIG_VERSION}-dimensions-{slot}"
     start, end = _day_window(now.date())
     plans: list[DailySyncPlan] = []
