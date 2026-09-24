@@ -22,7 +22,7 @@ function errorMessage(error: unknown): string {
 export function useApiResource<T>(
   load: () => Promise<ApiLoadResult<T>>,
   dependencies: DependencyList,
-  options?: { enabled?: boolean },
+  options?: { enabled?: boolean; clearOnReload?: boolean },
 ) {
   const enabled = options?.enabled ?? true;
   const [reloadIndex, setReloadIndex] = useState(0);
@@ -51,10 +51,10 @@ export function useApiResource<T>(
     }
 
     setState((current) => ({
-      data: current.data,
+      data: options?.clearOnReload ? undefined : current.data,
       error: undefined,
       rawError: undefined,
-      loading: current.data === undefined,
+      loading: options?.clearOnReload || current.data === undefined,
       refreshing: current.data !== undefined,
     }));
 
@@ -76,7 +76,7 @@ export function useApiResource<T>(
           return;
         }
         setState((current) => ({
-          data: current.data,
+          data: options?.clearOnReload ? undefined : current.data,
           error: errorMessage(error),
           rawError: error,
           loading: false,

@@ -662,6 +662,7 @@ export interface DouyinRankingTotals {
 }
 
 export interface DouyinRankingData {
+  productScope?: "all" | "jingcheng" | "byd";
   qualityJson?: Record<string, number>;
   dataMode?: string;
   snapshotId?: string;
@@ -1336,6 +1337,8 @@ export interface OrderDetailsData {
 }
 
 export interface ClueOverviewFilters {
+  org_level?: string;
+  org_key?: string;
   assigned_store_id?: string;
   assigned_date_start?: string;
   assigned_date_end?: string;

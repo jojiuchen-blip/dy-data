@@ -345,7 +345,7 @@ def test_settlement_pages_use_the_t3_1_camel_case_contract_without_silent_fallba
     assert "adjustmentBaseCent" in details and "occurredAt" in details
     assert "const { page: _page, pageSize: _pageSize, ...exportQuery }" in client
     resource_hook = read_source("hooks/useApiResource.ts")
-    assert "data: current.data" in resource_hook
+    assert "data: options?.clearOnReload ? undefined : current.data" in resource_hook
     assert "refreshing: current.data !== undefined" in resource_hook
     assert "requestId !== requestIdRef.current" in resource_hook
     assert 'location.pathname === "/settlement/invoice"' in app

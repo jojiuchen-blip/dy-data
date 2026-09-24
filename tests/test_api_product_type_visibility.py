@@ -368,7 +368,7 @@ def test_legacy_visibility_setting_no_longer_hides_settlement_or_clue_data(
     assert clue_filters.status_code == 200
     assert set(clue_filters.json()["data"]["product_types"]) == {
         JINGCHENG_PRODUCT,
-        HIDDEN_PRODUCT,
+        "比亚迪本品",
     }
     assert clue_filters.json()["data"]["default_product_type"] == "all"
 

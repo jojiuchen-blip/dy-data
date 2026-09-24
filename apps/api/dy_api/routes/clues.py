@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from apps.api.dy_api.clue_organization import organization_options, organization_filter_store_ids
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from dy_api.auth import AuthContext, get_current_user
@@ -15,6 +17,7 @@ from dy_api.schemas import (
     ClueOrderDetailData,
     CluePhoneRevealData,
     ClueStoreOptionsData,
+    ClueOrganizationOptionsData,
     dump_model,
 )
 
@@ -95,6 +98,30 @@ def clue_store_filter_options(
     }
 
 
+def _organization_scope(store, user, org_level, org_key):
+    try:
+        selected = organization_filter_store_ids(store.session, _scope_store_ids(user),
+            level=org_level, key=org_key)
+        return selected if org_key else None
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.get("/clues/filter-options/organizations")
+def clue_organization_options(
+    level: str, q: str = "", selected_key: str = "",
+    limit: int = Query(default=50, ge=1, le=100),
+    current_user: AuthContext = Depends(get_current_user), store=Depends(get_data_store),
+):
+    store = _require_available_store(store)
+    try:
+        options = organization_options(store.session, _scope_store_ids(current_user),
+            level=level, q=q.strip(), selected_key=selected_key, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {"data": dump_model(ClueOrganizationOptionsData(options=options)), "meta": {"generated_at": generated_at(), "source": "postgres"}}
+
+
 @router.get("/clues/overview")
 def clue_overview(
     assigned_store_id: str | None = None,
@@ -104,6 +131,8 @@ def clue_overview(
     store_display_status: str | None = None,
     round_status: str | None = None,
     product_type: str | None = None,
+    org_level: str = "all",
+    org_key: str = "",
     province: str | None = None,
     city: str | None = None,
     verification_status: str | None = None,
@@ -125,6 +154,7 @@ def clue_overview(
                 "city": city,
                 "verification_status": verification_status,
                 "scope_store_ids": _scope_store_ids(current_user),
+                "organization_store_ids": _organization_scope(store, current_user, org_level, org_key),
             }
         )
     )
@@ -143,6 +173,8 @@ def clue_assignment_rounds(
     store_display_status: str | None = None,
     round_status: str | None = None,
     product_type: str | None = None,
+    org_level: str = "all",
+    org_key: str = "",
     province: str | None = None,
     city: str | None = None,
     verification_status: str | None = None,
@@ -170,6 +202,7 @@ def clue_assignment_rounds(
                 "page": page,
                 "page_size": page_size,
                 "scope_store_ids": _scope_store_ids(current_user),
+                "organization_store_ids": _organization_scope(store, current_user, org_level, org_key),
             }
             ,
             _operation_actor(current_user),
@@ -214,6 +247,8 @@ def clue_assignment_rounds_export(
     store_display_status: str | None = None,
     round_status: str | None = None,
     product_type: str | None = None,
+    org_level: str = "all",
+    org_key: str = "",
     province: str | None = None,
     city: str | None = None,
     verification_status: str | None = None,
@@ -235,6 +270,7 @@ def clue_assignment_rounds_export(
         "verification_status": verification_status,
         "q": q,
         "scope_store_ids": _scope_store_ids(current_user),
+        "organization_store_ids": _organization_scope(store, current_user, org_level, org_key),
     }
     generated = generated_at().isoformat()
     filename = quote(f"clue-assignment-rounds-{generated[:10]}.csv")

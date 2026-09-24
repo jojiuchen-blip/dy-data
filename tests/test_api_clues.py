@@ -67,6 +67,41 @@ def _login_user(client: TestClient, username: str, password: str) -> None:
     assert response.status_code == 200
 
 
+def test_clue_product_partition_includes_unmapped_and_null(client, db_session):
+    from apps.api.dy_api.models import DimSkuProductRule
+    _seed_clue_center(db_session)
+    first = db_session.scalar(select(ClueCenterOrder).where(ClueCenterOrder.order_id == "order-1"))
+    first.product_id = "JC-PRODUCT"
+    db_session.add(DimSkuProductRule(sku_id="JC-SKU", product_id="JC-PRODUCT", product_scope="精诚养车"))
+    db_session.commit()
+    _login(client)
+    url = "/api/v1/clues/assignment-rounds"
+    responses = {scope: client.get(url, params={"product_type": scope}).json()["data"]
+                 for scope in ["all", "jingcheng", "byd"]}
+    assert responses["jingcheng"]["pagination"]["total"] > 0
+    assert responses["byd"]["pagination"]["total"] > 0
+    assert responses["all"]["pagination"]["total"] == responses["jingcheng"]["pagination"]["total"] + responses["byd"]["pagination"]["total"]
+
+
+def test_clue_organization_options_and_filter_use_full_path(client, db_session):
+    from apps.api.dy_api.models import DimStoreOrgAssignment
+    _seed_clue_center(db_session)
+    for i, center in [(1, "中心甲"), (2, "中心乙")]:
+        db_session.get(DimStore, f"store-{i}").service_store_code = f"CODE-{i}"
+        db_session.add(DimStoreOrgAssignment(service_store_code=f"CODE-{i}",
+            group_name="同集团", service_center_name=center, district_name="同名大区", area_name="同名区域"))
+    db_session.commit()
+    _login(client)
+    response = client.get("/api/v1/clues/filter-options/organizations", params={"level": "area", "q": "中心甲"})
+    assert response.status_code == 200
+    options = response.json()["data"]["options"]
+    assert len(options) == 1
+    filtered = client.get("/api/v1/clues/assignment-rounds", params={"org_level": "area", "org_key": options[0]["value"]})
+    assert filtered.status_code == 200
+    assert filtered.json()["data"]["pagination"]["total"] > 0
+    assert all(row["assigned_store_id"] == "store-1" for row in filtered.json()["data"]["rows"])
+
+
 def _seed_clue_center(session: Session) -> None:
     session.add_all(
         [
@@ -627,7 +662,7 @@ def test_clue_filters_can_exclude_large_assigned_store_payload(
     data = response.json()["data"]
     assert data["assigned_stores"] == []
     assert data["default_product_type"] == "all"
-    assert data["product_types"] == ["Car Service"]
+    assert data["product_types"] == ["精诚养车", "比亚迪本品"]
 
 
 def test_clue_store_filter_options_are_limited_searchable_and_scope_safe(
@@ -852,6 +887,13 @@ def test_headquarters_lead_blocks_legacy_phone_reveal_and_plain_export(
     assert exported.status_code == 200
     rows = list(csv.DictReader(io.StringIO(exported.content.decode("utf-8-sig"))))
     assert rows[0]["phone_plain"] == ""
+
+    org_exported = client.get("/api/v1/clues/assignment-rounds/export", params={
+        "org_level": "store", "org_key": '["store-1"]', "store_display_status": "待跟进"})
+    assert org_exported.status_code == 200
+    org_rows = list(csv.DictReader(io.StringIO(org_exported.content.decode("utf-8-sig"))))
+    assert [row["assignment_round_id"] for row in org_rows] == [row["assignment_round_id"] for row in rows]
+    assert org_rows[0]["phone_plain"] == ""
 
 
 def test_store_cannot_list_view_or_export_a_lead_after_it_enters_headquarters_pool(

@@ -849,6 +849,15 @@ class ClueStoreOptionsData(BaseModel):
     stores: list[StoreOption]
 
 
+class ClueOrganizationOption(BaseModel):
+    value: str
+    label: str
+
+
+class ClueOrganizationOptionsData(BaseModel):
+    options: list[ClueOrganizationOption]
+
+
 class ClueOverviewMetrics(BaseModel):
     total_clues: int = 0
     active_clues: int = 0

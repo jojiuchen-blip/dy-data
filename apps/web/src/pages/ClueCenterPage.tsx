@@ -1,3 +1,4 @@
+import { fetchClueOrganizationOptions } from "../api/client";
 import {
   useEffect,
   useMemo,
@@ -82,7 +83,8 @@ type ClueFilterKey =
   | "assignedDateStart"
   | "assignedDateEnd"
   | "storeDisplayStatus"
-  | "productType";
+  | "productType"
+  | "organization";
 
 interface ActiveClueFilter {
   key: ClueFilterKey;
@@ -359,6 +361,15 @@ export function ClueCenterPage({
   const pageHeadingTitle = isDetailsView ? "线索跟进列表" : "经营线索概览";
   const showStoreLocationFilters =
     currentUser.store_scope_mode === "all" || currentUser.store_ids.length !== 1;
+  const [orgLevel, setOrgLevel] = useState(searchParams.get("org_level") ?? "all");
+  const [orgKey, setOrgKey] = useState(searchParams.get("org_key") ?? "");
+  const [orgQuery, setOrgQuery] = useState("");
+  const debouncedOrgQuery = useDebouncedValue(orgQuery, 200);
+  const orgResource = useApiResource(
+    () => fetchClueOrganizationOptions({ level: orgLevel, q: debouncedOrgQuery, selected_key: orgKey }),
+    [orgLevel, debouncedOrgQuery, orgKey],
+    { enabled: isDetailsView && orgLevel !== "all", clearOnReload: true },
+  );
   const [province, setProvince] = useState(searchParams.get("province") ?? "");
   const [city, setCity] = useState(searchParams.get("city") ?? "");
   const [assignedStoreId, setAssignedStoreId] = useState(
@@ -441,6 +452,8 @@ export function ClueCenterPage({
       assigned_date_end: assignedDateEnd,
       store_display_status: storeDisplayStatus,
       product_type: activeProductType,
+      org_level: isDetailsView ? orgLevel : "all",
+      org_key: isDetailsView ? orgKey : "",
       province: showStoreLocationFilters ? province : "",
       city: showStoreLocationFilters ? city : "",
     }),
@@ -449,6 +462,7 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       activeProductType,
+      orgLevel, orgKey, isDetailsView,
       city,
       province,
       showStoreLocationFilters,
@@ -458,6 +472,9 @@ export function ClueCenterPage({
 
   const activeFilterChips: ActiveClueFilter[] = useMemo(() => {
     const chips: ActiveClueFilter[] = [];
+    if (isDetailsView && orgKey) {
+      chips.push({key: "organization", label: "组织", value: orgResource.data?.data.options.find(item => item.value === orgKey)?.label ?? orgKey});
+    }
     if (showStoreLocationFilters && province) {
       chips.push({ key: "province", label: "省份", value: province });
     }
@@ -496,11 +513,12 @@ export function ClueCenterPage({
       });
     }
     if (activeProductType && activeProductType !== "all") {
-      chips.push({ key: "productType", label: "商品", value: activeProductType });
+      chips.push({ key: "productType", label: "商品", value: ({jingcheng: "精诚养车", byd: "比亚迪本品"} as Record<string, string>)[activeProductType] ?? activeProductType });
     }
     return chips;
   }, [
     activeProductType,
+    isDetailsView, orgKey, orgResource.data,
     assignedDateEnd,
     assignedDateStart,
     assignedStoreId,
@@ -518,12 +536,13 @@ export function ClueCenterPage({
       assignedDateEnd,
       assignedDateStart,
       activeProductType,
+      orgLevel, orgKey, isDetailsView,
       city,
       province,
       showStoreLocationFilters,
       storeDisplayStatus,
     ],
-    { enabled: !isDetailsView },
+    { enabled: !isDetailsView, clearOnReload: true },
   );
   const roundsResource = useApiResource(
     () => fetchClueAssignmentRounds({ filters, page, pageSize }),
@@ -535,12 +554,13 @@ export function ClueCenterPage({
       page,
       pageSize,
       activeProductType,
+      orgLevel, orgKey, isDetailsView,
       province,
       showStoreLocationFilters,
       isDetailsView,
       storeDisplayStatus,
     ],
-    { enabled: isDetailsView },
+    { enabled: isDetailsView, clearOnReload: true },
   );
   const overview = overviewResource.data?.data;
   const rows = roundsResource.data?.data.rows ?? [];
@@ -941,6 +961,7 @@ export function ClueCenterPage({
   }, [phoneActionMessage]);
 
   const resetFilters = () => {
+    setOrgLevel("all"); setOrgKey(""); setOrgQuery("");
     setProvince("");
     setCity("");
     setAssignedStoreId("");
@@ -953,6 +974,9 @@ export function ClueCenterPage({
 
   const removeFilter = (key: ClueFilterKey) => {
     setPage(1);
+    if (key === "organization") {
+      setOrgLevel("all"); setOrgKey(""); setOrgQuery("");
+    }
     if (key === "province") {
       setProvince("");
     } else if (key === "city") {
@@ -1125,6 +1149,7 @@ export function ClueCenterPage({
       <section className="page-heading">
         <div>
           <h1>{pageHeadingTitle}</h1>
+          {!isDetailsView && <p>该指标与考核标准不完全一致，如需查看考核指标请以指标看板板块为准。</p>}
         </div>
         <div className="clue-onboarding-heading-actions" ref={(element) => {
           onboarding.replayRef.current = element?.querySelector("button") ?? null;
@@ -1199,6 +1224,11 @@ export function ClueCenterPage({
         className={`filter-bar--compact clue-filter-bar ${mobileFiltersOpen ? "is-open" : ""}`}
         id="clue-filter-panel"
       >
+        {isDetailsView && <>
+          <SelectField label="组织层级" value={orgLevel} options={[{value: "all", label: "全部"}, {value: "group", label: "集团"}, {value: "service_center", label: "中心"}, {value: "district", label: "大区"}, {value: "area", label: "区域"}, {value: "store", label: "门店"}]} onChange={(value) => { setOrgLevel(value); setOrgKey(""); setOrgQuery(""); setAssignedStoreId(""); setPage(1); }} />
+          {orgLevel !== "all" && <FilterField label="组织范围"><SearchableStoreSelect allowEmpty emptyLabel="全部" emptyMessage="未找到可查看的组织" placeholder="搜索组织名称或门店编号" options={orgResource.data?.data.options ?? []} loading={orgResource.loading} value={orgKey} onSearch={setOrgQuery} onChange={(value) => { setOrgKey(value); setAssignedStoreId(""); setStoreOptionQuery(""); setPage(1); }} /></FilterField>}
+          {orgResource.error && <ResourcePanel tone="error">{orgResource.error}</ResourcePanel>}
+        </>}
         {showStoreLocationFilters ? (
           <>
             <FilterField label="省份">
@@ -1291,7 +1321,7 @@ export function ClueCenterPage({
             setPage(1);
             setProductType(value);
           }}
-          options={[{ value: "all", label: "全部" }, ...optionList(meta?.product_types)]}
+          options={[{value: "all", label: "全部商品"}, {value: "jingcheng", label: "精诚养车"}, {value: "byd", label: "比亚迪本品"}]}
           value={activeProductType}
         />
         <Button onClick={resetFilters} type="button">

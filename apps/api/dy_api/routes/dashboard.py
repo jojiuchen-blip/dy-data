@@ -507,6 +507,7 @@ def store_ranking(
 @router.get("/dashboard/douyin-ranking")
 def douyin_ranking(
     request: Request,
+    product_scope: str = Query(default="jingcheng", alias="productScope"),
     period_start: date = Query(alias="periodStart"),
     period_end: date = Query(alias="periodEnd"),
     level: str = Query(default="service_center"),
@@ -560,10 +561,11 @@ def douyin_ranking(
     try:
         run_id = None
         if not preview:
-            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at)
+            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at, product_scope=product_scope)
             session.commit()
         data = read_snapshot_report(
             session,
+            product_scope=product_scope,
             run_id=run_id,
             data_mode="synthetic" if preview else "business",
             period_start=start_at,
@@ -587,12 +589,15 @@ def douyin_ranking(
         session.rollback()
         _raise_reporting_error(request, status.HTTP_503_SERVICE_UNAVAILABLE,
             "RANKING_QUERY_UNAVAILABLE", "指标查询暂时不可用，请稍后重试或缩短日期范围")
-    return _reporting_success(request, data, definitions=DOUYIN_RANKING_DEFINITIONS)
+    definitions = [{**item, "description": data.get("metric_definitions", {}).get(item["key"], item["description"])}
+                   for item in DOUYIN_RANKING_DEFINITIONS]
+    return _reporting_success(request, data, definitions=definitions)
 
 
 @router.get("/dashboard/douyin-ranking/export")
 def export_douyin_ranking(
     request: Request,
+    product_scope: str = Query(default="jingcheng", alias="productScope"),
     period_start: date = Query(alias="periodStart"),
     period_end: date = Query(alias="periodEnd"),
     levels: str = Query(default="group"),
@@ -623,9 +628,10 @@ def export_douyin_ranking(
     try:
         run_id = None
         if not preview:
-            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at)
+            run_id = ensure_business_snapshot(session, period_start=start_at, period_end=end_at, product_scope=product_scope)
             session.commit()
         content = build_ranking_workbook(session, levels=selected_levels, metrics=selected_metrics,
+            product_scope=product_scope,
             run_id=run_id, data_mode="synthetic" if preview else "business",
             period_start=start_at, period_end=end_at,
             scope_store_ids=None,

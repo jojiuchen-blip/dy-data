@@ -34,10 +34,10 @@ def test_api_resource_preserves_successful_data_during_background_refresh() -> N
     assert "useRef" in source
     assert "requestIdRef" in source
     assert "refreshing" in source
-    assert "data: current.data" in source
-    assert "loading: current.data === undefined" in source
+    assert "data: options?.clearOnReload ? undefined : current.data" in source
+    assert "loading: options?.clearOnReload || current.data === undefined" in source
     assert "if (requestId !== requestIdRef.current)" in source
-    assert "data: current.data" in source[source.index(".catch((error)") :]
+    assert "data: options?.clearOnReload ? undefined : current.data" in source[source.index(".catch((error)") :]
 
 
 def test_get_requests_are_deduplicated_and_cached_with_auth_isolation() -> None:
