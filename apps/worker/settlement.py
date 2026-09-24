@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import hashlib
 import json
@@ -67,6 +67,10 @@ from apps.api.dy_api.models import (
 )
 from apps.api.dy_api.rule_utils import normalize_owner_account_name
 from apps.worker.projection_lineage import resolve_projection_partitions
+from apps.worker.receipt_amounts import (
+    load_order_attributions,
+    resolve_coupon_receipt_cent,
+)
 from apps.worker.repositories import finish_job_run, start_job_run, upsert_data_quality_issue
 
 
@@ -104,6 +108,8 @@ SHANGHAI = ZoneInfo("Asia/Shanghai")
 MAX_SETTLEMENT_CLOSURE_VALUES = 64
 MAX_SETTLEMENT_IMPACT_BATCH_SIZE = 64
 MAX_SETTLEMENT_COUPON_BATCH_SIZE = 100
+# Keep each receipt prefetch IN list well under the SQLite 999-variable limit.
+RECEIPT_COUPON_BATCH_SIZE = 500
 MAX_SETTLEMENT_PAGE_CARDINALITY = 8192
 SETTLEMENT_REBUILD_PROGRESS_INTERVAL = 1000
 SETTLEMENT_SPARSE_PROTOCOL = "t343-settlement-sparse-v1"
@@ -2775,6 +2781,9 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
     relation_type = _relation_type(sale_store, verify_store, verify is not None)
     refund_excluded = _is_refund_excluded(order, coupon)
     paid_amount_cent = _paid_amount_cent(order, verify)
+    # DYDATA-97: commission uses a separate receipt basis. The paid amount above
+    # stays a verbatim fact on the detail and is never the fee basis.
+    receipt_amount_cent = resolve_coupon_receipt_cent(session, order, coupon)
     configured_commission_rate = (
         Decimal(sku_rule.commission_rate) if sku_rule else Decimal("0")
     )
@@ -2782,7 +2791,7 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
     forced_non_commission = _is_non_commission_owner_account(
         session, order.owner_account_name
     )
-    is_commissionable = (
+    commission_eligible = (
         relation_type == "cross_store"
         and not refund_excluded
         and not forced_non_commission
@@ -2791,12 +2800,27 @@ def _materialize_coupon(session: Session, coupon: RawDouyinOrderCoupon, *, sourc
         and sale_store is not None
         and verify_store is not None
     )
+    is_commissionable = commission_eligible and receipt_amount_cent is not None
+    if commission_eligible and receipt_amount_cent is None:
+        # DYDATA-97: never fall back to paid for the legacy commission chain.
+        # Record the unprovable receipt as a data-quality fact instead of
+        # silently turning commission off.
+        _record_issue(
+            session,
+            issue_type="legacy_missing_receipt_amount",
+            message="订单/券缺少可证明的实收金额，legacy 佣金按 0 处理；实付不作为基数。",
+            order_id=order.order_id,
+            coupon_id=coupon.coupon_id,
+            source_run_id=source_run_id,
+            severity="error",
+            raw_context={"basis": "receipt_amount", "coupon_id": coupon.coupon_id},
+        )
     commission_rate = (
         configured_commission_rate if is_commissionable else Decimal("0")
     )
     commission_cent = (
-        _commission_cent(paid_amount_cent, commission_rate)
-        if is_commissionable
+        _commission_cent(receipt_amount_cent, commission_rate)
+        if is_commissionable and receipt_amount_cent is not None
         else 0
     )
 
@@ -3191,7 +3215,7 @@ def _materialize_dual_fee_direction(
             coupon,
             order,
             "dual_fee_missing_coupon_amount",
-            "多券订单缺少单券实付金额，禁止重复使用整单金额。",
+            "订单/券缺少可证明的实收金额，禁止回退实付或重复使用整单金额。",
             directions=(direction,),
             context={"direction": direction_name},
         )
@@ -4043,21 +4067,15 @@ def _direction_source_amount(
     coupon: RawDouyinOrderCoupon,
     verify: RawDouyinVerifyRecord | None,
 ) -> int | None:
-    if verify is not None and verify.paid_amount_cent is not None:
-        return max(verify.paid_amount_cent, 0)
-    if coupon.coupon_paid_amount_cent is not None:
-        return max(coupon.coupon_paid_amount_cent, 0)
-    coupon_count = session.scalar(
-        select(func.count()).select_from(RawDouyinOrderCoupon).where(
-            RawDouyinOrderCoupon.raw_order_id == order.id
-        )
-    )
-    if int(coupon_count or 0) != 1:
-        return None
-    amount = order.order_paid_amount_cent
-    if amount == 0 and order.paid_amount_cent is not None:
-        amount = order.paid_amount_cent
-    return max(amount, 0)
+    """Receipt basis for both fee directions.
+
+    The verification proves eligibility and timing, but its ``paid`` amount is
+    not a receipt and must never become the fee basis. DYDATA-97 resolves the
+    receipt from the saved order/coupon payload only.
+    """
+
+    del verify
+    return resolve_coupon_receipt_cent(session, order, coupon)
 
 
 def _coupon_refunded_amount(coupon: RawDouyinOrderCoupon) -> int:
@@ -5987,6 +6005,54 @@ def _ranking_row(
     return rows[key]
 
 
+def _receipt_amounts_for_details(
+    session: Session, details: list[SettlementOrderDetail]
+) -> dict[str, int | None]:
+    """Resolve receipt bases for a local detail batch without a query per coupon.
+
+    Coupon lookups are chunked so a large detail batch never builds an ``IN``
+    list beyond the database's bound-variable limit. Orders and attribution
+    counts are prefetched once per chunk and reused through the helper's
+    optional context; nothing is cached across runs.
+    """
+
+    coupon_ids = sorted({detail.coupon_id for detail in details})
+    if not coupon_ids:
+        return {}
+    receipts: dict[str, int | None] = {}
+    for start in range(0, len(coupon_ids), RECEIPT_COUPON_BATCH_SIZE):
+        batch_coupon_ids = coupon_ids[start : start + RECEIPT_COUPON_BATCH_SIZE]
+        coupons = {
+            coupon.coupon_id: coupon
+            for coupon in session.scalars(
+                select(RawDouyinOrderCoupon).where(
+                    RawDouyinOrderCoupon.coupon_id.in_(batch_coupon_ids)
+                )
+            )
+        }
+        order_ids = sorted({coupon.raw_order_id for coupon in coupons.values()})
+        orders = {
+            order.id: order
+            for order in session.scalars(
+                select(RawDouyinOrder).where(RawDouyinOrder.id.in_(order_ids))
+            )
+        }
+        # Attribution is counted by ``raw_order_id`` across every coupon of the
+        # order, so the whole-order counts stay correct even when an order's
+        # coupons are split across chunks.
+        attributions = load_order_attributions(session, order_ids)
+        for coupon_id, coupon in coupons.items():
+            order = orders.get(coupon.raw_order_id)
+            receipts[coupon_id] = (
+                None
+                if order is None
+                else resolve_coupon_receipt_cent(
+                    session, order, coupon, attribution=attributions.get(order.id)
+                )
+            )
+    return receipts
+
+
 def _rebuild_monthly_settlement(
     session: Session,
     details: list[SettlementOrderDetail],
@@ -6000,6 +6066,10 @@ def _rebuild_monthly_settlement(
             "estimated_payable_commission_cent": 0,
         }
     )
+    # DYDATA-97: the commissionable base is the proven receipt, in the same
+    # basis as the commission itself. `paid_amount_cent` stays a paid fact and
+    # is still used by the store-ranking sales statistics.
+    receipts = _receipt_amounts_for_details(session, details)
 
     for detail in details:
         if detail.is_refund_excluded or not detail.is_commissionable:
@@ -6007,12 +6077,17 @@ def _rebuild_monthly_settlement(
         verify_month = _month(detail.verify_time)
         if not verify_month:
             continue
+        receipt_amount_cent = receipts.get(detail.coupon_id)
+        if receipt_amount_cent is None:
+            # Never rebuild the basis from paid when the receipt is unprovable;
+            # the detail should not have been commissionable in the first place.
+            continue
 
         for product_type in _product_groups(detail.product_type):
             if detail.sale_store_id:
                 key = (verify_month, detail.sale_store_id, product_type)
                 rows[key]["estimated_receivable_commission_cent"] += detail.receivable_commission_cent
-                rows[key]["commissionable_total_cent"] += detail.paid_amount_cent
+                rows[key]["commissionable_total_cent"] += receipt_amount_cent
             if detail.verify_store_id:
                 key = (verify_month, detail.verify_store_id, product_type)
                 rows[key]["estimated_payable_commission_cent"] += detail.payable_commission_cent

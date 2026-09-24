@@ -180,6 +180,7 @@ def _seed_coupon_fixture(session: Session, *, source_run_id: str | None) -> None
         order_paid_amount_cent=10_000,
         owner_account_id="owner-sale",
         owner_account_name="Sale owner",
+        raw_payload={"receipt_amount": 10_000},
     )
     session.add(order)
     session.flush()

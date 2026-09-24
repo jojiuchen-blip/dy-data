@@ -81,6 +81,8 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
   const [actionMessage, setActionMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [exportMessage, setExportMessage] = useState("");
+  const [exportIsError, setExportIsError] = useState(false);
   const adjustmentAmountCent = parseYuanToCent(adjustmentYuan);
   const adjustmentIsValid = targetStatus !== "ACCEPTED_WITH_ADJUSTMENT" || adjustmentAmountCent !== null;
   const query = {
@@ -166,12 +168,14 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
 
   const handleExport = async () => {
     setExportBusy(true);
-    setActionMessage("");
+    setExportMessage("");
+    setExportIsError(false);
     try {
       const result = await downloadFinanceDisputes(query);
-      setActionMessage(result.result === "EMPTY" ? "当前筛选无异议，已下载仅含表头的文件。" : `已导出账单异议：${result.fileName}`);
+      setExportMessage(result.result === "EMPTY" ? "当前筛选无异议，已下载仅含表头的文件。" : `已导出账单异议：${result.fileName}`);
     } catch (error) {
-      setActionMessage(userFacingError(error, "账单异议导出失败，请稍后重试。"));
+      setExportIsError(true);
+      setExportMessage(`导出失败：${userFacingError(error, "账单异议导出失败，请稍后重试。")}`);
     } finally {
       setExportBusy(false);
     }
@@ -229,7 +233,14 @@ export function FinanceDisputesPage({ searchParams }: { searchParams: URLSearchP
     <div className="page-stack finance-page">
       <section className="page-heading finance-heading">
         <div><p className="eyebrow">财务管理员</p><h1>账单异议</h1><p>处理账单金额、费率和订单遗漏异议；系统检测只提供正式事实一致性证据，不自动作出业务裁决。</p></div>
-        <div className="finance-heading__actions"><Button loading={exportBusy} onClick={handleExport} variant="secondary">导出账单异议</Button></div>
+        <div
+          className="finance-heading__actions"
+          // 详情抽屉为 fixed 覆盖层；导出入口与反馈需在其之上，导出不受详情打开影响。
+          style={{ position: "relative", zIndex: 50 }}
+        >
+          {exportMessage ? <span role={exportIsError ? "alert" : "status"}>{exportMessage}</span> : null}
+          <Button loading={exportBusy} onClick={handleExport} variant="secondary">导出账单异议</Button>
+        </div>
       </section>
 
       <section className="metric-grid finance-metric-grid finance-metric-grid--four">

@@ -184,6 +184,7 @@ def _seed_local_coupon(
         order_paid_amount_cent=10000,
         owner_account_id="owner-sale",
         owner_account_name="Sale owner",
+        raw_payload={"receipt_amount": 10000},
     )
     session.add(order)
     session.flush()
@@ -194,6 +195,7 @@ def _seed_local_coupon(
         coupon_status="fulfilled",
         coupon_status_normalized="fulfilled",
         coupon_paid_amount_cent=10000,
+        raw_payload={"receipt_amount": 10000},
     )
     session.add(coupon)
     session.add(
@@ -246,13 +248,14 @@ def test_local_kernel_same_input_different_run_and_a_b_a_are_version_idempotent(
         )
     )
     assert verify is not None
-    coupon.coupon_paid_amount_cent = 9000
-    verify.paid_amount_cent = 9000
+    # DYDATA-97: the fee basis is the payload receipt, so an A-B-A input change
+    # must move the coupon-level ``receipt_amount``. The ``paid`` columns no
+    # longer feed the fee result and would leave the fingerprint unchanged.
+    coupon.raw_payload = {"receipt_amount": 9000}
     db_session.flush()
     settlement_worker.settle_coupon_local(db_session, coupon, "run-c")
     db_session.commit()
-    coupon.coupon_paid_amount_cent = 10000
-    verify.paid_amount_cent = 10000
+    coupon.raw_payload = {"receipt_amount": 10000}
     db_session.flush()
     settlement_worker.settle_coupon_local(db_session, coupon, "run-d")
     db_session.commit()
@@ -1945,6 +1948,10 @@ def test_settle_impacted_coupons_crash_after_first_batch_rescans_idempotently(
         coupon_status="fulfilled",
         coupon_status_normalized="fulfilled",
         coupon_paid_amount_cent=10000,
+        # DYDATA-97: a two-coupon order cannot use the shared order total, so
+        # this fixture needs its own coupon-level interface receipt to be
+        # provable. ``paid`` is not a fee basis.
+        raw_payload={"receipt_amount": 10000},
     )
     db_session.add(second)
     db_session.add(
