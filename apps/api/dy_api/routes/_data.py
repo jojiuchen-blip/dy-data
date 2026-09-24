@@ -4532,8 +4532,8 @@ class DashboardDataStore:
             "assigned_stores": assigned_stores,
             "assigned_provinces": assigned_provinces,
             "assigned_cities": assigned_cities,
-            "product_types": product_types,
-            "default_product_type": self.default_product_type(),
+            "product_types": ["精诚养车", "比亚迪本品"],
+            "default_product_type": "all",
             "lead_statuses": lead_statuses,
             "round_statuses": round_statuses,
             "verification_statuses": CLUE_VERIFICATION_STATUSES,
@@ -5667,7 +5667,6 @@ class DashboardDataStore:
         exact_filters = {
             "assigned_store_id": "r.assigned_store_id" if include_round else "c.assigned_store_id",
             "lead_status": "c.lead_status",
-            "product_type": "c.product_type",
             "province": "c.assigned_province",
             "city": "c.assigned_city",
         }
@@ -5676,6 +5675,29 @@ class DashboardDataStore:
             if value and value != "all":
                 clauses.append(f"{column} = :{key}")
                 params[key] = value
+        product = _to_str(filters.get("product_type")).strip()
+        aliases = {"精诚养车": "jingcheng", "比亚迪本品": "byd", "全部商品": "all"}
+        product = aliases.get(product, product)
+        if product in {"jingcheng", "byd"}:
+            # EXISTS has a two-valued result, so NULL/unmapped products belong
+            # to the complement. Match the ranking round membership sources.
+            membership = """EXISTS (
+                SELECT 1 FROM dim_sku_product_rules pr
+                WHERE pr.product_scope = :clue_jingcheng_scope AND (
+                    c.product_id = pr.sku_id OR c.product_id = NULLIF(pr.product_id, '')
+                    OR EXISTS (SELECT 1 FROM raw_douyin_orders po
+                        WHERE po.order_id = c.order_id AND po.sku_id = pr.sku_id)
+                    OR EXISTS (SELECT 1 FROM raw_douyin_clues pc
+                        WHERE pc.order_id = c.order_id AND
+                        (pc.product_id = pr.sku_id OR pc.product_id = NULLIF(pr.product_id, '')))
+                ))"""
+            clauses.append(membership if product == "jingcheng" else "NOT " + membership)
+            params["clue_jingcheng_scope"] = "精诚养车"
+        elif product and product != "all":
+            # Retain old bookmarked fine-grained filters while the UI exposes
+            # only the new three-way partition.
+            clauses.append("c.product_type = :product_type")
+            params["product_type"] = product
         visible_product_types = self._visible_product_types()
         if visible_product_types is not None:
             placeholders, visible_params = _in_clause_params(
@@ -5738,6 +5760,13 @@ class DashboardDataStore:
                 "(lower(c.order_id) LIKE :q OR lower(c.assigned_store_name) LIKE :q)"
             )
             params["q"] = f"%{query}%"
+
+        organization_store_ids = filters.get("organization_store_ids")
+        if organization_store_ids is not None:
+            placeholders, org_params = _in_clause_params("clue_org_store", organization_store_ids)
+            column = "r.assigned_store_id" if include_round else "c.assigned_store_id"
+            clauses.append(f"{column} IN ({placeholders})" if placeholders else "1 = 0")
+            params.update(org_params)
 
         scope_store_ids = filters.get("scope_store_ids")
         if scope_store_ids is not None:

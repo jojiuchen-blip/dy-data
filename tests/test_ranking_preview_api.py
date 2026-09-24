@@ -69,6 +69,27 @@ def test_preview_still_requires_login(preview_client):
     assert preview_client.get("/api/v1/dashboard/douyin-ranking", params=PARAMS).status_code == 401
 
 
+@pytest.mark.parametrize("endpoint", ["", "/export"])
+def test_ranking_product_scope_is_validated_and_forwarded(preview_client, db_session, endpoint):
+    calculate_snapshot(db_session, run_id="byd", period_start=START, period_end=END,
+        observed_through=CUTOFF, roster_at=START, eligibility_version=ELIGIBILITY_VERSION,
+        product_scope="byd")
+    db_session.commit()
+    login(preview_client)
+    url = "/api/v1/dashboard/douyin-ranking" + endpoint
+    assert preview_client.get(url, params={**PARAMS, "productScope": "invalid"}).status_code == 422
+    response = preview_client.get(url, params={**PARAMS, "productScope": "byd"})
+    assert response.status_code == 200
+    if not endpoint:
+        assert response.json()["data"]["snapshotId"] == "byd"
+        assert "比亚迪本品" in response.json()["definitions"][0]["description"]
+    else:
+        from io import BytesIO
+        from openpyxl import load_workbook
+        book = load_workbook(BytesIO(response.content))
+        assert any("比亚迪本品" in str(cell.value) for sheet in book for row in sheet for cell in row)
+
+
 def test_preview_ranking_is_global_for_store_accounts(preview_client):
     auth = AuthContext(user_id=None, username="store-a", display_name="A", role="store",
         store_ids=("A",), auth_type="env_admin", store_scope_mode="explicit", page_keys=("A03",))

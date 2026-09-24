@@ -8,12 +8,12 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.ranking_configuration import DATA_START, RANKING_WRITE_LOCK
 from apps.api.dy_api.ranking_schema_v1 import eligibility, runs
-from apps.api.dy_api.ranking_snapshots import METRIC_VERSION, calculate_snapshot, utc
+from apps.api.dy_api.ranking_snapshots import metric_version, calculate_snapshot, utc
 
 
 def ensure_business_snapshot(
     session: Session, *, period_start: datetime, period_end: datetime,
-    now: datetime | None = None, max_period_rows: int = 50000,
+    now: datetime | None = None, max_period_rows: int = 50000, product_scope: str = "jingcheng",
 ) -> str:
     """Return a recent business run or atomically calculate a bounded new run.
 
@@ -22,6 +22,7 @@ def ensure_business_snapshot(
     Source business tables are never updated here. Synthetic batches cannot
     satisfy this cache, even when period and metric version are identical.
     """
+    version_key = metric_version(product_scope)
     start, end, cutoff = map(utc, (period_start, period_end, now or datetime.now(timezone.utc)))
     tomorrow = (cutoff.astimezone(ZoneInfo("Asia/Shanghai")) + timedelta(days=1)).replace(
         hour=0, minute=0, second=0, microsecond=0)
@@ -34,7 +35,7 @@ def ensure_business_snapshot(
         return session.scalar(select(runs.c.run_id).where(
             runs.c.period_start == start, runs.c.period_end == end,
             runs.c.data_mode == "business", runs.c.status == "success",
-            runs.c.metric_version == METRIC_VERSION,
+            runs.c.metric_version == version_key,
             runs.c.observed_through >= cutoff - timedelta(minutes=5),
             runs.c.observed_through <= cutoff,
         ).order_by(runs.c.observed_through.desc()).limit(1))
@@ -65,7 +66,7 @@ def ensure_business_snapshot(
         run_id = "business-" + uuid4().hex
         calculate_snapshot(session, run_id=run_id, period_start=start, period_end=end,
             observed_through=cutoff, roster_at=start, eligibility_version=version,
-            data_mode="business", max_period_rows=max_period_rows)
+            data_mode="business", max_period_rows=max_period_rows, product_scope=product_scope)
         if session.bind.dialect.name == "postgresql":
             session.execute(text("SELECT set_config('statement_timeout', :value, true)"),
                             {"value": original_timeout})

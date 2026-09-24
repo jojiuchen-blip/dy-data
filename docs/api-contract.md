@@ -153,3 +153,12 @@ GET `/api/v1/dashboard/douyin-ranking/export`：沿用A03页面权限和账号�
 - `POST /api/v1/admin/account-bulk-import/preview` 接收multipart file，返回rows、errors、digest；不创建账号。
 - `POST /api/v1/admin/account-bulk-import/commit` 接收multipart file和digest；确认时重新校验，成功返回含初始密码的xlsx（Cache-Control: no-store），错误整批回滚。超过5MB/200账号或格式错误422，文件变化409，权限不足403。
 - 所有有效登录账号对A03排行与导出固定允许，使用全量scope；其他业务端点继续校验所选范围。
+
+
+## 线索商品范围与组织筛选（2026-09-24）
+
+- 指标看板及Excel导出新增 `productScope=all|jingcheng|byd`，默认jingcheng兼容原有口径。响应包含productScope，导出标注商品范围；非法范围422。缓存、run ID校验及报表读取均区分范围。all计数为jingcheng与byd之和，比率仍按对应分子分母重算，名单分母沿用既有适用名单。
+- `/clues/overview`、`/clues/assignment-rounds`、`/clues/assignment-rounds/export` 的 `product_type` 支持all/jingcheng/byd（兼容中文标签和历史细分类URL）。新界面仅显示全部商品、精诚养车、比亚迪本品。精诚养车依据配置规则识别，本品为补集，空值及未匹配不丢失；保留既有商品可见设置及门店权限。
+- 三个线索接口新增 `org_level=all|group|service_center|district|area|store` 和 `org_key`。key是JSON字符串数组：集团[name]、中心[name]、大区[center,district]、区域[center,district,area]、门店[store_id]。空key表示不额外收窄；非法/不完整路径422，越权路径返回空数据。
+- `GET /clues/filter-options/organizations?level=area&q=关键词&selected_key=...&limit=50` 返回 `{data:{options:[{value,label}]},meta}`。limit上限100；当前生效组织目录、仅授权门店、完整路径搜索；选中项在授权范围内时保留。集团与中心为独立维度。
+- 指标看板沿用所有有效账号全局可见规则；线索选项、查询、数量和导出按账号权限与组织筛选取交集。

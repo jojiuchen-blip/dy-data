@@ -22,8 +22,16 @@ from apps.api.dy_api.ranking_schema_v1 import (
     org_history, eligibility, lead_bindings, runs, samples, snapshots,
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
+from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
 
 METRIC_VERSION = "douyin-ranking-self-store-v5-period-start-sales-org"
+
+
+def metric_version(product_scope: str) -> str:
+    validate_product_scope(product_scope)
+    return METRIC_VERSION if product_scope == "jingcheng" else f"{METRIC_VERSION}:{product_scope}"
+
+
 MAX_DIMENSION_ROWS = 50000
 MAX_ORG_HISTORY_ROWS = 250000
 MAX_REPORT_ROWS = 250000
@@ -68,12 +76,14 @@ def calculate_snapshot(
     session: Session, *, run_id: str, period_start: datetime, period_end: datetime,
     observed_through: datetime, roster_at: datetime, eligibility_version: str,
     data_mode: str = "synthetic", max_period_rows: int | None = None,
+    product_scope: str = "jingcheng",
 ) -> str:
     """Publish one complete batch atomically; reruns require a new run ID.
 
     The caller commits the transaction. Reusing an identical run ID is a no-op;
     late-arriving or corrected evidence uses a new ID, retaining old results.
     """
+    version_key = metric_version(product_scope)
     start, end, cutoff, roster = map(utc, (period_start, period_end, observed_through, roster_at))
     if start >= end or cutoff < start or roster > cutoff:
         raise ValueError("invalid period, observation cutoff or roster date")
@@ -92,7 +102,7 @@ def calculate_snapshot(
         same = all(utc(previous[k]) == v for k, v in {
             "period_start": start, "period_end": end, "observed_through": cutoff, "roster_at": roster,
         }.items()) and previous["eligibility_version"] == eligibility_version and previous["data_mode"] == data_mode
-        if not same or previous["status"] != "success":
+        if not same or previous["status"] != "success" or previous["metric_version"] != version_key:
             raise ValueError("run ID already used with another configuration")
         return run_id
 
@@ -194,7 +204,7 @@ def calculate_snapshot(
         ClueAssignmentRound.execution_mode == "formal",
         ClueAssignmentRound.assigned_at >= start, ClueAssignmentRound.assigned_at < end,
         ClueAssignmentRound.assigned_at <= cutoff,
-        or_(known_orders, known_raw_clues, known_center_clues),
+        scope_predicate(product_scope, or_(known_orders, known_raw_clues, known_center_clues)),
     ))
     sale_window = or_(
         and_(RawDouyinOrder.sale_time >= start, RawDouyinOrder.sale_time < end,
@@ -203,7 +213,7 @@ def calculate_snapshot(
              RawDouyinOrder.pay_time < end, RawDouyinOrder.pay_time <= cutoff),
     )
     orders = bounded(select(RawDouyinOrder).where(
-        RawDouyinOrder.sku_id.in_(skus), sale_window).options(load_only(
+        scope_predicate(product_scope, func.coalesce(RawDouyinOrder.sku_id.in_(skus), False)), sale_window).options(load_only(
             RawDouyinOrder.order_id, RawDouyinOrder.sku_id,
             RawDouyinOrder.sale_time, RawDouyinOrder.pay_time,
             RawDouyinOrder.owner_account_id, RawDouyinOrder.owner_douyin_uid,
@@ -322,7 +332,7 @@ def calculate_snapshot(
     with session.begin_nested():
         session.execute(runs.insert().values(
             run_id=run_id, period_start=start, period_end=end, observed_through=cutoff,
-            roster_at=roster, eligibility_version=eligibility_version, metric_version=METRIC_VERSION,
+            roster_at=roster, eligibility_version=eligibility_version, metric_version=version_key,
             data_mode=data_mode, status="building", quality_json=dict(quality), created_at=datetime.now(timezone.utc)))
         if new_bindings:
             session.execute(lead_bindings.insert(), new_bindings)
@@ -342,12 +352,12 @@ def read_snapshot_report(
     service_center_name: str | None = None, district_name: str | None = None,
     area_name: str | None = None, store_id: str | None = None,
     page: int = 1, page_size: int | None = 50, sort_by: str = "order_count", sort_order: str = "DESC",
-    run_id: str | None = None, data_mode: str | None = None,
+    run_id: str | None = None, data_mode: str | None = None, product_scope: str = "jingcheng",
 ) -> dict[str, Any]:
     """Aggregate only authorized frozen store fragments, then rank and paginate."""
     if level not in LEVEL_FIELDS or sort_by not in {"order_count", "order_average", "follow_24h_rate", "verification_rate"}:
         raise ValueError("invalid level or sort")
-    query = select(runs).where(runs.c.status == "success", runs.c.period_start == utc(period_start),
+    query = select(runs).where(runs.c.metric_version == metric_version(product_scope), runs.c.status == "success", runs.c.period_start == utc(period_start),
                                runs.c.period_end == utc(period_end))
     if data_mode is not None:
         if data_mode not in {"synthetic", "business"}:
@@ -411,7 +421,9 @@ def read_snapshot_report(
     return dict(period_start=period_start, period_end=period_end - timedelta(days=1), level=level,
         total=len(rows), page=page, page_size=page_size,
         rows=rows if page_size is None else rows[(page - 1)*page_size:page*page_size],
-        totals=finish(totals), latest_observed_at=run["observed_through"], metric_definitions=DEFINITIONS,
+        totals=finish(totals), latest_observed_at=run["observed_through"],
+        product_scope=product_scope, metric_definitions={**DEFINITIONS,
+            "order_count": DEFINITIONS["order_count"].replace("精诚养车", PRODUCT_SCOPE_LABELS[product_scope])},
         data_mode=run["data_mode"], snapshot_id=run["run_id"], eligibility_version=run["eligibility_version"],
         quality_json=run["quality_json"] if scope_store_ids is None else {},
         preview_note=("虚拟测试数据，仅用于验证计算逻辑；有效门店数为测试名单，不是实际1531家。"

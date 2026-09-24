@@ -51,8 +51,9 @@ function drilldownHref(
   districtName: string,
   areaName: string,
   sortBy: RankingMetric,
+  productScope: string,
 ) {
-  const params = new URLSearchParams({ periodStart, periodEnd, sortBy });
+  const params = new URLSearchParams({ periodStart, periodEnd, sortBy, productScope });
   if (level === "group") {
     params.set("level", "service_center");
     params.set("groupName", row.name);
@@ -90,10 +91,13 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
   const [areaName, setAreaName] = useState(searchParams.get("areaName") ?? "");
   const [page, setPage] = useState(1);
   const [sortBy, setSortBy] = useState<RankingMetric>(() => RANKING_METRIC_OPTIONS.find((item) => item.value === searchParams.get("sortBy"))?.value ?? "order_average");
+  const [productScope, setProductScope] = useState(() => ["all", "jingcheng", "byd"].includes(searchParams.get("productScope") ?? "") ? searchParams.get("productScope")! : "jingcheng");
+  const productLabel = ({all: "全部商品", jingcheng: "精诚养车商品", byd: "比亚迪本品"} as Record<string, string>)[productScope];
   const [exportOpen, setExportOpen] = useState(false);
 
   const rankingResource = useApiResource(
     () => fetchDouyinRanking({
+      productScope,
       periodStart,
       periodEnd,
       level,
@@ -106,7 +110,8 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       sortBy,
       sortOrder: "DESC",
     }),
-    [periodStart, periodEnd, level, groupName, serviceCenterName, districtName, areaName, page, sortBy],
+    [productScope, periodStart, periodEnd, level, groupName, serviceCenterName, districtName, areaName, page, sortBy],
+    { clearOnReload: true },
   );
   const ranking = rankingResource.data?.data;
   const hasQualityIssues = Object.entries(ranking?.qualityJson ?? {}).some(
@@ -135,7 +140,7 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       title: LEVEL_OPTIONS.find((item) => item.value === level)?.label ?? "组织",
       minWidth: 180,
       render: (row) => {
-        const href = drilldownHref(row, level, periodStart, periodEnd, groupName, serviceCenterName, districtName, areaName, sortBy);
+        const href = drilldownHref(row, level, periodStart, periodEnd, groupName, serviceCenterName, districtName, areaName, sortBy, productScope);
         return href ? <a href={href}>{row.name}</a> : row.name;
       },
     },
@@ -156,11 +161,12 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
         </div>
       </section>
       {exportOpen && <DouyinRankingExportDialog periodStart={periodStart} periodEnd={periodEnd} today={initialRange.today} level={level}
-        filters={{ groupName, serviceCenterName, districtName, areaName }} onClose={() => setExportOpen(false)} />}
+        productScope={productScope} filters={{ groupName, serviceCenterName, districtName, areaName }} onClose={() => setExportOpen(false)} />}
       <ResourceNotice loading={rankingResource.loading} error={error} fallbackReason={rankingResource.data?.fallbackReason} />
       {ranking?.dataMode === "synthetic" && <ResourcePanel>{ranking.previewNote} 快照：{ranking.snapshotId}</ResourcePanel>}
       {ranking?.dataMode === "business" && hasQualityIssues && <ResourcePanel>部分数据的门店归属或历史绑定资料尚待核验，当前排名仅供参考；未能唯一归属的数据暂未计入。</ResourcePanel>}
       <FilterBar>
+        <SelectField label="商品类型" value={productScope} onChange={(value) => { setProductScope(value); setPage(1); }} options={[{value: "all", label: "全部商品"}, {value: "jingcheng", label: "精诚养车商品"}, {value: "byd", label: "比亚迪本品"}]} />
         <FilterField label="开始日期"><FieldInput type="date" min={RANKING_EARLIEST_DATE} max={initialRange.today} value={periodStart} onChange={(event) => { const next = updateRankingPeriodStart(event.target.value, periodEnd, initialRange.today); setPeriodStart(next.periodStart); setPeriodEnd(next.periodEnd); setPage(1); }} /></FilterField>
         <FilterField label="结束日期"><FieldInput type="date" min={periodStart} max={initialRange.today} value={periodEnd} onChange={(event) => { setPeriodEnd(updateRankingPeriodEnd(event.target.value, periodStart, initialRange.today)); setPage(1); }} /></FilterField>
         <SelectField label="查看层级" value={level} onChange={(value) => { setLevel(value as DouyinRankingLevel); setPage(1); }} options={LEVEL_OPTIONS} />
@@ -175,9 +181,9 @@ export function DouyinRankingPage({ searchParams }: DouyinRankingPageProps) {
       {!ranking && rankingResource.loading ? <ResourcePanel>正在加载打榜指标…</ResourcePanel> : !ranking ? <ResourcePanel tone="error">打榜看板暂不可用。</ResourcePanel> : (
         <>
           <section className="metric-grid metric-grid--three">
-            <MetricCard label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={`店均 ${displayAverage(totals?.orderAverage)} · ${sourceLabel}`} description="门店及所属职人的全渠道精诚养车订单，按订单 ID 去重；订单量和店均统一按统计开始日组织归属，适用门店名单同日固定，含零销量门店。" />
-            <MetricCard label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(totals?.followRate)}</small></>} description="精诚养车商品对应的正式分配线索，在分配后 24 小时内完成真实联系并在系统回填。" />
-            <MetricCard label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description="正式分配给本店的精诚养车线索关联订单中，在本店成功核销的比例；上级组织汇总各店分子和分母。" />
+            <MetricCard label="抖音订单量" value={formatInteger(totals?.orderCount ?? 0)} meta={`店均 ${displayAverage(totals?.orderAverage)} · ${sourceLabel}`} description={`门店及所属职人的全渠道${productLabel}订单，按订单 ID 去重；订单量和店均统一按统计开始日组织归属，适用门店名单保持原有精诚养车名单口径，含零销量门店。`} />
+            <MetricCard label="线索24小时有效跟进率" value={displayRate(totals?.follow24hRate)} meta={<><div>有效 {formatInteger(totals?.followNumerator ?? 0)} / 分配 {formatInteger(totals?.followDenominator ?? 0)}</div><small title="正式分配后截至数据更新时间已有有效跟进的轮次占比，不限制在24小时内；每轮只计一次，仅供辅助判断。">跟进率 {displayRate(totals?.followRate)}</small></>} description={`${productLabel}对应的正式分配线索，在分配后 24 小时内完成真实联系并在系统回填。`} />
+            <MetricCard label="抖音订单核销率" value={displayRate(totals?.verificationRate)} meta={`核销 ${formatInteger(totals?.verificationNumerator ?? 0)} / 关联 ${formatInteger(totals?.verificationDenominator ?? 0)}`} description={`正式分配给本店的${productLabel}线索关联订单中，在本店成功核销的比例；上级组织汇总各店分子和分母。`} />
           </section>
           <section className="content-section">
             <div className="section-title">

@@ -1365,13 +1365,14 @@ export function fetchSettlementStoreRanking({
 }
 
 export function downloadDouyinRanking(query: {
-  periodStart: string; periodEnd: string; levels: string; metrics: string;
+  periodStart: string; periodEnd: string; levels: string; metrics: string; productScope?: string;
   groupName?: string; serviceCenterName?: string; districtName?: string; areaName?: string;
 }): Promise<void> {
   return requestDownload("/dashboard/douyin-ranking/export", query);
 }
 
 export function fetchDouyinRanking({
+  productScope = "jingcheng",
   periodStart,
   periodEnd,
   level,
@@ -1385,6 +1386,7 @@ export function fetchDouyinRanking({
   sortBy = "order_count",
   sortOrder = "DESC",
 }: {
+  productScope?: string;
   periodStart: string;
   periodEnd: string;
   level: DouyinRankingLevel;
@@ -1425,6 +1427,7 @@ export function fetchDouyinRanking({
   });
   return withMockFallback(
     () => requestJson<DouyinRankingData>("/dashboard/douyin-ranking", {
+      productScope,
       periodStart,
       periodEnd,
       level,
@@ -3393,4 +3396,12 @@ export async function commitBulkAccounts(file: File, digest: string) {
   if (!response.ok) throw await apiRequestError(response);
   clearRequestJsonCache();
   return response.blob();
+}
+
+export function fetchClueOrganizationOptions(query: { level: string; q: string; selected_key: string }): Promise<ApiLoadResult<{ options: Array<{ value: string; label: string }> }>> {
+  return withMockFallback(
+    () => requestJson<{ options: Array<{ value: string; label: string }> }>("/clues/filter-options/organizations", query),
+    () => ({ data: { options: [] }, meta: { generatedAt: generatedAt(), source: "mock" } }),
+    { fallbackOnError: false },
+  );
 }

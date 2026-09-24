@@ -10,6 +10,7 @@ import { RANKING_LEVEL_OPTIONS, RANKING_METRIC_OPTIONS, type RankingMetric } fro
 import type { DouyinRankingLevel } from "../types/dashboard";
 
 interface Props {
+  productScope: string;
   periodStart: string;
   periodEnd: string;
   today: string;
@@ -18,7 +19,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function DouyinRankingExportDialog({ periodStart, periodEnd, today, level, filters, onClose }: Props) {
+export function DouyinRankingExportDialog({ productScope, periodStart, periodEnd, today, level, filters, onClose }: Props) {
   const [start, setStart] = useState(periodStart);
   const [end, setEnd] = useState(periodEnd);
   const [levels, setLevels] = useState<DouyinRankingLevel[]>([level]);
@@ -32,7 +33,7 @@ export function DouyinRankingExportDialog({ periodStart, periodEnd, today, level
     setBusy(true);
     setError("");
     try {
-      await downloadDouyinRanking({ ...filters, periodStart: start, periodEnd: end, levels: levels.join(","), metrics: metrics.join(",") });
+      await downloadDouyinRanking({ ...filters, productScope, periodStart: start, periodEnd: end, levels: levels.join(","), metrics: metrics.join(",") });
       onClose();
     } catch (reason) {
       setError(apiErrorText(reason, "导出失败，请稍后重试。"));
@@ -45,6 +46,7 @@ export function DouyinRankingExportDialog({ periodStart, periodEnd, today, level
     description="每个指标一个工作表，所选层级在表内分别排名。导出当前账号权限和组织筛选范围内的全部结果。"
     actions={<><Button onClick={onClose} disabled={busy}>取消</Button><Button variant="primary" onClick={submit} loading={busy} disabled={!valid || busy}>{busy ? "正在生成…" : "导出 Excel"}</Button></>}>
     <div className="page-stack">
+      <p>商品范围：{({all: "全部商品", jingcheng: "精诚养车商品", byd: "比亚迪本品"} as Record<string, string>)[productScope]}</p>
       <TextField label="导出开始日期" type="date" min={RANKING_EARLIEST_DATE} max={today} value={start} disabled={busy} onChange={(event) => setStart(event.target.value)} />
       <TextField label="导出结束日期" type="date" min={start} max={today} value={end} disabled={busy} onChange={(event) => setEnd(event.target.value)} />
       <fieldset disabled={busy}><legend>导出层级（可多选）</legend>

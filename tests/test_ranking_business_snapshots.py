@@ -54,3 +54,34 @@ def test_business_row_budget_fails_without_partial_batch(business_db):
     with pytest.raises(ValueError, match="数据量"):
         ensure(business_db, max_period_rows=2)
     assert business_db.scalar(select(func.count()).select_from(runs)) == 0
+
+
+def test_product_scopes_partition_counts_and_isolate_cache(business_db):
+    from apps.api.dy_api.models import RawDouyinOrder, ClueAssignmentRound
+    from apps.api.dy_api.ranking_snapshots import read_snapshot_report
+    original = business_db.scalar(select(RawDouyinOrder).where(RawDouyinOrder.order_id == "O1"))
+    for suffix, sku in [("other", "UNKNOWN"), ("null", None)]:
+        business_db.add(RawDouyinOrder(order_id=suffix, sku_id=sku,
+            sale_time=original.sale_time, owner_account_id=original.owner_account_id))
+        business_db.add(ClueAssignmentRound(assignment_round_id=suffix,
+            order_id=suffix, lead_key=suffix, assigned_store_id="A",
+            assigned_at=original.sale_time, execution_mode="formal", round_status="active"))
+    business_db.commit()
+    reports = {}
+    ids = {}
+    for scope in ["jingcheng", "byd", "all"]:
+        ids[scope] = ensure(business_db, product_scope=scope)
+        assert ensure(business_db, product_scope=scope) == ids[scope]
+        reports[scope] = read_snapshot_report(business_db, period_start=START,
+            period_end=END, product_scope=scope, data_mode="business")
+        assert reports[scope]["snapshot_id"] == ids[scope]
+        assert reports[scope]["product_scope"] == scope
+    assert len(set(ids.values())) == 3
+    assert reports["byd"]["totals"]["order_count"] >= 2
+    assert reports["byd"]["totals"]["follow_denominator"] >= 2
+    for key in ["order_count", "follow_numerator", "follow_denominator",
+                "follow_any_numerator", "verification_numerator", "verification_denominator"]:
+        assert reports["all"]["totals"][key] == sum(reports[s]["totals"][key] for s in ["jingcheng", "byd"])
+    with pytest.raises(ValueError):
+        read_snapshot_report(business_db, period_start=START, period_end=END,
+            run_id=ids["all"], product_scope="jingcheng")
