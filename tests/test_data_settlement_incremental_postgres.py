@@ -402,6 +402,7 @@ def _seed_coupon(session: Session, coupon_id: str = "pg-coupon") -> None:
             order_paid_amount_cent=10000,
             owner_account_id="pg-owner-sale",
             owner_account_name="Sale owner",
+            raw_payload={"receipt_amount": 10000},
         )
     )
     session.flush()

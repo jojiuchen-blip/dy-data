@@ -122,6 +122,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     DimSkuProductRule,
     DimStore,
     FinanceImportBatch,
+    FinanceImportRow,
     InvoiceRecord,
     InvoiceStatusEvent,
     JobRun,
@@ -130,6 +131,8 @@ from apps.api.dy_api.models import (  # noqa: E402
     SapSuggestion,
     SettlementDispute,
     SettlementDisputeOrder,
+    SettlementFeeResult,
+    SettlementFeeResultCurrent,
     SettlementStatement,
     SettlementStatementConfirmation,
     SettlementStatementEntry,
@@ -940,6 +943,146 @@ def live_admin_fastapi_base_url(tmp_path_factory) -> Generator[str]:
                     order_id="DY2026071900842",
                     coupon_id="uat-coupon-promotion",
                     disputed_amount_cent=64_050,
+                ),
+                # --- DYDATA-97 导出浏览器回归所需的最小合成种子（非真实数据） ---
+                # /details 需要可下钻的冻结费用事实（settlement_fee_result + current），
+                # 否则门店/账期上下文成立但明细为空，导出按钮会被禁用。
+                SettlementFeeResult(
+                    fee_result_id="uat-fee-promotion",
+                    coupon_id="uat-coupon-promotion",
+                    order_id="DY2026071900842",
+                    fee_direction=1,
+                    result_version=1,
+                    original_business_month="2026-08",
+                    rule_match_date=date(2026, 8, 3),
+                    sale_store_id="store-1",
+                    verify_store_id="store-1",
+                    sku_id="SKU-AC-008",
+                    product_scope="精诚养车",
+                    product_type="养车服务",
+                    sale_channel_normalized="LIVE",
+                    source_amount_cent=1_286_405,
+                    refunded_amount_cent=0,
+                    fee_base_cent=1_286_405,
+                    fee_rate=Decimal("0.100000"),
+                    fee_amount_cent=128_641,
+                    rule_version="uat-rule-v1",
+                    scope_rule_version="uat-scope-v1",
+                    result_status=1,
+                    calculation_run_id="uat-run-promotion",
+                    calculated_at=datetime(2026, 8, 5, 9, tzinfo=timezone.utc),
+                ),
+                SettlementFeeResult(
+                    fee_result_id="uat-fee-management",
+                    coupon_id="uat-coupon-management",
+                    order_id="DY20260622001935",
+                    fee_direction=2,
+                    result_version=1,
+                    original_business_month="2026-08",
+                    rule_match_date=date(2026, 8, 5),
+                    sale_store_id="store-1",
+                    verify_store_id="store-1",
+                    sku_id="SKU-TYRE-006",
+                    product_scope="精诚养车",
+                    product_type="养车服务",
+                    sale_channel_normalized="SHORT_VIDEO",
+                    source_amount_cent=320_000,
+                    refunded_amount_cent=0,
+                    fee_base_cent=320_000,
+                    fee_rate=Decimal("0.100000"),
+                    fee_amount_cent=32_000,
+                    rule_version="uat-rule-v1",
+                    scope_rule_version="uat-scope-v1",
+                    result_status=1,
+                    calculation_run_id="uat-run-management",
+                    calculated_at=datetime(2026, 8, 5, 9, tzinfo=timezone.utc),
+                ),
+                SettlementFeeResultCurrent(
+                    coupon_id="uat-coupon-promotion",
+                    fee_direction=1,
+                    fee_result_id="uat-fee-promotion",
+                ),
+                SettlementFeeResultCurrent(
+                    coupon_id="uat-coupon-management",
+                    fee_direction=2,
+                    fee_result_id="uat-fee-management",
+                ),
+                # 管理费历史版本行：验证 includeHistory 开/关时列表与导出行集一致。
+                InvoiceRecord(
+                    invoice_id="uat-management-invoice-history",
+                    store_id="store-1",
+                    statement_month="2026-08",
+                    statement_id="uat-statement-store-1",
+                    fee_direction=2,
+                    version_no=0,
+                    is_current=False,
+                    invoice_number="12345678901234567800",
+                    invoice_date=date(2026, 8, 2),
+                    invoice_amount_cent=300_000,
+                    invoice_status=4,
+                    source_type=2,
+                    factory_deduction_date=date(2026, 8, 20),
+                    factory_deduction_amount_cent=300_000,
+                    registered_by="uat-finance-admin",
+                    registered_at=datetime(2026, 8, 2, 8, tzinfo=timezone.utc),
+                ),
+                # 合成失败导入批次：错误行下载成功链路 + 失败呈现（D4）。
+                FinanceImportBatch(
+                    batch_id="uat-error-import",
+                    import_type=1,
+                    statement_month="2026-08",
+                    file_name="finance-basic-info-error-uat.csv",
+                    file_sha256="c" * 64,
+                    normalized_sha256="d" * 64,
+                    read_version=1,
+                    current_version=1,
+                    batch_status=6,
+                    total_rows=2,
+                    success_rows=0,
+                    error_rows=2,
+                    content_changed=False,
+                    submitted_by="uat-finance-admin",
+                    submitted_at=datetime(2026, 8, 8, 8, tzinfo=timezone.utc),
+                ),
+                FinanceImportRow(
+                    batch_id="uat-error-import",
+                    row_number=2,
+                    business_key="store-missing",
+                    normalized_payload={
+                        "storeId": "store-missing",
+                        "statementMonth": "2026-08",
+                    },
+                    row_status=4,
+                    validation_errors=[
+                        {
+                            "row_number": 2,
+                            "business_key": "store-missing",
+                            "field": "storeId",
+                            "original_value": "store-missing",
+                            "reason": "门店 ID 不存在",
+                            "suggestion": "使用系统中存在的门店 ID",
+                        }
+                    ],
+                ),
+                FinanceImportRow(
+                    batch_id="uat-error-import",
+                    row_number=3,
+                    business_key="store-1",
+                    normalized_payload={
+                        "storeId": "store-1",
+                        "statementMonth": "2026-08",
+                    },
+                    row_status=4,
+                    validation_errors=[
+                        {
+                            "row_number": 3,
+                            "business_key": "store-1",
+                            "field": "storeName",
+                            "original_value": "错误门店名称",
+                            "reason": "门店名称与门店 ID 不一致",
+                            "suggestion": "以门店 ID 对应的系统门店名称为准",
+                        }
+                    ],
                 ),
             ]
         )
@@ -5352,6 +5495,182 @@ def test_management_pending_invoice_row_is_visible_but_cannot_open_correction(
         assert page.get_by_role("button", name="更正", exact=True).count() == 0
         pending_store.dblclick()
         assert page.get_by_role("heading", name="更正管理服务费记录").count() == 0
+    finally:
+        context.close()
+
+
+def query_param_value(url: str, name: str) -> str | None:
+    match = re.search(rf"[?&]{re.escape(name)}=([^&]*)", url)
+    return match.group(1) if match else None
+
+
+def test_dydata_97_management_history_filter_matches_list_and_export(
+    browser: Browser,
+    vite_base_url: str,
+) -> None:
+    """管理费勾选历史后，列表与导出必须共用同一个 includeHistory 筛选。
+
+    接口响应用 route 模拟，覆盖的是前端筛选对象与下载链路，
+    不代表真实后端联调。
+    """
+    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    page = context.new_page()
+    install_api_routes(page)
+    list_requests: list[str] = []
+    export_requests: list[str] = []
+    current_row = {
+        "invoiceId": "invoice-current-097",
+        "storeId": "store-current-097",
+        "storeName": "当前版本校准门店",
+        "effectiveSapCode": "SAP-CURRENT-097",
+        "statementId": "statement-current-097",
+        "statementMonth": "2026-08",
+        "statementAmountCent": 320000,
+        "confirmedAmountCent": 320000,
+        "feeDirection": "MANAGEMENT",
+        "versionNo": 2,
+        "isCurrent": True,
+        "invoiceNumber": "12345678901234567891",
+        "invoiceDate": "2026-08-10",
+        "invoiceAmountCent": 320000,
+        "status": "APPROVED_SETTLED",
+        "sourceType": 2,
+        "importBatchId": None,
+        "registeredAt": "2026-08-12T08:00:00+08:00",
+        "settlementBatchMonth": "2026-08",
+        "rejectionReason": None,
+        "factoryDeductionDate": "2026-08-21",
+        "factoryDeductionAmountCent": 320000,
+        "settledAt": None,
+    }
+    history_row = {
+        **current_row,
+        "invoiceId": "invoice-history-097",
+        "storeName": "历史版本校准门店",
+        "effectiveSapCode": "SAP-HISTORY-097",
+        "versionNo": 1,
+        "isCurrent": False,
+        "invoiceNumber": "12345678901234567890",
+        "invoiceAmountCent": 300000,
+    }
+
+    def fulfill_finance_invoice_request(route: object) -> None:
+        url = str(getattr(getattr(route, "request"), "url"))
+        if "/admin/finance/invoices/export" in url:
+            export_requests.append(url)
+            csv_lines = [
+                "门店,SAP,账期,发票号码",
+                "当前版本校准门店,SAP-CURRENT-097,2026-08,12345678901234567891",
+            ]
+            if query_param_value(url, "includeHistory") == "true":
+                csv_lines.append(
+                    "历史版本校准门店,SAP-HISTORY-097,2026-08,12345678901234567890"
+                )
+            getattr(route, "fulfill")(
+                status=200,
+                content_type="text/csv; charset=utf-8",
+                headers={
+                    "Content-Disposition": 'attachment; filename="management-invoices.csv"'
+                },
+                body="\r\n".join(csv_lines) + "\r\n",
+            )
+            return
+        list_requests.append(url)
+        rows = [current_row]
+        if query_param_value(url, "includeHistory") == "true":
+            rows = [current_row, history_row]
+        getattr(route, "fulfill")(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "list": rows,
+                "total": len(rows),
+                "page": 1,
+                "pageSize": 50,
+            }),
+        )
+
+    page.route(
+        "**/api/v1/admin/finance/summary?*",
+        lambda route: route.fulfill(
+            status=200,
+            content_type="application/json",
+            body=api_payload({
+                "month": "2026-08",
+                "storeId": None,
+                "feeDirection": "MANAGEMENT",
+                "metricScope": "MONTH",
+                "metrics": {
+                    "statementTotalCent": 620000,
+                    "confirmedAmountCent": 620000,
+                    "pendingInvoiceAmountCent": 0,
+                    "issuedAmountCent": 620000,
+                    "settledOrDeductedAmountCent": 620000,
+                },
+            }),
+        ),
+    )
+    page.route(
+        "**/api/v1/admin/finance/invoices**",
+        fulfill_finance_invoice_request,
+    )
+    try:
+        page.goto(
+            f"{vite_base_url}/finance/management?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role("heading", name="管理服务费", exact=True, level=1).wait_for(
+            timeout=10000
+        )
+        expect(
+            page.get_by_text("SAP-CURRENT-097", exact=True).first
+        ).to_be_visible()
+        expect(page.get_by_text("SAP-HISTORY-097", exact=True)).to_have_count(0)
+        assert list_requests
+        assert query_param_value(list_requests[-1], "includeHistory") == "false"
+
+        page.get_by_role("button", name="查看历史版本", exact=True).click()
+        expect(
+            page.get_by_text("SAP-HISTORY-097", exact=True).first
+        ).to_be_visible()
+        assert query_param_value(list_requests[-1], "includeHistory") == "true"
+
+        with page.expect_download(timeout=10000) as history_download:
+            page.get_by_role(
+                "button", name="导出当前筛选结果", exact=True
+            ).click()
+        assert query_param_value(export_requests[-1], "includeHistory") == "true"
+        history_csv = Path(history_download.value.path()).read_text(encoding="utf-8")
+        assert "SAP-HISTORY-097" in history_csv
+        assert "SAP-CURRENT-097" in history_csv
+
+        page.get_by_role("button", name="仅看当前版本", exact=True).click()
+        expect(page.get_by_text("SAP-HISTORY-097", exact=True)).to_have_count(0)
+        assert query_param_value(list_requests[-1], "includeHistory") == "false"
+
+        with page.expect_download(timeout=10000) as current_download:
+            page.get_by_role(
+                "button", name="导出当前筛选结果", exact=True
+            ).click()
+        assert query_param_value(export_requests[-1], "includeHistory") == "false"
+        current_csv = Path(current_download.value.path()).read_text(encoding="utf-8")
+        assert "SAP-HISTORY-097" not in current_csv
+
+        page.goto(
+            f"{vite_base_url}/finance/promotion?month=2026-08",
+            wait_until="domcontentloaded",
+        )
+        page.get_by_role(
+            "heading", name="推广服务费", exact=True, level=1
+        ).wait_for(timeout=10000)
+        with page.expect_download(timeout=10000):
+            page.get_by_role(
+                "button", name="导出当前筛选结果", exact=True
+            ).click()
+        promotion_history_flag = query_param_value(
+            export_requests[-1], "includeHistory"
+        )
+        assert promotion_history_flag in (None, "false")
     finally:
         context.close()
 

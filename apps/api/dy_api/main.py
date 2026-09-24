@@ -126,6 +126,13 @@ def create_app(
             allow_credentials=True,
             allow_methods=["GET", "POST", "PUT"],
             allow_headers=["*"],
+            # 仅暴露下载元数据头：前端据此还原服务端建议文件名与空结果语义。
+            expose_headers=[
+                "Content-Disposition",
+                "X-Export-Result",
+                "X-Export-Generated-At",
+                "X-Request-ID",
+            ],
         )
 
     app.add_middleware(CliAuditMiddleware)
