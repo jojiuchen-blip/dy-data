@@ -4,8 +4,9 @@ import binascii
 from datetime import date, datetime, time, timedelta, timezone
 import hashlib
 import json
+import re
 
-from sqlalchemy import or_, select, tuple_
+from sqlalchemy import case, func, or_, select, tuple_
 from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
@@ -25,6 +26,37 @@ PROJECTIONS = {
     'poi_mappings': (DimStorePoiMapping, PoiRow, ('store_id', 'poi_id')),
 }
 SCHEMA_VERSION = 'pdca-source-observation-v1'
+
+
+def _source_cents(value: object) -> int | None:
+    """Accept exact nonnegative cents; never coerce booleans or fractions."""
+    if type(value) is int:
+        return value if 0 <= value <= 9_007_199_254_740_991 else None
+    if isinstance(value, str) and re.fullmatch(r'[0-9]{1,16}', value):
+        return _source_cents(int(value))
+    return None
+
+
+def _receipt_evidence(receipt: object, discounts: object, total_discount: object) -> dict:
+    """Keep a receipt candidate separate until export equivalence is verified."""
+    receipt_cent = _source_cents(receipt)
+    total_discount_cent = _source_cents(total_discount)
+    platform_cent = None
+    if discounts is None and total_discount_cent == 0:
+        platform_cent = 0
+    elif isinstance(discounts, list):
+        amounts = [_source_cents(item.get('platform_discount_amount'))
+                   if isinstance(item, dict) else None for item in discounts]
+        if all(value is not None for value in amounts):
+            platform_cent = _source_cents(sum(amounts))
+        if (total_discount_cent is None or (not discounts and total_discount_cent != 0)
+                or (platform_cent is not None and platform_cent > total_discount_cent)):
+            platform_cent = None
+    candidate = (_source_cents(receipt_cent + platform_cent)
+                 if receipt_cent is not None and platform_cent is not None else None)
+    return {'source_receipt_amount_cent': receipt_cent,
+            'source_platform_discount_amount_cent': platform_cent,
+            'order_receipt_candidate_cent': candidate}
 
 
 def read_pdca_page(session: Session, *, dataset: str, period_start: date, period_end: date,
@@ -49,6 +81,15 @@ def read_pdca_page(session: Session, *, dataset: str, period_start: date, period
         RawDouyinOrder.create_order_time < end, RawDouyinOrder.create_order_time <= cutoff)
     model, schema, key_names = PROJECTIONS[dataset]
     columns = [getattr(model, field) for field in schema.model_fields if field != 'kind' and hasattr(model, field)]
+    if dataset == 'orders':
+        # Project only explicitly approved monetary evidence, never raw_payload.
+        for key in ('receipt_amount', 'discounts', 'discount_amount'):
+            expression = model.raw_payload[key]
+            if session.get_bind().dialect.name == 'sqlite':
+                # SQLite JSON extraction converts true/false to 1/0. Neither is money.
+                expression = case((func.json_type(model.raw_payload, '$.' + key)
+                                   .in_(['true', 'false']), None), else_=expression)
+            columns.append(expression.label('_source_' + key))
     keys = [getattr(model, key) for key in key_names]
     statement = select(*columns)
     if dataset == 'orders':
@@ -86,6 +127,10 @@ def read_pdca_page(session: Session, *, dataset: str, period_start: date, period
     rows = []
     for raw in raw_rows:
         values = dict(raw)
+        if dataset == 'orders':
+            values.update(_receipt_evidence(
+                values.pop('_source_receipt_amount'), values.pop('_source_discounts'),
+                values.pop('_source_discount_amount')))
         # SQLite test storage loses tzinfo; production PostgreSQL preserves it.
         if session.get_bind().dialect.name == 'sqlite':
             values = {key: value.replace(tzinfo=timezone.utc) if isinstance(value, datetime) and value.tzinfo is None else value

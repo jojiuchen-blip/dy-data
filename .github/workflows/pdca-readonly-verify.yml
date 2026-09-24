@@ -1,0 +1,53 @@
+name: PDCA isolated read-only verification
+
+"on":
+  push:
+    branches: ["pdca/receipt-evidence-ci-20260924"]
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/api/dy_api/pdca_*.py"
+      - "tests/test_pdca_*.py"
+      - ".github/workflows/pdca-readonly-verify.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-pdca:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: apps/api:.
+      PDCA_READONLY_TEST_PORT: "55439"
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: pdca_readonly_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - "127.0.0.1:55439:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres -d pdca_readonly_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Verify read-only enforcement and receipt evidence
+        run: >-
+          python -m pytest -q
+          tests/test_pdca_isolated_ci.py
+          tests/test_pdca_readonly_access.py
+          tests/test_pdca_readonly_postgres.py
+          tests/test_pdca_source_evidence.py
+          tests/test_pdca_route_registration.py
+          tests/test_ranking_source_evidence.py

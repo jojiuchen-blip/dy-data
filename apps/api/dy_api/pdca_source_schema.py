@@ -22,6 +22,9 @@ class OrderRow(EvidenceRow):
     pay_time: datetime | None = None
     sale_time: datetime | None = None
     paid_amount_cent: int | None = None
+    source_receipt_amount_cent: int | None = None
+    source_platform_discount_amount_cent: int | None = None
+    order_receipt_candidate_cent: int | None = None
     owner_douyin_uid: str | None = None
     owner_account_name: str | None = None
     sale_role: str | None = None
