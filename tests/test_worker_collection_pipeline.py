@@ -394,6 +394,7 @@ def test_queued_settlement_rebuild_applies_current_non_commission_rules(db_sessi
         pay_time=datetime.fromisoformat("2026-06-01T10:00:00+08:00"),
         paid_amount_cent=10000,
         owner_account_name="Official Seller",
+        raw_payload={"receipt_amount": 10000},
     )
     upsert_order_coupon(db_session, "coupon-cross", "order-cross", coupon_status="fulfilled")
     upsert_verify_record(

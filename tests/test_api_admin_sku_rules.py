@@ -102,6 +102,7 @@ def _load_unconfigured_cross_store_sku(session: Session) -> None:
         pay_time=_dt(1),
         owner_account_name="Sale Owner",
         paid_amount_cent=10000,
+        raw_payload={"receipt_amount": 10000},
     )
     upsert_order_coupon(
         session,

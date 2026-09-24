@@ -50,6 +50,9 @@ export function FinanceImportActionPanel({
   const [message, setMessage] = useState("");
   const [uploading, setUploading] = useState(false);
   const [committing, setCommitting] = useState(false);
+  const [downloadingErrors, setDownloadingErrors] = useState(false);
+  const [downloadMessage, setDownloadMessage] = useState("");
+  const [downloadIsError, setDownloadIsError] = useState(false);
   const [commitKey, setCommitKey] = useState(() => crypto.randomUUID());
   const [fileInputVersion, setFileInputVersion] = useState(0);
 
@@ -66,6 +69,8 @@ export function FinanceImportActionPanel({
     if (!file) return;
     setUploading(true);
     setMessage("");
+    setDownloadMessage("");
+    setDownloadIsError(false);
     setPreview(null);
     try {
       const response = await uploadFinanceImport({ importType, statementMonth: month, file });
@@ -123,6 +128,22 @@ export function FinanceImportActionPanel({
       );
     } finally {
       setCommitting(false);
+    }
+  };
+
+  const handleDownloadErrors = async () => {
+    if (!preview || downloadingErrors) return;
+    setDownloadingErrors(true);
+    setDownloadMessage("");
+    setDownloadIsError(false);
+    try {
+      await downloadFinanceImportErrors(preview.batchId);
+      setDownloadMessage("错误文件已下载，请修正后重新上传并预览。");
+    } catch (error) {
+      setDownloadIsError(true);
+      setDownloadMessage(`下载失败：${userFacingError(error, "错误文件下载失败，请稍后重试。")}`);
+    } finally {
+      setDownloadingErrors(false);
     }
   };
 
@@ -187,7 +208,10 @@ export function FinanceImportActionPanel({
             <span>读取 / 当前版本<strong>V{preview.readVersion} / V{preview.currentVersion}</strong></span>
           </div>
           {preview.errorRows > 0 ? (
-            <Button onClick={() => downloadFinanceImportErrors(preview.batchId)} variant="secondary">下载全部错误</Button>
+            <>
+              <Button disabled={downloadingErrors} loading={downloadingErrors} onClick={handleDownloadErrors} variant="secondary">下载全部错误</Button>
+              {downloadMessage ? <span role={downloadIsError ? "alert" : "status"}>{downloadMessage}</span> : null}
+            </>
           ) : (
             <ResourcePanel>校验结果不会自动写入，提交前仍可放弃。</ResourcePanel>
           )}

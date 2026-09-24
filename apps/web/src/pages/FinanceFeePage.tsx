@@ -129,16 +129,18 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     q: search.trim() || undefined,
     invoiceStatus: invoiceStatus || undefined,
   };
+  // 列表与导出必须共用同一个完整筛选对象，保证导出行集与页面所见一致；
+  // 推广方向没有历史版本开关，includeHistory 恒为 false。
+  const invoiceQuery = {
+    ...commonQuery,
+    includeHistory: feeDirection === "MANAGEMENT" && showHistory,
+  };
   const summaryResource = useApiResource(
     () => fetchFinanceSummary(commonQuery),
     [month, feeDirection, metricScope, search, invoiceStatus],
   );
   const invoiceResource = useApiResource(
-    () => fetchFinanceInvoices({
-      ...commonQuery,
-      includeHistory: feeDirection === "MANAGEMENT" && showHistory,
-      pageSize: 50,
-    }),
+    () => fetchFinanceInvoices({ ...invoiceQuery, pageSize: 50 }),
     [month, feeDirection, metricScope, search, invoiceStatus, showHistory],
   );
   const metrics = summaryResource.data?.data.metrics;
@@ -227,7 +229,7 @@ export function FinanceFeePage({ feeDirection, searchParams }: FinanceFeePagePro
     setNotice("");
     setNoticeIsError(false);
     try {
-      const result = await downloadFinanceInvoices(commonQuery);
+      const result = await downloadFinanceInvoices(invoiceQuery);
       setNotice(result.result === "EMPTY" ? "当前筛选无记录，已下载仅含表头的文件。" : `已导出当前筛选结果：${result.fileName}`);
     } catch (error) {
       setNoticeIsError(true);

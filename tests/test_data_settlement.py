@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import runpy
 from datetime import date, datetime, timedelta, timezone
@@ -169,6 +169,7 @@ def load_fixture(session: Session) -> None:
             paid_amount_cent=amount_cent,
             owner_account_id=owner_id,
             owner_account_name=owner_name,
+            raw_payload={"receipt_amount": amount_cent},
             source_run_id=RUN_ID,
         )
         upsert_order_coupon(
@@ -592,6 +593,7 @@ def _load_dual_fee_fixture(
         sale_channel=sale_channel,
         sale_channel_raw=sale_channel,
         sale_channel_normalized=sale_channel,
+        raw_payload={"receipt_amount": amount_cent},
         source_run_id="dual-source",
     )
     upsert_order_coupon(
@@ -1043,6 +1045,8 @@ def test_locked_reverification_appends_delta_and_preserves_history(
 def test_verified_basis_uses_same_receipts_and_verification_day_rules(
     db_session: Session, verify_paid: int,
 ) -> None:
+    # DYDATA-97: the fixture carries a real order receipt (12000) distinct from
+    # the verification paid amount; the paid value must not steer the basis.
     _load_dual_fee_fixture(db_session, amount_cent=12000)
     _add_fee_rule(db_session, "fee-verify-day", date(2026, 9, 5), promotion="0.170000", management="0.170000")
     verify = db_session.get(RawDouyinVerifyRecord, "verify-coupon-dual")
@@ -1055,8 +1059,8 @@ def test_verified_basis_uses_same_receipts_and_verification_day_rules(
         assert result.original_business_month == "2026-09"
         assert result.rule_match_date == date(2026, 9, 5)
         assert result.rule_version == "fee-verify-day"
-        assert result.source_amount_cent == result.fee_base_cent == verify_paid
-        assert result.fee_amount_cent == verify_paid * 17 // 100
+        assert result.source_amount_cent == result.fee_base_cent == 12000
+        assert result.fee_amount_cent == 12000 * 17 // 100
         assert (result.sale_store_id if direction == 1 else result.verify_store_id) == ("store-sale" if direction == 1 else "store-verify")
     assert count(db_session, SettlementFeeResult) == 2
 

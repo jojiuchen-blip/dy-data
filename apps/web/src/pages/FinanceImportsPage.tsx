@@ -48,6 +48,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
   const [reversalKey, setReversalKey] = useState(() => crypto.randomUUID());
   const [reversalState, setReversalState] = useState<"idle" | "loading" | "success" | "error" | "conflict">("idle");
   const [reversalMessage, setReversalMessage] = useState("");
+  const [errorDownloadState, setErrorDownloadState] = useState<"idle" | "loading" | "success" | "error">("idle");
+  const [errorDownloadMessage, setErrorDownloadMessage] = useState("");
   const listResource = useApiResource(
     () => fetchFinanceImports({ importType: importType || undefined, statementMonth: month || undefined, page, pageSize }),
     [importType, month, page, pageSize],
@@ -66,6 +68,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
     setChangeReason("");
     setReversalState("idle");
     setReversalMessage("");
+    setErrorDownloadState("idle");
+    setErrorDownloadMessage("");
   };
 
   const columns: Column<FinanceImportBatchRow>[] = [
@@ -77,6 +81,8 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
       setReversalKey(crypto.randomUUID());
       setReversalState("idle");
       setReversalMessage("");
+      setErrorDownloadState("idle");
+      setErrorDownloadMessage("");
     }} size="sm" variant="text">{row.batchId}</Button> },
     { key: "type", title: "导入类型", minWidth: 180, render: (row) => displayFinanceImportType(row.importType) },
     { key: "file", title: "源文件名称（仅日志）", minWidth: 230, render: (row) => row.fileName },
@@ -124,6 +130,20 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
       const conflict = error instanceof ApiRequestError && error.status === 409;
       setReversalState(conflict ? "conflict" : "error");
       setReversalMessage(conflict ? "批次或逐行业务版本已变化，请刷新后检查。" : message);
+    }
+  };
+
+  const downloadErrorFile = async () => {
+    if (!detail || errorDownloadState === "loading") return;
+    setErrorDownloadState("loading");
+    setErrorDownloadMessage("");
+    try {
+      await downloadFinanceImportErrors(detail.batchId);
+      setErrorDownloadState("success");
+      setErrorDownloadMessage("错误文件已下载，请按建议修正方式处理后重新导入。");
+    } catch (error) {
+      setErrorDownloadState("error");
+      setErrorDownloadMessage(`下载失败：${userFacingError(error, "错误文件下载失败，请稍后重试。")}`);
     }
   };
 
@@ -186,7 +206,10 @@ export function FinanceImportsPage({ searchParams }: { searchParams: URLSearchPa
             <DataTable columns={errorColumns} rows={detail.errors.list} emptyText="本批次没有校验错误" />
             {detail.reversalRows.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setReversalPage} onPageSizeChange={(nextPageSize) => { setReversalPageSize(nextPageSize); setReversalPage(1); }} page={detail.reversalRows.page} pageSize={detail.reversalRows.pageSize} pageSizeOptions={[20, 50]} rowsOnPage={detail.reversalRows.list.length} total={detail.reversalRows.total} totalPages={Math.max(1, Math.ceil(detail.reversalRows.total / detail.reversalRows.pageSize))} /> : null}
             {detail.errors.total > 0 ? <TablePagination loading={detailResource.loading} onPageChange={setErrorPage} onPageSizeChange={(nextPageSize) => { setErrorPageSize(nextPageSize); setErrorPage(1); }} page={detail.errors.page} pageSize={detail.errors.pageSize} pageSizeOptions={[20, 50]} rowsOnPage={detail.errors.list.length} total={detail.errors.total} totalPages={Math.max(1, Math.ceil(detail.errors.total / detail.errors.pageSize))} /> : null}
-            {detail.errorRows > 0 ? <Button onClick={() => downloadFinanceImportErrors(detail.batchId)} variant="secondary">下载全部错误</Button> : null}
+            {detail.errorRows > 0 ? <>
+              <Button disabled={errorDownloadState === "loading"} loading={errorDownloadState === "loading"} onClick={downloadErrorFile} variant="secondary">下载全部错误</Button>
+              {errorDownloadMessage ? <p role={errorDownloadState === "error" ? "alert" : "status"}>{errorDownloadMessage}</p> : null}
+            </> : null}
             {detail.canReverse ? <div className="finance-reversal-panel">
               <label><span>撤销原因</span><FieldInput value={changeReason} onChange={(event) => setChangeReason(event.target.value)} placeholder="说明为何需要生成更正覆盖版本" /></label>
               <p>撤销批次会逐业务键校验当前版本；任一行已被覆盖时整批不会写入。</p>
