@@ -23,6 +23,14 @@ periodStart/periodEnd：上海业务日含首尾，最多7天；observedThrough�
 
 ## 响应与限制
 
+### 订单实收增量与隔离验证（待发布）
+
+订单新增三个可空整数分字段：`source_receipt_amount_cent`、`source_platform_discount_amount_cent`、`order_receipt_candidate_cent`。只从receipt_amount、订单级discounts及discount_amount选择显式证据；候选值为源实收加订单级平台补贴，不叠加子订单补贴。缺失、布尔、小数、负数、越界或矛盾分量保持未知，不以用户实付兜底。原paid_amount_cent字段不变，amount_semantics_verified仍为false，不据此启用PDCA主源替代。
+
+用户批准在GitHub临时环境验证，不连接生产、不部署。独立工作流`pdca-readonly-verify.yml`使用临时PostgreSQL 16、固定测试库pdca_readonly_test、回环端口55439、仅仓库只读权限；不使用生产密钥，不运行部署命令。测试显式设置PDCA_READONLY_TEST_PORT，覆盖数据库拒写、事务恢复、真实接口实收分量及JSON布尔/缺失边界。未设置端口的本地跳过结果不能作为PostgreSQL通过证据。
+
+本轮基于最新主分支ea68675建立独立验证分支，原工作区的索引和截图修改保留原地。迁入前15项实收测试失败，迁入后专项70项通过、4项PostgreSQL测试因本机引擎不可用跳过。新工作流隔离约束测试先失败后通过。远端执行结果、完整回归及部署验收待记录；当前不得称为增量上线。
+
 data包含rows、next_cursor、has_more。meta.schema_version为pdca-source-observation-v1，含查询指纹、范围、观察截止、查询时间。
 
 固定标记read_only=true、consistent_snapshot=false、collection_complete_through=null、refund_reason_available=false、amount_semantics_verified=false。缺下单时间、未映射商品和孤立事件的覆盖量未知；维度是当前状态。核销时间过滤不等于历史重放，退款/撤销返回当前行。查询时间及请求截止不是采集水位。

@@ -16,6 +16,39 @@ PARAMS = {'dataset': 'orders', 'periodStart': '2026-08-01', 'periodEnd': '2026-0
           'observedThrough': '2026-09-01T00:00:00+08:00'}
 
 
+@pytest.mark.parametrize('receipt,discounts,total_discount,expected', [
+    (16000, [{'platform_discount_amount': 800}], 800, 16800),
+    ('16000', [{'platform_discount_amount': '300'}, {'platform_discount_amount': 500}], 800, 16800),
+    (0, [], 0, 0),
+    (16800, None, 0, 16800),
+    (None, [], 0, None),
+    (True, [], 0, None),
+    (168.5, [], 0, None),
+    (-1, [], 0, None),
+    (16800, None, None, None),
+    (16800, None, False, None),
+    (16800, [], 100, None),
+    (16800, [{'platform_discount_amount': 200}], 100, None),
+    (16800, [{'platform_discount_amount': None}], 100, None),
+    (16800, [{'platform_discount_amount': True}], 100, None),
+    (16800, [{'platform_discount_amount': -1}], 100, None),
+])
+def test_receipt_evidence_never_substitutes_user_payment(
+        client, db_session, receipt, discounts, total_discount, expected):
+    order = db_session.query(RawDouyinOrder).filter_by(order_id='A').one()
+    order.raw_payload = {'receipt_amount': receipt, 'discounts': discounts,
+                         'discount_amount': total_discount, 'pay_amount': 99999,
+                         'secret': 'must-not-be-returned'}
+    db_session.commit()
+    response = client.get('/api/v1/admin/pdca-source-evidence', params=PARAMS)
+    assert response.status_code == 200
+    row = response.json()['data']['rows'][0]
+    assert row.get('order_receipt_candidate_cent', 'missing') == expected
+    assert response.json()['meta']['amount_semantics_verified'] is False
+    assert row['paid_amount_cent'] == 16800  # Existing field stays unchanged.
+    assert 'must-not-be-returned' not in response.text
+
+
 @pytest.fixture
 def client(db_session, monkeypatch):
     monkeypatch.setenv('DY_API_TEST_MODE', '1')
@@ -63,7 +96,7 @@ def test_page_cursor_bound_to_dataset_and_window(client):
     assert client.get('/api/v1/admin/pdca-source-evidence', params={**params, 'dataset': 'coupons', 'cursor': first['next_cursor']}).status_code == 422
 
 
-@pytest.mark.parametrize('dataset', ['coupons', 'verifications', 'refunds', 'sku_rules', 'poi_mappings'])
+@pytest.mark.parametrize('dataset', ['orders', 'coupons', 'verifications', 'refunds', 'sku_rules', 'poi_mappings'])
 def test_dataset_serialization_and_zero_write_sql(client, db_session, dataset):
     statements = []
     def capture(conn, cursor, statement, params, context, many):
