@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-09-28T03:15:34.770Z",
+  "generatedAt": "2026-09-28T03:17:24.458Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,15 +9,15 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 1136,
-    "edges": 1251,
+    "nodes": 1103,
+    "edges": 1250,
     "issues": 33,
     "errors": 33,
     "warnings": 0,
     "nodesByKind": {
-      "config": 57,
-      "doc": 194,
-      "source_code": 659,
+      "config": 31,
+      "doc": 191,
+      "source_code": 655,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
@@ -36,7 +36,7 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 796,
+      "links_to": 795,
       "depends_on": 446,
       "indexes": 9
     }
@@ -9968,303 +9968,6 @@
       "authority": true,
       "slug": null,
       "title": "test_worker_verify_collector.py"
-    },
-    {
-      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/PrivacySandboxAttestationsPreloaded/manifest.json",
-      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/PrivacySandboxAttestationsPreloaded/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper_manifest.json",
-      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper_manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "reading_mode_gdocs_helper_manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/content.js",
-      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/content.js",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "content.js"
-    },
-    {
-      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/gdocs_script.js",
-      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/gdocs_script.js",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "gdocs_script.js"
-    },
-    {
-      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/vk_swiftshader_icd.json",
-      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/vk_swiftshader_icd.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "vk_swiftshader_icd.json"
-    },
-    {
-      "id": "tmp/pdca-contract/create_draft_pr.py",
-      "path": "tmp/pdca-contract/create_draft_pr.py",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "create_draft_pr.py"
-    },
-    {
-      "id": "tmp/pdca-contract/index-check.json",
-      "path": "tmp/pdca-contract/index-check.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "index-check.json"
-    },
-    {
-      "id": "tmp/pdca-contract/index-delivery.json",
-      "path": "tmp/pdca-contract/index-delivery.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "index-delivery.json"
-    },
-    {
-      "id": "tmp/pdca-contract/index-final.json",
-      "path": "tmp/pdca-contract/index-final.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "index-final.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_empty_window_writes_summa0/summary.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw0/test_empty_window_writes_summa0/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_export_merges_multiple_pa0/summary.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw0/test_export_merges_multiple_pa0/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_export_writes_clue_data_a0/summary.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw0/test_export_writes_clue_data_a0/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_failed_window_summary_san0/summary.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw0/test_failed_window_summary_san0/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_missing_clue_id_is_preser0/summary.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw0/test_missing_clue_id_is_preser0/summary.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "summary.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_requires_three0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_requires_three0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow1/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow1/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow2/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow2/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow3/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_acceptance_uses_swap_grow3/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_fixture_is_dete0/first/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_fixture_is_dete0/first/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_fixture_is_dete0/second/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_fixture_is_dete0/second/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_report_records_0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_benchmark_report_records_0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_candidate_acceptance_fail0/failed.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_candidate_acceptance_fail0/failed.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "failed.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_candidate_acceptance_runs0/candidate.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_candidate_acceptance_runs0/candidate.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "candidate.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_crash_checkpoint_resume_m0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_crash_checkpoint_resume_m0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-authority-fixture.md",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-authority-fixture.md",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": "authority-fixture",
-      "title": "Selected plan"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-other.md",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-other.md",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": "other",
-      "title": "Other plan"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/execution-plan.md",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/execution-plan.md",
-      "kind": "doc",
-      "owner_skill": "host-project",
-      "authority": false,
-      "slug": null,
-      "title": "execution-plan.md"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_fixture_requires_explicit0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_fixture_requires_explicit0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_incremental_and_shadow_ch0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_incremental_and_shadow_ch0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_strict_acceptance_blocks_0/fixture/manifest.json",
-      "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_strict_acceptance_blocks_0/fixture/manifest.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "manifest.json"
-    },
-    {
-      "id": "tmp/pdca-contract/pdca_xdist_ids.py",
-      "path": "tmp/pdca-contract/pdca_xdist_ids.py",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "pdca_xdist_ids.py"
-    },
-    {
-      "id": "tmp/pdca-contract/pr-payload.json",
-      "path": "tmp/pdca-contract/pr-payload.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "pr-payload.json"
     }
   ],
   "edges": [
@@ -33147,23 +32850,6 @@
           "line": 20,
           "text": "- 回环差距: `src/frontend/page-preview/explainer-b-gap-dy-data.md`",
           "syntax": "backtick"
-        }
-      ]
-    },
-    {
-      "id": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/execution-plan.md->tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-authority-fixture.md:links_to",
-      "from": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/execution-plan.md",
-      "to": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-authority-fixture.md",
-      "target": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/delivery-plans/main-delivery-plan-authority-fixture.md",
-      "relation": "links_to",
-      "status": "resolved",
-      "anchor": null,
-      "evidence": [
-        {
-          "path": "tmp/pdca-contract/parallel-stable/popen-gw3/test_current_formal_delivery_p0/docs/plans/execution-plan.md",
-          "line": 1,
-          "text": "- 当前正式计划文件组：[Current](delivery-plans/main-delivery-plan-authority-fixture.md)",
-          "syntax": "markdown"
         }
       ]
     }
