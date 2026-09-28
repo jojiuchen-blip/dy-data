@@ -1,0 +1,604 @@
+{
+  "synthetic_only": true,
+  "manifest": {
+    "data": {
+      "datasets": [
+        {
+          "dataset": "orders",
+          "row_count": 1,
+          "sha256": "4a94bacd9dd5731dbc03147e46464a05b6b70ad2c614b2ab2c7e5757f072664d",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "coupons",
+          "row_count": 1,
+          "sha256": "e29fbb79b957e26a3877701aa7f6a3d6f22be3a55c068daf3ba343cfdc26b464",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "verification_events",
+          "row_count": 1,
+          "sha256": "e0eb15386309a3d463ec25cf0461c8a75e375ef51646356565f7b5c4985bab76",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "refund_events",
+          "row_count": 1,
+          "sha256": "d38d8cd3264b1813ecd726216aabff87192fcd86d15ead4a1af2700b9a5fe02e",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "raw_refunds",
+          "row_count": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "collection_batches",
+          "row_count": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "collection_stages",
+          "row_count": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "quality_issues",
+          "row_count": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "sku_rules",
+          "row_count": 1,
+          "sha256": "a72990b6785f6c2bf2e27f921f7b825c76b0a24d2f8f6df3ce2a5177d692961f",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        },
+        {
+          "dataset": "poi_mappings",
+          "row_count": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "collection_complete_through": null,
+          "coverage_status": "unverified"
+        }
+      ]
+    },
+    "meta": {
+      "schema_version": "pdca-event-evidence-v2",
+      "status_dictionary_version": "pdca-status-evidence-v1",
+      "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+      "as_of": "2026-09-28T02:50:56.914885Z",
+      "expires_at": "2026-09-28T03:00:56.914885Z",
+      "business_timezone": "Asia/Shanghai",
+      "period_start": "2026-08-01T00:00:00Z",
+      "period_end_exclusive": "2026-08-02T00:00:00Z",
+      "observed_through": "2026-09-01T00:00:00Z",
+      "sku_ids": [
+        "SYNTHETIC-SKU"
+      ],
+      "scope_basis": "current_sku_rules",
+      "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+      "read_only": true,
+      "consistent_snapshot": true,
+      "snapshot_basis": "read_only_transaction_frozen_projection",
+      "collection_complete_through": null,
+      "amount_semantics_verified": false,
+      "publishable": false,
+      "blocking_reasons": [
+        "collection_watermark_unknown",
+        "event_history_incomplete",
+        "order_receipt_semantics_unverified",
+        "purchase_quantity_unavailable",
+        "unlinked_or_missing_date_records_not_proven_covered",
+        "historical_status_and_dimension_versions_unavailable"
+      ]
+    }
+  },
+  "pages": {
+    "orders": {
+      "data": {
+        "rows": [
+          {
+            "source_run_id": null,
+            "source_observed_at": null,
+            "kind": "orders",
+            "order_id": "SYNTHETIC-ORDER",
+            "sku_id": "SYNTHETIC-SKU",
+            "product_name": null,
+            "create_order_time": "2026-08-01T00:00:00Z",
+            "pay_time": "2026-08-01T00:00:00Z",
+            "sale_time": null,
+            "paid_amount_cent": null,
+            "source_receipt_amount_cent": 16000,
+            "source_platform_discount_amount_cent": 800,
+            "order_receipt_candidate_cent": 16800,
+            "owner_douyin_uid": null,
+            "owner_account_name": null,
+            "sale_role": null,
+            "sale_channel": null,
+            "order_status": "201",
+            "order_status_raw": null,
+            "order_status_normalized": null,
+            "updated_at": "2026-09-28T02:50:56.756834Z",
+            "purchase_quantity": null,
+            "order_receipt_amount_cent": null,
+            "payment_evidence": "paid_by_cutoff"
+          }
+        ],
+        "dataset": "orders",
+        "total_rows": 1,
+        "dataset_sha256": "4a94bacd9dd5731dbc03147e46464a05b6b70ad2c614b2ab2c7e5757f072664d",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "coupons": {
+      "data": {
+        "rows": [
+          {
+            "source_run_id": null,
+            "source_observed_at": null,
+            "kind": "coupons",
+            "coupon_id": "SYNTHETIC-COUPON",
+            "order_id": "SYNTHETIC-ORDER",
+            "coupon_status": null,
+            "coupon_paid_amount_cent": null,
+            "coupon_refunded_cent": null,
+            "coupon_refund_time": null,
+            "latest_refund_at": null,
+            "coupon_status_raw": null,
+            "coupon_status_normalized": null,
+            "coupon_updated_at": null
+          }
+        ],
+        "dataset": "coupons",
+        "total_rows": 1,
+        "dataset_sha256": "e29fbb79b957e26a3877701aa7f6a3d6f22be3a55c068daf3ba343cfdc26b464",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "verification_events": {
+      "data": {
+        "rows": [
+          {
+            "kind": "verification_events",
+            "event_id": "verify:c56870ec8125e2640b7da4c92643ee4f6368a8587c08a0c7c992e5759355c08e",
+            "verify_id": "SYNTHETIC-VERIFY",
+            "order_id": "SYNTHETIC-ORDER",
+            "coupon_id": "SYNTHETIC-COUPON",
+            "sku_id": null,
+            "event_type": "verification",
+            "original_event_id": null,
+            "effective_at": "2026-08-01T00:00:00Z",
+            "within_business_cutoff": true,
+            "verify_status": "1",
+            "poi_id": null,
+            "source_run_id": null,
+            "source_observed_at": null,
+            "history_complete": false,
+            "evidence_basis": "current_verification_row"
+          }
+        ],
+        "dataset": "verification_events",
+        "total_rows": 1,
+        "dataset_sha256": "e0eb15386309a3d463ec25cf0461c8a75e375ef51646356565f7b5c4985bab76",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "refund_events": {
+      "data": {
+        "rows": [
+          {
+            "kind": "refund_events",
+            "refund_event_id": "SYNTHETIC-REFUND",
+            "order_id": "SYNTHETIC-ORDER",
+            "coupon_id": "SYNTHETIC-COUPON",
+            "refund_type": 1,
+            "refund_status": 2,
+            "refund_scope": "partial",
+            "refund_amount_cent": 1000,
+            "occurred_at": "2026-08-02T00:00:00Z",
+            "effective_at": "2026-08-02T00:00:00Z",
+            "within_business_cutoff": true,
+            "successful_observed_at": "2026-08-02T00:00:00Z",
+            "source_run_id": null,
+            "source_observed_at": null,
+            "updated_at": "2026-09-28T02:50:56.758520Z",
+            "refunded_quantity": null,
+            "after_verification": null,
+            "history_complete": false
+          }
+        ],
+        "dataset": "refund_events",
+        "total_rows": 1,
+        "dataset_sha256": "d38d8cd3264b1813ecd726216aabff87192fcd86d15ead4a1af2700b9a5fe02e",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "raw_refunds": {
+      "data": {
+        "rows": [],
+        "dataset": "raw_refunds",
+        "total_rows": 0,
+        "dataset_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "collection_batches": {
+      "data": {
+        "rows": [],
+        "dataset": "collection_batches",
+        "total_rows": 0,
+        "dataset_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "collection_stages": {
+      "data": {
+        "rows": [],
+        "dataset": "collection_stages",
+        "total_rows": 0,
+        "dataset_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "quality_issues": {
+      "data": {
+        "rows": [],
+        "dataset": "quality_issues",
+        "total_rows": 0,
+        "dataset_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "sku_rules": {
+      "data": {
+        "rows": [
+          {
+            "source_run_id": null,
+            "source_observed_at": null,
+            "kind": "sku_rules",
+            "sku_id": "SYNTHETIC-SKU",
+            "product_id": null,
+            "product_scope": "精诚养车",
+            "product_type": ""
+          }
+        ],
+        "dataset": "sku_rules",
+        "total_rows": 1,
+        "dataset_sha256": "a72990b6785f6c2bf2e27f921f7b825c76b0a24d2f8f6df3ce2a5177d692961f",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    },
+    "poi_mappings": {
+      "data": {
+        "rows": [],
+        "dataset": "poi_mappings",
+        "total_rows": 0,
+        "dataset_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "next_cursor": null,
+        "has_more": false
+      },
+      "meta": {
+        "schema_version": "pdca-event-evidence-v2",
+        "status_dictionary_version": "pdca-status-evidence-v1",
+        "snapshot_id": "4Y1x9MSyw7yYmwKlk1H6R9kFI6dztlCnBqbxjE1YRMI",
+        "as_of": "2026-09-28T02:50:56.914885Z",
+        "expires_at": "2026-09-28T03:00:56.914885Z",
+        "business_timezone": "Asia/Shanghai",
+        "period_start": "2026-08-01T00:00:00Z",
+        "period_end_exclusive": "2026-08-02T00:00:00Z",
+        "observed_through": "2026-09-01T00:00:00Z",
+        "sku_ids": [
+          "SYNTHETIC-SKU"
+        ],
+        "scope_basis": "current_sku_rules",
+        "rule_version": "3edb975658c4f94594401d3be7ab3f67b093f787c77d1e7705bb9c3ca0f2399f",
+        "read_only": true,
+        "consistent_snapshot": true,
+        "snapshot_basis": "read_only_transaction_frozen_projection",
+        "collection_complete_through": null,
+        "amount_semantics_verified": false,
+        "publishable": false,
+        "blocking_reasons": [
+          "collection_watermark_unknown",
+          "event_history_incomplete",
+          "order_receipt_semantics_unverified",
+          "purchase_quantity_unavailable",
+          "unlinked_or_missing_date_records_not_proven_covered",
+          "historical_status_and_dimension_versions_unavailable"
+        ]
+      }
+    }
+  }
+}

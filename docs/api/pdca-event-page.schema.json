@@ -1,0 +1,1646 @@
+{
+  "$defs": {
+    "CollectionBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "collection_batches",
+          "default": "collection_batches",
+          "title": "Kind",
+          "type": "string"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "job_name": {
+          "title": "Job Name",
+          "type": "string"
+        },
+        "job_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Job Kind"
+        },
+        "parent_job_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Parent Job Id"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "data_source": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Data Source"
+        },
+        "config_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Config Version"
+        },
+        "business_date": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Business Date"
+        },
+        "window_start": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window Start"
+        },
+        "window_end": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Window End"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "success_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Success Count"
+        },
+        "failed_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Failed Count"
+        },
+        "rows_read": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Read"
+        },
+        "rows_written": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rows Written"
+        },
+        "collection_complete_through": {
+          "default": null,
+          "title": "Collection Complete Through",
+          "type": "null"
+        }
+      },
+      "required": [
+        "job_id",
+        "job_name",
+        "status"
+      ],
+      "title": "CollectionBatch",
+      "type": "object"
+    },
+    "CollectionStage": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "collection_stages",
+          "default": "collection_stages",
+          "title": "Kind",
+          "type": "string"
+        },
+        "stage_run_id": {
+          "title": "Stage Run Id",
+          "type": "string"
+        },
+        "job_id": {
+          "title": "Job Id",
+          "type": "string"
+        },
+        "stage_name": {
+          "title": "Stage Name",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "committed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Committed At"
+        }
+      },
+      "required": [
+        "stage_run_id",
+        "job_id",
+        "stage_name",
+        "status"
+      ],
+      "title": "CollectionStage",
+      "type": "object"
+    },
+    "PoiRow": {
+      "additionalProperties": false,
+      "description": "Explicit POI-to-store association without inferred ownership.",
+      "properties": {
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "kind": {
+          "const": "poi_mappings",
+          "default": "poi_mappings",
+          "title": "Kind",
+          "type": "string"
+        },
+        "store_id": {
+          "title": "Store Id",
+          "type": "string"
+        },
+        "poi_id": {
+          "title": "Poi Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "store_id",
+        "poi_id"
+      ],
+      "title": "PoiRow",
+      "type": "object"
+    },
+    "QualityIssue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "quality_issues",
+          "default": "quality_issues",
+          "title": "Kind",
+          "type": "string"
+        },
+        "issue_id": {
+          "title": "Issue Id",
+          "type": "string"
+        },
+        "issue_type": {
+          "title": "Issue Type",
+          "type": "string"
+        },
+        "order_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Id"
+        },
+        "coupon_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Id"
+        },
+        "severity": {
+          "title": "Severity",
+          "type": "string"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "created_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created At"
+        },
+        "resolution_status": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Resolution Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "issue_id",
+        "issue_type",
+        "severity"
+      ],
+      "title": "QualityIssue",
+      "type": "object"
+    },
+    "RawRefund": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "raw_refunds",
+          "default": "raw_refunds",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_record_key": {
+          "title": "Source Record Key",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "refund_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refund Id"
+        },
+        "raw_refund_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Refund Status"
+        },
+        "normalized_refund_status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Normalized Refund Status"
+        },
+        "refund_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refund Amount Cent"
+        },
+        "refund_applied_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refund Applied At"
+        },
+        "refund_completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refund Completed At"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "gmt_modified": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gmt Modified"
+        },
+        "amount_field_type": {
+          "enum": [
+            "missing",
+            "null",
+            "number",
+            "string",
+            "boolean",
+            "object",
+            "array"
+          ],
+          "title": "Amount Field Type",
+          "type": "string"
+        },
+        "completion_fields_present": {
+          "items": {
+            "enum": [
+              "refund_completed_at",
+              "completed_at",
+              "finish_time",
+              "refund_done_at",
+              "complete_time"
+            ],
+            "type": "string"
+          },
+          "title": "Completion Fields Present",
+          "type": "array"
+        }
+      },
+      "required": [
+        "source_record_key",
+        "order_id",
+        "amount_field_type",
+        "completion_fields_present"
+      ],
+      "title": "RawRefund",
+      "type": "object"
+    },
+    "RefundEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "refund_events",
+          "default": "refund_events",
+          "title": "Kind",
+          "type": "string"
+        },
+        "refund_event_id": {
+          "title": "Refund Event Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "coupon_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Id"
+        },
+        "refund_type": {
+          "title": "Refund Type",
+          "type": "integer"
+        },
+        "refund_status": {
+          "title": "Refund Status",
+          "type": "integer"
+        },
+        "refund_scope": {
+          "enum": [
+            "partial",
+            "full",
+            "unknown"
+          ],
+          "title": "Refund Scope",
+          "type": "string"
+        },
+        "refund_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refund Amount Cent"
+        },
+        "occurred_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Occurred At"
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective At"
+        },
+        "within_business_cutoff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Within Business Cutoff"
+        },
+        "successful_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Successful Observed At"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "refunded_quantity": {
+          "default": null,
+          "title": "Refunded Quantity",
+          "type": "null"
+        },
+        "after_verification": {
+          "default": null,
+          "title": "After Verification",
+          "type": "null"
+        },
+        "history_complete": {
+          "const": false,
+          "default": false,
+          "title": "History Complete",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "refund_event_id",
+        "order_id",
+        "refund_type",
+        "refund_status",
+        "refund_scope"
+      ],
+      "title": "RefundEvent",
+      "type": "object"
+    },
+    "SkuRow": {
+      "additionalProperties": false,
+      "description": "Current product mapping, not a historical whitelist snapshot.",
+      "properties": {
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "kind": {
+          "const": "sku_rules",
+          "default": "sku_rules",
+          "title": "Kind",
+          "type": "string"
+        },
+        "sku_id": {
+          "title": "Sku Id",
+          "type": "string"
+        },
+        "product_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Id"
+        },
+        "product_scope": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Scope"
+        },
+        "product_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Type"
+        }
+      },
+      "required": [
+        "sku_id"
+      ],
+      "title": "SkuRow",
+      "type": "object"
+    },
+    "SnapshotCoupon": {
+      "additionalProperties": false,
+      "properties": {
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "kind": {
+          "const": "coupons",
+          "default": "coupons",
+          "title": "Kind",
+          "type": "string"
+        },
+        "coupon_id": {
+          "title": "Coupon Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "coupon_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Status"
+        },
+        "coupon_paid_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Paid Amount Cent"
+        },
+        "coupon_refunded_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Refunded Cent"
+        },
+        "coupon_refund_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Refund Time"
+        },
+        "latest_refund_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latest Refund At"
+        },
+        "coupon_status_raw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Status Raw"
+        },
+        "coupon_status_normalized": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Status Normalized"
+        },
+        "coupon_updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coupon Updated At"
+        }
+      },
+      "required": [
+        "coupon_id",
+        "order_id"
+      ],
+      "title": "SnapshotCoupon",
+      "type": "object"
+    },
+    "SnapshotMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "pdca-event-evidence-v2",
+          "default": "pdca-event-evidence-v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status_dictionary_version": {
+          "const": "pdca-status-evidence-v1",
+          "default": "pdca-status-evidence-v1",
+          "title": "Status Dictionary Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "business_timezone": {
+          "const": "Asia/Shanghai",
+          "default": "Asia/Shanghai",
+          "title": "Business Timezone",
+          "type": "string"
+        },
+        "period_start": {
+          "format": "date-time",
+          "title": "Period Start",
+          "type": "string"
+        },
+        "period_end_exclusive": {
+          "format": "date-time",
+          "title": "Period End Exclusive",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "sku_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sku Ids",
+          "type": "array"
+        },
+        "scope_basis": {
+          "enum": [
+            "explicit_sku_ids",
+            "current_sku_rules"
+          ],
+          "title": "Scope Basis",
+          "type": "string"
+        },
+        "rule_version": {
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "read_only": {
+          "const": true,
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "consistent_snapshot": {
+          "const": true,
+          "default": true,
+          "title": "Consistent Snapshot",
+          "type": "boolean"
+        },
+        "snapshot_basis": {
+          "const": "read_only_transaction_frozen_projection",
+          "default": "read_only_transaction_frozen_projection",
+          "title": "Snapshot Basis",
+          "type": "string"
+        },
+        "collection_complete_through": {
+          "default": null,
+          "title": "Collection Complete Through",
+          "type": "null"
+        },
+        "amount_semantics_verified": {
+          "const": false,
+          "default": false,
+          "title": "Amount Semantics Verified",
+          "type": "boolean"
+        },
+        "publishable": {
+          "const": false,
+          "default": false,
+          "title": "Publishable",
+          "type": "boolean"
+        },
+        "blocking_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "as_of",
+        "expires_at",
+        "period_start",
+        "period_end_exclusive",
+        "observed_through",
+        "sku_ids",
+        "scope_basis",
+        "rule_version",
+        "blocking_reasons"
+      ],
+      "title": "SnapshotMeta",
+      "type": "object"
+    },
+    "SnapshotOrder": {
+      "additionalProperties": false,
+      "properties": {
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "kind": {
+          "const": "orders",
+          "default": "orders",
+          "title": "Kind",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "sku_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sku Id"
+        },
+        "product_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Name"
+        },
+        "create_order_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Create Order Time"
+        },
+        "pay_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pay Time"
+        },
+        "sale_time": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sale Time"
+        },
+        "paid_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Paid Amount Cent"
+        },
+        "source_receipt_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Receipt Amount Cent"
+        },
+        "source_platform_discount_amount_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Platform Discount Amount Cent"
+        },
+        "order_receipt_candidate_cent": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Receipt Candidate Cent"
+        },
+        "owner_douyin_uid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Douyin Uid"
+        },
+        "owner_account_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Owner Account Name"
+        },
+        "sale_role": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sale Role"
+        },
+        "sale_channel": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sale Channel"
+        },
+        "order_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Status"
+        },
+        "order_status_raw": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Status Raw"
+        },
+        "order_status_normalized": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Order Status Normalized"
+        },
+        "updated_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Updated At"
+        },
+        "purchase_quantity": {
+          "default": null,
+          "title": "Purchase Quantity",
+          "type": "null"
+        },
+        "order_receipt_amount_cent": {
+          "default": null,
+          "title": "Order Receipt Amount Cent",
+          "type": "null"
+        },
+        "payment_evidence": {
+          "enum": [
+            "paid_by_cutoff",
+            "paid_after_cutoff",
+            "unknown"
+          ],
+          "title": "Payment Evidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "order_id",
+        "payment_evidence"
+      ],
+      "title": "SnapshotOrder",
+      "type": "object"
+    },
+    "SnapshotPageData": {
+      "additionalProperties": false,
+      "properties": {
+        "rows": {
+          "items": {
+            "discriminator": {
+              "mapping": {
+                "collection_batches": "#/$defs/CollectionBatch",
+                "collection_stages": "#/$defs/CollectionStage",
+                "coupons": "#/$defs/SnapshotCoupon",
+                "orders": "#/$defs/SnapshotOrder",
+                "poi_mappings": "#/$defs/PoiRow",
+                "quality_issues": "#/$defs/QualityIssue",
+                "raw_refunds": "#/$defs/RawRefund",
+                "refund_events": "#/$defs/RefundEvent",
+                "sku_rules": "#/$defs/SkuRow",
+                "verification_events": "#/$defs/VerificationEvent"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/$defs/SnapshotOrder"
+              },
+              {
+                "$ref": "#/$defs/SnapshotCoupon"
+              },
+              {
+                "$ref": "#/$defs/VerificationEvent"
+              },
+              {
+                "$ref": "#/$defs/RefundEvent"
+              },
+              {
+                "$ref": "#/$defs/RawRefund"
+              },
+              {
+                "$ref": "#/$defs/QualityIssue"
+              },
+              {
+                "$ref": "#/$defs/CollectionBatch"
+              },
+              {
+                "$ref": "#/$defs/CollectionStage"
+              },
+              {
+                "$ref": "#/$defs/SkuRow"
+              },
+              {
+                "$ref": "#/$defs/PoiRow"
+              }
+            ]
+          },
+          "title": "Rows",
+          "type": "array"
+        },
+        "dataset": {
+          "title": "Dataset",
+          "type": "string"
+        },
+        "total_rows": {
+          "title": "Total Rows",
+          "type": "integer"
+        },
+        "dataset_sha256": {
+          "title": "Dataset Sha256",
+          "type": "string"
+        },
+        "next_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Next Cursor"
+        },
+        "has_more": {
+          "title": "Has More",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rows",
+        "dataset",
+        "total_rows",
+        "dataset_sha256",
+        "next_cursor",
+        "has_more"
+      ],
+      "title": "SnapshotPageData",
+      "type": "object"
+    },
+    "VerificationEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "verification_events",
+          "default": "verification_events",
+          "title": "Kind",
+          "type": "string"
+        },
+        "event_id": {
+          "title": "Event Id",
+          "type": "string"
+        },
+        "verify_id": {
+          "title": "Verify Id",
+          "type": "string"
+        },
+        "order_id": {
+          "title": "Order Id",
+          "type": "string"
+        },
+        "coupon_id": {
+          "title": "Coupon Id",
+          "type": "string"
+        },
+        "sku_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sku Id"
+        },
+        "event_type": {
+          "enum": [
+            "verification",
+            "revocation",
+            "unknown"
+          ],
+          "title": "Event Type",
+          "type": "string"
+        },
+        "original_event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Event Id"
+        },
+        "effective_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Effective At"
+        },
+        "within_business_cutoff": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Within Business Cutoff"
+        },
+        "verify_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verify Status"
+        },
+        "poi_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Poi Id"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Run Id"
+        },
+        "source_observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Observed At"
+        },
+        "history_complete": {
+          "const": false,
+          "default": false,
+          "title": "History Complete",
+          "type": "boolean"
+        },
+        "evidence_basis": {
+          "const": "current_verification_row",
+          "default": "current_verification_row",
+          "title": "Evidence Basis",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "verify_id",
+        "order_id",
+        "coupon_id",
+        "event_type",
+        "effective_at",
+        "within_business_cutoff"
+      ],
+      "title": "VerificationEvent",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/SnapshotPageData"
+    },
+    "meta": {
+      "$ref": "#/$defs/SnapshotMeta"
+    }
+  },
+  "required": [
+    "data",
+    "meta"
+  ],
+  "title": "SnapshotPage",
+  "type": "object"
+}

@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-09-23T02:03:29.805Z",
+  "generatedAt": "2026-09-28T03:17:24.458Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,21 +9,21 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 1063,
-    "edges": 1195,
+    "nodes": 1103,
+    "edges": 1250,
     "issues": 33,
     "errors": 33,
     "warnings": 0,
     "nodesByKind": {
-      "config": 28,
-      "doc": 180,
-      "source_code": 638,
+      "config": 31,
+      "doc": 191,
+      "source_code": 655,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
       "brd_ledger": 2,
       "project_index": 2,
-      "delivery_plan": 135,
+      "delivery_plan": 144,
       "foundation": 46,
       "mainprd": 2,
       "prd_feature_list": 2,
@@ -36,8 +36,8 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 747,
-      "depends_on": 439,
+      "links_to": 795,
+      "depends_on": 446,
       "indexes": 9
     }
   },
@@ -50,6 +50,15 @@
       "authority": true,
       "slug": null,
       "title": "ci-cd.yml"
+    },
+    {
+      "id": ".github/workflows/pdca-readonly-verify.yml",
+      "path": ".github/workflows/pdca-readonly-verify.yml",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "pdca-readonly-verify.yml"
     },
     {
       "id": ".github/workflows/tencent-lighthouse-deploy.yml",
@@ -898,6 +907,15 @@
       "title": "cli_contract.py"
     },
     {
+      "id": "apps/api/dy_api/clue_organization.py",
+      "path": "apps/api/dy_api/clue_organization.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_organization.py"
+    },
+    {
       "id": "apps/api/dy_api/clue_phone_cache.py",
       "path": "apps/api/dy_api/clue_phone_cache.py",
       "kind": "source_code",
@@ -905,6 +923,15 @@
       "authority": true,
       "slug": null,
       "title": "clue_phone_cache.py"
+    },
+    {
+      "id": "apps/api/dy_api/clue_product_scope.py",
+      "path": "apps/api/dy_api/clue_product_scope.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "clue_product_scope.py"
     },
     {
       "id": "apps/api/dy_api/db.py",
@@ -968,6 +995,60 @@
       "authority": true,
       "slug": null,
       "title": "models.py"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_readonly_access.py",
+      "path": "apps/api/dy_api/pdca_readonly_access.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_readonly_access.py"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_snapshot_projection.py",
+      "path": "apps/api/dy_api/pdca_snapshot_projection.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "Version-frozen read-only interpretation of repositories._normalize_verify_status;"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_snapshot_schema.py",
+      "path": "apps/api/dy_api/pdca_snapshot_schema.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_snapshot_schema.py"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_snapshot_store.py",
+      "path": "apps/api/dy_api/pdca_snapshot_store.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_snapshot_store.py"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_source_evidence.py",
+      "path": "apps/api/dy_api/pdca_source_evidence.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_source_evidence.py"
+    },
+    {
+      "id": "apps/api/dy_api/pdca_source_schema.py",
+      "path": "apps/api/dy_api/pdca_source_schema.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_source_schema.py"
     },
     {
       "id": "apps/api/dy_api/ranking_business.py",
@@ -1184,6 +1265,15 @@
       "authority": true,
       "slug": null,
       "title": "operations.py"
+    },
+    {
+      "id": "apps/api/dy_api/routes/pdca_sources.py",
+      "path": "apps/api/dy_api/routes/pdca_sources.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "pdca_sources.py"
     },
     {
       "id": "apps/api/dy_api/routes/ranking_sources.py",
@@ -3193,6 +3283,60 @@
       "title": "dy-data API 契约索引"
     },
     {
+      "id": "docs/api/pdca-api-release-checklist.md",
+      "path": "docs/api/pdca-api-release-checklist.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "PDCA 接口限定发布检查表"
+    },
+    {
+      "id": "docs/api/pdca-event-manifest.schema.json",
+      "path": "docs/api/pdca-event-manifest.schema.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "pdca-event-manifest.schema.json"
+    },
+    {
+      "id": "docs/api/pdca-event-page.schema.json",
+      "path": "docs/api/pdca-event-page.schema.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "pdca-event-page.schema.json"
+    },
+    {
+      "id": "docs/api/pdca-event-snapshot.md",
+      "path": "docs/api/pdca-event-snapshot.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "PDCA 只读事件证据快照 v2"
+    },
+    {
+      "id": "docs/api/pdca-event-synthetic-example.json",
+      "path": "docs/api/pdca-event-synthetic-example.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "pdca-event-synthetic-example.json"
+    },
+    {
+      "id": "docs/api/pdca-source-evidence.md",
+      "path": "docs/api/pdca-source-evidence.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "PDCA 独立只读证据接口"
+    },
+    {
       "id": "docs/architecture.md",
       "path": "docs/architecture.md",
       "kind": "doc",
@@ -3958,6 +4102,15 @@
       "title": "账号激活基础资料半小时刷新"
     },
     {
+      "id": "docs/devlog/20260921_refactor_log_Your_Name.md",
+      "path": "docs/devlog/20260921_refactor_log_Your_Name.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-09-21"
+    },
+    {
       "id": "docs/devlog/20260922_dydata-97-receipt-review-round2.md",
       "path": "docs/devlog/20260922_dydata-97-receipt-review-round2.md",
       "kind": "doc",
@@ -3967,6 +4120,15 @@
       "title": "DYDATA-97 实收基数审查返修（第二轮）"
     },
     {
+      "id": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "path": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "DYDATA-97 全部导出按钮缺陷最小修复（D2/D3/D4，2026-09-23）"
+    },
+    {
       "id": "docs/devlog/20260923_dydata-97-receipt-review-round3.md",
       "path": "docs/devlog/20260923_dydata-97-receipt-review-round3.md",
       "kind": "doc",
@@ -3974,6 +4136,33 @@
       "authority": false,
       "slug": null,
       "title": "DYDATA-97 实收基数与导出进展（第三轮，2026-09-23）"
+    },
+    {
+      "id": "docs/devlog/20260924_clue_product_scope.md",
+      "path": "docs/devlog/20260924_clue_product_scope.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "2026-09-24 商品范围与组织筛选"
+    },
+    {
+      "id": "docs/devlog/20260924_refactor_log_Your_Name.md",
+      "path": "docs/devlog/20260924_refactor_log_Your_Name.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-09-24"
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "开发日志 — 2026-09-28"
     },
     {
       "id": "docs/github-cicd.md",
@@ -4147,6 +4336,15 @@
       "title": "DYDATA-87 核销计费与门店财务闭环修复控制规格"
     },
     {
+      "id": "docs/plans/2026-09-23-clue-product-scope.md",
+      "path": "docs/plans/2026-09-23-clue-product-scope.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "线索商品范围与组织筛选增量方案"
+    },
+    {
       "id": "docs/plans/delivery-plans/main-delivery-plan-account-org-scope.md",
       "path": "docs/plans/delivery-plans/main-delivery-plan-account-org-scope.md",
       "kind": "delivery_plan",
@@ -4154,6 +4352,15 @@
       "authority": true,
       "slug": "account-org-scope",
       "title": "账号组织权限与门店选择 Main Delivery Plan"
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "clue-product-scope",
+      "title": "商品范围与组织筛选开发计划"
     },
     {
       "id": "docs/plans/delivery-plans/main-delivery-plan-dy-data.md",
@@ -4372,6 +4579,24 @@
       "title": "线索平台收口主开发计划"
     },
     {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-events",
+      "title": "PDCA 只读证据快照 Main Delivery Plan"
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-readonly",
+      "title": "PDCA 独立只读证据接口开发计划"
+    },
+    {
       "id": "docs/plans/delivery-plans/main-delivery-plan-ranking-dashboard-production.md",
       "path": "docs/plans/delivery-plans/main-delivery-plan-ranking-dashboard-production.md",
       "kind": "delivery_plan",
@@ -4424,6 +4649,15 @@
       "authority": true,
       "slug": "account-org-scope",
       "title": "T0.3 账号组织目录接入已生效正式名单"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": null,
+      "title": "T0.1 商品范围与组织筛选"
     },
     {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-dy-data-T1.1-raw-id-compat.md",
@@ -5083,6 +5317,24 @@
       "title": "T2.4 全量、等价性和 8GB 最终门禁"
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-events",
+      "title": "T0.1 PDCA 证据契约 Sub Delivery Plan"
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-readonly",
+      "title": "T0.1 PDCA 独立只读证据接口"
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md",
       "path": "docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md",
       "kind": "delivery_plan",
@@ -5117,6 +5369,15 @@
       "authority": true,
       "slug": "account-org-scope",
       "title": "账号组织权限与门店选择 Task Kanban"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "path": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "clue-product-scope",
+      "title": "商品范围与组织筛选任务看板"
     },
     {
       "id": "docs/plans/delivery-plans/task-kanban-dy-data.md",
@@ -5335,6 +5596,24 @@
       "title": "线索平台收口任务看板"
     },
     {
+      "id": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "path": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-events",
+      "title": "PDCA events Task Kanban"
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "path": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "kind": "delivery_plan",
+      "owner_skill": "delivery-planner",
+      "authority": true,
+      "slug": "pdca-readonly",
+      "title": "PDCA 独立只读接口任务看板"
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-ranking-dashboard-production.md",
       "path": "docs/plans/delivery-plans/task-kanban-ranking-dashboard-production.md",
       "kind": "delivery_plan",
@@ -5422,7 +5701,16 @@
       "owner_skill": "host-project",
       "authority": false,
       "slug": null,
-      "title": "当前执行：DYDATA-97 费用明细导出恢复与佣金按接口订单实收计算（2026-09-23）"
+      "title": "当前执行：PDCA只读事件契约（2026-09-28）"
+    },
+    {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-clue-product-scope.md",
+      "path": "docs/plans/foundation-plans/foundation-change-requests-clue-product-scope.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "商品范围与组织筛选契约增量"
     },
     {
       "id": "docs/plans/foundation-plans/foundation-change-requests-dy-data.md",
@@ -5468,6 +5756,15 @@
       "authority": false,
       "slug": null,
       "title": "DYDATA-96 Foundation 变更待评审"
+    },
+    {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "path": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "kind": "doc",
+      "owner_skill": "host-project",
+      "authority": false,
+      "slug": null,
+      "title": "PDCA独立只读接口：foundation增量请求"
     },
     {
       "id": "docs/plans/pr2-settlement-production-integration.md",
@@ -6847,24 +7144,6 @@
       "title": "DYDATA-81 门店端财务页面基线与一致性矩阵"
     },
     {
-      "id": "logs/dydata97/FinanceFeePage.verified.tsx",
-      "path": "logs/dydata97/FinanceFeePage.verified.tsx",
-      "kind": "source_code",
-      "owner_skill": "coding-standards",
-      "authority": true,
-      "slug": null,
-      "title": "FinanceFeePage.verified.tsx"
-    },
-    {
-      "id": "logs/dydata97/link-index-final.json",
-      "path": "logs/dydata97/link-index-final.json",
-      "kind": "config",
-      "owner_skill": "host-project",
-      "authority": true,
-      "slug": null,
-      "title": "link-index-final.json"
-    },
-    {
       "id": "mock/page1_store_ranking.json",
       "path": "mock/page1_store_ranking.json",
       "kind": "config",
@@ -7412,6 +7691,15 @@
       "authority": true,
       "slug": null,
       "title": "generate_cli_docs.py"
+    },
+    {
+      "id": "scripts/generate_pdca_snapshot_contract.py",
+      "path": "scripts/generate_pdca_snapshot_contract.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "generate_pdca_snapshot_contract.py"
     },
     {
       "id": "scripts/import_douyin_store_org.py",
@@ -8683,6 +8971,15 @@
       "title": "test_finalize_parent_promotion.py"
     },
     {
+      "id": "tests/test_finance_export_browser.py",
+      "path": "tests/test_finance_export_browser.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "复用 tests/test_visual_smoke.py 中已有的真实浏览器/本地 FastAPI fixture。"
+    },
+    {
       "id": "tests/test_formal_allocation_runtime_postgres.py",
       "path": "tests/test_formal_allocation_runtime_postgres.py",
       "kind": "source_code",
@@ -9005,6 +9302,69 @@
       "authority": true,
       "slug": null,
       "title": "test_paged_collection.py"
+    },
+    {
+      "id": "tests/test_pdca_isolated_ci.py",
+      "path": "tests/test_pdca_isolated_ci.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_isolated_ci.py"
+    },
+    {
+      "id": "tests/test_pdca_readonly_access.py",
+      "path": "tests/test_pdca_readonly_access.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_readonly_access.py"
+    },
+    {
+      "id": "tests/test_pdca_readonly_postgres.py",
+      "path": "tests/test_pdca_readonly_postgres.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_readonly_postgres.py"
+    },
+    {
+      "id": "tests/test_pdca_route_registration.py",
+      "path": "tests/test_pdca_route_registration.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_route_registration.py"
+    },
+    {
+      "id": "tests/test_pdca_snapshot_postgres.py",
+      "path": "tests/test_pdca_snapshot_postgres.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_snapshot_postgres.py"
+    },
+    {
+      "id": "tests/test_pdca_snapshot.py",
+      "path": "tests/test_pdca_snapshot.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_snapshot.py"
+    },
+    {
+      "id": "tests/test_pdca_source_evidence.py",
+      "path": "tests/test_pdca_source_evidence.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "test_pdca_source_evidence.py"
     },
     {
       "id": "tests/test_priority_budget_pause_postgres.py",
@@ -9902,6 +10262,23 @@
       ]
     },
     {
+      "id": "docs/api-contract.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "docs/api-contract.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api-contract.md",
+          "line": 13,
+          "text": "[PDCA事件快照契约](api/pdca-event-snapshot.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/api-contract.md->docs/devlog/20260914_ranking_export.md:links_to",
       "from": "docs/api-contract.md",
       "to": "docs/devlog/20260914_ranking_export.md",
@@ -9912,7 +10289,7 @@
       "evidence": [
         {
           "path": "docs/api-contract.md",
-          "line": 144,
+          "line": 152,
           "text": "返回Excel附件：每个指标一个工作表、每个层级一张独立排行附表；全部结果、同一快照、降序、同值并列、无样本不排名。订单总量及不限24小时跟进率仅作辅助。非法输入422，未登录401，无页面权限403，数据库查询故障503；没有结果时仍返回标注空数据的工作表。详见[开发记录](devlog/20260914_ranking_export.md)。",
           "syntax": "markdown"
         }
@@ -9931,6 +10308,91 @@
           "path": "docs/api-contract.md",
           "line": 3,
           "text": "> 当前运行契约以 `apps/api/dy_api/routes/`、Pydantic schema、依赖和测试为准。双费率、商品同步和双费用结算契约见 [Foundation API 设计](prd/foundation/foundation-api-dy-data.md)；T3.1 已实现结算筛选、榜单、单店分账、订单费用明细与同口径导出，生产迁移和端到端发布验收仍以 T4.1 结果为准。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/api/pdca-event-snapshot.md->docs/api/pdca-event-manifest.schema.json:links_to",
+      "from": "docs/api/pdca-event-snapshot.md",
+      "to": "docs/api/pdca-event-manifest.schema.json",
+      "target": "docs/api/pdca-event-manifest.schema.json",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api/pdca-event-snapshot.md",
+          "line": 83,
+          "text": "- [Manifest JSON Schema](pdca-event-manifest.schema.json)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/api/pdca-event-snapshot.md->docs/api/pdca-event-page.schema.json:links_to",
+      "from": "docs/api/pdca-event-snapshot.md",
+      "to": "docs/api/pdca-event-page.schema.json",
+      "target": "docs/api/pdca-event-page.schema.json",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api/pdca-event-snapshot.md",
+          "line": 84,
+          "text": "- [Page JSON Schema](pdca-event-page.schema.json)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/api/pdca-event-snapshot.md->docs/api/pdca-event-synthetic-example.json:links_to",
+      "from": "docs/api/pdca-event-snapshot.md",
+      "to": "docs/api/pdca-event-synthetic-example.json",
+      "target": "docs/api/pdca-event-synthetic-example.json",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api/pdca-event-snapshot.md",
+          "line": 85,
+          "text": "- [合成响应样例](pdca-event-synthetic-example.json)（无真实订单/客户数据；其中快照ID仅作格式示例，不可请求）",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/api/pdca-event-snapshot.md->docs/devlog/20260928_refactor_log_Your_Name.md:links_to",
+      "from": "docs/api/pdca-event-snapshot.md",
+      "to": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "target": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api/pdca-event-snapshot.md",
+          "line": 87,
+          "text": "- [实现与验证记录](../devlog/20260928_refactor_log_Your_Name.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/api/pdca-source-evidence.md->docs/api/pdca-api-release-checklist.md:links_to",
+      "from": "docs/api/pdca-source-evidence.md",
+      "to": "docs/api/pdca-api-release-checklist.md",
+      "target": "docs/api/pdca-api-release-checklist.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/api/pdca-source-evidence.md",
+          "line": 7,
+          "text": "真实候选仅用于核验。已发现成交集合、金额语义和观察时点需要进一步对齐，完整采集水位仍不可证明；不能把接口连通当作核销率验收通过。线上镜像已含接口，但源码合入主分支前，常规发布仍可能覆盖此接口。详见[限定发布检查表](pdca-api-release-checklist.md)。",
           "syntax": "markdown"
         }
       ]
@@ -11669,6 +12131,108 @@
       ]
     },
     {
+      "id": "docs/devlog/20260921_refactor_log_Your_Name.md->project-rules.md:links_to",
+      "from": "docs/devlog/20260921_refactor_log_Your_Name.md",
+      "to": "project-rules.md",
+      "target": "project-rules.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260921_refactor_log_Your_Name.md",
+          "line": 71,
+          "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260924_refactor_log_Your_Name.md->docs/api/pdca-api-release-checklist.md:links_to",
+      "from": "docs/devlog/20260924_refactor_log_Your_Name.md",
+      "to": "docs/api/pdca-api-release-checklist.md",
+      "target": "docs/api/pdca-api-release-checklist.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260924_refactor_log_Your_Name.md",
+          "line": 25,
+          "text": "- **涉及文件**：`apps/api/dy_api/pdca_readonly_access.py`、`pdca_source_evidence.py`、`pdca_source_schema.py`、`routes/pdca_sources.py`、`main.py`；4个专项测试；[接口说明](../api/pdca-source-evidence.md)、[发布检查表](../api/pdca-api-release-checklist.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260924_refactor_log_Your_Name.md->docs/api/pdca-source-evidence.md:links_to",
+      "from": "docs/devlog/20260924_refactor_log_Your_Name.md",
+      "to": "docs/api/pdca-source-evidence.md",
+      "target": "docs/api/pdca-source-evidence.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260924_refactor_log_Your_Name.md",
+          "line": 25,
+          "text": "- **涉及文件**：`apps/api/dy_api/pdca_readonly_access.py`、`pdca_source_evidence.py`、`pdca_source_schema.py`、`routes/pdca_sources.py`、`main.py`；4个专项测试；[接口说明](../api/pdca-source-evidence.md)、[发布检查表](../api/pdca-api-release-checklist.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+          "line": 16,
+          "text": "- 交付[字段契约/最小下一步](../api/pdca-event-snapshot.md)、两份JSON Schema和纯合成样例；已反馈原PDCA任务衔接。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/plans/delivery-plans/main-delivery-plan-pdca-events.md:links_to",
+      "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+          "line": 4,
+          "text": "> 关联计划：[PDCA事件契约](../plans/delivery-plans/main-delivery-plan-pdca-events.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/plans/foundation-plans/foundation-change-requests-pdca-events.md:links_to",
+      "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "to": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "target": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+          "line": 52,
+          "text": "Foundation增量请求：[S4-FCR-PDCA-001](../plans/foundation-plans/foundation-change-requests-pdca-events.md)，仅文档索引建议，未改Foundation业务规则。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/github-cicd.md->docs/tencent-lighthouse-cicd.md:links_to",
       "from": "docs/github-cicd.md",
       "to": "docs/tencent-lighthouse-cicd.md",
@@ -12459,6 +13023,40 @@
       ]
     },
     {
+      "id": "docs/plans/2026-09-23-clue-product-scope.md->docs/devlog/20260924_clue_product_scope.md:links_to",
+      "from": "docs/plans/2026-09-23-clue-product-scope.md",
+      "to": "docs/devlog/20260924_clue_product_scope.md",
+      "target": "docs/devlog/20260924_clue_product_scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-09-23-clue-product-scope.md",
+          "line": 5,
+          "text": "2026-09-23，用户确认以下四项业务变更，并授权修改 Git 主分支、完成服务器部署；本次明确跳过 Linear 建票。2026-09-24用户再次要求继续实施，已建立本次独立正式计划并通过结构、一致性、环境和任务上下文校验。进度见[开发日志](../devlog/20260924_clue_product_scope.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/2026-09-23-clue-product-scope.md->docs/rules/account-access-control.md:links_to",
+      "from": "docs/plans/2026-09-23-clue-product-scope.md",
+      "to": "docs/rules/account-access-control.md",
+      "target": "docs/rules/account-access-control.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/2026-09-23-clue-product-scope.md",
+          "line": 14,
+          "text": "- `docs/rules/account-access-control.md` 规定集团与服务中心是独立维度，区域需完整组织路径；指标打榜已有独立权限例外，本次不扩展线索明细权限。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/main-delivery-plan-account-org-scope.md->docs/plans/delivery-plans/sub-delivery-plan-account-org-scope-T0.1-account-scope.md:links_to",
       "from": "docs/plans/delivery-plans/main-delivery-plan-account-org-scope.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-account-org-scope-T0.1-account-scope.md",
@@ -12552,6 +13150,57 @@
           "line": 17,
           "text": "- 先读 `mainprd-dy-data.md` 建立全局地图。",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md->docs/plans/2026-09-23-clue-product-scope.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "to": "docs/plans/2026-09-23-clue-product-scope.md",
+      "target": "docs/plans/2026-09-23-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+          "line": 10,
+          "text": "依据[实施方案](../2026-09-23-clue-product-scope.md)及用户已确认对话实施，用户授权跳过Linear并开发部署。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md->docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+          "line": 46,
+          "text": "| T0.1 | [T0.1](sub-delivery-plan-clue-product-scope-T0.1.md) | 进行中 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md->docs/plans/delivery-plans/task-kanban-clue-product-scope.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "to": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "target": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+          "line": 50,
+          "text": "[任务看板](task-kanban-clue-product-scope.md)",
+          "syntax": "markdown"
         }
       ]
     },
@@ -15398,6 +16047,29 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md->docs/devlog/20260923_dydata-97-all-export-fix.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
+      "to": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "target": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
+          "line": 50,
+          "text": "| 订单分佣页与财务各页导出/模板/错误行按钮从未逐项全链路核对，缺按钮清单与证据 | 无法判断「点了没反应」是单按钮缺陷还是共享下载链路缺陷，修复面无法收敛 | T1.1 | 只读审计完成：25 个按钮清单、4 项确定缺陷（D1-D4）、3 项高置信候选（C1-C3），证据 `logs/dydata97/all-export-audit.md`；D2/D3/D4 最小修复已完成（4 个生产文件，`docs/devlog/20260923_dydata-97-all-export-fix.md`），逐按钮红测 15 通过/15 失败（本地隔离链路、非生产复现）→ 修复后绿测 30 项全部通过（119.61 秒）；主范围 14 类按钮已验，未扩大到其他 11 个旁路按钮；CI/部署待 Codex |",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
+          "line": 93,
+          "text": "**逐按钮红测与最小修复证据（2026-09-23，绿测已通过、待 CI/部署）**：`logs/dydata97/all-export-red.txt` 为真实本地 FastAPI + SQLite + 真实 Vite + 真实 Chromium（沿用认证 override 与跨域配置）的逐按钮链路红测，30 项 = **15 通过 / 15 失败**，无 fixture 失败；**属本地隔离环境真实链路红测，不是生产复现**（生产 nginx 同源，D2 响应头不可读不显现），不得据此宣称生产已复现或已恢复。15 项失败全部为审计已定性的缺陷：D2 11 项（6 项文件名回退 + 5 项 `X-Export-Result: EMPTY` 提示不可见）、D3 2 项（详情抽屉遮挡导出按钮、失败无 `alert`）、D4 2 项（错误行下载无失败反馈）。15 项通过对应 14 类按钮成功内容已验：模板表头、CSV 行数与列表 total 一致、`utf-8-sig` 可解码、门店越权与权限矩阵 403、D1 管理费 `includeHistory` 行集一致。已完成最小修复，仅改 4 个生产文件、未改/放宽任何测试断言：`apps/api/dy_api/main.py`（CORS `expose_headers` 仅 `Content-Disposition`/`X-Export-Result`/`X-Export-Generated-At`/`X-Request-ID`，origin/credentials/权限未放宽）、`apps/web/src/pages/FinanceDisputesPage.tsx`（独立 `exportMessage/exportIsError`，置于 fixed 抽屉之上，成功 `status`/失败 `alert`）、`apps/web/src/pages/FinanceImportsPage.tsx`（错误行下载 async handler + busy 防重 + `try/catch` 分别转 `success`/`error`、无 `finally`，成功/失败可见文案，失败 `alert` 含「下载失败」，复用 `userFacingError`，不清空批次详情/错误行分页/撤销状态）与 `apps/web/src/components/FinanceImportActionPanel.tsx`（错误行下载 async handler + busy 防重 + `try/catch/finally` + 成功/失败可见文案，失败 `alert` 含「下载失败」，复用 `userFacingError`；上传预览、批次状态与提交流程保持原样）。未改共享 Blob `revokeObjectURL`（C1 无失败证据，15 项成功内容下载已通过）、未改导出上限/鉴权/冻结金额/其他页面。**修复后绿测：`tests/test_finance_export_browser.py` 30 项全部通过（119.61 秒），上述 D2/D3/D4 失败项转绿；相关回归 22 + 39 通过，Web build 23.87 秒通过，`git diff --check` 与计划一致性通过**；既有 `tests/test_visual_smoke.py -k \"finance or dydata_97\"` 财务回归已通过（34 passed / 228 deselected，197.81 秒，`logs/dydata97/export-existing-browser.txt`）；CI、授权部署与部署后 smoke 尚未执行，不编造通过；发布闸门中 CI/部署相关勾选保持未勾选。候选 C1/C2/C3 均未修改，不在本次部署变更内，不得暗示已修。证据见 `docs/devlog/20260923_dydata-97-all-export-fix.md`。",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md:links_to",
       "from": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
@@ -15408,7 +16080,7 @@
       "evidence": [
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 73,
+          "line": 74,
           "text": "| T1.1 | [T1.1 导出恢复与实收基数](sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md) | 进行中 |",
           "syntax": "markdown"
         }
@@ -15425,7 +16097,7 @@
       "evidence": [
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 77,
+          "line": 78,
           "text": "- 看板入口：[task-kanban-dydata-97-fee-fixes.md](task-kanban-dydata-97-fee-fixes.md)",
           "syntax": "markdown"
         }
@@ -15465,7 +16137,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 122,
+          "line": 131,
           "text": "| `docs/prd/foundation/foundation-api-dy-data/billing-invoice.md` §4.3 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15488,7 +16160,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 121,
+          "line": 130,
           "text": "| `docs/prd/foundation/foundation-api-dy-data/settlement-reporting.md` §3、§4 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15511,7 +16183,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 123,
+          "line": 132,
           "text": "| `docs/prd/foundation/foundation-glossary-dy-data.md` 费用计算基数 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15551,7 +16223,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 124,
+          "line": 133,
           "text": "| `docs/prd/foundation/foundation-schema-dy-data/product-rule-source.md` #8 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15580,7 +16252,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 125,
+          "line": 134,
           "text": "| `docs/prd/mainprd-dy-data.md` §全局设计规则 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15603,7 +16275,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md",
-          "line": 120,
+          "line": 129,
           "text": "| `docs/prd/subprd/03-subprd-order-fee-details.md` §4、§5 | T1.1 |",
           "syntax": "backtick"
         }
@@ -15829,6 +16501,126 @@
           "path": "docs/plans/delivery-plans/main-delivery-plan-dydata-clue-platform-completion.md",
           "line": 106,
           "text": "- 看板入口：[task-kanban-dydata-clue-platform-completion.md](task-kanban-dydata-clue-platform-completion.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+          "line": 8,
+          "text": "> 用户本次明确免建票并授权开发；不部署、不迁移、不回填、不改采集或指标。需求以本任务授权及 [接口规格](../../api/pdca-event-snapshot.md) 为准。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md->docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+          "line": 36,
+          "text": "| T0.1 | [sub-delivery-plan-pdca-events-T0.1-contract.md](sub-delivery-plan-pdca-events-T0.1-contract.md) | 进行中 |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+          "line": 48,
+          "text": "| mainprd-dy-data.md 全局设计规则；增量接口规格 | T0.1 | [子计划](sub-delivery-plan-pdca-events-T0.1-contract.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md->docs/plans/delivery-plans/task-kanban-pdca-events.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "to": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "target": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+          "line": 38,
+          "text": "[task-kanban-pdca-events.md](task-kanban-pdca-events.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md->docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+          "line": 68,
+          "text": "| T0.1 | [独立证据接口](sub-delivery-plan-pdca-readonly-T0.1-evidence.md) | 进行中 |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+          "line": 103,
+          "text": "| 用户2026-09-20独立只读限定；mainprd全局权限/金额/错误规则 | T0.1 | [接口任务](sub-delivery-plan-pdca-readonly-T0.1-evidence.md) |",
+          "syntax": "markdown"
+        },
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+          "line": 104,
+          "text": "| 既有只读依赖 Schema 与真实 raw 模型 | T0.1 | [接口任务](sub-delivery-plan-pdca-readonly-T0.1-evidence.md) |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md->docs/plans/delivery-plans/task-kanban-pdca-readonly.md:links_to",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "to": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "target": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+          "line": 72,
+          "text": "[任务看板](task-kanban-pdca-readonly.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+          "line": 17,
+          "text": "先读 [mainprd](../../prd/mainprd-dy-data.md)，再读子计划列出的 Schema、API、代码及测试。原 PRD 的结算口径不直接套用到 PDCA。新接口契约需单独审核，不能修改旧 PRD 意义来绕过缺口。",
           "syntax": "markdown"
         }
       ]
@@ -16232,6 +17024,74 @@
           "path": "docs/plans/delivery-plans/sub-delivery-plan-account-org-scope-T0.3-current-org.md",
           "line": 13,
           "text": "**PRD 双链·读**：`mainprd-dy-data.md` §1；`docs/rules/account-access-control.md` §10。",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md->docs/plans/2026-09-23-clue-product-scope.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "to": "docs/plans/2026-09-23-clue-product-scope.md",
+      "target": "docs/plans/2026-09-23-clue-product-scope.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+          "line": 12,
+          "text": "- `docs/plans/2026-09-23-clue-product-scope.md` §目标行为",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md->docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+          "line": 3,
+          "text": "- 主开发计划：[主计划](main-delivery-plan-clue-product-scope.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md->docs/plans/delivery-plans/task-kanban-clue-product-scope.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "to": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "target": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+          "line": 4,
+          "text": "- 任务看板：[看板](task-kanban-clue-product-scope.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+          "line": 11,
+          "text": "- `docs/prd/mainprd-dy-data.md` §全局设计规则",
           "syntax": "prd_double_link"
         }
       ]
@@ -21592,7 +22452,7 @@
       "evidence": [
         {
           "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
-          "line": 51,
+          "line": 71,
           "text": "- 已落盘 `docs/devlog/`：`20260922_dydata-97-receipt-review-round2.md`（第二轮静态返修）与 `20260923_dydata-97-receipt-review-round3.md`（第三轮真实进展）。",
           "syntax": "backtick"
         }
@@ -21609,7 +22469,7 @@
       "evidence": [
         {
           "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
-          "line": 51,
+          "line": 71,
           "text": "- 已落盘 `docs/devlog/`：`20260922_dydata-97-receipt-review-round2.md`（第二轮静态返修）与 `20260923_dydata-97-receipt-review-round3.md`（第三轮真实进展）。",
           "syntax": "backtick"
         }
@@ -21632,7 +22492,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
-          "line": 66,
+          "line": 93,
           "text": "- 由 `ai-project-manager` 调度 `delivery-planner` 同步 `main-delivery-plan-dydata-97-fee-fixes.md`、`task-kanban-dydata-97-fee-fixes.md` 与本子计划三处状态。",
           "syntax": "backtick"
         }
@@ -21655,7 +22515,7 @@
         },
         {
           "path": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
-          "line": 66,
+          "line": 93,
           "text": "- 由 `ai-project-manager` 调度 `delivery-planner` 同步 `main-delivery-plan-dydata-97-fee-fixes.md`、`task-kanban-dydata-97-fee-fixes.md` 与本子计划三处状态。",
           "syntax": "backtick"
         }
@@ -22461,6 +23321,234 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md->docs/devlog/20260928_refactor_log_Your_Name.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "to": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "target": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+          "line": 21,
+          "text": "**Evidence**：`docs/devlog/20260928_refactor_log_Your_Name.md`",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md->docs/plans/delivery-plans/main-delivery-plan-pdca-events.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+          "line": 4,
+          "text": "[主计划](main-delivery-plan-pdca-events.md)；[看板](task-kanban-pdca-events.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md->docs/plans/delivery-plans/task-kanban-pdca-events.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "to": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "target": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+          "line": 4,
+          "text": "[主计划](main-delivery-plan-pdca-events.md)；[看板](task-kanban-pdca-events.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+          "line": 9,
+          "text": "- `mainprd-dy-data.md` 全局设计规则",
+          "syntax": "prd_double_link"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/api/pdca-api-release-checklist.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/api/pdca-api-release-checklist.md",
+      "target": "docs/api/pdca-api-release-checklist.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 69,
+          "text": "证据见[当日开发日志](../../devlog/20260921_refactor_log_Your_Name.md)、[接口说明](../../api/pdca-source-evidence.md)及[限定发布检查表](../../api/pdca-api-release-checklist.md)。已完成线上只读状态检查和网关配置检查；候选未上传、未部署、未启用主源切换。任务仍为进行中。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/api/pdca-source-evidence.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/api/pdca-source-evidence.md",
+      "target": "docs/api/pdca-source-evidence.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 34,
+          "text": "- 新建 `tests/test_pdca_source_evidence.py`、`docs/api/pdca-source-evidence.md`。",
+          "syntax": "backtick"
+        },
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 69,
+          "text": "证据见[当日开发日志](../../devlog/20260921_refactor_log_Your_Name.md)、[接口说明](../../api/pdca-source-evidence.md)及[限定发布检查表](../../api/pdca-api-release-checklist.md)。已完成线上只读状态检查和网关配置检查；候选未上传、未部署、未启用主源切换。任务仍为进行中。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/devlog/20260921_refactor_log_Your_Name.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/devlog/20260921_refactor_log_Your_Name.md",
+      "target": "docs/devlog/20260921_refactor_log_Your_Name.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 69,
+          "text": "证据见[当日开发日志](../../devlog/20260921_refactor_log_Your_Name.md)、[接口说明](../../api/pdca-source-evidence.md)及[限定发布检查表](../../api/pdca-api-release-checklist.md)。已完成线上只读状态检查和网关配置检查；候选未上传、未部署、未启用主源切换。任务仍为进行中。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 5,
+          "text": "- [主开发计划](main-delivery-plan-pdca-readonly.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/plans/delivery-plans/task-kanban-pdca-readonly.md:links_to",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "target": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 6,
+          "text": "- [任务看板](task-kanban-pdca-readonly.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/prd/foundation/foundation-schema-clue-center/raw_douyin_refund_record.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/prd/foundation/foundation-schema-clue-center/raw_douyin_refund_record.md",
+      "target": "docs/prd/foundation/foundation-schema-clue-center/raw_douyin_refund_record.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 15,
+          "text": "- `../../prd/foundation/foundation-schema-clue-center/raw_douyin_refund_record.md`",
+          "syntax": "prd_double_link"
+        },
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 18,
+          "text": "- [退款结构](../../prd/foundation/foundation-schema-clue-center/raw_douyin_refund_record.md)：与当前模型有漂移，必须核对。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md",
+      "target": "docs/prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 14,
+          "text": "- `../../prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md`",
+          "syntax": "prd_double_link"
+        },
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 17,
+          "text": "- [既有只读依赖](../../prd/foundation/foundation-schema-dy-data/existing-read-dependencies.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md->docs/prd/mainprd-dy-data.md:depends_on",
+      "from": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "to": "docs/prd/mainprd-dy-data.md",
+      "target": "docs/prd/mainprd-dy-data.md",
+      "relation": "depends_on",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 13,
+          "text": "- `mainprd-dy-data.md`",
+          "syntax": "prd_double_link"
+        },
+        {
+          "path": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+          "line": 16,
+          "text": "- [mainprd](../../prd/mainprd-dy-data.md)：全局权限、金额及错误边界。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md->docs/devlog/20260911_ranking_dashboard_production.md:links_to",
       "from": "docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md",
       "to": "docs/devlog/20260911_ranking_dashboard_production.md",
@@ -22694,6 +23782,40 @@
           "path": "docs/plans/delivery-plans/task-kanban-account-org-scope.md",
           "line": 7,
           "text": "| T0.3 | [sub-delivery-plan-account-org-scope-T0.3-current-org.md](sub-delivery-plan-account-org-scope-T0.3-current-org.md) | AI | T0.2 | 进行中 | - | 已部署并开通70个账号，待用户验收；见开发日志 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md->docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+          "line": 3,
+          "text": "[主计划](main-delivery-plan-clue-product-scope.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md->docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-clue-product-scope-T0.1.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-clue-product-scope.md",
+          "line": 7,
+          "text": "| T0.1 | 商品范围与组织筛选 | 进行中 | [T0.1](sub-delivery-plan-clue-product-scope-T0.1.md) |",
           "syntax": "markdown"
         }
       ]
@@ -23770,6 +24892,23 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md->docs/devlog/20260923_dydata-97-all-export-fix.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md",
+      "to": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "target": "docs/devlog/20260923_dydata-97-all-export-fix.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md",
+          "line": 5,
+          "text": "| T1.1 | [sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md](sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md) | dsh执行 / Codex技术验收 / 用户业务验收 | Linear DYDATA-97 In Progress；用户已授权开发；用户已授权修复后部署 | 进行中 | - | 范围扩充为「逐按钮检查 + 最小修复 + 授权部署」：订单分佣与财务 25 个导出/模板/错误行按钮只读审计完成（`logs/dydata97/all-export-audit.md`，D1-D4 确定缺陷、C1-C3 候选）；导出恢复 + 佣金按接口订单实收基数；round2 199通过/2失败已返修；最终全量3160通过/169跳过/1失败（4444.29s，唯一失败为legacy projection写锁时序敏感，基线亦可复现，不得写全绿）；逐按钮红测 `logs/dydata97/all-export-red.txt` 真实本地 FastAPI+SQLite+真实Vite+真实Chromium 30项=15通过/15失败（无fixture失败；本地隔离链路、非生产复现），15失败全为D2(11)/D3(2)/D4(2)，15通过对应14类按钮成功内容已验；已按最小修复改4个生产文件（CORS expose_headers、异议导出独立反馈、两处错误行下载async+busy+异常反馈），未改测试断言、未改上限/鉴权/金额；修复后绿测已通过：`tests/test_finance_export_browser.py` 30项全部通过119.61s（修复前15通过/15失败224.21s，逐14类实际按钮下载、真实FastAPI+SQLite+Vite+Chromium、认证test override非线上登录验证），相关API子集22通过/106deselected、前端契约39通过、Web build 23.87s、git diff --check与计划一致性通过；既有visual_smoke财务回归已通过（`-k \"finance or dydata_97\"` 34 passed/228 deselected，197.81s，`logs/dydata97/export-existing-browser.txt`）；新增批量查询回归1001券（SQLite999变量）旧实现红测1failed/54deselected 5.92s（`logs/dydata97/receipt-batch-red.txt`），已在 `_receipt_amounts_for_details` 按500券分批并保留整单归属计数，Codex绿测 `receipt-batch-green.txt` 已完成，实收+结算+增量215 passed（135.06s，2026-09-24）；CI与部署尚未执行、不声称通过（`docs/devlog/20260923_dydata-97-all-export-fix.md`）；C1共享revoke候选未修改、不在本次部署变更内，不得写成已修，未扩大到其他11个旁路按钮；部署由 Codex 执行；无迁移、不自动重算历史锁账 |",
+          "syntax": "backtick"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md->docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md:links_to",
       "from": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md",
@@ -23781,7 +24920,7 @@
         {
           "path": "docs/plans/delivery-plans/task-kanban-dydata-97-fee-fixes.md",
           "line": 5,
-          "text": "| T1.1 | [sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md](sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md) | dsh执行 / Codex技术验收 / 用户业务验收 | Linear DYDATA-97 In Progress；用户已授权开发 | 进行中 | - | 导出恢复 + 佣金按接口订单实收基数；round2 199通过/2失败，round3 修复旧夹具缺失实收与非list回退；全量pytest运行中，待最终验收；无迁移、无生产账单重算 |",
+          "text": "| T1.1 | [sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md](sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md) | dsh执行 / Codex技术验收 / 用户业务验收 | Linear DYDATA-97 In Progress；用户已授权开发；用户已授权修复后部署 | 进行中 | - | 范围扩充为「逐按钮检查 + 最小修复 + 授权部署」：订单分佣与财务 25 个导出/模板/错误行按钮只读审计完成（`logs/dydata97/all-export-audit.md`，D1-D4 确定缺陷、C1-C3 候选）；导出恢复 + 佣金按接口订单实收基数；round2 199通过/2失败已返修；最终全量3160通过/169跳过/1失败（4444.29s，唯一失败为legacy projection写锁时序敏感，基线亦可复现，不得写全绿）；逐按钮红测 `logs/dydata97/all-export-red.txt` 真实本地 FastAPI+SQLite+真实Vite+真实Chromium 30项=15通过/15失败（无fixture失败；本地隔离链路、非生产复现），15失败全为D2(11)/D3(2)/D4(2)，15通过对应14类按钮成功内容已验；已按最小修复改4个生产文件（CORS expose_headers、异议导出独立反馈、两处错误行下载async+busy+异常反馈），未改测试断言、未改上限/鉴权/金额；修复后绿测已通过：`tests/test_finance_export_browser.py` 30项全部通过119.61s（修复前15通过/15失败224.21s，逐14类实际按钮下载、真实FastAPI+SQLite+Vite+Chromium、认证test override非线上登录验证），相关API子集22通过/106deselected、前端契约39通过、Web build 23.87s、git diff --check与计划一致性通过；既有visual_smoke财务回归已通过（`-k \"finance or dydata_97\"` 34 passed/228 deselected，197.81s，`logs/dydata97/export-existing-browser.txt`）；新增批量查询回归1001券（SQLite999变量）旧实现红测1failed/54deselected 5.92s（`logs/dydata97/receipt-batch-red.txt`），已在 `_receipt_amounts_for_details` 按500券分批并保留整单归属计数，Codex绿测 `receipt-batch-green.txt` 已完成，实收+结算+增量215 passed（135.06s，2026-09-24）；CI与部署尚未执行、不声称通过（`docs/devlog/20260923_dydata-97-all-export-fix.md`）；C1共享revoke候选未修改、不在本次部署变更内，不得写成已修，未扩大到其他11个旁路按钮；部署由 Codex 执行；无迁移、不自动重算历史锁账 |",
           "syntax": "markdown"
         }
       ]
@@ -23940,6 +25079,57 @@
       ]
     },
     {
+      "id": "docs/plans/delivery-plans/task-kanban-pdca-events.md->docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
+          "line": 5,
+          "text": "| T0.1 | [sub-delivery-plan-pdca-events-T0.1-contract.md](sub-delivery-plan-pdca-events-T0.1-contract.md) | 本任务 AI | 用户授权 | 进行中 | - | 草稿PR #42；隔离CI94通过，代码待审核；发布/真实数据验收另列 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md->docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-readonly.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+          "line": 3,
+          "text": "[主开发计划](main-delivery-plan-pdca-readonly.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md->docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md:links_to",
+      "from": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-pdca-readonly-T0.1-evidence.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/delivery-plans/task-kanban-pdca-readonly.md",
+          "line": 7,
+          "text": "| T0.1 | [独立证据接口](sub-delivery-plan-pdca-readonly-T0.1-evidence.md) | AI执行→人审核 | 认证只读性方案已确认 | 进行中 | — | 用户已审核通过并确认独立只读认证；未部署 |",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/delivery-plans/task-kanban-ranking-dashboard-production.md->docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md:links_to",
       "from": "docs/plans/delivery-plans/task-kanban-ranking-dashboard-production.md",
       "to": "docs/plans/delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md",
@@ -23991,6 +25181,23 @@
       ]
     },
     {
+      "id": "docs/plans/execution-plan.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 7,
+          "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "docs/plans/execution-plan.md->docs/design-system/README.md:links_to",
       "from": "docs/plans/execution-plan.md",
       "to": "docs/design-system/README.md",
@@ -24001,7 +25208,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 129,
+          "line": 148,
           "text": "- 页面内部结构与业务交互以冻结原型逐项验收；视觉继续以 `docs/design-system/tokens.json`、`docs/design-system/README.md`、`apps/web/src/design-tokens.css` 和共享组件为权威。",
           "syntax": "backtick"
         }
@@ -24018,7 +25225,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 163,
+          "line": 182,
           "text": "- 当前证据见 [2026-09-07 开发日志](../devlog/20260907_refactor_log_jojiuchen-blip.md)，需求与验收状态以 Linear DYDATA-87 为准；未获用户验收前不关闭。",
           "syntax": "markdown"
         }
@@ -24035,7 +25242,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 45,
+          "line": 64,
           "text": "- 记录：[开发日志](../devlog/20260914_ranking_export.md)。",
           "syntax": "markdown"
         }
@@ -24052,7 +25259,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 56,
+          "line": 75,
           "text": "- 下一步：用户验收；本次恢复监控已达成目标并暂停，系统既有历史补拉继续。详情见[开发日志](../devlog/20260914_refactor_log_Keith_Chen.md)。",
           "syntax": "markdown"
         }
@@ -24069,7 +25276,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 32,
+          "line": 51,
           "text": "- 追加任务：T0.2，已完成（2026-09-15）；PR #34与部署34937054128成功，新批量账号初始密码123456，组织路径及模板同步修正。记录见[日志](../devlog/20260915_account_default_password.md)。",
           "syntax": "markdown"
         }
@@ -24086,7 +25293,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 35,
+          "line": 54,
           "text": "- 当前任务：T0.1，已完成。PR #33合并，生产eeca61e部署成功（运行34928814248），3079项测试通过；记录见[交付日志](../devlog/20260915_account_org_scope.md)。Linear 团队不可访问，本地需求与证据已保存。",
           "syntax": "markdown"
         }
@@ -24103,7 +25310,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 27,
+          "line": 46,
           "text": "- 验证：新增3项用例先失败复现，修复后44项专项通过；完整CI与正式部署35176467356成功，生产70行预览无错误且全部创建成功，下载结果逐项核对一致。证据见[开发日志](../devlog/20260917_account_current_org.md)。",
           "syntax": "markdown"
         }
@@ -24120,8 +25327,42 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 17,
+          "line": 36,
           "text": "- 证据：[开发日志](../devlog/20260917_activation_half_hour.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/devlog/20260924_clue_product_scope.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/devlog/20260924_clue_product_scope.md",
+      "target": "docs/devlog/20260924_clue_product_scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 18,
+          "text": "- 证据：[开发日志](../devlog/20260924_clue_product_scope.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/devlog/20260928_refactor_log_Your_Name.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "target": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 7,
+          "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
       ]
@@ -24137,13 +25378,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 127,
+          "line": 146,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 179,
+          "line": 198,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -24160,7 +25401,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 151,
+          "line": 170,
           "text": "- 2026-09-09 当前修复进展：用户授权全部排查修复部署及门店财务开票闭环；执行 [本轮控制规格](2026-09-09-dydata-87-settlement-invoice-controller-spec.md)。有效核销共同门槛、无效结果退出、两费取消冲回、重核销血缘及退款幂等已补修；0051 增加核销快照、锁账恢复关联和私有账单来源包。生产只读确认正式账单为 0，已补发布与待确认账单生成同事务入口、零账期新版本、来源漂移终止任务；不自动确认或开票。采集隔离回归 46 passed，结算/增量/来源/生成 API 一轮 260 passed，之后投影边界和表单重试仍在最终复核，不能当作最终树全量通过。确认/异议/开票锁与幂等目标绑定、SAP 快照已补修，真实 PG 并发门禁待 CI。跨月共同费率/基数及计入月待用户明确；本批未提交、未部署、金额未验收，旧发布记录不能替代本轮放行。",
           "syntax": "markdown"
         }
@@ -24177,20 +25418,37 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 22,
+          "line": 41,
           "text": "- 当前正式计划：[账号组织权限](delivery-plans/main-delivery-plan-account-org-scope.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 31,
+          "line": 50,
           "text": "- 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 34,
+          "line": 53,
           "text": "- 已完成计划：[账号组织权限与门店选择](delivery-plans/main-delivery-plan-account-org-scope.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-clue-product-scope.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 14,
+          "text": "- 当前正式计划：[商品范围与组织筛选](delivery-plans/main-delivery-plan-clue-product-scope.md)。",
           "syntax": "markdown"
         }
       ]
@@ -24206,13 +25464,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 127,
+          "line": 146,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 179,
+          "line": 198,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -24229,13 +25487,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 140,
+          "line": 159,
           "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2、T3.1 均已完成，等待人类 Owner 最终审核。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 140,
+          "line": 159,
           "text": "- 正式计划入口：[`main-delivery-plan-dydata-45-test-agent-connect.md`](delivery-plans/main-delivery-plan-dydata-45-test-agent-connect.md)，T1.1、T1.2、T2.1、T2.2、T3.1 均已完成，等待人类 Owner 最终审核。",
           "syntax": "backtick"
         }
@@ -24252,7 +25510,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 135,
+          "line": 154,
           "text": "- 正式计划入口：[DYDATA-46 主交付计划](delivery-plans/main-delivery-plan-dydata-46-production-promotion.md)；Linear 仍是其范围、验收与状态权威。",
           "syntax": "markdown"
         }
@@ -24269,7 +25527,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 262,
+          "line": 281,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
         }
@@ -24286,7 +25544,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 170,
+          "line": 189,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -24303,7 +25561,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 269,
+          "line": 288,
           "text": "- 主开发计划：[DYDATA-90 采集修复](delivery-plans/main-delivery-plan-dydata-90-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -24320,19 +25578,19 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 178,
+          "line": 197,
           "text": "- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 233,
+          "line": 252,
           "text": "- 历史正式分配修复记录：[正式分配修复](delivery-plans/main-delivery-plan-dydata-90-formal.md)",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 282,
+          "line": 301,
           "text": "当前计划：[正式分配](delivery-plans/main-delivery-plan-dydata-90-formal.md)，T0.3已完成。用户2026-09-10明确确认BRD增补及代码修复；自动超期关闭、日期筛选不变、总部池不再投放。",
           "syntax": "markdown"
         }
@@ -24349,7 +25607,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 88,
+          "line": 107,
           "text": "- 当前正式计划：[号码恢复](delivery-plans/main-delivery-plan-dydata-90-phone-repair.md)。",
           "syntax": "markdown"
         }
@@ -24366,7 +25624,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 116,
+          "line": 135,
           "text": "- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 生产验证完成：215条有效遗漏已处理。",
           "syntax": "markdown"
         }
@@ -24383,7 +25641,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 113,
+          "line": 132,
           "text": "- 当前正式计划：[DYDATA-91 日期可见范围](delivery-plans/main-delivery-plan-dydata-91-visibility.md)。",
           "syntax": "markdown"
         }
@@ -24400,7 +25658,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 102,
+          "line": 121,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -24417,7 +25675,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 80,
+          "line": 99,
           "text": "- 当前正式计划：[登录失效提示](delivery-plans/main-delivery-plan-dydata-94-login-error.md)。",
           "syntax": "markdown"
         }
@@ -24434,7 +25692,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 61,
+          "line": 80,
           "text": "- 当前正式计划：[浏览器连接可靠性](delivery-plans/main-delivery-plan-dydata-95-browser.md)。",
           "syntax": "markdown"
         }
@@ -24451,7 +25709,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 50,
+          "line": 69,
           "text": "- 当前正式计划：[分级资源保护](delivery-plans/main-delivery-plan-dydata-96-memory.md)。",
           "syntax": "markdown"
         }
@@ -24468,8 +25726,25 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 4,
+          "line": 23,
           "text": "- 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md)、[任务看板](delivery-plans/task-kanban-dydata-97-fee-fixes.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/main-delivery-plan-pdca-events.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 4,
+          "text": "- 当前正式计划：[PDCA事件契约](delivery-plans/main-delivery-plan-pdca-events.md)。",
           "syntax": "markdown"
         }
       ]
@@ -24485,7 +25760,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 70,
+          "line": 89,
           "text": "- 当前正式计划：[打榜看板生产接入](delivery-plans/main-delivery-plan-ranking-dashboard-production.md)。",
           "syntax": "markdown"
         }
@@ -24502,7 +25777,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 40,
+          "line": 59,
           "text": "- 当前正式计划：[排序与导出](delivery-plans/main-delivery-plan-ranking-export.md)。",
           "syntax": "markdown"
         }
@@ -24519,7 +25794,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 23,
+          "line": 42,
           "text": "- 当前子开发计划：[T0.3](delivery-plans/sub-delivery-plan-account-org-scope-T0.3-current-org.md)。",
           "syntax": "markdown"
         }
@@ -24536,19 +25811,19 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 127,
+          "line": 146,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 179,
+          "line": 198,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 180,
+          "line": 199,
           "text": "- 当前子开发计划：[sub-delivery-plan-dy-data-T5.7-system-uat.md](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)。",
           "syntax": "markdown"
         }
@@ -24565,7 +25840,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 263,
+          "line": 282,
           "text": "- 当前子开发计划：`sub-delivery-plan-dydata-81-store-finance-T1.3-production-release.md`。",
           "syntax": "backtick"
         }
@@ -24582,7 +25857,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 170,
+          "line": 189,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -24599,7 +25874,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 271,
+          "line": 290,
           "text": "- 当前子计划：[T0.1 采集状态更新](delivery-plans/sub-delivery-plan-dydata-90-collector-fixes-T0.1-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -24616,7 +25891,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 89,
+          "line": 108,
           "text": "- 当前子开发计划：[T0.5](delivery-plans/sub-delivery-plan-dydata-90-phone-repair-T0.5.md)。",
           "syntax": "markdown"
         }
@@ -24633,7 +25908,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 116,
+          "line": 135,
           "text": "- 并行增量：[DYDATA-90 中心投影补漏](delivery-plans/main-delivery-plan-dydata-90-projection-gap.md)，[T0.4](delivery-plans/sub-delivery-plan-dydata-90-projection-gap-T0.4.md) 生产验证完成：215条有效遗漏已处理。",
           "syntax": "markdown"
         }
@@ -24650,7 +25925,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 114,
+          "line": 133,
           "text": "- 当前子开发计划：[T0.1 日期可见范围](delivery-plans/sub-delivery-plan-dydata-91-visibility-T0.1-clue-visibility.md)。",
           "syntax": "markdown"
         }
@@ -24667,7 +25942,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 102,
+          "line": 121,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -24684,7 +25959,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 81,
+          "line": 100,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-94-login-error-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -24701,7 +25976,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 62,
+          "line": 81,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-95-browser-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -24718,7 +25993,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 51,
+          "line": 70,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-dydata-96-memory-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -24735,7 +26010,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 5,
+          "line": 24,
           "text": "- 当前子开发计划：[T1.1 导出恢复与实收基数](delivery-plans/sub-delivery-plan-dydata-97-fee-fixes-T1.1-receipt-amount.md)。",
           "syntax": "markdown"
         }
@@ -24752,8 +26027,25 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 234,
+          "line": 253,
           "text": "- 当前子开发计划：[T2.4 全量、等价性和 8GB 最终门禁](delivery-plans/sub-delivery-plan-dydata-clue-platform-completion-T2.4-final-verification.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/execution-plan.md->docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md:links_to",
+      "from": "docs/plans/execution-plan.md",
+      "to": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "target": "docs/plans/delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/execution-plan.md",
+          "line": 5,
+          "text": "- 当前 Task：T0.1，进行中；[子计划](delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md)。",
           "syntax": "markdown"
         }
       ]
@@ -24769,7 +26061,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 71,
+          "line": 90,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-dashboard-production-T0.1-dashboard-integration.md)。",
           "syntax": "markdown"
         }
@@ -24786,7 +26078,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 41,
+          "line": 60,
           "text": "- 当前子开发计划：[T0.1](delivery-plans/sub-delivery-plan-ranking-export-T0.1.md)。",
           "syntax": "markdown"
         }
@@ -24803,13 +26095,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 127,
+          "line": 146,
           "text": "- 正式计划入口：[DYDATA-81 增量主交付计划](delivery-plans/main-delivery-plan-dy-data.md)；[任务看板](delivery-plans/task-kanban-dy-data.md)；当前子计划为 [T5.7 系统测试与用户验收](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md)，控制器规格为 [DYDATA-81 财务合同 G5](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 179,
+          "line": 198,
           "text": "- 当前 DYDATA-81 增量计划文件组：[主交付计划](delivery-plans/main-delivery-plan-dy-data.md)、[任务看板](delivery-plans/task-kanban-dy-data.md)、[T5.7 子计划](delivery-plans/sub-delivery-plan-dy-data-T5.7-system-uat.md) 与 [G5 控制器规格](2026-08-30-dydata-81-finance-contract-controller-spec.md)。",
           "syntax": "markdown"
         }
@@ -24826,7 +26118,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 262,
+          "line": 281,
           "text": "- 当前正式计划文件组：`docs/plans/delivery-plans/main-delivery-plan-dydata-81-store-finance.md`、`task-kanban-dydata-81-store-finance.md` 与对应子开发计划。",
           "syntax": "backtick"
         }
@@ -24843,7 +26135,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 170,
+          "line": 189,
           "text": "- 正式计划入口：[DYDATA-89 主开发计划](delivery-plans/main-delivery-plan-dydata-89-clue-onboarding.md)；[任务看板](delivery-plans/task-kanban-dydata-89-clue-onboarding.md)；当前子计划为 [T0.1 线索中心逐步聚焦引导](delivery-plans/sub-delivery-plan-dydata-89-clue-onboarding-T0.1-clue-onboarding.md)。",
           "syntax": "markdown"
         }
@@ -24860,7 +26152,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 270,
+          "line": 289,
           "text": "- 任务看板：[DYDATA-90 看板](delivery-plans/task-kanban-dydata-90-collector-fixes.md)。",
           "syntax": "markdown"
         }
@@ -24877,7 +26169,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 115,
+          "line": 134,
           "text": "- 当前 Task：T0.1，生产验证完成、等待用户验收；[任务看板](delivery-plans/task-kanban-dydata-91-visibility.md)。",
           "syntax": "markdown"
         }
@@ -24894,7 +26186,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 102,
+          "line": 121,
           "text": "- [主计划](delivery-plans/main-delivery-plan-dydata-93-admin-rules.md)、[看板](delivery-plans/task-kanban-dydata-93-admin-rules.md)、[T0.1](delivery-plans/sub-delivery-plan-dydata-93-admin-rules-T0.1-permissions.md) 已生成并通过结构校验，初稿待审阅。",
           "syntax": "markdown"
         }
@@ -24911,7 +26203,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 4,
+          "line": 23,
           "text": "- 当前正式计划文件组：[主计划](delivery-plans/main-delivery-plan-dydata-97-fee-fixes.md)、[任务看板](delivery-plans/task-kanban-dydata-97-fee-fixes.md)。",
           "syntax": "markdown"
         }
@@ -24928,7 +26220,7 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 153,
+          "line": 172,
           "text": "- 2026-09-09 发布推进：单店及财务修复已提交 `4734b1c`，整合当前生产主线为 `2e2b95f`；最终清洁全量 `2497 passed / 139 skipped / 0 failed`，JUnit 0 errors，Web build、122 项治理测试与协议检查通过。独立审查无 Critical/Important；候选代码在生产只读事务核验财务 530 门店、推广 6716413 分，单店汇总与榜单一致，空权限为 0。增量安全报告见 `docs/security/dydata-87-finance-release-20260909.md`。现进入 PR/CI 与生产发布，尚未部署，不自动生成/确认/锁定账单。",
           "syntax": "backtick"
         }
@@ -24945,13 +26237,13 @@
       "evidence": [
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 143,
+          "line": 162,
           "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
           "syntax": "markdown"
         },
         {
           "path": "docs/plans/execution-plan.md",
-          "line": 143,
+          "line": 162,
           "text": "- 权威规格：[`2026-07-22-dydata-45-test-agent-connect-design.md`](../superpowers/specs/2026-07-22-dydata-45-test-agent-connect-design.md)。本增量仅覆盖当前腾讯云测试环境；未来企业内网生产版由 DYDATA-46 对入口、OAuth、keyring、部署、文档和 smoke 做彻底切换。",
           "syntax": "backtick"
         }
@@ -25211,6 +26503,23 @@
           "line": 29,
           "text": "| 目标 foundation 文件:章节 | `docs/prd/foundation/foundation-api-clue-center/lead-query-and-contact.md` 概览指标；`docs/prd/foundation/foundation-schema-clue-center/clue_order_metric_fact.md` 指标生成 |",
           "syntax": "backtick"
+        }
+      ]
+    },
+    {
+      "id": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+          "line": 15,
+          "text": "本任务只更新 docs/api-contract.md 与独立契约，不直接改动Foundation。完整水位和历史事件能力缺口见 [契约](../../api/pdca-event-snapshot.md)，其后续采集/持久化变更须独立授权。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -30885,6 +32194,23 @@
       ]
     },
     {
+      "id": "project-profile.md->docs/api/pdca-event-snapshot.md:links_to",
+      "from": "project-profile.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-profile.md",
+          "line": 2,
+          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，本地专项88通过/6跳过，PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
       "id": "project-profile.md->docs/devlog/20260914_refactor_log_Keith_Chen.md:links_to",
       "from": "project-profile.md",
       "to": "docs/devlog/20260914_refactor_log_Keith_Chen.md",
@@ -30895,7 +32221,7 @@
       "evidence": [
         {
           "path": "project-profile.md",
-          "line": 2,
+          "line": 5,
           "text": "> 当前增量：DYDATA-96 分级资源保护与自动恢复，S4已部署、待用户验收。正式计划见 [主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-96-memory.md)；1de306c6于2026-09-14 01:01部署，9月12—13日日批和绑定同步已恢复，历史补拉继续。证据见 [开发日志](docs/devlog/20260914_refactor_log_Keith_Chen.md)。",
           "syntax": "markdown"
         }
@@ -30912,8 +32238,25 @@
       "evidence": [
         {
           "path": "project-profile.md",
-          "line": 2,
+          "line": 5,
           "text": "> 当前增量：DYDATA-96 分级资源保护与自动恢复，S4已部署、待用户验收。正式计划见 [主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-96-memory.md)；1de306c6于2026-09-14 01:01部署，9月12—13日日批和绑定同步已恢复，历史补拉继续。证据见 [开发日志](docs/devlog/20260914_refactor_log_Keith_Chen.md)。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "project-profile.md->docs/plans/delivery-plans/main-delivery-plan-pdca-events.md:links_to",
+      "from": "project-profile.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "project-profile.md",
+          "line": 2,
+          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，本地专项88通过/6跳过，PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
           "syntax": "markdown"
         }
       ]

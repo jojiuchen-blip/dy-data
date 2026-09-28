@@ -4,6 +4,14 @@
 
 ## 1. 基础约定
 
+### PDCA 只读事件快照（2026-09-28，本地实现，未部署）
+
+新增 `GET /api/v1/admin/pdca-source-snapshots` 及同路径 `/{snapshot_id}` 分页，契约
+`pdca-event-evidence-v2`。最高管理员、数据库只读事务、有限内存快照；原
+`pdca-source-observation-v1` 保留。完整水位和通用实收语义未核准，
+`publishable=false`。字段、schema、合成样例和达到正式验证的最小下一步见
+[PDCA事件快照契约](api/pdca-event-snapshot.md)。
+
 ### 打榜源证据归属字段（2026-09-11）
 
 打榜看板查询遇到数据库执行失败时返回HTTP503及`RANKING_QUERY_UNAVAILABLE`，提示稍后重试或缩短日期范围，不返回SQL、连接信息或参数；业务校验错误仍为422。

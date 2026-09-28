@@ -1,0 +1,198 @@
+{
+  "$defs": {
+    "DatasetSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset": {
+          "title": "Dataset",
+          "type": "string"
+        },
+        "row_count": {
+          "title": "Row Count",
+          "type": "integer"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "collection_complete_through": {
+          "default": null,
+          "title": "Collection Complete Through",
+          "type": "null"
+        },
+        "coverage_status": {
+          "const": "unverified",
+          "default": "unverified",
+          "title": "Coverage Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dataset",
+        "row_count",
+        "sha256"
+      ],
+      "title": "DatasetSummary",
+      "type": "object"
+    },
+    "ManifestData": {
+      "additionalProperties": false,
+      "properties": {
+        "datasets": {
+          "items": {
+            "$ref": "#/$defs/DatasetSummary"
+          },
+          "title": "Datasets",
+          "type": "array"
+        }
+      },
+      "required": [
+        "datasets"
+      ],
+      "title": "ManifestData",
+      "type": "object"
+    },
+    "SnapshotMeta": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "pdca-event-evidence-v2",
+          "default": "pdca-event-evidence-v2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "status_dictionary_version": {
+          "const": "pdca-status-evidence-v1",
+          "default": "pdca-status-evidence-v1",
+          "title": "Status Dictionary Version",
+          "type": "string"
+        },
+        "snapshot_id": {
+          "title": "Snapshot Id",
+          "type": "string"
+        },
+        "as_of": {
+          "format": "date-time",
+          "title": "As Of",
+          "type": "string"
+        },
+        "expires_at": {
+          "format": "date-time",
+          "title": "Expires At",
+          "type": "string"
+        },
+        "business_timezone": {
+          "const": "Asia/Shanghai",
+          "default": "Asia/Shanghai",
+          "title": "Business Timezone",
+          "type": "string"
+        },
+        "period_start": {
+          "format": "date-time",
+          "title": "Period Start",
+          "type": "string"
+        },
+        "period_end_exclusive": {
+          "format": "date-time",
+          "title": "Period End Exclusive",
+          "type": "string"
+        },
+        "observed_through": {
+          "format": "date-time",
+          "title": "Observed Through",
+          "type": "string"
+        },
+        "sku_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Sku Ids",
+          "type": "array"
+        },
+        "scope_basis": {
+          "enum": [
+            "explicit_sku_ids",
+            "current_sku_rules"
+          ],
+          "title": "Scope Basis",
+          "type": "string"
+        },
+        "rule_version": {
+          "title": "Rule Version",
+          "type": "string"
+        },
+        "read_only": {
+          "const": true,
+          "default": true,
+          "title": "Read Only",
+          "type": "boolean"
+        },
+        "consistent_snapshot": {
+          "const": true,
+          "default": true,
+          "title": "Consistent Snapshot",
+          "type": "boolean"
+        },
+        "snapshot_basis": {
+          "const": "read_only_transaction_frozen_projection",
+          "default": "read_only_transaction_frozen_projection",
+          "title": "Snapshot Basis",
+          "type": "string"
+        },
+        "collection_complete_through": {
+          "default": null,
+          "title": "Collection Complete Through",
+          "type": "null"
+        },
+        "amount_semantics_verified": {
+          "const": false,
+          "default": false,
+          "title": "Amount Semantics Verified",
+          "type": "boolean"
+        },
+        "publishable": {
+          "const": false,
+          "default": false,
+          "title": "Publishable",
+          "type": "boolean"
+        },
+        "blocking_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking Reasons",
+          "type": "array"
+        }
+      },
+      "required": [
+        "snapshot_id",
+        "as_of",
+        "expires_at",
+        "period_start",
+        "period_end_exclusive",
+        "observed_through",
+        "sku_ids",
+        "scope_basis",
+        "rule_version",
+        "blocking_reasons"
+      ],
+      "title": "SnapshotMeta",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "data": {
+      "$ref": "#/$defs/ManifestData"
+    },
+    "meta": {
+      "$ref": "#/$defs/SnapshotMeta"
+    }
+  },
+  "required": [
+    "data",
+    "meta"
+  ],
+  "title": "SnapshotManifest",
+  "type": "object"
+}

@@ -1,4 +1,14 @@
-# 当前执行：商品范围与组织筛选（2026-09-24）
+# 当前执行：PDCA只读事件契约（2026-09-28）
+
+- 当前阶段：S4，本任务独立隔离开发；用户本次明确免建票。
+- 当前正式计划：[PDCA事件契约](delivery-plans/main-delivery-plan-pdca-events.md)。
+- 当前 Task：T0.1，进行中；[子计划](delivery-plans/sub-delivery-plan-pdca-events-T0.1-contract.md)。
+- 完成标准：独立只读投影、实际冻结分页、未知和失败语义、合成边界测试与客户端契约交接。
+- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。
+- 边界：不改采集/指标/业务数据、不回填/迁移/自动部署；原PDCA代码目录只读。
+- 下一步：代码交付待审核；发布与真实API差异核查另行安排。保持publishable=false，不将源未知伪装为已证实缺失。
+
+# 当前执行：商品范围与组织筛选（2026-09-24，其他任务历史入口）
 
 - 当前阶段：S4。
 - 当前正式计划：[商品范围与组织筛选](delivery-plans/main-delivery-plan-clue-product-scope.md)。
