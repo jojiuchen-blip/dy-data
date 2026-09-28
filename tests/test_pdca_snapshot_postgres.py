@@ -108,3 +108,98 @@ def test_postgres_quality_union_large_bindings_and_repeatable_view(isolated_engi
             assert [r['issue_id'] for r in rows]==['QUALITY-LATE']
     finally:
         writer.dispose()
+
+
+def test_postgres_materialized_coupon_scope_keeps_concurrent_snapshot(isolated_engine, monkeypatch):
+    from datetime import date
+    import json
+    from dy_api import pdca_snapshot_projection as projection
+
+    tables = [model.__table__ for model in (DimStore, DimSkuProductRule, DimStorePoiMapping,
+        RawDouyinOrder, RawDouyinOrderCoupon, RawDouyinVerifyRecord, RawDouyinRefundRecord,
+        DouyinRefundEvent, DataQualityIssue, JobRun, JobStageRun)]
+    Base.metadata.create_all(isolated_engine, tables=tables)
+    when = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    with Session(isolated_engine) as session:
+        session.add(RawDouyinOrder(order_id='COUPON-SNAPSHOT-A', sku_id='COUPON-SCOPE', create_order_time=when))
+        session.flush()
+        session.add(RawDouyinOrderCoupon(coupon_id='COUPON-SNAPSHOT-C', order_id='COUPON-SNAPSHOT-A', coupon_status='before'))
+        session.commit()
+    writer = create_engine(isolated_engine.url)
+    original = projection._rows
+    calls = 0
+
+    def write_after_complete_orders(session, statement):
+        nonlocal calls
+        result = original(session, statement)
+        calls += 1
+        if calls == 2:
+            assert [row['order_id'] for row in result] == ['COUPON-SNAPSHOT-A']
+            with Session(writer) as other:
+                other.query(RawDouyinOrderCoupon).filter_by(coupon_id='COUPON-SNAPSHOT-C').update({'coupon_status': 'after'})
+                other.add(RawDouyinOrder(order_id='COUPON-SNAPSHOT-B', sku_id='COUPON-SCOPE', create_order_time=when))
+                other.flush()
+                other.add_all([
+                    RawDouyinOrderCoupon(coupon_id='COUPON-SNAPSHOT-LATE-A', order_id='COUPON-SNAPSHOT-A'),
+                    RawDouyinOrderCoupon(coupon_id='COUPON-SNAPSHOT-LATE-B', order_id='COUPON-SNAPSHOT-B'),
+                ])
+                other.commit()
+        return result
+
+    monkeypatch.setattr(projection, '_rows', write_after_complete_orders)
+    start, end, cutoff = projection.validate_window(date(2026, 9, 22), date(2026, 9, 22),
+        datetime(2026, 9, 23, tzinfo=timezone.utc))
+    try:
+        with snapshot_session() as session:
+            first, _, _ = projection.project_snapshot(session, start, end, cutoff, ['COUPON-SCOPE'], 'cohort')
+        rows = [json.loads(row) for row in first['coupons']]
+        assert [(row['coupon_id'], row['coupon_status']) for row in rows] == [('COUPON-SNAPSHOT-C', 'before')]
+        monkeypatch.setattr(projection, '_rows', original)
+        with snapshot_session() as session:
+            second, _, _ = projection.project_snapshot(session, start, end, cutoff, ['COUPON-SCOPE'], 'cohort')
+        rows = [json.loads(row) for row in second['coupons']]
+        assert [row['coupon_id'] for row in rows] == ['COUPON-SNAPSHOT-C', 'COUPON-SNAPSHOT-LATE-A', 'COUPON-SNAPSHOT-LATE-B']
+        assert rows[0]['coupon_status'] == 'after'
+    finally:
+        writer.dispose()
+
+
+def test_postgres_coupon_query_accepts_maximum_materialized_order_bindings(isolated_engine, monkeypatch):
+    """Exercise the actual project_snapshot coupon query at its order row cap."""
+    from datetime import date
+    from dy_api import pdca_snapshot_projection as projection
+
+    Base.metadata.create_all(isolated_engine, tables=[RawDouyinOrder.__table__, RawDouyinOrderCoupon.__table__])
+    when = datetime(2026, 9, 22, tzinfo=timezone.utc)
+    orders = [{'order_id': f'BOUND-COUPON-{i:05}', 'sku_id': 'BOUND-COUPON-SKU',
+               'create_order_time': when, 'raw_payload': {}} for i in range(projection.MAX_DATASET_ROWS)]
+    with isolated_engine.begin() as connection:
+        connection.execute(RawDouyinOrder.__table__.insert(), orders)
+    with Session(isolated_engine) as session:
+        session.add_all([
+            RawDouyinOrderCoupon(coupon_id='BOUND-COUPON-Z', order_id=orders[0]['order_id']),
+            RawDouyinOrderCoupon(coupon_id='BOUND-COUPON-A', order_id=orders[-1]['order_id']),
+        ])
+        session.commit()
+    original = projection._rows
+    calls = 0
+
+    class CouponChecked(Exception):
+        pass
+
+    def check_coupon_stage(session, statement):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return []  # Rules unrelated to the large binding contract.
+        if calls == 3:
+            assert 'raw_douyin_orders' not in str(statement)
+            assert [row['coupon_id'] for row in original(session, statement)] == ['BOUND-COUPON-A', 'BOUND-COUPON-Z']
+            raise CouponChecked()
+        return original(session, statement)
+
+    monkeypatch.setattr(projection, '_rows', check_coupon_stage)
+    start, end, cutoff = projection.validate_window(date(2026, 9, 22), date(2026, 9, 22),
+        datetime(2026, 9, 23, tzinfo=timezone.utc))
+    with snapshot_session() as session, pytest.raises(CouponChecked):
+        projection.project_snapshot(session, start, end, cutoff, ['BOUND-COUPON-SKU'], 'cohort')

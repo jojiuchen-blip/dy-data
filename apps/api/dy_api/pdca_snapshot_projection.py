@@ -207,8 +207,11 @@ def project_snapshot(session, start, end, cutoff, sku_ids=None, quality_issue_sc
         row['payment_evidence'] = ('unknown' if row['pay_time'] is None else
                                    'paid_by_cutoff' if row['pay_time'] <= cutoff else 'paid_after_cutoff')
     save('orders', [SnapshotOrder(**row) for row in orders])
+    # Reuse the complete, bounded cohort in this transaction instead of scanning
+    # orders again inside the coupon query. Empty cohorts remain an empty IN.
+    selected_order_ids = [row['order_id'] for row in orders]
     coupons = _rows(session, select(*_columns(RawDouyinOrderCoupon, SnapshotCoupon))
-                    .where(RawDouyinOrderCoupon.order_id.in_(order_ids)).order_by(RawDouyinOrderCoupon.coupon_id))
+                    .where(RawDouyinOrderCoupon.order_id.in_(selected_order_ids)).order_by(RawDouyinOrderCoupon.coupon_id))
     save('coupons', [SnapshotCoupon(**row) for row in coupons])
     coupon_orders = {row['coupon_id']: row['order_id'] for row in coupons}
     verify_fields = 'verify_id coupon_id sku_id verify_status verify_time cancel_time poi_id source_run_id source_observed_at'.split()

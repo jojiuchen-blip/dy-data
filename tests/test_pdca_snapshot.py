@@ -32,6 +32,82 @@ def page(client, manifest, dataset, **params):
                       params={'dataset': dataset, **params})
 
 
+@pytest.mark.parametrize('sku', ['SKU', 'EMPTY-SKU'])
+def test_coupon_query_reuses_complete_order_scope_and_preserves_projection(client, db_session, monkeypatch, sku):
+    from sqlalchemy import select
+    from dy_api import pdca_snapshot_projection as projection
+    from dy_api.pdca_snapshot_schema import SnapshotCoupon
+
+    db_session.add(RawDouyinOrder(order_id='OTHER-SKU', sku_id='OTHER', create_order_time=datetime(2026, 8, 2)))
+    db_session.flush()
+    for coupon, order, status, refund_at in [
+        ('Z', 'A', 'refunded', datetime(2026, 9, 2)),
+        ('AA', 'A', 'unknown', None),
+        ('OLD-C', 'OLD', 'valid', None),
+        ('END-C', 'END', 'valid', None),
+        ('OTHER-C', 'OTHER-SKU', 'valid', None),
+    ]:
+        db_session.add(RawDouyinOrderCoupon(coupon_id=coupon, order_id=order,
+            coupon_status=status, coupon_refund_time=refund_at))
+    db_session.commit()
+    start, end, cutoff = projection.validate_window(
+        datetime(2026, 8, 1).date(), datetime(2026, 8, 7).date(),
+        datetime.fromisoformat('2026-09-01T00:00:00+08:00'))
+    legacy_ids = select(RawDouyinOrder.order_id).where(
+        RawDouyinOrder.sku_id.in_([sku]), RawDouyinOrder.create_order_time >= start,
+        RawDouyinOrder.create_order_time < end, RawDouyinOrder.create_order_time <= cutoff)
+    legacy = projection._rows(db_session, select(*projection._columns(RawDouyinOrderCoupon, SnapshotCoupon))
+        .where(RawDouyinOrderCoupon.order_id.in_(legacy_ids)).order_by(RawDouyinOrderCoupon.coupon_id))
+    expected = [SnapshotCoupon(**row).model_dump(mode='json') for row in legacy]
+    original = projection._rows
+    calls = []
+
+    def capture(session, statement):
+        calls.append(statement)
+        return original(session, statement)
+
+    monkeypatch.setattr(projection, '_rows', capture)
+    manifest = snapshot(client, skuIds=sku)
+    actual = page(client, manifest, 'coupons').json()['data']['rows']
+    assert actual == expected
+    assert [row['coupon_id'] for row in actual] == (['AA', 'C', 'Z'] if sku == 'SKU' else [])
+    # The performance contract: coupon retrieval must not rerun the order scan.
+    coupon_sql = str(calls[2].compile(compile_kwargs={'render_postcompile': True}))
+    assert 'raw_douyin_order_coupons' in coupon_sql
+    assert 'raw_douyin_orders' not in coupon_sql
+
+
+def test_materialized_coupon_scope_keeps_row_limit(client, db_session, monkeypatch):
+    from dy_api import pdca_snapshot_projection as projection
+    monkeypatch.setattr(projection, 'MAX_DATASET_ROWS', 2)
+    db_session.add(RawDouyinOrderCoupon(coupon_id='C2', order_id='A'))
+    db_session.commit()
+    assert len(page(client, snapshot(client), 'coupons').json()['data']['rows']) == 2
+    db_session.add(RawDouyinOrderCoupon(coupon_id='C3', order_id='A'))
+    db_session.commit()
+    response = client.get(BASE, params=QUERY)
+    assert response.status_code == 413
+
+
+@pytest.mark.parametrize('guard', ['cell', 'bytes'])
+def test_materialized_coupon_scope_keeps_transfer_guards(client, db_session, monkeypatch, guard):
+    from dy_api import pdca_snapshot_projection as projection
+    db_session.query(RawDouyinOrderCoupon).filter_by(coupon_id='C').update({'coupon_status': 'X' * 1025})
+    db_session.commit()
+    original = projection._rows
+    count = 0
+
+    def coupon_guard(session, statement):
+        nonlocal count
+        count += 1
+        if count == 3:
+            monkeypatch.setattr(projection, 'MAX_CELL_CHARACTERS' if guard == 'cell' else 'MAX_SNAPSHOT_BYTES', 1024)
+        return original(session, statement)
+
+    monkeypatch.setattr(projection, '_rows', coupon_guard)
+    assert client.get(BASE, params=QUERY).status_code == 413
+
+
 def test_order_population_and_snapshot_survive_source_updates(client, db_session):
     first = snapshot(client)
     response = page(client, first, 'orders', pageSize=1)
