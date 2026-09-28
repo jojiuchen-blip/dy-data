@@ -116,6 +116,43 @@ def _rows(session, statement):
     return rows
 
 
+def _quality_rows(session, order_ids, coupon_ids, run_ids, scope):
+    """Select bounded identifiers by each indexed link, then sort the union.
+
+    Sorting a wide OR first can walk the whole primary-key index. Each branch
+    stays in this transaction and raises on overflow; no partial union is used.
+    """
+    if scope not in {'cohort', 'related_batches'}:
+        raise ValueError('Invalid quality scope')
+    links = [(DataQualityIssue.order_id, order_ids),
+             (DataQualityIssue.coupon_id, coupon_ids)]
+    if scope == 'related_batches':
+        links.append((DataQualityIssue.source_run_id, run_ids))
+    identities = set()
+    identity_bytes = 0
+    for column, values in links:
+        if not values:
+            continue
+        # Unordered LIMIT subsets may differ between the guard and stream query.
+        # Bound the actual transfer too, without reintroducing a primary-key scan.
+        bounded_id = case((func.length(DataQualityIssue.issue_id) <= MAX_CELL_CHARACTERS,
+                           DataQualityIssue.issue_id), else_=None).label('issue_id')
+        for row in _rows(session, select(bounded_id).where(column.in_(sorted(values)))):
+            identity = row['issue_id']
+            if identity is None:
+                raise SnapshotLimitError()
+            if identity not in identities:
+                identities.add(identity)
+                identity_bytes += len(identity.encode('utf-8'))
+                if len(identities) > MAX_DATASET_ROWS or identity_bytes > MAX_SNAPSHOT_BYTES:
+                    raise SnapshotLimitError()
+    if not identities:
+        return []
+    return _rows(session, select(*_columns(DataQualityIssue, QualityIssue))
+                 .where(DataQualityIssue.issue_id.in_(sorted(identities)))
+                 .order_by(DataQualityIssue.issue_id))
+
+
 def _json_field_type(session, model, key):
     if session.get_bind().dialect.name == 'sqlite':
         return func.json_type(model.raw_payload, '$.' + key)
@@ -126,7 +163,7 @@ def _event_id(verify_id, kind):
     return 'verify:' + sha256((verify_id + '\0' + kind).encode()).hexdigest()
 
 
-def project_snapshot(session, start, end, cutoff, sku_ids=None):
+def project_snapshot(session, start, end, cutoff, sku_ids=None, quality_issue_scope="related_batches"):
     """Freeze selected creation cohort, including all current statuses/events.
 
     Events after cutoff stay visible with a false cutoff flag. Late observations
@@ -222,9 +259,9 @@ def project_snapshot(session, start, end, cutoff, sku_ids=None):
     stages = _rows(session, select(*_columns(JobStageRun, CollectionStage))
                    .where(JobStageRun.job_id.in_(job_ids)).order_by(JobStageRun.stage_run_id))
     save('collection_stages', [CollectionStage(**row) for row in stages])
-    issues = _rows(session, select(*_columns(DataQualityIssue, QualityIssue)).where(or_(
-        DataQualityIssue.order_id.in_(order_ids), DataQualityIssue.coupon_id.in_(coupon_ids),
-        DataQualityIssue.source_run_id.in_(set(job_ids) | run_ids))).order_by(DataQualityIssue.issue_id))
+    issues = _quality_rows(session, {row['order_id'] for row in orders},
+                           {row['coupon_id'] for row in coupons}, set(job_ids) | run_ids,
+                           quality_issue_scope)
     save('quality_issues', [QualityIssue(**row) for row in issues])
     save('sku_rules', [SkuRow(**row) for row in rules])
     pois = _rows(session, select(*_columns(DimStorePoiMapping, PoiRow))

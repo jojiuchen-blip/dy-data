@@ -155,6 +155,7 @@ class SnapshotMeta(StrictModel):
     sku_ids: list[str]
     scope_basis: Literal['explicit_sku_ids', 'current_sku_rules']
     rule_version: str
+    quality_issue_scope: Literal['cohort', 'related_batches'] = 'related_batches'
     read_only: Literal[True] = True
     consistent_snapshot: Literal[True] = True
     snapshot_basis: Literal['read_only_transaction_frozen_projection'] = 'read_only_transaction_frozen_projection'

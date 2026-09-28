@@ -76,3 +76,35 @@ def test_postgres_snapshot_all_projections(isolated_engine, monkeypatch):
                 assert response.json()['data']['rows'][0]['order_receipt_candidate_cent'] == 16800
             if dataset['dataset'] == 'raw_refunds':
                 assert response.json()['data']['rows'][0]['amount_field_type'] == 'null'
+
+
+def test_postgres_quality_union_large_bindings_and_repeatable_view(isolated_engine, monkeypatch):
+    from dy_api import pdca_snapshot_projection as projection
+    DataQualityIssue.__table__.create(isolated_engine, checkfirst=True)
+    with Session(isolated_engine) as session:
+        session.add(DataQualityIssue(issue_id='QUALITY-ORDER',issue_type='synthetic',message='synthetic',order_id='QO-0'))
+        session.add(DataQualityIssue(issue_id='QUALITY-BATCH',issue_type='synthetic',message='synthetic',source_run_id='QR-0'))
+        session.commit()
+    writer=create_engine(isolated_engine.url)
+    original=projection._rows
+    first=True
+    def concurrent_rows(session, statement):
+        nonlocal first
+        result=original(session,statement)
+        if first:
+            first=False
+            with writer.begin() as connection:
+                connection.execute(DataQualityIssue.__table__.insert().values(issue_id='QUALITY-LATE',issue_type='synthetic',message='synthetic',coupon_id='QC-0'))
+        return result
+    monkeypatch.setattr(projection,'_rows',concurrent_rows)
+    try:
+        with snapshot_session() as session:
+            rows=projection._quality_rows(session,
+                {'QO-'+str(i) for i in range(12768)}, {'QC-'+str(i) for i in range(20000)},
+                {'QR-'+str(i) for i in range(32768)},'related_batches')
+            assert [r['issue_id'] for r in rows]==['QUALITY-BATCH','QUALITY-ORDER']
+        with snapshot_session() as session:
+            rows=projection._quality_rows(session,[],['QC-0'],set(),'cohort')
+            assert [r['issue_id'] for r in rows]==['QUALITY-LATE']
+    finally:
+        writer.dispose()

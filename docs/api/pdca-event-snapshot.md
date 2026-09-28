@@ -85,3 +85,15 @@
 - [合成响应样例](pdca-event-synthetic-example.json)（无真实订单/客户数据；其中快照ID仅作格式示例，不可请求）
 - 生成命令：设置 `PYTHONPATH=apps/api` 并包含仓库根目录后，运行 `python scripts/generate_pdca_snapshot_contract.py`；脚本只使用独立内存SQLite，不连接经营源库。
 - [实现与验证记录](../devlog/20260928_refactor_log_Your_Name.md)
+
+
+## 质量问题范围与有界查询（2026-09-28 联调修正）
+
+真实联调发现按时间相关采集批次扩展质量问题超过单集 20,000 行，且原 `OR + ORDER BY issue_id` 选择主键扫描并触发 8 秒保护。接口现在先按订单、券、批次分别读取有界问题 ID，再对完整去重并集统一排序投影；任何分支或并集超限均拒绝，不截断。事务、字段白名单、超时和发布门禁不变。
+
+新增显式参数 `qualityIssueScope`：
+
+- `related_batches`：默认，保留原范围（本批订单或券直接匹配，以及相关批次匹配）。数据过多返回 413；不得把拒绝当作空数据。
+- `cohort`：仅本批订单或券直接匹配，不包含只有批次关联的问题。客户端为了逐单差异核验显式选择此值；响应 `meta.quality_issue_scope` 必须为 `cohort`，并带 `batch_only_quality_issues_excluded` 阻断理由。它不证明无未关联问题，也不证明采集批次质量完整。
+
+两种范围都会保留十数据集，`publishable=false`。新旧快照范围不能混页。严格客户端需同步更新随包 JSON Schema 后再使用本增量字段。
