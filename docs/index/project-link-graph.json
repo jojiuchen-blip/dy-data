@@ -1,7 +1,7 @@
 {
   "mode": "project-link-index",
   "schemaVersion": "1.0.0",
-  "generatedAt": "2026-09-28T02:58:48.233Z",
+  "generatedAt": "2026-09-28T03:15:34.770Z",
   "hostRoot": ".",
   "outputs": {
     "graphJson": "docs/index/project-link-graph.json",
@@ -9,15 +9,15 @@
     "wikiSchemaJson": "docs/index/project-wiki-schema.json"
   },
   "summary": {
-    "nodes": 1127,
-    "edges": 1249,
+    "nodes": 1136,
+    "edges": 1251,
     "issues": 33,
     "errors": 33,
     "warnings": 0,
     "nodesByKind": {
-      "config": 51,
+      "config": 57,
       "doc": 194,
-      "source_code": 656,
+      "source_code": 659,
       "readme": 6,
       "baseline_audit": 2,
       "brd": 2,
@@ -36,7 +36,7 @@
       "page_ledger": 1
     },
     "edgesByRelation": {
-      "links_to": 794,
+      "links_to": 796,
       "depends_on": 446,
       "indexes": 9
     }
@@ -9970,6 +9970,60 @@
       "title": "test_worker_verify_collector.py"
     },
     {
+      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/PrivacySandboxAttestationsPreloaded/manifest.json",
+      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/PrivacySandboxAttestationsPreloaded/manifest.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "manifest.json"
+    },
+    {
+      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper_manifest.json",
+      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper_manifest.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "reading_mode_gdocs_helper_manifest.json"
+    },
+    {
+      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/content.js",
+      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/content.js",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "content.js"
+    },
+    {
+      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/gdocs_script.js",
+      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/resources/accessibility/reading_mode_gdocs_helper/gdocs_script.js",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "gdocs_script.js"
+    },
+    {
+      "id": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/vk_swiftshader_icd.json",
+      "path": "tmp/pdca-contract/browsers/chromium_headless_shell-1243/chrome-headless-shell-win64/vk_swiftshader_icd.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "vk_swiftshader_icd.json"
+    },
+    {
+      "id": "tmp/pdca-contract/create_draft_pr.py",
+      "path": "tmp/pdca-contract/create_draft_pr.py",
+      "kind": "source_code",
+      "owner_skill": "coding-standards",
+      "authority": true,
+      "slug": null,
+      "title": "create_draft_pr.py"
+    },
+    {
       "id": "tmp/pdca-contract/index-check.json",
       "path": "tmp/pdca-contract/index-check.json",
       "kind": "config",
@@ -9977,6 +10031,24 @@
       "authority": true,
       "slug": null,
       "title": "index-check.json"
+    },
+    {
+      "id": "tmp/pdca-contract/index-delivery.json",
+      "path": "tmp/pdca-contract/index-delivery.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "index-delivery.json"
+    },
+    {
+      "id": "tmp/pdca-contract/index-final.json",
+      "path": "tmp/pdca-contract/index-final.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "index-final.json"
     },
     {
       "id": "tmp/pdca-contract/parallel-stable/popen-gw0/test_empty_window_writes_summa0/summary.json",
@@ -10184,6 +10256,15 @@
       "authority": true,
       "slug": null,
       "title": "pdca_xdist_ids.py"
+    },
+    {
+      "id": "tmp/pdca-contract/pr-payload.json",
+      "path": "tmp/pdca-contract/pr-payload.json",
+      "kind": "config",
+      "owner_skill": "host-project",
+      "authority": true,
+      "slug": null,
+      "title": "pr-payload.json"
     }
   ],
   "edges": [
@@ -12398,19 +12479,53 @@
       ]
     },
     {
-      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->project-rules.md:links_to",
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/api/pdca-event-snapshot.md:links_to",
       "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
-      "to": "project-rules.md",
-      "target": "project-rules.md",
+      "to": "docs/api/pdca-event-snapshot.md",
+      "target": "docs/api/pdca-event-snapshot.md",
       "relation": "links_to",
       "status": "resolved",
       "anchor": null,
       "evidence": [
         {
           "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
-          "line": 69,
-          "text": "- **🔧 是否提炼为规则**：✅ 建议写入 `project-rules.md` / ⬜ 仅记录",
-          "syntax": "backtick"
+          "line": 16,
+          "text": "- 交付[字段契约/最小下一步](../api/pdca-event-snapshot.md)、两份JSON Schema和纯合成样例；已反馈原PDCA任务衔接。",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/plans/delivery-plans/main-delivery-plan-pdca-events.md:links_to",
+      "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "to": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "target": "docs/plans/delivery-plans/main-delivery-plan-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+          "line": 4,
+          "text": "> 关联计划：[PDCA事件契约](../plans/delivery-plans/main-delivery-plan-pdca-events.md)",
+          "syntax": "markdown"
+        }
+      ]
+    },
+    {
+      "id": "docs/devlog/20260928_refactor_log_Your_Name.md->docs/plans/foundation-plans/foundation-change-requests-pdca-events.md:links_to",
+      "from": "docs/devlog/20260928_refactor_log_Your_Name.md",
+      "to": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "target": "docs/plans/foundation-plans/foundation-change-requests-pdca-events.md",
+      "relation": "links_to",
+      "status": "resolved",
+      "anchor": null,
+      "evidence": [
+        {
+          "path": "docs/devlog/20260928_refactor_log_Your_Name.md",
+          "line": 52,
+          "text": "Foundation增量请求：[S4-FCR-PDCA-001](../plans/foundation-plans/foundation-change-requests-pdca-events.md)，仅文档索引建议，未改Foundation业务规则。",
+          "syntax": "markdown"
         }
       ]
     },
@@ -25272,7 +25387,7 @@
         {
           "path": "docs/plans/delivery-plans/task-kanban-pdca-events.md",
           "line": 5,
-          "text": "| T0.1 | [sub-delivery-plan-pdca-events-T0.1-contract.md](sub-delivery-plan-pdca-events-T0.1-contract.md) | 本任务 AI | 用户授权 | 进行中 | - | 仅本地开发，待发布/真实数据验收 |",
+          "text": "| T0.1 | [sub-delivery-plan-pdca-events-T0.1-contract.md](sub-delivery-plan-pdca-events-T0.1-contract.md) | 本任务 AI | 用户授权 | 进行中 | - | 草稿PR #42；隔离CI94通过，代码待审核；发布/真实数据验收另列 |",
           "syntax": "markdown"
         }
       ]
@@ -25374,7 +25489,7 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 7,
-          "text": "- 进度：专项86通过/6跳过，完整回归进行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
+          "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
       ]
@@ -25544,7 +25659,7 @@
         {
           "path": "docs/plans/execution-plan.md",
           "line": 7,
-          "text": "- 进度：专项86通过/6跳过，完整回归进行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
+          "text": "- 进度：本地专项88通过/6跳过；PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖的12项在补齐后连同相邻用例复跑19通过；Web build通过。[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中；[契约与缺口](../api/pdca-event-snapshot.md)、[开发日志](../devlog/20260928_refactor_log_Your_Name.md)。",
           "syntax": "markdown"
         }
       ]
@@ -32387,7 +32502,7 @@
         {
           "path": "project-profile.md",
           "line": 2,
-          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，专项86通过/6跳过，全仓回归进行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
+          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，本地专项88通过/6跳过，PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
           "syntax": "markdown"
         }
       ]
@@ -32438,7 +32553,7 @@
         {
           "path": "project-profile.md",
           "line": 2,
-          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，专项86通过/6跳过，全仓回归进行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
+          "text": "> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，本地专项88通过/6跳过，PostgreSQL隔离CI94通过/0跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；[草稿PR #42](https://github.com/jojiuchen-blip/dy-data/pull/42)常规CI运行中。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。",
           "syntax": "markdown"
         }
       ]

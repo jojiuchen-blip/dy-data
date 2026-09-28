@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1127
-- 文件关系：1249
+- 文件节点：1136
+- 文件关系：1251
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -215,10 +215,10 @@
 | docs/devlog/20260921_refactor_log_Your_Name.md | links_to | project-rules.md | docs/devlog/20260921_refactor_log_Your_Name.md:71 |
 | docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-api-release-checklist.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
 | docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-source-evidence.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
-| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | project-rules.md | docs/devlog/20260928_refactor_log_Your_Name.md:69 |
+| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/api/pdca-event-snapshot.md | docs/devlog/20260928_refactor_log_Your_Name.md:16 |
+| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/plans/delivery-plans/main-delivery-plan-pdca-events.md | docs/devlog/20260928_refactor_log_Your_Name.md:4 |
+| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | docs/plans/foundation-plans/foundation-change-requests-pdca-events.md | docs/devlog/20260928_refactor_log_Your_Name.md:52 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
-| docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
-| docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
 
 ## 4. 诊断问题
 

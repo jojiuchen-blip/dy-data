@@ -37,7 +37,7 @@ Python 3.12 与 requirements.txt 安装到工作区 .venv；生产 PostgreSQL �
 ## 4. 任务看板
 [task-kanban-pdca-events.md](task-kanban-pdca-events.md)
 ## 5. 发布闸门
-本任务仅本地开发。发布必须独立审核；完整采集、历史事件和实收语义未证明前 publishable=false。
+本任务仅独立开发与草稿PR隔离验证。发布必须独立审核；完整采集、历史事件和实收语义未证明前 publishable=false。
 ## 6. 风险与应对
 快照有内存/行数/有效期上限；源缺失返回未知或503，不伪造0。快照只在当前服务进程有效，多实例需要亲和路由或另行设计共享存储。
 ## 7. AI 执行示例
