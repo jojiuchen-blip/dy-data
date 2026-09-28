@@ -51,6 +51,7 @@ jobs:
           tests/test_pdca_readonly_postgres.py
           tests/test_pdca_source_evidence.py
           tests/test_pdca_snapshot.py
+          tests/test_pdca_snapshot_quality_scope.py
           tests/test_pdca_snapshot_postgres.py
           tests/test_pdca_route_registration.py
           tests/test_ranking_source_evidence.py

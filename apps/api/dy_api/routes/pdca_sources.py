@@ -1,5 +1,6 @@
 """Independent, highest-admin, read-only PDCA evidence endpoint."""
 from datetime import date, datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
@@ -58,6 +59,7 @@ def pdca_snapshot_manifest(
     period_end: date = Query(alias='periodEnd'),
     observed_through: datetime = Query(alias='observedThrough'),
     sku_ids: list[str] | None = Query(default=None, alias='skuIds', max_length=100),
+    quality_issue_scope: Literal['cohort', 'related_batches'] = Query(default='related_batches', alias='qualityIssueScope'),
     username: str = Depends(require_pdca_snapshot_admin),
 ) -> SnapshotManifest:
     """Read a bounded cohort atomically; freeze only approved evidence in RAM."""
@@ -75,9 +77,9 @@ def pdca_snapshot_manifest(
         pdca_snapshot_store.STORE.check_capacity()
         as_of = datetime.now(timezone.utc)
         with snapshot_session() as session:
-            datasets, selected_skus, rule_version = project_snapshot(session, start, end, cutoff, sku_ids)
+            datasets, selected_skus, rule_version = project_snapshot(session, start, end, cutoff, sku_ids, quality_issue_scope)
         return pdca_snapshot_store.STORE.freeze(username, datasets, start=start, end=end, cutoff=cutoff,
-            sku_ids=selected_skus, explicit_scope=sku_ids is not None, rule_version=rule_version, as_of=as_of)
+            sku_ids=selected_skus, explicit_scope=sku_ids is not None, rule_version=rule_version, as_of=as_of, quality_issue_scope=quality_issue_scope)
     except (ValueError, TypeError):
         raise HTTPException(status_code=503, detail='Source snapshot invalid') from None
     except SnapshotLimitError:

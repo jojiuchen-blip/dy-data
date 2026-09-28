@@ -1046,6 +1046,15 @@
           "title": "Rule Version",
           "type": "string"
         },
+        "quality_issue_scope": {
+          "default": "related_batches",
+          "enum": [
+            "cohort",
+            "related_batches"
+          ],
+          "title": "Quality Issue Scope",
+          "type": "string"
+        },
         "read_only": {
           "const": true,
           "default": true,

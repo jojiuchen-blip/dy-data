@@ -49,7 +49,7 @@ class SnapshotStore:
             if len(self._snapshots) >= MAX_SNAPSHOTS:
                 raise SnapshotBusyError()
 
-    def freeze(self, owner, datasets, *, start, end, cutoff, sku_ids, explicit_scope, rule_version, as_of):
+    def freeze(self, owner, datasets, *, start, end, cutoff, sku_ids, explicit_scope, rule_version, as_of, quality_issue_scope="related_batches"):
         snapshot_id = secrets.token_urlsafe(32)
         summaries = [dict(dataset=name, row_count=len(rows),
                           sha256=hashlib.sha256('\n'.join(rows).encode()).hexdigest())
@@ -59,7 +59,7 @@ class SnapshotStore:
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=TTL_SECONDS),
             period_start=start, period_end_exclusive=end, observed_through=cutoff,
             sku_ids=sku_ids, scope_basis='explicit_sku_ids' if explicit_scope else 'current_sku_rules',
-            rule_version=rule_version, blocking_reasons=[
+            rule_version=rule_version, quality_issue_scope=quality_issue_scope, blocking_reasons=(['batch_only_quality_issues_excluded'] if quality_issue_scope == 'cohort' else []) + [
                 'collection_watermark_unknown', 'event_history_incomplete',
                 'order_receipt_semantics_unverified', 'purchase_quantity_unavailable',
                 'unlinked_or_missing_date_records_not_proven_covered',
