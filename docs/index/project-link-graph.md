@@ -4,8 +4,8 @@
 
 ## 1. 摘要
 
-- 文件节点：1063
-- 文件关系：1195
+- 文件节点：1127
+- 文件关系：1249
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
@@ -15,6 +15,7 @@
 | 文件 | 类型 | owner skill | wiki 链接 | markdown 链接 |
 |---|---|---|---|---|
 | ci-cd.yml | config | host-project | [[.github/workflows/ci-cd.yml|ci-cd.yml]] | [ci-cd.yml](../../.github/workflows/ci-cd.yml) |
+| pdca-readonly-verify.yml | config | host-project | [[.github/workflows/pdca-readonly-verify.yml|pdca-readonly-verify.yml]] | [pdca-readonly-verify.yml](../../.github/workflows/pdca-readonly-verify.yml) |
 | tencent-lighthouse-deploy.yml | config | host-project | [[.github/workflows/tencent-lighthouse-deploy.yml|tencent-lighthouse-deploy.yml]] | [tencent-lighthouse-deploy.yml](../../.github/workflows/tencent-lighthouse-deploy.yml) |
 | AGENTS.md | doc | host-project | [[AGENTS.md|AGENTS.md]] | [AGENTS.md](../../AGENTS.md) |
 | env.py | source_code | coding-standards | [[alembic/env.py|env.py]] | [env.py](../../alembic/env.py) |
@@ -93,7 +94,6 @@
 | 20260911_0054_dim_store_service_code.py | source_code | coding-standards | [[alembic/versions/20260911_0054_dim_store_service_code.py|20260911_0054_dim_store_service_code.py]] | [20260911_0054_dim_store_service_code.py](../../alembic/versions/20260911_0054_dim_store_service_code.py) |
 | 20260911_0055_douyin_store_org_assignments.py | source_code | coding-standards | [[alembic/versions/20260911_0055_douyin_store_org_assignments.py|20260911_0055_douyin_store_org_assignments.py]] | [20260911_0055_douyin_store_org_assignments.py](../../alembic/versions/20260911_0055_douyin_store_org_assignments.py) |
 | 20260911_0056_store_org_assignment_active.py | source_code | coding-standards | [[alembic/versions/20260911_0056_store_org_assignment_active.py|20260911_0056_store_org_assignment_active.py]] | [20260911_0056_store_org_assignment_active.py](../../alembic/versions/20260911_0056_store_org_assignment_active.py) |
-| 20260911_0057_douyin_store_org_group.py | source_code | coding-standards | [[alembic/versions/20260911_0057_douyin_store_org_group.py|20260911_0057_douyin_store_org_group.py]] | [20260911_0057_douyin_store_org_group.py](../../alembic/versions/20260911_0057_douyin_store_org_group.py) |
 
 ## 3. 关系
 
@@ -115,8 +115,14 @@
 | docs/项目产品介绍书.md | links_to | docs/governance/authority-map.md | docs/项目产品介绍书.md:89 |
 | docs/项目产品介绍书.md | links_to | docs/runbook.md | docs/项目产品介绍书.md:87 |
 | docs/项目产品介绍书.md | links_to | project-profile.md | docs/项目产品介绍书.md:89 |
-| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:144 |
+| docs/api-contract.md | links_to | docs/api/pdca-event-snapshot.md | docs/api-contract.md:13 |
+| docs/api-contract.md | links_to | docs/devlog/20260914_ranking_export.md | docs/api-contract.md:152 |
 | docs/api-contract.md | links_to | docs/prd/foundation/foundation-api-dy-data.md | docs/api-contract.md:3 |
+| docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-manifest.schema.json | docs/api/pdca-event-snapshot.md:83 |
+| docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-page.schema.json | docs/api/pdca-event-snapshot.md:84 |
+| docs/api/pdca-event-snapshot.md | links_to | docs/api/pdca-event-synthetic-example.json | docs/api/pdca-event-snapshot.md:85 |
+| docs/api/pdca-event-snapshot.md | links_to | docs/devlog/20260928_refactor_log_Your_Name.md | docs/api/pdca-event-snapshot.md:87 |
+| docs/api/pdca-source-evidence.md | links_to | docs/api/pdca-api-release-checklist.md | docs/api/pdca-source-evidence.md:7 |
 | docs/architecture.md | links_to | docs/项目产品介绍书.md | docs/architecture.md:81 |
 | docs/architecture.md | links_to | docs/runbook.md | docs/architecture.md:74 |
 | docs/baseline/dydata-6-baseline-dry-run-review.md | links_to | docs/governance/authority-map.md | docs/baseline/dydata-6-baseline-dry-run-review.md:50 |
@@ -206,19 +212,13 @@
 | docs/devlog/20260912_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260912_refactor_log_Keith_Chen.md:71 |
 | docs/devlog/20260913_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260913_refactor_log_Keith_Chen.md:69 |
 | docs/devlog/20260914_refactor_log_Keith_Chen.md | links_to | project-rules.md | docs/devlog/20260914_refactor_log_Keith_Chen.md:69 |
+| docs/devlog/20260921_refactor_log_Your_Name.md | links_to | project-rules.md | docs/devlog/20260921_refactor_log_Your_Name.md:71 |
+| docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-api-release-checklist.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
+| docs/devlog/20260924_refactor_log_Your_Name.md | links_to | docs/api/pdca-source-evidence.md | docs/devlog/20260924_refactor_log_Your_Name.md:25 |
+| docs/devlog/20260928_refactor_log_Your_Name.md | links_to | project-rules.md | docs/devlog/20260928_refactor_log_Your_Name.md:69 |
 | docs/github-cicd.md | links_to | docs/tencent-lighthouse-cicd.md | docs/github-cicd.md:10 |
 | docs/governance/authority-map.md | links_to | AGENTS.md | docs/governance/authority-map.md:17 |
 | docs/governance/authority-map.md | links_to | apps/web/README.md | docs/governance/authority-map.md:29 |
-| docs/governance/authority-map.md | links_to | docs/技术架构与部署规划.md | docs/governance/authority-map.md:30 |
-| docs/governance/authority-map.md | links_to | docs/项目产品介绍书.md | docs/governance/authority-map.md:23 |
-| docs/governance/authority-map.md | links_to | docs/api-contract.md | docs/governance/authority-map.md:31 |
-| docs/governance/authority-map.md | links_to | docs/architecture.md | docs/governance/authority-map.md:25 |
-| docs/governance/authority-map.md | links_to | docs/brd/BRD-clue-center-20260721-2134.md | docs/governance/authority-map.md:40 |
-| docs/governance/authority-map.md | links_to | docs/brd/BRD-dy-data-20260716-1255.md | docs/governance/authority-map.md:38 |
-| docs/governance/authority-map.md | links_to | docs/brd/brd-ledger-clue-center.md | docs/governance/authority-map.md:41 |
-| docs/governance/authority-map.md | links_to | docs/brd/brd-ledger-dy-data.md | docs/governance/authority-map.md:39 |
-| docs/governance/authority-map.md | links_to | docs/data-model.md | docs/governance/authority-map.md:34 |
-| docs/governance/authority-map.md | links_to | docs/design-system/README.md | docs/governance/authority-map.md:24 |
 
 ## 4. 诊断问题
 

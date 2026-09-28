@@ -1,3 +1,6 @@
+<!-- PDCA independent increment: 2026-09-28 -->
+> 本工作区当前增量：用户已明确免建票的PDCA独立只读事件契约。本任务负责API源码、合成测试和衔接文档；不修改原PDCA目录，不改采集/指标，不回填、迁移或部署。当前S4，专项88通过/6跳过；全仓2905通过/517跳过，缺依赖项补齐后定向19通过，Web build通过；真实PostgreSQL待隔离CI。正式指标仍受水位、历史和实收语义缺口阻断；见 [当前计划](docs/plans/delivery-plans/main-delivery-plan-pdca-events.md) 与 [契约/最小下一步](docs/api/pdca-event-snapshot.md)。以下既有任务状态保留各自历史上下文，不作为本次部署授权。
+
 <!-- DYDATA-96 current work: 2026-09-13 -->
 > 当前增量：DYDATA-96 分级资源保护与自动恢复，S4已部署、待用户验收。正式计划见 [主计划](docs/plans/delivery-plans/main-delivery-plan-dydata-96-memory.md)；1de306c6于2026-09-14 01:01部署，9月12—13日日批和绑定同步已恢复，历史补拉继续。证据见 [开发日志](docs/devlog/20260914_refactor_log_Keith_Chen.md)。
 
