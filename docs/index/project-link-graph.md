@@ -5,7 +5,7 @@
 ## 1. 摘要
 
 - 文件节点：1104
-- 文件关系：1250
+- 文件关系：1251
 - 诊断问题：33
 - 机器索引：`docs/index/project-link-graph.json`
 - 关系 schema：`docs/index/project-wiki-schema.json`
