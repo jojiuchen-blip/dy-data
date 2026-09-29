@@ -6,7 +6,7 @@ const source = await readFile(new URL("../src/pages/authMessages.ts", import.met
 const compiled = ts.transpileModule(source, {
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
 }).outputText;
-const { activationFailureMessage, accountSubmitFailureMessage } = await import(
+const { activationFailureMessage, accountSubmitFailureMessage, isAccountAlreadyActivated } = await import(
   `data:text/javascript;base64,${Buffer.from(compiled).toString("base64")}`
 );
 for (const state of ["审核失败", "审核中", "已解绑", "未知"]) {
@@ -24,4 +24,7 @@ assert.match(activationFailureMessage({ reason_code: "certification_not_successf
 assert.match(accountSubmitFailureMessage({ status: 409, message: "Username already exists" }), /更换/);
 assert.match(accountSubmitFailureMessage({ status: 409, message: "Account already initialized" }), /前往登录/);
 assert.equal(accountSubmitFailureMessage({ status: 503, message: "sensitive server detail" }), undefined);
+assert.equal(isAccountAlreadyActivated({ status: 409, message: "Account already initialized" }), true);
+assert.equal(isAccountAlreadyActivated({ status: 409, message: "Username already exists" }), false);
+assert.equal(isAccountAlreadyActivated({ status: 503, message: "Account already initialized" }), false);
 console.log("Auth message behavior checks passed");

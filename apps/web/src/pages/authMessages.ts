@@ -2,6 +2,10 @@ import type { AccountActivationCheckData } from "../types/dashboard";
 
 const verificationFallback = "暂无法完成账户核验，请联系管理员核对账号资料。";
 
+export function isAccountAlreadyActivated(error: { status: number; message: string }): boolean {
+  return error.status === 409 && error.message === "Account already initialized";
+}
+
 export function activationFailureMessage(
   data: Pick<AccountActivationCheckData, "reason_code" | "certification_status">,
 ): string {

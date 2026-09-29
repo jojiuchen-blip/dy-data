@@ -6,7 +6,7 @@ import {
   loginAdmin,
   resetAccountPassword,
 } from "../api/client";
-import { activationFailureMessage, accountSubmitFailureMessage } from "./authMessages";
+import { activationFailureMessage, accountSubmitFailureMessage, isAccountAlreadyActivated } from "./authMessages";
 import { Button, IconButton } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -299,7 +299,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
           setActivationStep("identity");
           setActivationCredentials(emptyActivationCredentials());
         }
-        if (error.message === "Account already initialized") {
+        if (isAccountAlreadyActivated(error)) {
           setActivationStep("identity");
           setActivationCheckState("activated");
         }
