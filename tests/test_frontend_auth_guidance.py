@@ -95,3 +95,24 @@ def test_activation_guidance_card_has_layout_styles() -> None:
     assert ".auth-activation-actions" in source
     assert "grid-template-columns: minmax(0, 520px) minmax(300px, 420px)" not in source
     assert "position: fixed;" in source
+
+
+def test_activation_entry_reminds_users_to_read_the_public_guide() -> None:
+    source = read_source("pages/AuthPage.tsx")
+    assert 'useState(initialMode === "activate")' in source
+    assert 'open={mode === "activate" && activationGuideOpen}' in source
+    assert 'setActivationGuideOpen(mode === "activate")' in source
+    assert "激活前，请先阅读账号激活指南" in source
+    assert "先看激活指南" in source
+    assert "已了解，继续激活" in source
+    assert '"_blank", "noopener,noreferrer"' in source
+
+
+def test_guide_warns_about_account_type_and_certification_before_using_ids() -> None:
+    html = (PUBLIC_GUIDE / "index.html").read_text(encoding="utf-8")
+    assert "导出后先检查账号类型和认证状态" in html
+    assert "个人号等不受支持的账号类型" in html
+    assert "子机构门店号、子机构区域号" in html
+    assert 'class="qualification-notice"' in html
+    assert "两个 ID 正确，不代表一定能激活。" in html
+    assert "须为<strong>认证成功</strong>" in html

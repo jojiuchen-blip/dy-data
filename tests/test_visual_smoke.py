@@ -4525,6 +4525,58 @@ def test_admin_sync_uses_live_fastapi_for_queued_success_failed_and_partial(
         context.close()
 
 
+@pytest.mark.parametrize("width,height", [(390, 844), (1440, 900)])
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_activation_guide_reminder_flow(
+    browser: Browser, vite_base_url: str, tmp_path: Path,
+    width: int, height: int, theme: str,
+) -> None:
+    context = browser.new_context(viewport={"width": width, "height": height})
+    context.add_init_script(f"localStorage.setItem('dydata.theme.preference', '{theme}')")
+    page = context.new_page()
+    try:
+        install_unauthenticated_route(page)
+        page.route("**/api/v1/auth/activation-status", lambda route: route.fulfill(
+            content_type="application/json", body=json.dumps({"data": {"status": "ready"}}),
+        ))
+        page.goto(f"{vite_base_url}/auth/activate")
+        dialog = page.get_by_role("dialog", name="激活前，请先阅读账号激活指南")
+        expect(dialog).to_be_visible()
+        assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
+        page.screenshot(path=tmp_path / f"activation-reminder-{width}-{theme}.png")
+        with page.expect_popup() as popup_info:
+            dialog.get_by_role("button", name="先看激活指南").click()
+        guide = popup_info.value
+        guide.wait_for_load_state()
+        assert "/account-activation-guide/index.html" in guide.url
+        expect(guide.get_by_text("导出后先检查账号类型和认证状态", exact=True)).to_be_visible()
+        assert guide.evaluate("window.opener === null")
+        guide.close()
+        dialog.get_by_role("button", name="已了解，继续激活").click()
+        expect(dialog).not_to_be_visible()
+        page.get_by_placeholder("输入导出数据中的账户所属ID").fill("123456")
+        page.get_by_placeholder("输入导出数据中的所属账户关联 POI ID").fill("654321")
+        page.get_by_role("button", name="激活状态核验", exact=True).click()
+        expect(page.get_by_placeholder("仅输入数字和英文字母")).to_be_visible()
+        expect(dialog).not_to_be_visible()
+        page.get_by_role("button", name="返回修改门店信息").click()
+        expect(page.get_by_placeholder("输入导出数据中的账户所属ID")).to_have_value("123456")
+        expect(dialog).not_to_be_visible()
+        page.get_by_role("tab", name="账号登录", exact=True).click()
+        expect(dialog).not_to_be_visible()
+        page.get_by_role("tab", name="账号激活", exact=True).click()
+        expect(dialog).to_be_visible()
+        page.keyboard.press("Escape")
+        expect(dialog).not_to_be_visible()
+        page.reload()
+        expect(dialog).to_be_visible()
+        page.goto(f"{vite_base_url}/auth/reset-password")
+        expect(page.get_by_role("heading", name="重置密码", exact=True)).to_be_visible()
+        expect(dialog).not_to_be_visible()
+    finally:
+        context.close()
+
+
 def install_unauthenticated_route(page: Page) -> None:
     page.route(
         "**/api/v1/auth/me",
@@ -4568,6 +4620,8 @@ def test_auth_surfaces_follow_the_v02_visual_contract(
     try:
         install_unauthenticated_route(page)
         page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        if url_path == "/auth/activate":
+            page.get_by_role("button", name="已了解，继续激活").click()
         page.get_by_role("heading", name=expected_heading, exact=True).wait_for(
             timeout=10000,
         )
@@ -4621,6 +4675,8 @@ def test_auth_and_authorization_surfaces_render_dark_signature_contract(
             install_unauthenticated_route(page)
 
         page.goto(f"{vite_base_url}{url_path}", wait_until="domcontentloaded")
+        if url_path == "/auth/activate":
+            page.get_by_role("button", name="已了解，继续激活").click()
         page.get_by_role("heading", name=expected_heading, exact=True).wait_for(
             timeout=10000,
         )

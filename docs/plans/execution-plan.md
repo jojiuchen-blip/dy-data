@@ -1,3 +1,9 @@
+# 当前增量：DYDATA-101 激活前指南提醒（2026-09-29）
+
+- 用户已确认开发及第五部分资格提示；[主计划](delivery-plans/main-delivery-plan-activation-guide-reminder.md)，T0.1进行中。
+- 本地弹窗、HTML/PDF修订及专项验证完成；尚未提交部署，待用户验收。证据：[日志](../devlog/20260929_activation_guide_reminder.md)。
+- DYDATA-100已独立部署8073c7ef，生产健康；本增量不在该发布中。
+
 # 当前增量：只读券查询复用订单集合（2026-09-28）
 
 用户先授权本地最小代码优化与测试，随后授权公开推送、草稿PR及隔离CI。见 [PDCA事件计划](delivery-plans/main-delivery-plan-pdca-events.md)。当前组合99通过、9个PG跳过；真实PG、实际有界性能及全仓CI未验，不宣称生产已修复。不修改原PDCA目录，不合并/部署/迁移/加索引/回填/扩大超时。

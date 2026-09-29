@@ -9,6 +9,7 @@ import {
 import { activationFailureMessage, accountSubmitFailureMessage, isAccountAlreadyActivated } from "./authMessages";
 import { Button, IconButton } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
+import { Dialog } from "../components/Dialog";
 import { SolarIcon } from "../components/SolarIcon";
 import { BrandAttribution } from "../components/BrandAttribution";
 import { Tabs } from "../components/SelectionControls";
@@ -89,6 +90,7 @@ function emptyPasswordCredentials(): PasswordCredentials {
 
 export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPageProps) {
   const [mode, setMode] = useState<AuthMode>(initialMode);
+  const [activationGuideOpen, setActivationGuideOpen] = useState(initialMode === "activate");
   const [identifier, setIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [activationStep, setActivationStep] =
@@ -154,6 +156,10 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
     setResetCredentials(emptyPasswordCredentials());
     setResetCheckState("idle");
   }, [initialMode]);
+
+  useEffect(() => {
+    setActivationGuideOpen(mode === "activate");
+  }, [mode]);
 
   const resetActivationFlow = () => {
     setActivationStep("identity");
@@ -737,6 +743,28 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         )}
         <BrandAttribution className="auth-brand-attribution" placement="auth-panel-footer" />
       </section>
+      <Dialog
+        panelClassName="auth-guide-dialog"
+        open={mode === "activate" && activationGuideOpen}
+        onClose={() => setActivationGuideOpen(false)}
+        title="激活前，请先阅读账号激活指南"
+        actions={
+          <>
+            <Button onClick={() => setActivationGuideOpen(false)} variant="secondary">
+              已了解，继续激活
+            </Button>
+            <Button
+              icon="details"
+              onClick={() => window.open("/account-activation-guide/index.html", "_blank", "noopener,noreferrer")}
+              variant="primary"
+            >
+              先看激活指南
+            </Button>
+          </>
+        }
+      >
+        <p>请按指南从抖音来客导出数据，找到同一条记录中的“账户所属ID”和“所属账户关联 POI ID”，再返回这里完成激活。</p>
+      </Dialog>
       {activeActivationHintDetail ? (
         <aside className="auth-help-card" aria-live="polite">
           <p className="auth-help-card__eyebrow">字段来源</p>

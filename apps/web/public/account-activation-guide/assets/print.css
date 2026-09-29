@@ -158,6 +158,15 @@ h1 {
   padding: 3mm;
 }
 
+.qualification-notice {
+  padding: 3mm 4mm;
+  margin-top: 3mm;
+}
+
+.qualification-notice__checks > div {
+  padding: 2mm 0;
+}
+
 .source-figure {
   margin-top: 4mm;
 }
