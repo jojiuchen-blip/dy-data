@@ -3583,13 +3583,6 @@ a.metric-card:hover,
   text-wrap: balance;
 }
 
-@media (max-width: 640px) {
-  .auth-guide-dialog .ui-dialog__actions {
-    flex-direction: column-reverse;
-    align-items: stretch;
-  }
-}
-
 .ui-dialog {
   display: grid;
   width: min(760px, calc(100vw - 32px));
@@ -6316,6 +6309,11 @@ a.metric-card:hover,
 }
 
 @media (max-width: 640px) {
+  .auth-guide-dialog .ui-dialog__actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
   .demo-mode-notice {
     min-height: 0;
     align-items: flex-start;
