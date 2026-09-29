@@ -22,9 +22,9 @@ Codex 实现与验证，用户业务验收；不改 API 或认证规则。
 ## 执行阶段
 | Task | 子开发计划 | 状态 |
 |---|---|---|
-| T0.1 | [提醒与指南](sub-delivery-plan-activation-guide-reminder-T0.1-guide.md) | 进行中 |
+| T0.1 | [提醒与指南](sub-delivery-plan-activation-guide-reminder-T0.1-guide.md) | 已完成 |
 ## 任务看板
-[看板](task-kanban-activation-guide-reminder.md)；当前任务 T0.1，进行中。
+[看板](task-kanban-activation-guide-reminder.md)；当前任务 T0.1，已完成，生产版本4662d6b2。
 ## 发布闸门
 独立于正在发布的 DYDATA-100；测试、用户验收及发布授权后再发布本增量。
 ## 风险与应对

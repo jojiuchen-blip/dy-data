@@ -1,7 +1,7 @@
 # 当前增量：DYDATA-101 激活前指南提醒（2026-09-29）
 
-- 用户已确认开发及第五部分资格提示；[主计划](delivery-plans/main-delivery-plan-activation-guide-reminder.md)，T0.1进行中。
-- 本地弹窗、HTML/PDF修订及专项验证完成；尚未提交部署，待用户验收。证据：[日志](../devlog/20260929_activation_guide_reminder.md)。
+- 用户已验收并授权发布；[主计划](delivery-plans/main-delivery-plan-activation-guide-reminder.md)，T0.1已完成。
+- 已提交、推送并部署4662d6b2；公网手机/桌面弹窗、免登录指南及4页PDF验收通过。证据：[日志](../devlog/20260929_activation_guide_reminder.md)。
 - DYDATA-100已独立部署8073c7ef，生产健康；本增量不在该发布中。
 
 # 当前增量：只读券查询复用订单集合（2026-09-28）
