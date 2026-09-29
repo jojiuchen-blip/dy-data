@@ -25,6 +25,7 @@ from apps.api.dy_api.models import (  # noqa: E402
     ClueMasterLead,
     DimStore,
     RawDouyinClue,
+    RawDouyinOrder,
     User,
     UserStoreScope,
 )
@@ -587,6 +588,33 @@ def test_clue_dashboard_contract(client: TestClient, db_session: Session) -> Non
     assert row["store_display_status"] in {"待跟进", "已核销"}
     assert "telephone" not in row
     assert row["remaining_reassign_seconds"] is None
+
+
+@pytest.mark.parametrize("order_source", ["present", "missing_time", "missing_order"])
+def test_clue_detail_uses_order_creation_time(
+    client: TestClient, db_session: Session, order_source: str
+) -> None:
+    _seed_clue_center(db_session)
+    if order_source != "missing_order":
+        db_session.add(RawDouyinOrder(
+            order_id="order-2",
+            create_order_time=_dt(1, 7) if order_source == "present" else None,
+            pay_time=_dt(1, 8),
+            sale_time=_dt(1, 8),
+        ))
+    db_session.commit()
+    _login(client)
+
+    response = client.get("/api/v1/clues/orders/order-2")
+    assert response.status_code == 200
+    detail = response.json()["data"]
+    if order_source == "present":
+        actual = datetime.fromisoformat(detail["order_created_at"])
+        assert actual.replace(tzinfo=timezone.utc) == _dt(1, 7)
+        assert detail["order_created_at"] != detail["rounds"][0]["assigned_at"]
+    else:
+        assert detail["order_created_at"] is None
+    assert detail["rounds"]
 
 
 def test_trial_round_is_excluded_from_business_surfaces(

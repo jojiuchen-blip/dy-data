@@ -967,6 +967,7 @@ class ClueFollowUpResponseData(ClueFollowUpRecordRow):
 
 class ClueOrderDetailData(BaseModel):
     order_id: str
+    order_created_at: datetime | None = None
     canonical_clue_id: str | None = None
     lead_status: str
     phone_masked: str = ""

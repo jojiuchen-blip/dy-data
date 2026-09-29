@@ -1471,6 +1471,7 @@ export interface ClueFollowUpPayload {
 
 export interface ClueOrderDetail {
   order_id: string;
+  order_created_at?: string | null;
   canonical_clue_id: string | null;
   lead_status: string;
   phone_masked: string;

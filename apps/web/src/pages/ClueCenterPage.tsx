@@ -1683,7 +1683,7 @@ export function ClueCenterPage({
                         </div>
                         <div>
                           <dt>下单时间</dt>
-                          <dd>{formatDateTime(activeDetailRound.assigned_at)}</dd>
+                          <dd>{formatDateTime(detail.order_created_at)}</dd>
                         </div>
                         <div>
                           <dt>核销状态</dt>

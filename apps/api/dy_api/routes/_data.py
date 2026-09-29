@@ -4883,18 +4883,20 @@ class DashboardDataStore:
             return None
         orders = self._execute(
             """
-            SELECT order_id,
-                   canonical_clue_id,
-                   lead_status,
-                   COALESCE(phone_masked, '') AS phone_masked,
-                   product_id,
-                   product_name,
-                   product_type,
-                   author_nickname,
-                   assigned_city,
-                   assigned_province
-            FROM clue_center_orders
-            WHERE order_id = :order_id
+            SELECT c.order_id,
+                   c.canonical_clue_id,
+                   c.lead_status,
+                   COALESCE(c.phone_masked, '') AS phone_masked,
+                   c.product_id,
+                   c.product_name,
+                   c.product_type,
+                   c.author_nickname,
+                   c.assigned_city,
+                   c.assigned_province,
+                   o.create_order_time AS order_created_at
+            FROM clue_center_orders c
+            LEFT JOIN raw_douyin_orders o ON o.order_id = c.order_id
+            WHERE c.order_id = :order_id
             LIMIT 1
             """,
             {"order_id": order_id},
@@ -4997,6 +4999,7 @@ class DashboardDataStore:
         return {
             "order_id": _to_str(order.get("order_id")),
             "canonical_clue_id": order.get("canonical_clue_id"),
+            "order_created_at": order.get("order_created_at"),
             "lead_status": _to_str(order.get("lead_status")),
             "phone_masked": phone_masked,
             "product_id": order.get("product_id"),
