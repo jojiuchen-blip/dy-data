@@ -33,7 +33,8 @@ def test_activation_form_uses_two_step_identity_check_flow() -> None:
     assert "账户所属ID" in source
     assert "所属账户关联 POI ID" in source
     assert "激活状态核验" in source
-    assert "账户所属ID和所属账户关联POI ID不正确" in source
+    assert "账户所属ID和所属账户关联POI ID不正确" not in source
+    assert "activationFailureMessage(result.data)" in source
     assert "账户已激活过，需要前往账户登录" in source
     assert "前往账户登录" in source
     assert "checkAccountActivationStatus" in source

@@ -695,6 +695,102 @@ def test_store_account_initialize_rejects_duplicate_username(
     assert response.status_code == 409
 
 
+@pytest.mark.parametrize("binding_status,account_type,active,reason,label", [
+    ("审核失败", "子机构门店号", True, "certification_not_successful", "审核失败"),
+    ("认证中", "子机构经营号", True, "certification_not_successful", "认证中"),
+    ("已解绑", "子机构区域号", True, "certification_not_successful", "已解绑"),
+    ("inactive", "子机构门店号", True, "certification_not_successful", "未知"),
+    ("认证成功", "个人号", True, "account_type_unsupported", None),
+    ("认证成功", "子机构门店号", False, "store_disabled", None),
+])
+def test_activation_failure_reason_shared_by_check_and_submit(
+    monkeypatch, db_session, binding_status, account_type, active, reason, label,
+):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    add_activation_seed(db_session, store_id="reason-store", poi_id="reason-poi",
+                        binding_status=binding_status, account_type=account_type, is_active=active)
+    db_session.commit()
+    client = create_database_client(db_session)
+    identity = {"external_account_id": "reason-store", "poi_id": "reason-poi"}
+    data = client.post("/api/v1/auth/activation-status", json=identity).json()["data"]
+    assert data == {"status": "invalid", "reason_code": reason, "certification_status": label}
+    for route in ("initialize", "reset-password"):
+        result = client.post(f"/api/v1/auth/{route}", json={
+            **identity, "username": "reasonuser", "password": "password", "password_confirm": "password",
+        })
+        assert result.status_code == 401
+        assert result.json()["detail"] == {"code": "activation_verification_failed", **data}
+    assert db_session.query(User).count() == 0
+    # Wrong POI must not reveal whether the store is disabled or uncertified.
+    hidden = client.post("/api/v1/auth/activation-status", json={**identity, "poi_id": "wrong"}).json()["data"]
+    missing = client.post("/api/v1/auth/activation-status", json={**identity, "external_account_id": "missing"}).json()["data"]
+    assert hidden == missing == {"status": "invalid", "reason_code": "identity_not_matched", "certification_status": None}
+
+
+def test_activation_api_failure_and_valid_historical_evidence(monkeypatch, db_session):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    add_activation_seed(db_session, store_id="api-reason", poi_id="poi-reason", account_type="个人号")
+    binding = RawAwemeBinding(
+        binding_key="api-rejected", account_id="api-reason", poi_id=None,
+        binding_status="rejected", raw_payload={"account_type": 20, "status": 6},
+    )
+    db_session.add(binding)
+    db_session.commit()
+    client = create_database_client(db_session)
+    identity = {"external_account_id": "api-reason", "poi_id": "poi-reason"}
+    data = client.post("/api/v1/auth/activation-status", json=identity).json()["data"]
+    assert data["reason_code"] == "certification_not_successful"
+    assert data["certification_status"] == "审核失败"
+    db_session.add(RawAwemeBinding(
+        binding_key="valid-export", account_id="api-reason", poi_id="poi-reason",
+        binding_status="认证成功", raw_payload={"账号类型": "子机构门店号"},
+    ))
+    db_session.commit()
+    assert client.post("/api/v1/auth/activation-status", json=identity).json()["data"]["status"] == "ready"
+
+
+def test_activation_missing_evidence_and_latest_sub_account_status(monkeypatch, db_session):
+    from datetime import datetime, timezone
+
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    add_activation_seed(db_session, store_id="latest-store", poi_id="latest-poi", account_type="个人号")
+    db_session.flush()
+    db_session.query(RawAwemeBinding).delete()
+    db_session.commit()
+    client = create_database_client(db_session)
+    identity = {"external_account_id": "latest-store", "poi_id": "latest-poi"}
+    assert client.post("/api/v1/auth/activation-status", json=identity).json()["data"]["reason_code"] == "verification_unavailable"
+    for key, state, day in [("old", "审核失败", 1), ("new", "认证中", 2)]:
+        db_session.add(RawAwemeBinding(
+            binding_key=key, account_id="latest-store", poi_id="latest-poi",
+            binding_status=state, raw_payload={"账号类型": "子机构门店号"},
+            updated_at=datetime(2026, 9, day, tzinfo=timezone.utc),
+        ))
+    # A newer personal record must not supply the sub-account certification status.
+    db_session.add(RawAwemeBinding(
+        binding_key="personal", account_id="latest-store", poi_id="latest-poi",
+        binding_status="已解绑", raw_payload={"账号类型": "个人号"},
+        updated_at=datetime(2026, 9, 3, tzinfo=timezone.utc),
+    ))
+    db_session.commit()
+    assert client.post("/api/v1/auth/activation-status", json=identity).json()["data"]["certification_status"] == "认证中"
+
+
+def test_disabled_account_cannot_be_reactivated(monkeypatch, db_session):
+    monkeypatch.setenv("DY_API_TEST_MODE", "true")
+    add_activation_seed(db_session, store_id="disabled-seed", poi_id="disabled-poi")
+    db_session.add(User(user_id="disabled-seed-user", username="disabledseed", display_name="Disabled store",
+                        external_account_id="disabled-seed", role="store", status="disabled",
+                        is_initialized=False, password_hash=None))
+    db_session.commit()
+    client = create_database_client(db_session)
+    identity = {"external_account_id": "disabled-seed", "poi_id": "disabled-poi"}
+    assert client.post("/api/v1/auth/activation-status", json=identity).json()["data"]["reason_code"] == "account_disabled"
+    result = client.post("/api/v1/auth/initialize", json={**identity, "username": "newname", "password": "pass", "password_confirm": "pass"})
+    assert result.status_code == 401
+    assert db_session.get(User, "disabled-seed-user").status == "disabled"
+
+
 def test_login_rejects_wrong_password(client: TestClient):
     response = client.post(
         "/api/v1/auth/login",

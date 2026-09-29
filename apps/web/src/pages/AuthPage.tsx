@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  ApiRequestError,
   checkAccountActivationStatus,
   initializeAccount,
   loginAdmin,
   resetAccountPassword,
 } from "../api/client";
+import { activationFailureMessage, accountSubmitFailureMessage } from "./authMessages";
 import { Button, IconButton } from "../components/Button";
 import { FieldInput } from "../components/FormControls";
 import { SolarIcon } from "../components/SolarIcon";
@@ -252,7 +254,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         return;
       }
       setActivationCheckState("invalid");
-      setMessage("账户所属ID和所属账户关联POI ID不正确");
+      setMessage(activationFailureMessage(result.data));
     } catch {
       setActivationCheckState("invalid");
       setMessage("暂时无法核验激活状态，请稍后重试。");
@@ -290,8 +292,22 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
       const result = await initializeAccount(payload);
       resetActivationFlow();
       onAuthenticated(result.data);
-    } catch {
-      setMessage("账号激活失败，请重新核验门店信息后再试。");
+    } catch (error) {
+      if (error instanceof ApiRequestError) {
+        setMessage(accountSubmitFailureMessage(error) ?? "暂时无法完成账号激活，请稍后重试；若持续失败，请联系管理员。");
+        if (error.code === "activation_verification_failed") {
+          setActivationStep("identity");
+          setActivationCredentials(emptyActivationCredentials());
+        }
+        if (error.message === "Account already initialized") {
+          setActivationStep("identity");
+          setActivationCheckState("activated");
+        }
+      } else {
+        setMessage("暂未确认激活结果，请重新核验激活状态；若显示已激活，请直接登录。");
+        setActivationStep("identity");
+        setActivationCredentials(emptyActivationCredentials());
+      }
     } finally {
       setSubmitting(false);
     }
@@ -330,7 +346,7 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
         return;
       }
       setResetCheckState("invalid");
-      setMessage("账户所属ID和所属账户关联POI ID不正确");
+      setMessage(activationFailureMessage(result.data));
     } catch {
       setResetCheckState("invalid");
       setMessage("暂时无法核验账户信息，请稍后重试。");
@@ -362,8 +378,14 @@ export function AuthPage({ initialMode = "login", onAuthenticated }: AuthPagePro
       const result = await resetAccountPassword(payload);
       resetPasswordFlow();
       onAuthenticated(result.data);
-    } catch {
-      setMessage("密码重置失败，请重新核验门店信息后再试。");
+    } catch (error) {
+      setMessage(error instanceof ApiRequestError
+        ? accountSubmitFailureMessage(error) ?? "暂时无法重置密码，请稍后重试；若持续失败，请联系管理员。"
+        : "暂未确认密码重置结果，请尝试使用新密码登录；若无法登录，请重新重置密码。");
+      if (error instanceof ApiRequestError && error.code === "activation_verification_failed") {
+        setResetStep("identity");
+        setResetCredentials(emptyPasswordCredentials());
+      }
     } finally {
       setSubmitting(false);
     }

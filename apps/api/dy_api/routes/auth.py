@@ -223,12 +223,11 @@ def activation_status(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database is not available",
         )
-    state = _account_activation_state(
+    _, data = _activation_verification(
         session,
         payload.external_account_id,
         payload.poi_id,
     )
-    data = AccountActivationStatusData(status=state)
     return {
         "data": dump_model(data),
         "meta": {"generated_at": generated_at(), "source": "database"},
@@ -273,7 +272,7 @@ def _activate_account(
             detail="Password confirmation does not match",
         )
 
-    store = _verified_activation_store(
+    store, verification = _activation_verification(
         session,
         payload.external_account_id,
         payload.poi_id,
@@ -281,7 +280,7 @@ def _activate_account(
     if store is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account verification failed",
+            detail={"code": "activation_verification_failed", **dump_model(verification)},
         )
 
     username = normalize_account_value(payload.username)
@@ -356,7 +355,7 @@ def _reset_account_password(
             detail="Password confirmation does not match",
         )
 
-    store = _verified_activation_store(
+    store, verification = _activation_verification(
         session,
         payload.external_account_id,
         payload.poi_id,
@@ -364,7 +363,7 @@ def _reset_account_password(
     if store is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Account verification failed",
+            detail={"code": "activation_verification_failed", **dump_model(verification)},
         )
 
     target = find_user_by_account_identifier(session, store.store_id)
@@ -408,13 +407,7 @@ def _account_activation_state(
     external_account_id: str,
     poi_id: str,
 ) -> str:
-    store = _verified_activation_store(session, external_account_id, poi_id)
-    if store is None:
-        return "invalid"
-    target = find_user_by_account_identifier(session, store.store_id)
-    if target is not None and target.password_hash:
-        return "activated"
-    return "ready"
+    return _activation_verification(session, external_account_id, poi_id)[1].status
 
 
 def _verified_activation_store(
@@ -422,11 +415,20 @@ def _verified_activation_store(
     external_account_id: str,
     poi_id: str,
 ) -> DimStore | None:
+    return _activation_verification(session, external_account_id, poi_id)[0]
+
+
+def _activation_verification(
+    session,
+    external_account_id: str,
+    poi_id: str,
+) -> tuple[DimStore | None, AccountActivationStatusData]:
+    unmatched = AccountActivationStatusData(status="invalid", reason_code="identity_not_matched")
     normalized_account_id = normalize_account_value(external_account_id)
     normalized_poi_id = normalize_account_value(poi_id)
     store = session.get(DimStore, normalized_account_id)
-    if store is None or not store.is_active:
-        return None
+    if store is None:
+        return None, unmatched
 
     mapping = session.execute(
         select(DimStorePoiMapping).where(
@@ -435,7 +437,14 @@ def _verified_activation_store(
         )
     ).scalar_one_or_none()
     if mapping is None:
-        return None
+        return None, unmatched
+
+    # Only disclose eligibility after the submitted identity pair matches.
+    if not store.is_active:
+        return None, AccountActivationStatusData(status="invalid", reason_code="store_disabled")
+    target = find_user_by_account_identifier(session, store.store_id)
+    if target is not None and target.status != "active":
+        return None, AccountActivationStatusData(status="invalid", reason_code="account_disabled")
 
     bindings = session.execute(
         select(RawAwemeBinding).where(
@@ -451,19 +460,59 @@ def _verified_activation_store(
     has_api_sub_account_binding = any(
         _is_active_api_sub_account_binding(binding) for binding in bindings
     )
-    return store if has_exact_export_binding or has_api_sub_account_binding else None
+    if has_exact_export_binding or has_api_sub_account_binding:
+        activated = target is not None and (target.password_hash or target.is_initialized)
+        return store, AccountActivationStatusData(
+            status="activated" if activated else "ready",
+        )
+
+    relevant = [b for b in bindings if b.poi_id in (None, "", normalized_poi_id)]
+    sub_accounts = [
+        binding for binding in relevant
+        if _binding_account_type(binding) in SUB_ACCOUNT_TYPES | API_SUB_ACCOUNT_TYPES
+    ]
+    if sub_accounts:
+        # Timestamp ordering is deterministic; other historical failures never veto success above.
+        latest = max(
+            sub_accounts,
+            key=lambda b: (
+                b.updated_at.timestamp() if b.updated_at else float("-inf"), b.binding_key,
+            ),
+        )
+        return None, AccountActivationStatusData(
+            status="invalid", reason_code="certification_not_successful",
+            certification_status=_certification_status_label(latest),
+        )
+    reason = (
+        "account_type_unsupported"
+        if relevant and all(_binding_account_type(b) for b in relevant)
+        else "verification_unavailable"
+    )
+    return None, AccountActivationStatusData(status="invalid", reason_code=reason)
 
 
-def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
-    raw_payload = binding.raw_payload or {}
-    account_type = next(
+def _binding_account_type(binding: RawAwemeBinding) -> str:
+    payload = binding.raw_payload or {}
+    return next(
         (
-            normalize_account_value(raw_payload.get(key))
+            normalize_account_value(str(payload[key]))
             for key in ACCOUNT_TYPE_KEYS
-            if normalize_account_value(raw_payload.get(key))
+            if payload.get(key) is not None and normalize_account_value(str(payload[key]))
         ),
         "",
     )
+
+
+def _certification_status_label(binding: RawAwemeBinding) -> str:
+    value = binding.binding_status
+    if value in {"认证中", "审核中", "审核失败", "认证失败", "已解绑", "未认证", "待审核"}:
+        return value
+    # Preserve only established translations; inactive does not identify a specific review state.
+    return {"rejected": "审核失败", "pending": "审核中"}.get(value, "未知")
+
+
+def _is_sub_account_binding(binding: RawAwemeBinding) -> bool:
+    account_type = _binding_account_type(binding)
     return not account_type or account_type in SUB_ACCOUNT_TYPES
 
 

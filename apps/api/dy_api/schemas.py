@@ -134,6 +134,12 @@ class AccountActivationIdentityRequest(BaseModel):
 
 class AccountActivationStatusData(BaseModel):
     status: Literal["invalid", "activated", "ready"]
+    reason_code: Literal[
+        "identity_not_matched", "store_disabled", "account_disabled",
+        "account_type_unsupported", "certification_not_successful",
+        "verification_unavailable",
+    ] | None = None
+    certification_status: str | None = None
 
 
 class AccountInitializeRequest(AccountActivationIdentityRequest):

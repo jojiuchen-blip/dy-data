@@ -250,6 +250,8 @@ export class ApiRequestError extends Error {
   requestId?: string;
   fieldErrors?: unknown;
   returnPath?: string;
+  reasonCode?: string;
+  certificationStatus?: string;
 
   constructor(status: number, message?: string, detail?: Record<string, unknown>) {
     super(message ?? `API ${status}`);
@@ -259,6 +261,8 @@ export class ApiRequestError extends Error {
     this.requestId = typeof detail?.requestId === "string" ? detail.requestId : undefined;
     this.fieldErrors = detail?.fieldErrors ?? detail?.errors;
     this.returnPath = typeof detail?.returnPath === "string" ? detail.returnPath : undefined;
+    this.reasonCode = typeof detail?.reason_code === "string" ? detail.reason_code : undefined;
+    this.certificationStatus = typeof detail?.certification_status === "string" ? detail.certification_status : undefined;
   }
 }
 

@@ -225,6 +225,8 @@ export type AccountActivationStatus = "invalid" | "activated" | "ready";
 
 export interface AccountActivationCheckData {
   status: AccountActivationStatus;
+  reason_code?: string | null;
+  certification_status?: string | null;
 }
 
 export interface AccountActivationPayload extends AccountActivationCheckPayload {

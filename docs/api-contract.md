@@ -58,7 +58,11 @@
 - `POST /initialize`
 - `POST /reset-password`
 
-账号激活和忘记密码统一使用 `external_account_id`（账户所属 ID）与 `poi_id`（所属账户关联 POI ID）进行同记录核验。`POST /activation-status` 返回受控状态 `invalid`、`ready` 或 `activated`；只有认证成功的子机构账号记录及其门店 POI 映射同时匹配时，才允许进入后续激活或重置流程。
+账号激活和忘记密码统一使用 `external_account_id`（账户所属 ID）与 `poi_id`（所属账户关联 POI ID）核验。`POST /activation-status` 保留状态 `invalid`、`ready` 或 `activated`，增加可空的 `reason_code` 和 `certification_status`。准入证据仍为双 ID 对应的门店映射，加认证成功的同记录子机构绑定，或该账户 API `active/status=1/account_type=10或20` 绑定。
+
+`reason_code` 为 `identity_not_matched`、`store_disabled`、`account_disabled`、`account_type_unsupported`、`certification_not_successful` 或 `verification_unavailable`。双 ID 未匹配不透露门店存在性或正确 POI；匹配后才返回资格原因。认证失败展示相关子机构最新记录的受控中文状态，无可识别状态返回“未知”；历史失败记录不覆盖符合现行准入规则的成功证据。停用账号禁止通过自助激活恢复。
+
+激活与密码重置最终提交重新执行同一核验，失败时 HTTP 401 的 `detail` 包含 `code=activation_verification_failed` 和上述状态字段。前端统一展示“当前子机构账号认证状态为‘{状态}’。认证状态刷新可能有延迟，若抖音来客显示‘已激活’，请半个小时后再尝试激活。”半小时为重试建议，不保证同步完成；未知原因不得被描述为 ID 错误。
 
 `POST /initialize` 在双 ID 复核成功后设置账号名和密码；`POST /reset-password` 只允许已激活、状态正常的门店账号修改密码，并保留原账号名和门店范围。生产环境不得启用测试认证模式。
 
