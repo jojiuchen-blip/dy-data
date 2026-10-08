@@ -41,7 +41,7 @@ from apps.api.dy_api.models import (
 from apps.worker.order_status import normalize_coupon_status, resolve_clue_order_status
 
 
-FOLLOW_UP_METRIC_VERSION = "clue-followup-v2-assigned-terminal-aware"
+FOLLOW_UP_METRIC_VERSION = "clue-followup-v3-assigned-terminal-aware"
 FOLLOW_UP_WINDOW = timedelta(hours=24)
 EVIDENCE_QUERY_BATCH_SIZE = 500
 
@@ -55,7 +55,9 @@ TERMINAL_KINDS = frozenset({"verified", "refunded", "closed"})
 CLUE_FOLLOWUP_METRIC_DEFINITIONS: dict[str, str] = {
     "follow_24h_rate": (
         "正式分配轮次中，按assigned_at起算；未终止轮次立即计入分母，"
-        "终止超过24小时计入分母；分子为分配后24小时内、终止前的同轮次同门店未删除跟进"
+        "终止超过24小时计入分母；分子为分配后24小时内、终止前的同轮次同门店未删除跟进；"
+        "24小时内核销无需人工跟进即计1/1，24小时内全量退款仅在窗口内有有效跟进时计1/1，"
+        "已确认终止但缺少业务终止时间因证据不足暂按0/0排除，待补齐后重算"
     ),
     "follow_any_rate": (
         "正式分配轮次中，分配后且终止前存在同轮次同门店未删除跟进的轮次占比；"
@@ -63,7 +65,12 @@ CLUE_FOLLOWUP_METRIC_DEFINITIONS: dict[str, str] = {
     ),
     "terminal_evidence": (
         "核销、全量退款或关闭证据的业务发生时间与来源观测时间分离；"
-        "部分或待处理退款不构成退款终态"
+        "部分或待处理退款不构成退款终态；早期核销和早期退款分别遵守上述1/1与有效跟进规则，"
+        "缺少业务终止时间时不以观测时间冒充业务时间"
+    ),
+    "terminal_time_unknown": (
+        "已确认核销、全量退款或关闭但缺少可用业务终止时间；24小时跟进按0/0排除，"
+        "跟进证据暂不计入并待补齐终止时间后重算，不使用来源观测时间推断业务时间"
     ),
 }
 
@@ -386,6 +393,24 @@ def evaluate_clue_followup_round(
     )
     terminal_at = visible_terminal.terminal_at
     terminal_kind = visible_terminal.kind
+    if visible_terminal.is_terminal and terminal_at is None:
+        # A terminal kind without a business timestamp cannot establish either
+        # the 24-hour window or the strict-before-terminal follow boundary.
+        # Keep it visible for data-quality repair, but exclude the sample until
+        # the source supplies a usable business timestamp.
+        return FollowUpMetric(
+            assignment_round_id=assignment_round_id,
+            order_id=order_id,
+            numerator=0,
+            denominator=0,
+            follow_any_numerator=0,
+            follow_any_denominator=0,
+            reason_code="terminal_time_unknown",
+            deadline=deadline,
+            terminal_kind=terminal_kind,
+            terminal_at=None,
+            under_observation=False,
+        )
     if terminal_at is not None and terminal_at <= assigned_at:
         return FollowUpMetric(
             assignment_round_id,
@@ -498,6 +523,7 @@ def _terminal_from_rows(
     refund_events: Sequence[Any],
     verifications: Sequence[VerificationEvidence],
     observed_through: datetime,
+    canceled_coupon_ids: Iterable[str] = (),
 ) -> TerminalEvidence:
     raw_order_visible = raw_order is not None and (
         _status_observed_at(raw_order) is None or _status_observed_at(raw_order) <= observed_through
@@ -521,6 +547,9 @@ def _terminal_from_rows(
             tuple(item.verify_id for item in valid_verifications),
         )
 
+    canceled_coupon_set = {
+        str(value) for value in canceled_coupon_ids if _text(value)
+    }
     coupon_statuses: list[str] = []
     coupon_times: list[datetime | None] = []
     coupon_observed: list[datetime | None] = []
@@ -529,6 +558,15 @@ def _terminal_from_rows(
         coupon_statuses.append(normalized or normalize_coupon_status(
             getattr(coupon, "coupon_status_raw", None) or getattr(coupon, "coupon_status", None)
         ))
+        if (
+            coupon_statuses[-1] == "verified"
+            and _text(getattr(coupon, "coupon_id", None)) in canceled_coupon_set
+        ):
+            # A canceled raw verification must not leave its old 401/verified
+            # coupon projection as terminal evidence.  Other coupons on the
+            # same order remain eligible to provide distinct valid evidence.
+            coupon_statuses.pop()
+
         coupon_times.append(
             _max_time(getattr(coupon, "coupon_refund_time", None), getattr(coupon, "latest_refund_at", None))
         )
@@ -564,6 +602,10 @@ def _terminal_from_rows(
             (status for status in ("refunded", "closed", "verified") if status in clue_resolved_statuses),
             clue_resolved_statuses[0] if clue_resolved_statuses else None,
         )
+        if resolved not in {"refunded", "closed", "verified"} and coupon_statuses:
+            coupon_resolved = resolve_clue_order_status(None, coupon_statuses=coupon_statuses)
+            if coupon_resolved in {"refunded", "closed", "verified"}:
+                resolved = coupon_resolved
 
     all_coupons_refunded = bool(coupon_statuses) and all(status == "refunded" for status in coupon_statuses)
     all_coupons_closed = bool(coupon_statuses) and all(status == "closed" for status in coupon_statuses)
@@ -626,7 +668,12 @@ def _terminal_from_rows(
             *(_status_observed_at(row) for row in raw_clues),
             *coupon_observed,
         )
-        return TerminalEvidence("closed", terminal_at or observed_at, observed_at or terminal_at, "status", ())
+        # A status observation proves that the order is closed, but it does
+        # not prove when the business closure happened.  Keep that timestamp
+        # unknown so the pure evaluator excludes the sample as
+        # ``terminal_time_unknown`` instead of treating ingestion time as the
+        # strict-before-terminal boundary.
+        return TerminalEvidence("closed", terminal_at, observed_at or terminal_at, "status", ())
 
     if resolved == "verified":
         # A completed/verified order projection is terminal even when the
@@ -645,7 +692,16 @@ def _terminal_from_rows(
             *(_status_observed_at(row) for row in raw_clues),
             *coupon_observed,
         )
-        return TerminalEvidence("verified", verified_at, observed_at or verified_at, "order", ())
+        coupon_only = visible_raw_order is None and not raw_clues and any(
+            status == "verified" for status in coupon_statuses
+        )
+        return TerminalEvidence(
+            "verified",
+            verified_at,
+            observed_at or verified_at,
+            "coupon" if coupon_only else "order",
+            (),
+        )
 
     return TerminalEvidence(None, None, None)
 
@@ -683,6 +739,7 @@ def load_clue_followup_evidence(
     verifications_by_order: defaultdict[str, list[VerificationEvidence]] = defaultdict(list)
     canceled_verify_ids: set[str] = set()
     canceled_coupon_ids: set[str] = set()
+    canceled_order_ids: set[str] = set()
 
     for batch in _batch(requested):
         rounds = session.scalars(
@@ -753,6 +810,7 @@ def load_clue_followup_evidence(
                 continue
             cancel_at = _aware(row.cancel_time)
             if cancel_at is not None and cancel_at <= cutoff:
+                canceled_order_ids.add(str(order_id))
                 canceled_verify_ids.add(str(row.verify_id))
                 if row.coupon_id:
                     canceled_coupon_ids.add(str(row.coupon_id))
@@ -804,6 +862,12 @@ def load_clue_followup_evidence(
     # raw verification to populate them; cancellation handling above is the
     # source of truth when raw evidence exists.
     for order_id, rows in rounds_by_order.items():
+        if order_id in canceled_order_ids:
+            # The round projection has no verification identity.  Once a raw
+            # verification for this order is canceled, do not use that stale
+            # fallback; a distinct valid raw/settlement verification below can
+            # still win because it remains in verifications_by_order.
+            continue
         for row in rows:
             verified_at = row.verified_at
             if verified_at is None:
@@ -836,6 +900,7 @@ def load_clue_followup_evidence(
             refund_events=refund_events_by_order.get(order_id, ()),
             verifications=verifications_by_order.get(order_id, ()),
             observed_through=cutoff,
+            canceled_coupon_ids=canceled_coupon_ids,
         )
         result[order_id] = ClueFollowUpEvidence(
             order_id=order_id,
@@ -880,6 +945,7 @@ def load_terminal_evidence(
     round_verified_by_order: defaultdict[str, list[AssignmentRoundEvidence]] = defaultdict(list)
     canceled_verify_ids: set[str] = set()
     canceled_coupon_ids: set[str] = set()
+    canceled_order_ids: set[str] = set()
 
     for batch in _batch(requested):
         order_rows = session.execute(
@@ -928,6 +994,7 @@ def load_terminal_evidence(
             if source_observed is not None and source_observed > cutoff:
                 continue
             if cancel_at is not None and cancel_at <= cutoff:
+                canceled_order_ids.add(str(order_id))
                 canceled_verify_ids.add(str(row.verify_id))
                 if row.coupon_id:
                     canceled_coupon_ids.add(str(row.coupon_id))
@@ -1002,6 +1069,8 @@ def load_terminal_evidence(
             round_verified_by_order[round_value.order_id].append(round_value)
 
     for order_id, rows in round_verified_by_order.items():
+        if order_id in canceled_order_ids:
+            continue
         for row in rows:
             if row.verified_at is not None and row.verified_at <= cutoff:
                 observed_at = _aware(row.updated_at) or row.verified_at
@@ -1028,6 +1097,7 @@ def load_terminal_evidence(
             refund_events=refund_events_by_order.get(order_id, ()),
             verifications=verifications_by_order.get(order_id, ()),
             observed_through=cutoff,
+            canceled_coupon_ids=canceled_coupon_ids,
         )
         for order_id in requested
     }

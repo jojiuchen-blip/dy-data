@@ -6,6 +6,7 @@ import pytest
 
 from apps.api.dy_api.clue_followup_metrics import (
     AssignmentRoundEvidence,
+    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
     FollowUpEvidence,
     TerminalEvidence,
     bulk_evaluate_clue_followup_metrics,
@@ -77,6 +78,13 @@ def follow(*, record_id: str = "F", created_at: datetime = AT + timedelta(hours=
             (1, 1, "verified_within_24h"),
         ),
         (
+            "terminal time unknown",
+            TerminalEvidence("verified", None, AT + timedelta(hours=4)),
+            (follow(),),
+            CUTOFF,
+            (0, 0, "terminal_time_unknown"),
+        ),
+        (
             "early refund with follow",
             TerminalEvidence("refunded", AT + timedelta(hours=4), AT + timedelta(hours=4)),
             (follow(),),
@@ -134,6 +142,28 @@ def test_follow_up_uses_assigned_at_and_normalizes_timezones() -> None:
         round_row, follow_ups=(item,), observed_through=datetime(2026, 10, 1, 12, tzinfo=timezone.utc)
     )
     assert (metric.numerator, metric.denominator) == (1, 1)
+
+
+def test_unknown_terminal_time_excludes_follow_any_until_business_time_is_known() -> None:
+    metric = evaluate_clue_followup_round(
+        round_value(),
+        follow_ups=(follow(created_at=AT + timedelta(hours=10)),),
+        terminal=TerminalEvidence("refunded", None, AT + timedelta(hours=2)),
+        observed_through=AT + timedelta(hours=12),
+    )
+    assert (metric.numerator, metric.denominator) == (0, 0)
+    assert (metric.follow_any_numerator, metric.follow_any_denominator) == (0, 0)
+    assert metric.reason_code == "terminal_time_unknown"
+    assert metric.follow_record_ids == metric.follow_any_record_ids == ()
+
+
+def test_unknown_terminal_time_definition_is_explicit() -> None:
+    definition = CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_time_unknown"]
+    assert "0/0" in definition
+    assert "待补齐" in definition
+    assert "观测时间" in definition
+    assert "核销" in CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"]
+    assert "全量退款" in CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"]
 
 
 def test_loader_excludes_canceled_and_late_verification_and_returns_refund_time(db_session) -> None:
@@ -319,3 +349,110 @@ def test_verified_order_projection_is_terminal_without_business_timestamp(db_ses
     assert terminal.kind == "verified"
     assert terminal.terminal_at is None
     assert terminal.is_terminal is True
+
+
+def test_closed_order_projection_is_terminal_without_business_timestamp(db_session) -> None:
+    db_session.add(
+        RawDouyinOrder(
+            order_id="O",
+            order_status="101",
+            source_observed_at=AT + timedelta(hours=1),
+            updated_at=AT + timedelta(hours=1),
+        )
+    )
+    db_session.commit()
+
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    assert terminal.kind == "closed"
+    assert terminal.terminal_at is None
+    assert terminal.observed_at == AT + timedelta(hours=1)
+
+
+@pytest.mark.parametrize("include_valid_distinct", [False, True])
+def test_canceled_verification_suppresses_stale_round_projection(
+    db_session, include_valid_distinct: bool
+) -> None:
+    db_session.add_all(
+        [
+            RawDouyinOrderCoupon(
+                coupon_id="C-CANCELED",
+                order_id="O",
+                raw_order_id=1,
+                coupon_status="unused",
+                coupon_status_normalized="available",
+                source_observed_at=AT + timedelta(hours=1),
+            ),
+            ClueAssignmentRound(
+                assignment_round_id="R-CANCELED",
+                order_id="O",
+                round_no=1,
+                assigned_store_id="STORE-A",
+                assigned_at=AT,
+                execution_mode="formal",
+                round_status="active_unfollowed",
+                verified_at=AT + timedelta(hours=1),
+                updated_at=AT + timedelta(hours=2),
+            ),
+            RawDouyinVerifyRecord(
+                verify_id="VERIFY-CANCELED",
+                coupon_id="C-CANCELED",
+                verify_status="success",
+                verify_time=AT + timedelta(hours=1),
+                cancel_time=AT + timedelta(hours=2),
+                source_observed_at=AT + timedelta(hours=2),
+            ),
+        ]
+    )
+    if include_valid_distinct:
+        db_session.add_all(
+            [
+                RawDouyinOrderCoupon(
+                    coupon_id="C-VALID",
+                    order_id="O",
+                    raw_order_id=1,
+                    coupon_status="unused",
+                    coupon_status_normalized="available",
+                    source_observed_at=AT + timedelta(hours=3),
+                ),
+                RawDouyinVerifyRecord(
+                    verify_id="VERIFY-VALID",
+                    coupon_id="C-VALID",
+                    verify_status="success",
+                    verify_time=AT + timedelta(hours=3),
+                    source_observed_at=AT + timedelta(hours=3),
+                ),
+            ]
+        )
+    db_session.commit()
+
+    full = load_clue_followup_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    terminal_only = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    expected_kind = "verified" if include_valid_distinct else None
+    assert full.terminal.kind == expected_kind
+    assert terminal_only.kind == expected_kind
+    if include_valid_distinct:
+        assert full.terminal.evidence_ids == ("VERIFY-VALID",)
+        assert {item.verify_id for item in full.verifications} == {"VERIFY-VALID"}
+    else:
+        assert full.verifications == ()
+
+
+def test_coupon_only_verified_evidence_is_terminal_without_business_time(db_session) -> None:
+    db_session.add(
+        RawDouyinOrderCoupon(
+            coupon_id="C-401",
+            order_id="O",
+            raw_order_id=1,
+            coupon_status="401",
+            source_observed_at=AT + timedelta(hours=2),
+        )
+    )
+    db_session.commit()
+
+    terminal = load_terminal_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"]
+    full = load_clue_followup_evidence(db_session, {"O"}, observed_through=CUTOFF)["O"].terminal
+    for evidence in (terminal, full):
+        assert evidence.kind == "verified"
+        assert evidence.terminal_at is None
+        assert evidence.observed_at == AT + timedelta(hours=2)
+        assert evidence.source == "coupon"
