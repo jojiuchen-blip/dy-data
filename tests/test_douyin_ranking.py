@@ -76,7 +76,7 @@ def test_import_store_org_assignments_accepts_business_csv_aliases_and_deactivat
     assert db_session.get(DimStoreOrgAssignment, "SVC-001").is_active is False
 
 
-def test_ranking_uses_historical_correction_time_for_follow_24h_window(db_session) -> None:
+def test_ranking_uses_assigned_at_not_metric_correction_for_follow_24h_window(db_session) -> None:
     original_assignment = datetime(2026, 1, 1, 10, tzinfo=timezone.utc)
     corrected_assignment = datetime(2026, 1, 10, 10, tzinfo=timezone.utc)
     db_session.add_all(
@@ -120,7 +120,7 @@ def test_ranking_uses_historical_correction_time_for_follow_24h_window(db_sessio
     )
 
     row = next(item for item in report["rows"] if item["name"] == "更正门店")
-    assert row["follow_numerator"] == 1
+    assert row["follow_numerator"] == 0
     assert row["follow_denominator"] == 1
 
 
@@ -293,7 +293,10 @@ def test_ranking_orders_include_store_professional_accounts_and_all_channels(db_
     row = report["rows"][0]
     assert row["order_count"] == 4
     assert row["order_average"] == 2.0
-    assert row["follow_numerator"] == 1
+    # The first round has a follow before its early verification.  The second
+    # store round verifies exactly at its 24-hour boundary and therefore earns
+    # the terminal-within-window 1/1 rule even without a manual follow.
+    assert row["follow_numerator"] == 2
     assert row["follow_denominator"] == 3
     assert row["verification_numerator"] == 2
     assert row["verification_denominator"] == 3

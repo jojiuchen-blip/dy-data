@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 import importlib.util
 import pytest
-from sqlalchemy import select, func, insert
+from sqlalchemy import select, func, insert, delete
 
 from apps.api.dy_api.douyin_ranking import build_douyin_ranking_report
 from apps.api.dy_api.models import (
@@ -32,6 +32,31 @@ def test_assigned_order_verified_elsewhere_is_not_self_verified(db_session):
 
 def test_snapshot_engine_is_available():
     assert importlib.util.find_spec("apps.api.dy_api.ranking_snapshots") is not None
+
+
+def test_snapshot_early_verified_round_counts_one_of_one_without_follow(preview):
+    """The production snapshot path must use the shared verified override."""
+    from apps.api.dy_api.models import ClueFollowUpRecord
+    from apps.worker.ranking_preview_fixture import AT
+
+    round_row = preview.scalar(select(ClueAssignmentRound).where(
+        ClueAssignmentRound.assignment_round_id == "RA1"
+    ))
+    round_row.verified_store_id = "A"
+    round_row.verified_at = AT + timedelta(hours=4)
+    round_row.updated_at = AT + timedelta(hours=4)
+    preview.execute(delete(ClueFollowUpRecord).where(
+        ClueFollowUpRecord.assignment_round_id == "RA1"
+    ))
+    preview.commit()
+
+    from apps.api.dy_api.ranking_schema_v1 import samples
+    calculate(preview)
+    sample = preview.execute(select(samples).where(
+        samples.c.metric_key == "follow_24h", samples.c.sample_key == "RA1"
+    )).mappings().one()
+    assert (sample["numerator"], sample["denominator"]) == (1, 1)
+    assert sample["evidence_json"]["follow_record_ids"] == []
 
 
 def test_snapshot_dimension_budget_rejects_incomplete_result(preview, monkeypatch):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -10,7 +10,6 @@ from sqlalchemy.orm import Session
 
 from apps.api.dy_api.models import (
     ClueAssignmentRound,
-    ClueFollowUpRecord,
     DimAwemeAccount,
     DimStore,
     DimStoreOrgAssignment,
@@ -19,7 +18,12 @@ from apps.api.dy_api.models import (
     RawAwemeBinding,
     RawDouyinClue,
     RawDouyinOrder,
-    SettlementOrderDetail,
+)
+from apps.api.dy_api.clue_followup_metrics import (
+    AssignmentRoundEvidence,
+    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
+    evaluate_clue_followup_round,
+    load_clue_followup_evidence,
 )
 
 
@@ -274,21 +278,7 @@ def _load_clue_metrics(
     )
     if not rounds:
         return None
-    round_ids = tuple(row.assignment_round_id for row in rounds)
-    follow_rows = session.scalars(
-        select(ClueFollowUpRecord)
-        .where(ClueFollowUpRecord.assignment_round_id.in_(round_ids))
-        .where(ClueFollowUpRecord.deleted_at.is_(None))
-    ).all()
-    follow_by_round: defaultdict[str, list[datetime]] = defaultdict(list)
-    follow_any_by_round = defaultdict(list)
     observed_at = datetime.now(timezone.utc)
-    for row in follow_rows:
-        created_at = _aware(row.created_at)
-        if created_at is not None:
-            follow_by_round[row.assignment_round_id].append(created_at)
-            if created_at <= observed_at:
-                follow_any_by_round[row.assignment_round_id].append((created_at, row.assigned_store_id))
 
     order_ids = {row.order_id for row in rounds}
     all_formal_rounds = list(
@@ -302,20 +292,38 @@ def _load_clue_metrics(
     for row in all_formal_rounds:
         rounds_by_order[row.order_id].append(row)
 
+    follow_evidence = load_clue_followup_evidence(
+        session,
+        order_ids,
+        observed_through=observed_at,
+    )
+    # Reuse the one full evidence load above.  The pure evaluator is shared
+    # with the snapshot path and allocation worker; calling the bulk loader a
+    # second time here would duplicate every terminal/follow query.
+    follow_metrics = {}
+    for row in rounds:
+        round_evidence = follow_evidence.get(row.order_id)
+        round_value = row if isinstance(row, AssignmentRoundEvidence) else AssignmentRoundEvidence.from_row(row)
+        follow_metrics[row.assignment_round_id] = evaluate_clue_followup_round(
+            round_value,
+            follow_ups=(round_evidence.follow_ups_for(row.assignment_round_id) if round_evidence else ()),
+            terminal=(round_evidence.terminal if round_evidence else None),
+            observed_through=observed_at,
+        )
+    poi_to_store = {
+        poi_id: store_id
+        for poi_id, store_id in session.execute(
+            select(DimStorePoiMapping.poi_id, DimStorePoiMapping.store_id)
+            .where(DimStorePoiMapping.store_id.in_(tuple(facts_by_store)))
+        ).all()
+    }
     verify_times_by_order: defaultdict[str, list[tuple[datetime, str]]] = defaultdict(list)
-    for row in all_formal_rounds:
-        verified_at = _aware(row.verified_at)
-        if verified_at is not None and row.verified_store_id:
-            verify_times_by_order[row.order_id].append((verified_at, row.verified_store_id))
-    settlement_rows = session.execute(
-        select(SettlementOrderDetail.order_id, SettlementOrderDetail.verify_time, SettlementOrderDetail.verify_store_id)
-        .where(SettlementOrderDetail.order_id.in_(tuple(order_ids)))
-        .where(SettlementOrderDetail.is_verified.is_(True))
-    ).all()
-    for order_id, verify_time, verify_store_id in settlement_rows:
-        verified_at = _aware(verify_time)
-        if verified_at is not None and verify_store_id:
-            verify_times_by_order[order_id].append((verified_at, verify_store_id))
+    for order_id, evidence in follow_evidence.items():
+        for verification in evidence.verifications:
+            verified_at = _aware(verification.verified_at)
+            verify_store_id = verification.store_id or poi_to_store.get(verification.poi_id or "")
+            if verified_at is not None and verify_store_id:
+                verify_times_by_order[order_id].append((verified_at, verify_store_id))
 
     attributed_stores_by_order: defaultdict[str, set[str]] = defaultdict(set)
     for order_id, verify_times in verify_times_by_order.items():
@@ -341,21 +349,19 @@ def _load_clue_metrics(
         if assigned_store_id not in facts_by_store:
             continue
         facts = facts_by_store[assigned_store_id]
-        facts.follow_denominator += 1
-        assigned_at = _aware(row.assigned_at)
-        if assigned_at is not None:
-            if any(at >= assigned_at and store == assigned_store_id for at, store in follow_any_by_round[row.assignment_round_id]):
-                facts.follow_any_numerator += 1
-            follow_24h_start = _aware(row.metric_follow_24h_start_at) or assigned_at
-            deadline = follow_24h_start + timedelta(hours=24)
-            if any(follow_24h_start <= item <= deadline for item in follow_by_round.get(row.assignment_round_id, [])):
-                facts.follow_numerator += 1
+        metric = follow_metrics[row.assignment_round_id]
+        facts.follow_denominator += metric.denominator
+        facts.follow_numerator += metric.numerator
+        facts.follow_any_numerator += metric.follow_any_numerator
         facts.verification_order_ids.add(row.order_id)
         if row.order_id in attributed_stores_by_order and assigned_store_id in attributed_stores_by_order[row.order_id]:
             facts.verification_verified_order_ids.add(row.order_id)
         observed = _aware(row.updated_at)
         if observed is not None and (latest_observed_at is None or observed > latest_observed_at):
             latest_observed_at = observed
+        terminal_observed = _aware(follow_evidence.get(row.order_id).terminal.observed_at) if follow_evidence.get(row.order_id) else None
+        if terminal_observed is not None and (latest_observed_at is None or terminal_observed > latest_observed_at):
+            latest_observed_at = terminal_observed
     return latest_observed_at
 
 
@@ -468,7 +474,9 @@ def build_douyin_ranking_report(
         "metric_definitions": {
             "order_count": "统计期内门店账号及所属职人账号卖出的全渠道精诚养车商品订单，按订单ID去重；没有精诚养车商品口径的SKU不计入",
             "order_average": "辖区精诚养车订单量除以辖区全部有效精诚养车门店数",
-            "follow_24h_rate": "精诚养车商品对应的正式分配线索中，分配后24小时内存在系统跟进记录的数量除以正式分配数量",
+            "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
+            "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
+            "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
             "verification_rate": "正式分配给本店的精诚养车线索关联订单中，在本店成功核销的订单数除以关联订单总数；上级累加门店分子分母",
         },
     }

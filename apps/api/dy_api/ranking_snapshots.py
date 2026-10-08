@@ -14,7 +14,7 @@ from sqlalchemy import select, func, and_, or_
 from sqlalchemy.orm import Session, load_only
 
 from apps.api.dy_api.models import (
-    ClueAssignmentRound, ClueCenterOrder, ClueFollowUpRecord, DimAwemeAccount,
+    ClueAssignmentRound, ClueCenterOrder, DimAwemeAccount,
     DimStorePoiMapping, DimSkuProductRule, RawAwemeBinding,
     RawDouyinOrder, RawDouyinClue, RawDouyinOrderCoupon, RawDouyinVerifyRecord,
 )
@@ -23,8 +23,13 @@ from apps.api.dy_api.ranking_schema_v1 import (
 )
 from apps.api.dy_api.ranking_identity import OrderAttributionIndex
 from apps.api.dy_api.clue_product_scope import PRODUCT_SCOPE_LABELS, scope_predicate, validate_product_scope
+from apps.api.dy_api.clue_followup_metrics import (
+    CLUE_FOLLOWUP_METRIC_DEFINITIONS,
+    FOLLOW_UP_METRIC_VERSION,
+    bulk_evaluate_clue_followup_metrics,
+)
 
-METRIC_VERSION = "douyin-ranking-self-store-v5-period-start-sales-org"
+METRIC_VERSION = "douyin-ranking-self-store-v6-period-start-sales-org-" + FOLLOW_UP_METRIC_VERSION
 
 
 def metric_version(product_scope: str) -> str:
@@ -47,7 +52,9 @@ LEVEL_FIELDS = {
 DEFINITIONS = {
     "order_count": "全渠道精诚养车订单，门店及有明确绑定的职人归属，订单ID去重；组织归属固定为统计开始日",
     "order_average": "订单量÷统计开始日适用名单中的精诚养车门店数（含零销量店）",
-    "follow_24h_rate": "24小时内有未删除跟进记录的正式轮次数÷正式分配轮次数；上级累加分子分母",
+    "follow_24h_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_24h_rate"],
+    "follow_any_rate": CLUE_FOLLOWUP_METRIC_DEFINITIONS["follow_any_rate"],
+    "terminal_evidence": CLUE_FOLLOWUP_METRIC_DEFINITIONS["terminal_evidence"],
     "verification_rate": "正式分配给本店且成功自店核销的订单数÷正式分配给本店的关联订单数；上级累加门店责任样本",
 }
 
@@ -276,26 +283,32 @@ def calculate_snapshot(
             if versions[key]:
                 new_bindings.append(dict(lead_key=key, first_assigned_at=at, mapping_version=versions[key]))
 
-    follow_by_round: defaultdict[str, list[Any]] = defaultdict(list)
-    for row in bounded(select(ClueFollowUpRecord).where(
-        ClueFollowUpRecord.assignment_round_id.in_([row.assignment_round_id for row in selected]),
-        ClueFollowUpRecord.deleted_at.is_(None), ClueFollowUpRecord.created_at <= cutoff,
-    )):
-        follow_by_round[row.assignment_round_id].append(row)
+    follow_metrics = bulk_evaluate_clue_followup_metrics(
+        session,
+        {row.order_id for row in selected},
+        round_rows=selected,
+        observed_through=cutoff,
+    )
     responsibilities: defaultdict[tuple[str, str], list[Any]] = defaultdict(list)
     for row in selected:
         at, version = utc(row.assigned_at), versions.get(_lead(row))
-        evidence = [item.follow_up_record_id for item in follow_by_round[row.assignment_round_id]
-                    if item.assigned_store_id == row.assigned_store_id
-                    and at <= utc(item.created_at) <= at + timedelta(hours=24)]
+        metric = follow_metrics[row.assignment_round_id]
+        evidence = list(metric.follow_record_ids)
         add("follow_24h", row.assignment_round_id, row.assigned_store_id, version, at,
-            int(bool(evidence)), 1, {"order_id": row.order_id, "lead_key": _lead(row),
-                                   "round_id": row.assignment_round_id, "follow_record_ids": evidence})
-        any_evidence = [item.follow_up_record_id for item in follow_by_round[row.assignment_round_id]
-                        if item.assigned_store_id == row.assigned_store_id and utc(item.created_at) >= at]
+            metric.numerator, metric.denominator, {"order_id": row.order_id, "lead_key": _lead(row),
+                                   "round_id": row.assignment_round_id,
+                                   "follow_record_ids": evidence,
+                                   "reason_code": metric.reason_code,
+                                   "terminal_kind": metric.terminal_kind,
+                                   "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
+        any_evidence = list(metric.follow_any_record_ids)
         add("follow_any", row.assignment_round_id, row.assigned_store_id, version, at,
-            int(bool(any_evidence)), 1, {"order_id": row.order_id, "follow_record_ids": any_evidence})
-        if at + timedelta(hours=24) > cutoff:
+            metric.follow_any_numerator, metric.follow_any_denominator,
+            {"order_id": row.order_id, "follow_record_ids": any_evidence,
+             "reason_code": metric.reason_code,
+             "terminal_kind": metric.terminal_kind,
+             "terminal_at": metric.terminal_at.isoformat() if metric.terminal_at else None})
+        if metric.under_observation:
             quality["follow_rounds_under_observation"] += 1
         responsibilities[(row.order_id, row.assigned_store_id)].append(row)
 
