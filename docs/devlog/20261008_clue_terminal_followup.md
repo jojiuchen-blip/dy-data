@@ -12,7 +12,7 @@
 4. 当前订单状态优先于旧线索状态；分页物化不重复读取同订单全部线索。查询按500订单分批。
 5. 新版本指标隔离旧排行榜快照与计划评分快照键，页面文案同步。
 
-## 历史修复操作（未在生产执行）
+## 历史修复操作（开发阶段方案，实际执行见发布验收）
 
 默认预演：`python scripts/repair_clue_terminal_states.py --batch-size 100 --max-batches 20`。
 可用 `--order-id` 限定订单，使用输出的 `after` 作为 `--after` 继续下一页。预演回滚每页；只有 `--apply` 才提交。工具只处理已存在主线索的终态，不重写原始线索、不创建分配、不删除跟进。
@@ -34,7 +34,7 @@
 已登记 [foundation 规则回捞请求](../plans/foundation-plans/foundation-change-requests-clue-terminal-followup.md)，目标为轮次状态与24小时定义；无数据表迁移。测试与完成事实已回填计划、看板和执行入口。
 
 
-## 最终交付状态与证据
+## 开发阶段交付状态与证据（发布前）
 
 T0.1 两项开发均完成。代码位于隔离分支 `fix/clue-terminal-followup`（包含指标子任务的本地集成提交，主任务改动留在该工作树供审阅）。未合并 main、未推送、未部署，未执行生产历史修复。
 
@@ -50,3 +50,15 @@ T0.1 两项开发均完成。代码位于隔离分支 `fix/clue-terminal-followu
 用户已授权合并main、推送、部署。补充CI与腾讯发布门禁中的独立PostgreSQL线索并发验证；历史全量回填另按预演结果安排。发布结果待记录。
 
 首次发布门禁运行37722369142：真实PostgreSQL线索并发检查通过；全仓3331 passed、178 skipped、1 failed。唯一失败为桌面排行榜切换层级后同步读取可见行的竞态，标题已切换而数据尚未返回。将两处即时可见性断言改为Playwright自动等待可见行，保留原断言含义；本地手机和桌面2项复跑通过。修正后重新走完整发布门禁。
+
+
+## 发布验收结果（2026-10-08 12:57—13:01 北京时间）
+
+- 已合并、推送main。业务修复提交5cb7cb99；发布最终提交418e5402dc8d0649c9f5034fed9692ce37915474，附带排行榜浏览器测试异步等待修正。
+- 独立CI 37724166227成功：3332 passed、178 skipped；真实PostgreSQL线索并发13 passed；前端及四个镜像构建通过。
+- 腾讯发布37724167848：第二轮曾遇到既有财务导入浏览器用例间歇超时，单独复验通过；相同提交的独立CI全绿，重跑发布Verify也全绿。后续Deploy在数据库备份阶段SSH Broken pipe，退出255，不能将GitHub整条流水线记为成功。
+- 服务器完成备份后原进程退出；备份pre-migrate-20261008T044553Z.dump为2878576510字节，pg_restore --file=/dev/null完整校验通过。生产deploy.sh的SHA256与本地提交一致。恢复脚本仅复用已验证备份，其余配置、构建、迁移、异常门禁和健康检查沿用原脚本；日志重定向到服务器，退出码0。
+- 服务器last-deploy.json确认2026-10-08T04:57:13Z上线418e5402；API、Worker、Browser、Ops-agent、Postgres健康，Web/Proxy运行；公网首页200，未登录auth/me返回预期401；指标版本clue-followup-v3-assigned-terminal-aware。
+- 三个已反馈订单先预演，确认各变更3条主线索/轮次/中心，再执行定向修复。1116682251738265984、1113082787278457610按当前证据关闭为退款；1113827916967416173关闭为核销。历史跟进数量分别保持0、1、1。再预演所有变更计数均为0，确认幂等。
+- 全量历史主线索264501条，本次没有执行全量回填。该数量是总量，不是错误状态数量；需另行有界预演并分批推进。新同步及跟进操作已采用新终态规则。
+- 服务器恢复证据：/opt/dy-dashboard/logs/release-resume-418e5402.log、release-resume-418e5402.exit；本地证据：output/release-main-ci.log、release-deploy-failure.log、release-clue-before.json、release-targeted-repair.json、release-clue-after.json。
