@@ -2729,14 +2729,15 @@ def test_douyin_board_dates_levels_and_auxiliary_follow(browser, vite_real_api_b
         page.get_by_role("option", name="门店", exact=True).click()
         expect(page.get_by_role("heading", name="门店排名 · 抖音店均订单量", exact=True)).to_be_visible()
         names = page.get_by_text("测试集团", exact=True)
-        assert any(names.nth(index).is_visible() for index in range(names.count()))
+        # The heading changes before the asynchronous ranking rows arrive.
+        expect(names.and_(page.locator(":visible")).first).to_be_visible()
         assert requested[-1]["level"] == ["store"]
         assert requested[-1]["periodEnd"] == ["2026-09-09"]
         page.get_by_role("button", name="下一页", exact=True).click()
         expect(page.get_by_role("button", name="下一页", exact=True)).to_be_disabled()
         names = page.get_by_text("第二页门店", exact=True)
         expect(names.first).to_be_attached()
-        assert any(names.nth(index).is_visible() for index in range(names.count()))
+        expect(names.and_(page.locator(":visible")).first).to_be_visible()
         assert requested[-1]["page"] == ["2"]
         page.get_by_label("结束日期", exact=True).fill("2026-09-08")
         expect(page.get_by_role("button", name="上一页", exact=True)).to_be_disabled()
